@@ -250,6 +250,57 @@ def test_cancel_during_claim_race_guard(app):
         assert row.status == 'cancelled'
 
 
+def test_poll_outputs_skips_temp_images_returns_output_type(app):
+    """Real ComfyUI history: a PreviewImage node emits type='temp' upstream of
+    the real SaveImage node — must not be mistaken for the result."""
+    from app.job_queue import _poll_outputs
+    history = {
+        'prompt-1': {
+            'outputs': {
+                '9': {'images': [{'filename': 'preview.png', 'subfolder': '', 'type': 'temp'}]},
+                '13': {'images': [{'filename': 'final.png', 'subfolder': '', 'type': 'output'}]},
+            },
+            'status': {'status_str': 'success', 'completed': True},
+        }
+    }
+    with app.app_context():
+        with patch('app.utils.comfyui.get_comfyui_history', return_value=history):
+            filename, failed = _poll_outputs('prompt-1', timeout=1)
+    assert (filename, failed) == ('final.png', False)
+
+
+def test_poll_outputs_fails_fast_on_comfyui_error_status(app):
+    from app.job_queue import _poll_outputs
+    history = {'prompt-1': {'outputs': {}, 'status': {'status_str': 'error', 'completed': True}}}
+    with app.app_context():
+        with patch('app.utils.comfyui.get_comfyui_history', return_value=history):
+            filename, failed = _poll_outputs('prompt-1', timeout=1)
+    assert (filename, failed) == (None, True)
+
+
+def test_poll_outputs_completed_with_no_outputs_fails(app):
+    from app.job_queue import _poll_outputs
+    history = {'prompt-1': {'outputs': {}, 'status': {'status_str': 'success', 'completed': True}}}
+    with app.app_context():
+        with patch('app.utils.comfyui.get_comfyui_history', return_value=history):
+            filename, failed = _poll_outputs('prompt-1', timeout=1)
+    assert (filename, failed) == (None, True)
+
+
+def test_poll_outputs_all_temp_images_keeps_polling_then_times_out(app):
+    """If every image found is still 'temp' (no real SaveImage output yet) and
+    the job hasn't reported completed/error, polling must continue and only
+    fail once the timeout elapses — never mistake a temp image for the result."""
+    from app.job_queue import _poll_outputs
+    history = {'prompt-1': {'outputs': {'9': {'images': [{'filename': 'p.png', 'type': 'temp'}]}},
+                            'status': {}}}
+    with app.app_context():
+        with patch('app.utils.comfyui.get_comfyui_history', return_value=history), \
+             patch('app.job_queue.POLL_INTERVAL_SECONDS', 0.01):
+            filename, failed = _poll_outputs('prompt-1', timeout=0.05)
+    assert (filename, failed) == (None, True)
+
+
 def test_concurrent_expired_delete_guard(app):
     """Concurrent _get_system_state on an expired row must not double-delete and crash."""
     from app.job_queue import queue_manager

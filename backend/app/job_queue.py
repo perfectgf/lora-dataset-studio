@@ -4,7 +4,7 @@ flags (e.g. training locks, test-studio run state).
 
 Replaces the source app's ~181 KB queue_manager. `_submit`/`_poll_outputs` are
 the only two functions that talk to ComfyUI; both lazy-import
-`app.utils.comfyui` (not lifted until Task 13) so a missing module fails the
+`app.utils.comfyui` (lifted in Task 13) so a missing/broken module fails the
 job cleanly instead of crashing the worker thread. `_dispatch_completion`
 lazy-imports the owning service (routing on job metadata) so this module never
 imports the services that create jobs (avoids import cycles).
@@ -51,10 +51,18 @@ def _poll_outputs(prompt_id, timeout=POLL_TIMEOUT_SECONDS):
     error, or `timeout` elapses. Returns (filename, failed). Heartbeats the
     owning job row on every poll so `is_stuck()` sees this job as alive.
 
-    NOTE: the exact history JSON shape is ComfyUI's own (an `outputs` dict of
-    node_id -> {images: [{filename, subfolder, ...}]}, plus a `status` dict).
-    `app.utils.comfyui` isn't lifted yet (Task 13) so this is a best-effort
-    reading of that shape; any exception here degrades to a failed job rather
+    History shape verified against the source app's queue_manager.py (its
+    `_extract_result_filename`/`_check_comfyui_errors` consumers of this same
+    endpoint): `GET /history/{prompt_id}` returns `{prompt_id: {outputs: {...},
+    status: {...}}}` — keyed by the prompt_id itself, not the entry directly
+    (hence the `history.get(prompt_id, history)` unwrap below). Each
+    `outputs[node_id]` is `{images: [{filename, subfolder, type}]}` where
+    `type` is `'output'` or `'temp'` — PreviewImage nodes emit `'temp'`, and
+    the source app explicitly skips those so a preview thumbnail upstream of
+    the real SaveImage node is never mistaken for the result. `status` is
+    `{status_str: 'success'|'error', completed: bool, messages: [...]}`; an
+    explicit `'error'` fails the job immediately instead of waiting out the
+    full timeout. Any exception here still degrades to a failed job rather
     than raising.
     """
     from .utils.comfyui import get_comfyui_history
@@ -67,12 +75,12 @@ def _poll_outputs(prompt_id, timeout=POLL_TIMEOUT_SECONDS):
             entry = {}
         outputs = (entry or {}).get('outputs') or {}
         for node_output in outputs.values():
-            images = (node_output or {}).get('images') or []
-            if images:
-                return images[0].get('filename'), False
+            for img in (node_output or {}).get('images') or []:
+                if isinstance(img, dict) and img.get('filename') and img.get('type', 'output') != 'temp':
+                    return img['filename'], False
         status = (entry or {}).get('status') or {}
-        if status.get('completed') and not outputs:
-            return None, True  # ComfyUI finished the prompt with no image -> failure
+        if status.get('status_str') == 'error' or (status.get('completed') and not outputs):
+            return None, True  # ComfyUI errored, or finished the prompt with no image -> failure
 
         job = ImageGenerationQueue.query.filter_by(comfyui_prompt_id=prompt_id).first()
         if job:
