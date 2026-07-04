@@ -688,6 +688,13 @@ def _clean_klein_lora_label(filename: str) -> str:
 KNOWN_KLEIN_TRIGGERS = {
     "realistic.safetensors": ["realistic"],
     "details.safetensors": ["realistic"],
+    "FK_bukkakenew2.safetensors": [
+        "semen, cum",
+        ("wet stains", "wet semen stains on clothes/shirt/outfit."),
+        ("face/body/hair", "bukkake, she has excessive cum and semen in her face. there is lots of semen on her body and breasts. she has cum in her hair."),
+        ("mouth filled", "she has huge amounts of cum in her mouth. mouth is filled with cum. cum in mouth. mouth overflowing with cum. significant amount of a white, viscous substance is visible on her tongue and dripping from her mouth."),
+        ("drooling", "cum is drooling out of her mouth. Semen strings and dripping semen."),
+    ],
     "SEXGOD_ImprovedNudity_Klein9b_v4.safetensors": ["nude"],
 }
 

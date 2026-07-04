@@ -302,34 +302,32 @@ def test_poll_outputs_all_temp_images_keeps_polling_then_times_out(app):
 
 
 def test_concurrent_expired_delete_guard(app):
-    """Concurrent _get_system_state on an expired row must not double-delete and crash."""
+    """_get_system_state on an expired row must survive losing a delete race:
+    if a concurrent reader already removed the row, the flush raises
+    (StaleDataError: 0 rows matched) and the guard must catch it, rollback,
+    and return the default instead of crashing.
+
+    Deterministic version of a real-threads race (see git history) that hit
+    the guard reliably in isolation but flaked under full-suite scheduling.
+    Here the conflict is injected directly instead of hoped for."""
     from app.job_queue import queue_manager
     from app.models import SystemState
     from app.extensions import db
-    from unittest.mock import MagicMock, patch
-    import threading
+    from sqlalchemy.orm.exc import StaleDataError
+    from unittest.mock import patch
 
     with app.app_context():
-        queue_manager._set_system_state('flag', True, ttl_seconds=1)
-        time.sleep(1.2)
+        queue_manager._set_system_state('flag', True, ttl_seconds=-1)  # already expired, no sleep needed
 
-        # Both threads will try to delete the expired row concurrently.
-        # The second should catch the exception and rollback gracefully.
-        results = []
+        # Simulate a concurrent deleter having won the race: our own
+        # commit() hits a 0-row DELETE and must recover, not raise.
+        with patch.object(db.session, 'commit',
+                           side_effect=StaleDataError(
+                               "DELETE statement on table 'system_state' expected to "
+                               "delete 1 row(s); 0 were matched.")):
+            assert queue_manager._get_system_state('flag') is None
 
-        def read_and_delete():
-            with app.app_context():
-                val = queue_manager._get_system_state('flag')
-                results.append(val)
-
-        t1 = threading.Thread(target=read_and_delete)
-        t2 = threading.Thread(target=read_and_delete)
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
-
-        # Both should return None (default) without crashing
-        assert results == [None, None]
-        # Row should be deleted only once
+        # The failed commit was rolled back cleanly: a normal (unpatched) call
+        # can still read and delete the row for real afterwards.
+        assert queue_manager._get_system_state('flag') is None
         assert db.session.get(SystemState, 'flag') is None
