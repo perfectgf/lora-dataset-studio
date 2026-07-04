@@ -97,29 +97,36 @@ def test_delete_dataset_without_lora_training_module(app):
         assert svc.get_dataset(LOCAL_USER, ds.id) is None
 
 
-def test_classify_raises_runtime_error_when_vision_unavailable(app):
-    """vision_ollama (Task 9) doesn't exist yet -> classify/caption (no fallback
-    possible -- their whole purpose IS the vision output) must raise a clean
-    RuntimeError (mapped to 409 by the route), not a raw ImportError."""
+def test_classify_returns_zero_when_ollama_unreachable(app, monkeypatch):
+    """vision_ollama (Task 9) now exists, so classify_images no longer hits the
+    ImportError->RuntimeError path; describe_image_ollama's never-raise contract
+    means an unreachable Ollama server just yields 0 classified (no exception).
+    requests.post is stubbed so this test never touches a real Ollama server."""
     from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
     from app.config import LOCAL_USER
+
+    def _raise(*a, **k):
+        raise ConnectionError('ollama unreachable')
+
+    monkeypatch.setattr(vision_ollama.requests, 'post', _raise)
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'E', 'e')
-        try:
-            svc.classify_images(LOCAL_USER, ds.id)
-            raised = False
-        except RuntimeError:
-            raised = True
-        assert raised
+        assert svc.classify_images(LOCAL_USER, ds.id) == 0
 
 
-def test_detect_head_bbox_falls_back_to_none_when_vision_unavailable(app):
-    """Unlike classify/caption, detect_head_bbox has an existing graceful
-    fallback for 'no detection' (face_crop_to_square_webp centers the crop
-    instead) -- a missing vision_ollama module must hit THAT path (return
-    None), not raise, so /dataset/<id>/ref upload keeps working (degraded but
-    functional) before vision is lifted."""
+def test_detect_head_bbox_falls_back_to_none_when_ollama_unreachable(app, monkeypatch):
+    """detect_head_bbox has an existing graceful fallback for 'no detection'
+    (face_crop_to_square_webp centers the crop instead) -- an unreachable Ollama
+    server must hit THAT path (return None), not raise. requests.post is stubbed
+    so this test never touches a real Ollama server."""
     from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+
+    def _raise(*a, **k):
+        raise ConnectionError('ollama unreachable')
+
+    monkeypatch.setattr(vision_ollama.requests, 'post', _raise)
     with app.app_context():
         assert svc.detect_head_bbox(_png()) is None
         # face_crop_to_square_webp must still produce a valid centered-crop webp.

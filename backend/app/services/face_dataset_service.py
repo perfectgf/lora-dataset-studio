@@ -371,10 +371,10 @@ def normalize_to_webp(image_bytes: bytes, size: int = 1024) -> bytes:
 def detect_head_bbox(image_bytes):
     """Return normalized (x1, y1, x2, y2) of the main head via Qwen3-VL, or None.
 
-    None also covers vision_ollama not being configured/available (Task 9) —
-    the caller (face_crop_to_square_webp) already treats "no detection" as a
-    normal case and falls back to a centered crop, so uploads keep working
-    (degraded but functional) before the vision service is lifted."""
+    None also covers Ollama being unreachable/misconfigured (describe_image_ollama
+    never raises) -- the caller (face_crop_to_square_webp) already treats "no
+    detection" as a normal case and falls back to a centered crop, so uploads
+    keep working (degraded but functional)."""
     try:
         from .vision_ollama import describe_image_ollama
     except ImportError:
@@ -494,16 +494,22 @@ def classify_images(user_id, dataset_id):
     return n
 
 
-# --- Captioning (Qwen3-VL) -------------------------------------------------
+# --- Captioning (JoyCaption / Qwen3-VL, backend picked in Settings) --------
 def caption_images(user_id, dataset_id, force=False, mode=None):
     """Caption les images gardees. Defaut: seulement celles SANS caption ; force=True
     re-capte TOUTES les gardees (ecrase) — pour rejouer apres un changement de prompt.
     Chaque caption passe par drop_identity_sentences (retire une eventuelle phrase
-    d'identite isolee). JoyCaption en priorite, fallback Qwen3-VL."""
-    try:
-        from .vision_ollama import describe_image_ollama, unload_vision_model
-    except ImportError:
-        raise RuntimeError('vision (Ollama) service not configured/available yet')
+    d'identite isolee).
+
+    `captioning.backend` (réglages) pilote qui capte quoi :
+      - 'none'       -> désactivé, RuntimeError (mappée 409 par la route).
+      - 'joycaption' -> JoyCaption seul, PAS de repli Ollama.
+      - 'ollama'     -> Ollama (Qwen3-VL) seul, JoyCaption jamais tenté.
+      - 'auto'       -> comportement historique : JoyCaption en priorité,
+                        fallback Ollama pour les images qu'il n'a pas captées."""
+    backend = (cfg.get('captioning.backend') or 'auto').lower()
+    if backend == 'none':
+        raise RuntimeError('No captioning backend configured')
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return 0
@@ -522,28 +528,39 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     if not todo:
         return 0
     n = 0
-    # 1) JoyCaption en BATCH (un seul chargement du 8B NF4, via le venv ai-toolkit).
-    jc = {}
-    try:
-        from .joycaption import caption_images_joycaption, is_available
-        if is_available():
-            # Consigne « ne décris pas le visage » → les traits se lient au trigger,
-            # pas aux mots de la caption (deep-research 2026-06-14).
-            jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
-    except Exception as e:
-        logger.warning('caption_images: JoyCaption indisponible (%s) → fallback Qwen3-VL', e)
-    remaining = []
-    for img, p in todo:
-        cap = (jc.get(p) or '').strip().strip('"').strip()
-        if cap:
-            cleaned = cleaner(cap) or cap
-            img.caption = cleaned[:CAPTION_MAX_CHARS]
-            db.session.commit()
-            n += 1
-        else:
-            remaining.append((img, p))
-    # 2) Fallback Qwen3-VL (Ollama) pour les images non couvertes par JoyCaption.
+    remaining = todo
+    # 1) JoyCaption en BATCH (un seul chargement du 8B NF4, via le venv ai-toolkit) —
+    # sauté entièrement quand le backend force 'ollama'.
+    if backend in ('auto', 'joycaption'):
+        jc = {}
+        try:
+            from .joycaption import caption_images_joycaption, is_available
+            if is_available():
+                # Consigne « ne décris pas le visage » → les traits se lient au trigger,
+                # pas aux mots de la caption (deep-research 2026-06-14).
+                jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
+        except Exception as e:
+            logger.warning('caption_images: JoyCaption indisponible (%s)', e)
+        still = []
+        for img, p in remaining:
+            cap = (jc.get(p) or '').strip().strip('"').strip()
+            if cap:
+                cleaned = cleaner(cap) or cap
+                img.caption = cleaned[:CAPTION_MAX_CHARS]
+                db.session.commit()
+                n += 1
+            else:
+                still.append((img, p))
+        remaining = still
+        if backend == 'joycaption':  # backend forcé JoyCaption -> pas de repli Ollama
+            return n
+    # 2) Ollama (Qwen3-VL) pour les images non couvertes par JoyCaption ('auto'),
+    # ou pour TOUT le lot si le backend force 'ollama'.
     if remaining:
+        try:
+            from .vision_ollama import describe_image_ollama, unload_vision_model
+        except ImportError:
+            raise RuntimeError('vision (Ollama) service not configured/available yet')
         try:
             for img, p in remaining:
                 with open(p, 'rb') as fh:
