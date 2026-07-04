@@ -1,0 +1,214 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme tokens ───────────────────────────────────────────────────────────
+   The app is dark-only. data-theme="dark" is always set on <html>.
+
+   SEMANTIC TOKENS
+   Components should reference these via Tailwind utilities backed by the vars
+   (e.g. bg-surface, text-content, border-border — see tailwind.config.js)
+   instead of hardcoding grays / white-alpha.
+
+   Token roles:
+     --bg-app          page background          (#0a0a0f)
+     --surface         base card/panel surface  (white at low alpha)
+     --surface-raised  raised surface / inputs  (white at low alpha)
+     --surface-overlay modal/backdrop panels    (near-opaque dark panel)
+     --content         primary text             (gray-100)
+     --content-muted   secondary text           (gray-400)
+     --content-subtle  tertiary / placeholder   (gray-500)
+     --border          hairline borders         (white at low alpha)
+     --border-strong   stronger borders         (white at higher alpha)
+   Tailwind `dark:` variants resolve via the `[data-theme="dark"]` selector
+   configured in tailwind.config.js. */
+:root,
+[data-theme="dark"] {
+  --bg-app: 10 10 15;           /* #0a0a0f — the page-shell background that
+                                   sat over the gray-950 body in dark mode */
+  --bg-surface: 17 24 39;       /* gray-900 (legacy var, kept for scrollbar) */
+  --text-base: 243 244 246;     /* gray-100 */
+  --scrollbar-track: 17 24 39;
+  --scrollbar-thumb: 75 85 99;
+
+  /* Semantic — dark canonical */
+  --surface: 255 255 255;          /* used at low alpha → faint white on dark */
+  --surface-alpha: 0.04;
+  --surface-raised: 255 255 255;
+  --surface-raised-alpha: 0.09;
+  --surface-overlay: 17 18 27;     /* near-opaque dark panel for modals */
+  --content: 243 244 246;          /* gray-100 */
+  --content-muted: 156 163 175;    /* gray-400 */
+  --content-subtle: 107 114 128;   /* gray-500 */
+  --border: 255 255 255;           /* used at low alpha → faint white border */
+  --border-alpha: 0.10;
+  --border-strong: 255 255 255;
+  --border-strong-alpha: 0.20;
+}
+
+
+@layer base {
+  body {
+    background-color: rgb(var(--bg-app));
+    color: rgb(var(--text-base));
+  }
+  /* Native <select> dropdown options render with an OS/inherited background
+     the page can't style per-element. Theme them globally so they're readable
+     in both modes (opaque overlay surface + content text). */
+  option {
+    background-color: rgb(var(--surface-overlay));
+    color: rgb(var(--content));
+  }
+  ::-webkit-scrollbar {
+    @apply w-1.5;
+  }
+  ::-webkit-scrollbar-track {
+    background-color: rgb(var(--scrollbar-track));
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--scrollbar-thumb));
+    @apply rounded-full;
+  }
+  *:focus-visible {
+    outline: 2px solid rgb(85, 103, 213);
+    outline-offset: 2px;
+  }
+}
+
+.skip-link {
+  position: absolute;
+  top: -3rem;
+  left: 1rem;
+  z-index: 9999;
+  background-color: rgb(79, 70, 229);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  transition: top 0.2s;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+/* Toast slide-in animation */
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.animate-slideIn {
+  animation: slideIn 0.25s ease-out;
+}
+
+/* Login/Register page floating blob animations */
+@keyframes float1 {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(30px, 20px); }
+}
+@keyframes float2 {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(-20px, 30px); }
+}
+@keyframes float-blob {
+  0%, 100% { transform: translateY(0px) translateX(0px); }
+  25%      { transform: translateY(-20px) translateX(10px); }
+  50%      { transform: translateY(-40px) translateX(-10px); }
+  75%      { transform: translateY(-20px) translateX(10px); }
+}
+.animate-float1 {
+  animation: float1 8s ease-in-out infinite;
+}
+.animate-float2 {
+  animation: float2 10s ease-in-out infinite;
+}
+.animate-float-blob {
+  animation: float-blob 20s ease-in-out infinite;
+}
+.animate-float-blob-reverse {
+  animation: float-blob 25s ease-in-out infinite reverse;
+}
+.animate-float-blob-slow {
+  animation: float-blob 30s ease-in-out infinite;
+}
+
+/* Respect users who request reduced motion. Global reset (industry-standard
+   pattern) instead of an opt-in allow-list: neutralizes ALL animations and
+   transitions — the float orbs, plus the ~94 transition-all / ~32 animate-*
+   that were previously uncovered. Near-zero (not 0) durations keep
+   transitionend/animationend listeners firing; iteration-count:1 stops
+   infinite loops (spinners render effectively static, expected under
+   reduced-motion). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Gallery skeleton animations */
+@keyframes skelPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+@keyframes skelShimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+/* Vote bounce animation */
+@keyframes voteBounce {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.45); }
+  65%  { transform: scale(0.88); }
+  100% { transform: scale(1); }
+}
+
+/* MessagesPage animations */
+.msg-animated-bg {
+  background:
+    radial-gradient(circle at 20% 50%, rgba(85, 103, 213, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(118, 75, 162, 0.1) 0%, transparent 50%);
+  animation: msgFloat 15s ease-in-out infinite;
+}
+@keyframes msgFloat {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(20px); }
+}
+@keyframes msgSlideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes msgSlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-msg-slideIn {
+  animation: msgSlideIn 0.3s ease;
+}
+.animate-msg-slideUp {
+  animation: msgSlideUp 0.3s ease;
+}
+
+/* ProfilePage animations */
+.profile-bg {
+  background:
+    linear-gradient(135deg, rgba(85, 103, 213, 0.1) 0%, rgba(118, 75, 162, 0.1) 50%, rgba(85, 103, 213, 0.05) 100%),
+    radial-gradient(circle at 20% 50%, rgba(240, 147, 251, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(85, 103, 213, 0.08) 0%, transparent 50%);
+  animation: gradientShift 15s ease infinite;
+}
+@keyframes gradientShift {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.8; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.profile-spinner {
+  animation: spin 1s linear infinite;
+}
