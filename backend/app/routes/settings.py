@@ -1,0 +1,56 @@
+"""Settings API: config/secrets CRUD + capability probes."""
+from flask import Blueprint, jsonify, request
+
+from .. import capabilities
+from .. import config as cfg
+
+bp = Blueprint('settings', __name__, url_prefix='/api')
+
+_TEST_TARGETS = {
+    'gemini': capabilities.probe_gemini,
+    'openai': capabilities.probe_openai,
+    'comfyui': capabilities.probe_comfyui,
+    'ollama': capabilities.probe_ollama,
+    'aitoolkit': capabilities.probe_aitoolkit,
+    'face_scoring': capabilities.probe_face_scoring,
+    'masks': capabilities.probe_masks,
+}
+
+
+def _secret_presence() -> dict:
+    return {name: bool(cfg.secret(name)) for name in cfg.SECRET_KEYS}
+
+
+def _settings_payload() -> dict:
+    return {'config': cfg.load_config(), 'secrets': _secret_presence()}
+
+
+@bp.get('/settings')
+def get_settings():
+    return jsonify(_settings_payload())
+
+
+@bp.put('/settings')
+def put_settings():
+    body = request.get_json(force=True, silent=True) or {}
+    config_partial = body.get('config') or {}
+    unknown = set(config_partial) - set(cfg.DEFAULTS)
+    if unknown:
+        return jsonify({'error': f"unknown config section '{sorted(unknown)[0]}'"}), 400
+    cfg.save_config(config_partial)
+    cfg.set_secrets(body.get('secrets') or {})
+    return jsonify(_settings_payload())
+
+
+@bp.get('/capabilities')
+def get_capabilities():
+    force = bool(request.args.get('force'))
+    return jsonify(capabilities.probe(force=force))
+
+
+@bp.post('/settings/test/<target>')
+def test_connection(target):
+    probe_fn = _TEST_TARGETS.get(target)
+    if probe_fn is None:
+        return jsonify({'error': f"unknown test target '{target}'"}), 404
+    return jsonify(probe_fn())
