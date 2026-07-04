@@ -28,6 +28,18 @@ STUCK_TIMEOUT_MINUTES = 10
 IDLE_SLEEP_SECONDS = 1
 
 
+def _claim(job_id) -> bool:
+    """Atomically claim a pending job for processing. Returns False if the job
+    was cancelled/claimed since the SELECT, preventing cancel-race loss."""
+    claimed = (ImageGenerationQueue.query
+               .filter_by(job_id=job_id, status='pending')
+               .update({'status': 'processing',
+                        'started_at': datetime.utcnow(),
+                        'last_heartbeat': datetime.utcnow()}))
+    db.session.commit()
+    return bool(claimed)
+
+
 def _submit(workflow, client_id):
     """Queue a workflow on ComfyUI. Raises on failure; the caller fails the job."""
     from .utils.comfyui import queue_prompt_to_comfyui
@@ -154,8 +166,9 @@ class JobQueueManager:
         if job is None:
             return False
 
-        job.update_status('processing')
-        db.session.commit()
+        if not _claim(job.job_id):
+            return True  # Job was cancelled/claimed while we were selecting
+        db.session.refresh(job)
 
         try:
             workflow = json.loads(job.workflow_data or '{}')
@@ -223,7 +236,7 @@ class JobQueueManager:
             return
         exp = time.time() + ttl_seconds if ttl_seconds is not None else None
         encoded = json.dumps({'v': value, 'exp': exp})
-        row = SystemState.query.get(key)
+        row = db.session.get(SystemState, key)
         if row is None:
             db.session.add(SystemState(key=key, value=encoded))
         else:
@@ -231,7 +244,7 @@ class JobQueueManager:
         db.session.commit()
 
     def _get_system_state(self, key, default=None):
-        row = SystemState.query.get(key)
+        row = db.session.get(SystemState, key)
         if row is None or row.value is None:
             return default
         try:
@@ -240,8 +253,11 @@ class JobQueueManager:
             return default
         exp = payload.get('exp')
         if exp is not None and time.time() >= exp:
-            db.session.delete(row)
-            db.session.commit()
+            try:
+                db.session.delete(row)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
             return default
         return payload.get('v', default)
 

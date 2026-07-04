@@ -37,21 +37,23 @@ def test_system_state_expired_read_deletes_row(app):
     """Expired TTL reads must lazily delete the row, not just mask it."""
     from app.job_queue import queue_manager
     from app.models import SystemState
+    from app.extensions import db
     with app.app_context():
         queue_manager._set_system_state('flag', True, ttl_seconds=1)
         time.sleep(1.2)
         assert queue_manager._get_system_state('flag') is None
-        assert SystemState.query.get('flag') is None
+        assert db.session.get(SystemState, 'flag') is None
 
 
 def test_system_state_none_deletes(app):
     from app.job_queue import queue_manager
     from app.models import SystemState
+    from app.extensions import db
     with app.app_context():
         queue_manager._set_system_state('k', {'a': 1})
         queue_manager._set_system_state('k', None)
         assert queue_manager._get_system_state('k') is None
-        assert SystemState.query.get('k') is None
+        assert db.session.get(SystemState, 'k') is None
 
 
 def test_worker_completes_job_and_dispatches(app):
@@ -196,3 +198,87 @@ def test_start_stop_idempotent_and_clean(app):
             queue_manager.stop()
             assert queue_manager._thread is None
             assert not worker_thread.is_alive()
+
+
+def test_claim_on_pending_returns_true_and_sets_status(app):
+    """_claim on a pending row must atomically set status='processing' and heartbeat."""
+    from app.job_queue import queue_manager, _claim
+    from app.models import ImageGenerationQueue
+    from datetime import datetime
+    with app.app_context():
+        jid = queue_manager.add_job(workflow_data={'1': {}})
+        assert _claim(jid) is True
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        assert row.status == 'processing'
+        assert row.started_at is not None
+        assert row.last_heartbeat is not None
+
+
+def test_claim_on_cancelled_returns_false_stays_cancelled(app):
+    """_claim on a row already cancelled must return False and NOT change status."""
+    from app.job_queue import queue_manager, _claim
+    from app.models import ImageGenerationQueue
+    from app.extensions import db
+    with app.app_context():
+        jid = queue_manager.add_job(workflow_data={'1': {}})
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        row.update_status('cancelled')
+        db.session.commit()
+
+        assert _claim(jid) is False
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        assert row.status == 'cancelled'
+
+
+def test_cancel_during_claim_race_guard(app):
+    """Simulate the race: _claim on a job that was cancelled after SELECT but before claim.
+    The atomic _claim must fail, returning False, preventing submission to ComfyUI."""
+    from app.job_queue import queue_manager, _claim
+    from app.models import ImageGenerationQueue
+    from app.extensions import db
+    with app.app_context():
+        jid = queue_manager.add_job(workflow_data={'1': {}},
+                                    metadata={'model_name': 'klein_edit_dataset'})
+        # Simulate: we SELECT the job, then another thread cancels it
+        queue_manager.cancel_job(jid)
+
+        # Now _claim should fail because the job is no longer pending
+        assert _claim(jid) is False
+
+        # Job stays cancelled
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        assert row.status == 'cancelled'
+
+
+def test_concurrent_expired_delete_guard(app):
+    """Concurrent _get_system_state on an expired row must not double-delete and crash."""
+    from app.job_queue import queue_manager
+    from app.models import SystemState
+    from app.extensions import db
+    from unittest.mock import MagicMock, patch
+    import threading
+
+    with app.app_context():
+        queue_manager._set_system_state('flag', True, ttl_seconds=1)
+        time.sleep(1.2)
+
+        # Both threads will try to delete the expired row concurrently.
+        # The second should catch the exception and rollback gracefully.
+        results = []
+
+        def read_and_delete():
+            with app.app_context():
+                val = queue_manager._get_system_state('flag')
+                results.append(val)
+
+        t1 = threading.Thread(target=read_and_delete)
+        t2 = threading.Thread(target=read_and_delete)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # Both should return None (default) without crashing
+        assert results == [None, None]
+        # Row should be deleted only once
+        assert db.session.get(SystemState, 'flag') is None
