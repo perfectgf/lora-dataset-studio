@@ -1,0 +1,29 @@
+# secrets & local config — NEVER commit
+.env
+config.json
+
+# runtime data
+data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# node
+frontend/node_modules/
+# frontend/dist is committed at Phase 5 (Task 24 removes this line)
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# controller scratch
+.superpowers/

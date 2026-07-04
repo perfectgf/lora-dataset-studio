@@ -1,0 +1,15 @@
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+from app import create_app
+
+try:
+    from app.config import get as cfg_get
+except ImportError:
+    cfg_get = lambda k, d=None: {'server.host': '127.0.0.1', 'server.port': 5000}.get(k, d)
+
+app = create_app()
+
+if __name__ == '__main__':
+    app.run(debug=os.environ.get('FLASK_DEBUG', '0') == '1',
+            host=cfg_get('server.host'), port=int(cfg_get('server.port')),
+            threaded=True, use_reloader=False)
