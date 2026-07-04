@@ -1,5 +1,6 @@
 /** One curation tile: image + keep/reject + source/framing badges + caption + crop. */
 import { useEffect, useRef, useState } from 'react';
+import { displayLabel } from '../../utils/labels';
 
 const STATUS_CLS = {
   keep: 'border-green-500',
@@ -55,9 +56,9 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
         {url ? (
           <button type="button" onClick={() => onView?.(img)}
             title="Inspect (zoom)"
-            aria-label={`Inspect ${img.variation_label || 'the image'} full screen`}
+            aria-label={`Inspect ${displayLabel(img.variation_label) || 'the image'} full screen`}
             className="block w-full h-full cursor-zoom-in">
-            <img src={url} alt={img.variation_label || ''} loading="lazy"
+            <img src={url} alt={displayLabel(img.variation_label)} loading="lazy"
               className="w-full h-full object-cover" />
           </button>
         ) : (

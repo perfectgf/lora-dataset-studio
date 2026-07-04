@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { displayLabel } from '../../utils/labels';
 
 export default function DatasetLightbox({ img, datasetId, nonce = 0, onClose }) {
   const [full, setFull] = useState(false); // false = fit screen, true = 100 %
@@ -24,7 +25,7 @@ export default function DatasetLightbox({ img, datasetId, nonce = 0, onClose }) 
 
   if (!img || !img.filename) return null;
   const url = `/api/dataset/${datasetId}/img/${encodeURIComponent(img.filename)}${nonce ? `?v=${nonce}` : ''}`;
-  const alt = img.variation_label || 'dataset image';
+  const alt = displayLabel(img.variation_label) || 'dataset image';
 
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Inspect — ${alt}`}

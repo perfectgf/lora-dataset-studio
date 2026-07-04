@@ -5,6 +5,7 @@ import { useToast } from '../common/Toast';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { apiFetch } from '../../api/fetchClient';
 import ShotIllustration, { contextEmoji } from './ShotIllustration';
+import { displayLabel } from '../../utils/labels';
 
 const FRAMING_LABEL = { face: 'Face', bust: 'Bust', body: 'Body', back: 'Back' };
 // Framing accent colors — shared by the section headers, the preset composition
@@ -336,7 +337,7 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
                       <ShotIllustration framing={e.framing} label={e.label} className="w-7 h-7 shrink-0" />
                       <span className="min-w-0 leading-tight">
                         {emoji && <span className="mr-1" aria-hidden="true">{emoji}</span>}
-                        {e.label}
+                        {displayLabel(e.label)}
                       </span>
                       {on && <span className="ml-auto shrink-0 text-indigo-300" aria-hidden="true">✓</span>}
                     </button>

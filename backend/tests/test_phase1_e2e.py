@@ -56,7 +56,15 @@ def test_api_only_end_to_end(client, app, monkeypatch):
 
     # Stub the background Thread (same technique as test_dataset_service.py's
     # test_api_fanout_creates_pending_rows) so the batch dispatch is captured
-    # instead of actually starting a background thread.
+    # instead of actually starting a background thread. This monkeypatch is
+    # NOT scoped to the dispatch call -- monkeypatch.setattr stays active for
+    # the rest of the test, including the manual `_run_nanobanana_batch` call
+    # below. What actually prevents a TypeError there is the `_SyncExecutor`
+    # patch over `concurrent.futures.ThreadPoolExecutor`: without it,
+    # `_run_nanobanana_batch`'s real ThreadPoolExecutor would call
+    # `threading.Thread(..., name=...)` internally, which collides with this
+    # stub's lambda signature. Removing the `_SyncExecutor` patch would
+    # reintroduce that Thread-stub collision.
     calls = []
     monkeypatch.setattr(
         'app.services.face_dataset_service.threading.Thread',
