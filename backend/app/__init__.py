@@ -64,12 +64,9 @@ def create_app(config_object=None):
 
 def _start_workers(app):
     """Boot background machinery. Idempotent; nothing GPU-ish is required."""
-    try:
-        from .job_queue import queue_manager
-        queue_manager.init_app(app)
-        queue_manager.start()
-    except ImportError:
-        pass  # phase(<12): job queue not lifted yet
+    from .job_queue import queue_manager
+    queue_manager.init_app(app)
+    queue_manager.start()
     try:
         from .services.lora_training import start_training_scheduler
         start_training_scheduler(app)
