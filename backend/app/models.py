@@ -1,6 +1,7 @@
+import json
 from datetime import datetime, timedelta
 from .extensions import db
-from sqlalchemy import Integer, String, Text, Boolean, DateTime, Float, ForeignKey, UniqueConstraint
+from sqlalchemy import Integer, String, Text, DateTime, Float
 
 class FaceDataset(db.Model):
     """A named face-dataset for LoRA character training (one per character)."""
@@ -182,7 +183,6 @@ class ImageGenerationQueue(JobQueueMixin, db.Model):
 
     def to_dict(self):
         """Convertit le job en dictionnaire pour l'API"""
-        import json
         metadata = {}
         if self.job_metadata:
             try:
