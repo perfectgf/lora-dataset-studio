@@ -5,6 +5,7 @@ feature gating elsewhere in the app. `_http_ok` is the single network seam —
 every reachability probe goes through it so tests can patch one symbol.
 `_import_ok` is the equivalent seam for the slow subprocess import-probes.
 """
+import copy
 import re
 import subprocess
 import sys
@@ -43,11 +44,12 @@ def _import_ok(python: str, module_expr: str, timeout=20) -> bool:
 
 def _cached_import(key: str, python: str, module_expr: str) -> bool:
     now = time.time()
-    cached = _import_cache.get(key)
+    cache_key = f'{key}:{python}:{module_expr}'
+    cached = _import_cache.get(cache_key)
     if cached is not None and now - cached[0] < _IMPORT_TTL:
         return cached[1]
     ok = _import_ok(python, module_expr)
-    _import_cache[key] = (now, ok)
+    _import_cache[cache_key] = (now, ok)
     return ok
 
 
@@ -136,7 +138,7 @@ def _scan_models() -> dict:
             name = sub.name
             if _ZIMAGE_RE.search(name):
                 result['zimage'].extend(_model_files(sub))
-            if base_name == 'unet':
+            elif base_name == 'unet':
                 if name.lower() == 'klein':
                     result['klein'].extend(_model_files(sub))
                 elif name.lower().startswith('krea'):
@@ -150,7 +152,7 @@ def probe(force=False) -> dict:
     global _cache, _cache_ts
     now = time.time()
     if _cache is not None and not force and (now - _cache_ts) < _CACHE_TTL:
-        return _cache
+        return copy.deepcopy(_cache)
 
     comfy = probe_comfyui()
     ollama = probe_ollama()
@@ -192,4 +194,4 @@ def probe(force=False) -> dict:
     }
 
     _cache, _cache_ts = caps, now
-    return caps
+    return copy.deepcopy(caps)

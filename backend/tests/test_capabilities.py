@@ -9,9 +9,13 @@ def _no_real_subprocess(monkeypatch):
     tests that care about the ok/False split re-patch it locally."""
     from app import capabilities
     capabilities._import_cache.clear()
+    capabilities._cache = None
+    capabilities._cache_ts = 0.0
     monkeypatch.setattr(capabilities, '_import_ok', lambda *a, **k: False)
     yield
     capabilities._import_cache.clear()
+    capabilities._cache = None
+    capabilities._cache_ts = 0.0
 
 
 # --- brief tests, verbatim ---------------------------------------------
@@ -136,6 +140,29 @@ def test_import_probe_result_is_cached(app, monkeypatch):
         capabilities.probe_face_scoring()
         capabilities.probe_face_scoring()
     assert len(calls) == 1
+
+
+def test_import_probe_cache_key_includes_interpreter_path(app, monkeypatch):
+    """Changing interpreter path should invalidate the import cache."""
+    with app.app_context():
+        from app import capabilities, config
+        import sys
+
+        # First call: interpreter A returns True
+        monkeypatch.setattr(capabilities, '_import_ok', lambda *a, **k: True)
+        capabilities._import_cache.clear()
+        result1 = capabilities.probe_face_scoring()
+        assert result1['ok'] is True
+
+        # Second call: same interpreter, should use cache and return True
+        monkeypatch.setattr(capabilities, '_import_ok', lambda *a, **k: False)
+        result2 = capabilities.probe_face_scoring()
+        assert result2['ok'] is True  # cached result
+
+        # Third call: different interpreter path, should bypass cache and return False
+        config.save_config({'face_scoring': {'python': '/different/python/path'}})
+        result3 = capabilities.probe_face_scoring()
+        assert result3['ok'] is False  # new interpreter, not cached
 
 
 # --- model listing scan rules --------------------------------------------
