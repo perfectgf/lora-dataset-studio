@@ -1,0 +1,54 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 5000
+  },
+  "paths": {
+    "dataset_images_root": ""
+  },
+  "comfyui": {
+    "api_url": "http://127.0.0.1:8188",
+    "base_dir": "",
+    "output_dir": "",
+    "input_dir": "",
+    "models_dir": "",
+    "loras_dir": ""
+  },
+  "ollama": {
+    "url": "http://127.0.0.1:11434",
+    "vision_model": "qwen3-vl:8b"
+  },
+  "aitoolkit": {
+    "dir": "",
+    "datasets_dir": "",
+    "output_dir": "",
+    "hf_home": ""
+  },
+  "engines": {
+    "default": "chatgpt",
+    "enabled": [
+      "nanobanana",
+      "chatgpt",
+      "klein"
+    ]
+  },
+  "captioning": {
+    "backend": "auto"
+  },
+  "training": {
+    "default_family": "zimage"
+  },
+  "face_scoring": {
+    "python": "",
+    "models_root": "",
+    "green": 0.5,
+    "orange": 0.45
+  },
+  "masks": {
+    "python": ""
+  },
+  "klein": {
+    "consistency_lora": "klein/Flux2-Klein-9B-consistency-V2.safetensors",
+    "consistency_strength": 0.9
+  }
+}
