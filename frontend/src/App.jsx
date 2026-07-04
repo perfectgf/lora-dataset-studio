@@ -52,7 +52,7 @@ function Shell() {
     <>
       <NavBar />
       <OnboardingRedirect />
-      <main id="main-content" className="mx-auto max-w-5xl px-4 py-6">
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-5xl px-4 py-6">
         <Outlet />
       </main>
     </>
@@ -64,7 +64,17 @@ function AppInner() {
   useEffect(() => { setToastRef(toast) }, [toast])
   return (
     <>
-      <a href="#main-content" className="skip-link">Skip to main content</a>
+      <a
+        href="#main-content"
+        className="skip-link"
+        onClick={(e) => {
+          e.preventDefault();
+          const el = document.getElementById('main-content');
+          if (el) { el.focus(); el.scrollIntoView(); }
+        }}
+      >
+        Skip to main content
+      </a>
       <HashRouter>
         <Routes>
           <Route element={<Shell />}>
