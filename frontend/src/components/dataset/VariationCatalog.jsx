@@ -1,0 +1,385 @@
+/** Variation catalog: presets + per-entry toggles + multiplier + Klein picker. */
+import { useEffect, useMemo, useState } from 'react';
+import Flux2KleinModelPicker from '../shared/Flux2KleinModelPicker';
+import { useToast } from '../common/Toast';
+import { useCapabilities } from '../../context/CapabilitiesContext';
+import { apiFetch } from '../../api/fetchClient';
+import ShotIllustration, { contextEmoji } from './ShotIllustration';
+
+const FRAMING_LABEL = { face: 'Face', bust: 'Bust', body: 'Body', back: 'Back' };
+// Framing accent colors — shared by the section headers, the preset composition
+// bars and the legend so the same hue always means the same framing.
+const FRAMING_COLOR = {
+  face: 'bg-indigo-400',
+  bust: 'bg-violet-400',
+  body: 'bg-sky-400',
+  back: 'bg-slate-400',
+};
+// Training composition target (mirrors CompositionBar): used to highlight the
+// variation cards of the framings that are still missing — a visual quota.
+const TARGET = { face: 12, bust: 6, body: 6, back: 1 };
+
+const PRESET_META = [
+  { key: 'balanced_25', name: 'Balanced', hint: 'The all-round default: every framing covered in training proportions.' },
+  { key: 'zimage_12', name: 'Z-Image 12', hint: 'Compact 12-shot set tuned for Z-Image LoRA training.' },
+  { key: 'balanced_multiformat', name: 'Multi-format', hint: 'Balanced set with landscape / vertical / cinema frames mixed in.' },
+  { key: 'face_focused', name: 'Face-focused', hint: 'Face only (close-ups + busts, varied formats, no body shots) — body stays generic.' },
+  { key: 'fullbody_focused', name: 'Full-body', hint: 'Reliable full-body: ~50/50 identity (face+bust) and full-body + back, varied formats. For a character that must hold up full-length without losing the face.' },
+];
+
+/** Mini stacked bar showing a preset's framing mix (face/bust/body/back). */
+function CompositionMiniBar({ counts, total }) {
+  if (!total) return null;
+  return (
+    <span className="flex h-1.5 w-full rounded-full overflow-hidden bg-app/60" aria-hidden="true">
+      {['face', 'bust', 'body', 'back'].map((fr) => counts[fr] ? (
+        <span key={fr} className={FRAMING_COLOR[fr]} style={{ width: `${(counts[fr] / total) * 100}%` }} />
+      ) : null)}
+    </span>
+  );
+}
+
+/** Minimal ChatGPT pictogram — hexagonal knot silhouette, currentColor. */
+function ChatGptIcon({ className }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden="true" focusable="false">
+      {[0, 60, 120, 180, 240, 300].map((a) => (
+        <path key={a} transform={`rotate(${a} 16 16)`}
+          d="M16 4.5 a 6.2 6.2 0 0 1 6.2 6.2 v 4 l -3.4 -2 v -2 a 2.8 2.8 0 0 0 -2.8 -2.8 z"
+          fill="currentColor" />
+      ))}
+      <circle cx="16" cy="16" r="3.1" fill="none" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
+/** Small inline GPU-chip pictogram for the local Klein engine card. */
+function GpuIcon({ className }) {
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden="true" focusable="false">
+      <rect x="7" y="7" width="18" height="18" rx="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="12" y="12" width="8" height="8" rx="1.5" fill="currentColor" opacity="0.85" />
+      {[10, 16, 22].map((p) => (
+        <g key={p} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+          <line x1={p} y1="2.5" x2={p} y2="6" />
+          <line x1={p} y1="26" x2={p} y2="29.5" />
+          <line x1="2.5" y1={p} x2="6" y2={p} />
+          <line x1="26" y1={p} x2="29.5" y2={p} />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+export default function VariationCatalog({ onGenerate, busy, hasRef, composition }) {
+  const toast = useToast();
+  const { caps } = useCapabilities();
+  const [catalog, setCatalog] = useState([]);
+  const [presets, setPresets] = useState({});
+  const [selected, setSelected] = useState(new Set());
+  const [multiplier, setMultiplier] = useState(1);
+  const [klein, setKlein] = useState(null);
+  // Identity LoRA strength (F1): higher = closer to the reference face,
+  // lower = more variety in the generated variations.
+  const [loraStrength, setLoraStrength] = useState(0.9);
+  // Generator backend: Nano Banana Pro (Gemini API, ~0,15 $/image, zero GPU,
+  // best face fidelity — user-validated default) or local Klein (GPU, free).
+  const [generator, setGenerator] = useState(() => {
+    try { return localStorage.getItem('datasetGenerator') || 'nanobanana'; } catch { return 'nanobanana'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('datasetGenerator', generator); } catch { /* ignore */ }
+  }, [generator]);
+  const isNB = generator === 'nanobanana';
+  const isGPT = generator === 'chatgpt';
+  const isKlein = !isNB && !isGPT;
+
+  // Which engines the user actually enabled in Settings (config.engines.enabled),
+  // on top of the live reachability probe in `caps.engines`.
+  const [enabledEngines, setEnabledEngines] = useState(['nanobanana', 'chatgpt', 'klein']);
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/settings')
+      .then((d) => { if (!cancelled) setEnabledEngines(d.config?.engines?.enabled || []); })
+      .catch(() => { /* keep the permissive default on a transient failure */ });
+    return () => { cancelled = true; };
+  }, []);
+  const nbAvailable = enabledEngines.includes('nanobanana') && caps.engines.nanobanana;
+  const gptAvailable = enabledEngines.includes('chatgpt') && caps.engines.chatgpt;
+  const klAvailable = enabledEngines.includes('klein') && caps.engines.klein;
+  const currentAvailable = isKlein ? klAvailable : isNB ? nbAvailable : gptAvailable;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/dataset/variations', { credentials: 'include' })
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d) => {
+        if (cancelled) return;
+        setCatalog(d.catalog || []);
+        setPresets(d.presets || {});
+        setSelected(new Set(d.presets?.balanced_25 || []));
+      })
+      .catch(() => {
+        // Loud failure (M6): an empty catalog otherwise looks like a UI bug.
+        if (!cancelled) toast.error('Could not load the variation catalog');
+      });
+    return () => { cancelled = true; };
+  }, [toast]);
+
+  const byFraming = useMemo(() => {
+    const g = { face: [], bust: [], body: [], back: [] };
+    catalog.forEach((e) => g[e.framing]?.push(e));
+    return g;
+  }, [catalog]);
+
+  // Framing mix of each preset — feeds the mini composition bar on its card.
+  const presetStats = useMemo(() => {
+    const framingById = new Map(catalog.map((e) => [e.id, e.framing]));
+    const stats = {};
+    Object.entries(presets).forEach(([key, ids]) => {
+      const counts = { face: 0, bust: 0, body: 0, back: 0 };
+      (ids || []).forEach((id) => { const fr = framingById.get(id); if (fr) counts[fr] += 1; });
+      stats[key] = { counts, total: (ids || []).length };
+    });
+    return stats;
+  }, [catalog, presets]);
+
+  // Which preset (if any) matches the current selection exactly → highlighted card.
+  const activePreset = useMemo(() => {
+    const entry = Object.entries(presets).find(([, ids]) =>
+      ids && ids.length === selected.size && ids.every((id) => selected.has(id)));
+    return entry ? entry[0] : null;
+  }, [presets, selected]);
+
+  const toggle = (id) => setSelected((s) => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
+
+  // Never wipe the current selection when the preset is unavailable (M6).
+  const applyPreset = (key) => {
+    const ids = presets[key];
+    if (!ids?.length) return;
+    setSelected(new Set(ids));
+  };
+
+  const go = () => {
+    const variations = catalog.filter((e) => selected.has(e.id))
+      .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing }));
+    if (variations.length) onGenerate(variations, multiplier, klein, loraStrength, generator);
+  };
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
+      <div className="flex items-center gap-2">
+        <span aria-hidden="true">🎬</span>
+        <h2 className="text-content font-semibold text-sm">Generate variations</h2>
+        <span className="text-content-subtle text-[0.6875rem]">
+          pick the shots to synthesize from the reference photo
+        </span>
+      </div>
+
+      {/* Engine cards — Klein (local GPU) vs Nano Banana Pro vs ChatGPT (APIs).
+          Each card disables itself with an actionable hint when its engine
+          isn't configured/reachable or was turned off in Settings. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <button type="button" onClick={() => setGenerator('klein')} aria-pressed={isKlein}
+          disabled={!klAvailable}
+          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isKlein
+            ? 'border-primary/60 bg-primary/15 ring-1 ring-primary/40'
+            : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
+          <GpuIcon className={`w-9 h-9 shrink-0 ${isKlein ? 'text-indigo-300' : 'text-content-subtle'}`} />
+          <span className="flex flex-col gap-1 min-w-0">
+            <span className={`text-[0.8125rem] font-semibold ${isKlein ? 'text-white' : 'text-content-muted'}`}>
+              Klein <span className="font-normal text-content-subtle">· local</span>
+            </span>
+            <span className="flex flex-wrap gap-1">
+              <span className="px-1.5 py-px rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[0.625rem]">Free</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">Your GPU</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">NSFW OK</span>
+            </span>
+            {klAvailable ? (
+              <span className="text-content-subtle text-[0.625rem]">Runs on this machine — slower, tunable face fidelity.</span>
+            ) : (
+              <span className="text-amber-300 text-[0.625rem]">⚠ Configure ComfyUI in Settings</span>
+            )}
+          </span>
+        </button>
+        <button type="button" onClick={() => setGenerator('nanobanana')} aria-pressed={isNB}
+          disabled={!nbAvailable}
+          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isNB
+            ? 'border-amber-400/60 bg-amber-500/15 ring-1 ring-amber-400/40'
+            : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
+          <span className="w-9 h-9 shrink-0 grid place-items-center text-2xl" aria-hidden="true">🍌</span>
+          <span className="flex flex-col gap-1 min-w-0">
+            <span className={`text-[0.8125rem] font-semibold ${isNB ? 'text-amber-200' : 'text-content-muted'}`}>
+              Nano Banana Pro <span className="font-normal text-content-subtle">· API</span>
+            </span>
+            <span className="flex flex-wrap gap-1">
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">No GPU</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">~$0.15/image</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">SFW</span>
+            </span>
+            {nbAvailable ? (
+              <span className={`text-[0.625rem] ${isNB ? 'text-amber-300' : 'text-content-subtle'}`}>
+                Best face fidelity · estimated cost ≈ ${(selected.size * multiplier * 0.15).toFixed(2)}
+              </span>
+            ) : (
+              <span className="text-amber-300 text-[0.625rem]">⚠ Add GEMINI_API_KEY in Settings</span>
+            )}
+          </span>
+        </button>
+        <button type="button" onClick={() => setGenerator('chatgpt')} aria-pressed={isGPT}
+          disabled={!gptAvailable}
+          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isGPT
+            ? 'border-emerald-400/60 bg-emerald-500/15 ring-1 ring-emerald-400/40'
+            : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
+          <ChatGptIcon className={`w-9 h-9 shrink-0 ${isGPT ? 'text-emerald-300' : 'text-content-subtle'}`} />
+          <span className="flex flex-col gap-1 min-w-0">
+            <span className={`text-[0.8125rem] font-semibold ${isGPT ? 'text-emerald-200' : 'text-content-muted'}`}>
+              ChatGPT <span className="font-normal text-content-subtle">· API</span>
+            </span>
+            <span className="flex flex-wrap gap-1">
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">No GPU</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">~$0.17/image</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">SFW</span>
+            </span>
+            {gptAvailable ? (
+              <span className={`text-[0.625rem] ${isGPT ? 'text-emerald-300' : 'text-content-subtle'}`}>
+                gpt-image-2 · estimated cost ≈ ${(selected.size * multiplier * 0.17).toFixed(2)}
+              </span>
+            ) : (
+              <span className="text-amber-300 text-[0.625rem]">⚠ Add OPENAI_API_KEY in Settings</span>
+            )}
+          </span>
+        </button>
+      </div>
+
+      {/* Preset cards with their framing-mix bar. */}
+      <div>
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-content-muted text-[0.6875rem] uppercase">Presets</span>
+          <span className="ml-auto flex items-center gap-2 text-[0.625rem] text-content-subtle" aria-hidden="true">
+            {['face', 'bust', 'body', 'back'].map((fr) => (
+              <span key={fr} className="flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full ${FRAMING_COLOR[fr]}`} />{FRAMING_LABEL[fr]}
+              </span>
+            ))}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
+          {PRESET_META.map(({ key, name, hint }) => {
+            const st = presetStats[key];
+            const active = activePreset === key;
+            return (
+              <button key={key} type="button" onClick={() => applyPreset(key)} title={hint}
+                aria-pressed={active} disabled={!st?.total}
+                className={`flex flex-col gap-1.5 rounded-lg border p-2 text-left transition-colors disabled:opacity-40 ${active
+                  ? 'border-primary/60 bg-primary/15 ring-1 ring-primary/40'
+                  : 'border-border bg-app/40 hover:bg-surface-raised'}`}>
+                <span className="flex items-baseline gap-1 min-w-0">
+                  <span className={`text-[0.6875rem] font-semibold truncate ${active ? 'text-white' : 'text-content'}`}>{name}</span>
+                  <span className="ml-auto text-content-subtle text-[0.625rem] shrink-0">{st?.total || 0}</span>
+                </span>
+                <CompositionMiniBar counts={st?.counts || {}} total={st?.total || 0} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Shot picker, grouped by framing with a quota progress bar per group. */}
+      <div className="max-h-80 overflow-auto flex flex-col gap-2 pr-1">
+        {['face', 'bust', 'body', 'back'].map((fr) => {
+          const have = (composition && composition[fr]) || 0;
+          const missing = Math.max(0, TARGET[fr] - have);
+          const pct = Math.min(100, (have / TARGET[fr]) * 100);
+          const selCount = byFraming[fr].filter((e) => selected.has(e.id)).length;
+          return (
+            <div key={fr}>
+              <div className="flex items-center gap-2 mb-1"
+                title={`Your dataset contains ${have} "${FRAMING_LABEL[fr]}" image(s). Target for balanced training: ${TARGET[fr]}. The amber cards below are the ones to generate to fill the gap (this does NOT affect the generation selection).`}>
+                <ShotIllustration framing={fr} label=""
+                  className={`w-5 h-5 ${missing ? 'text-amber-300' : 'text-content-subtle'}`} />
+                <span className={`text-[0.6875rem] uppercase font-semibold ${missing ? 'text-amber-300' : 'text-content-muted'}`}>
+                  {FRAMING_LABEL[fr]}
+                </span>
+                <span className="w-24 h-1.5 rounded-full bg-app/60 overflow-hidden" aria-hidden="true">
+                  <span className={`block h-full rounded-full ${missing ? 'bg-amber-400' : 'bg-emerald-400'}`}
+                    style={{ width: `${pct}%` }} />
+                </span>
+                {missing > 0 ? (
+                  <span className="px-1.5 py-px rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[0.625rem]">
+                    {have}/{TARGET[fr]} in the dataset · {missing} missing
+                  </span>
+                ) : (
+                  <span className="text-emerald-400/90 text-[0.625rem]">✓ {have}/{TARGET[fr]}</span>
+                )}
+                {selCount > 0 && (
+                  <span className="ml-auto text-content-subtle text-[0.625rem]">{selCount} selected</span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5">
+                {byFraming[fr].map((e) => {
+                  const on = selected.has(e.id);
+                  const emoji = contextEmoji(e.label);
+                  // Unselected cards of a DEFICIT framing glow amber: the visual
+                  // quota cue ("pick these to fill what's missing").
+                  const cls = on
+                    ? 'bg-primary/20 border-primary/50 text-white ring-1 ring-primary/30'
+                    : missing > 0
+                      ? 'border-amber-400/50 bg-amber-400/10 text-amber-200 hover:bg-amber-400/15'
+                      : 'border-border text-content-muted hover:bg-surface-raised';
+                  return (
+                    <button key={e.id} type="button" onClick={() => toggle(e.id)}
+                      aria-pressed={on}
+                      className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border text-left transition-colors ${cls}`}>
+                      <ShotIllustration framing={e.framing} label={e.label} className="w-7 h-7 shrink-0" />
+                      <span className="min-w-0 leading-tight">
+                        {emoji && <span className="mr-1" aria-hidden="true">{emoji}</span>}
+                        {e.label}
+                      </span>
+                      {on && <span className="ml-auto shrink-0 text-indigo-300" aria-hidden="true">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {isKlein && klAvailable && (
+        <div className="flex flex-col gap-0.5">
+          <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
+            <span className="whitespace-nowrap">Face fidelity (LoRA): {loraStrength.toFixed(2)}</span>
+            <input type="range" min={0.5} max={1.2} step={0.05} value={loraStrength}
+              onChange={(e) => setLoraStrength(Number(e.target.value))}
+              aria-label="Identity LoRA strength"
+              className="flex-1 min-w-[120px] accent-indigo-500" />
+          </label>
+          <p className="text-content-subtle text-[0.625rem]">
+            higher = closer to the reference, lower = more variety
+          </p>
+        </div>
+      )}
+      <div className="flex items-center gap-2 flex-wrap border-t border-border pt-2">
+        <span className="text-content-muted text-[0.6875rem]">{selected.size} selected</span>
+        <label className="text-content-muted text-[0.6875rem] flex items-center">×
+          <select value={multiplier} onChange={(e) => setMultiplier(+e.target.value)}
+            aria-label="Variation multiplier"
+            className="bg-app/60 border border-border rounded px-1 py-0.5 text-content ml-1">
+            {[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+        {isKlein && klAvailable && <div className="flex-1 min-w-[140px]"><Flux2KleinModelPicker onChange={setKlein} /></div>}
+        {!hasRef && (
+          <span className="text-amber-300 text-[0.6875rem]">Set a reference photo first</span>
+        )}
+        <button type="button" onClick={go} disabled={busy || !selected.size || !hasRef || !currentAvailable}
+          className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+          {busy ? '…' : `⚡ Generate (${selected.size * multiplier})`}
+        </button>
+      </div>
+    </div>
+  );
+}

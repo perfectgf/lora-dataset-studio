@@ -1,0 +1,25 @@
+/**
+ * Dataset Maker page — build a face dataset for LoRA character training:
+ * generate Klein variations from a reference, import real photos, curate,
+ * caption (Qwen3-VL), and export a training-ready ZIP.
+ */
+import { useDataset } from '../hooks/useDataset';
+import DatasetListPanel from '../components/dataset/DatasetListPanel';
+import DatasetWorkspace from '../components/dataset/DatasetWorkspace';
+
+export default function DatasetPage() {
+  const ds = useDataset();
+  return (
+    <div className="p-4 max-w-6xl mx-auto">
+      {ds.currentId ? (
+        <DatasetWorkspace ds={ds} onBack={() => ds.setCurrentId(null)} />
+      ) : (
+        <div className="max-w-3xl mx-auto">
+          <h1 className="text-lg font-bold text-content mb-3">🧬 Dataset Maker — face for LoRA</h1>
+          <DatasetListPanel datasets={ds.datasets} onOpen={ds.open} onCreate={ds.create}
+            onDelete={ds.deleteDataset} />
+        </div>
+      )}
+    </div>
+  );
+}

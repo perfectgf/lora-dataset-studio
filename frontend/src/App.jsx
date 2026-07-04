@@ -5,7 +5,7 @@ import { ToastProvider, useToast } from './components/common/Toast'
 import { CapabilitiesProvider, useCapabilities } from './context/CapabilitiesContext'
 import { setToastRef } from './api/fetchClient'
 import ErrorBoundary from './components/common/ErrorBoundary'
-import DatasetsPage from './pages/DatasetsPage'
+import DatasetPage from './pages/DatasetPage'
 import StudioPage from './pages/StudioPage'
 import SettingsPage from './pages/SettingsPage'
 
@@ -79,7 +79,7 @@ function AppInner() {
         <Routes>
           <Route element={<Shell />}>
             <Route path="/" element={<Navigate to="/datasets" replace />} />
-            <Route path="/datasets" element={<DatasetsPage />} />
+            <Route path="/datasets" element={<DatasetPage />} />
             <Route path="/studio" element={<StudioPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/datasets" replace />} />
