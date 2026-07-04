@@ -44,3 +44,9 @@ def test_secrets_roundtrip(tmp_path, monkeypatch):
 def test_local_user_constant(tmp_path, monkeypatch):
     config = _fresh(monkeypatch, tmp_path)
     assert config.LOCAL_USER == 'local'
+
+def test_load_config_returns_defensive_copy(tmp_path, monkeypatch):
+    config = _fresh(monkeypatch, tmp_path)
+    cfg = config.load_config()
+    cfg['server']['port'] = 9999          # caller mutation must not corrupt the cache
+    assert config.get('server.port') == 5000

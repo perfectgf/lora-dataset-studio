@@ -51,7 +51,7 @@ def load_config(force=False) -> dict:
     global _cache
     with _lock:
         if _cache is not None and not force:
-            return _cache
+            return copy.deepcopy(_cache)
         user = {}
         p = _config_path()
         if p.exists():
@@ -60,7 +60,7 @@ def load_config(force=False) -> dict:
             except (OSError, ValueError):
                 user = {}
         _cache = _deep_merge(DEFAULTS, user)
-        return _cache
+        return copy.deepcopy(_cache)
 
 def save_config(partial: dict) -> dict:
     global _cache
