@@ -62,6 +62,24 @@ def test_describe_image_ollama_returns_empty_on_connection_error(app, monkeypatc
     assert out == ''
 
 
+def test_vision_ollama_never_raises_when_config_returns_none(app, monkeypatch):
+    """cfg.get() returning None for every key (missing/corrupted config section)
+    must never surface as an AttributeError from the url.rstrip('/') call --
+    the never-raise contract is structural, not dependent on config health.
+    requests.post is also stubbed to fail so the test doesn't depend on whether
+    a real Ollama happens to be reachable on this machine."""
+    from app.services import vision_ollama
+
+    def _raise(*a, **k):
+        raise ConnectionError('ollama unreachable')
+
+    monkeypatch.setattr(vision_ollama.cfg, 'get', lambda *a, **k: None)
+    monkeypatch.setattr(vision_ollama.requests, 'post', _raise)
+    with app.app_context():
+        assert vision_ollama.describe_image_ollama(b'x', 'p') == ''
+        assert vision_ollama.unload_vision_model() is False
+
+
 # --- caption_images backend selection ---------------------------------------
 
 def test_caption_images_backend_none_raises(app):
@@ -140,6 +158,22 @@ def test_caption_images_backend_joycaption_skips_ollama_fallback(app, monkeypatc
         assert n == 1
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
         assert refreshed.caption == 'a joycaption result'
+
+
+def test_caption_images_backend_joycaption_unavailable_raises(app, monkeypatch):
+    """backend='joycaption' is an explicit user choice in Settings -- if the
+    ai-toolkit venv isn't there (is_available() False), the caller must get a
+    clear error, not a silent 0 (only 'auto' is allowed to fall back quietly)."""
+    from app.services import face_dataset_service as svc
+    import app.services.joycaption as jc_mod
+    from app.config import LOCAL_USER, save_config
+
+    monkeypatch.setattr(jc_mod, 'is_available', lambda: False)
+    with app.app_context():
+        save_config({'captioning': {'backend': 'joycaption'}})
+        ds, _ = _dataset_with_kept_image(svc, LOCAL_USER)
+        with pytest.raises(RuntimeError):
+            svc.caption_images(LOCAL_USER, ds.id)
 
 
 def test_caption_images_backend_auto_falls_back_to_ollama(app, monkeypatch):

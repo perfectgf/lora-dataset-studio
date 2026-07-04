@@ -20,7 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def _ollama_url() -> str:
-    return cfg.get('ollama.url')
+    # Total accessor: cfg.get() can return None (missing/corrupted config
+    # section) and callers rstrip('/') the result unconditionally -- this
+    # must never hand back None, or the never-raise contract below breaks.
+    return cfg.get('ollama.url') or 'http://127.0.0.1:11434'
 
 
 def get_vision_model() -> str:
@@ -31,7 +34,7 @@ def get_vision_model() -> str:
     env = (_os.environ.get('VISION_OLLAMA_MODEL') or '').strip()
     if env:
         return env
-    return cfg.get('ollama.vision_model')
+    return cfg.get('ollama.vision_model') or 'qwen3-vl:8b'
 
 
 def describe_image_ollama(image_bytes: bytes, prompt: str, *,
@@ -67,8 +70,8 @@ def describe_image_ollama(image_bytes: bytes, prompt: str, *,
     passer une durée (ex. '5m') pour garder le modèle chaud entre les images, PUIS
     appeler unload_vision_model() en fin de batch pour rendre la VRAM à ComfyUI.
     """
-    url = (ollama_url or _ollama_url()).rstrip('/')
     try:
+        url = (ollama_url or _ollama_url()).rstrip('/')
         b64 = base64.b64encode(image_bytes).decode('ascii')
         payload = {
             'model': model or get_vision_model(),
@@ -128,8 +131,12 @@ def unload_vision_model(*, ollama_url: str | None = None, model: str | None = No
     AVANT que ComfyUI reprenne le GPU, sinon le modèle resterait chargé et ComfyUI
     pourrait manquer de VRAM. Retente une fois car un unload raté = ~5 min résident
     (keep_alive). Retourne True si l'appel a réussi."""
-    url = (ollama_url or _ollama_url()).rstrip('/')
-    payload = {'model': model or get_vision_model(), 'keep_alive': 0}
+    try:
+        url = (ollama_url or _ollama_url()).rstrip('/')
+        payload = {'model': model or get_vision_model(), 'keep_alive': 0}
+    except Exception as e:
+        logger.warning('vision_ollama: unload url/model resolution échouée : %s', e)
+        return False
     for attempt in (1, 2):
         try:
             requests.post(f'{url}/api/generate', json=payload, timeout=(10, 30))

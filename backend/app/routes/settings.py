@@ -33,10 +33,20 @@ def get_settings():
 @bp.put('/settings')
 def put_settings():
     body = request.get_json(force=True, silent=True) or {}
+    if 'config' in body and not isinstance(body['config'], dict):
+        return jsonify({'error': "'config' must be an object"}), 400
+    if 'secrets' in body and not isinstance(body['secrets'], dict):
+        return jsonify({'error': "'secrets' must be an object"}), 400
     config_partial = body.get('config') or {}
     unknown = set(config_partial) - set(cfg.DEFAULTS)
     if unknown:
         return jsonify({'error': f"unknown config section '{sorted(unknown)[0]}'"}), 400
+    # Each section must stay an object -- _deep_merge only recurses when both
+    # sides are dicts, so a non-dict value here would REPLACE the whole section
+    # (e.g. {"ollama": "x"} silently overwriting ollama.url + ollama.vision_model).
+    for k, v in config_partial.items():
+        if not isinstance(v, dict):
+            return jsonify({'error': f"config section '{k}' must be an object"}), 400
     cfg.save_config(config_partial)
     cfg.set_secrets(body.get('secrets') or {})
     return jsonify(_settings_payload())

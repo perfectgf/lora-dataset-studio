@@ -539,6 +539,13 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
                 # Consigne « ne décris pas le visage » → les traits se lient au trigger,
                 # pas aux mots de la caption (deep-research 2026-06-14).
                 jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
+            elif backend == 'joycaption':
+                # Explicit choice, explicit failure: a user who forced 'joycaption' in
+                # Settings must be told it's unavailable, not get a silent 0 (only
+                # 'auto' is allowed to fall back to Ollama quietly).
+                raise RuntimeError('JoyCaption backend is not available — check the ai-toolkit folder in Settings')
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.warning('caption_images: JoyCaption indisponible (%s)', e)
         still = []
