@@ -108,6 +108,17 @@ def _dispatch_completion(job, filename, failed):
             face_dataset_service.link_completed_dataset_image(job.job_id, filename, failed=failed)
     except Exception:
         logger.exception('job_queue: completion dispatch failed for job %s', job.job_id)
+        # The link callback crashed before flipping its row out of 'pending' -
+        # without this it strands the row looking like it's still generating.
+        try:
+            from .models import FaceDatasetImage, LoraTestImage
+            for model in (FaceDatasetImage, LoraTestImage):
+                row = model.query.filter_by(job_id=job.job_id).first()
+                if row is not None:
+                    row.status = 'failed'
+                    db.session.commit()
+        except Exception:
+            logger.exception('job_queue: could not mark linked row failed for job %s', job.job_id)
 
 
 class JobQueueManager:
@@ -167,6 +178,9 @@ class JobQueueManager:
         """Run one pending job end-to-end, synchronously. Returns True if a
         job was processed, False if the queue was empty (caller should back
         off). Assumes an active app context (pushed by the caller)."""
+        if self._get_system_state('training_in_progress') or self._get_system_state('vision_in_progress'):
+            return False  # GPU held by training/vision - leave jobs pending, retry later
+
         job = (ImageGenerationQueue.query
                .filter_by(status='pending')
                .order_by(ImageGenerationQueue.priority.desc(), ImageGenerationQueue.created_at.asc())
@@ -181,8 +195,18 @@ class JobQueueManager:
         try:
             workflow = json.loads(job.workflow_data or '{}')
             prompt_id = _submit(workflow, job.job_id)
-            job.update_status('sent_to_comfy', comfyui_prompt_id=prompt_id)
+            # Mirror _claim: only advance to sent_to_comfy from 'processing'. If a
+            # cancel landed between _submit() returning and this write, rowcount
+            # is 0 - the job was already sent to ComfyUI but must not be polled
+            # nor resurrected out of 'cancelled'.
+            claimed = (ImageGenerationQueue.query
+                       .filter_by(job_id=job.job_id, status='processing')
+                       .update({'status': 'sent_to_comfy', 'comfyui_prompt_id': prompt_id}))
             db.session.commit()
+            if not claimed:
+                db.session.refresh(job)
+                _dispatch_completion(job, None, True)
+                return True
             filename, failed = _poll_outputs(prompt_id, POLL_TIMEOUT_SECONDS)
         except Exception as exc:
             logger.warning('job_queue: job %s failed: %s', job.job_id, exc)

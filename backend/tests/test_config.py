@@ -41,6 +41,14 @@ def test_secrets_roundtrip(tmp_path, monkeypatch):
     env_text = (config.ENV_PATH).read_text(encoding='utf-8')
     assert 'sk-test-123' in env_text
 
+def test_secret_strips_trailing_whitespace(tmp_path, monkeypatch):
+    """A pasted key with a trailing newline/space must not corrupt the Bearer header."""
+    config = _fresh(monkeypatch, tmp_path)
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-test-123\n')
+    assert config.secret('OPENAI_API_KEY') == 'sk-test-123'
+    monkeypatch.setenv('OPENAI_API_KEY', '  sk-test-456  ')
+    assert config.secret('OPENAI_API_KEY') == 'sk-test-456'
+
 def test_local_user_constant(tmp_path, monkeypatch):
     config = _fresh(monkeypatch, tmp_path)
     assert config.LOCAL_USER == 'local'

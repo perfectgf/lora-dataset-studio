@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 import pytest
 
@@ -204,6 +205,27 @@ def test_continue_training_refuses_while_in_progress(app):
         queue_manager._set_system_state('training_in_progress', True, ttl_seconds=3600)
         with pytest.raises(ValueError):
             lt.continue_training(LOCAL_USER, ds.id)
+
+
+def test_process_training_queue_rearms_ttl_while_pid_alive(app, monkeypatch):
+    """A training run longer than the 4h TTL must not have its flags expire
+    mid-run: each poll while the pid is still alive re-arms them."""
+    from app.services import lora_training as lt
+    from app.job_queue import queue_manager
+    with app.app_context():
+        queue_manager._set_system_state('training_in_progress', True, ttl_seconds=1)
+        queue_manager._set_system_state('training_pid', 4242, ttl_seconds=1)
+        queue_manager._set_system_state('training_dataset_id', 7, ttl_seconds=1)
+        queue_manager._set_system_state('training_target_step', 1500, ttl_seconds=1)
+        monkeypatch.setattr(lt, '_pid_alive', lambda pid: True)
+
+        assert lt.process_training_queue() is None  # still running -> no action taken
+
+        time.sleep(1.2)  # past the ORIGINAL (pre-rearm) TTL
+        assert queue_manager._get_system_state('training_in_progress', False) is True
+        assert queue_manager._get_system_state('training_pid', None) == 4242
+        assert queue_manager._get_system_state('training_dataset_id', None) == 7
+        assert queue_manager._get_system_state('training_target_step', None) == 1500
 
 
 def test_import_list_delete_checkpoint_roundtrip_filesystem_scan(app, tmp_path):

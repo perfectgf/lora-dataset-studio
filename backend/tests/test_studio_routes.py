@@ -33,6 +33,25 @@ def test_studio_run_resume_unreachable_comfyui_returns_409(client, monkeypatch):
     assert resp.status_code == 409
 
 
+def test_studio_run_gpu_busy_returns_503(client, monkeypatch):
+    """GPU busy (training/vision) must map to 503 like the vision routes'
+    GpuBusyError, not the 400 a plain ValueError would give."""
+    _comfy(monkeypatch, True)
+    from app.job_queue import queue_manager
+    with client.application.app_context():
+        queue_manager._set_system_state('training_in_progress', True, ttl_seconds=60)
+    resp = client.post('/api/studio/run', json={'selections': [{'dataset_id': 1, 'checkpoint': 'x'}]})
+    assert resp.status_code == 503
+    assert 'GPU busy' in resp.get_json()['error']
+
+
+def test_studio_run_invalid_params_still_400(client, monkeypatch):
+    _comfy(monkeypatch, True)
+    resp = client.post('/api/studio/run', json={'selections': []})
+    assert resp.status_code == 400
+    assert resp.get_json()['error'] == 'no LoRA selected'
+
+
 def test_studio_run_reachable_forwards_to_service(client, monkeypatch):
     _comfy(monkeypatch, True)
     monkeypatch.setattr('app.services.lora_test_studio.create_comparison_run',
@@ -109,6 +128,18 @@ def test_dataset_lora_test_resume_unreachable_comfyui_returns_409(client, monkey
     ds_id = _create(client)
     resp = client.post(f'/api/dataset/{ds_id}/lora-test/resume')
     assert resp.status_code == 409
+
+
+def test_dataset_lora_test_run_gpu_busy_returns_503(client, monkeypatch):
+    _comfy(monkeypatch, True)
+    ds_id = _create(client)  # default trigger_word='nova'
+    from app.job_queue import queue_manager
+    with client.application.app_context():
+        queue_manager._set_system_state('training_in_progress', True, ttl_seconds=60)
+    resp = client.post(f'/api/dataset/{ds_id}/lora-test/run',
+                       json={'checkpoints': ['x'], 'strengths': [1.0]})
+    assert resp.status_code == 503
+    assert 'GPU busy' in resp.get_json()['error']
 
 
 # --- rate: valid ratings 1/-1/0 ok, invalid -> 400 ---------------------------

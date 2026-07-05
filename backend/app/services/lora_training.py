@@ -1215,7 +1215,7 @@ def train_queue_view(user_id) -> list:
         ds = fds.get_dataset(it.get('user_id', user_id), it.get('dataset_id'))
         bm = it.get('base_model')
         base_label = (os.path.basename(str(bm).replace('\\', '/')).rsplit('.', 1)[0]
-                      if bm else 'Officiel')
+                      if bm else 'Official')
         out.append({'dataset_id': it.get('dataset_id'),
                     'name': ds.name if ds else f"#{it.get('dataset_id')}",
                     'extra_steps': it.get('extra_steps'),
@@ -1313,6 +1313,18 @@ def _advance_training_queue() -> str | None:
 
     if flag:
         if _pid_alive(pid):
+            # Re-arm the 4h TTLs on every poll: without this, a training run
+            # longer than 4h would see these flags silently expire mid-run,
+            # and the GPU gate (job_queue / gpu_busy_reason) would think
+            # nothing is running and let the queue/vision grab the GPU back.
+            queue_manager._set_system_state('training_in_progress', True, ttl_seconds=4 * 3600)
+            queue_manager._set_system_state('training_pid', pid, ttl_seconds=4 * 3600)
+            cur_dataset_id = queue_manager._get_system_state('training_dataset_id', None)
+            if cur_dataset_id is not None:
+                queue_manager._set_system_state('training_dataset_id', cur_dataset_id, ttl_seconds=4 * 3600)
+            cur_target_step = queue_manager._get_system_state('training_target_step', None)
+            if cur_target_step is not None:
+                queue_manager._set_system_state('training_target_step', cur_target_step, ttl_seconds=4 * 3600)
             return None  # toujours en cours
         # Process mort alors que le flag est levé → training terminé.
         # Snapshot du final en nom NUMÉROTÉ (immuable) AVANT d'enchaîner/libérer :

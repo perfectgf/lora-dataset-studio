@@ -91,7 +91,8 @@ def is_configured() -> bool:
     return _config_path().exists()
 
 def secret(name: str):
-    return os.environ.get(name) or None
+    val = (os.environ.get(name) or '').strip()
+    return val or None
 
 def set_secrets(d: dict) -> None:
     lines = []

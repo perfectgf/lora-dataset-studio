@@ -14,7 +14,7 @@ from flask import Blueprint, jsonify, request
 from ..config import LOCAL_USER
 from ..services import lora_test_studio as lts
 from ..utils.comfyui import get_zimage_models
-from ._common import _require_comfyui
+from ._common import _map_error, _require_comfyui
 
 bp = Blueprint('studio', __name__, url_prefix='/api/studio')
 
@@ -73,8 +73,8 @@ def studio_run():
             enhancer_strength=d.get('enhancer_strength'), detail_amount=d.get('detail_amount'),
             resolution_tier=d.get('resolution_tier'), init_image=d.get('init_image'),
             denoise=d.get('denoise'))
-    except ValueError as e:
-        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return _map_error(e)
     return jsonify({'ok': True, **{k: res[k] for k in ('created', 'seed', 'count', 'run_id')}})
 
 
@@ -96,6 +96,6 @@ def studio_run_resume(run_id):
         return gate
     try:
         res = lts.resume_run(LOCAL_USER, run_id=run_id)
-    except ValueError as e:
-        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return _map_error(e)
     return jsonify({'ok': True, **res})

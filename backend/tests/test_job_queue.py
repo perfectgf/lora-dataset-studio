@@ -112,6 +112,84 @@ def test_process_one_returns_false_when_empty(app):
         assert queue_manager.process_one() is False
 
 
+def test_process_one_skips_while_training_in_progress(app):
+    """Jobs must stay pending (not be claimed/submitted) while training/vision
+    holds the GPU; once the flag clears, the queue processes normally."""
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue
+    with app.app_context():
+        jid = queue_manager.add_job(workflow_data={'1': {}})
+        queue_manager._set_system_state('training_in_progress', True, ttl_seconds=60)
+        with patch('app.job_queue._submit') as submit:
+            assert not queue_manager.process_one()
+            submit.assert_not_called()
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        assert row.status == 'pending'
+
+        queue_manager._set_system_state('training_in_progress', None)
+        with patch('app.job_queue._submit', return_value='prompt-1'), \
+             patch('app.job_queue._poll_outputs', return_value=('out.png', False)), \
+             patch('app.job_queue._dispatch_completion'):
+            assert queue_manager.process_one() is True
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        assert row.status == 'completed'
+
+
+def test_process_one_skips_while_vision_in_progress(app):
+    from app.job_queue import queue_manager
+    with app.app_context():
+        queue_manager.add_job(workflow_data={'1': {}})
+        queue_manager._set_system_state('vision_in_progress', True, ttl_seconds=60)
+        with patch('app.job_queue._submit') as submit:
+            assert not queue_manager.process_one()
+            submit.assert_not_called()
+
+
+def test_cancel_during_submit_window_not_resurrected(app):
+    """A cancel landing between _submit() returning and the sent_to_comfy write
+    must not be overwritten back to sent_to_comfy, and must never be polled."""
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue
+    with app.app_context():
+        jid = queue_manager.add_job(workflow_data={'1': {}})
+
+        def _submit_then_cancel(workflow, client_id):
+            queue_manager.cancel_job(client_id)  # race: cancel lands mid-submit
+            return 'prompt-1'
+
+        with patch('app.job_queue._submit', side_effect=_submit_then_cancel), \
+             patch('app.job_queue._poll_outputs') as poll:
+            assert queue_manager.process_one() is True
+            poll.assert_not_called()
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        assert row.status == 'cancelled'
+
+
+def test_dispatch_completion_crash_marks_linked_row_failed(app):
+    """A link-callback crash must not strand the row as 'pending' forever -
+    _dispatch_completion's except branch marks it failed as a fallback."""
+    from app.job_queue import queue_manager
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Crash', 'crash')
+        jid = queue_manager.add_job(workflow_data={'1': {}},
+                                    metadata={'model_name': 'klein_edit_dataset'})
+        img = FaceDatasetImage(dataset_id=ds.id, source='generated', status='pending', job_id=jid)
+        svc.db.session.add(img)
+        svc.db.session.commit()
+
+        with patch('app.job_queue._submit', return_value='prompt-1'), \
+             patch('app.job_queue._poll_outputs', return_value=('out.png', False)), \
+             patch('app.services.face_dataset_service.link_completed_dataset_image',
+                   side_effect=RuntimeError('boom')):
+            queue_manager.process_one()
+
+        row = FaceDatasetImage.query.filter_by(job_id=jid).one()
+        assert row.status == 'failed'
+
+
 def test_cancel_pending(app):
     from app.job_queue import queue_manager
     from app.models import ImageGenerationQueue

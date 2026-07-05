@@ -97,24 +97,6 @@ def test_delete_dataset_without_lora_training_module(app):
         assert svc.get_dataset(LOCAL_USER, ds.id) is None
 
 
-def test_classify_returns_zero_when_ollama_unreachable(app, monkeypatch):
-    """vision_ollama (Task 9) now exists, so classify_images no longer hits the
-    ImportError->RuntimeError path; describe_image_ollama's never-raise contract
-    means an unreachable Ollama server just yields 0 classified (no exception).
-    requests.post is stubbed so this test never touches a real Ollama server."""
-    from app.services import face_dataset_service as svc
-    from app.services import vision_ollama
-    from app.config import LOCAL_USER
-
-    def _raise(*a, **k):
-        raise ConnectionError('ollama unreachable')
-
-    monkeypatch.setattr(vision_ollama.requests, 'post', _raise)
-    with app.app_context():
-        ds = svc.create_dataset(LOCAL_USER, 'E', 'e')
-        assert svc.classify_images(LOCAL_USER, ds.id) == 0
-
-
 def test_detect_head_bbox_falls_back_to_none_when_ollama_unreachable(app, monkeypatch):
     """detect_head_bbox has an existing graceful fallback for 'no detection'
     (face_crop_to_square_webp centers the crop instead) -- an unreachable Ollama

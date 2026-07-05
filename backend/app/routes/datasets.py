@@ -319,8 +319,8 @@ def lora_test_run(dataset_id):
                              detail_amount=d.get('detail_amount'),
                              resolution_tier=d.get('resolution_tier'),
                              init_image=d.get('init_image'), denoise=d.get('denoise'))
-    except ValueError as e:
-        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return _map_error(e)
     return jsonify({'ok': True, 'created': res['created'], 'seed': res['seed'],
                     'count': res.get('count', 1)})
 
@@ -349,8 +349,8 @@ def lora_test_resume(dataset_id):
         return jsonify({'error': 'not found'}), 404
     try:
         res = lts.resume_run(LOCAL_USER, dataset_id)
-    except ValueError as e:
-        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return _map_error(e)
     return jsonify({'ok': True, **res})
 
 

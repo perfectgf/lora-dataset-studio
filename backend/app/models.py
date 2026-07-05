@@ -82,7 +82,7 @@ class LoraTestImage(db.Model):
     # cellules de dataset_id différents partageant ce run_id. null = anciens runs
     # (backfillés par add_lora_test_run_id).
     run_id = db.Column(String(36), nullable=True, index=True)
-    status = db.Column(String(10), nullable=False, default='pending')  # pending|done|failed
+    status = db.Column(String(10), nullable=False, default='pending')  # pending|done|failed|cancelled
     # Réglages du run (pour afficher TOUS les paramètres du meilleur résultat).
     z_model = db.Column(String(255), nullable=True)   # modèle Z-Image de base
     aspect = db.Column(String(16), nullable=True)     # format d'image (9:16, 4:3, …)

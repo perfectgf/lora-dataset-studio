@@ -144,8 +144,13 @@ export default function SettingsPage() {
     try {
       // Only send secret fields the user actually typed into — the fields
       // stay blank on load, so an untouched field must never overwrite an
-      // already-saved key with an empty value.
-      const secrets = Object.fromEntries(Object.entries(secretInputs).filter(([, v]) => v))
+      // already-saved key with an empty value. Trim: a pasted key with
+      // trailing whitespace/newline would otherwise corrupt the Bearer header.
+      const secrets = Object.fromEntries(
+        Object.entries(secretInputs)
+          .map(([k, v]) => [k, (v || '').trim()])
+          .filter(([, v]) => v)
+      )
       const data = await putJson('/api/settings', { config, secrets })
       setConfig(data.config)
       setSecretsPresence(data.secrets)

@@ -43,6 +43,7 @@ from datetime import datetime
 
 from .. import config as cfg
 from ..extensions import db
+from ..gpu_window import GpuBusyError
 from ..models import FaceDataset, LoraTestImage
 from . import face_dataset_service as fds
 from ..job_queue import queue_manager
@@ -743,7 +744,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
 
     reason = gpu_busy_reason()
     if reason:
-        raise ValueError(reason)
+        raise GpuBusyError(reason)
     if _active_run_count(dataset_id):
         raise ValueError('a test run is already in progress on this dataset - '
                          'wait for it to finish or cancel')
@@ -908,7 +909,7 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         raise ValueError('no LoRA selected')
     reason = gpu_busy_reason()
     if reason:
-        raise ValueError(reason)
+        raise GpuBusyError(reason)
     if _active_run_count():
         raise ValueError('a test run is already in progress - wait for it to finish or cancel')
     # La FAMILLE du run est dérivée du DOSSIER des checkpoints (family_of_lora), PAS du
@@ -1079,7 +1080,7 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
             raise ValueError('run not found')
         reason = gpu_busy_reason()
         if reason:
-            raise ValueError(reason)
+            raise GpuBusyError(reason)
         if _active_run_count():
             raise ValueError('a test run is already in progress')
         rows = (LoraTestImage.query.filter_by(run_id=run_id)
@@ -1090,7 +1091,7 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
             raise ValueError('dataset not found')
         reason = gpu_busy_reason()
         if reason:
-            raise ValueError(reason)
+            raise GpuBusyError(reason)
         if _active_run_count(dataset_id):
             raise ValueError('a test run is already in progress')
         rows = (LoraTestImage.query.filter_by(dataset_id=dataset_id)
