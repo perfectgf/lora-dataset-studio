@@ -210,7 +210,7 @@ def _trigger_token_match(norm: str, trigger: str) -> bool:
     """True si `norm` commence par `trigger` SUIVI d'un séparateur (`_`/`-`) ou de la
     fin de chaîne - le trigger doit être un TOKEN entier, pas juste un préfixe.
 
-    ⚠️ Régression corrigée (bug user 2026-07-01) : un simple `startswith` faisait
+    ⚠️ Régression corrigée (bug found 2026-07-01) : un simple `startswith` faisait
     qu'un trigger COURT s'offrait les LoRA d'un trigger plus LONG qui le préfixe
     ('lola' ⊂ 'lola3869' ⊂ 'lola2') - ex. le dataset 'Lola' affichait les checkpoints
     'lola3869'. Le nom est toujours '<trigger>-<step>' ou '<trigger>_<step>' (ou le

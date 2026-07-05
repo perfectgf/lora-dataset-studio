@@ -133,7 +133,7 @@ def _aitoolkit_supports_krea() -> bool:
     erreur levée. Une config `arch:'krea2'` sur un ai-toolkit pas à jour chargerait
     donc Krea-2-Turbo comme un checkpoint SD et planterait de façon confuse. On
     scanne les sources d'archs (extensions_built_in) ; lecture fraîche → dès que
-    user fait `git pull`, la détection passe à True sans redémarrage.
+    le mainteneur fait `git pull`, la détection passe à True sans redémarrage.
 
     On exige l'arch EXACTE `arch = "krea2"` (la chaîne émise par _build_job_config_krea),
     pas la simple sous-chaîne « krea » : sinon une mention incidente (commentaire,
