@@ -15,7 +15,7 @@ const RATIOS = {
   tall: [9, 16], photo: [3, 2], phototall: [2, 3], ultrawide: [21, 9],
 };
 const TIERS = [
-  { value: 'fast', label: 'Rapide', mp: 0.7 },
+  { value: 'fast', label: 'Fast', mp: 0.7 },
   { value: 'standard', label: 'Standard', mp: 1.0 },
   { value: 'hq', label: 'HQ', mp: 1.3 },
   { value: 'max', label: 'Max', mp: 1.6 },
