@@ -1,0 +1,294 @@
+"""Training API: launch/continue/queue/stop a LoRA training run via ai-toolkit,
+plus checkpoint listing/import/delete and Z-Image base-conversion prep.
+
+No login — single local user (`cfg.LOCAL_USER`). Every route except
+`/dataset/train/status` is gated on `capabilities.probe()['aitoolkit']['valid']`
+(409 with a UI hint): `/train/status` must stay pollable even when
+ai-toolkit isn't configured, so it degrades to `{'available': False}` instead.
+"""
+import os
+from datetime import datetime
+
+from flask import Blueprint, current_app, request, jsonify
+
+from .. import capabilities
+from ..config import LOCAL_USER
+from ..services import face_dataset_service as svc
+from ..services import lora_training as lt
+from ..services import zimage_convert as zc
+from ..utils.comfyui import get_zimage_models, get_checkpoint_models
+from ._common import _map_error
+
+bp = Blueprint('training', __name__, url_prefix='/api')
+
+
+def _require_aitoolkit():
+    """None if ai-toolkit is usable, else the (body, status) 409 to return."""
+    if not capabilities.probe()['aitoolkit']['valid']:
+        return jsonify({'error': 'ai-toolkit is not configured',
+                        'hint': 'Set its folder in Settings'}), 409
+    return None
+
+
+@bp.post('/dataset/<int:dataset_id>/train')
+def dataset_train(dataset_id):
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    d = request.get_json(silent=True) or {}
+    try:
+        # steps optionnel : None → adaptatif. base_model='' → officiel ; sinon merge
+        # (doit être converti d'abord). variant règle l'adapter de de-distillation.
+        res = lt.launch_training(LOCAL_USER, dataset_id, steps=d.get('steps'),
+                                 base_model=d.get('base_model'),
+                                 variant=d.get('variant', 'turbo'),
+                                 train_type=d.get('train_type'),
+                                 allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),
+                                 masked=d.get('masked', True))
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/continue')
+def dataset_train_continue(dataset_id):
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    d = request.get_json(silent=True) or {}
+    # base_model/variant = base sélectionnée (absente → base persistée du run).
+    kw = {'extra_steps': d.get('extra_steps', 1000)}
+    if 'base_model' in d:
+        kw['base_model'] = d.get('base_model')
+    if d.get('variant'):
+        kw['variant'] = d.get('variant')
+    try:
+        res = lt.continue_training(LOCAL_USER, dataset_id, **kw)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
+@bp.get('/dataset/train/status')
+def dataset_train_status():
+    # Le poll doit toujours répondre 200 (jamais d'erreur) : sans ai-toolkit
+    # configuré, on renvoie juste 'indisponible' au lieu d'un 409 qui casserait
+    # le polling UI.
+    if not capabilities.probe()['aitoolkit']['valid']:
+        return jsonify({'available': False})
+    # Le poll fait avancer la file : fin du training courant → lancement du suivant.
+    try:
+        lt.process_training_queue()
+    except Exception:
+        pass
+    return jsonify(lt.training_status(LOCAL_USER))
+
+
+@bp.post('/dataset/<int:dataset_id>/train/enqueue')
+def dataset_train_enqueue(dataset_id):
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    d = request.get_json(silent=True) or {}
+    # base_model/variant = base CHOISIE pour le job en file (absente → persistée).
+    kw = {'extra_steps': d.get('extra_steps'), 'masked': d.get('masked', True)}
+    if 'base_model' in d:
+        kw['base_model'] = d.get('base_model')
+    if d.get('variant'):
+        kw['variant'] = d.get('variant')
+    if d.get('train_type'):
+        kw['train_type'] = d.get('train_type')
+    if d.get('allow_caption_mismatch'):
+        kw['allow_caption_mismatch'] = True
+    # steps = cible absolue choisie côté UI (None → adaptatif). Forwarding conditionnel.
+    if d.get('steps') is not None:
+        kw['steps'] = d.get('steps')
+    try:
+        res = lt.enqueue_training(LOCAL_USER, dataset_id, **kw)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/schedule')
+def dataset_train_schedule(dataset_id):
+    """Programme un entraînement (jour + heure locale). Contrairement à SRC, une
+    échéance déjà PASSÉE est refusée (400) plutôt que dégradée en « dû
+    immédiatement » : un `at` dans le passé est presque toujours une saisie
+    erronée côté UI, pas une intention de lancer tout de suite."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    d = request.get_json(silent=True) or {}
+    raw = str(d.get('at') or '').strip()   # datetime-local: "YYYY-MM-DDTHH:MM"
+    try:
+        at = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid date/time'}), 400
+    if at <= datetime.now():
+        return jsonify({'error': 'scheduled time is in the past'}), 400
+    kw = {'extra_steps': d.get('extra_steps'), 'not_before': at.isoformat(timespec='minutes'),
+          'masked': d.get('masked', True)}
+    if 'base_model' in d:
+        kw['base_model'] = d.get('base_model')
+    if d.get('variant'):
+        kw['variant'] = d.get('variant')
+    if d.get('train_type'):
+        kw['train_type'] = d.get('train_type')
+    if d.get('allow_caption_mismatch'):
+        kw['allow_caption_mismatch'] = True
+    if d.get('steps') is not None:
+        kw['steps'] = d.get('steps')
+    try:
+        res = lt.enqueue_training(LOCAL_USER, dataset_id, **kw)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/dequeue')
+def dataset_train_dequeue(dataset_id):
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    # Ownership : on ne retire de la file que SES propres datasets (anti-IDOR).
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    n = lt.dequeue_training(dataset_id)
+    return jsonify({'ok': True, 'removed': n})
+
+
+@bp.post('/dataset/train/stop')
+def dataset_train_stop():
+    # Single-user app : pas de vérif d'ownership sur l'entraînement en cours.
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    lt.stop_training()
+    return jsonify({'ok': True})
+
+
+@bp.get('/dataset/<int:dataset_id>/train/checkpoints')
+def dataset_train_checkpoints(dataset_id):
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    # base_model = base sélectionnée dans le dropdown (param absent → base persistée).
+    bm = request.args.get('base_model')
+    # train_type = famille sélectionnée dans le menu LORA TYPE (param absent →
+    # famille persistée).
+    fam = request.args.get('train_type') or None
+    kw = {} if bm is None else {'base_model': bm}
+    if fam:
+        kw['family'] = fam
+    return jsonify({'checkpoints': lt.list_checkpoints(LOCAL_USER, dataset_id, **kw),
+                    'recommended_steps': lt.recommended_steps(dataset_id),
+                    'imported': lt.list_imported_checkpoints(LOCAL_USER, dataset_id, family=fam)})
+
+
+@bp.get('/dataset/<int:dataset_id>/train/base-info')
+def dataset_train_base_info(dataset_id):
+    """Bases entraînables (officielle + merges Z-Image), base/variante choisies du
+    dataset, et statut de conversion — pour le sélecteur du TrainingPanel."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    if not ds:
+        return jsonify({'error': 'not found'}), 404
+    bases = [{'value': '', 'label': 'Officiel — Z-Image-Turbo (recommandé)'}]
+    converted = {}
+    for m in get_zimage_models():
+        bases.append({'value': m, 'label': m.replace('\\', '/').split('/')[-1].rsplit('.', 1)[0]})
+        converted[m] = zc.is_converted(m)
+    # Bases SDXL = checkpoints ComfyUI existants (single-file, pas de conversion).
+    # get_checkpoint_models() renvoie des DICTS {name, civitai_url, score} (pas des
+    # strings comme get_zimage_models) → extraire 'name'.
+    sdxl_bases = []
+    for c in (get_checkpoint_models() or []):
+        name = c['name'] if isinstance(c, dict) else c
+        sdxl_bases.append({'value': name,
+                           'label': name.replace('\\', '/').split('/')[-1].rsplit('.', 1)[0]})
+    # Krea 2 s'entraîne sur une base FIXE (Krea 2 Turbo via training adapter) — pas
+    # de choix de checkpoint, pas de conversion.
+    krea_bases = [{'value': '', 'label': 'Officiel — Krea 2 Turbo (adapter)'}]
+    return jsonify({'bases': bases, 'base': ds.train_base_model or '',
+                    'variant': ds.train_variant or 'turbo',
+                    'converted': converted,
+                    'convert': zc.convert_status(),
+                    'train_type': ds.train_type or 'zimage',
+                    'bases_by_type': {'zimage': bases, 'sdxl': sdxl_bases, 'krea': krea_bases}})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/prepare-base')
+def dataset_train_prepare_base(dataset_id):
+    """Convertit un merge ComfyUI en diffusers (thread d'arrière-plan) pour
+    pouvoir entraîner dessus. Statut via /train/base-info (convert)."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    bm = (request.get_json(silent=True) or {}).get('base_model', '')
+    if not bm:
+        return jsonify({'error': 'modèle de base requis'}), 400
+    # Whitelist stricte : seul un modèle Z-Image réellement listé est convertible
+    # (anti path-traversal — l'entrée transporte un chemin jusqu'à un subprocess).
+    if bm not in get_zimage_models():
+        return jsonify({'error': 'modèle de base inconnu'}), 400
+    if zc.is_converted(bm):
+        return jsonify({'ok': True, 'status': 'done'})
+    try:
+        zc.start_convert_async(current_app._get_current_object(), bm)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'status': 'running'})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/checkpoint/delete')
+def dataset_train_checkpoint_delete(dataset_id):
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    body = request.get_json(silent=True) or {}
+    fn = body.get('filename', '')
+    fam = body.get('train_type') or None
+    try:
+        removed = lt.delete_imported_checkpoint(LOCAL_USER, dataset_id, fn, family=fam)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'removed': removed})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/import')
+def dataset_train_import(dataset_id):
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    body = request.get_json(silent=True) or {}
+    fn = body.get('filename', '')
+    # base_model = base du run d'où vient le checkpoint (absente → base persistée) ;
+    # train_type = famille sélectionnée (absente → persistée) → même run + même dossier.
+    kw = {} if 'base_model' not in body else {'base_model': body.get('base_model')}
+    fam = body.get('train_type') or None
+    if fam:
+        kw['family'] = fam
+    try:
+        dest = lt.import_checkpoint(LOCAL_USER, dataset_id, fn, **kw)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'dest': os.path.basename(dest)})

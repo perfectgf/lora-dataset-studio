@@ -12,26 +12,15 @@ import uuid
 from flask import Blueprint, request, jsonify, send_file, send_from_directory
 
 from ..config import LOCAL_USER
-from ..gpu_window import gpu_exclusive_vision_window, GpuBusyError
+from ..gpu_window import gpu_exclusive_vision_window
 from ..services import face_dataset_service as svc
 from ..services.face_variations import VARIATION_CATALOG, select_preset
+from ._common import _map_error
 
 bp = Blueprint('datasets', __name__, url_prefix='/api')
 
 _PRESET_NAMES = ('balanced_25', 'zimage_12', 'balanced_multiformat',
                  'face_focused', 'fullbody_focused')
-
-
-def _map_error(e: Exception):
-    """Map a service/vision exception to a Flask (body, status) tuple.
-    Unrecognized exceptions are re-raised (-> 500, a real bug)."""
-    if isinstance(e, GpuBusyError):
-        return jsonify({'error': 'GPU busy', 'detail': str(e)}), 503
-    if isinstance(e, ValueError):
-        return jsonify({'error': str(e)}), 400
-    if isinstance(e, RuntimeError):
-        return jsonify({'error': str(e)}), 409
-    raise e
 
 
 @bp.post('/dataset/create')
