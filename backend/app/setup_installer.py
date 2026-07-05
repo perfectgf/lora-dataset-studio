@@ -77,7 +77,10 @@ def _execute(action):
         _runs[action]['returncode'] = rc
         _runs[action]['state'] = 'success' if rc == 0 else 'error'
         if action == 'ml_extras' and rc == 0:
-            capabilities.clear_import_cache()
+            try:
+                capabilities.clear_import_cache()
+            except Exception:
+                pass  # don't downgrade a successful install
     except Exception as e:  # never let a worker thread die silently
         _append(action, f'error: {e}')
         _runs[action]['returncode'] = -1

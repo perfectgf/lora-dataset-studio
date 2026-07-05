@@ -101,3 +101,51 @@ def test_start_ollama_model_precondition(app):
         config.save_config({'ollama': {'url': '', 'vision_model': ''}})
         with pytest.raises(setup_installer.Precondition):
             setup_installer.start('ollama_model')
+
+
+def test_execute_ollama_model_success_does_not_clear_cache(monkeypatch):
+    """Verify ollama_model runs never trigger clear_import_cache, even on success."""
+    from app import setup_installer, capabilities
+    calls = []
+    monkeypatch.setattr(setup_installer, '_WORKERS', {'ollama_model': lambda a: 0})
+    monkeypatch.setattr(capabilities, 'clear_import_cache', lambda: calls.append(1))
+    setup_installer._runs['ollama_model'] = setup_installer._new_run()
+    setup_installer._execute('ollama_model')
+    assert setup_installer._runs['ollama_model']['state'] == 'success'
+    assert setup_installer._runs['ollama_model']['returncode'] == 0
+    assert calls == []  # clear_import_cache never called
+
+
+def test_append_respects_log_ring_buffer(monkeypatch):
+    """Verify _append maintains a ring buffer of _LOG_MAX lines, keeping newest."""
+    from app import setup_installer
+    setup_installer._runs['test_action'] = setup_installer._new_run()
+    action = 'test_action'
+
+    # Append more than _LOG_MAX lines
+    for i in range(setup_installer._LOG_MAX + 100):
+        setup_installer._append(action, f'line_{i}\n')
+
+    log = setup_installer._runs[action]['log']
+    assert len(log) == setup_installer._LOG_MAX
+    assert log[-1] == f'line_{setup_installer._LOG_MAX + 99}'  # newest kept
+    assert log[0] == 'line_100'  # oldest kept (first 100 dropped)
+
+
+def test_run_ollama_model_http_error(app, monkeypatch):
+    """Verify _run_ollama_model handles HTTP errors (>= 400) and logs them."""
+    from app import setup_installer, config
+
+    class FakeResp:
+        status_code = 500
+        def iter_lines(self):
+            return []
+
+    with app.app_context():
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': 'qwen3-vl:8b'}})
+        monkeypatch.setattr(setup_installer.requests, 'post', lambda *a, **k: FakeResp())
+        setup_installer._runs['ollama_model'] = setup_installer._new_run()
+        rc = setup_installer._run_ollama_model('ollama_model')
+
+    assert rc == 1
+    assert any('HTTP 500' in line for line in setup_installer._runs['ollama_model']['log'])
