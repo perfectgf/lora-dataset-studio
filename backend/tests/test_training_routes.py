@@ -75,13 +75,16 @@ def test_train_configured_forwards_kwargs(client, monkeypatch):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body['ok'] is True and body['pid'] == 123
-    assert captured['user_id'] == 'local'
-    assert captured['dataset_id'] == ds_id
-    assert captured['steps'] == 1234
-    assert captured['masked'] is False
-    assert captured['train_type'] == 'sdxl'
-    assert captured['allow_caption_mismatch'] is True
-    assert captured['variant'] == 'turbo'  # default
+    assert captured == {
+        'user_id': 'local',
+        'dataset_id': ds_id,
+        'steps': 1234,
+        'base_model': None,
+        'variant': 'turbo',
+        'train_type': 'sdxl',
+        'allow_caption_mismatch': True,
+        'masked': False
+    }
 
 
 def test_train_value_error_returns_400(client, monkeypatch):
@@ -135,10 +138,12 @@ def test_enqueue_forwards_kwargs(client, monkeypatch):
     resp = client.post(f'/api/dataset/{ds_id}/train/enqueue',
                        json={'extra_steps': 500, 'steps': 3000, 'allow_caption_mismatch': True})
     assert resp.status_code == 200
-    assert captured['extra_steps'] == 500
-    assert captured['steps'] == 3000
-    assert captured['allow_caption_mismatch'] is True
-    assert captured['masked'] is True  # default
+    assert captured == {
+        'extra_steps': 500,
+        'masked': True,
+        'steps': 3000,
+        'allow_caption_mismatch': True
+    }
 
 
 # --- /train/schedule ---------------------------------------------------------
@@ -170,7 +175,38 @@ def test_schedule_future_enqueues_with_not_before(client, monkeypatch):
     monkeypatch.setattr('app.services.lora_training.enqueue_training', fake_enqueue)
     resp = client.post(f'/api/dataset/{ds_id}/train/schedule', json={'at': '2999-01-01T00:00'})
     assert resp.status_code == 200
-    assert captured['not_before'] == '2999-01-01T00:00'
+    assert captured == {
+        'extra_steps': None,
+        'not_before': '2999-01-01T00:00',
+        'masked': True
+    }
+
+
+def test_schedule_tzaware_future_normalizes_and_enqueues(client, monkeypatch):
+    _valid(monkeypatch, True)
+    ds_id = _create(client)
+    captured = {}
+
+    def fake_enqueue(user_id, dataset_id, **kw):
+        captured.update(kw)
+        return {'queued': True, 'position': 1, 'not_before': kw.get('not_before')}
+
+    monkeypatch.setattr('app.services.lora_training.enqueue_training', fake_enqueue)
+    # Use UTC-05:00 offset so converting to local (UTC-based or positive) keeps date in 2999
+    resp = client.post(f'/api/dataset/{ds_id}/train/schedule', json={'at': '2999-01-02T00:00:00-05:00'})
+    assert resp.status_code == 200
+    # tz-aware input is normalized; not_before should be naive local ISO format with year 2999+
+    assert 'not_before' in captured
+    # After normalization to local time, should be in year 2999 or later
+    assert int(captured['not_before'][:4]) >= 2999
+
+
+def test_schedule_tzaware_past_returns_400(client, monkeypatch):
+    _valid(monkeypatch, True)
+    ds_id = _create(client)
+    resp = client.post(f'/api/dataset/{ds_id}/train/schedule', json={'at': '1999-01-01T00:00:00+02:00'})
+    assert resp.status_code == 400
+    assert resp.get_json()['error'] == 'scheduled time is in the past'
 
 
 # --- /train/dequeue, /train/stop ---------------------------------------------

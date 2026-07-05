@@ -131,10 +131,13 @@ def dataset_train_schedule(dataset_id):
     raw = str(d.get('at') or '').strip()   # datetime-local: "YYYY-MM-DDTHH:MM"
     try:
         at = datetime.fromisoformat(raw)
+        # Normalize tz-aware to local naive for comparison
+        if at.tzinfo is not None:
+            at = at.astimezone().replace(tzinfo=None)
+        if at <= datetime.now():
+            return jsonify({'error': 'scheduled time is in the past'}), 400
     except (TypeError, ValueError):
-        return jsonify({'error': 'invalid date/time'}), 400
-    if at <= datetime.now():
-        return jsonify({'error': 'scheduled time is in the past'}), 400
+        return jsonify({'error': 'invalid schedule time'}), 400
     kw = {'extra_steps': d.get('extra_steps'), 'not_before': at.isoformat(timespec='minutes'),
           'masked': d.get('masked', True)}
     if 'base_model' in d:
