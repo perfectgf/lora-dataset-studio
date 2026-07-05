@@ -94,7 +94,7 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     # Inject the consistency LoRA between the UNET (114) and the existing LoRA
     # node (139) → chain: 114 -> consistency -> 139 -> rest. Improves face fidelity.
     # Skipped (degraded but functional) if the LoRA file or node 139 is missing.
-    consistency_lora = cfg.get('klein.consistency_lora')
+    consistency_lora = (cfg.get('klein.consistency_lora') or '').replace('/', os.sep)
     consistency_strength = cfg.get('klein.consistency_strength')
     lora_dir = cfg.comfyui_dir('loras')
     lora_path = (os.path.join(str(lora_dir), consistency_lora)

@@ -218,6 +218,8 @@ def test_workflow_json_loads_and_consistency_lora_from_config(app, tmp_path, mon
         workflow = captured['workflow_data']
         assert 'ds_consistency_lora' in workflow
         lora_node = workflow['ds_consistency_lora']
-        assert lora_node['inputs']['lora_name'] == patched_lora
+        # Verify consistency_lora path separators are normalized to the OS (backslash on Windows)
+        expected_lora_name = patched_lora.replace('/', os.sep)
+        assert lora_node['inputs']['lora_name'] == expected_lora_name
         assert lora_node['inputs']['strength_model'] == 0.42
         assert workflow['139']['inputs']['model'] == ['ds_consistency_lora', 0]
