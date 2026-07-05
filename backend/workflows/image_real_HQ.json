@@ -1,0 +1,302 @@
+{
+  "1": {
+    "inputs": {
+      "ckpt_name": "Biglove\\mopMixtureOfPervertsDMD_v40.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Charger Point de Contrôle"
+    }
+  },
+  "3": {
+    "inputs": {
+      "text": "(casual Very cute and pretty:1.3), woman, (18 year old:1.3), 1girl, (smiling face:1.2), natural makeup, (skinny body:1.2), side part hair, pink hair, (texture, skin pores:1.3), (large breasts:1.3), cat girl costume, amateur photo, serene and calm, high ISO feel, vintage film aesthetic (grain:1.2), slightly seductive but natural, confident look straight at the camera, 8K resolution, moody and intimate, (Reddit-style shoot:1.2), soft cinematic blur in background, (hight fov :1)",
+      "clip": [
+        "10",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "text": "child, loli, mature, bad, wrong, blur, blurry, out of focus, anime, digital art, semirealistic, cartoon, manga, drawing, painting, fake, unreal, long nails, fake, wrong anatomy, hairy legs, big eyes, cgi, fake, bad anatomy, extra limbs, missing fingers, fused fingers, poorly drawn hands, poorly drawn face, mutated hands, long neck, extra arms, extra legs, extra fingers, disfigured, malformed limbs, missing limbs, fat, glitches, cropped, worst quality, low quality, jpeg artifacts, watermark, signature, text, logo, exaggerated features, unnatural skin tone, bokeh, tiling, deformed, lowres, out of frame, cgi, 3d render, aliasing, dick, cock, penis, blurry background, studio photo, professional photo, doll-like skin, plastic texture, uncanny valley, incorrect proportions, duplicate body parts, unnatural poses, large breasts, huge breasts, cum on face, piercing, too long legs, poor anatomical proportions, sweat",
+      "clip": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "seed": 400377838553477,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "lcm",
+      "scheduler": "ddim_uniform",
+      "denoise": 1,
+      "model": [
+        "10",
+        0
+      ],
+      "positive": [
+        "3",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "latent_image": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "6": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Image Latente Vide"
+    }
+  },
+  "10": {
+    "inputs": {
+      "lora_name": "DMD2\\dmd2_sdxl_4step_lora_fp16.safetensors",
+      "strength_model": 0,
+      "strength_clip": 0,
+      "model": [
+        "25",
+        0
+      ],
+      "clip": [
+        "25",
+        1
+      ]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "Charger LoRA"
+    }
+  },
+  "25": {
+    "inputs": {
+      "lora_name": "subtle\\subtle-sdxl_enhance.safetensors",
+      "strength_model": 0,
+      "strength_clip": 0,
+      "model": [
+        "64",
+        0
+      ],
+      "clip": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "Charger LoRA"
+    }
+  },
+  "53": {
+    "inputs": {
+      "noise": [
+        "63",
+        0
+      ],
+      "guider": [
+        "58",
+        0
+      ],
+      "sampler": [
+        "55",
+        0
+      ],
+      "sigmas": [
+        "57",
+        0
+      ],
+      "latent_image": [
+        "62",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "ÉchantillonneurPersonnaliséAvancé"
+    }
+  },
+  "55": {
+    "inputs": {
+      "detail_amount": 0.21,
+      "start": 0.2,
+      "end": 0.8,
+      "bias": 0.45,
+      "exponent": 1,
+      "start_offset": 0,
+      "end_offset": 0,
+      "fade": 0,
+      "smooth": true,
+      "cfg_scale_override": 0,
+      "sampler": [
+        "56",
+        0
+      ]
+    },
+    "class_type": "DetailDaemonSamplerNode",
+    "_meta": {
+      "title": "Detail Daemon Sampler"
+    }
+  },
+  "56": {
+    "inputs": {
+      "sampler_name": "lcm"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "57": {
+    "inputs": {
+      "scheduler": "karras",
+      "steps": 8,
+      "denoise": 1,
+      "model": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "PlanificateurBasique"
+    }
+  },
+  "58": {
+    "inputs": {
+      "model": [
+        "10",
+        0
+      ],
+      "conditioning": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "GuideBasique"
+    }
+  },
+  "60": {
+    "inputs": {
+      "images": [
+        "61",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Detail Daemon preview image"
+    }
+  },
+  "61": {
+    "inputs": {
+      "samples": [
+        "53",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "62": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 1.4,
+      "samples": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "LatentUpscaleBy",
+    "_meta": {
+      "title": "Mise à l'échelle Latente Par"
+    }
+  },
+  "63": {
+    "inputs": {
+      "noise_seed": 942928694207102
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "BruitAléatoire"
+    }
+  },
+  "64": {
+    "inputs": {
+      "block_number": 3,
+      "downscale_factor": 2,
+      "start_percent": 0,
+      "end_percent": 0.35,
+      "downscale_after_skip": true,
+      "downscale_method": "bicubic",
+      "upscale_method": "bicubic",
+      "model": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "PatchModelAddDownscale",
+    "_meta": {
+      "title": "PatchModelAddDownscale (Kohya Deep Shrink)"
+    }
+  },
+  "65": {
+    "inputs": {
+      "flask_url": "http://localhost:5000/api/comfyui/notify",
+      "notification_type": "custom",
+      "video_path": "",
+      "job_id": "",
+      "user_id": "",
+      "prompt_text": "",
+      "custom_message": "",
+      "include_file_info": false,
+      "save_image": true,
+      "filename_prefix": "HQ_GeneratedImage",
+      "auth_token": "",
+      "action_on_finish": "nothing",
+      "shutdown_delay_seconds": 3,
+      "extra_data": "{}",
+      "image_input": [
+        "61",
+        0
+      ]
+    },
+    "class_type": "HttpNotifyNode",
+    "_meta": {
+      "title": "HTTP Notify Node"
+    }
+  }
+}
