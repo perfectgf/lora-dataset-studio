@@ -7,7 +7,7 @@ import { useToast } from '../common/Toast';
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
  * Poll régulier : c'est ce poll qui fait avancer la file (fin du courant → suivant). */
-export default function TrainingPanel({ ds, keptCount }) {
+export default function TrainingPanel({ ds, keptCount, onCheckpointsChange }) {
   const { caps } = useCapabilities();
   const toast = useToast();
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
@@ -197,6 +197,7 @@ export default function TrainingPanel({ ds, keptCount }) {
     setCheckpoints(data.checkpoints || []);
     setImported(data.imported || []);
     setCkLoaded(true);
+    onCheckpointsChange?.(Array.isArray(data.checkpoints) ? data.checkpoints.length : 0);
   };
   // Recharge dès que la base change (sinon le panneau montrait les checkpoints du
   // dernier run + un « Continuer » trompeur, quelle que soit la base choisie). On
@@ -226,6 +227,12 @@ export default function TrainingPanel({ ds, keptCount }) {
   const baseLabel = currentBases.find((b) => b.value === base)?.label || (base || 'Official');
   const typeLabel = trainType === 'sdxl' ? 'SDXL' : trainType === 'krea' ? 'Krea 2' : 'Z-Image';
   const lorasLabel = trainType === 'sdxl' ? 'loras/sdxl' : trainType === 'krea' ? 'loras/krea' : 'loras/z image';
+
+  // Panel gated off (ai-toolkit not configured): the workspace's checkpoint
+  // count must not keep a stale value from a previous dataset/session.
+  useEffect(() => {
+    if (!caps.training_visible) onCheckpointsChange?.(0);
+  }, [caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!caps.training_visible) {
     return (

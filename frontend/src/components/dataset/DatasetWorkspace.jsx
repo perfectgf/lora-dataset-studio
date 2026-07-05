@@ -10,6 +10,9 @@ import DatasetGrid from './DatasetGrid';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
 import { useCapabilities } from '../../context/CapabilitiesContext';
+import GuidedStepper from './GuidedStepper';
+import NextStepCard from './NextStepCard';
+import useGuidedFlow from '../../hooks/useGuidedFlow';
 
 export default function DatasetWorkspace({ ds, onBack }) {
   const navigate = useNavigate();
@@ -20,6 +23,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [viewImg, setViewImg] = useState(null);
   const [showImages, setShowImages] = useState(true);
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
+  const [checkpointCount, setCheckpointCount] = useState(0);
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
   const images = d.images || [];
@@ -30,6 +34,25 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Style de caption : défaut AUTO (SDXL booru-native → booru tags ; sinon prose), surchargé par le sélecteur.
   const effCaptionMode = captionMode || (d.train_type === 'sdxl' ? 'booru' : 'prose');
   const pending = images.filter((i) => i.status === 'pending' && !i.filename).length;
+  const { steps, nextStep } = useGuidedFlow(d, caps, checkpointCount);
+  const jumpTo = (step) => {
+    const el = document.getElementById(step.targetId);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const b = el.querySelector('button:not([disabled])'); if (b) b.focus({ preventScroll: true }); }
+  };
+  const nextAction = () => {
+    if (!nextStep) return;
+    if (nextStep.id === 'caption') { ds.caption(effCaptionMode); return; }
+    if (nextStep.id === 'finish' && !caps.training_visible) { ds.exportZip(); return; }
+    if (nextStep.id === 'studio') { navigate(`/studio?dataset=${d.id}`); return; }
+    jumpTo(nextStep);
+  };
+  const nextActionLabel = !nextStep ? '' : {
+    reference: '📸 Go to reference', generate: '⚡ Go to generation', curate: '🖼️ Review the grid',
+    caption: '✨ Caption the kept ones',
+    finish: caps.training_visible ? '🎓 Go to training' : `⬇ Export ZIP (${kept})`,
+    studio: '🎛️ Open Studio',
+  }[nextStep.id];
   // Keep the inspected image in sync with poll refreshes (label/status updates).
   const viewImgLive = viewImg ? (images.find((i) => i.id === viewImg.id) || viewImg) : null;
 
@@ -107,6 +130,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </div>
       </div>
 
+      <GuidedStepper steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
+      <NextStepCard step={nextStep} trainMode={!!caps.training_visible} busy={ds.busy}
+        totalImages={images.length} onAction={nextAction} actionLabel={nextActionLabel} />
+
       {ds.busy && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2">
           <span className="inline-block w-4 h-4 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" aria-hidden />
@@ -131,7 +158,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
 
       <CompositionBar composition={d.composition} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div id="gf-reference" className="grid grid-cols-1 lg:grid-cols-2 gap-3 scroll-mt-4">
         <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
           onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
           extraRefs={d.ref_extra_filenames || []}
@@ -140,10 +167,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
         <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
       </div>
 
-      <VariationCatalog onGenerate={ds.generate} busy={ds.busy} hasRef={!!d.ref_filename}
-        composition={d.composition} />
+      <div id="gf-generate" className="scroll-mt-4">
+        <VariationCatalog onGenerate={ds.generate} busy={ds.busy} hasRef={!!d.ref_filename}
+          composition={d.composition} />
+      </div>
 
-      <TrainingPanel ds={ds} keptCount={kept} />
+      <div id="gf-training" className="scroll-mt-4">
+        <TrainingPanel ds={ds} keptCount={kept} onCheckpointsChange={setCheckpointCount} />
+      </div>
 
       {/* Lanceur du Studio de test LoRA : page dédiée plein écran /studio?dataset=
           (le LoRA du dataset y est pré-coché). Le dataset ouvert est persisté
@@ -165,7 +196,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </button>
       )}
 
-      <div className="flex flex-col gap-2">
+      <div id="gf-images" className="flex flex-col gap-2 scroll-mt-4">
         <button type="button" onClick={() => setShowImages((v) => !v)} aria-expanded={showImages}
           className="flex items-center gap-2 text-left text-content font-semibold text-sm">
           <span aria-hidden>🖼️</span> Dataset images
