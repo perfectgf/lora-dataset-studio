@@ -2,8 +2,8 @@
 fan-out) + import/classify/caption (Qwen3-VL) + curation + crop + export ZIP.
 
 No login — single local user (`cfg.LOCAL_USER`). Vision-dependent routes borrow
-the GPU-exclusive window (`_vision_window`) so a vision pass never fights
-ComfyUI for the single GPU; until Task 15 lands that window is a no-op.
+the GPU-exclusive window (`gpu_exclusive_vision_window`) so a vision pass never
+fights ComfyUI for the single GPU.
 """
 import io
 import os
@@ -12,6 +12,7 @@ import uuid
 from flask import Blueprint, request, jsonify, send_file, send_from_directory
 
 from ..config import LOCAL_USER
+from ..gpu_window import gpu_exclusive_vision_window, GpuBusyError
 from ..services import face_dataset_service as svc
 from ..services.face_variations import VARIATION_CATALOG, select_preset
 
@@ -21,33 +22,11 @@ _PRESET_NAMES = ('balanced_25', 'zimage_12', 'balanced_multiformat',
                  'face_focused', 'fullbody_focused')
 
 
-class _NullContext:
-    def __enter__(self):
-        return None
-
-    def __exit__(self, *exc):
-        return False
-
-
-def _vision_window(**kwargs):
-    """GPU-exclusive window for vision passes (classify/caption/head-crop).
-    Falls back to a no-op context manager until Task 15 lands `gpu_window`."""
-    try:
-        from ..gpu_window import gpu_exclusive_vision_window
-    except ImportError:
-        return _NullContext()
-    return gpu_exclusive_vision_window(**kwargs)
-
-
 def _map_error(e: Exception):
     """Map a service/vision exception to a Flask (body, status) tuple.
     Unrecognized exceptions are re-raised (-> 500, a real bug)."""
-    try:
-        from ..gpu_window import GpuBusyError
-    except ImportError:
-        GpuBusyError = ()  # isinstance(x, ()) is always False -> branch below is skipped
     if isinstance(e, GpuBusyError):
-        return jsonify({'error': 'GPU busy, try again'}), 503
+        return jsonify({'error': 'GPU busy', 'detail': str(e)}), 503
     if isinstance(e, ValueError):
         return jsonify({'error': str(e)}), 400
     if isinstance(e, RuntimeError):
@@ -95,7 +74,7 @@ def dataset_set_ref(dataset_id):
         return jsonify({'error': 'no file'}), 400
     raw = f.read()
     try:
-        with _vision_window():
+        with gpu_exclusive_vision_window():
             webp = svc.face_crop_to_square_webp(raw)  # auto head-crop
     except Exception as e:
         return _map_error(e)
@@ -176,7 +155,7 @@ def dataset_import(dataset_id):
     try:
         # batch (head-crop vision par image) : heartbeat de la fenêtre = ComfyUI arrêté
         # tout le batch ; le TTL n'est qu'un filet anti-crash.
-        with _vision_window(flag_ttl=300):
+        with gpu_exclusive_vision_window(flag_ttl=300):
             ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=True)  # auto head-crop
     except Exception as e:
         return _map_error(e)
@@ -188,7 +167,7 @@ def dataset_classify(dataset_id):
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
     try:
-        with _vision_window(flag_ttl=300):
+        with gpu_exclusive_vision_window(flag_ttl=300):
             n = svc.classify_images(LOCAL_USER, dataset_id)
     except Exception as e:
         return _map_error(e)
@@ -203,7 +182,7 @@ def dataset_caption(dataset_id):
     force = bool(data.get('force'))
     mode = data.get('mode')  # 'prose' | 'booru' | None (None → auto selon train_type)
     try:
-        with _vision_window(flag_ttl=300):
+        with gpu_exclusive_vision_window(flag_ttl=300):
             n = svc.caption_images(LOCAL_USER, dataset_id, force=force, mode=mode)
     except Exception as e:
         return _map_error(e)
