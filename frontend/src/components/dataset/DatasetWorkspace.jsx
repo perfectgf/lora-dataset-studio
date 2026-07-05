@@ -24,6 +24,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [showImages, setShowImages] = useState(true);
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
   const [checkpointCount, setCheckpointCount] = useState(0);
+  // Hooks must run unconditionally on every render — deriveSteps() null-guards `d`,
+  // so this is safe to call before the loading early-return below.
+  const { steps, nextStep } = useGuidedFlow(d, caps, checkpointCount);
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
   const images = d.images || [];
@@ -34,7 +37,6 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Style de caption : défaut AUTO (SDXL booru-native → booru tags ; sinon prose), surchargé par le sélecteur.
   const effCaptionMode = captionMode || (d.train_type === 'sdxl' ? 'booru' : 'prose');
   const pending = images.filter((i) => i.status === 'pending' && !i.filename).length;
-  const { steps, nextStep } = useGuidedFlow(d, caps, checkpointCount);
   const jumpTo = (step) => {
     const el = document.getElementById(step.targetId);
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' });
