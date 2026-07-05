@@ -1,0 +1,314 @@
+{
+  "6": {
+    "inputs": {
+      "text": [
+        "145",
+        0
+      ],
+      "clip": [
+        "90",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": [
+        "77",
+        0
+      ],
+      "vae": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "9": {
+    "inputs": {
+      "filename_prefix": "ComfyUI_2026-03-03",
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Enregistrer Image"
+    }
+  },
+  "10": {
+    "inputs": {
+      "vae_name": "flux2_vae.safetensors.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Charger VAE"
+    }
+  },
+  "52": {
+    "inputs": {
+      "image": "upscale_source_ed36f627_2_GeneratedImage_01407_.webp"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Charger Image"
+    }
+  },
+  "53": {
+    "inputs": {
+      "pixels": [
+        "174",
+        0
+      ],
+      "vae": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "77": {
+    "inputs": {
+      "seed": 186,
+      "steps": 5,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "beta57",
+      "denoise": 1,
+      "model": [
+        "102",
+        0
+      ],
+      "positive": [
+        "92",
+        0
+      ],
+      "negative": [
+        "110",
+        0
+      ],
+      "latent_image": [
+        "91",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "90": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Charger CLIP"
+    }
+  },
+  "91": {
+    "inputs": {
+      "width": [
+        "178",
+        0
+      ],
+      "height": [
+        "179",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": {
+      "title": "Flux vide vers latent"
+    }
+  },
+  "92": {
+    "inputs": {
+      "conditioning": [
+        "6",
+        0
+      ],
+      "latent": [
+        "53",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "ReferenceLatent (Positive)"
+    }
+  },
+  "100": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "90",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "102": {
+    "inputs": {
+      "max_shift": 1.15,
+      "base_shift": 0.6,
+      "width": [
+        "178",
+        0
+      ],
+      "height": [
+        "179",
+        0
+      ],
+      "model": [
+        "139",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingFlux",
+    "_meta": {
+      "title": "ModèleÉchantillonnageFlux"
+    }
+  },
+  "110": {
+    "inputs": {
+      "conditioning": [
+        "100",
+        0
+      ],
+      "latent": [
+        "53",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "ReferenceLatent (Negative)"
+    }
+  },
+  "114": {
+    "inputs": {
+      "unet_name": "Flux2 klein\\flux-2-klein-9b-kv-fp8.safetensors",
+      "weight_dtype": "fp8_e4m3fn"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Charger Modèle Diffusion"
+    }
+  },
+  "119": {
+    "inputs": {
+      "value": [
+        "175",
+        0
+      ]
+    },
+    "class_type": "easy int",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "120": {
+    "inputs": {
+      "value": [
+        "175",
+        1
+      ]
+    },
+    "class_type": "easy int",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "139": {
+    "inputs": {
+      "lora_name": "klein\\realistic.safetensors",
+      "strength_model": 0.8,
+      "model": [
+        "114",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "145": {
+    "inputs": {
+      "text1": "Turn a scene into a realistic photograph.\n"
+    },
+    "class_type": "TextBox1",
+    "_meta": {
+      "title": "Postive"
+    }
+  },
+  "174": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 2,
+      "resolution_steps": 1,
+      "image": [
+        "52",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "Redimensionner l'image en fonction du nombre total de pixels"
+    }
+  },
+  "175": {
+    "inputs": {
+      "image": [
+        "174",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "Obtenir la taille de l'image"
+    }
+  },
+  "178": {
+    "inputs": {
+      "any_02": [
+        "119",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "179": {
+    "inputs": {
+      "any_02": [
+        "120",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  }
+}

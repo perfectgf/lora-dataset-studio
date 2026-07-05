@@ -22,6 +22,14 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv('LDS_ENV', str(tmp_path / '.env'))
     import app.config as _cfg
     monkeypatch.setattr(_cfg, 'ENV_PATH', tmp_path / '.env')   # never touch the real .env in tests
+    # config.py caches load_config() in a module-level global keyed on nothing but
+    # "has it been loaded before" -- it isn't tied to LDS_CONFIG. Without resetting it
+    # here, a test that calls save_config() with a real comfyui.base_dir leaks that
+    # value into every later test's "fresh" app (same process, stale cache), even
+    # though each test gets its own tmp_path/env vars. Task 14 (Klein path) hit this:
+    # a test asserting "ComfyUI unconfigured -> RuntimeError" silently inherited a
+    # previous test's real base_dir and passed for the wrong reason.
+    monkeypatch.setattr(_cfg, '_cache', None)
     from app import create_app
     application = create_app({'TESTING': True, 'WTF_CSRF_ENABLED': False,
                               'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:'})
