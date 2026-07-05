@@ -1,3 +1,4 @@
+# API-only mode: ComfyUI and ai-toolkit are host-native and out of scope for this container.
 FROM python:3.12-slim
 WORKDIR /app
 COPY backend/requirements.txt backend/requirements.txt

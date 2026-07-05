@@ -1,3 +1,4 @@
+# API-only mode: ComfyUI and ai-toolkit are host-native and out of scope for this container.
 services:
   studio:
     build: .

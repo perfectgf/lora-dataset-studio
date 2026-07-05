@@ -2,6 +2,7 @@
 node_modules
 .venv
 data/
+data-docker/
 .env
 config.json
 .superpowers
