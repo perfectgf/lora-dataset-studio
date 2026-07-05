@@ -1,6 +1,7 @@
 """Helpers shared by more than one route blueprint."""
 from flask import jsonify
 
+from .. import capabilities
 from ..gpu_window import GpuBusyError
 
 
@@ -14,3 +15,13 @@ def _map_error(e: Exception):
     if isinstance(e, RuntimeError):
         return jsonify({'error': str(e)}), 409
     raise e
+
+
+def _require_comfyui():
+    """None if ComfyUI is reachable, else the (body, status) 409 to return.
+    Shared by studio.py and datasets.py's lora-test routes that actually enqueue
+    a ComfyUI job (run/resume) — read-only/history/DB-only routes stay ungated."""
+    if not capabilities.probe()['comfyui']['reachable']:
+        return jsonify({'error': 'ComfyUI is not reachable',
+                        'hint': 'Check the URL in Settings'}), 409
+    return None

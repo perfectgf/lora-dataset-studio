@@ -91,6 +91,48 @@ def test_create_run_commits_rows_before_enqueue(app, monkeypatch, tmp_path):
         assert all(r.job_id == 'job-xyz' and r.status == 'pending' for r in rows)
 
 
+def test_create_run_with_resolution_tier_resolves_dims_via_lifted_resolution_module(app, monkeypatch, tmp_path):
+    """Task 22 carry-forward: `_aspect_dims`'s lazy `from ..utils.resolution import
+    compute_tier_dims` must resolve now that resolution.py is lifted — before the
+    lift, any run requesting a resolution_tier raised ModuleNotFoundError."""
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.models import LoraTestImage
+    from app.config import LOCAL_USER
+    from app import config
+    from app.utils.resolution import compute_tier_dims
+    with app.app_context():
+        base = tmp_path / 'Comfy'
+        lora_dir = base / 'models' / 'loras' / 'z image'
+        lora_dir.mkdir(parents=True)
+        ck = 'z image\\lora_t_000002000.safetensors'
+        (lora_dir / 'lora_t_000002000.safetensors').touch()
+        unet_dir = base / 'models' / 'unet' / 'z image'
+        unet_dir.mkdir(parents=True)
+        (unet_dir / 'zmodel.safetensors').touch()
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        import app.utils.comfyui as comfyui_utils
+        monkeypatch.setattr(comfyui_utils, '_zimage_models_cache', {'data': None, 'timestamp': 0})
+        ds = svc.create_dataset(LOCAL_USER, 'Tier', 't')
+        captured = {}
+
+        def fake_build(*a, **k):
+            captured['width'] = k.get('width')
+            captured['height'] = k.get('height')
+            return {'1': {}}
+        monkeypatch.setattr(lts, '_build_cell_workflow', fake_build)
+        monkeypatch.setattr(lts, '_enqueue_cell', lambda *a, **k: 'job-tier')
+        monkeypatch.setattr(lts, 'gpu_busy_reason', lambda: None)
+        out = lts.create_run(LOCAL_USER, ds.id, [ck], [1.0], prompt='p', count=1,
+                             resolution_tier='hq')
+        rows = LoraTestImage.query.filter_by(dataset_id=ds.id).all()
+        assert out['created'] == len(rows) == 1
+        assert rows[0].resolution_tier == 'hq'
+        # No aspect requested -> DEFAULT_ASPECT '9:16', named 'tall' in
+        # _ASPECT_TO_TIER_RATIO (the only mapping create_run's _aspect_dims uses).
+        expected = compute_tier_dims('tall', 'hq')
+        assert (captured['width'], captured['height']) == expected
+
+
 def test_create_comparison_run_commits_rows_before_enqueue(app, monkeypatch, tmp_path):
     """Same commit-before-enqueue anti-orphan guarantee as create_run, exercised
     on the multi-LoRA comparison path (its own row-commit + enqueue loop)."""
