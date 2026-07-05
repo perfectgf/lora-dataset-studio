@@ -179,7 +179,7 @@ Cosmetic only — some UTF-8 text (em dashes, accents) renders incorrectly on th
 
 ## Screenshots
 
-Pending — placeholders below will be replaced once captured.
+Captured from a live run (demo dataset, placeholder art).
 
 ![Dataset workspace](docs/screenshots/dataset-workspace.png)
 ![Curation view with composition meter](docs/screenshots/curation-view.png)
