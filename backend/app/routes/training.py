@@ -209,7 +209,7 @@ def dataset_train_base_info(dataset_id):
     ds = svc.get_dataset(LOCAL_USER, dataset_id)
     if not ds:
         return jsonify({'error': 'not found'}), 404
-    bases = [{'value': '', 'label': 'Officiel — Z-Image-Turbo (recommandé)'}]
+    bases = [{'value': '', 'label': 'Official — Z-Image-Turbo (recommended)'}]
     converted = {}
     for m in get_zimage_models():
         bases.append({'value': m, 'label': m.replace('\\', '/').split('/')[-1].rsplit('.', 1)[0]})
@@ -224,7 +224,7 @@ def dataset_train_base_info(dataset_id):
                            'label': name.replace('\\', '/').split('/')[-1].rsplit('.', 1)[0]})
     # Krea 2 s'entraîne sur une base FIXE (Krea 2 Turbo via training adapter) — pas
     # de choix de checkpoint, pas de conversion.
-    krea_bases = [{'value': '', 'label': 'Officiel — Krea 2 Turbo (adapter)'}]
+    krea_bases = [{'value': '', 'label': 'Official — Krea 2 Turbo (adapter)'}]
     return jsonify({'bases': bases, 'base': ds.train_base_model or '',
                     'variant': ds.train_variant or 'turbo',
                     'converted': converted,
