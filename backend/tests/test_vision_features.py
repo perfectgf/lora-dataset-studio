@@ -21,7 +21,7 @@ def test_nested_window_raises_gpu_busy_and_clears_flag_on_exit(app, monkeypatch)
     monkeypatch.setattr('app.utils.comfyui.free_comfyui_vram', lambda *a, **k: True)
     with app.app_context():
         with gpu_exclusive_vision_window():
-            assert queue_manager._get_system_state('vision_in_progress') is True
+            assert queue_manager._get_system_state('vision_in_progress')  # flag is truthy (token string)
             with pytest.raises(GpuBusyError):
                 with gpu_exclusive_vision_window():
                     pass
@@ -64,6 +64,21 @@ def test_free_comfyui_vram_called_best_effort_and_exception_swallowed(app, monke
         with gpu_exclusive_vision_window():
             pass  # must not raise even though free_comfyui_vram blew up
     assert calls, 'free_comfyui_vram should have been called'
+
+
+def test_window_ownership_prevents_flag_stomp_on_re_acquisition(app, monkeypatch):
+    from app.gpu_window import gpu_exclusive_vision_window
+    from app.job_queue import queue_manager
+    monkeypatch.setattr('app.utils.comfyui.free_comfyui_vram', lambda *a, **k: True)
+    with app.app_context():
+        with gpu_exclusive_vision_window():
+            # Simulate flag expiry + re-acquisition by a different caller
+            queue_manager._set_system_state('vision_in_progress', 'someone-else-token')
+        # After exiting the window, the flag must still belong to the re-acquirer
+        # (the exited window must not stomp it with None)
+        assert queue_manager._get_system_state('vision_in_progress') == 'someone-else-token'
+        # clean up for test isolation
+        queue_manager._set_system_state('vision_in_progress', None)
 
 
 # --- import_images(crop=True) head-crop ---------------------------------

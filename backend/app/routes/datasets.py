@@ -155,7 +155,7 @@ def dataset_import(dataset_id):
     try:
         # batch (head-crop vision par image) : heartbeat de la fenêtre = ComfyUI arrêté
         # tout le batch ; le TTL n'est qu'un filet anti-crash.
-        with gpu_exclusive_vision_window(flag_ttl=300):
+        with gpu_exclusive_vision_window(flag_ttl=600):
             ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=True)  # auto head-crop
     except Exception as e:
         return _map_error(e)
@@ -167,7 +167,7 @@ def dataset_classify(dataset_id):
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
     try:
-        with gpu_exclusive_vision_window(flag_ttl=300):
+        with gpu_exclusive_vision_window(flag_ttl=1800):
             n = svc.classify_images(LOCAL_USER, dataset_id)
     except Exception as e:
         return _map_error(e)
@@ -182,7 +182,7 @@ def dataset_caption(dataset_id):
     force = bool(data.get('force'))
     mode = data.get('mode')  # 'prose' | 'booru' | None (None → auto selon train_type)
     try:
-        with gpu_exclusive_vision_window(flag_ttl=300):
+        with gpu_exclusive_vision_window(flag_ttl=1800):
             n = svc.caption_images(LOCAL_USER, dataset_id, force=force, mode=mode)
     except Exception as e:
         return _map_error(e)
