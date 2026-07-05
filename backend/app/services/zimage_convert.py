@@ -95,8 +95,8 @@ def convert(z_model: str) -> str:
         raise ValueError(f'base model not found on disk: {z_model}')
     official_config_path = _official_config()
     if not official_config_path:
-        raise ValueError("config.json Z-Image-Turbo absent du cache HF - lance d'abord "
-                         "un entraînement sur la base officielle (télécharge le modèle)")
+        raise ValueError("config.json for Z-Image-Turbo is missing from the HF cache - first run "
+                         "a training on the official base (this downloads the model)")
     out = converted_dir(z_model)
     os.makedirs(out, exist_ok=True)
     logger.info(f'conversion base {z_model} -> {out}')

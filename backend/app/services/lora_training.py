@@ -205,7 +205,7 @@ def _sdxl_base_path(base_model: str) -> str:
     name = str(base_model or '')
     parts = name.replace('\\', '/').split('/')
     if os.path.isabs(name) or '..' in parts:
-        raise ValueError('chemin de base SDXL invalide')
+        raise ValueError('invalid SDXL base path')
     checkpoints_dir = str(_sdxl_checkpoints_dir())
     cand = os.path.join(checkpoints_dir, name)
     if os.path.exists(cand):
@@ -323,7 +323,7 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
     jamais bloquant : l'entraînement part simplement sans masques (loggé)."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     trigger = _safe_trigger(ds)
     out = str(_datasets_dir() / _run_name(ds))
     if os.path.isdir(out):
@@ -549,7 +549,7 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int) -> dict:
     trigger = _safe_trigger(ds)
     base_model = getattr(ds, 'train_base_model', None)
     if not base_model:
-        raise ValueError('SDXL : un checkpoint de base est requis')
+        raise ValueError('SDXL: a base checkpoint is required')
     model = {'arch': 'sdxl', 'name_or_path': _sdxl_base_path(base_model),
              'quantize': False, 'quantize_te': False}
     return {
@@ -612,7 +612,7 @@ _CK_RE = re.compile(r'_(\d{4,})\.safetensors$')
 def _run_dir(user_id, dataset_id, base_model=_PERSISTED, family=None) -> str:
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     # ai-toolkit écrit ses checkpoints/samples dans <training_folder>/<name>/
     # où name = 'lora_<trigger>' (cf. build_job_config). On pointe ce sous-dossier.
     # `base_model` cible le run d'une base PRÉCISE (sélection UI) ; `family` cible la
@@ -666,11 +666,11 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
     utilisent la MÊME base+famille → cohérent (un LoRA Krea part bien en loras/krea)."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     run = _run_dir(user_id, dataset_id, base_model, family)
     allowed = {c['filename'] for c in list_checkpoints(user_id, dataset_id, base_model, family)}
     if filename not in allowed:
-        raise ValueError('checkpoint inconnu')
+        raise ValueError('unknown checkpoint')
     # Déploiement routé par famille : sdxl → loras/sdxl, krea → loras/krea, sinon
     # « z image » (ne pollue pas le Test Studio Z-Image ; un LoRA Krea atterrit
     # directement dans le dossier lu par le menu de génération Krea).
@@ -734,7 +734,7 @@ def delete_imported_checkpoint(user_id, dataset_id, filename, family=None) -> st
     ds = fds.get_dataset(user_id, dataset_id)
     allowed = {c['filename'] for c in list_imported_checkpoints(user_id, dataset_id, family=family)}
     if filename not in allowed:
-        raise ValueError('checkpoint inconnu')
+        raise ValueError('unknown checkpoint')
     # ds is guaranteed truthy here: an unowned/missing dataset makes
     # list_imported_checkpoints return [] above, which already raised.
     root = os.path.abspath(_lora_dest_dir(ds, family))
@@ -742,7 +742,7 @@ def delete_imported_checkpoint(user_id, dataset_id, filename, family=None) -> st
     rel = filename.replace('\\', os.sep).replace('/', os.sep)
     dest = os.path.abspath(os.path.join(loras_root, rel))
     if os.path.commonpath([dest, root]) != root or not os.path.isfile(dest):
-        raise ValueError('fichier introuvable')
+        raise ValueError('file not found')
     os.remove(dest)
     logger.info(f'delete imported checkpoint {dest}')
     return os.path.basename(dest)
@@ -900,7 +900,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
         raise RuntimeError('ai-toolkit is not configured')
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     # Garde-fou anti double-lancement : un entraînement DÉJÀ vivant (flag levé +
     # pid en vie) → refuser. Deux process sur le même GPU/dossier corrompent
     # l'optimizer partagé (incident Test/Test 2). Un pid mort avec flag encore
@@ -928,22 +928,22 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # SDXL : la base vient brute du body → whitelist serveur (anti path-traversal,
     # comme prepare-base le fait pour Z-Image). Refus immédiat si inconnue.
     if base_model and _train_type(ds) == 'sdxl' and base_model not in _sdxl_base_choices():
-        raise ValueError('checkpoint SDXL inconnu')
+        raise ValueError('unknown SDXL checkpoint')
     # Krea 2 : refuser TÔT si l'ai-toolkit installé n'a pas l'arch krea2 (sinon
     # fallback silencieux vers le loader SD legacy → mauvais modèle, plantage confus).
     if _train_type(ds) == 'krea' and not _aitoolkit_supports_krea():
         raise ValueError(
-            "ai-toolkit ne supporte pas encore Krea 2 (arch « krea2 » absente) - "
-            "mets-le à jour (git pull) avant d'entraîner un LoRA Krea.")
+            "ai-toolkit doesn't support Krea 2 yet (krea2 arch missing) - "
+            "update it (git pull) before training a Krea LoRA.")
     # Garde-fou anti-collision de dossier : un AUTRE dataset du user avec le même
     # (trigger, base) écrirait dans le même run → LoRA mélangés. Refuser AVANT de
     # persister/lancer, en nommant le conflit pour que l'utilisateur change un trigger.
     clash = find_run_collision(user_id, dataset_id, base_model=base_model)
     if clash:
         raise ValueError(
-            f"collision d'entraînement : le dataset « {clash.name} » (#{clash.id}) utilise "
-            f"déjà le même trigger « {ds.trigger_word} » sur la même base - ils écriraient "
-            f"dans le même dossier. Change le trigger_word de l'un des deux avant d'entraîner.")
+            f"training collision: dataset '{clash.name}' (#{clash.id}) already uses "
+            f"the same trigger '{ds.trigger_word}' on the same base - they would write "
+            f"to the same folder. Change the trigger_word of one of the two before training.")
     ds.train_base_model = base_model
     ds.train_variant = variant
     fds.db.session.commit()
@@ -975,7 +975,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except (FileNotFoundError, OSError) as e:
         queue_manager._set_system_state('training_in_progress', False, ttl_seconds=None)
-        raise ValueError(f"lancement entraînement impossible : {e}")
+        raise ValueError(f"could not start training: {e}")
     queue_manager._set_system_state('training_pid', proc.pid, ttl_seconds=4 * 3600)
     # Watcher event-driven : libère ComfyUI / enchaîne la file dès la fin du
     # process (le poll de /train/status reste le filet de secours).
@@ -1091,12 +1091,12 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False) 
         if actual != expected:
             if expected == 'booru':
                 raise ValueError(
-                    "MISMATCH_CAPTION: ce dataset SDXL a des captions en PROSE, or un modèle "
-                    "booru (type bigLove) se prompte en tags. Re-captionne en mode « Booru tags » "
-                    "avant d'entraîner, ou force l'entraînement.")
+                    "MISMATCH_CAPTION: this SDXL dataset has PROSE captions, but a booru "
+                    "model (bigLove type) is prompted with tags. Re-caption in 'Booru tags' mode "
+                    "before training, or force the training.")
             raise ValueError(
-                "MISMATCH_CAPTION: ce dataset Z-Image a des captions en TAGS booru, or Z-Image "
-                "attend de la prose. Re-captionne en mode « Prose », ou force l'entraînement.")
+                "MISMATCH_CAPTION: this Z-Image dataset has booru TAG captions, but Z-Image "
+                "expects prose. Re-caption in 'Prose' mode, or force the training.")
 
 
 def training_status(user_id=None) -> dict:
@@ -1150,7 +1150,7 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
     lancement différé respecte le même plafond (ex. « s'arrêter à 2000 »)."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     # Pas de mise en file si le dataset n'est pas prêt (captions manquantes, etc.).
     if extra_steps is None:
         assert_trainable(dataset_id, train_type=train_type, allow_caption_mismatch=allow_caption_mismatch)
@@ -1168,22 +1168,22 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
             raise ValueError('custom base not converted - prepare it first (button "Convert base")')
     # SDXL : whitelist serveur de la base (anti path-traversal).
     if base and ttype == 'sdxl' and base not in _sdxl_base_choices():
-        raise ValueError('checkpoint SDXL inconnu')
+        raise ValueError('unknown SDXL checkpoint')
     # Krea 2 : même garde qu'au lancement - pas de mise en file d'un job qui
     # tomberait dans le fallback SD legacy faute d'arch krea2 dans l'ai-toolkit.
     if ttype == 'krea' and not _aitoolkit_supports_krea():
         raise ValueError(
-            "ai-toolkit ne supporte pas encore Krea 2 (arch « krea2 » absente) - "
-            "mets-le à jour (git pull) avant de mettre un LoRA Krea en file.")
+            "ai-toolkit doesn't support Krea 2 yet (krea2 arch missing) - "
+            "update it (git pull) before queuing a Krea LoRA.")
     # Même garde-fou de collision qu'au lancement : pas de mise en file d'un job
     # qui partagerait le dossier de run d'un autre dataset (même trigger + base).
     clash = find_run_collision(user_id, dataset_id, base_model=base)
     if clash:
-        raise ValueError(f"collision d'entraînement avec « {clash.name} » (#{clash.id}) : "
-                         f"même trigger + même base. Change le trigger_word avant la mise en file.")
+        raise ValueError(f"training collision with '{clash.name}' (#{clash.id}): "
+                         f"same trigger + same base. Change the trigger_word before queuing.")
     q = get_train_queue()
     if any(int(it.get('dataset_id', -1)) == int(dataset_id) for it in q):
-        return {'queued': False, 'reason': 'déjà en file'}
+        return {'queued': False, 'reason': 'already queued'}
     # Snapshot de la base/variante/type CHOISIE au moment de la mise en file (le
     # lancement différé doit garder CE choix, pas relancer sur l'officiel/zimage).
     # `not_before` (ISO, heure locale serveur) = entraînement PROGRAMMÉ : le job

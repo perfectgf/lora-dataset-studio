@@ -67,7 +67,7 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
         raise ValueError("failed to load Klein edit workflow")
     for node in _REQUIRED_NODES:
         if node not in workflow:
-            raise ValueError(f"workflow node {node} missing — improve skin.json a changé")
+            raise ValueError(f"workflow node {node} missing — improve skin.json has changed")
 
     uid = uuid.uuid4().hex[:8]
     comfy_input = f"edit_source_{uid}_{source_filename}"

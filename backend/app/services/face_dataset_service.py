@@ -592,7 +592,7 @@ def analyze_faces(user_id, dataset_id) -> dict:
     suppression. Tourne sur CPU -> pas de fenetre GPU. Retourne {state: count}."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     if not ds.ref_filename:
         raise ValueError('reference photo missing')
     ref_path = _ref_path(ds)

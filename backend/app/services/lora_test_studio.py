@@ -352,9 +352,9 @@ def gpu_busy_reason() -> str | None:
     task (LoRA training / vision pass), else None. The queue itself serializes
     normal generations, so no further locking is needed."""
     if queue_manager._get_system_state('training_in_progress', False):
-        return "Entraînement LoRA en cours - le studio est indisponible (GPU occupé)."
+        return "LoRA training in progress - the studio is unavailable (GPU busy)."
     if queue_manager._get_system_state('vision_in_progress', False):
-        return "Passe vision en cours (GPU occupé) - réessaie dans un instant."
+        return "Vision pass in progress (GPU busy) - try again in a moment."
     return None
 
 
@@ -382,9 +382,9 @@ def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=Non
         try:
             v = round(float(s), 2)
         except (TypeError, ValueError):
-            raise ValueError(f'strength invalide : {s!r}')
+            raise ValueError(f'invalid strength: {s!r}')
         if not 0.05 <= v <= 2.0:
-            raise ValueError(f'strength hors limites [0.05, 2.0] : {v}')
+            raise ValueError(f'strength out of range [0.05, 2.0]: {v}')
         if v not in sts:
             sts.append(v)
     asp = []
@@ -426,7 +426,7 @@ def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=Non
     if not sps2:
         sps2 = [None]
     if not cps or not sts:
-        raise ValueError('au moins un checkpoint et une strength requis')
+        raise ValueError('at least one checkpoint and one strength are required')
     # Pas de plafond : la file est sérielle et l'utilisateur a déjà l'estimation
     # du nombre de cellules / de la durée dans l'UI avant de lancer.
     return [(c, s, a, cf, sp, sp2)
@@ -446,9 +446,9 @@ def apply_sdxl_lora_test_settings(workflow, *, base_ckpt, lora_name, strength,
     sur `steps`. Node IDs = ceux d'app/main/routes.py. Mutate en place. Lève ValueError
     si le checkpoint/LoRA n'est pas dans sa whitelist (anti path-injection)."""
     if allowed_bases is not None and base_ckpt not in allowed_bases:
-        raise ValueError(f"checkpoint SDXL inconnu : {base_ckpt}")
+        raise ValueError(f"unknown SDXL checkpoint: {base_ckpt}")
     if allowed_loras is not None and lora_name not in allowed_loras:
-        raise ValueError(f"LoRA SDXL inconnu : {lora_name}")
+        raise ValueError(f"unknown SDXL LoRA: {lora_name}")
 
     def _set(node_id, key, value):
         n = workflow.get(node_id)
@@ -508,7 +508,7 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
     force (clampé 1..8). Mutate en place. Lève ValueError si le LoRA testé n'est pas dans
     sa whitelist (anti path-injection)."""
     if allowed_loras is not None and lora_name not in allowed_loras:
-        raise ValueError(f"LoRA Krea inconnu : {lora_name}")
+        raise ValueError(f"unknown Krea LoRA: {lora_name}")
 
     def _set(node_id, key, value):
         n = workflow.get(node_id)
@@ -591,7 +591,7 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
     if (train_type or 'zimage').lower() == 'sdxl':
         workflow = load_workflow_local(str(WORKFLOW_HQ_PATH))
         if not workflow:
-            raise ValueError('workflow HQ introuvable/illisible')
+            raise ValueError('HQ workflow not found/unreadable')
         from ..utils.comfyui import get_checkpoint_models, inject_sdxl_loras
         allowed_bases = {m.get('name') for m in get_checkpoint_models() if m.get('name')}
         allowed_sdxl_loras = {l['filename'] for l in get_sdxl_loras()}
@@ -613,7 +613,7 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
     if (train_type or 'zimage').lower() == 'krea':
         workflow = load_workflow_local(str(WORKFLOW_KREA_TURBO_PATH))
         if not workflow:
-            raise ValueError('workflow Krea introuvable/illisible')
+            raise ValueError('Krea workflow not found/unreadable')
         allowed_krea = {l['filename'] for l in get_krea_loras()}
         apply_krea_lora_test_settings(
             workflow, lora_name=checkpoint, strength=strength, prompt=prompt,
@@ -626,7 +626,7 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
         return workflow
     workflow = load_workflow_local(str(WORKFLOW_ZTURBO_PATH))
     if not workflow:
-        raise ValueError('workflow ZTurbo introuvable/illisible')
+        raise ValueError('ZTurbo workflow not found/unreadable')
     apply_zimage_settings(
         workflow,
         z_model=z_model,
@@ -737,9 +737,9 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     already-enqueued cells keep their jobs. Returns {'created', 'seed', 'count', 'ids'}."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     if not (ds.trigger_word or '').strip():
-        raise ValueError('trigger word requis')
+        raise ValueError('trigger word is required')
 
     reason = gpu_busy_reason()
     if reason:
@@ -755,7 +755,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     # n'ont pas de préfixe de dossier (anciens noms renommés).
     cps_in = [c for c in (checkpoints or []) if isinstance(c, str) and c.strip()]
     if not cps_in:
-        raise ValueError('au moins un checkpoint requis')
+        raise ValueError('at least one checkpoint is required')
     fams = {family_of_lora(c) for c in cps_in}
     fams.discard(None)
     if len(fams) > 1:
@@ -765,7 +765,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     allowed = {c['filename'] for c in list_test_checkpoints(ds, run_family)}
     unknown = [c for c in cps_in if c not in allowed]
     if unknown:
-        raise ValueError(f'checkpoint(s) inconnu(s) pour ce dataset : {unknown}')
+        raise ValueError(f'unknown checkpoint(s) for this dataset: {unknown}')
 
     # LoRA « always-on » (style/utilitaire) appliqués à CHAQUE cellule (hors batch).
     # Validés contre les candidats de la famille (anti path-injection) + strength clamp.
@@ -813,7 +813,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     if run_family == 'sdxl':
         models = [m['filename'] for m in list_sdxl_base_models()]
         if not models:
-            raise ValueError('aucun checkpoint SDXL disponible')
+            raise ValueError('no SDXL checkpoint available')
     elif run_family == 'krea':
         models = [None]  # Krea : UNET fixe → un seul « modèle » (z_model=None)
     else:
@@ -828,7 +828,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     try:
         seed = int(seed) if seed is not None else random.randint(1, 2**31 - 1)
     except (TypeError, ValueError):
-        raise ValueError(f'seed invalide : {seed!r}')
+        raise ValueError(f'invalid seed: {seed!r}')
 
     # Nombre de générations par config (batch) : N seeds DISTINCTS, PARTAGÉS entre
     # toutes les configs (comparaison équitable à seeds identiques). Borné 1..4.
@@ -922,7 +922,7 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
     if run_type == 'sdxl':
         models = [m['filename'] for m in list_sdxl_base_models()]
         if not models:
-            raise ValueError('aucun checkpoint SDXL disponible')
+            raise ValueError('no SDXL checkpoint available')
     elif run_type == 'krea':
         models = [None]  # Krea : UNET fixe (node 20) → pas d'axe de base (z_model=None)
     else:
@@ -933,7 +933,7 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
     try:
         seed = int(seed) if seed is not None else random.randint(1, 2**31 - 1)
     except (TypeError, ValueError):
-        raise ValueError(f'seed invalide : {seed!r}')
+        raise ValueError(f'invalid seed: {seed!r}')
     try:
         count = max(1, min(int(count or 1), 4))
     except (TypeError, ValueError):
@@ -979,11 +979,11 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
     for sel in selections:
         ds = fds.get_dataset(user_id, sel.get('dataset_id'))
         if not ds:
-            raise ValueError(f"dataset {sel.get('dataset_id')} introuvable")
+            raise ValueError(f"dataset {sel.get('dataset_id')} not found")
         allowed = {c['filename'] for c in list_test_checkpoints(ds, run_type)}
         checkpoint = sel.get('checkpoint')
         if checkpoint not in allowed:
-            raise ValueError(f'checkpoint inconnu pour {ds.name} : {checkpoint}')
+            raise ValueError(f'unknown checkpoint for {ds.name}: {checkpoint}')
         cell_prompt = common_prompt or identity_prompt(ds)
         cells = build_matrix([checkpoint], strengths, aspects, cfgs, steps_list, steps2_list)
         for cp, strength, cell_aspect, cell_cfg, cell_steps, cell_steps2 in cells:
@@ -1076,7 +1076,7 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
     historique par `dataset_id`."""
     if run_id is not None:
         if not _run_owned(user_id, run_id):
-            raise ValueError('run introuvable')
+            raise ValueError('run not found')
         reason = gpu_busy_reason()
         if reason:
             raise ValueError(reason)
@@ -1087,7 +1087,7 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
     else:
         ds = fds.get_dataset(user_id, dataset_id)
         if not ds:
-            raise ValueError('dataset introuvable')
+            raise ValueError('dataset not found')
         reason = gpu_busy_reason()
         if reason:
             raise ValueError(reason)
@@ -1511,17 +1511,17 @@ def set_best_settings(user_id, dataset_id, checkpoint, strength,
     contre les bases du bon type (Krea = base fixe → modèle ignoré). Retourne le réglage."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     family = (family_of_lora(checkpoint) or getattr(ds, 'train_type', None) or 'zimage').lower()
     allowed = {c['filename'] for c in list_test_checkpoints(ds, family)}
     if checkpoint not in allowed:
-        raise ValueError('checkpoint inconnu pour ce dataset')
+        raise ValueError('unknown checkpoint for this dataset')
     try:
         strength = round(float(strength), 2)
     except (TypeError, ValueError):
-        raise ValueError(f'strength invalide : {strength!r}')
+        raise ValueError(f'invalid strength: {strength!r}')
     if not 0.05 <= strength <= 2.0:
-        raise ValueError(f'strength hors limites : {strength}')
+        raise ValueError(f'strength out of range: {strength}')
     # Whitelist de bases selon la FAMILLE (SDXL → bases SDXL ; Krea → aucune base
     # sélectionnable ; sinon Z-Image), sinon une base d'une autre famille était jetée.
     if family == 'sdxl':
@@ -1568,7 +1568,7 @@ def clear_best_settings(user_id, dataset_id, family=None) -> bool:
     survivent) ; absent → efface tout. Idempotent (pas d'erreur s'il n'y a rien)."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     if family:
         m = _best_map(ds)
         m.pop((family or '').lower(), None)
@@ -1590,7 +1590,7 @@ def score_faces(user_id, dataset_id, family=None) -> dict:
     facial mesuré au lieu du dernier. Idempotent : rescorer écrase les scores."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     if not ds.ref_filename:
         raise ValueError('reference photo missing')
     ref_path = fds._ref_path(ds)
@@ -1651,7 +1651,7 @@ def delete_prompt(user_id, dataset_id, prompt) -> int:
     de cellules supprimées."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
-        raise ValueError('dataset introuvable')
+        raise ValueError('dataset not found')
     p = (prompt or '').strip()
     if not p:
         return 0
