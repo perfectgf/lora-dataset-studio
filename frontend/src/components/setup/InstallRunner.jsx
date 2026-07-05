@@ -11,12 +11,14 @@ export default function InstallRunner({ action, buttonLabel, manualCommand, onDo
   const [log, setLog] = useState([])
   const [returncode, setReturncode] = useState(null)
   const timer = useRef(null)
+  const mountedRef = useRef(true)
 
-  useEffect(() => () => clearTimeout(timer.current), [])
+  useEffect(() => () => { mountedRef.current = false; clearTimeout(timer.current) }, [])
 
   const poll = async () => {
     try {
       const s = await apiFetch(`/api/setup/install/${action}/status`)
+      if (!mountedRef.current) return
       setState(s.state); setLog(s.log || []); setReturncode(s.returncode)
       if (s.state === 'running') {
         timer.current = setTimeout(poll, POLL_MS)
@@ -26,7 +28,7 @@ export default function InstallRunner({ action, buttonLabel, manualCommand, onDo
         toast.error('Install failed — see the log or run the command manually.')
       }
     } catch {
-      timer.current = setTimeout(poll, POLL_MS)   // transient poll error — retry
+      if (mountedRef.current) timer.current = setTimeout(poll, POLL_MS)   // transient poll error — retry
     }
   }
 
