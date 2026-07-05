@@ -8,6 +8,8 @@ import ErrorBoundary from './components/common/ErrorBoundary'
 import DatasetPage from './pages/DatasetPage'
 import StudioPage from './pages/StudioPage'
 import SettingsPage from './pages/SettingsPage'
+import SetupPage from './pages/SetupPage'
+import { recommendedMet } from './hooks/useSetupSteps'
 
 const NAV_ITEM_BASE =
   'px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors'
@@ -26,6 +28,12 @@ function NavBar() {
         </span>
         <nav className="flex gap-1" aria-label="Main navigation">
           <NavLink to="/datasets" className={navItemClass}>Datasets</NavLink>
+          <NavLink to="/setup" className={navItemClass}>
+            <span className="inline-flex items-center gap-1">
+              Setup
+              {!recommendedMet(caps) && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-primary" />}
+            </span>
+          </NavLink>
           {caps.studio_visible && (
             <NavLink to="/studio" className={navItemClass}>Test Studio</NavLink>
           )}
@@ -42,7 +50,7 @@ function OnboardingRedirect() {
   const { caps, loading } = useCapabilities()
   const navigate = useNavigate()
   useEffect(() => {
-    if (!loading && !caps.configured) navigate('/settings', { replace: true })
+    if (!loading && !caps.configured) navigate('/setup', { replace: true })
   }, [loading, caps.configured, navigate])
   return null
 }
@@ -83,6 +91,7 @@ function AppInner() {
             <Route path="/studio" element={<StudioPage />} />
             <Route path="/dataset/studio/:id" element={<StudioPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/setup" element={<SetupPage />} />
             <Route path="*" element={<Navigate to="/datasets" replace />} />
           </Route>
         </Routes>
