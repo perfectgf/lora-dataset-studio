@@ -81,6 +81,7 @@ function AppInner() {
             <Route path="/" element={<Navigate to="/datasets" replace />} />
             <Route path="/datasets" element={<DatasetPage />} />
             <Route path="/studio" element={<StudioPage />} />
+            <Route path="/dataset/studio/:id" element={<StudioPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/datasets" replace />} />
           </Route>

@@ -1,0 +1,254 @@
+// react-frontend/src/components/dataset/studio/ComparisonStudio.jsx
+/**
+ * Studio de COMPARAISON multi-LoRA (≥2 LoRA cochés). Branche « comparaison » de
+ * StudioShell.
+ *
+ * Flux : règle un run (StudioRunSetup) sur la `selection` reçue → POST
+ * /api/studio/run → useStudioRun(run_id) pilote l'affichage (poll + vote +
+ * cancel/resume). Grille colonnes = LoRA × lignes = strength (LoraComparisonGrid),
+ * panneau « 🏆 Classement LoRA » (data.lora_ranking). Vote rapide (file + swipe)
+ * et lightbox réutilisent useQuickVote / QuickVoteModal / ResultLightbox.
+ *
+ * Le LoraPicker reste dans StudioShell (partagé avec la branche 1-LoRA) ; ici on
+ * reçoit la sélection figée et on pilote uniquement le run.
+ */
+import { useEffect, useMemo, useState } from 'react';
+import { postJson } from '../../../api/fetchClient';
+import { useToast } from '../../common/Toast';
+import { useStudioRun } from '../../../hooks/useStudioRun';
+import { useQuickVote } from '../../../hooks/useQuickVote';
+import { fmt } from '../../../utils/studioFormat';
+import { DEFAULT_STRENGTHS, FAMILY_LABELS } from './constants';
+import StudioRunSetup from './StudioRunSetup';
+import StudioGenerationSettings from './StudioGenerationSettings';
+import StudioActionBar from './StudioActionBar';
+import LoraComparisonGrid from './LoraComparisonGrid';
+import LoraRankingPanel from './LoraRankingPanel';
+import RunSelector from './RunSelector';
+import QuickVoteModal from './QuickVoteModal';
+import ResultLightbox from './ResultLightbox';
+
+const rollSeed = () => Math.floor(Math.random() * 2 ** 31);
+
+export default function ComparisonStudio({ selection, baseModels = [], runType = 'zimage' }) {
+  const toast = useToast();
+
+  // --- Réglages du run (persistés : recharger la page ne les perd plus) --------
+  const [strengths, setStrengths] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('studioComp_strengths') || 'null');
+      return Array.isArray(v) && v.length ? v : DEFAULT_STRENGTHS;
+    } catch { return DEFAULT_STRENGTHS; }
+  });
+  const [prompt, setPrompt] = useState(() => {
+    try { return localStorage.getItem('studioComp_prompt') || ''; } catch { return ''; }
+  });
+  const [seed, setSeed] = useState(() => rollSeed());
+  const [count, setCount] = useState(() => {
+    try { return Math.max(1, parseInt(localStorage.getItem('studioComp_count'), 10) || 1); } catch { return 1; }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('studioComp_strengths', JSON.stringify(strengths));
+      localStorage.setItem('studioComp_prompt', prompt);
+      localStorage.setItem('studioComp_count', String(count));
+    } catch { /* private mode */ }
+  }, [strengths, prompt, count]);
+  const [launching, setLaunching] = useState(false);
+  // Réglages de génération GLOBAUX (parité Generate) remontés par StudioGenerationSettings.
+  // Objet snake_case déjà prêt à fusionner dans le POST /run (voir launch()).
+  const [genSettings, setGenSettings] = useState({});
+  const toggleStrength = (s) =>
+    setStrengths((cur) => (cur.includes(s) ? cur.filter((v) => v !== s) : [...cur, s].sort((a, b) => a - b)));
+
+  // Modèle de base sélectionné : défaut = 1er de la liste fournie par le parent.
+  // Se réinitialise quand baseModels change (changement de runType).
+  const [selectedBase, setSelectedBase] = useState('');
+  useEffect(() => {
+    setSelectedBase(baseModels.length > 0 ? baseModels[0].filename : '');
+  }, [baseModels]);
+
+  // --- Run piloté --------------------------------------------------------------
+  const [runId, setRunId] = useState(null);
+  const run = useStudioRun(runId);
+  const data = run.data;
+  const loras = data?.loras || [];
+  const cells = useMemo(() => data?.cells || [], [data]);
+
+  const vote = useQuickVote(run.rate);
+  const [lbImg, setLbImg] = useState(null);
+  const [showResults, setShowResults] = useState(true);
+  const rateLightbox = (id, nv) => {
+    run.rate(id, nv);
+    setLbImg((p) => (p && p.id === id ? { ...p, rating: nv } : p));
+  };
+
+  const unvoted = useMemo(
+    () => cells.filter((c) => c.status === 'done' && c.filename && !c.rating),
+    [cells],
+  );
+  const greens = useMemo(
+    () => cells.filter((c) => c.status === 'done' && c.filename && c.rating === 1),
+    [cells],
+  );
+
+  const launch = async () => {
+    if (!selection.length || !strengths.length) return;
+    setLaunching(true);
+    try {
+      const body = {
+        selections: selection.map((s) => ({ dataset_id: s.dataset_id, checkpoint: s.checkpoint })),
+        strengths,
+        seed,
+        count,
+        // Krea = UNET fixe → pas de base : on n'envoie jamais de z_model (évite de
+        // persister une base Z-Image absurde dans les métadonnées de score).
+        z_model: runType === 'krea' ? undefined : (selectedBase || undefined),
+        // Réglages globaux (resolution_tier, negative/sampler/detail/rebalance/…),
+        // déjà gatés PAR FAMILLE côté backend — champs vides absents = défauts gardés.
+        ...genSettings,
+      };
+      if (prompt.trim()) body.prompt = prompt.trim();
+      const dResp = await postJson('/api/studio/run', body);
+      if (dResp.ok) {
+        toast.success(`${dResp.created} generation(s) queued (seed ${dResp.seed}${dResp.count > 1 ? ` ×${dResp.count}` : ''})`);
+        setRunId(dResp.run_id);
+        setSeed(rollSeed());
+      } else {
+        toast.error(dResp.error || 'Error on launch');
+      }
+    } catch (e) {
+      toast.error(e.message || 'Error on launch');
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 items-start">
+      <aside className="flex flex-col gap-3 lg:sticky lg:top-16 lg:max-h-[calc(100vh-7rem)] lg:overflow-auto">
+        {/* Picker de base : SDXL/Z-Image seulement. Krea = UNET fixe → jamais de base
+            (l'endpoint renvoie [] pour krea, donc baseModels est vide, mais on garde la
+            garde explicite runType!=='krea' au cas où). */}
+        {runType !== 'krea' && baseModels.length > 0 && (
+          <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface p-3">
+            <span className="text-content-muted text-[0.625rem] uppercase">
+              Base model ({FAMILY_LABELS[runType] || 'Z-Image'})
+            </span>
+            <select
+              value={selectedBase}
+              onChange={(e) => setSelectedBase(e.target.value)}
+              aria-label="Base model for this run"
+              className="rounded border border-border bg-app/60 px-1.5 py-1 text-content text-sm"
+            >
+              {baseModels.map((m) => (
+                <option key={m.filename} value={m.filename}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div id="st-setup" className="scroll-mt-16">
+          <StudioRunSetup
+            selectionCount={selection.length}
+            strengths={strengths}
+            onToggleStrength={toggleStrength}
+            prompt={prompt}
+            onPrompt={setPrompt}
+            seed={seed}
+            onReroll={() => setSeed(rollSeed())}
+            count={count}
+            onCount={setCount}
+            onLaunch={launch}
+            launching={launching}
+            gpuBusy={data?.gpu_busy}
+            batchMult={1 + ((genSettings.batch_loras || []).length)}
+          />
+        </div>
+        {/* Réglages de génération globaux (parité Generate, hors prompt builder).
+            key=runType → remonte proprement au changement de famille (état/localStorage
+            namespacés par famille). aspectPicker : en comparaison le ratio n'est pas
+            un axe → choix GLOBAL du format ici (envoyé comme axe à 1 valeur). */}
+        <StudioGenerationSettings
+          key={runType}
+          family={runType}
+          storagePrefix={`studioGenComp_${runType}`}
+          aspectPicker
+          onChange={setGenSettings}
+        />
+        <LoraRankingPanel ranking={data?.lora_ranking} />
+      </aside>
+
+      <main id="st-results" className="flex flex-col gap-3 min-w-0 scroll-mt-16">
+        {data?.pending > 0 && (
+          <div className="flex items-center gap-2 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2" role="status">
+            <span className="inline-block w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />
+            <span className="text-content text-sm">{data.pending} test generation(s) queued…</span>
+            <button type="button" onClick={run.cancel}
+              className="ml-auto px-2.5 py-1 rounded-lg bg-red-600/80 text-white text-xs font-semibold">
+              Stop (resumable)
+            </button>
+          </div>
+        )}
+        {!data?.pending && data?.resumable > 0 && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2" role="status">
+            <span aria-hidden>⏸</span>
+            <span className="text-content text-sm">{data.resumable} stopped cell(s) — resumable with their settings</span>
+            <button type="button" disabled={!!data?.gpu_busy} onClick={run.resume}
+              className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-xs font-semibold disabled:opacity-40">
+              ▶ Resume the test
+            </button>
+          </div>
+        )}
+
+        {!runId ? (
+          <p className="text-content-subtle text-sm rounded-lg border border-border bg-surface px-3 py-6 text-center">
+            Set up the run on the left then « 🚀 Launch the test » to compare the {selection.length} LoRAs side by side.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <RunSelector
+              runs={[]}
+              activeRunKey={null}
+              onSelect={() => {}}
+              unvotedCount={unvoted.length}
+              onStartVote={() => vote.startVoting(unvoted)}
+              greenCount={greens.length}
+              onStartReVote={() => vote.startVoting(greens, '♻️ Reconfirm the 👍')}
+              displayedCount={cells.length}
+              showResults={showResults}
+              onToggleResults={() => setShowResults((v) => !v)}
+            />
+            {showResults && (
+              <LoraComparisonGrid loras={loras} cells={cells} onRate={run.rate} onOpen={setLbImg} />
+            )}
+          </div>
+        )}
+      </main>
+
+      <QuickVoteModal vote={vote} datasetId={vote.current?.dataset_id} fmt={fmt} />
+      {lbImg && (
+        <ResultLightbox img={lbImg} datasetId={lbImg.dataset_id}
+          onRate={rateLightbox} onClose={() => setLbImg(null)} fmt={fmt} />
+      )}
+
+      {/* Barre de commande fixe : Run toujours visible + raccourcis de sections. */}
+      <StudioActionBar
+        shortcuts={[
+          { id: 'st-loras', emoji: '🧬', label: 'LoRAs' },
+          { id: 'st-setup', emoji: '📝', label: 'Prompt & seed' },
+          { id: 'st-format', emoji: '📐', label: 'Format' },
+          ...(runType === 'krea' ? [
+            { id: 'st-sampling', emoji: '🎛️', label: 'Sampling' },
+            { id: 'st-engine', emoji: '⚙️', label: 'Engine' },
+          ] : []),
+          ...(runType === 'sdxl' ? [{ id: 'st-detail', emoji: '✨', label: 'Detail' }] : []),
+          ...(runType === 'zimage' ? [{ id: 'st-negative', emoji: '🚫', label: 'Negative' }] : []),
+          { id: 'st-results', emoji: '🖼️', label: 'Results' },
+        ]}
+        canRun={!!selection.length && !!strengths.length && !launching && !data?.gpu_busy}
+        running={launching}
+        onRun={launch}
+      />
+    </div>
+  );
+}
