@@ -21,7 +21,7 @@ The end-to-end flow:
 
 ## Feature matrix by backend
 
-Not every feature needs every backend. The app degrades gracefully — Settings shows live "reachable/configured" status for each, and gated features simply don't appear until their dependency is satisfied.
+Not every feature needs every backend. The app degrades gracefully — API keys show a Configured/Not-set status in Settings, endpoint reachability can be tested via the "Test" button, and gated features simply don't appear until their dependency is satisfied.
 
 | Feature | Requires |
 |---|---|
@@ -74,11 +74,19 @@ npm run build
 
 ### Option 3 — Docker (API-only)
 
+Copy `.env.example` to `.env` first — the compose file bind-mounts `./.env`, and Docker will otherwise create an empty directory in its place:
+
+```bash
+cp .env.example .env
+```
+
+Then build and run:
+
 ```bash
 docker compose up --build
 ```
 
-This builds and runs the API-only mode (see `Dockerfile` / `docker-compose.yml`) — ComfyUI and ai-toolkit are host-native tools and out of scope for the container. Data persists to `./data-docker` on the host; copy `.env.example` to `.env` first so your API keys are mounted in.
+This builds and runs the API-only mode (see `Dockerfile` / `docker-compose.yml`) — ComfyUI and ai-toolkit are host-native tools and out of scope for the container. Data persists to `./data-docker` on the host, and your API keys are mounted in from `.env`.
 
 ## Getting API keys
 
@@ -134,7 +142,7 @@ A few environment variables override paths for advanced/containerized setups: `L
 ## Known limitations
 
 - Krea 2's img2img workflow (`backend/workflows/krea2_turbo_img2img.json`) ships in the repo but isn't wired into a Test Studio mode yet — only the text-to-image Krea 2 workflow is currently reachable from the UI.
-- ComfyUI-dependent code paths (Klein generation, Test Studio, the consistency-LoRA path normalization for Windows ComfyUI) are covered by unit tests against a mocked ComfyUI API; they haven't all been exercised against a live ComfyUI instance yet. If something looks wrong when wiring up your own ComfyUI, check Settings → Test connection first.
+- ComfyUI-dependent code paths (Klein generation, Test Studio, the consistency-LoRA path normalization for Windows ComfyUI) are covered by unit tests against a mocked ComfyUI API; they haven't all been exercised against a live ComfyUI instance yet. If something looks wrong when wiring up your own ComfyUI, check Settings → the "Test" button next to each endpoint.
 
 ## Troubleshooting
 
