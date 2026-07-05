@@ -79,6 +79,48 @@ def probe_ollama() -> dict:
     return {'ok': ok, 'detail': url if ok else f'unreachable: {url}'}
 
 
+def _ollama_tags(url, timeout=3) -> list:
+    """Model names Ollama reports at /api/tags. Network seam (patched in tests)."""
+    try:
+        resp = requests.get(f'{url}/api/tags', timeout=timeout)
+        if resp.status_code >= 400:
+            return []
+        return [m.get('name', '') for m in (resp.json().get('models') or [])]
+    except Exception:
+        return []
+
+
+def _model_present(configured: str, names: list) -> bool:
+    if not configured:
+        return False
+    if configured in names:
+        return True
+    base = configured.split(':')[0]                    # config w/o :tag matches any tag
+    return any((n or '').split(':')[0] == base for n in names)
+
+
+def probe_ollama_model() -> dict:
+    url = (cfg.get('ollama.url') or '').rstrip('/')
+    model = cfg.get('ollama.vision_model') or ''
+    if not url:
+        return {'ok': False, 'detail': 'ollama.url not configured'}
+    if not model:
+        return {'ok': False, 'detail': 'ollama.vision_model not configured'}
+    if not _http_ok(f'{url}/api/tags'):                # gate on the stubbed seam first:
+        return {'ok': False, 'detail': f'ollama unreachable: {url}'}
+    ok = _model_present(model, _ollama_tags(url))
+    return {'ok': ok, 'detail': f'{model} ready' if ok else f'{model} not pulled'}
+
+
+def clear_import_cache() -> None:
+    """Drop cached import-probe results and the main probe cache so the next
+    probe re-checks freshly installed packages instead of a stale 600s 'False'."""
+    global _cache, _cache_ts
+    _import_cache.clear()
+    _cache = None
+    _cache_ts = 0.0
+
+
 def probe_aitoolkit() -> dict:
     d = cfg.aitoolkit_path('dir')
     if not d:
@@ -178,6 +220,8 @@ def probe(force=False) -> dict:
         'ollama': {
             'reachable': ollama['ok'],
             'url': cfg.get('ollama.url') or '',
+            'vision_model': cfg.get('ollama.vision_model') or '',
+            'vision_model_ready': probe_ollama_model()['ok'],
         },
         'aitoolkit': {
             'configured': bool(cfg.get('aitoolkit.dir')),

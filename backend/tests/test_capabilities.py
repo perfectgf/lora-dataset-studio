@@ -223,3 +223,65 @@ def test_probe_force_bypasses_cache(app, monkeypatch):
             monkeypatch.setenv('OPENAI_API_KEY', 'sk-new')
             refreshed = capabilities.probe(force=True)
     assert refreshed['engines']['chatgpt'] is True
+
+
+# --- ollama vision-model presence + import-cache clear --------------------
+
+def test_ollama_vision_model_ready_true(app, monkeypatch):
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': 'qwen3-vl:8b'}})
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: True)
+        monkeypatch.setattr(capabilities, '_ollama_tags', lambda *a, **k: ['qwen3-vl:8b'])
+        result = capabilities.probe_ollama_model()
+    assert result['ok'] is True
+
+def test_ollama_vision_model_ready_false_when_absent(app, monkeypatch):
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': 'qwen3-vl:8b'}})
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: True)
+        monkeypatch.setattr(capabilities, '_ollama_tags', lambda *a, **k: ['llama3:8b'])
+        result = capabilities.probe_ollama_model()
+    assert result['ok'] is False
+
+def test_ollama_vision_model_base_tag_match(app, monkeypatch):
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': 'qwen3-vl'}})
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: True)
+        monkeypatch.setattr(capabilities, '_ollama_tags', lambda *a, **k: ['qwen3-vl:8b'])
+        result = capabilities.probe_ollama_model()
+    assert result['ok'] is True
+
+def test_ollama_vision_model_false_when_unreachable(app, monkeypatch):
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': 'qwen3-vl:8b'}})
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: False)
+        # _ollama_tags must not even be consulted when unreachable:
+        monkeypatch.setattr(capabilities, '_ollama_tags',
+                            lambda *a, **k: (_ for _ in ()).throw(AssertionError('called')))
+        result = capabilities.probe_ollama_model()
+    assert result['ok'] is False
+
+def test_probe_exposes_vision_model_fields(app, monkeypatch):
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': 'qwen3-vl:8b'}})
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: True)
+        monkeypatch.setattr(capabilities, '_ollama_tags', lambda *a, **k: ['qwen3-vl:8b'])
+        caps = capabilities.probe(force=True)
+    assert caps['ollama']['vision_model'] == 'qwen3-vl:8b'
+    assert caps['ollama']['vision_model_ready'] is True
+
+def test_clear_import_cache_empties_caches(app, monkeypatch):
+    with app.app_context():
+        from app import capabilities
+        monkeypatch.setattr(capabilities, '_import_ok', lambda *a, **k: True)
+        capabilities.probe_face_scoring()          # populates _import_cache
+        assert capabilities._import_cache
+        capabilities._cache = {'x': 1}; capabilities._cache_ts = 123.0
+        capabilities.clear_import_cache()
+    assert capabilities._import_cache == {}
+    assert capabilities._cache is None
