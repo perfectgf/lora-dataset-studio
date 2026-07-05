@@ -56,7 +56,11 @@ export default function InstallRunner({ action, buttonLabel, manualCommand, onDo
         </pre>
       )}
       {state === 'error' && (
-        <p className="text-xs text-rose-400">Exit code {returncode}. Run this manually instead:</p>
+        <p className="text-xs text-rose-400">
+          {returncode != null
+            ? `Exit code ${returncode}. Run this manually instead:`
+            : 'Could not start the install. Run this manually instead:'}
+        </p>
       )}
       <CopyCommand command={manualCommand} />
     </div>
