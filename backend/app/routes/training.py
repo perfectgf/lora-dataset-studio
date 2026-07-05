@@ -1,7 +1,7 @@
 """Training API: launch/continue/queue/stop a LoRA training run via ai-toolkit,
 plus checkpoint listing/import/delete and Z-Image base-conversion prep.
 
-No login — single local user (`cfg.LOCAL_USER`). Every route except
+No login - single local user (`cfg.LOCAL_USER`). Every route except
 `/dataset/train/status` is gated on `capabilities.probe()['aitoolkit']['valid']`
 (409 with a UI hint): `/train/status` must stay pollable even when
 ai-toolkit isn't configured, so it degrades to `{'available': False}` instead.
@@ -202,14 +202,14 @@ def dataset_train_checkpoints(dataset_id):
 @bp.get('/dataset/<int:dataset_id>/train/base-info')
 def dataset_train_base_info(dataset_id):
     """Bases entraînables (officielle + merges Z-Image), base/variante choisies du
-    dataset, et statut de conversion — pour le sélecteur du TrainingPanel."""
+    dataset, et statut de conversion - pour le sélecteur du TrainingPanel."""
     gate = _require_aitoolkit()
     if gate:
         return gate
     ds = svc.get_dataset(LOCAL_USER, dataset_id)
     if not ds:
         return jsonify({'error': 'not found'}), 404
-    bases = [{'value': '', 'label': 'Official — Z-Image-Turbo (recommended)'}]
+    bases = [{'value': '', 'label': 'Official - Z-Image-Turbo (recommended)'}]
     converted = {}
     for m in get_zimage_models():
         bases.append({'value': m, 'label': m.replace('\\', '/').split('/')[-1].rsplit('.', 1)[0]})
@@ -222,9 +222,9 @@ def dataset_train_base_info(dataset_id):
         name = c['name'] if isinstance(c, dict) else c
         sdxl_bases.append({'value': name,
                            'label': name.replace('\\', '/').split('/')[-1].rsplit('.', 1)[0]})
-    # Krea 2 s'entraîne sur une base FIXE (Krea 2 Turbo via training adapter) — pas
+    # Krea 2 s'entraîne sur une base FIXE (Krea 2 Turbo via training adapter) - pas
     # de choix de checkpoint, pas de conversion.
-    krea_bases = [{'value': '', 'label': 'Official — Krea 2 Turbo (adapter)'}]
+    krea_bases = [{'value': '', 'label': 'Official - Krea 2 Turbo (adapter)'}]
     return jsonify({'bases': bases, 'base': ds.train_base_model or '',
                     'variant': ds.train_variant or 'turbo',
                     'converted': converted,
@@ -244,11 +244,11 @@ def dataset_train_prepare_base(dataset_id):
         return jsonify({'error': 'not found'}), 404
     bm = (request.get_json(silent=True) or {}).get('base_model', '')
     if not bm:
-        return jsonify({'error': 'modèle de base requis'}), 400
+        return jsonify({'error': 'base model required'}), 400
     # Whitelist stricte : seul un modèle Z-Image réellement listé est convertible
-    # (anti path-traversal — l'entrée transporte un chemin jusqu'à un subprocess).
+    # (anti path-traversal - l'entrée transporte un chemin jusqu'à un subprocess).
     if bm not in get_zimage_models():
-        return jsonify({'error': 'modèle de base inconnu'}), 400
+        return jsonify({'error': 'unknown base model'}), 400
     if zc.is_converted(bm):
         return jsonify({'ok': True, 'status': 'done'})
     try:

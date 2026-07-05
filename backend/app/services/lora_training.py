@@ -10,9 +10,9 @@ OUTPUT_DIR/LORA_DEST_DIR* constants become live `cfg.aitoolkit_path(...)` /
 `cfg.comfyui_dir(...)` accessors below, each raising a clean RuntimeError when
 its backend isn't configured yet (so config.json edits apply without a
 restart, and routes can map the RuntimeError to a 409). `UI_URL` (ai-toolkit's
-web UI, unused — this app drives the CLI) and the whole ownership subsystem
+web UI, unused - this app drives the CLI) and the whole ownership subsystem
 (`record_lora_ownership`, the ownership-filtered checkpoint listing) are
-dropped — single local user, cf. plan's Global Constraints.
+dropped - single local user, cf. plan's Global Constraints.
 """
 from __future__ import annotations
 import json
@@ -129,7 +129,7 @@ def is_installed() -> bool:
 def _aitoolkit_supports_krea() -> bool:
     """L'ai-toolkit installé connaît-il l'arch Krea 2 ? C'est CRITIQUE : ai-toolkit
     fait `if ModelClass.arch == config.arch` puis, sans match, retombe
-    SILENCIEUSEMENT sur le loader SD legacy (get_model.py:get_model_class) — aucune
+    SILENCIEUSEMENT sur le loader SD legacy (get_model.py:get_model_class) - aucune
     erreur levée. Une config `arch:'krea2'` sur un ai-toolkit pas à jour chargerait
     donc Krea-2-Turbo comme un checkpoint SD et planterait de façon confuse. On
     scanne les sources d'archs (extensions_built_in) ; lecture fraîche → dès que
@@ -167,7 +167,7 @@ def _safe_trigger(ds) -> str:
 
 def _train_type(ds, family=None) -> str:
     """Famille de modèle entraînée : 'zimage' (défaut/None), 'sdxl' ou 'krea'.
-    `family` (override) prime sur le train_type persisté quand fourni (non vide) —
+    `family` (override) prime sur le train_type persisté quand fourni (non vide) -
     c'est ce qui permet au sélecteur de famille de l'UI de piloter la lecture des
     runs/checkpoints/déploiements SANS écraser le train_type persisté du dataset."""
     return ((family or None) or getattr(ds, 'train_type', None) or 'zimage').lower()
@@ -199,7 +199,7 @@ def _sdxl_base_choices() -> set:
 
 def _sdxl_base_path(base_model: str) -> str:
     """Résout le .safetensors SDXL sous models/checkpoints. get_checkpoint_models
-    APLATIT en basename (l'info de sous-dossier — ex. Biglove/ — est perdue) → on
+    APLATIT en basename (l'info de sous-dossier - ex. Biglove/ - est perdue) → on
     cherche récursivement le basename. Refuse chemin absolu / '..' (anti-traversal ;
     la whitelist amont _sdxl_base_choices garantit déjà un basename connu)."""
     name = str(base_model or '')
@@ -243,7 +243,7 @@ KREA_BASE_LABEL = 'Krea-2-Turbo'   # mirrors name_or_path 'krea/Krea-2-Turbo'
 
 def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
     """Deployment-name suffix, family-aware. Like _base_tag, but for Krea
-    (which has no base column — always Krea-2-Turbo) falls back to a constant tag
+    (which has no base column - always Krea-2-Turbo) falls back to a constant tag
     so the LoRA carries the model name like SDXL does. `family` override permet au
     sélecteur UI de router vers Krea même si le train_type persisté diffère."""
     tag = _base_tag(ds) if base_model is _PERSISTED else _base_tag_for(base_model)
@@ -253,7 +253,7 @@ def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
 
 
 def _run_name(ds, base_model=_PERSISTED, family=None) -> str:
-    """Nom de dossier de run unique par (user, trigger, base, FAMILLE) — évite qu'un
+    """Nom de dossier de run unique par (user, trigger, base, FAMILLE) - évite qu'un
     même trigger_word chez deux datasets partage/écrase les dossiers, isole un run
     sur base custom du run officiel, ET isole les familles entre elles. `base_model`
     absent → base persistée ; fourni (même '') → cette base précise.
@@ -318,7 +318,7 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
     est toujours présent même si la caption est vide). Retourne le dossier.
 
     `masked` (défaut ON) : génère aussi un masque « personne » par image (rembg
-    u2net, subprocess CPU — cf app/services/person_mask) dans `<dossier>_masks` →
+    u2net, subprocess CPU - cf app/services/person_mask) dans `<dossier>_masks` →
     la job-config passe en MASKED TRAINING (fond à 10 %). Échec des masques =
     jamais bloquant : l'entraînement part simplement sans masques (loggé)."""
     ds = fds.get_dataset(user_id, dataset_id)
@@ -336,7 +336,7 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
             .filter_by(dataset_id=dataset_id, status='keep')
             .filter(FaceDatasetImage.filename.isnot(None)).all())
     if not kept:
-        raise ValueError('aucune image gardée à exporter')
+        raise ValueError('no kept images to export')
     n = 0
     exported = []
     for img in kept:
@@ -353,7 +353,7 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
             fh.write(body)
         n += 1
     if n == 0:
-        raise ValueError('aucun fichier image valide trouvé sur disque')
+        raise ValueError('no valid image file found on disk')
     if masked:
         # generate_person_masks returns a DICT ({"ok", "written", "results"}, or {}
         # on any failure/unavailability) -- a non-empty dict is always truthy, so a
@@ -364,7 +364,7 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
         if wrote:
             logger.info(f'export dataset {dataset_id}: {wrote}/{n} masque(s) personne -> {masks_out}')
         else:
-            logger.warning(f'export dataset {dataset_id}: masques indisponibles — training SANS masked loss')
+            logger.warning(f'export dataset {dataset_id}: masques indisponibles - training SANS masked loss')
             if os.path.isdir(masks_out):
                 shutil.rmtree(masks_out, ignore_errors=True)
     logger.info(f'export dataset {dataset_id} -> {out} ({n} paires)')
@@ -375,12 +375,12 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
     """Job-config ai-toolkit pour le preset officiel `zimage:turbo`
     (« Z-Image Turbo w/ Training Adapter »). Clés alignées sur ce que génère
     l'UI ai-toolkit (ui/src/app/jobs/new/options.ts) + structure LoRA 24 Go de
-    référence — vérifiées au runtime contre la version installée (cf. spec §3).
+    référence - vérifiées au runtime contre la version installée (cf. spec §3).
     Points non négociables : arch='zimage', name_or_path='Tongyi-MAI/Z-Image-Turbo',
     assistant_lora_path = l'adapter de training (retiré à l'inférence),
     quantize qfloat8 + low_vram pour tenir sur 24 Go.
 
-    SDXL (train_type='sdxl') part dans une branche dédiée (_build_job_config_sdxl) —
+    SDXL (train_type='sdxl') part dans une branche dédiée (_build_job_config_sdxl) -
     le chemin zimage ci-dessous reste strictement inchangé."""
     if _train_type(ds) == 'sdxl':
         return _build_job_config_sdxl(ds, dataset_folder, steps)
@@ -542,7 +542,7 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
 
 
 def _build_job_config_sdxl(ds, dataset_folder: str, steps: int) -> dict:
-    """Job-config ai-toolkit arch='sdxl' — valeurs VÉRIFIÉES dans ai-toolkit
+    """Job-config ai-toolkit arch='sdxl' - valeurs VÉRIFIÉES dans ai-toolkit
     ui/.../options.ts (entrée 'sdxl', 2026-06-14) : quantize/quantize_te False,
     noise_scheduler/sampler 'ddpm', timestep_type DÉSACTIVÉ, guidance 6. Base =
     checkpoint SDXL ComfyUI local (single-file, pas de conversion)."""
@@ -616,7 +616,7 @@ def _run_dir(user_id, dataset_id, base_model=_PERSISTED, family=None) -> str:
     # ai-toolkit écrit ses checkpoints/samples dans <training_folder>/<name>/
     # où name = 'lora_<trigger>' (cf. build_job_config). On pointe ce sous-dossier.
     # `base_model` cible le run d'une base PRÉCISE (sélection UI) ; `family` cible la
-    # famille sélectionnée (Krea vs Z-Image) — sans quoi le panneau montre les
+    # famille sélectionnée (Krea vs Z-Image) - sans quoi le panneau montre les
     # checkpoints du mauvais run quand deux familles partagent le même trigger.
     return str(_output_dir() / _run_name(ds, base_model, family) / f'lora_{_safe_trigger(ds)}')
 
@@ -657,8 +657,8 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
     merge ComfyUI et un autre entraîné sur la base officielle produisent des
     fichiers IDENTIQUES qui, une fois copiés dans le dossier partagé de ComfyUI,
     sont indiscernables et s'écrasent au même step. On insère ici le tag du merge
-    (`lora_<trigger>_<step>_<merge>.safetensors`) — la base officielle reste sans
-    suffixe — pour les rendre reconnaissables ET éviter la collision. Le fichier
+    (`lora_<trigger>_<step>_<merge>.safetensors`) - la base officielle reste sans
+    suffixe - pour les rendre reconnaissables ET éviter la collision. Le fichier
     source ai-toolkit n'est pas renommé (l'auto-resume continue de fonctionner).
 
     `base_model`/`family` ciblent le run d'une base+famille précises (sélection UI) ;
@@ -729,7 +729,7 @@ def delete_imported_checkpoint(user_id, dataset_id, filename, family=None) -> st
     """Supprime un checkpoint déployé du dossier loras de ComfyUI. Garde-fous :
     le filename doit appartenir aux checkpoints importés du dataset (whitelist,
     famille-scopée) ET le chemin résolu doit rester dans le dossier loras de la
-    FAMILLE sélectionnée (z image / sdxl / krea) — anti path-traversal, fail-closed.
+    FAMILLE sélectionnée (z image / sdxl / krea) - anti path-traversal, fail-closed.
     `family` (menu UI) prime sur le train_type persisté, comme la liste affichée."""
     ds = fds.get_dataset(user_id, dataset_id)
     allowed = {c['filename'] for c in list_imported_checkpoints(user_id, dataset_id, family=family)}
@@ -749,7 +749,7 @@ def delete_imported_checkpoint(user_id, dataset_id, filename, family=None) -> st
 
 
 def _trigger_boundary(name: str, prefix: str) -> bool:
-    """`name` commence par `prefix` ET la suite est vide ou commence par `_`/`.` —
+    """`name` commence par `prefix` ET la suite est vide ou commence par `_`/`.` -
     frontière de trigger EXACTE. Évite que « Lola » attrape « Lola2 »/« Lola69382 »
     (le caractère après le préfixe doit être un séparateur, pas un chiffre/lettre)."""
     if not name.startswith(prefix):
@@ -839,7 +839,7 @@ def recommended_steps(dataset_id) -> int:
     bornés [1500, 3500]. Un 3000 fixe surentraînait les petits datasets (le
     minimum = 10 images → 300 steps/image, bien au-dessus des ~100-150/image
     recommandés pour un LoRA de sujet) ; il sous-entraînait les gros (50 images).
-    À 25 images (preset équilibré) ça redonne 3000 — continuité avec l'ancien défaut."""
+    À 25 images (preset équilibré) ça redonne 3000 - continuité avec l'ancien défaut."""
     n = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     target = int(round(n * 120, -2))  # ~120 steps/image, arrondi à la centaine
     return max(1500, min(3500, target))
@@ -894,7 +894,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     steps > dernier_step continue l'entraînement.
 
     Retourne {pid, config_path, log_path}. Raises RuntimeError if ai-toolkit isn't
-    installed/configured (route maps this to 409, not 400 — it's a backend
+    installed/configured (route maps this to 409, not 400 - it's a backend
     availability problem, not a bad request)."""
     if not is_installed():
         raise RuntimeError('ai-toolkit is not configured')
@@ -907,7 +907,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # levé (avance de file) passe : on ne bloque que sur un process réellement vivant.
     if (queue_manager._get_system_state('training_in_progress', False)
             and _pid_alive(queue_manager._get_system_state('training_pid', None))):
-        raise ValueError('un entraînement est déjà en cours — attends sa fin ou mets ce dataset en file')
+        raise ValueError('a training is already in progress - wait for it to finish or queue this dataset')
     if check_captions:
         assert_trainable(dataset_id, train_type=train_type, allow_caption_mismatch=allow_caption_mismatch)
     # Base d'entraînement : None/'' = officielle ; sinon un merge ComfyUI qui DOIT
@@ -924,7 +924,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     if base_model and _train_type(ds) == 'zimage':
         from .zimage_convert import is_converted
         if not is_converted(base_model):
-            raise ValueError('base custom non convertie — prépare-la d’abord (bouton « Convertir la base »)')
+            raise ValueError('custom base not converted - prepare it first (button "Convert base")')
     # SDXL : la base vient brute du body → whitelist serveur (anti path-traversal,
     # comme prepare-base le fait pour Z-Image). Refus immédiat si inconnue.
     if base_model and _train_type(ds) == 'sdxl' and base_model not in _sdxl_base_choices():
@@ -933,7 +933,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # fallback silencieux vers le loader SD legacy → mauvais modèle, plantage confus).
     if _train_type(ds) == 'krea' and not _aitoolkit_supports_krea():
         raise ValueError(
-            "ai-toolkit ne supporte pas encore Krea 2 (arch « krea2 » absente) — "
+            "ai-toolkit ne supporte pas encore Krea 2 (arch « krea2 » absente) - "
             "mets-le à jour (git pull) avant d'entraîner un LoRA Krea.")
     # Garde-fou anti-collision de dossier : un AUTRE dataset du user avec le même
     # (trigger, base) écrirait dans le même run → LoRA mélangés. Refuser AVANT de
@@ -942,7 +942,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     if clash:
         raise ValueError(
             f"collision d'entraînement : le dataset « {clash.name} » (#{clash.id}) utilise "
-            f"déjà le même trigger « {ds.trigger_word} » sur la même base — ils écriraient "
+            f"déjà le même trigger « {ds.trigger_word} » sur la même base - ils écriraient "
             f"dans le même dossier. Change le trigger_word de l'un des deux avant d'entraîner.")
     ds.train_base_model = base_model
     ds.train_variant = variant
@@ -959,7 +959,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     queue_manager._set_system_state('training_in_progress', True, ttl_seconds=4 * 3600)
     queue_manager._set_system_state('training_dataset_id', int(dataset_id), ttl_seconds=4 * 3600)
     # Step cible : sert à snapshotter le final en nom NUMÉROTÉ à la fin (cf.
-    # _snapshot_final_checkpoint) — ai-toolkit écrit le final sans numéro.
+    # _snapshot_final_checkpoint) - ai-toolkit écrit le final sans numéro.
     queue_manager._set_system_state('training_target_step', int(steps), ttl_seconds=4 * 3600)
     # HF_HOME route les poids base/adapter sur le disque configuré. PYTHONIOENCODING
     # évite les crashs cp1252 sur les logs unicode. Jamais shell=True ; args en liste.
@@ -1000,19 +1000,19 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
     (sélection UI) → on reprend le run DE CETTE base précise : sinon on proposait
     « Continuer » sur une base sans run et on relançait en fait l'ancienne base."""
     if queue_manager._get_system_state('training_in_progress', False):
-        raise ValueError('un entraînement est déjà en cours')
+        raise ValueError('a training is already in progress')
     ds = fds.get_dataset(user_id, dataset_id)
     base = (ds.train_base_model if ds else None) if base_model is _PERSISTED else base_model
     var = (variant or (ds.train_variant if ds else None) or 'turbo')
     cks = list_checkpoints(user_id, dataset_id, base_model=base)
     if not cks:
-        raise ValueError("aucun checkpoint à reprendre pour cette base — lance d'abord un entraînement")
+        raise ValueError("no checkpoint to resume for this base - run a training first")
     latest = max(c['step'] for c in cks)
     try:
         extra = max(100, int(extra_steps))
     except (TypeError, ValueError):
         extra = 1000
-    # Reprendre AVEC la base/variante ciblée — sinon launch_training les remettrait
+    # Reprendre AVEC la base/variante ciblée - sinon launch_training les remettrait
     # à l'officiel et ai-toolkit reprendrait depuis le mauvais run.
     res = launch_training(user_id, dataset_id, steps=latest + extra, check_captions=False,
                           base_model=base, variant=var)
@@ -1038,7 +1038,7 @@ def stop_training() -> None:
             logger.warning(f"stop_training: kill pid {pid} échoué : {e}")
     # Stop = arrêt voulu : on VIDE la file D'ABORD (sinon le prochain poll
     # relancerait l'entraînement suivant), PUIS on lève le flag EN DERNIER (c'est
-    # lui qui signale à ComfyUI de reprendre le GPU — l'ordre compte).
+    # lui qui signale à ComfyUI de reprendre le GPU - l'ordre compte).
     _save_queue([])
     queue_manager._set_system_state('training_pid', None, ttl_seconds=None)
     queue_manager._set_system_state('training_in_progress', False, ttl_seconds=None)
@@ -1052,7 +1052,7 @@ def _dataset_name(dataset_id):
 
 
 def kept_uncaptioned_count(dataset_id) -> int:
-    """Nombre d'images GARDÉES (status keep) sans caption — bloque l'entraînement."""
+    """Nombre d'images GARDÉES (status keep) sans caption - bloque l'entraînement."""
     return (FaceDatasetImage.query
             .filter_by(dataset_id=dataset_id, status='keep')
             .filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))
@@ -1067,10 +1067,10 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False) 
     cet appel. `allow_caption_mismatch=True` = override explicite (bouton « forcer »)."""
     kept = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     if kept < 10:
-        raise ValueError(f"pas assez d'images gardées ({kept}/10)")
+        raise ValueError(f"not enough kept images ({kept}/10)")
     missing = kept_uncaptioned_count(dataset_id)
     if missing:
-        raise ValueError(f"{missing} image(s) gardée(s) sans caption — captionne-les d'abord")
+        raise ValueError(f"{missing} kept image(s) without caption - add captions first")
     if allow_caption_mismatch:
         return
     # Garde-fou style ↔ type : un LoRA SDXL entraîné sur des captions PROSE = mismatch
@@ -1165,15 +1165,15 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
     if extra_steps is None and base and ttype == 'zimage':
         from .zimage_convert import is_converted
         if not is_converted(base):
-            raise ValueError('base custom non convertie — prépare-la d’abord (bouton « Convertir la base »)')
+            raise ValueError('custom base not converted - prepare it first (button "Convert base")')
     # SDXL : whitelist serveur de la base (anti path-traversal).
     if base and ttype == 'sdxl' and base not in _sdxl_base_choices():
         raise ValueError('checkpoint SDXL inconnu')
-    # Krea 2 : même garde qu'au lancement — pas de mise en file d'un job qui
+    # Krea 2 : même garde qu'au lancement - pas de mise en file d'un job qui
     # tomberait dans le fallback SD legacy faute d'arch krea2 dans l'ai-toolkit.
     if ttype == 'krea' and not _aitoolkit_supports_krea():
         raise ValueError(
-            "ai-toolkit ne supporte pas encore Krea 2 (arch « krea2 » absente) — "
+            "ai-toolkit ne supporte pas encore Krea 2 (arch « krea2 » absente) - "
             "mets-le à jour (git pull) avant de mettre un LoRA Krea en file.")
     # Même garde-fou de collision qu'au lancement : pas de mise en file d'un job
     # qui partagerait le dossier de run d'un autre dataset (même trigger + base).
@@ -1189,7 +1189,7 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
     # `not_before` (ISO, heure locale serveur) = entraînement PROGRAMMÉ : le job
     # reste en file jusqu'à l'échéance ; s'il devient dû pendant qu'un autre
     # entraînement tourne, il attend simplement son tour (jamais d'erreur).
-    # Cible de steps ABSOLUE (plafond choisi côté UI) — coercition défensive : un
+    # Cible de steps ABSOLUE (plafond choisi côté UI) - coercition défensive : un
     # '' / 0 / non-numérique retombe sur None (= adaptatif), jamais de crash JSON.
     try:
         steps_target = int(steps) if steps else None
@@ -1222,7 +1222,7 @@ def train_queue_view(user_id) -> list:
                     # Cible de steps absolue choisie à la mise en file (None = adaptatif).
                     'steps': it.get('steps'),
                     'base_model': bm, 'base_label': base_label,
-                    # Échéance de programmation (ISO local) — None = dès que possible.
+                    # Échéance de programmation (ISO local) - None = dès que possible.
                     'not_before': it.get('not_before')})
     return out
 
@@ -1373,7 +1373,7 @@ _scheduler_started = False
 def start_training_scheduler(app, interval_seconds=60):
     """Ticker de fond : avance la file toutes les `interval_seconds` MÊME sans
     navigateur ouvert. Sans lui, seuls le poll /train/status et le watcher de fin
-    de process faisaient avancer la file — un entraînement programmé à 3 h du
+    de process faisaient avancer la file - un entraînement programmé à 3 h du
     matin ne serait jamais parti. Idempotent (un seul thread par process)."""
     global _scheduler_started
     if _scheduler_started:
@@ -1387,7 +1387,7 @@ def start_training_scheduler(app, interval_seconds=60):
             try:
                 with app.app_context():
                     process_training_queue()
-            except Exception as e:  # jamais fatal — le tick suivant réessaie
+            except Exception as e:  # jamais fatal - le tick suivant réessaie
                 logger.debug('training scheduler tick: %s', e)
 
     threading.Thread(target=_tick, daemon=True, name='train-scheduler').start()

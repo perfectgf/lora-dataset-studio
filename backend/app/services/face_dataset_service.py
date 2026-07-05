@@ -21,7 +21,7 @@ from ..models import FaceDataset, FaceDatasetImage
 from .. import config as cfg
 
 # Garde le modèle vision chaud entre les images d'un même batch caption/classify
-# (sinon Ollama le recharge — cold start ~10s — à CHAQUE image). Déchargé en fin
+# (sinon Ollama le recharge - cold start ~10s - à CHAQUE image). Déchargé en fin
 # de batch pour rendre la VRAM à ComfyUI. ComfyUI est déjà en pause pendant la passe.
 _VISION_BATCH_KEEPALIVE = '5m'
 from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CLASSIFY_PROMPT, HEAD_BBOX_PROMPT,
@@ -59,7 +59,7 @@ def _ref_path(ds) -> str:
 _VALID_STATUS = ('pending', 'keep', 'reject', 'failed')
 MAX_FANOUT = 60
 # Références ADDITIONNELLES par dataset (au-delà de la principale) : servent
-# UNIQUEMENT Nano Banana (multi-images d'entrée) — Klein/crop/scoring restent
+# UNIQUEMENT Nano Banana (multi-images d'entrée) - Klein/crop/scoring restent
 # sur la principale. Cap bas pour garder des payloads API légers.
 MAX_EXTRA_REFS = 3
 
@@ -75,7 +75,7 @@ def extra_ref_filenames(ds) -> list:
 
 def _all_ref_bytes(ds) -> list:
     """Bytes de la référence principale puis des extras présents sur disque
-    (ordre stable, principale d'abord — c'est elle que Gemini doit prioriser).
+    (ordre stable, principale d'abord - c'est elle que Gemini doit prioriser).
     Un extra au fichier manquant est ignoré silencieusement (jamais bloquant)."""
     with open(_ref_path(ds), 'rb') as fh:
         out = [fh.read()]
@@ -179,7 +179,7 @@ def set_image_caption(user_id, image_id, caption):
 
 def _crop_resize_file(path, x, y, w, h, size=1024):
     """Crop the file at `path` to (x,y,w,h) and RESIZE the crop to size x size
-    (no black padding — the manual crop is square, aspect=1). Overwrites in place."""
+    (no black padding - the manual crop is square, aspect=1). Overwrites in place."""
     if not os.path.exists(path):
         return False
     src = Image.open(path).convert('RGB')
@@ -273,14 +273,14 @@ def cancel_pending(user_id, dataset_id):
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return 0
-    # Only in-flight generations (pending AND no result file yet) — leave
+    # Only in-flight generations (pending AND no result file yet) - leave
     # completed-but-uncurated images alone.
     rows = (FaceDatasetImage.query
             .filter_by(dataset_id=dataset_id, status='pending')
             .filter(FaceDatasetImage.filename.is_(None)).all())
     n = 0
     for img in rows:
-        if img.job_id:  # Klein rows only — API rows never carry a job_id
+        if img.job_id:  # Klein rows only - API rows never carry a job_id
             try:
                 from ..job_queue import queue_manager
                 queue_manager.cancel_job(img.job_id, str(user_id), 'image')
@@ -394,7 +394,7 @@ def detect_head_bbox(image_bytes):
 
 def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 1.7) -> bytes:
     """Head-crop (Qwen3-VL bbox, generous padding for hair + shoulders) into a
-    SQUARE that FILLS `size` — no black padding, no distortion (the square is
+    SQUARE that FILLS `size` - no black padding, no distortion (the square is
     shrunk to fit inside the image so it never needs letterboxing). Falls back to
     a centered-square crop if no head is detected. CALLER holds the GPU window."""
     im = Image.open(io.BytesIO(image_bytes)).convert('RGB')
@@ -421,8 +421,8 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
 # --- Import + classify (Qwen3-VL) ------------------------------------------
 def import_images(user_id, dataset_id, files_bytes, crop=False):
     """Normalize (or head-crop) + persist + create import rows (status=keep).
-    When crop=True, each image is auto head-cropped via Qwen3-VL — the CALLER
-    must then hold the GPU-exclusive window — and is by construction a face,
+    When crop=True, each image is auto head-cropped via Qwen3-VL - the CALLER
+    must then hold the GPU-exclusive window - and is by construction a face,
     so framing='face' is set directly (no classify pass needed).
     Returns (ids, failed_count)."""
     ds = get_dataset(user_id, dataset_id)
@@ -498,7 +498,7 @@ def classify_images(user_id, dataset_id):
 # --- Captioning (JoyCaption / Qwen3-VL, backend picked in Settings) --------
 def caption_images(user_id, dataset_id, force=False, mode=None):
     """Caption les images gardees. Defaut: seulement celles SANS caption ; force=True
-    re-capte TOUTES les gardees (ecrase) — pour rejouer apres un changement de prompt.
+    re-capte TOUTES les gardees (ecrase) - pour rejouer apres un changement de prompt.
     Chaque caption passe par drop_identity_sentences (retire une eventuelle phrase
     d'identite isolee).
 
@@ -530,7 +530,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
         return 0
     n = 0
     remaining = todo
-    # 1) JoyCaption en BATCH (un seul chargement du 8B NF4, via le venv ai-toolkit) —
+    # 1) JoyCaption en BATCH (un seul chargement du 8B NF4, via le venv ai-toolkit) -
     # sauté entièrement quand le backend force 'ollama'.
     if backend in ('auto', 'joycaption'):
         jc = {}
@@ -544,7 +544,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
                 # Explicit choice, explicit failure: a user who forced 'joycaption' in
                 # Settings must be told it's unavailable, not get a silent 0 (only
                 # 'auto' is allowed to fall back to Ollama quietly).
-                raise RuntimeError('JoyCaption backend is not available — check the ai-toolkit folder in Settings')
+                raise RuntimeError('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
         except RuntimeError:
             raise
         except Exception as e:
@@ -594,10 +594,10 @@ def analyze_faces(user_id, dataset_id) -> dict:
     if not ds:
         raise ValueError('dataset introuvable')
     if not ds.ref_filename:
-        raise ValueError('photo de référence manquante')
+        raise ValueError('reference photo missing')
     ref_path = _ref_path(ds)
     if not os.path.exists(ref_path):
-        raise ValueError('photo de référence manquante')
+        raise ValueError('reference photo missing')
     rows = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
             .filter(FaceDatasetImage.filename.isnot(None)).all())
     by_path = {}
@@ -650,7 +650,7 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                  .filter_by(dataset_id=dataset_id, status='pending')
                  .filter(FaceDatasetImage.filename.is_(None)).count())
     if in_flight + total > MAX_FANOUT:
-        raise ValueError(f'trop de générations en cours ({in_flight}), attends ou annule')
+        raise ValueError(f'too many generations in flight ({in_flight}), wait or cancel')
     ids = []
     for v in variations:
         for _ in range(mult):
@@ -822,7 +822,7 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
 def generate_variations_nanobanana(app, user_id, dataset_id, variations, multiplier,
                                    engine='nanobanana'):
     """API fan-out (Nano Banana or ChatGPT, per `engine`): pre-create pending
-    rows (job_id stays None — that is the marker for API-generated rows), then
+    rows (job_id stays None - that is the marker for API-generated rows), then
     fill them from a background thread. The existing polling/banner/cancel UI
     works unchanged (pending + no file = in flight). Returns the created ids."""
     if engine not in API_ENGINES:
@@ -900,7 +900,7 @@ def link_completed_dataset_image(job_id, filename, failed=False):
 
 # --- Migration helper (run once manually after deploy) ---------------------
 def migrate_existing_images_to_per_dataset():
-    """Migration helper — run once manually after deploy. Not called automatically."""
+    """Migration helper - run once manually after deploy. Not called automatically."""
     counts = {'moved': 0, 'skipped': 0, 'missing': 0}
     output_dir = _comfy_output_dir()
     if output_dir is None:

@@ -49,7 +49,7 @@ def _resolve_merge(z_model: str) -> str | None:
     """Chemin absolu du .safetensors ComfyUI depuis une valeur z_model
     (ex. 'z image\\bigLove_zt3.safetensors'). Anti path-traversal : refuse '..'
     et les chemins absolus, et CONFINE le résultat sous models/ (realpath +
-    commonpath) — un z_model forgé ne peut pas sortir du dossier des modèles."""
+    commonpath) - un z_model forgé ne peut pas sortir du dossier des modèles."""
     if not z_model or os.path.isabs(z_model) or '..' in z_model.replace('\\', '/'):
         return None
     root = cfg.comfyui_dir('models')
@@ -68,7 +68,7 @@ def _resolve_merge(z_model: str) -> str | None:
 
 def _safe_name(z_model: str) -> str:
     """Nom du dossier de conversion dérivé du chemin COMPLET (sous-dossier inclus),
-    pas du seul basename — sinon deux merges homonymes dans des sous-dossiers
+    pas du seul basename - sinon deux merges homonymes dans des sous-dossiers
     différents écraseraient la même conversion."""
     rel = z_model.replace('\\', '/').rsplit('.', 1)[0]
     safe = ''.join(c if (c.isalnum() or c in '_-') else '_' for c in rel).strip('_')
@@ -92,10 +92,10 @@ def convert(z_model: str) -> str:
         return converted_dir(z_model)
     merge = _resolve_merge(z_model)
     if not merge:
-        raise ValueError(f'modèle de base introuvable sur disque : {z_model}')
+        raise ValueError(f'base model not found on disk: {z_model}')
     official_config_path = _official_config()
     if not official_config_path:
-        raise ValueError("config.json Z-Image-Turbo absent du cache HF — lance d'abord "
+        raise ValueError("config.json Z-Image-Turbo absent du cache HF - lance d'abord "
                          "un entraînement sur la base officielle (télécharge le modèle)")
     out = converted_dir(z_model)
     os.makedirs(out, exist_ok=True)
@@ -104,7 +104,7 @@ def convert(z_model: str) -> str:
                           capture_output=True, text=True, timeout=2400)
     if not is_converted(z_model):
         tail = (proc.stdout or '')[-600:] + ' | ' + (proc.stderr or '')[-600:]
-        raise ValueError(f'conversion échouée : {tail}')
+        raise ValueError(f'conversion failed: {tail}')
     return out
 
 
@@ -117,12 +117,12 @@ def start_convert_async(app, z_model: str) -> None:
     """Lance la conversion dans un thread daemon ; statut suivi dans system_state
     (running/done/error). Refuse si une conversion tourne déjà."""
     if not _resolve_merge(z_model):
-        raise ValueError(f'modèle de base introuvable : {z_model}')
+        raise ValueError(f'base model not found: {z_model}')
     # Acquisition ATOMIQUE du verrou (check-then-set sous lock) : empêche deux
     # conversions 12 Go concurrentes (double-clic / 2 datasets en même temps).
     with _convert_lock:
         if convert_status().get('status') == 'running':
-            raise ValueError('une conversion est déjà en cours')
+            raise ValueError('a conversion is already in progress')
         queue_manager._set_system_state(_CONVERT_KEY, {'z_model': z_model, 'status': 'running'},
                                         ttl_seconds=3600)
 
