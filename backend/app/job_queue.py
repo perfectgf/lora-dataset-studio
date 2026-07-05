@@ -41,9 +41,20 @@ def _claim(job_id) -> bool:
 
 
 def _submit(workflow, client_id):
-    """Queue a workflow on ComfyUI. Raises on failure; the caller fails the job."""
+    """Queue a workflow on ComfyUI, returning the ComfyUI prompt_id string.
+
+    queue_prompt_to_comfyui never raises: it returns (response.json(), None) on
+    success or (None, error) on failure. Unpack it here -- binding the raw tuple
+    into the comfyui_prompt_id String column is a ProgrammingError that fails
+    every real job. Raises on failure so process_one() marks the job failed."""
     from .utils.comfyui import queue_prompt_to_comfyui
-    return queue_prompt_to_comfyui(workflow, client_id)
+    result, error = queue_prompt_to_comfyui(workflow, client_id)
+    if error:
+        raise RuntimeError(error)
+    prompt_id = (result or {}).get('prompt_id')
+    if not prompt_id:
+        raise RuntimeError(f'ComfyUI returned no prompt_id: {result}')
+    return prompt_id
 
 
 def _poll_outputs(prompt_id, timeout=POLL_TIMEOUT_SECONDS):

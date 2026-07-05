@@ -1,5 +1,6 @@
 import json, time
 from unittest.mock import patch
+import pytest
 
 
 def test_add_job_inserts_pending(app):
@@ -409,3 +410,47 @@ def test_concurrent_expired_delete_guard(app):
         # can still read and delete the row for real afterwards.
         assert queue_manager._get_system_state('flag') is None
         assert db.session.get(SystemState, 'flag') is None
+
+
+# --- _submit unpacks the REAL queue_prompt_to_comfyui contract -------------
+# The tests above all patch `_submit` with a bare string, so none of them
+# exercise its actual body. queue_prompt_to_comfyui NEVER raises: it returns
+# (response.json(), None) on success or (None, error) on failure. _submit must
+# unpack that -- binding the raw tuple into the comfyui_prompt_id String column
+# is a ProgrammingError that fails every real ComfyUI job.
+
+def test_submit_unpacks_prompt_id_from_real_contract(app):
+    from app.job_queue import _submit
+    with app.app_context():
+        with patch('app.utils.comfyui.queue_prompt_to_comfyui',
+                   return_value=({'prompt_id': 'p1', 'number': 1, 'node_errors': {}}, None)):
+            result = _submit({'1': {}}, 'client-1')
+    assert result == 'p1'
+
+
+def test_submit_raises_on_comfyui_error(app):
+    from app.job_queue import _submit
+    with app.app_context():
+        with patch('app.utils.comfyui.queue_prompt_to_comfyui',
+                   return_value=(None, 'WORKFLOW_INVALIDE (validation ComfyUI 400): bad')):
+            with pytest.raises(RuntimeError, match='WORKFLOW_INVALIDE'):
+                _submit({'1': {}}, 'client-1')
+
+
+def test_process_one_completes_with_real_submit_contract(app):
+    """End-to-end through the REAL _submit -> queue_prompt_to_comfyui contract
+    (not the mocked-_submit shortcut the other tests use): a successful submit
+    must advance to sent_to_comfy with a STRING prompt_id and complete."""
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue
+    with app.app_context():
+        jid = queue_manager.add_job(workflow_data={'1': {}})
+    with patch('app.utils.comfyui.queue_prompt_to_comfyui',
+               return_value=({'prompt_id': 'p1'}, None)), \
+         patch('app.job_queue._poll_outputs', return_value=('out.png', False)), \
+         patch('app.job_queue._dispatch_completion'):
+        with app.app_context():
+            assert queue_manager.process_one() is True
+            row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+            assert row.status == 'completed'
+            assert row.comfyui_prompt_id == 'p1'
