@@ -260,13 +260,19 @@ export default function SettingsPage() {
           placeholder="C:\ComfyUI"
           help="Used to derive the output/input/models/loras folders unless overridden."
         />
-        <TextField
-          id="aitoolkit-dir"
-          label="ai-toolkit directory"
-          value={config.aitoolkit.dir}
-          onChange={(v) => setField('aitoolkit', 'dir', v)}
-          placeholder="C:\ai-toolkit"
-        />
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <TextField
+              id="aitoolkit-dir"
+              label="ai-toolkit directory"
+              value={config.aitoolkit.dir}
+              onChange={(v) => setField('aitoolkit', 'dir', v)}
+              placeholder="C:\ai-toolkit"
+            />
+            <TestResult result={testResults.aitoolkit} />
+          </div>
+          <TestButton target="aitoolkit" onResult={(r) => recordTestResult('aitoolkit', r)} />
+        </div>
         <TextField
           id="dataset-images-root"
           label="Dataset images root"

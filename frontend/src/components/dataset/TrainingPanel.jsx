@@ -2,12 +2,14 @@
 import { useEffect, useState } from 'react';
 import { getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
+import { useToast } from '../common/Toast';
 
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
  * Poll régulier : c'est ce poll qui fait avancer la file (fin du courant → suivant). */
 export default function TrainingPanel({ ds, keptCount }) {
   const { caps } = useCapabilities();
+  const toast = useToast();
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
   const [checkpoints, setCheckpoints] = useState([]);
   const [ckLoaded, setCkLoaded] = useState(false);
@@ -23,7 +25,15 @@ export default function TrainingPanel({ ds, keptCount }) {
   const refreshStatus = async () => {
     try {
       const r = await fetch('/api/dataset/train/status', { credentials: 'include' });
-      if (r.ok) setStatus(await r.json());
+      if (!r.ok) return;
+      const d = await r.json();
+      // {'available': false}: ai-toolkit went unconfigured/invalid after this
+      // panel was already shown (stale client-side caps.training_visible, or
+      // the server-side 30s capability cache just expired) — degrade to safe
+      // defaults instead of storing a payload with none of the fields below.
+      setStatus(d && d.available === false
+        ? { in_progress: false, installed: false, queue: [], current: null }
+        : d);
     } catch { /* ignore */ }
   };
   // Poll toutes les 10 s : avance la file côté serveur + maj de l'UI. Skipped
@@ -82,6 +92,12 @@ export default function TrainingPanel({ ds, keptCount }) {
     setBase(t === 'sdxl' ? (list[0]?.value || '') : '');
   };
 
+  // Normalizes like useDataset's own postJson: a non-2xx response (e.g. the
+  // 409 {'error','hint'} the training routes return when ai-toolkit isn't
+  // configured, or a 400 for a refused enqueue) must surface as `ok: false`
+  // — previously this just returned the raw body, so callers checking
+  // `d.ok === false` never saw the error (d.ok stayed undefined) and it was
+  // silently dropped instead of reaching the confirm/toast below.
   const postTrain = async (path, body) => {
     try {
       const r = await fetch(path, {
@@ -90,8 +106,16 @@ export default function TrainingPanel({ ds, keptCount }) {
         credentials: 'include',
         body: body ? JSON.stringify(body) : undefined,
       });
-      return await r.json().catch(() => ({}));
-    } catch { return {}; }
+      let d = null;
+      try { d = await r.json(); } catch { /* non-JSON body */ }
+      if (!r.ok) return { ok: false, error: (d && d.error) || `Server error (${r.status})`, hint: d && d.hint };
+      return d || { ok: true };
+    } catch { return { ok: false, error: 'Network error' }; }
+  };
+  // 409 {'error','hint'} (or any other refusal) → toast, hint appended when present.
+  const toastTrainError = (d, fallback) => {
+    const msg = (d && d.error) || fallback;
+    toast.error(d && d.hint ? `${msg} — ${d.hint}` : msg);
   };
   // Masked training (fond 10 %) — défaut ON, persisté (partagé lancement/file/programmation).
   const [masked, setMaskedS] = useState(() => {
@@ -117,12 +141,19 @@ export default function TrainingPanel({ ds, keptCount }) {
       if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nQueue anyway (force)?')) {
         d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`,
           { base_model: base, variant, train_type: trainType, masked, steps: stepsN, allow_caption_mismatch: true });
+      } else {
+        d = null; // declined — matches ds.train(): no error surfaced, the confirm WAS the answer
       }
     }
-    setEnqErr(d && d.ok === false ? (d.error || 'enqueue refused') : null);
+    if (d && d.ok === false) { setEnqErr(d.error || 'enqueue refused'); toastTrainError(d, 'enqueue refused'); }
+    else setEnqErr(null);
     refreshStatus();
   };
-  const dequeue = async (id) => { await postTrain(`/api/dataset/${id}/train/dequeue`); refreshStatus(); };
+  const dequeue = async (id) => {
+    const d = await postTrain(`/api/dataset/${id}/train/dequeue`);
+    if (d && d.ok === false) toastTrainError(d, 'dequeue failed');
+    refreshStatus();
+  };
   const queued = (status.queue || []).some((q) => q.dataset_id === ds.currentId);
 
   // --- Entraînement PROGRAMMÉ (jour + heure) : entre en file avec une échéance ;
@@ -148,10 +179,12 @@ export default function TrainingPanel({ ds, keptCount }) {
       if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nSchedule anyway (force)?')) {
         d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`,
           { at: schedAt, base_model: base, variant, train_type: trainType, masked, steps: stepsN, allow_caption_mismatch: true });
+      } else {
+        d = null; // declined — matches ds.train(): no error surfaced, the confirm WAS the answer
       }
     }
-    setEnqErr(d && d.ok === false ? (d.error || 'schedule refused') : null);
-    if (d && d.ok !== false) setShowSched(false);
+    if (d && d.ok === false) { setEnqErr(d.error || 'schedule refused'); toastTrainError(d, 'schedule refused'); }
+    else { setEnqErr(null); setShowSched(false); }
     refreshStatus();
   };
 
