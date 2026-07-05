@@ -13,12 +13,15 @@ def _create(client, name='Lola', trigger='lola'):
     return client.post('/api/dataset/create', json={'name': name, 'trigger_word': trigger})
 
 
-def test_create_returns_payload(client):
+def test_create_returns_ok_envelope(client):
     resp = _create(client)
     assert resp.status_code == 200
     body = resp.get_json()
-    assert body['name'] == 'Lola' and body['trigger_word'] == 'lola'
-    assert 'id' in body
+    assert body['ok'] is True
+    assert isinstance(body['id'], int)
+    # the workspace payload is fetched separately — the envelope stays minimal like SRC
+    full = client.get(f"/api/dataset/{body['id']}").get_json()
+    assert full['name'] == 'Lola' and full['trigger_word'] == 'lola'
 
 
 def test_create_requires_name_and_trigger(client):

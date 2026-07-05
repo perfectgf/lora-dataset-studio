@@ -32,7 +32,7 @@ def dataset_create():
     if not name or not trigger:
         return jsonify({'error': 'name and trigger_word are required'}), 400
     ds = svc.create_dataset(LOCAL_USER, name, trigger)
-    return jsonify(svc.dataset_payload(LOCAL_USER, ds.id))
+    return jsonify({'ok': True, 'id': ds.id})
 
 
 @bp.get('/dataset/variations')
