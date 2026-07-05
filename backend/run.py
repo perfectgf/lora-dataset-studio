@@ -11,5 +11,5 @@ app = create_app()
 
 if __name__ == '__main__':
     app.run(debug=os.environ.get('FLASK_DEBUG', '0') == '1',
-            host=cfg_get('server.host'), port=int(cfg_get('server.port')),
+            host=os.environ.get('LDS_HOST') or cfg_get('server.host'), port=int(cfg_get('server.port')),
             threaded=True, use_reloader=False)
