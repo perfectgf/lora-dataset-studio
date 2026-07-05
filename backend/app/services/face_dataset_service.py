@@ -333,6 +333,7 @@ def dataset_payload(user_id, dataset_id):
         'train_type': (ds.train_type or 'zimage'),
         'ref_filename': ds.ref_filename,
         'ref_extra_filenames': extra_ref_filenames(ds), 'composition': comp,
+        'face_thresholds': {'green': cfg.get('face_scoring.green'), 'orange': cfg.get('face_scoring.orange')},
         'images': [{'id': i.id, 'filename': i.filename, 'source': i.source,
                     'framing': i.framing, 'variation_label': i.variation_label,
                     'status': i.status, 'caption': i.caption,
