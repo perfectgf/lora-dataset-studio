@@ -809,18 +809,24 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
             p = os.path.join(root, name)
             if _trigger_boundary(name, run_prefix) and os.path.isdir(p):
                 shutil.rmtree(p, ignore_errors=True); removed.append(p)
-    # 4) job config (nommé d'après le trigger seul → suppression exacte)
+    # 4) job configs : nommés d'après le run name (base/famille), donc un même
+    #    trigger peut en avoir plusieurs (ex. un run zimage + un run krea). On
+    #    balaie tout config dont le stem est sur la frontière de ce trigger,
+    #    comme les étapes 2-3 pour les dossiers.
     try:
         jobs_dir = str(_jobs_dir())
     except RuntimeError:
         jobs_dir = None
-    if jobs_dir:
-        cfg_path = os.path.join(jobs_dir, f'{trigger_safe}.json')
-        if os.path.isfile(cfg_path):
-            try:
-                os.remove(cfg_path); removed.append(cfg_path)
-            except OSError as e:
-                logger.warning('purge: remove %s échoué : %s', cfg_path, e)
+    if jobs_dir and os.path.isdir(jobs_dir):
+        for fn in os.listdir(jobs_dir):
+            if not fn.endswith('.json'):
+                continue
+            p = os.path.join(jobs_dir, fn)
+            if _trigger_boundary(fn[:-len('.json')], run_prefix) and os.path.isfile(p):
+                try:
+                    os.remove(p); removed.append(p)
+                except OSError as e:
+                    logger.warning('purge: remove %s échoué : %s', p, e)
     logger.info('purge_training_artifacts u%s/%s : %d artefact(s) retiré(s)',
                 user_id, trigger_safe, len(removed))
     return removed
@@ -828,7 +834,11 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
 
 def write_job_config(ds, dataset_folder: str, steps: int = 3000) -> str:
     job_cfg = build_job_config(ds, dataset_folder, steps=steps)
-    path = _jobs_dir() / f'{_safe_trigger(ds)}.json'
+    # Name by the base/family-aware run name, NOT the trigger alone: a zimage run
+    # and a krea run of the same trigger have distinct run names everywhere else
+    # (training_folder, dataset_folder), so keying this file by trigger only made
+    # the second launch silently clobber the first's config record.
+    path = _jobs_dir() / f'{_run_name(ds)}.json'
     with open(path, 'w', encoding='utf-8') as fh:
         json.dump(job_cfg, fh, indent=2)
     return str(path)
