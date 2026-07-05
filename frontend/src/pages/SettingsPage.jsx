@@ -21,7 +21,7 @@ const CAPTIONING_OPTIONS = [
   { id: 'none', label: 'None' },
 ]
 
-const FAMILY_OPTIONS = ['zimage', 'sdxl', 'krea', 'klein']
+const FAMILY_OPTIONS = ['zimage', 'sdxl', 'krea']
 
 const INPUT_CLASS =
   'mt-1 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 text-sm text-content ' +

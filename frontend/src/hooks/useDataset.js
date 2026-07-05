@@ -137,12 +137,12 @@ export function useDataset() {
   const create = useCallback(async (name, trigger) => {
     const d = await postJson('/api/dataset/create', { name, trigger_word: trigger });
     if (d.ok) { await fetchList(); await open(d.id); toast.success('Dataset created'); }
-    else toast.error(d.error);
+    else toast.error(d.error || 'Unexpected error');
   }, [fetchList, open, toast]);
 
   const deleteDataset = useCallback(async (id) => {
     const d = await postJson(`/api/dataset/${id}/delete`);
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     toast.success('Dataset deleted');
     if (currentId === id) { setCurrentId(null); setData(null); }
     await fetchList();
@@ -161,7 +161,7 @@ export function useDataset() {
   const setRef = useCallback((file) => wrap(async () => {
     const fd = new FormData(); fd.append('file', file);
     const d = await postJson(`/api/dataset/${currentId}/ref`, fd, true);
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     toast.success('Reference set');
     await refresh();
   }), [wrap, currentId, refresh, toast]);
@@ -172,14 +172,14 @@ export function useDataset() {
   const addExtraRef = useCallback((file) => wrap(async () => {
     const fd = new FormData(); fd.append('file', file);
     const d = await postJson(`/api/dataset/${currentId}/ref/extra`, fd, true);
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     toast.success('Extra reference added');
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 
   const removeExtraRef = useCallback(async (filename) => {
     const d = await postJson(`/api/dataset/${currentId}/ref/extra/delete`, { filename });
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     await refresh();
   }, [currentId, refresh, toast]);
 
@@ -187,7 +187,7 @@ export function useDataset() {
     const d = await postJson(`/api/dataset/${currentId}/generate`,
       { variations, multiplier, klein_model: kleinModel, lora_strength: loraStrength,
         generator: generator || 'klein' });
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     toast.success(`${d.created} variation(s) queued`);
     await refresh();
   }), [wrap, currentId, refresh, toast]);
@@ -195,14 +195,14 @@ export function useDataset() {
   const importFiles = useCallback((files) => wrap(async () => {
     const fd = new FormData(); [...files].forEach((f) => fd.append('files', f));
     const d = await postJson(`/api/dataset/${currentId}/import`, fd, true);
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     toast.success(`${d.imported} imported`);
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 
   const classify = useCallback(() => wrap(async () => {
     const d = await postJson(`/api/dataset/${currentId}/classify`);
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     toast.success(`${d.classified} classified`);
     await refresh();
   }), [wrap, currentId, refresh, toast]);
@@ -211,7 +211,7 @@ export function useDataset() {
     setCaptioning(true);
     try {
       const d = await postJson(`/api/dataset/${currentId}/caption`, mode ? { mode } : {});
-      if (!d.ok) { toast.error(d.error); return; }
+      if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
       toast.success(`${d.captioned} captioned`);
       await refresh();
     } finally {
@@ -226,7 +226,7 @@ export function useDataset() {
     setCaptioning(true);
     try {
       const d = await postJson(`/api/dataset/${currentId}/caption`, { force: true, ...(mode ? { mode } : {}) });
-      if (!d.ok) { toast.error(d.error); return; }
+      if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
       toast.success(`${d.captioned} re-captioned`);
       await refresh();
     } finally {
@@ -240,7 +240,7 @@ export function useDataset() {
     setAnalyzing(true);
     try {
       const d = await postJson(`/api/dataset/${currentId}/analyze-faces`);
-      if (!d.ok) { toast.error(d.error); return; }
+      if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
       const grey = (d.states?.too_small || 0) + (d.states?.no_face || 0)
         + (d.states?.extreme_pose || 0) + (d.states?.low_det || 0);
       toast.success(`${d.analyzed} analyzed · ${d.states?.scorable || 0} scored, ${grey} not scorable`);
@@ -252,19 +252,19 @@ export function useDataset() {
 
   const setStatus = useCallback(async (imageId, status) => {
     const d = await postJson(`/api/dataset/image/${imageId}/status`, { status });
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     await refresh();
   }, [refresh, toast]);
 
   const setCaption = useCallback(async (imageId, captionText) => {
     const d = await postJson(`/api/dataset/image/${imageId}/caption`, { caption: captionText });
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     await refresh();
   }, [refresh, toast]);
 
   const crop = useCallback(async (imageId, box) => {
     const d = await postJson(`/api/dataset/image/${imageId}/crop`, box);
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     await refresh();
     // Bump only this image's version — the rest of the grid keeps its cache (M1).
     setNonces((m) => ({ ...m, [imageId]: (m[imageId] || 0) + 1 }));
@@ -272,21 +272,21 @@ export function useDataset() {
 
   const cropRef = useCallback(async (box) => {
     const d = await postJson(`/api/dataset/${currentId}/ref/crop`, box);
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     await refresh();
     setRefNonce((n) => n + 1);
   }, [currentId, refresh, toast]);
 
   const deleteImage = useCallback(async (imageId) => {
     const d = await postJson(`/api/dataset/image/${imageId}/delete`);
-    if (!d.ok) { toast.error(d.error); return; }
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     await refresh();
   }, [refresh, toast]);
 
   const cancelPending = useCallback(async () => {
     const d = await postJson(`/api/dataset/${currentId}/cancel`);
     if (d.ok) toast.success(`${d.cancelled} generation(s) cancelled`);
-    else toast.error(d.error);
+    else toast.error(d.error || 'Unexpected error');
     await refresh();
   }, [currentId, refresh, toast]);
 
@@ -296,13 +296,13 @@ export function useDataset() {
     const d = await postJson(`/api/dataset/image/${imageId}/regenerate`,
       { lora_strength: loraStrength });
     if (d.ok) { toast.success('Regeneration started'); await refresh(); }
-    else toast.error(d.error);
+    else toast.error(d.error || 'Unexpected error');
   }, [refresh, toast]);
 
   const purgeUnused = useCallback(async () => {
     const d = await postJson(`/api/dataset/${currentId}/purge`);
     if (d.ok) { toast.success(`${d.purged} image(s) deleted`); await refresh(); }
-    else toast.error(d.error);
+    else toast.error(d.error || 'Unexpected error');
   }, [currentId, refresh, toast]);
 
   const train = useCallback(async (opts = {}) => {
@@ -319,7 +319,7 @@ export function useDataset() {
     // localhost:8675 (lien mort). La progression se suit ici (checkpoints + statut).
     if (d.ok) toast.success(`Training started (${d.steps || '?'} steps) — ComfyUI paused, follow the checkpoints here`);
     // Le mismatch caption↔type est géré par un confirm dans TrainingPanel (pas un toast d'erreur).
-    else if (!String(d.error || '').includes('MISMATCH_CAPTION')) toast.error(d.error);
+    else if (!String(d.error || '').includes('MISMATCH_CAPTION')) toast.error(d.error || 'Unexpected error');
     return d;
   }, [currentId, toast]);
 
@@ -333,13 +333,13 @@ export function useDataset() {
   const prepareBase = useCallback(async (baseModel) => {
     const d = await postJson(`/api/dataset/${currentId}/train/prepare-base`, { base_model: baseModel });
     if (d.ok) toast.success(d.status === 'done' ? 'Base already ready' : 'Base conversion started…');
-    else toast.error(d.error);
+    else toast.error(d.error || 'Unexpected error');
     return d;
   }, [currentId, toast]);
 
   const stopTraining = useCallback(async () => {
     const d = await postJson('/api/dataset/train/stop');
-    if (d.ok) toast.success('ComfyUI re-enabled'); else toast.error(d.error);
+    if (d.ok) toast.success('ComfyUI re-enabled'); else toast.error(d.error || 'Unexpected error');
   }, [toast]);
 
   // baseModel/variant ciblent le run de la base SÉLECTIONNÉE (undefined → base
@@ -351,7 +351,7 @@ export function useDataset() {
     if (variant) body.variant = variant;
     const d = await postJson(`/api/dataset/${currentId}/train/continue`, body);
     if (d.ok) toast.success(`Resumed from step ${d.resumed_from} → ${d.target_steps} — ComfyUI paused`);
-    else toast.error(d.error);
+    else toast.error(d.error || 'Unexpected error');
     return d;
   }, [currentId, toast]);
 
@@ -372,7 +372,7 @@ export function useDataset() {
     if (baseModel !== undefined && baseModel !== null) body.base_model = baseModel;
     if (trainType) body.train_type = trainType;
     const d = await postJson(`/api/dataset/${currentId}/train/import`, body);
-    if (d.ok) toast.success(`LoRA imported: ${d.dest}`); else toast.error(d.error);
+    if (d.ok) toast.success(`LoRA imported: ${d.dest}`); else toast.error(d.error || 'Unexpected error');
   }, [currentId, toast]);
 
   // Supprime un checkpoint du dossier loras de la famille dans ComfyUI (libère de l'espace).
@@ -380,7 +380,7 @@ export function useDataset() {
     const body = { filename };
     if (trainType) body.train_type = trainType;
     const d = await postJson(`/api/dataset/${currentId}/train/checkpoint/delete`, body);
-    if (d.ok) toast.success(`Checkpoint deleted: ${d.removed}`); else toast.error(d.error);
+    if (d.ok) toast.success(`Checkpoint deleted: ${d.removed}`); else toast.error(d.error || 'Unexpected error');
     return d;
   }, [currentId, toast]);
 

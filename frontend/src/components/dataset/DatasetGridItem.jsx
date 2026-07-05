@@ -132,6 +132,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               editingRef.current = false;
               if (cap !== (img.caption || '')) onCaption(img.id, cap);
             }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
             rows={2} placeholder="caption (without the face)…" aria-label="Image caption"
             className="text-[11px] bg-app/60 border border-border rounded p-1 text-content resize-none" />
         </div>

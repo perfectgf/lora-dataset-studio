@@ -50,7 +50,7 @@ export function useLoraTestStudio(datasetId, family = null) {
       const d = await postJson(`/api/dataset/${datasetId}/lora-test/run`,
         { checkpoints, strengths, seed, prompt, z_models: zModels, aspects, cfgs, steps: stepsList, steps2: steps2List, count, family, ...genSettings });
       if (d.ok) toast.success(`${d.created} generation(s) queued (seed ${d.seed}${d.count > 1 ? ` ×${d.count}` : ''})`);
-      else toast.error(d.error);
+      else toast.error(d.error || 'Unexpected error');
       await refresh();
       return d;
     } finally {
@@ -60,7 +60,7 @@ export function useLoraTestStudio(datasetId, family = null) {
 
   const rate = useCallback(async (imageId, rating) => {
     const d = await postJson(`/api/dataset/lora-test/image/${imageId}/rate`, { rating });
-    if (!d.ok) toast.error(d.error);
+    if (!d.ok) toast.error(d.error || 'Unexpected error');
     await refresh();
   }, [refresh, toast]);
 
@@ -84,14 +84,14 @@ export function useLoraTestStudio(datasetId, family = null) {
   const cancel = useCallback(async () => {
     const d = await postJson(`/api/dataset/${datasetId}/lora-test/cancel`);
     if (d.ok) toast.success(`${d.cancelled} generation(s) stopped — resumable`);
-    else toast.error(d.error);
+    else toast.error(d.error || 'Unexpected error');
     await refresh();
   }, [datasetId, refresh, toast]);
 
   const resume = useCallback(async () => {
     const d = await postJson(`/api/dataset/${datasetId}/lora-test/resume`);
     if (d.ok) toast.success(`${d.resumed} cell(s) restarted with their settings`);
-    else toast.error(d.error);
+    else toast.error(d.error || 'Unexpected error');
     await refresh();
     return d;
   }, [datasetId, refresh, toast]);
@@ -105,7 +105,7 @@ export function useLoraTestStudio(datasetId, family = null) {
       steps: cell.steps ?? null, steps2: cell.steps2 ?? null, aspect: cell.aspect ?? null,
     });
     if (d.ok) toast.success('★ Best setting saved');
-    else toast.error(d.error);
+    else toast.error(d.error || 'Unexpected error');
     await refresh();
     return d;
   }, [datasetId, refresh, toast]);
