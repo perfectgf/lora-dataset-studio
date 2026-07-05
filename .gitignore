@@ -18,8 +18,6 @@ venv/
 
 # node
 frontend/node_modules/
-# frontend/dist is committed at Phase 5 (Task 24 removes this line)
-frontend/dist/
 
 # OS
 .DS_Store
