@@ -56,6 +56,22 @@ Not every feature needs every backend. The app degrades gracefully — API keys 
 
 **Full local** — everything above plus Klein/Z-Image generation, captioning via JoyCaption, face scoring, masks, training, and Test Studio. Requires ComfyUI and/or ai-toolkit running on the same host (or reachable over the network) and an NVIDIA GPU with 12 GB+ VRAM for Klein/Z-Image inference. Training VRAM depends on the model family (Z-Image, SDXL, and Krea 2 have different footprints) — check the family's ai-toolkit preset before queuing a run. The face-scoring and masking helpers (`requirements-ml.txt`) run fine on CPU; they don't need the GPU.
 
+## External tools (install once, connect in Settings)
+
+None of these are bundled — each one is optional, installed separately, and then simply pointed to from the app's Settings page. Features light up automatically once their tool is detected (the "Test" button next to each field tells you immediately whether the app can see it).
+
+| Tool | Unlocks | Get it |
+|---|---|---|
+| [ai-toolkit](https://github.com/ostris/ai-toolkit) (Ostris) | LoRA **training**, JoyCaption **captioning** | Follow its README install (clone + its installer creates a `venv`) |
+| [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | **Klein** local generation, **Test Studio** | Windows portable build or git install; keep it running on `http://127.0.0.1:8188` |
+| [Ollama](https://ollama.com) | Auto-captioning, framing auto-classify, head-crop | Install, then `ollama pull qwen3-vl:8b` (or set your own vision model in Settings) |
+
+**ai-toolkit** — install it anywhere (e.g. `C:\ai-toolkit`), following [its own instructions](https://github.com/ostris/ai-toolkit#installation). This app expects the standard layout its installer produces: `<folder>/run.py` and `<folder>/venv/` (Scripts\python.exe on Windows, bin/python on Linux). Paste the folder path into **Settings → ai-toolkit directory** and hit Test — training and JoyCaption captioning appear once it's valid. Job configs, datasets, and outputs live under that same folder by default (overridable under "Advanced").
+
+**ComfyUI** — this app talks to a running ComfyUI over its HTTP API and scans its `models/` folders to list checkpoints and LoRAs. Set **Settings → ComfyUI API URL** (default `http://127.0.0.1:8188`) and **ComfyUI install directory** (the folder containing `models/`, `output/`, `input/`). Put your Z-Image/SDXL/Krea models under `models/unet` / `models/checkpoints` and trained LoRAs land in `models/loras/<family>` automatically after training.
+
+**Ollama** — used as the lightweight local vision backend. Any vision-capable model works; the default the app looks for is `qwen3-vl:8b`. If you run a different one, set its exact tag in **Settings → Ollama vision model**. If Ollama (or the model) is missing, the app degrades gracefully: imports fall back to a centered crop and captioning falls back to JoyCaption or manual captions.
+
 ## Install
 
 ### Option 1 — start.bat (Windows, one command)
