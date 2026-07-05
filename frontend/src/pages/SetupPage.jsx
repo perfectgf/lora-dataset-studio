@@ -82,7 +82,9 @@ export default function SetupPage() {
 
   if (!config) return <p className="text-content-muted">Loading setup…</p>
 
-  const effective = (step) => (step.status === 'available' && skipped.has(step.id) ? 'skipped' : step.status)
+  // Skip collapses any not-yet-ready card (available OR partial); a card that
+  // reaches 'ready' always shows ready regardless of a prior skip.
+  const effective = (step) => (step.status !== 'ready' && skipped.has(step.id) ? 'skipped' : step.status)
   const stepById = Object.fromEntries(steps.map((s) => [s.id, s]))
 
   const guidedField = (label, section, key, placeholder) => (
