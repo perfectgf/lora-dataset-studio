@@ -3,6 +3,13 @@
 
 export const SETUP_STEP_IDS = ['image', 'comfyui', 'ollama', 'quality', 'training']
 
+// Tool reachable + its extra piece present -> ready; reachable only -> partial.
+function gateStatus(reachable, complete) {
+  if (reachable && complete) return 'ready'
+  if (reachable) return 'partial'
+  return 'available'
+}
+
 function imageStep(caps) {
   const e = caps.engines || {}
   const ready = e.nanobanana || e.chatgpt || e.klein
@@ -17,9 +24,7 @@ function imageStep(caps) {
 function comfyuiStep(caps) {
   const c = caps.comfyui || {}
   const hasKlein = !!(c.models && c.models.klein && c.models.klein.length)
-  let status = 'available'
-  if (c.reachable && hasKlein) status = 'ready'
-  else if (c.reachable) status = 'partial'
+  const status = gateStatus(c.reachable, hasKlein)
   return {
     id: 'comfyui', title: 'ComfyUI — local generation & Test Studio', recommended: false,
     unlocks: ['Klein engine', 'Test Studio'],
@@ -29,9 +34,7 @@ function comfyuiStep(caps) {
 
 function ollamaStep(caps) {
   const o = caps.ollama || {}
-  let status = 'available'
-  if (o.reachable && o.vision_model_ready) status = 'ready'
-  else if (o.reachable) status = 'partial'
+  const status = gateStatus(o.reachable, o.vision_model_ready)
   return {
     id: 'ollama', title: 'Ollama — captioning & auto-framing', recommended: false,
     unlocks: ['Captioning', 'Auto-classify framing', 'Auto head-crop'],

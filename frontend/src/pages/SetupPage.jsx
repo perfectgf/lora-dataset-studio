@@ -7,7 +7,6 @@ import { deriveSetupSteps, deriveCapabilitySummary } from '../hooks/useSetupStep
 import SetupStep from '../components/setup/SetupStep'
 import GuidedSteps from '../components/setup/GuidedSteps'
 import InstallRunner from '../components/setup/InstallRunner'
-import CopyCommand from '../components/setup/CopyCommand'
 
 const SKIP_KEY = 'setupSkipped'
 const INPUT_CLASS =
@@ -34,12 +33,13 @@ export default function SetupPage() {
   const [secretInputs, setSecretInputs] = useState({})
   const [skipped, setSkipped] = useState(loadSkipped)
   const [busy, setBusy] = useState(false)
+  const [loadError, setLoadError] = useState(false)
 
   const load = useCallback(async () => {
     try {
       const data = await apiFetch('/api/settings')
-      setConfig(data.config); setSecretsPresence(data.secrets)
-    } catch (e) { toast.error(`Failed to load settings: ${e.message}`) }
+      setConfig(data.config); setSecretsPresence(data.secrets); setLoadError(false)
+    } catch (e) { setLoadError(true); toast.error(`Failed to load settings: ${e.message}`) }
   }, [toast])
   useEffect(() => { load() }, [load])
 
@@ -80,7 +80,19 @@ export default function SetupPage() {
     } catch (e) { toast.error(e.message) }
   }
 
-  if (!config) return <p className="text-content-muted">Loading setup…</p>
+  if (!config) {
+    return loadError ? (
+      <div className="space-y-3">
+        <p className="text-content-muted">Couldn't load setup.</p>
+        <button type="button" onClick={load}
+          className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-content hover:bg-surface-raised">
+          Retry
+        </button>
+      </div>
+    ) : (
+      <p className="text-content-muted">Loading setup…</p>
+    )
+  }
 
   // Skip collapses any not-yet-ready card (available OR partial); a card that
   // reaches 'ready' always shows ready regardless of a prior skip.

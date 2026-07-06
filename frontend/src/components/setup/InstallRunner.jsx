@@ -4,6 +4,7 @@ import { useToast } from '../common/Toast'
 import CopyCommand from './CopyCommand'
 
 const POLL_MS = 1200
+const MAX_POLL_FAILURES = 5
 
 export default function InstallRunner({ action, buttonLabel, manualCommand, onDone }) {
   const toast = useToast()
@@ -12,14 +13,16 @@ export default function InstallRunner({ action, buttonLabel, manualCommand, onDo
   const [returncode, setReturncode] = useState(null)
   const timer = useRef(null)
   const mountedRef = useRef(true)
+  const fails = useRef(0)
 
-  useEffect(() => () => { mountedRef.current = false; clearTimeout(timer.current) }, [])
+  const apply = (s) => { setState(s.state); setLog(s.log || []); setReturncode(s.returncode) }
 
   const poll = async () => {
     try {
       const s = await apiFetch(`/api/setup/install/${action}/status`)
       if (!mountedRef.current) return
-      setState(s.state); setLog(s.log || []); setReturncode(s.returncode)
+      fails.current = 0
+      apply(s)
       if (s.state === 'running') {
         timer.current = setTimeout(poll, POLL_MS)
       } else if (s.state === 'success') {
@@ -28,12 +31,33 @@ export default function InstallRunner({ action, buttonLabel, manualCommand, onDo
         toast.error('Install failed — see the log or run the command manually.')
       }
     } catch {
-      if (mountedRef.current) timer.current = setTimeout(poll, POLL_MS)   // transient poll error — retry
+      if (!mountedRef.current) return
+      fails.current += 1
+      if (fails.current >= MAX_POLL_FAILURES) {
+        // Stop hammering a down backend; tell the user and fall back to manual.
+        setState('error')
+        toast.error('Lost contact with the installer — check the server, then run the command manually.')
+      } else {
+        timer.current = setTimeout(poll, POLL_MS)   // transient poll error — retry
+      }
     }
   }
 
+  // Re-attach on mount to an install that may already be running or finished
+  // (e.g. the user left this page mid-install and came back). Idle -> stay ready.
+  useEffect(() => {
+    mountedRef.current = true
+    apiFetch(`/api/setup/install/${action}/status`).then((s) => {
+      if (!mountedRef.current || s.state === 'idle') return
+      apply(s)
+      if (s.state === 'running') timer.current = setTimeout(poll, POLL_MS)
+    }).catch(() => { /* not attached; leave the button idle */ })
+    return () => { mountedRef.current = false; clearTimeout(timer.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action])
+
   const start = async () => {
-    setLog([]); setReturncode(null); setState('running')
+    setLog([]); setReturncode(null); setState('running'); fails.current = 0
     try {
       await postJson(`/api/setup/install/${action}`, {})
       poll()
