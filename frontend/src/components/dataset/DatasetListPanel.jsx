@@ -103,6 +103,11 @@ function DatasetCard({ d, onOpen, onDelete }) {
         <span className="min-w-0">
           <span className="flex items-center gap-1.5 min-w-0">
             <span className="text-content text-sm font-semibold truncate">{d.name}</span>
+            {d.kind === 'concept' && (
+              <span className="shrink-0 px-1.5 py-px rounded border border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-300 text-[0.5625rem] font-semibold uppercase">
+                💡 Concept
+              </span>
+            )}
             {(d.trained_families || []).map((f) => {
               const [lbl, cls] = FAMILY_BADGE[f] || [f, 'border-border bg-white/5 text-content-muted'];
               return (
@@ -136,6 +141,10 @@ function DatasetCard({ d, onOpen, onDelete }) {
 export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete }) {
   const [name, setName] = useState('');
   const [trigger, setTrigger] = useState('');
+  // Nature du dataset : personnage (identité liée au trigger) vs concept (un acte/effet
+  // récurrent lié au trigger — import brut, captions inversées, pas de référence/visage).
+  const [kind, setKind] = useState('character');
+  const concept = kind === 'concept';
   // Séparation « déjà entraîné » (≥1 LoRA déployé) / « en cours » (dataset en
   // construction). Rétro-compat : sans le flag (ancien backend), tout va en cours.
   const inProgress = datasets.filter((d) => !d.trained);
@@ -156,23 +165,43 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete 
         <h2 className="text-content font-semibold text-sm flex items-center gap-2">
           <span aria-hidden="true">🆕</span> New dataset
         </h2>
+        {/* Nature : personnage (défaut) vs concept. Choisir « Concept » adapte tout le
+            reste — import brut aspect conservé, captions qui gardent l'identité, pas de
+            photo de référence ni de générateur de variations. */}
+        <div className="flex gap-1.5">
+          {[['character', '🧑 Character', 'A person/face — identity binds to the trigger'],
+            ['concept', '💡 Concept', 'A recurring act/effect — the concept binds to the trigger']].map(
+            ([val, label, hint]) => (
+              <button key={val} type="button" onClick={() => setKind(val)} title={hint}
+                className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                  kind === val
+                    ? 'border-primary/60 bg-primary/15 text-content'
+                    : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised'}`}>
+                {label}
+              </button>
+            ))}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
-            Character name
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Emma"
+            {concept ? 'Concept name' : 'Character name'}
+            <input value={name} onChange={(e) => setName(e.target.value)}
+              placeholder={concept ? 'e.g. cim' : 'e.g. Emma'}
               className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
           </label>
           <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
             Trigger word
-            <input value={trigger} onChange={(e) => setTrigger(e.target.value)} placeholder="e.g. zchar_emma"
+            <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
+              placeholder={concept ? 'e.g. cim_act' : 'e.g. zchar_emma'}
               className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
           </label>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-content-subtle text-[0.6875rem]">
-            The trigger word is the unique token you will type in prompts to summon this character.
+            {concept
+              ? 'The trigger word is the token you type to summon this concept. Import raw images of it, then caption and train.'
+              : 'The trigger word is the unique token you will type in prompts to summon this character.'}
           </p>
-          <button type="button" onClick={() => name.trim() && onCreate(name.trim(), trigger.trim())}
+          <button type="button" onClick={() => name.trim() && onCreate(name.trim(), trigger.trim(), kind)}
             disabled={!name.trim()}
             className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             Create

@@ -7,7 +7,8 @@ import { useToast } from '../common/Toast';
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
  * Poll régulier : c'est ce poll qui fait avancer la file (fin du courant → suivant). */
-export default function TrainingPanel({ ds, keptCount, onCheckpointsChange }) {
+export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange }) {
+  const concept = kind === 'concept';
   const { caps } = useCapabilities();
   const toast = useToast();
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
@@ -125,6 +126,14 @@ export default function TrainingPanel({ ds, keptCount, onCheckpointsChange }) {
     setMaskedS(v);
     try { localStorage.setItem('trainMasked_v1', v ? '1' : '0'); } catch { /* ignore */ }
   };
+  // Dataset CONCEPT : masked OFF par défaut (un masque « personne » effacerait le
+  // concept qu'on veut apprendre). On force l'état SANS écrire la préférence perso
+  // (setMaskedS direct) → rouvrir un personnage retrouve ON. Rejoué au changement de
+  // dataset ou de nature.
+  useEffect(() => {
+    if (concept) setMaskedS(false);
+    else { try { setMaskedS(localStorage.getItem('trainMasked_v1') !== '0'); } catch { setMaskedS(true); } }
+  }, [ds.currentId, concept]); // eslint-disable-line react-hooks/exhaustive-deps
   // Plafond de steps CHOISI (vide → adaptatif). NON persisté à dessein : un cap
   // oublié (ex. 2000) ne doit pas s'appliquer en douce au prochain dataset.
   const [stepsOverride, setStepsOverride] = useState('');
@@ -336,11 +345,16 @@ export default function TrainingPanel({ ds, keptCount, onCheckpointsChange }) {
           <span aria-hidden>🚀</span> Train the LoRA
         </button>
         <label className="flex items-center gap-1.5 text-[0.6875rem] text-content-muted cursor-pointer"
-          title="Masked training: a person mask is generated for every image (rembg, CPU) and the background only weighs 10% of the loss — identity binds to the face, not the room. Uncheck to train the old way.">
+          title={concept
+            ? 'For a CONCEPT dataset keep this OFF — a person mask would erase the very concept you are training. Masking only makes sense for a person/face LoRA.'
+            : 'Masked training: a person mask is generated for every image (rembg, CPU) and the background only weighs 10% of the loss — identity binds to the face, not the room. Uncheck to train the old way.'}>
           <input type="checkbox" checked={masked} onChange={(e) => setMasked(e.target.checked)}
             aria-label="Masked training (background at 10%)"
             className="accent-primary w-3.5 h-3.5" />
           <span className={masked ? 'text-emerald-300' : ''}>🎭 Masked (bg 10%)</span>
+          {concept && masked && (
+            <span className="text-amber-300" title="A person mask would erase the concept.">⚠️ off recommended for concepts</span>
+          )}
         </label>
         {!status.in_progress && keptCount >= 10 && (
           <label className="flex items-center gap-1.5 text-content-subtle text-[0.6875rem]"

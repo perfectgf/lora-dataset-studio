@@ -30,6 +30,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
   const images = d.images || [];
+  // Dataset CONCEPT : on masque tout ce qui est identité/visage (référence, générateur
+  // de variations, analyse faciale, badge de fuite, composition, flux guidé) — il ne
+  // reste que import brut → curation → caption (inversée) → entraînement.
+  const concept = d.kind === 'concept';
   const kept = images.filter((i) => i.status === 'keep').length;
   const unused = images.filter((i) => i.status === 'reject' || i.status === 'failed').length;
   const keptUncaptioned = images.filter((i) => i.status === 'keep' && !i.caption).length;
@@ -85,12 +89,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
               🧹 Purge ({unused})
             </button>
           )}
-          <select value={effCaptionMode} onChange={(e) => setCaptionMode(e.target.value)} disabled={ds.busy}
-            title="Caption style — Prose (Z-Image) or Booru tags (SDXL booru-native, e.g. bigLove). Defaults to auto based on the dataset's type."
-            className="px-2 py-1.5 rounded-lg bg-surface border border-border text-content text-[0.8125rem] disabled:opacity-40">
-            <option value="prose">📝 Prose</option>
-            <option value="booru">🏷️ Booru tags</option>
-          </select>
+          {!concept && (
+            <select value={effCaptionMode} onChange={(e) => setCaptionMode(e.target.value)} disabled={ds.busy}
+              title="Caption style — Prose (Z-Image) or Booru tags (SDXL booru-native, e.g. bigLove). Defaults to auto based on the dataset's type."
+              className="px-2 py-1.5 rounded-lg bg-surface border border-border text-content text-[0.8125rem] disabled:opacity-40">
+              <option value="prose">📝 Prose</option>
+              <option value="booru">🏷️ Booru tags</option>
+            </select>
+          )}
           <button type="button" onClick={() => ds.caption(effCaptionMode)} disabled={ds.busy}
             className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
             {ds.captioning ? `✨ ${keptCaptioned}/${kept} captioned…` : '✨ Caption the kept ones'}
@@ -103,12 +109,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
             className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
             🔄 Re-caption
           </button>
-          <button type="button" onClick={ds.analyzeFaces} disabled={ds.busy || !d.ref_filename}
-            title={d.ref_filename ? "Scores each image's facial resemblance vs the reference (deletes nothing)" : "Set a reference photo first"}
-            className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
-            {ds.analyzing ? '🎭 Analyzing…' : '🎭 Analyze faces'}
-          </button>
-          {d.caption_leak && d.caption_leak.captioned > 0 && (
+          {!concept && (
+            <button type="button" onClick={ds.analyzeFaces} disabled={ds.busy || !d.ref_filename}
+              title={d.ref_filename ? "Scores each image's facial resemblance vs the reference (deletes nothing)" : "Set a reference photo first"}
+              className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
+              {ds.analyzing ? '🎭 Analyzing…' : '🎭 Analyze faces'}
+            </button>
+          )}
+          {!concept && d.caption_leak && d.caption_leak.captioned > 0 && (
             d.caption_leak.leaking === 0 ? (
               <span className="self-center text-emerald-400 text-[0.8125rem]"
                 title="No caption describes hair/face/skin — identity binds to the trigger.">
@@ -132,9 +140,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </div>
       </div>
 
-      <GuidedStepper steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
-      <NextStepCard step={nextStep} trainMode={!!caps.training_visible} busy={ds.busy}
-        totalImages={images.length} onAction={nextAction} actionLabel={nextActionLabel} />
+      {!concept && (
+        <>
+          <GuidedStepper steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
+          <NextStepCard step={nextStep} trainMode={!!caps.training_visible} busy={ds.busy}
+            totalImages={images.length} onAction={nextAction} actionLabel={nextActionLabel} />
+        </>
+      )}
 
       {ds.busy && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2">
@@ -158,24 +170,34 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </div>
       )}
 
-      <CompositionBar composition={d.composition} />
+      {!concept && <CompositionBar composition={d.composition} />}
 
-      <div id="gf-reference" className="grid grid-cols-1 lg:grid-cols-2 gap-3 scroll-mt-4">
-        <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
-          onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
-          extraRefs={d.ref_extra_filenames || []}
-          onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
-        {/* No auto-classify: the backend tags framing='face' at import time (I2). */}
-        <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
-      </div>
+      {concept ? (
+        // Concept : pas de photo de référence ni de générateur — on importe des images
+        // brutes du concept (upload ; le scan de galeries arrive en phase 2).
+        <div id="gf-reference" className="scroll-mt-4">
+          <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
+        </div>
+      ) : (
+        <>
+          <div id="gf-reference" className="grid grid-cols-1 lg:grid-cols-2 gap-3 scroll-mt-4">
+            <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
+              onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
+              extraRefs={d.ref_extra_filenames || []}
+              onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
+            {/* No auto-classify: the backend tags framing='face' at import time (I2). */}
+            <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
+          </div>
 
-      <div id="gf-generate" className="scroll-mt-4">
-        <VariationCatalog onGenerate={ds.generate} busy={ds.busy} hasRef={!!d.ref_filename}
-          composition={d.composition} />
-      </div>
+          <div id="gf-generate" className="scroll-mt-4">
+            <VariationCatalog onGenerate={ds.generate} busy={ds.busy} hasRef={!!d.ref_filename}
+              composition={d.composition} />
+          </div>
+        </>
+      )}
 
       <div id="gf-training" className="scroll-mt-4">
-        <TrainingPanel ds={ds} keptCount={kept} onCheckpointsChange={setCheckpointCount} />
+        <TrainingPanel ds={ds} keptCount={kept} kind={d.kind} onCheckpointsChange={setCheckpointCount} />
       </div>
 
       {/* Lanceur du Studio de test LoRA : page dédiée plein écran /studio?dataset=

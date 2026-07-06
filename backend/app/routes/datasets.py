@@ -45,7 +45,8 @@ def dataset_variations():
 def dataset_list():
     dss = svc.list_datasets(LOCAL_USER)
     return jsonify({'datasets': [
-        {'id': d.id, 'name': d.name, 'trigger_word': d.trigger_word, 'ref_filename': d.ref_filename}
+        {'id': d.id, 'name': d.name, 'trigger_word': d.trigger_word, 'ref_filename': d.ref_filename,
+         'kind': 'concept' if (d.kind or '').lower() == 'concept' else 'character'}
         for d in dss]})
 
 
