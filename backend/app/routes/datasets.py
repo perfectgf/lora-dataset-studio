@@ -31,7 +31,7 @@ def dataset_create():
     name, trigger = (data.get('name') or '').strip(), (data.get('trigger_word') or '').strip()
     if not name or not trigger:
         return jsonify({'error': 'name and trigger_word are required'}), 400
-    ds = svc.create_dataset(LOCAL_USER, name, trigger)
+    ds = svc.create_dataset(LOCAL_USER, name, trigger, kind=data.get('kind'))
     return jsonify({'ok': True, 'id': ds.id})
 
 
@@ -136,13 +136,19 @@ def dataset_generate(dataset_id):
 
 @bp.post('/dataset/<int:dataset_id>/import')
 def dataset_import(dataset_id):
-    if not svc.get_dataset(LOCAL_USER, dataset_id):
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    if not ds:
         return jsonify({'error': 'not found'}), 404
     files = [f.read() for f in request.files.getlist('files') if f and f.filename]
     if not files:
         return jsonify({'error': 'no files'}), 400
     if len(files) > 20:
         return jsonify({'error': 'max 20 images per import'}), 400
+    # Dataset CONCEPT : import BRUT (plan entier, pas de head-crop) → aucune passe
+    # vision → PAS de fenêtre GPU exclusive (on ne stoppe pas ComfyUI pour rien).
+    if svc.is_concept(ds):
+        ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=False)
+        return jsonify({'ok': True, 'imported': len(ids), 'failed': failed})
     try:
         # batch (head-crop vision par image) : heartbeat de la fenêtre = ComfyUI arrêté
         # tout le batch ; le TTL n'est qu'un filet anti-crash.

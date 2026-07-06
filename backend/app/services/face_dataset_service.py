@@ -24,7 +24,8 @@ from .. import config as cfg
 # (sinon Ollama le recharge - cold start ~10s - à CHAQUE image). Déchargé en fin
 # de batch pour rendre la VRAM à ComfyUI. ComfyUI est déjà en pause pendant la passe.
 _VISION_BATCH_KEEPALIVE = '5m'
-from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CLASSIFY_PROMPT, HEAD_BBOX_PROMPT,
+from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CAPTION_PROMPT_CONCEPT,
+                              CLASSIFY_PROMPT, HEAD_BBOX_PROMPT,
                               JOYCAPTION_PROMPT, aspect_for_label,
                               caption_has_identity_leak, drop_identity_sentences, drop_identity_tags,
                               prompt_by_label, wrap_variation)
@@ -128,9 +129,24 @@ def remove_extra_ref(user_id, dataset_id, filename) -> bool:
 
 
 # --- CRUD ------------------------------------------------------------------
-def create_dataset(user_id, name, trigger_word):
+# Natures de dataset. 'concept' inverse la logique personnage (cf import_images /
+# caption_images). Tout le reste (dont NULL) = 'character' (défaut historique).
+DATASET_KINDS = ('character', 'concept')
+
+
+def normalize_kind(kind) -> str | None:
+    """'concept' -> 'concept' ; tout le reste -> None (character, stocké NULL)."""
+    return 'concept' if (kind or '').strip().lower() == 'concept' else None
+
+
+def is_concept(ds) -> bool:
+    return bool(ds) and (getattr(ds, 'kind', None) or '').lower() == 'concept'
+
+
+def create_dataset(user_id, name, trigger_word, kind=None):
     ds = FaceDataset(user_id=str(user_id), name=(name or '').strip()[:100],
-                     trigger_word=(trigger_word or '').strip()[:60] or 'zchar')
+                     trigger_word=(trigger_word or '').strip()[:60] or 'zchar',
+                     kind=normalize_kind(kind))
     db.session.add(ds)
     db.session.commit()
     return ds
@@ -328,9 +344,11 @@ def dataset_payload(user_id, dataset_id):
         # contribute to the training-target tally the UI tracks deficits against.
         if i.framing in comp and i.status not in ('reject', 'failed'):
             comp[i.framing] += 1
+    concept = is_concept(ds)
     return {
         'id': ds.id, 'name': ds.name, 'trigger_word': ds.trigger_word,
         'train_type': (ds.train_type or 'zimage'),
+        'kind': 'concept' if concept else 'character',
         'ref_filename': ds.ref_filename,
         'ref_extra_filenames': extra_ref_filenames(ds), 'composition': comp,
         'face_thresholds': {'green': cfg.get('face_scoring.green'), 'orange': cfg.get('face_scoring.orange')},
@@ -338,9 +356,11 @@ def dataset_payload(user_id, dataset_id):
                     'framing': i.framing, 'variation_label': i.variation_label,
                     'status': i.status, 'caption': i.caption,
                     'face_score': i.face_score, 'face_state': i.face_state} for i in imgs],
+        # Dataset CONCEPT : décrire l'identité est VOULU (le concept, pas le visage,
+        # se lie au trigger) → le badge « fuite d'identité » n'a aucun sens, on le zéro.
         'caption_leak': {
-            'leaking': sum(1 for i in imgs
-                           if i.status == 'keep' and caption_has_identity_leak(i.caption)),
+            'leaking': 0 if concept else sum(
+                1 for i in imgs if i.status == 'keep' and caption_has_identity_leak(i.caption)),
             'captioned': sum(1 for i in imgs if i.status == 'keep' and i.caption),
         },
     }
@@ -428,11 +448,20 @@ def import_images(user_id, dataset_id, files_bytes, crop=False):
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return [], 0
+    # Dataset CONCEPT : on garde le PLAN ENTIER (l'acte à apprendre est rarement dans
+    # un head-crop) et on préserve le ratio (normalize_to_webp, pas de bandes noires
+    # qu'un LoRA apprendrait). Personnage sans crop = ancien comportement carré padé.
+    concept = is_concept(ds)
     ids = []
     failed = 0
     for raw in files_bytes:
         try:
-            webp = face_crop_to_square_webp(raw) if crop else normalize_to_square_webp(raw)
+            if crop:
+                webp = face_crop_to_square_webp(raw)
+            elif concept:
+                webp = normalize_to_webp(raw)
+            else:
+                webp = normalize_to_square_webp(raw)
         except Exception as e:
             failed += 1
             logger.warning(f"dataset import: image skipped (dataset {dataset_id}): {e}")
@@ -514,12 +543,19 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return 0
-    # Style de caption : prose (Z-Image) vs tags booru (SDXL booru-native type bigLove).
-    # Défaut AUTO selon le type entraîné ; un mode explicite (UI) l'emporte.
-    ttype = (getattr(ds, 'train_type', None) or 'zimage').lower()
-    mode = (mode or ('booru' if ttype == 'sdxl' else 'prose')).lower()
-    cap_prompt = CAPTION_PROMPT_BOORU if mode == 'booru' else JOYCAPTION_PROMPT
-    cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
+    # Dataset CONCEPT : logique INVERSÉE. On décrit tout (identité comprise) SAUF
+    # l'acte récurrent → prompt dédié + cleaner NO-OP (on ne retire surtout pas
+    # l'identité, qui doit rester dans la caption pour VARIER). Prose uniquement.
+    if is_concept(ds):
+        cap_prompt = CAPTION_PROMPT_CONCEPT
+        cleaner = lambda c: c  # noqa: E731 — on garde la caption telle quelle
+    else:
+        # Style de caption : prose (Z-Image) vs tags booru (SDXL booru-native type bigLove).
+        # Défaut AUTO selon le type entraîné ; un mode explicite (UI) l'emporte.
+        ttype = (getattr(ds, 'train_type', None) or 'zimage').lower()
+        mode = (mode or ('booru' if ttype == 'sdxl' else 'prose')).lower()
+        cap_prompt = CAPTION_PROMPT_BOORU if mode == 'booru' else JOYCAPTION_PROMPT
+        cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
     q = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
     if not force:
         q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))

@@ -239,6 +239,29 @@ CAPTION_PROMPT = (
 JOYCAPTION_PROMPT = CAPTION_PROMPT
 
 
+# Dataset CONCEPT (logique INVERSÉE) : l'invariant du set n'est plus l'identité mais
+# l'acte/effet récurrent qu'on OMET pour qu'il se lie au trigger. On décrit donc tout —
+# personnes, pose, cadrage, lumière, décor — SAUF l'acte central répété. Le captioneur
+# ne connaît pas le concept : on lui demande d'ignorer l'action explicite dominante et
+# de décrire le contexte autour. Aucun post-filtre d'identité (on GARDE l'identité).
+CAPTION_PROMPT_CONCEPT = (
+    "Caption Type: Straightforward.\n\n"
+    "This is a CONCEPT training image: the images in this set all share ONE recurring "
+    "explicit action, act, or visual effect. That single shared element is the concept "
+    "being learned and must NEVER be named or described — do NOT write the act, the body "
+    "fluids, the penetration, the specific sexual/graphic focal detail, or any word that "
+    "labels what is happening at the focal point. Describe everything AROUND it instead.\n\n"
+    "You MUST describe, in full and freely (identity is NOT hidden here): the people "
+    "present and their appearance (hair, face, body, skin), their pose and body position, "
+    "their expression and gaze, any clothing or state of undress and its colours, the "
+    "setting or location, the camera angle and framing (close-up, three-quarter, "
+    "full-body, from above, from below, point of view), and the lighting and mood.\n\n"
+    "Output ONE caption as flowing natural-language prose, beginning with the shot type "
+    "and framing, then the people and pose, then expression, then clothing/setting, then "
+    "lighting and mood — but leaving the shared concept itself UNSPOKEN. Output only the "
+    "caption itself - no preamble, no \"Here is\", no quotation marks, no commentary.")
+
+
 # Detecteur INDICATIF de VRAIS descripteurs d'identite (cheveux/peau/couleur d'yeux/
 # forme de visage/traits). Ne flague PAS "the face" (lumiere) ni "eyes open/looking"
 # (expression) — calibre empiriquement sur 31 captions reelles.

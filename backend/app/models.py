@@ -27,6 +27,11 @@ class FaceDataset(db.Model):
     # Famille de modèle entraînée : 'zimage' (défaut/None) ou 'sdxl'. Pilote la
     # branche de build_job_config (arch/scheduler/base) et le dossier loras d'import.
     train_type = db.Column(String(16), nullable=True)
+    # Nature du dataset : NULL/'character' (défaut historique) ou 'concept'. Orthogonale
+    # à train_type — un concept s'entraîne sur n'importe quelle base. Inverse la logique
+    # import/caption (cf face_dataset_service : is_concept). Colonne ajoutée après coup
+    # → migration additive idempotente dans create_app (db.create_all n'ALTER jamais).
+    kind = db.Column(String(16), nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
 

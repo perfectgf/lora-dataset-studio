@@ -7,6 +7,26 @@ from . import config as cfg
 
 FRONTEND_DIST = cfg.REPO_ROOT / 'frontend' / 'dist'
 
+# Additive schema migrations. `db.create_all()` creates missing TABLES but never
+# ALTERs an existing one, so a column added to a model after the DB was first
+# created stays invisible. Each entry is applied idempotently (skipped when the
+# column already exists) and is additive only — never a drop. Names/types are
+# hardcoded constants (no user input) → safe to interpolate into the ALTER.
+_SCHEMA_ADDITIONS = (
+    ('face_dataset', 'kind', 'VARCHAR(16)'),
+)
+
+def _apply_additive_migrations():
+    from sqlalchemy import text
+    for table, col, col_type in _SCHEMA_ADDITIONS:
+        try:
+            existing = {row[1] for row in db.session.execute(text(f'PRAGMA table_info({table})'))}
+            if col not in existing:
+                db.session.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}'))
+                db.session.commit()
+        except Exception:
+            db.session.rollback()  # a failed ALTER must never block boot
+
 def create_app(config_object=None):
     app = Flask(__name__, static_folder=None)
     data_dir = Path(os.environ.get('LDS_DATA_DIR', str(cfg.REPO_ROOT / 'data')))
@@ -32,6 +52,7 @@ def create_app(config_object=None):
             cur.close()
         from . import models  # noqa: F401
         db.create_all()
+        _apply_additive_migrations()
 
     from .routes import register_blueprints
     register_blueprints(app, csrf)
