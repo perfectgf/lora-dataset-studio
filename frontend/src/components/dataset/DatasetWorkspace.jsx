@@ -6,6 +6,7 @@ import VariationCatalog from './VariationCatalog';
 import TrainingPanel from './TrainingPanel';
 import { fmt } from '../../utils/studioFormat';
 import ImportDropzone from './ImportDropzone';
+import ConceptSourcesPanel from './ConceptSourcesPanel';
 import DatasetGrid from './DatasetGrid';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
@@ -173,9 +174,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
       {!concept && <CompositionBar composition={d.composition} />}
 
       {concept ? (
-        // Concept : pas de photo de référence ni de générateur — on importe des images
-        // brutes du concept (upload ; le scan de galeries arrive en phase 2).
-        <div id="gf-reference" className="scroll-mt-4">
+        // Concept : pas de photo de référence ni de générateur — on peuple le dataset
+        // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
+        <div id="gf-reference" className="flex flex-col gap-3 scroll-mt-4">
+          <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
           <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
         </div>
       ) : (

@@ -201,6 +201,19 @@ export function useDataset() {
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 
+  // Concept only : télécharge les images scannées SÉLECTIONNÉES ({url,title}[])
+  // directement dans le dataset (route /scrape-import). Retourne la réponse pour que
+  // le panneau vide sa sélection sur succès ; toast détaillé (imported + skipped).
+  const scrapeImport = useCallback((items) => wrap(async () => {
+    const d = await postJson(`/api/dataset/${currentId}/scrape-import`, { items });
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return d; }
+    const s = d.skipped || {};
+    const skips = Object.entries(s).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
+    toast.success(`${d.imported} imported${skips ? ` · skipped ${skips}` : ''}`);
+    await refresh();
+    return d;
+  }), [wrap, currentId, refresh, toast]);
+
   const classify = useCallback(() => wrap(async () => {
     const d = await postJson(`/api/dataset/${currentId}/classify`);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -391,7 +404,7 @@ export function useDataset() {
 
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, setCurrentId, setRef, addExtraRef, removeExtraRef,
-           generate, importFiles, classify, caption, recaption,
+           generate, importFiles, scrapeImport, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, deleteImage, cancelPending, regenerate, analyzing, analyzeFaces,
            purgeUnused, exportZip, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,

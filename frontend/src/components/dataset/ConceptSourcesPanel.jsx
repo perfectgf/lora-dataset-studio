@@ -1,0 +1,155 @@
+/**
+ * ConceptSourcesPanel — build a concept dataset from scraped images.
+ *
+ * A concept LoRA is built from REAL images, so instead of the face tooling
+ * (reference photo, variations, face analysis) you: paste a gallery URL → scan
+ * (read-only /api/scrape/scan) → pick images → import them DIRECTLY into the
+ * dataset (/dataset/<id>/scrape-import). Nothing touches a shared pool.
+ *
+ * Guidance surfaced in the UI: aim for 20-50 varied images, keep at most ~10 per
+ * gallery (one gallery ≈ one shoot). Server-side filters (dedup, min side < 768px,
+ * ratio > 3:1) run at import — the counts are reported in the toast.
+ */
+import { useState, useCallback } from 'react';
+import { useToast } from '../common/Toast';
+import { postJson } from '../../hooks/useDataset';
+
+const thumbFor = (it) =>
+  `/api/scrape/thumb?url=${encodeURIComponent(it.thumbnail || it.url)}`;
+
+export default function ConceptSourcesPanel({ onImport, busy }) {
+  const toast = useToast();
+  const [url, setUrl] = useState('');
+  const [items, setItems] = useState([]);
+  const [page, setPage] = useState(0);
+  const [paginated, setPaginated] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  // Preview tile size (px). A category scrape returns whole galleries (many
+  // off-concept frames) → larger previews speed up eyeballing. Persisted.
+  const [tile, setTile] = useState(() => {
+    const v = Number(localStorage.getItem('conceptTileSize'));
+    return v >= 72 && v <= 320 ? v : 120;
+  });
+  const changeTile = (v) => {
+    setTile(v);
+    try { localStorage.setItem('conceptTileSize', String(v)); } catch { /* ignore */ }
+  };
+
+  const runScan = useCallback(async (nextPage) => {
+    const target = url.trim();
+    if (!target || scanning) return;
+    setScanning(true);
+    try {
+      const body = await postJson('/api/scrape/scan', { url: target, page: nextPage });
+      if (!body || !body.scannable) { toast.error((body && body.error) || 'Could not scan this URL.'); return; }
+      // Images only (the dataset import rejects video/gif anyway).
+      const imgs = (body.items || []).filter((it) => it.type === 'image');
+      setItems((prev) => (nextPage === 0 ? imgs : [...prev, ...imgs]));
+      setPaginated(!!body.paginated);
+      setPage(nextPage);
+      if (nextPage === 0) setSelected(new Set());  // fresh scan resets selection; "Load more" keeps it
+      if (imgs.length === 0 && nextPage === 0) toast.info('No images found on this page.');
+    } finally {
+      setScanning(false);
+    }
+  }, [url, scanning, toast]);
+
+  const toggle = (u) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(u)) next.delete(u); else next.add(u);
+      return next;
+    });
+  };
+
+  const handleImport = async () => {
+    const chosen = items.filter((it) => selected.has(it.url))
+      .map((it) => ({ url: it.url, title: it.title || '' }));
+    if (chosen.length === 0) return;
+    const d = await onImport?.(chosen);
+    if (d?.ok) setSelected(new Set());
+  };
+
+  return (
+    <section className="bg-surface rounded-xl border border-border p-3 flex flex-col gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <h2 className="text-content font-semibold text-sm">🕷️ Build from scraped images</h2>
+        <span className="text-content-subtle text-[0.6875rem]"
+          title="Research-backed: 20-50 curated images beat hundreds of mixed ones; keep at most ~10 per gallery (one gallery ≈ one shoot).">
+          aim for 20-50 varied images
+        </span>
+      </div>
+
+      {/* URL → scan. Chosen images are downloaded straight into THIS dataset. */}
+      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); runScan(0); }}>
+        <input
+          type="url" value={url} onChange={(e) => setUrl(e.target.value)}
+          placeholder="Gallery URL (e.g. https://www.pornpics.com/galleries/...)"
+          className="flex-1 min-w-0 px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
+        />
+        <button type="submit" disabled={scanning || !url.trim()}
+          className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40">
+          {scanning && page === 0 ? 'Scanning…' : 'Scan'}
+        </button>
+        <button type="button" onClick={handleImport} disabled={busy || selected.size === 0}
+          className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+          ⬇ Import {selected.size || ''}
+        </button>
+      </form>
+
+      {items.length > 0 && (
+        <>
+          <div className="flex items-center gap-2 text-[0.6875rem] text-content-subtle flex-wrap">
+            <button type="button" onClick={() => setSelected(new Set(items.map((it) => it.url)))}
+              title="Selects all loaded images"
+              className="px-2 py-0.5 rounded border border-border hover:text-content">
+              Select all ({items.length})
+            </button>
+            {selected.size > 0 && (
+              <button type="button" onClick={() => setSelected(new Set())}
+                className="px-2 py-0.5 rounded border border-border hover:text-content">
+                Clear
+              </button>
+            )}
+            <label className="flex items-center gap-1.5" title="Preview size — enlarge to judge images faster">
+              <span aria-hidden>🔍</span>
+              <input type="range" min="72" max="300" step="4" value={tile}
+                onChange={(e) => changeTile(Number(e.target.value))}
+                aria-label="Preview size"
+                className="w-24 sm:w-32 accent-indigo-500 cursor-pointer" />
+            </label>
+            <span className="ml-auto">Filters at import: duplicates, short side &lt; 768px, ratio &gt; 3:1</span>
+          </div>
+
+          <div className="grid gap-1.5 overflow-y-auto max-h-[34rem] pr-1"
+            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${tile}px, 1fr))` }}>
+            {items.map((it) => {
+              const on = selected.has(it.url);
+              return (
+                <button type="button" key={it.url} onClick={() => toggle(it.url)}
+                  aria-pressed={on} title={it.title || it.url}
+                  className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all
+                    ${on ? 'border-indigo-400' : 'border-transparent hover:border-border-strong'}`}>
+                  <img src={thumbFor(it)} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  <span aria-hidden
+                    className={`absolute top-1 right-1 w-4 h-4 rounded-full text-[0.625rem] leading-4 text-center font-bold
+                      ${on ? 'bg-indigo-500 text-white' : 'bg-black/50 text-white/70'}`}>
+                    {on ? '✓' : ''}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {paginated && (
+            <button type="button" onClick={() => runScan(page + 1)} disabled={scanning}
+              className="self-start px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-xs disabled:opacity-40">
+              {scanning ? 'Loading…' : 'Load more galleries'}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
