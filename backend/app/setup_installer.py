@@ -6,6 +6,7 @@ thread and expose their live state for polling. Two actions only:
 
 No shell, no client-supplied arguments: each action's command is fixed.
 """
+import logging
 import subprocess
 import sys
 import threading
@@ -14,6 +15,8 @@ import requests
 
 from . import capabilities
 from . import config as cfg
+
+logger = logging.getLogger(__name__)
 
 INSTALL_ACTIONS = ('ml_extras', 'ollama_model')
 
@@ -80,7 +83,8 @@ def _execute(action):
             try:
                 capabilities.clear_import_cache()
             except Exception:
-                pass  # don't downgrade a successful install
+                # never downgrade a successful install; surface at debug only
+                logger.debug('clear_import_cache failed after ml_extras', exc_info=True)
     except Exception as e:  # never let a worker thread die silently
         _append(action, f'error: {e}')
         _runs[action]['returncode'] = -1

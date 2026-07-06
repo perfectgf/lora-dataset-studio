@@ -99,14 +99,19 @@ def _model_present(configured: str, names: list) -> bool:
     return any((n or '').split(':')[0] == base for n in names)
 
 
-def probe_ollama_model() -> dict:
+def probe_ollama_model(reachable=None) -> dict:
+    # `reachable` lets probe() pass the reachability it already computed, so we
+    # don't re-hit /api/tags a second time (and don't pay a second blocking
+    # timeout when Ollama is configured-but-down). Called standalone -> we probe.
     url = (cfg.get('ollama.url') or '').rstrip('/')
     model = cfg.get('ollama.vision_model') or ''
     if not url:
         return {'ok': False, 'detail': 'ollama.url not configured'}
     if not model:
         return {'ok': False, 'detail': 'ollama.vision_model not configured'}
-    if not _http_ok(f'{url}/api/tags'):                # gate on the stubbed seam first:
+    if reachable is None:
+        reachable = _http_ok(f'{url}/api/tags')        # gate on the stubbed seam first
+    if not reachable:
         return {'ok': False, 'detail': f'ollama unreachable: {url}'}
     ok = _model_present(model, _ollama_tags(url))
     return {'ok': ok, 'detail': f'{model} ready' if ok else f'{model} not pulled'}
@@ -221,7 +226,7 @@ def probe(force=False) -> dict:
             'reachable': ollama['ok'],
             'url': cfg.get('ollama.url') or '',
             'vision_model': cfg.get('ollama.vision_model') or '',
-            'vision_model_ready': probe_ollama_model()['ok'],
+            'vision_model_ready': probe_ollama_model(reachable=ollama['ok'])['ok'],
         },
         'aitoolkit': {
             'configured': bool(cfg.get('aitoolkit.dir')),

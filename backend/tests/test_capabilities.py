@@ -285,3 +285,20 @@ def test_clear_import_cache_empties_caches(app, monkeypatch):
         capabilities.clear_import_cache()
     assert capabilities._import_cache == {}
     assert capabilities._cache is None
+
+def test_probe_ollama_model_uses_passed_reachability(app, monkeypatch):
+    """probe() supplies the already-computed reachability so probe_ollama_model
+    does not re-hit _http_ok — avoids the redundant/doubled /api/tags call."""
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': 'qwen3-vl:8b'}})
+        http_calls = []
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: http_calls.append(1) or True)
+        monkeypatch.setattr(capabilities, '_ollama_tags', lambda *a, **k: ['qwen3-vl:8b'])
+        ready = capabilities.probe_ollama_model(reachable=True)
+        monkeypatch.setattr(capabilities, '_ollama_tags',
+                            lambda *a, **k: (_ for _ in ()).throw(AssertionError('tags fetched')))
+        down = capabilities.probe_ollama_model(reachable=False)
+    assert ready['ok'] is True
+    assert http_calls == []          # reachability supplied, not re-fetched
+    assert down['ok'] is False       # short-circuited without fetching tags
