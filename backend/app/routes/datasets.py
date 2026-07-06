@@ -160,6 +160,27 @@ def dataset_import(dataset_id):
     return jsonify({'ok': True, 'imported': len(ids), 'failed': failed})
 
 
+@bp.post('/dataset/<int:dataset_id>/scrape-import')
+def dataset_scrape_import(dataset_id):
+    """Scrape DIRECT → dataset CONCEPT : downloads the SELECTED scanned images
+    ({items:[{url,title}]}) straight into the dataset. Quality filters + dedup
+    live in the service. Concept-only (the character path would need per-image
+    head-crop + a GPU window)."""
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    if not ds:
+        return jsonify({'error': 'not found'}), 404
+    if not svc.is_concept(ds):
+        return jsonify({'error': 'concept datasets only'}), 400
+    data = request.get_json(silent=True) or {}
+    items = data.get('items') or []
+    if not isinstance(items, list) or not items:
+        return jsonify({'error': 'no items'}), 400
+    if len(items) > svc.SCRAPE_IMPORT_MAX:
+        return jsonify({'error': f'max {svc.SCRAPE_IMPORT_MAX} images per import'}), 400
+    res = svc.scrape_import_urls(LOCAL_USER, dataset_id, items)
+    return jsonify({'ok': True, **res})
+
+
 @bp.post('/dataset/<int:dataset_id>/classify')
 def dataset_classify(dataset_id):
     if not svc.get_dataset(LOCAL_USER, dataset_id):

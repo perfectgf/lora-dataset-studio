@@ -1,0 +1,11 @@
+# Optional: the scrape → concept-dataset bridge (scan a gallery, import chosen
+# images). The concept UPLOAD path needs none of this; only /api/scrape/scan,
+# /api/scrape/thumb and /dataset/<id>/scrape-import do. Install with:
+#   pip install -r backend/requirements-scrape.txt
+gallery-dl>=1.32.0        # gallery enumeration (coomer/kemono/bunkr tlds, civitai .red/.com)
+yt-dlp>=2024.07.01        # security floor (CVE-2024-38519); used by netfetch's video path
+curl_cffi>=0.7            # hardened fetch + thumb proxy (impersonate=chrome, anti-hotlink)
+brotli>=1.1              # Brotli decompression (curl_cffi / yt-dlp)
+beautifulsoup4>=4.12      # HTML parsing (picazor and friends)
+cloudscraper>=1.2.71      # Cloudflare-guarded listings (picazor)
+lxml>=5.0                 # fast HTML/XML parser backend for the above

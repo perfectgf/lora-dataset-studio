@@ -477,6 +477,132 @@ def import_images(user_id, dataset_id, files_bytes, crop=False):
     return ids, failed
 
 
+# --- Scrape direct → dataset concept ----------------------------------------
+# Construction de dataset AUTONOME : on scanne une URL de galerie (routes scrape
+# READ-ONLY, /api/scrape/scan + /thumb) et on télécharge les images choisies
+# DIRECTEMENT dans le dataset — le pool scrape partagé de l'app source n'est PAS
+# porté (cette app ne scrape que pour construire des datasets concept). Filtres :
+# dedup perceptuel + résolution + ratio = les 3 filtres « toujours rentables » ;
+# flou/watermark restent une décision HUMAINE (la sélection dans la grille de scan).
+SCRAPE_IMPORT_MAX = 60             # cap par import (download synchrone parallélisé)
+SCRAPE_IMPORT_MIN_SIDE = 768       # ai-toolkit ne fait que downscaler : 768 reste exploitable
+SCRAPE_IMPORT_MAX_RATIO = 3.0      # au-delà de 3:1, aucun bucket trainer ne gère proprement
+SCRAPE_DHASH_MAX_DISTANCE = 8      # Hamming ≤ 8 sur 64 bits = doublon perceptuel
+_SCRAPE_DL_TYPES = ('image/jpeg', 'image/jpg', 'image/png', 'image/webp')  # pas de gif/svg
+_SCRAPE_DL_MAX_BYTES = 25 * 1024 * 1024
+_SCRAPE_DL_WORKERS = 6
+
+
+def _dhash(im: Image.Image) -> int:
+    """dHash 64 bits (gradient horizontal sur grayscale 9×8) — PIL pur, insensible
+    au resize/re-encodage, donc stable entre un scrape original et sa version
+    normalisée webp déjà importée."""
+    g = im.convert('L').resize((9, 8), Image.LANCZOS)
+    px = list(g.getdata())
+    bits = 0
+    for row in range(8):
+        for col in range(8):
+            bits = (bits << 1) | (px[row * 9 + col] > px[row * 9 + col + 1])
+    return bits
+
+
+def _hamming(a: int, b: int) -> int:
+    return bin(a ^ b).count('1')
+
+
+def _existing_dhashes(dataset_id) -> list:
+    """dHashes des images déjà dans le dataset (keep/pending), recalculés à la
+    volée : resize 9×8 ≈ qq ms/image et un dataset plafonne à ~200 images —
+    pas de colonne/migration pour si peu."""
+    out = []
+    rows = FaceDatasetImage.query.filter(
+        FaceDatasetImage.dataset_id == dataset_id,
+        FaceDatasetImage.status.in_(('keep', 'pending'))).all()
+    for r in rows:
+        if not r.filename:
+            continue
+        try:
+            with Image.open(os.path.join(_dataset_dir(dataset_id), r.filename)) as im:
+                out.append(_dhash(im))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def _accept_scrape_bytes(raw, seen_hashes, skipped):
+    """Filtre une image téléchargée : résolution / ratio / dedup perceptuel.
+    Retourne les bytes si acceptée (et enregistre son dHash dans seen_hashes),
+    sinon None en incrémentant le compteur skipped adéquat."""
+    try:
+        with Image.open(io.BytesIO(raw)) as im:
+            im.load()
+            w, h = im.size
+            if min(w, h) < SCRAPE_IMPORT_MIN_SIDE:
+                skipped['low_res'] += 1
+                return None
+            if max(w, h) > SCRAPE_IMPORT_MAX_RATIO * min(w, h):
+                skipped['extreme_ratio'] += 1
+                return None
+            fp = _dhash(im)
+    except (OSError, ValueError):
+        skipped['errors'] += 1
+        return None
+    if any(_hamming(fp, s) <= SCRAPE_DHASH_MAX_DISTANCE for s in seen_hashes):
+        skipped['duplicates'] += 1
+        return None
+    seen_hashes.append(fp)
+    return raw
+
+
+def _download_scrape_item(item):
+    """Télécharge UNE image d'un item de scan ({url,title}) en mémoire, durci
+    anti-SSRF (mêmes garanties que /thumb). Retourne (reason, data|None) où
+    reason ∈ {'ok','not_image','errors'}. Sûr hors app-context (thread pool)."""
+    from ..scrape.netfetch import fetch_hardened_bytes, _validate_public_http_url
+    url = (item or {}).get('url')
+    if not url:
+        return ('errors', None)
+    ok_url, _err = _validate_public_http_url(url)
+    if not ok_url:
+        return ('errors', None)
+    ok, data, _ctype, reason = fetch_hardened_bytes(
+        url, allowed_types=_SCRAPE_DL_TYPES, max_bytes=_SCRAPE_DL_MAX_BYTES,
+        require_image_magic=True)
+    if not ok:
+        # 'type'/'noimage' = pas une vraie image raster ; le reste = erreur réseau.
+        return ('not_image' if reason in ('type', 'noimage') else 'errors', None)
+    return ('ok', data)
+
+
+def scrape_import_urls(user_id, dataset_id, items):
+    """Télécharge les images scannées SÉLECTIONNÉES directement dans le dataset
+    concept — flux AUTONOME. `items` = [{'url','title'}]. Download parallélisé
+    (borné), puis filtre + dedup séquentiels (état partagé), puis import brut
+    aspect-kept via import_images(crop=False). Renvoie
+    {'imported': n, 'skipped': {duplicates, low_res, extreme_ratio, not_image, errors}}."""
+    from concurrent.futures import ThreadPoolExecutor
+    skipped = {'duplicates': 0, 'low_res': 0, 'extreme_ratio': 0,
+               'not_image': 0, 'errors': 0}
+    items = [it for it in (items or []) if isinstance(it, dict) and it.get('url')]
+    if not items:
+        return {'imported': 0, 'skipped': skipped}
+    with ThreadPoolExecutor(max_workers=_SCRAPE_DL_WORKERS) as pool:
+        downloaded = list(pool.map(_download_scrape_item, items))
+
+    seen_hashes = _existing_dhashes(dataset_id)
+    accepted = []
+    for reason, data in downloaded:
+        if reason != 'ok':
+            skipped[reason] = skipped.get(reason, 0) + 1
+            continue
+        ok_bytes = _accept_scrape_bytes(data, seen_hashes, skipped)
+        if ok_bytes is not None:
+            accepted.append(ok_bytes)
+    ids, failed = import_images(user_id, dataset_id, accepted, crop=False)
+    skipped['errors'] += failed
+    return {'imported': len(ids), 'skipped': skipped}
+
+
 def _parse_classify(raw):
     try:
         start = raw.index('{')
