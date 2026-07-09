@@ -23,5 +23,7 @@ frontend/node_modules/
 .DS_Store
 Thumbs.db
 
-# controller scratch
+# controller scratch / local dev tooling — NEVER commit
 .superpowers/
+.claude/
+.playwright-mcp/
