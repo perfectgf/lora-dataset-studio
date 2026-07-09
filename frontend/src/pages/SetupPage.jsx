@@ -80,6 +80,22 @@ export default function SetupPage() {
     } catch (e) { toast.error(e.message) }
   }
 
+  // Test the key the user JUST typed. The probe reads the SAVED secret, so save
+  // that one key first (no need to fill anything else), then test + re-probe so
+  // the card flips to Ready. With no typed value, test whatever is already saved.
+  const saveSecretThenTest = async (key, target) => {
+    const typed = (secretInputs[key] || '').trim()
+    try {
+      if (typed) {
+        const data = await putJson('/api/settings', { secrets: { [key]: typed } })
+        setSecretsPresence(data.secrets); setSecretInputs((p) => ({ ...p, [key]: '' }))
+      }
+      const r = await postJson(`/api/settings/test/${target}`, {})
+      r.ok ? toast.success(r.detail) : toast.warning(r.detail)
+      await refresh(true)
+    } catch (e) { toast.error(e.message) }
+  }
+
   if (!config) {
     return loadError ? (
       <div className="space-y-3">
@@ -142,8 +158,8 @@ export default function SetupPage() {
                 onChange={(e) => setSecretInputs((p) => ({ ...p, [f.key]: e.target.value }))} />
               <div className="mt-1 flex items-center gap-3">
                 <a href={f.href} target="_blank" rel="noreferrer" className="text-xs text-primary underline">Get a key</a>
-                <button type="button" onClick={() => testTarget(f.engine === 'nanobanana' ? 'gemini' : 'openai')}
-                  className="text-xs text-content-muted underline">Test</button>
+                <button type="button" onClick={() => saveSecretThenTest(f.key, f.engine === 'nanobanana' ? 'gemini' : 'openai')}
+                  className="text-xs text-content-muted underline">Save &amp; test</button>
               </div>
             </div>
           ))}
