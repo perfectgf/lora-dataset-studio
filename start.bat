@@ -13,5 +13,8 @@ if not exist frontend\dist\index.html (
   echo frontend\dist is missing — this repo ships it prebuilt. Run: cd frontend ^&^& npm install ^&^& npm run build
   exit /b 1
 )
-start "" http://127.0.0.1:5000/
+rem Port 5000 is a frequent collision (macOS AirPlay, another local Flask app).
+rem Use 5050 by default; override by setting LDS_PORT before running start.bat.
+if not defined LDS_PORT set "LDS_PORT=5050"
+start "" http://127.0.0.1:%LDS_PORT%/
 python backend\run.py

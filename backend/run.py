@@ -11,5 +11,8 @@ app = create_app()
 
 if __name__ == '__main__':
     app.run(debug=os.environ.get('FLASK_DEBUG', '0') == '1',
-            host=os.environ.get('LDS_HOST') or cfg_get('server.host'), port=int(cfg_get('server.port')),
+            host=os.environ.get('LDS_HOST') or cfg_get('server.host'),
+            # LDS_PORT wins over config so the launcher can dodge a busy 5000
+            # (macOS AirPlay, another Flask app, …) without touching config.json.
+            port=int(os.environ.get('LDS_PORT') or cfg_get('server.port')),
             threaded=True, use_reloader=False)
