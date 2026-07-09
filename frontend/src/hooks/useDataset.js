@@ -164,7 +164,10 @@ export function useDataset() {
     const fd = new FormData(); fd.append('file', file);
     const d = await postJson(`/api/dataset/${currentId}/ref`, fd, true);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
-    toast.success('Reference set');
+    // GUARD-RAIL: the backend head-crop can silently fall back to a centered crop
+    // (e.g. vision model not pulled). Surface its reason instead of a plain success.
+    if (d.warning) toast.warning(d.warning);
+    else toast.success('Reference set');
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 

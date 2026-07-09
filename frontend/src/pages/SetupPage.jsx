@@ -48,6 +48,7 @@ export default function SetupPage() {
   const [detecting, setDetecting] = useState(false)
   const [scanned, setScanned] = useState(false)     // the on-load scan has completed at least once
   const [screen, setScreen] = useState(0)           // index into SCREENS
+  const [advancing, setAdvancing] = useState(false) // Next is mid save-&-recheck
   const autodetectedRef = useRef(false)             // run the on-load autodetect only once
 
   const load = useCallback(async () => {
@@ -399,13 +400,15 @@ export default function SetupPage() {
   // is present. The MODEL, not merely Ollama being up, is what matters. Nothing else
   // is hard-gated (build from your own photos + export to train elsewhere stays open).
   // The global "Skip setup" link is still the deliberate bail-out.
-  const blockReason = (id) => {
-    if (id !== 'ollama' || isReady(id)) return null
-    const s = stepById[id]
+  // Pure gate check on a derived step object, so it can be re-evaluated against FRESH
+  // capabilities after a save (not just the render-time snapshot).
+  const ollamaGateReason = (s) => {
+    if (!s || s.status === 'ready') return null
     if (!s.reachable) return "Ollama isn't detected — Z-Image captioning needs it. Install it and start it (port 11434) to continue."
     if (!s.visionModelReady) return 'Pull the vision model below to continue — Z-Image captioning needs it (JoyCaption only covers SDXL).'
     return 'Finish this step to continue.'
   }
+  const blockReason = (id) => (id === 'ollama' ? ollamaGateReason(stepById.ollama) : null)
   // The scan already knows what's installed — so "Start setup" / Next land on the
   // first tool that still needs attention and skip the ones already ready. No
   // re-walking ComfyUI/Ollama when they were just detected as running.
@@ -426,6 +429,23 @@ export default function SetupPage() {
     }
     const prv = prevUnfinished(toolIdx(kind))
     setScreen(prv ? screenOf(prv) : 0)
+  }
+  // Next on a tool step SAVES + re-checks first (so typed URLs/models take effect and
+  // the status refreshes), then advances — unless a required gate is still unmet after
+  // the re-check, in which case it stays and says why. Re-evaluates against FRESHLY
+  // fetched capabilities because the context update from persist() is async.
+  const nextWithSave = async () => {
+    setAdvancing(true)
+    try {
+      await persist()
+      let fresh = null
+      try { fresh = await apiFetch('/api/capabilities') } catch { /* keep going */ }
+      if (fresh && kind === 'ollama') {
+        const reason = ollamaGateReason(deriveSetupSteps(fresh).find((x) => x.id === 'ollama'))
+        if (reason) { toast.warning(reason); return }
+      }
+      goNext()
+    } finally { setAdvancing(false) }
   }
 
   // Progress dots: one per tool step, filled when that tool is ready.
@@ -567,11 +587,11 @@ export default function SetupPage() {
   const step = stepById[kind]
   const stepNo = SETUP_STEP_IDS.indexOf(kind) + 1
   const meta = STATUS_META[step.status] || STATUS_META.available
-  const reason = blockReason(kind)                 // non-null ⇒ Next is blocked
+  const reason = blockReason(kind)                 // live hint of what's still missing
   const hasNext = nextUnfinished(toolIdx(kind)) !== null
-  const nextLabel = reason ? 'Complete this step'
-    : !hasNext ? 'Finish →'
-    : (isReady(kind) ? 'Next →' : 'Skip / Next →')
+  // Next always saves + re-checks first; the gate (if any) is enforced AFTER that
+  // fresh re-check inside nextWithSave, not by disabling the button on a stale snapshot.
+  const nextLabel = advancing ? 'Saving…' : (hasNext ? 'Save & continue →' : 'Save & finish →')
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="flex items-center justify-between">
@@ -610,7 +630,7 @@ export default function SetupPage() {
         </button>
         <div className="flex items-center gap-4">
           {skipLink}
-          <button type="button" onClick={goNext} disabled={!!reason}
+          <button type="button" onClick={nextWithSave} disabled={advancing}
             title={reason || ''}
             className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">
             {nextLabel}
