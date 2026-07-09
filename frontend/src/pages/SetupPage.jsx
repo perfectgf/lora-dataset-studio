@@ -225,10 +225,12 @@ export default function SetupPage() {
           {guidedField('ComfyUI install directory', 'comfyui', 'base_dir', 'C:\\ComfyUI')}
           {detectedPathChip('comfyui', 'base_dir')}
           {step.reachable && !step.hasKlein && (
-            <div className="space-y-1 text-xs text-amber-400">
+            <div className="space-y-1 text-xs text-content-muted">
               <p>
-                Running, but no Klein model found. Download <span className="font-mono">flux-2-klein-9b-fp8.safetensors</span> ({KLEIN_MODEL_VRAM}) and
-                place it in <span className="font-mono">&lt;ComfyUI&gt;/models/unet/klein/</span>.
+                Running. The Klein model is <span className="text-content font-medium">optional</span> — add it only if you want
+                local generation (you can also use the API engines or your own photos, then export to train elsewhere).
+                To enable it, download <span className="font-mono">flux-2-klein-9b-fp8.safetensors</span> ({KLEIN_MODEL_VRAM}) into
+                <span className="font-mono"> &lt;ComfyUI&gt;/models/unet/klein/</span>.
               </p>
               <p className="flex flex-wrap gap-x-4 gap-y-1">
                 <a href="https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8" target="_blank" rel="noreferrer"
@@ -248,7 +250,7 @@ export default function SetupPage() {
           <div className="space-y-4">
             <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content">
               ✓ ComfyUI is already running at <span className="font-mono">{step.apiUrl || 'the configured URL'}</span>.
-              {step.hasKlein ? ' Nothing to do here.' : ' It works — only the Klein model is missing.'}
+              {step.hasKlein ? ' Nothing to do here.' : ' It works — the Klein model (optional, for local generation) isn’t installed.'}
             </div>
             {fields}
           </div>
@@ -480,11 +482,14 @@ export default function SetupPage() {
     // Three states per tool: ready (✓ green), partial (⚠ amber — detected but a
     // key piece is missing), missing (✗). Ollama keys on the MODEL, not just being
     // reachable — a running Ollama with no vision model is only "partial".
+    // `optional: true` rows (local generation) never look like a problem when not
+    // ready — you can build a dataset from your own photos + API engines and export
+    // to train elsewhere. They render neutral (grey ○ + "optional"), not amber/✗.
     const triState = (reachable, complete) => reachable ? (complete ? 'ready' : 'partial') : 'missing'
     const scanRows = [
-      { label: 'Local generation — ComfyUI',
+      { label: 'Local generation — ComfyUI', optional: true,
         state: triState(stepById.comfyui.reachable, stepById.comfyui.hasKlein),
-        partial: 'running — needs the Klein model' },
+        partial: 'running — Klein model optional' },
       { label: 'Captioning — Ollama + vision model',
         state: triState(stepById.ollama.reachable, stepById.ollama.visionModelReady),
         partial: 'running — pull the vision model' },
@@ -498,6 +503,8 @@ export default function SetupPage() {
       partial: { glyph: '⚠', cls: 'text-amber-400', word: '' },
       missing: { glyph: '✗', cls: 'text-content-subtle', word: 'not found' },
     }
+    // Optional + not-ready → don't alarm: neutral glyph/color and an "optional" tone.
+    const NEUTRAL = { glyph: '○', cls: 'text-content-subtle' }
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="text-center">
@@ -523,7 +530,11 @@ export default function SetupPage() {
           </div>
           <ul className="mt-4 space-y-2">
             {scanRows.map((r) => {
-              const m = SCAN_META[r.state]
+              const soft = r.optional && r.state !== 'ready'   // optional + not ready → neutral, not a warning
+              const m = soft ? { ...SCAN_META[r.state], ...NEUTRAL } : SCAN_META[r.state]
+              const word = r.state === 'partial' ? r.partial
+                : r.state === 'missing' ? (r.optional ? 'optional' : m.word)
+                : m.word
               return (
                 <li key={r.label} className="flex items-center justify-between gap-3 text-sm">
                   <span className="flex items-center gap-2">
@@ -531,9 +542,12 @@ export default function SetupPage() {
                       {detecting ? '…' : m.glyph}
                     </span>
                     <span className={r.state === 'ready' ? 'text-content' : 'text-content-muted'}>{r.label}</span>
+                    {r.optional && (
+                      <span className="rounded bg-surface-raised px-1.5 py-px text-[10px] font-medium text-content-subtle">optional</span>
+                    )}
                   </span>
                   <span className={`truncate text-right font-mono text-xs ${detecting ? 'text-content-subtle' : m.cls}`}>
-                    {detecting ? '' : (r.state === 'partial' ? r.partial : m.word)}
+                    {detecting ? '' : word}
                   </span>
                 </li>
               )
