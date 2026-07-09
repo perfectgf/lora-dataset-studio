@@ -49,6 +49,14 @@ def put_settings():
             return jsonify({'error': f"config section '{k}' must be an object"}), 400
     cfg.save_config(config_partial)
     cfg.set_secrets(body.get('secrets') or {})
+    # A changed ComfyUI location must take effect NOW: the base/model listers cache
+    # their scans for 5 min, so without this the training-base dropdowns keep showing
+    # the pre-save (often empty) list right after the user points the app at ComfyUI.
+    # (The wizard's _scan_models view refreshes via the frontend's forced
+    # /api/capabilities?force=1 call, so no probe(force) is needed here.)
+    if 'comfyui' in config_partial:
+        from ..utils import comfyui
+        comfyui.clear_model_caches()
     return jsonify(_settings_payload())
 
 

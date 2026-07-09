@@ -82,6 +82,37 @@ def test_listers_use_configured_dirs(app, tmp_path):
         assert result[0]['group'] is not None
 
 
+def test_clear_model_caches_forces_rescan(app, tmp_path):
+    """The gotcha: get_zimage_models caches even an EMPTY scan (unconfigured), so a
+    base_dir set afterwards stays invisible for the 5-min TTL. clear_model_caches()
+    must drop that stale empty result so the newly-configured models appear at once."""
+    from app.utils import comfyui
+    from app import config as cfg
+    with app.app_context():
+        comfyui.clear_model_caches()                      # clean slate (caches are process-global)
+        assert comfyui.get_zimage_models() == []          # primes the cache with []
+        base = tmp_path / 'comfyui'
+        zdir = base / 'models' / 'unet' / 'z image'
+        zdir.mkdir(parents=True)
+        (zdir / 'merge_a.safetensors').write_bytes(b'')
+        cfg.save_config({'comfyui': {'base_dir': str(base)}})
+        assert comfyui.get_zimage_models() == []          # stale [] still served (TTL)
+        comfyui.clear_model_caches()
+        assert 'z image\\merge_a.safetensors' in comfyui.get_zimage_models()
+
+
+def test_put_settings_comfyui_clears_model_caches(client):
+    """Saving a comfyui section must invalidate the lister caches (so the training-base
+    dropdown reflects a just-set base_dir), while a non-comfyui save leaves them alone."""
+    from app.utils import comfyui
+    comfyui._zimage_models_cache['data'] = ['stale']      # pretend a prior scan cached something
+    comfyui._zimage_models_cache['timestamp'] = 9e18
+    client.put('/api/settings', json={'config': {'ollama': {'url': 'http://127.0.0.1:11434'}}})
+    assert comfyui._zimage_models_cache['data'] == ['stale']   # untouched (no comfyui section)
+    client.put('/api/settings', json={'config': {'comfyui': {'base_dir': ''}}})
+    assert comfyui._zimage_models_cache['data'] is None        # invalidated
+
+
 def test_inject_zimage_loras_rewires_consumer_and_respects_allowed():
     workflow = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "z image\\base.safetensors"}},

@@ -949,6 +949,22 @@ def get_krea_models():
     return out
 
 
+def clear_model_caches() -> None:
+    """Drop the 5-min TTL caches of every base/model lister.
+
+    Call this whenever the ComfyUI location changes (settings save) — otherwise a
+    freshly-configured `comfyui.base_dir` wouldn't surface in the training-base
+    dropdowns until the TTL expired (up to 5 min of a stale empty list, read by the
+    user as "models still not found" right after they pointed the app at ComfyUI).
+    SRC exposed `invalidate_model_caches`; this app dropped that helper, so the
+    caches were never invalidated on config change until now."""
+    for c in (_checkpoint_models_cache, _zimage_models_cache, _krea_models_cache):
+        c["data"] = None
+        c["timestamp"] = 0
+        if "key" in c:
+            c["key"] = None
+
+
 def get_zimage_loras():
     """List Z-Image LoRAs: .safetensors under a 'z image' / 'zimage' subfolder of
     models/loras. Returns [{filename, displayName, triggerWord, triggerWords, group,

@@ -264,6 +264,28 @@ def test_base_info_unknown_dataset_404(client, monkeypatch):
     assert resp.status_code == 404
 
 
+def test_base_info_comfyui_unconfigured_flag(client, monkeypatch):
+    """Fresh config: no comfyui.base_dir -> comfyui_configured False, so the UI can
+    say 'point the app at ComfyUI' instead of a blind 'No checkpoint found'."""
+    _valid(monkeypatch, True)
+    ds_id = _create(client)
+    body = client.get(f'/api/dataset/{ds_id}/train/base-info').get_json()
+    assert body['comfyui_configured'] is False
+    assert body['models_dir'] == ''
+
+
+def test_base_info_comfyui_configured_flag(client, monkeypatch, tmp_path):
+    from app import config as cfg
+    _valid(monkeypatch, True)
+    base = tmp_path / 'comfyui'
+    (base / 'models').mkdir(parents=True)
+    cfg.save_config({'comfyui': {'base_dir': str(base)}})
+    ds_id = _create(client)
+    body = client.get(f'/api/dataset/{ds_id}/train/base-info').get_json()
+    assert body['comfyui_configured'] is True
+    assert body['models_dir'].replace('/', '\\').endswith('models')
+
+
 # --- /train/prepare-base -------------------------------------------------------
 
 def test_prepare_base_rejects_unknown_base(client, monkeypatch):

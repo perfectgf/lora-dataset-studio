@@ -12,6 +12,7 @@ from datetime import datetime
 from flask import Blueprint, current_app, request, jsonify
 
 from .. import capabilities
+from .. import config as cfg
 from ..config import LOCAL_USER
 from ..services import face_dataset_service as svc
 from ..services import lora_training as lt
@@ -225,11 +226,23 @@ def dataset_train_base_info(dataset_id):
     # Krea 2 s'entraîne sur une base FIXE (Krea 2 Turbo via training adapter) - pas
     # de choix de checkpoint, pas de conversion.
     krea_bases = [{'value': '', 'label': 'Official - Krea 2 Turbo (adapter)'}]
+    # Les listers de bases (get_checkpoint_models / get_zimage_models) résolvent le
+    # dossier des modèles depuis comfyui.base_dir → vides tant qu'il n'est pas
+    # configuré. On expose ce fait pour que l'UI dise « configure ComfyUI dans Setup »
+    # au lieu d'un « No checkpoint found » aveugle (le vrai motif sur un clone neuf).
+    models_dir = None
+    try:
+        models_dir = cfg.comfyui_dir('models')
+    except Exception:
+        models_dir = None
+    comfyui_configured = bool(models_dir) and os.path.isdir(str(models_dir))
     return jsonify({'bases': bases, 'base': ds.train_base_model or '',
                     'variant': ds.train_variant or 'turbo',
                     'converted': converted,
                     'convert': zc.convert_status(),
                     'train_type': ds.train_type or 'zimage',
+                    'comfyui_configured': comfyui_configured,
+                    'models_dir': str(models_dir) if models_dir else '',
                     'bases_by_type': {'zimage': bases, 'sdxl': sdxl_bases, 'krea': krea_bases}})
 
 
