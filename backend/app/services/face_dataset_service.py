@@ -410,23 +410,37 @@ def detect_head_bbox(image_bytes):
         from .vision_ollama import describe_image_ollama
     except ImportError:
         return None
-    raw = describe_image_ollama(image_bytes, HEAD_BBOX_PROMPT, num_predict=400, prefer_json=True)
+    # fmt='json' forces Ollama's grammar mode: the model must emit a JSON object from
+    # the first token, so reasoning-prone (abliterated) checkpoints can't ramble a
+    # <think> trace past num_predict and never reach the coords (a silent-None cause).
+    raw = describe_image_ollama(image_bytes, HEAD_BBOX_PROMPT, num_predict=400,
+                                prefer_json=True, fmt='json')
     try:
         s = raw.index('{')
         obj = json.loads(raw[s:raw.index('}', s) + 1])
         y1, x1, y2, x2 = (float(obj[k]) for k in ('y1', 'x1', 'y2', 'x2'))
     except (ValueError, KeyError, AttributeError, TypeError):
         return None
+    # Qwen3-VL frequently SWAPS corners (returns y1>y2 or x1>x2). Normalize to
+    # min/max instead of rejecting — rejecting was a silent-None cause that fell back
+    # to a body-centered crop even when the head was correctly located.
+    x1, x2 = min(x1, x2), max(x1, x2)
+    y1, y2 = min(y1, y2), max(y1, y2)
     if not (0 <= x1 < x2 <= 1000 and 0 <= y1 < y2 <= 1000):
         return None
     return (x1 / 1000.0, y1 / 1000.0, x2 / 1000.0, y2 / 1000.0)
 
 
-def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 1.7) -> bytes:
+def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 1.7,
+                             *, return_detected: bool = False):
     """Head-crop (Qwen3-VL bbox, generous padding for hair + shoulders) into a
     SQUARE that FILLS `size` - no black padding, no distortion (the square is
     shrunk to fit inside the image so it never needs letterboxing). Falls back to
-    a centered-square crop if no head is detected. CALLER holds the GPU window."""
+    a centered-square crop if no head is detected. CALLER holds the GPU window.
+
+    `return_detected=True` -> (webp_bytes, head_detected) so the caller can WARN the
+    user when it silently fell back to a centered crop (e.g. vision model not pulled)
+    instead of leaving them puzzled by a body-centered reference."""
     im = Image.open(io.BytesIO(image_bytes)).convert('RGB')
     W, H = im.size
     norm = detect_head_bbox(image_bytes)
@@ -437,7 +451,8 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
         cy = (y1 + y2) / 2 - (y2 - y1) * 0.10  # shift up to keep the hair
         half = max(x2 - x1, y2 - y1) * pad / 2
         half = min(half, cx, W - cx, cy, H - cy)  # keep the square inside the image
-    if half >= 8:
+    head_detected = half >= 8
+    if head_detected:
         box = (int(cx - half), int(cy - half), int(cx + half), int(cy + half))
     else:  # no/failed detection → centered largest square
         side = min(W, H)
@@ -445,7 +460,7 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
         box = (left, top, left + side, top + side)
     out = io.BytesIO()
     im.crop(box).resize((size, size), Image.LANCZOS).save(out, 'WEBP', quality=92)
-    return out.getvalue()
+    return (out.getvalue(), head_detected) if return_detected else out.getvalue()
 
 
 # --- Import + classify (Qwen3-VL) ------------------------------------------

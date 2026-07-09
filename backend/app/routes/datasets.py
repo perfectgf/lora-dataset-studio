@@ -72,7 +72,7 @@ def dataset_set_ref(dataset_id):
     raw = f.read()
     try:
         with gpu_exclusive_vision_window():
-            webp = svc.face_crop_to_square_webp(raw)  # auto head-crop
+            webp, head_detected = svc.face_crop_to_square_webp(raw, return_detected=True)
     except Exception as e:
         return _map_error(e)
     fn = f"{LOCAL_USER}_datasetref_{uuid.uuid4().hex[:8]}.webp"
@@ -80,7 +80,20 @@ def dataset_set_ref(dataset_id):
         fh.write(webp)
     ds.ref_filename = fn
     svc.db.session.commit()
-    return jsonify({'ok': True, 'ref_filename': fn})
+    resp = {'ok': True, 'ref_filename': fn, 'head_crop': head_detected}
+    if not head_detected:
+        # GUARD-RAIL: don't silently ship a body-centered crop. Tell the user WHY the
+        # auto head-crop didn't run — the usual cause on a fresh install is the Ollama
+        # vision model not being pulled — and how to recover (Setup + the Crop button).
+        from .. import capabilities
+        model_ready = capabilities.probe_ollama_model()['ok']
+        resp['warning'] = (
+            "Auto head-crop needs the Ollama vision model, which isn't ready yet — "
+            'used a centered crop. Finish the Ollama step in Setup, then click Crop to re-center on the face.'
+            if not model_ready else
+            "Couldn't detect a face — used a centered crop. Use the Crop button to adjust it manually."
+        )
+    return jsonify(resp)
 
 
 @bp.post('/dataset/<int:dataset_id>/ref/extra')
