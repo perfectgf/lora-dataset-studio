@@ -134,13 +134,22 @@ export function useDataset() {
 
   const open = useCallback(async (id) => { setCurrentId(id); await refresh(id); }, [refresh]);
 
-  const create = useCallback(async (name, trigger, kind, conceptDesc) => {
+  const create = useCallback(async (name, trigger, kind, conceptDesc, trainType) => {
     const d = await postJson('/api/dataset/create',
       { name, trigger_word: trigger, ...(kind ? { kind } : {}),
+        ...(trainType ? { train_type: trainType } : {}),
         ...(kind === 'concept' && conceptDesc ? { concept_desc: conceptDesc } : {}) });
     if (d.ok) { await fetchList(); await open(d.id); toast.success('Dataset created'); }
     else toast.error(d.error || 'Unexpected error');
   }, [fetchList, open, toast]);
+
+  // Change the target model family later (from the TrainingPanel selector) so the
+  // grouped menu re-sorts. Refreshes the list; silent on failure (non-critical).
+  const setDatasetTrainType = useCallback(async (trainType) => {
+    if (!currentId) return;
+    const d = await postJson(`/api/dataset/${currentId}/train-type`, { train_type: trainType });
+    if (d.ok) fetchList();
+  }, [currentId, fetchList]);
 
   const deleteDataset = useCallback(async (id) => {
     const d = await postJson(`/api/dataset/${id}/delete`);
@@ -418,7 +427,7 @@ export function useDataset() {
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
-           setStatus, setCaption, crop, cropRef, recropRefAuto, deleteImage, cancelPending, regenerate, analyzing, analyzeFaces,
+           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, deleteImage, cancelPending, regenerate, analyzing, analyzeFaces,
            purgeUnused, exportZip, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, prepareBase };

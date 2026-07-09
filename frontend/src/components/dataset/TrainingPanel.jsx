@@ -90,11 +90,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // ou si SDXL sans base choisie (SDXL exige un checkpoint).
   const baseBlocksTrain = needsConversion && !baseConverted;
   const sdxlNeedsBase = trainType === 'sdxl' && !base;
-  // Changement de type : réinitialise la base (les listes diffèrent ; SDXL → 1ère base réelle).
+  // Changement de type : réinitialise la base (les listes diffèrent ; SDXL → 1ère base réelle)
+  // et PERSISTE la famille (choisie à la création, modifiable ici) pour que le menu
+  // regroupé se ré-trie et que le format de caption suive.
   const onTypeChange = (t) => {
     setTrainType(t);
     const list = baseInfo?.bases_by_type?.[t] || [];
     setBase(t === 'sdxl' ? (list[0]?.value || '') : '');
+    ds.setDatasetTrainType?.(t);
   };
 
   // Normalizes like useDataset's own postJson: a non-2xx response (e.g. the

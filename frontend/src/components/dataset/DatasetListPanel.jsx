@@ -81,6 +81,15 @@ const FAMILY_BADGE = {
   krea: ['Krea', 'border-amber-400/40 bg-amber-500/10 text-amber-300'],
 };
 
+// Familles de modèle proposées à la création + ordre/labels des sections du menu.
+// Le menu est GROUPÉ par cette famille (d.train_type) : gestion plus simple quand on
+// entretient des datasets de plusieurs pipelines. La 3e valeur = l'emoji de section.
+const FAMILY_ORDER = [
+  ['zimage', 'Z-Image', '🌀'],
+  ['sdxl', 'SDXL', '🎨'],
+  ['krea', 'Krea 2', '✨'],
+];
+
 function DatasetCard({ d, onOpen, onDelete }) {
   return (
     <div
@@ -144,15 +153,15 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete 
   // Nature du dataset : personnage (identité liée au trigger) vs concept (un acte/effet
   // récurrent lié au trigger — import brut, captions inversées, pas de référence/visage).
   const [kind, setKind] = useState('character');
+  // Modèle cible choisi à la création : pilote le format de caption (SDXL→booru, sinon
+  // prose) DÈS le départ et le regroupement du menu. Reste modifiable dans le panneau
+  // d'entraînement. Défaut Z-Image (le type par défaut de l'app).
+  const [trainType, setTrainType] = useState('zimage');
   // Concept only : ce que le captioneur doit OMETTRE de chaque caption pour que le concept
   // se lie au trigger (l'inverse d'un LoRA de personnage). Obligatoire pour un concept.
   const [conceptDesc, setConceptDesc] = useState('');
   const concept = kind === 'concept';
   const canCreate = name.trim() && (!concept || conceptDesc.trim());
-  // Séparation « déjà entraîné » (≥1 LoRA déployé) / « en cours » (dataset en
-  // construction). Rétro-compat : sans le flag (ancien backend), tout va en cours.
-  const inProgress = datasets.filter((d) => !d.trained);
-  const trained = datasets.filter((d) => d.trained);
   return (
     <div className="flex flex-col gap-4">
       {/* What this page does — pipeline hero. */}
@@ -199,6 +208,17 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete 
               className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
           </label>
         </div>
+        {/* Modèle cible : fixe le format de caption (SDXL→tags booru, sinon prose) et la
+            section du menu. Modifiable ensuite dans le panneau d'entraînement. */}
+        <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
+          Target model <span className="text-content-subtle normal-case">— sets the caption style &amp; groups the menu (changeable later)</span>
+          <select value={trainType} onChange={(e) => setTrainType(e.target.value)}
+            className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content">
+            <option value="zimage">Z-Image (prose captions)</option>
+            <option value="sdxl">SDXL (booru-tag captions)</option>
+            <option value="krea">Krea 2 (prose captions)</option>
+          </select>
+        </label>
         {/* Concept description : ce que la caption OMET (l'acte récurrent). Alimente le
             {concept} des prompts caption/raffinage/ban-list. Décrire l'ACTE, pas le sujet. */}
         {concept && (
@@ -216,7 +236,7 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete 
               : 'The trigger word is the unique token you will type in prompts to summon this character.'}
           </p>
           <button type="button"
-            onClick={() => canCreate && onCreate(name.trim(), trigger.trim(), kind, conceptDesc.trim())}
+            onClick={() => canCreate && onCreate(name.trim(), trigger.trim(), kind, conceptDesc.trim(), trainType)}
             disabled={!canCreate}
             className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             Create
@@ -224,38 +244,27 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete 
         </div>
       </div>
 
-      {/* Existing datasets — split: in progress (still building) vs trained (≥1 LoRA). */}
+      {/* Existing datasets — GROUPED by target model family (Z-Image / SDXL / Krea) so a
+          multi-pipeline library stays easy to manage. Character vs concept stays a badge. */}
       {datasets.length > 0 ? (
         <>
-          {inProgress.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <h2 className="text-content-muted text-[0.6875rem] uppercase tracking-wide font-semibold flex items-center gap-2">
-                <span aria-hidden="true">🚧</span> In progress
-                <span className="text-content-subtle font-normal normal-case">({inProgress.length})</span>
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {inProgress.map((d) => (
-                  <DatasetCard key={d.id} d={d} onOpen={onOpen} onDelete={onDelete} />
-                ))}
+          {FAMILY_ORDER.map(([fam, label, emoji]) => {
+            const group = datasets.filter((d) => (d.train_type || 'zimage') === fam);
+            if (!group.length) return null;
+            return (
+              <div key={fam} className="flex flex-col gap-2">
+                <h2 className="text-content-muted text-[0.6875rem] uppercase tracking-wide font-semibold flex items-center gap-2">
+                  <span aria-hidden="true">{emoji}</span> {label}
+                  <span className="text-content-subtle font-normal normal-case">({group.length})</span>
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {group.map((d) => (
+                    <DatasetCard key={d.id} d={d} onOpen={onOpen} onDelete={onDelete} />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-          {trained.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <h2 className="text-content-muted text-[0.6875rem] uppercase tracking-wide font-semibold flex items-center gap-2">
-                <span aria-hidden="true">✅</span> Trained
-                <span className="text-content-subtle font-normal normal-case">({trained.length})</span>
-                <span className="text-content-subtle font-normal normal-case text-[0.625rem]">
-                  — at least one LoRA deployed
-                </span>
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {trained.map((d) => (
-                  <DatasetCard key={d.id} d={d} onOpen={onOpen} onDelete={onDelete} />
-                ))}
-              </div>
-            </div>
-          )}
+            );
+          })}
         </>
       ) : (
         <EmptyState />
