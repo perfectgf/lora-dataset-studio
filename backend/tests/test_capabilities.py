@@ -1,4 +1,5 @@
 from unittest.mock import patch
+import pathlib
 import pytest
 
 
@@ -199,6 +200,57 @@ def test_scan_models_never_raises_on_absent_dir(app, tmp_path):
         config.save_config({'comfyui': {'base_dir': str(tmp_path / 'does_not_exist')}})
         models = capabilities._scan_models()
     assert models == {'zimage': [], 'sdxl': [], 'krea': [], 'klein': []}
+
+
+# --- resolve_comfyui_base: portable-wrapper nesting ----------------------
+
+def _make_comfyui(root):
+    """Minimal ComfyUI marker: main.py + models/ is what _is_comfyui_dir checks."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'main.py').touch()
+    (root / 'models').mkdir()
+
+
+def test_resolve_comfyui_base_direct(tmp_path):
+    from app.capabilities import resolve_comfyui_base
+    _make_comfyui(tmp_path)
+    r = resolve_comfyui_base(str(tmp_path))
+    assert r['valid'] is True and r['nested'] is False
+    assert pathlib.Path(r['resolved']) == tmp_path
+
+def test_resolve_comfyui_base_portable_nested(tmp_path):
+    """User points at ...\\ComfyUI_windows_portable; the real install is one level
+    down in .../ComfyUI. resolve descends and flags nested=True so the caller
+    can auto-correct base_dir."""
+    from app.capabilities import resolve_comfyui_base
+    wrapper = tmp_path / 'ComfyUI_windows_portable'
+    _make_comfyui(wrapper / 'ComfyUI')
+    r = resolve_comfyui_base(str(wrapper))
+    assert r['valid'] is True and r['nested'] is True
+    assert pathlib.Path(r['resolved']) == wrapper / 'ComfyUI'
+
+def test_resolve_comfyui_base_invalid(tmp_path):
+    from app.capabilities import resolve_comfyui_base
+    r = resolve_comfyui_base(str(tmp_path))   # empty dir, no main.py/models
+    assert r['valid'] is False and r['nested'] is False
+    assert pathlib.Path(r['resolved']) == tmp_path
+
+def test_resolve_comfyui_base_empty():
+    from app.capabilities import resolve_comfyui_base
+    assert resolve_comfyui_base('') == {'valid': False, 'resolved': '', 'nested': False}
+
+def test_probe_exposes_dir_valid(app, tmp_path):
+    """probe() surfaces dir_configured/dir_valid/resolved_dir so the wizard can
+    tell a wrong path from a right one without a second round-trip."""
+    with app.app_context():
+        from app import capabilities, config
+        _make_comfyui(tmp_path / 'ComfyUI')
+        config.save_config({'comfyui': {'base_dir': str(tmp_path)}})   # wrapper, nested install
+        with patch('app.capabilities._http_ok', return_value=False):
+            caps = capabilities.probe(force=True)
+    c = caps['comfyui']
+    assert c['dir_configured'] is True and c['dir_valid'] is True
+    assert pathlib.Path(c['resolved_dir']) == tmp_path / 'ComfyUI'
 
 
 # --- probe() caching ------------------------------------------------------

@@ -1,3 +1,4 @@
+import pathlib
 import pytest
 
 
@@ -52,6 +53,30 @@ def test_put_rejects_non_object_config(client):
 
 def test_put_rejects_non_object_secrets(client):
     assert client.put('/api/settings', json={'secrets': ['x']}).status_code == 400
+
+def test_put_settings_autocorrects_portable_base_dir(client, tmp_path):
+    """Saving a base_dir that points at the portable WRAPPER
+    (...\\ComfyUI_windows_portable) must be rewritten to the nested ...\\ComfyUI
+    that actually holds main.py + models/ -- otherwise every model lister scans an
+    empty wrapper\\models and reports 'No checkpoint found' even though ComfyUI runs."""
+    wrapper = tmp_path / 'ComfyUI_windows_portable'
+    inner = wrapper / 'ComfyUI'
+    inner.mkdir(parents=True)
+    (inner / 'main.py').touch()
+    (inner / 'models').mkdir()
+    r = client.put('/api/settings', json={'config': {'comfyui': {'base_dir': str(wrapper)}}})
+    assert r.status_code == 200
+    saved = r.get_json()['config']['comfyui']['base_dir']
+    assert pathlib.Path(saved) == inner   # auto-corrected down into the real install
+
+def test_put_settings_keeps_valid_base_dir_unchanged(client, tmp_path):
+    """A base_dir already pointing straight at a real ComfyUI install is left as-is."""
+    base = tmp_path / 'Comfy'
+    base.mkdir()
+    (base / 'main.py').touch()
+    (base / 'models').mkdir()
+    r = client.put('/api/settings', json={'config': {'comfyui': {'base_dir': str(base)}}})
+    assert pathlib.Path(r.get_json()['config']['comfyui']['base_dir']) == base
 
 def test_capabilities_endpoint(client):
     caps = client.get('/api/capabilities').get_json()

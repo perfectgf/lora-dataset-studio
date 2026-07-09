@@ -47,6 +47,15 @@ def put_settings():
     for k, v in config_partial.items():
         if not isinstance(v, dict):
             return jsonify({'error': f"config section '{k}' must be an object"}), 400
+    # Auto-correct the classic portable-bundle mistake: a base_dir pointing at
+    # ...\ComfyUI_windows_portable gets rewritten to the nested ...\ComfyUI that
+    # actually holds main.py + models/, so the base/model listers find checkpoints
+    # instead of silently scanning an empty ...\<wrapper>\models.
+    bd = (config_partial.get('comfyui') or {}).get('base_dir')
+    if bd:
+        r = capabilities.resolve_comfyui_base(bd)
+        if r['valid'] and r['nested']:
+            config_partial['comfyui']['base_dir'] = r['resolved']
     cfg.save_config(config_partial)
     cfg.set_secrets(body.get('secrets') or {})
     # A changed ComfyUI location must take effect NOW: the base/model listers cache

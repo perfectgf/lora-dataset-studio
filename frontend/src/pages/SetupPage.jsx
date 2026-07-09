@@ -224,6 +224,22 @@ export default function SetupPage() {
           {guidedField('ComfyUI API URL', 'comfyui', 'api_url', 'http://127.0.0.1:8188')}
           {guidedField('ComfyUI install directory', 'comfyui', 'base_dir', 'C:\\ComfyUI')}
           {detectedPathChip('comfyui', 'base_dir')}
+          {/* Validate the folder on Save & re-check: it must actually hold main.py +
+              models/. A portable-wrapper path is auto-corrected to the nested ComfyUI on
+              save (so checkpoints are found); a genuinely wrong path is flagged here. */}
+          {config.comfyui.base_dir && (
+            step.dirValid ? (
+              <p className="text-xs text-emerald-400">
+                ✓ ComfyUI found{step.resolvedDir ? <> at <span className="font-mono">{step.resolvedDir}</span></> : ''}.
+              </p>
+            ) : (
+              <p className="text-xs text-amber-400">
+                ⚠ No ComfyUI install in this folder — it must contain <span className="font-mono">main.py</span> and
+                a <span className="font-mono">models/</span> folder. Check the path, then Save &amp; re-check.
+                For the portable build, point at the inner <span className="font-mono">…\ComfyUI_windows_portable\ComfyUI</span>.
+              </p>
+            )
+          )}
           {step.reachable && !step.hasKlein && (
             <div className="space-y-1 text-xs text-content-muted">
               <p>

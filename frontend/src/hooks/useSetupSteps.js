@@ -29,6 +29,9 @@ function comfyuiStep(caps) {
     id: 'comfyui', title: 'ComfyUI — local generation & Test Studio', recommended: false,
     unlocks: ['Klein engine', 'Test Studio'],
     status, reachable: !!c.reachable, hasKlein, apiUrl: c.api_url || '',
+    // Whether comfyui.base_dir actually points at a ComfyUI install (main.py + models/):
+    // a wrong/portable-wrapper path scans an empty models/ and finds no checkpoints.
+    dirConfigured: !!c.dir_configured, dirValid: !!c.dir_valid, resolvedDir: c.resolved_dir || '',
   }
 }
 

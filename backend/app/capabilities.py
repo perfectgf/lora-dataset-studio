@@ -252,6 +252,27 @@ def _is_comfyui_dir(d) -> bool:
         return False
 
 
+def resolve_comfyui_base(path: str) -> dict:
+    """Resolve a user-entered ComfyUI folder to the one that actually holds main.py +
+    models/ (which is what every base/model lister scans). Handles the common
+    portable-bundle mistake: users point at ...\\ComfyUI_windows_portable, but main.py
+    and models/ live one level down in ...\\ComfyUI_windows_portable\\ComfyUI. Without
+    this, comfyui.base_dir\\models never exists -> "No SDXL checkpoint found" even though
+    ComfyUI is running.
+
+    Returns {valid, resolved, nested}: `nested` is True when we descended into a child
+    ComfyUI/ (the caller can then auto-correct base_dir to `resolved`)."""
+    if not path:
+        return {'valid': False, 'resolved': '', 'nested': False}
+    p = Path(path)
+    if _is_comfyui_dir(p):
+        return {'valid': True, 'resolved': str(p), 'nested': False}
+    child = p / 'ComfyUI'
+    if _is_comfyui_dir(child):
+        return {'valid': True, 'resolved': str(child), 'nested': True}
+    return {'valid': False, 'resolved': str(p), 'nested': False}
+
+
 def _detect_comfyui() -> dict:
     out = {}
     if _http_ok(f'{_COMFYUI_DEFAULT_URL}/history'):
@@ -299,6 +320,8 @@ def probe(force=False) -> dict:
     face_scoring = probe_face_scoring()
     masks = probe_masks()
     models = _scan_models()
+    base_dir = cfg.get('comfyui.base_dir') or ''
+    comfy_dir = resolve_comfyui_base(base_dir)
 
     caps = {
         'configured': cfg.is_configured(),
@@ -310,6 +333,10 @@ def probe(force=False) -> dict:
         'comfyui': {
             'reachable': comfy['ok'],
             'api_url': cfg.get('comfyui.api_url') or '',
+            'base_dir': base_dir,
+            'dir_configured': bool(base_dir),
+            'dir_valid': comfy_dir['valid'],       # base_dir really is a ComfyUI install
+            'resolved_dir': comfy_dir['resolved'],
             'models': models,
         },
         'ollama': {
