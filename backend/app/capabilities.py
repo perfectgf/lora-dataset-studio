@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import requests
 
@@ -193,6 +194,95 @@ def _scan_models() -> dict:
 
     result['sdxl'] = _model_files(models_dir / 'checkpoints')
     return result
+
+
+# --- Auto-detection (Setup wizard) -----------------------------------------
+# Discover already-installed tools so the wizard can fill config itself. Two
+# signals: a REACHABLE default port (safe to auto-apply — it answered) and a
+# folder found on disk (a guess → the UI confirms before writing it).
+_OLLAMA_DEFAULT_URL = 'http://127.0.0.1:11434'
+_COMFYUI_DEFAULT_URL = 'http://127.0.0.1:8188'
+
+
+def _common_roots() -> list:
+    home = Path.home()
+    candidates = [Path('C:/'), Path('D:/'), home, home / 'Downloads', home / 'Desktop',
+                  home / 'projects', home / 'source' / 'repos', Path('C:/tools')]
+    out, seen = [], set()
+    for r in candidates:
+        try:
+            if r not in seen and r.is_dir():
+                seen.add(r)
+                out.append(r)
+        except OSError:
+            continue
+    return out
+
+
+def _find_install_dir(names, marker) -> str:
+    """Shallow scan of common roots for a folder named in `names` satisfying
+    `marker(path)`. First hit as a string, else ''. Shallow (root/name only) to
+    stay fast — a deep recursive walk of C:\\ would be far too slow for a probe."""
+    for root in _common_roots():
+        for name in names:
+            cand = root / name
+            try:
+                if cand.is_dir() and marker(cand):
+                    return str(cand)
+            except OSError:
+                continue
+    return ''
+
+
+def _detect_ollama() -> dict:
+    if not _http_ok(f'{_OLLAMA_DEFAULT_URL}/api/tags'):
+        return {}
+    out = {'url': _OLLAMA_DEFAULT_URL}
+    names = _ollama_tags(_OLLAMA_DEFAULT_URL)
+    vl = next((n for n in names if 'vl' in (n or '').lower() or 'vision' in (n or '').lower()), '')
+    if vl:
+        out['vision_model'] = vl
+    return out
+
+
+def _is_comfyui_dir(d) -> bool:
+    try:
+        return (d / 'main.py').exists() and (d / 'models').is_dir()
+    except OSError:
+        return False
+
+
+def _detect_comfyui() -> dict:
+    out = {}
+    if _http_ok(f'{_COMFYUI_DEFAULT_URL}/history'):
+        out['api_url'] = _COMFYUI_DEFAULT_URL
+    base = _find_install_dir(('ComfyUI', 'comfyui'), _is_comfyui_dir)
+    if not base:
+        # portable bundle nests the app: <root>/ComfyUI_windows_portable/ComfyUI/
+        portable = _find_install_dir(('ComfyUI_windows_portable',),
+                                     lambda d: _is_comfyui_dir(d / 'ComfyUI'))
+        if portable:
+            base = str(Path(portable) / 'ComfyUI')
+    if base:
+        out['base_dir'] = base
+    return out
+
+
+def _detect_aitoolkit() -> dict:
+    d = _find_install_dir(('ai-toolkit', 'ai_toolkit', 'aitoolkit'),
+                          lambda p: (p / 'run.py').exists())
+    return {'dir': d} if d else {}
+
+
+def autodetect() -> dict:
+    """Best-effort discovery of installed tools for the Setup wizard. A value under
+    a reachable default port (url/api_url) is safe to auto-apply; a disk-scanned
+    path (base_dir/dir) is a suggestion the UI should confirm. Never raises."""
+    return {
+        'ollama': _detect_ollama(),
+        'comfyui': _detect_comfyui(),
+        'aitoolkit': _detect_aitoolkit(),
+    }
 
 
 def probe(force=False) -> dict:

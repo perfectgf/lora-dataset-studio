@@ -1,9 +1,18 @@
-"""Setup API: run the whitelisted one-click installs and poll their state."""
+"""Setup API: auto-detect installed tools + run the whitelisted one-click installs."""
 from flask import Blueprint, jsonify
 
+from .. import capabilities
 from .. import setup_installer
 
 bp = Blueprint('setup', __name__, url_prefix='/api/setup')
+
+
+@bp.get('/autodetect')
+def setup_autodetect():
+    """Discover already-installed tools (Ollama/ComfyUI/ai-toolkit) so the wizard
+    can fill config itself. Reachable-port hits are safe to apply; disk paths are
+    suggestions the UI confirms."""
+    return jsonify(capabilities.autodetect())
 
 
 @bp.post('/install/<action>')

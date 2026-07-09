@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, putJson, postJson } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
@@ -34,6 +34,9 @@ export default function SetupPage() {
   const [skipped, setSkipped] = useState(loadSkipped)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState(false)
+  const [detected, setDetected] = useState(null)   // autodetect result (path suggestions)
+  const [detecting, setDetecting] = useState(false)
+  const autodetectedRef = useRef(false)             // run the on-load autodetect only once
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +45,48 @@ export default function SetupPage() {
     } catch (e) { setLoadError(true); toast.error(`Failed to load settings: ${e.message}`) }
   }, [toast])
   useEffect(() => { load() }, [load])
+
+  // Auto-detect installed tools. Reachable default ports (Ollama 11434, ComfyUI
+  // 8188) are safe to fill + save automatically; disk-scanned paths are only
+  // SUGGESTED (a scan can guess wrong) and applied on the user's click.
+  const runAutodetect = useCallback(async (baseConfig) => {
+    setDetecting(true)
+    try {
+      const d = await apiFetch('/api/setup/autodetect')
+      setDetected(d)
+      const next = JSON.parse(JSON.stringify(baseConfig))
+      let changed = false
+      const fillEmpty = (section, key, val) => {
+        if (val && !(next[section] && next[section][key])) {
+          next[section] = { ...(next[section] || {}), [key]: val }; changed = true
+        }
+      }
+      fillEmpty('ollama', 'url', d.ollama && d.ollama.url)
+      fillEmpty('ollama', 'vision_model', d.ollama && d.ollama.vision_model)
+      fillEmpty('comfyui', 'api_url', d.comfyui && d.comfyui.api_url)
+      if (changed) {
+        const saved = await putJson('/api/settings', { config: next })
+        setConfig(saved.config)
+        await refresh(true)
+        toast.success('Detected installed tools and filled them in.')
+      }
+      return d
+    } catch { return null }
+    finally { setDetecting(false) }
+  }, [refresh, toast])
+
+  useEffect(() => {
+    if (config && !autodetectedRef.current) { autodetectedRef.current = true; runAutodetect(config) }
+  }, [config, runAutodetect])
+
+  // Apply a disk-scanned path suggestion (user-confirmed) into config + save.
+  const applyDetectedPath = async (section, key, val) => {
+    const next = { ...config, [section]: { ...config[section], [key]: val } }
+    try {
+      const saved = await putJson('/api/settings', { config: next })
+      setConfig(saved.config); await refresh(true); toast.success('Applied.')
+    } catch (e) { toast.error(`Save failed: ${e.message}`) }
+  }
 
   const steps = useMemo(() => deriveSetupSteps(caps), [caps])
   const summary = useMemo(() => deriveCapabilitySummary(caps), [caps])
@@ -128,6 +173,17 @@ export default function SetupPage() {
       {busy ? 'Saving…' : 'Save & re-check'}
     </button>
   )
+  // "Found on disk: <path> — Use" chip for a scanned path we didn't auto-apply.
+  const detectedPathChip = (section, key) => {
+    const val = detected && detected[section] && detected[section][key]
+    if (!val || (config[section] && config[section][key]) === val) return null
+    return (
+      <button type="button" onClick={() => applyDetectedPath(section, key, val)}
+        className="mt-1 block text-left text-xs text-primary underline">
+        Found on disk: <span className="font-mono">{val}</span> — Use
+      </button>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -138,6 +194,13 @@ export default function SetupPage() {
           Everything below unlocks more. Set up what you need, skip the rest.
         </p>
         <p className="mt-2 text-xs text-content-subtle">{readyCount} of {summary.length} capabilities ready</p>
+        <button type="button" onClick={() => runAutodetect(config)} disabled={detecting}
+          className="mt-2 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised disabled:opacity-50">
+          {detecting ? 'Detecting…' : '🔍 Auto-detect installed tools'}
+        </button>
+        <span className="ml-2 text-xs text-content-subtle">
+          Finds Ollama, ComfyUI and ai-toolkit already on this machine and fills them in.
+        </span>
       </div>
 
       {/* 1. Image generation */}
@@ -180,6 +243,7 @@ export default function SetupPage() {
           link={{ href: 'https://github.com/comfyanonymous/ComfyUI', label: 'ComfyUI on GitHub →' }}>
           {guidedField('ComfyUI API URL', 'comfyui', 'api_url', 'http://127.0.0.1:8188')}
           {guidedField('ComfyUI install directory', 'comfyui', 'base_dir', 'C:\\ComfyUI')}
+          {detectedPathChip('comfyui', 'base_dir')}
           {stepById.comfyui.reachable && !stepById.comfyui.hasKlein && (
             <p className="text-xs text-amber-400">Reachable, but no Klein model found. Place it in &lt;ComfyUI&gt;/models/unet/klein/.</p>
           )}
@@ -228,6 +292,7 @@ export default function SetupPage() {
           ]}
           link={{ href: 'https://github.com/ostris/ai-toolkit', label: 'ai-toolkit on GitHub →' }}>
           {guidedField('ai-toolkit directory', 'aitoolkit', 'dir', 'C:\\ai-toolkit')}
+          {detectedPathChip('aitoolkit', 'dir')}
           {saveRecheckBtn}
         </GuidedSteps>
       </SetupStep>
