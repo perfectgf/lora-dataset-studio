@@ -24,7 +24,7 @@ DEFAULTS = {
     'paths': {'dataset_images_root': ''},                      # '' -> DATA_DIR/datasets
     'comfyui': {'api_url': 'http://127.0.0.1:8188', 'base_dir': '',
                 'output_dir': '', 'input_dir': '', 'models_dir': '', 'loras_dir': ''},
-    'ollama': {'url': 'http://127.0.0.1:11434', 'vision_model': 'qwen3-vl:8b'},
+    'ollama': {'url': 'http://127.0.0.1:11434', 'vision_model': 'huihui_ai/qwen3-vl-abliterated:8b'},
     'aitoolkit': {'dir': '', 'datasets_dir': '', 'output_dir': '', 'hf_home': ''},
     'engines': {'default': 'chatgpt', 'enabled': ['nanobanana', 'chatgpt', 'klein']},
     'captioning': {'backend': 'auto'},                         # auto|joycaption|ollama|none

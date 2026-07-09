@@ -18,6 +18,14 @@ const KEY_FIELDS = [
     href: 'https://platform.openai.com/api-keys', help: 'Powers ChatGPT (gpt-image-2).' },
 ]
 
+// Default local vision model + rough VRAM notes surfaced in the wizard. The
+// ABLITERATED Qwen3-VL is required — vanilla qwen3-vl refuses to caption the NSFW
+// concept datasets this app targets. VRAM figures are approximate minimums for the
+// fp8/q4 builds (Klein 9B fp8 fits a 24 GB RTX 4090; the 8B vision model ~8 GB).
+const DEFAULT_VISION_MODEL = 'huihui_ai/qwen3-vl-abliterated:8b'
+const VISION_MODEL_VRAM = '≈ 8 GB VRAM'
+const KLEIN_MODEL_VRAM = '≈ 24 GB VRAM (fp8, RTX 4090+)'
+
 // A wizard "screen" is the welcome/scan, one per setup tool, then done.
 const SCREENS = ['welcome', ...SETUP_STEP_IDS, 'done']
 const TOTAL_TOOLS = SETUP_STEP_IDS.length
@@ -210,7 +218,18 @@ export default function SetupPage() {
           {guidedField('ComfyUI install directory', 'comfyui', 'base_dir', 'C:\\ComfyUI')}
           {detectedPathChip('comfyui', 'base_dir')}
           {step.reachable && !step.hasKlein && (
-            <p className="text-xs text-amber-400">Running, but no Klein model found. Place it in &lt;ComfyUI&gt;/models/unet/klein/.</p>
+            <div className="space-y-1 text-xs text-amber-400">
+              <p>
+                Running, but no Klein model found. Download <span className="font-mono">flux-2-klein-9b-fp8.safetensors</span> ({KLEIN_MODEL_VRAM}) and
+                place it in <span className="font-mono">&lt;ComfyUI&gt;/models/unet/klein/</span>.
+              </p>
+              <p className="flex flex-wrap gap-x-4 gap-y-1">
+                <a href="https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8" target="_blank" rel="noreferrer"
+                  className="text-primary underline">Download the Klein model →</a>
+                <a href="https://docs.comfy.org/tutorials/flux/flux-2-klein" target="_blank" rel="noreferrer"
+                  className="text-primary underline">ComfyUI setup guide →</a>
+              </p>
+            </div>
           )}
           {saveRecheckBtn}
         </>
@@ -243,20 +262,28 @@ export default function SetupPage() {
     if (id === 'ollama') {
       // The vision MODEL is the point, not just Ollama being up. When reachable but
       // the model isn't pulled, lead with the pull action (this is the required gate).
+      const model = step.visionModel || DEFAULT_VISION_MODEL
       const pullBlock = step.reachable && !step.visionModelReady && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
-          <p className="mb-2 text-sm font-medium text-content">
+          <p className="mb-1 text-sm font-medium text-content">
             Ollama is running, but the vision model isn't pulled yet — that's what powers captioning.
           </p>
-          <InstallRunner action="ollama_model" buttonLabel={`Pull ${step.visionModel || 'model'}`}
-            manualCommand={`ollama pull ${step.visionModel || 'qwen3-vl:8b'}`}
+          <p className="mb-2 text-xs text-content-muted">
+            <span className="font-mono">{model}</span> — uncensored, needed for concept captions · {VISION_MODEL_VRAM}
+          </p>
+          <InstallRunner action="ollama_model" buttonLabel={`Pull ${model}`}
+            manualCommand={`ollama pull ${model}`}
             onDone={() => refresh(true)} />
         </div>
       )
       const fields = (
         <>
           {guidedField('Ollama URL', 'ollama', 'url', 'http://127.0.0.1:11434')}
-          {guidedField('Vision model', 'ollama', 'vision_model', 'qwen3-vl:8b')}
+          {guidedField('Vision model', 'ollama', 'vision_model', DEFAULT_VISION_MODEL)}
+          <p className="text-xs text-content-subtle">
+            Use the ABLITERATED Qwen3-VL ({VISION_MODEL_VRAM}) — the vanilla model refuses NSFW.
+            For the best captions the app pairs it with JoyCaption (ai-toolkit) — a Joy+Ollama combo.
+          </p>
           {saveRecheckBtn}
         </>
       )

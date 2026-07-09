@@ -248,7 +248,7 @@ export default function SettingsPage() {
               label="Ollama vision model"
               value={config.ollama.vision_model}
               onChange={(v) => setField('ollama', 'vision_model', v)}
-              placeholder="qwen3-vl:8b"
+              placeholder="huihui_ai/qwen3-vl-abliterated:8b"
             />
             <TestResult result={testResults.ollama} />
           </div>
