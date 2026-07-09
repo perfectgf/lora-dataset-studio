@@ -204,6 +204,30 @@ export default function SetupPage() {
       )
     }
     if (id === 'comfyui') {
+      const fields = (
+        <>
+          {guidedField('ComfyUI API URL', 'comfyui', 'api_url', 'http://127.0.0.1:8188')}
+          {guidedField('ComfyUI install directory', 'comfyui', 'base_dir', 'C:\\ComfyUI')}
+          {detectedPathChip('comfyui', 'base_dir')}
+          {step.reachable && !step.hasKlein && (
+            <p className="text-xs text-amber-400">Running, but no Klein model found. Place it in &lt;ComfyUI&gt;/models/unet/klein/.</p>
+          )}
+          {saveRecheckBtn}
+        </>
+      )
+      // Already detected/running → skip the from-scratch install guide; show the
+      // reachable confirmation and only the remaining gap.
+      if (step.reachable) {
+        return (
+          <div className="space-y-4">
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content">
+              ✓ ComfyUI is already running at <span className="font-mono">{step.apiUrl || 'the configured URL'}</span>.
+              {step.hasKlein ? ' Nothing to do here.' : ' It works — only the Klein model is missing.'}
+            </div>
+            {fields}
+          </div>
+        )
+      }
       return (
         <GuidedSteps
           intro="ComfyUI is a local image generator. Install it once, then point the app at it."
@@ -212,33 +236,49 @@ export default function SetupPage() {
             { text: 'Start it (defaults to port 8188).' },
           ]}
           link={{ href: 'https://github.com/comfyanonymous/ComfyUI', label: 'ComfyUI on GitHub →' }}>
-          {guidedField('ComfyUI API URL', 'comfyui', 'api_url', 'http://127.0.0.1:8188')}
-          {guidedField('ComfyUI install directory', 'comfyui', 'base_dir', 'C:\\ComfyUI')}
-          {detectedPathChip('comfyui', 'base_dir')}
-          {step.reachable && !step.hasKlein && (
-            <p className="text-xs text-amber-400">Reachable, but no Klein model found. Place it in &lt;ComfyUI&gt;/models/unet/klein/.</p>
-          )}
-          {saveRecheckBtn}
+          {fields}
         </GuidedSteps>
       )
     }
     if (id === 'ollama') {
-      return (
-        <GuidedSteps
-          intro="Ollama runs local models for captioning and auto-framing."
-          steps={[{ text: 'Install Ollama and start it (defaults to port 11434).' }]}
-          link={{ href: 'https://ollama.com/download', label: 'Download Ollama →' }}>
+      // The vision MODEL is the point, not just Ollama being up. When reachable but
+      // the model isn't pulled, lead with the pull action (this is the required gate).
+      const pullBlock = step.reachable && !step.visionModelReady && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+          <p className="mb-2 text-sm font-medium text-content">
+            Ollama is running, but the vision model isn't pulled yet — that's what powers captioning.
+          </p>
+          <InstallRunner action="ollama_model" buttonLabel={`Pull ${step.visionModel || 'model'}`}
+            manualCommand={`ollama pull ${step.visionModel || 'qwen3-vl:8b'}`}
+            onDone={() => refresh(true)} />
+        </div>
+      )
+      const fields = (
+        <>
           {guidedField('Ollama URL', 'ollama', 'url', 'http://127.0.0.1:11434')}
           {guidedField('Vision model', 'ollama', 'vision_model', 'qwen3-vl:8b')}
           {saveRecheckBtn}
-          {step.reachable && !step.visionModelReady && (
-            <div className="pt-2">
-              <p className="mb-1 text-xs text-content-muted">Pull the vision model:</p>
-              <InstallRunner action="ollama_model" buttonLabel={`Pull ${step.visionModel || 'model'}`}
-                manualCommand={`ollama pull ${step.visionModel || 'qwen3-vl:8b'}`}
-                onDone={() => refresh(true)} />
-            </div>
-          )}
+        </>
+      )
+      if (step.reachable) {
+        return (
+          <div className="space-y-4">
+            {step.visionModelReady ? (
+              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content">
+                ✓ Ollama is running at <span className="font-mono">{step.url || 'the configured URL'}</span> and
+                the vision model <span className="font-mono">{step.visionModel}</span> is ready. Nothing to do here.
+              </div>
+            ) : pullBlock}
+            {fields}
+          </div>
+        )
+      }
+      return (
+        <GuidedSteps
+          intro="Ollama runs local models for captioning and auto-framing. Installing it is not enough — you also need to pull a vision model."
+          steps={[{ text: 'Install Ollama and start it (defaults to port 11434).' }]}
+          link={{ href: 'https://ollama.com/download', label: 'Download Ollama →' }}>
+          {fields}
         </GuidedSteps>
       )
     }
@@ -253,7 +293,51 @@ export default function SetupPage() {
         </div>
       )
     }
-    // training
+    // training (ai-toolkit)
+    const dir = (config.aitoolkit && config.aitoolkit.dir) || ''
+    const detectedDir = detected && detected.aitoolkit && detected.aitoolkit.dir
+    const fields = (
+      <>
+        {guidedField('ai-toolkit directory', 'aitoolkit', 'dir', 'C:\\ai-toolkit')}
+        {saveRecheckBtn}
+      </>
+    )
+    if (step.valid) {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content">
+            ✓ ai-toolkit is set up at <span className="font-mono">{dir}</span>. Nothing to do here.
+          </div>
+          {fields}
+        </div>
+      )
+    }
+    // Found on disk but not applied yet → one prominent click (not a subtle link).
+    if (detectedDir && dir !== detectedDir) {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-md border border-primary/40 bg-primary/10 px-3 py-3 text-sm text-content">
+            <p className="mb-2">Found an ai-toolkit install at <span className="font-mono">{detectedDir}</span>. Use it?</p>
+            <button type="button" onClick={() => applyDetectedPath('aitoolkit', 'dir', detectedDir)}
+              className="rounded-lg bg-gradient-primary px-4 py-1.5 text-xs font-semibold text-white">
+              Use this ai-toolkit →
+            </button>
+          </div>
+          {fields}
+        </div>
+      )
+    }
+    // Pointed at a folder that isn't usable yet (venv missing) → finish it, don't re-clone.
+    if (dir) {
+      return (
+        <div className="space-y-4">
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-content">
+            Pointed at <span className="font-mono">{dir}</span>, but it isn't usable yet — set up its Python venv per the README.
+          </div>
+          {fields}
+        </div>
+      )
+    }
     return (
       <GuidedSteps
         intro="ai-toolkit trains the LoRA. Install it once, then point the app at its folder."
@@ -261,16 +345,62 @@ export default function SetupPage() {
           { text: 'Clone ai-toolkit and set up its venv per its README.', command: 'git clone https://github.com/ostris/ai-toolkit' },
         ]}
         link={{ href: 'https://github.com/ostris/ai-toolkit', label: 'ai-toolkit on GitHub →' }}>
-        {guidedField('ai-toolkit directory', 'aitoolkit', 'dir', 'C:\\ai-toolkit')}
-        {detectedPathChip('aitoolkit', 'dir')}
-        {saveRecheckBtn}
+        {fields}
       </GuidedSteps>
     )
   }
 
-  const goNext = () => setScreen((i) => Math.min(i + 1, SCREENS.length - 1))
-  const goBack = () => setScreen((i) => Math.max(i - 1, 0))
   const kind = SCREENS[screen]
+  const DONE = SCREENS.length - 1
+  const isReady = (id) => stepById[id].status === 'ready'
+  const toolIdx = (id) => SETUP_STEP_IDS.indexOf(id)
+  const screenOf = (id) => SETUP_STEP_IDS.indexOf(id) + 1   // welcome=0, tools=1..N
+  const allReady = SETUP_STEP_IDS.every(isReady)
+  const nextUnfinished = (fromIdx) => {
+    for (let i = fromIdx + 1; i < SETUP_STEP_IDS.length; i += 1)
+      if (!isReady(SETUP_STEP_IDS[i])) return SETUP_STEP_IDS[i]
+    return null
+  }
+  const prevUnfinished = (fromIdx) => {
+    for (let i = fromIdx - 1; i >= 0; i -= 1)
+      if (!isReady(SETUP_STEP_IDS[i])) return SETUP_STEP_IDS[i]
+    return null
+  }
+  // Steps important enough that you may NOT Next/Skip past them unfinished — the
+  // wizard blocks forward navigation until they're done. Captioning (Ollama + its
+  // vision model) is the essential one: the model, not just Ollama being up, is
+  // what matters. The global "Skip setup" link is still the deliberate bail-out.
+  const REQUIRED = { ollama: true }
+  const blockReason = (id) => {
+    if (!REQUIRED[id] || isReady(id)) return null
+    const s = stepById[id]
+    if (id === 'ollama') {
+      if (!s.reachable) return "Ollama isn't detected. Install it and start it (port 11434) to continue."
+      if (!s.visionModelReady) return 'Pull the vision model below to continue — the model is what powers captioning.'
+    }
+    return 'Finish this step to continue.'
+  }
+  // The scan already knows what's installed — so "Start setup" / Next land on the
+  // first tool that still needs attention and skip the ones already ready. No
+  // re-walking ComfyUI/Ollama when they were just detected as running.
+  const startSetup = () => {
+    const first = SETUP_STEP_IDS.find((id) => !isReady(id))
+    setScreen(first ? screenOf(first) : DONE)
+  }
+  const goNext = () => {
+    if (kind === 'welcome') return startSetup()
+    if (kind === 'done') return
+    const nxt = nextUnfinished(toolIdx(kind))
+    setScreen(nxt ? screenOf(nxt) : DONE)
+  }
+  const goBack = () => {
+    if (kind === 'done') {
+      const last = [...SETUP_STEP_IDS].reverse().find((id) => !isReady(id))
+      return setScreen(last ? screenOf(last) : 0)
+    }
+    const prv = prevUnfinished(toolIdx(kind))
+    setScreen(prv ? screenOf(prv) : 0)
+  }
 
   // Progress dots: one per tool step, filled when that tool is ready.
   const ProgressDots = () => (
@@ -295,14 +425,27 @@ export default function SetupPage() {
 
   // --- Welcome + live machine scan --------------------------------------------
   if (kind === 'welcome') {
+    // Three states per tool: ready (✓ green), partial (⚠ amber — detected but a
+    // key piece is missing), missing (✗). Ollama keys on the MODEL, not just being
+    // reachable — a running Ollama with no vision model is only "partial".
+    const triState = (reachable, complete) => reachable ? (complete ? 'ready' : 'partial') : 'missing'
     const scanRows = [
-      { label: 'Local generation — ComfyUI', ok: stepById.comfyui.reachable,
-        hint: detected && detected.comfyui && detected.comfyui.base_dir },
-      { label: 'Captioning — Ollama', ok: stepById.ollama.reachable,
-        hint: detected && detected.ollama && detected.ollama.url },
-      { label: 'LoRA training — ai-toolkit', ok: stepById.training.valid,
-        hint: detected && detected.aitoolkit && detected.aitoolkit.dir },
+      { label: 'Local generation — ComfyUI',
+        state: triState(stepById.comfyui.reachable, stepById.comfyui.hasKlein),
+        partial: 'running — needs the Klein model' },
+      { label: 'Captioning — Ollama + vision model',
+        state: triState(stepById.ollama.reachable, stepById.ollama.visionModelReady),
+        partial: 'running — pull the vision model' },
+      { label: 'LoRA training — ai-toolkit',
+        state: stepById.training.valid ? 'ready'
+          : (detected && detected.aitoolkit && detected.aitoolkit.dir ? 'partial' : 'missing'),
+        partial: 'found on disk — one click to use' },
     ]
+    const SCAN_META = {
+      ready: { glyph: '✓', cls: 'text-emerald-400', word: 'ready' },
+      partial: { glyph: '⚠', cls: 'text-amber-400', word: '' },
+      missing: { glyph: '✗', cls: 'text-content-subtle', word: 'not found' },
+    }
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="text-center">
@@ -327,20 +470,22 @@ export default function SetupPage() {
               )}
           </div>
           <ul className="mt-4 space-y-2">
-            {scanRows.map((r) => (
-              <li key={r.label} className="flex items-center justify-between gap-3 text-sm">
-                <span className="flex items-center gap-2">
-                  <span aria-hidden="true" className={detecting ? 'text-content-subtle'
-                    : r.ok ? 'text-emerald-400' : 'text-content-subtle'}>
-                    {detecting ? '…' : r.ok ? '✓' : '✗'}
+            {scanRows.map((r) => {
+              const m = SCAN_META[r.state]
+              return (
+                <li key={r.label} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="flex items-center gap-2">
+                    <span aria-hidden="true" className={detecting ? 'text-content-subtle' : m.cls}>
+                      {detecting ? '…' : m.glyph}
+                    </span>
+                    <span className={r.state === 'ready' ? 'text-content' : 'text-content-muted'}>{r.label}</span>
                   </span>
-                  <span className={r.ok ? 'text-content' : 'text-content-muted'}>{r.label}</span>
-                </span>
-                <span className="truncate text-right font-mono text-xs text-content-subtle">
-                  {detecting ? '' : r.ok ? 'found' : (r.hint ? 'installed — needs a click' : 'not found')}
-                </span>
-              </li>
-            ))}
+                  <span className={`truncate text-right font-mono text-xs ${detecting ? 'text-content-subtle' : m.cls}`}>
+                    {detecting ? '' : (r.state === 'partial' ? r.partial : m.word)}
+                  </span>
+                </li>
+              )
+            })}
           </ul>
           {scanned && !detecting && (
             <p className="mt-3 text-xs text-content-subtle">
@@ -353,7 +498,7 @@ export default function SetupPage() {
           {skipLink}
           <button type="button" onClick={goNext}
             className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
-            Start setup →
+            {allReady ? "Everything's ready — review →" : 'Start setup →'}
           </button>
         </div>
       </div>
@@ -396,7 +541,11 @@ export default function SetupPage() {
   const step = stepById[kind]
   const stepNo = SETUP_STEP_IDS.indexOf(kind) + 1
   const meta = STATUS_META[step.status] || STATUS_META.available
-  const isLastTool = stepNo === TOTAL_TOOLS
+  const reason = blockReason(kind)                 // non-null ⇒ Next is blocked
+  const hasNext = nextUnfinished(toolIdx(kind)) !== null
+  const nextLabel = reason ? 'Complete this step'
+    : !hasNext ? 'Finish →'
+    : (isReady(kind) ? 'Next →' : 'Skip / Next →')
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="flex items-center justify-between">
@@ -424,15 +573,21 @@ export default function SetupPage() {
         <div className="mt-4">{toolBody(kind)}</div>
       </section>
 
+      {reason && (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          🔒 {reason}
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <button type="button" onClick={goBack} className="text-xs text-content-subtle underline hover:text-content">
           ← Back
         </button>
         <div className="flex items-center gap-4">
           {skipLink}
-          <button type="button" onClick={goNext}
-            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
-            {isLastTool ? 'Finish →' : (step.status === 'ready' ? 'Next →' : 'Skip / Next →')}
+          <button type="button" onClick={goNext} disabled={!!reason}
+            title={reason || ''}
+            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">
+            {nextLabel}
           </button>
         </div>
       </div>
