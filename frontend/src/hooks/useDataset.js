@@ -134,9 +134,10 @@ export function useDataset() {
 
   const open = useCallback(async (id) => { setCurrentId(id); await refresh(id); }, [refresh]);
 
-  const create = useCallback(async (name, trigger, kind) => {
+  const create = useCallback(async (name, trigger, kind, conceptDesc) => {
     const d = await postJson('/api/dataset/create',
-      { name, trigger_word: trigger, ...(kind ? { kind } : {}) });
+      { name, trigger_word: trigger, ...(kind ? { kind } : {}),
+        ...(kind === 'concept' && conceptDesc ? { concept_desc: conceptDesc } : {}) });
     if (d.ok) { await fetchList(); await open(d.id); toast.success('Dataset created'); }
     else toast.error(d.error || 'Unexpected error');
   }, [fetchList, open, toast]);

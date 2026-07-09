@@ -242,24 +242,93 @@ JOYCAPTION_PROMPT = CAPTION_PROMPT
 # Dataset CONCEPT (logique INVERSÉE) : l'invariant du set n'est plus l'identité mais
 # l'acte/effet récurrent qu'on OMET pour qu'il se lie au trigger. On décrit donc tout —
 # personnes, pose, cadrage, lumière, décor — SAUF l'acte central répété. Le captioneur
-# ne connaît pas le concept : on lui demande d'ignorer l'action explicite dominante et
-# de décrire le contexte autour. Aucun post-filtre d'identité (on GARDE l'identité).
+# reçoit la description EXACTE du concept ({concept}, saisie à la création du dataset) pour
+# savoir précisément quoi taire, plutôt que de deviner l'action dominante. Aucun post-filtre
+# d'identité (on GARDE l'identité).
 CAPTION_PROMPT_CONCEPT = (
     "Caption Type: Straightforward.\n\n"
-    "This is a CONCEPT training image: the images in this set all share ONE recurring "
-    "explicit action, act, or visual effect. That single shared element is the concept "
-    "being learned and must NEVER be named or described — do NOT write the act, the body "
-    "fluids, the penetration, the specific sexual/graphic focal detail, or any word that "
-    "labels what is happening at the focal point. Describe everything AROUND it instead.\n\n"
+    "This is a CONCEPT training image. Every image in this set shares ONE recurring "
+    "element - THE CONCEPT - which is: {concept}.\n\n"
+    "That single shared concept is what the model is learning, so it must NEVER be named "
+    "or described: do NOT write it, do NOT label it, do NOT describe the focal detail that "
+    "shows it. Describe everything AROUND it instead.\n\n"
     "You MUST describe, in full and freely (identity is NOT hidden here): the people "
     "present and their appearance (hair, face, body, skin), their pose and body position, "
     "their expression and gaze, any clothing or state of undress and its colours, the "
     "setting or location, the camera angle and framing (close-up, three-quarter, "
     "full-body, from above, from below, point of view), and the lighting and mood.\n\n"
+    "Also NEVER transcribe any watermark, website URL, studio name, or text printed on the "
+    "image.\n\n"
     "Output ONE caption as flowing natural-language prose, beginning with the shot type "
     "and framing, then the people and pose, then expression, then clothing/setting, then "
-    "lighting and mood — but leaving the shared concept itself UNSPOKEN. Output only the "
+    "lighting and mood - but leaving the shared concept itself UNSPOKEN. Output only the "
     "caption itself - no preamble, no \"Here is\", no quotation marks, no commentary.")
+
+
+# Passe de RAFFINAGE concept (Joy→Qwen) : JoyCaption est très détaillé mais LITTÉRAL —
+# il NOMME l'acte/les fluides/le watermark (ce qui, pour un concept, doit rester tu
+# pour se lier au trigger). Qwen relit la caption Joy + l'image et RÉÉCRIT en retirant
+# uniquement le focal explicite + le texte incrusté, en gardant tout le contexte riche.
+# => détail de JoyCaption + adhérence de Qwen (mesuré : Joy nomme le concept ~4/4).
+CAPTION_REFINE_CONCEPT_PROMPT = (
+    "Below is a draft caption describing this exact image:\n\n"
+    "\"\"\"\n{existing}\n\"\"\"\n\n"
+    "Rewrite it as ONE clean caption for a CONCEPT training set. The single recurring "
+    "concept this set teaches is: {concept}.\n\n"
+    "KEEP every contextual detail already present: the people and their appearance (hair, "
+    "face, body, skin, freckles), their pose and body position, expression and gaze, any "
+    "clothing or state of undress and its colours, the setting or location, the camera "
+    "angle and framing, and the lighting and mood.\n\n"
+    "But you MUST REMOVE, and never restate:\n"
+    "1. The concept itself - {concept} - and any word, substance, effect, action or graphic "
+    "focal detail that names or describes it, in ANY phrasing. Do NOT replace it with "
+    "euphemisms or vague allusions either (words like 'organ', 'genitalia', 'member', "
+    "'intimate act', 'sexual act'): leave it entirely undescribed, as if the caption were "
+    "unaware of it, and describe only the people, their positions, hands, faces and the "
+    "scene.\n"
+    "2. Any watermark, website URL, studio name, or text printed on the image.\n\n"
+    "Rephrase around the removed elements so the prose stays natural - do NOT mention that "
+    "anything was removed.\n\n"
+    "Output ONLY the rewritten caption as flowing prose - no preamble, no \"Here is\", no "
+    "quotation marks, no commentary.")
+
+
+# Expansion de la ban-list concept : à partir de la description du concept, le LLM liste
+# les mots/locutions qu'un captioneur emploierait pour le NOMMER (synonymes, argot, formes
+# verbales). Sert au DÉTECTEUR de fuite (regex), pas au prompt de caption — la littérature
+# sur le negative prompting montre que lister les mots interdits dans le prompt de
+# GÉNÉRATION amorce l'effet « éléphant rose » ; la robustesse vient de la vérification en
+# sortie + correction ciblée. Format JSON objet (le grammar-mode d'Ollama produit un objet
+# plus fiablement qu'un tableau nu). Accolades DOUBLÉES → survivent au .format(concept=…).
+EXPAND_CONCEPT_TERMS_PROMPT = (
+    "Ignore the attached image entirely. You are building a caption BLOCKLIST.\n"
+    "Concept: \"{concept}\".\n"
+    "List every English word or short phrase (3 words max) that a photo captioner might "
+    "use to NAME this concept or its direct components: synonyms, slang, anatomical or "
+    "clothing names, verb forms (e.g. licking, licked, licks), singular and plural, AND "
+    "words describing its visible appearance, texture or residue (e.g. for a fluid: "
+    "glistening, dripping, sticky, white substance).\n"
+    "Do NOT include generic words that also describe unrelated things (colors, 'woman', "
+    "'bare', 'skin', 'close-up', 'wet').\n"
+    "Output ONLY a JSON object: {{\"terms\": [\"...\", \"...\"]}} with 8-25 lowercase strings.")
+
+
+# Réécriture CORRECTIVE après détection de fuite : on nomme les mots EXACTS qui ont fui
+# (feedback ciblé ≫ instruction générique). Placeholders : existing / concept / leaked.
+CAPTION_LEAK_FIX_PROMPT = (
+    "Below is a caption for this exact image:\n\n"
+    "\"\"\"\n{existing}\n\"\"\"\n\n"
+    "This caption is for a CONCEPT training set where the concept must stay UNSPOKEN. "
+    "The concept is: {concept}.\n"
+    "The caption accidentally uses these forbidden words: {leaked}. They MUST disappear.\n"
+    "Rewrite the caption keeping every other detail (people and their appearance, pose, "
+    "expression, clothing, setting, camera angle and framing, lighting) but remove the "
+    "forbidden words WITHOUT replacing them by synonyms, euphemisms or vague allusions "
+    "that still name or hint at the concept (no 'organ', 'genitalia', 'member', 'intimate "
+    "act', 'sexual act' or similar): leave the thing entirely undescribed, as if the "
+    "caption were unaware of it. Do not mention that anything was removed.\n"
+    "Output ONLY the rewritten caption as flowing prose - no preamble, no \"Here is\", no "
+    "quotation marks, no commentary.")
 
 
 # Detecteur INDICATIF de VRAIS descripteurs d'identite (cheveux/peau/couleur d'yeux/

@@ -37,7 +37,8 @@ def _img_bytes(w=1280, h=960, fmt='JPEG', grad=None):
 
 
 def _concept(user_id=LOCAL_USER):
-    return svc.create_dataset(user_id, 'CIM', 'cim_act', kind='concept')
+    return svc.create_dataset(user_id, 'CIM', 'cim_act', kind='concept',
+                              concept_desc='an ice cream cone being licked')
 
 
 def _item(url):

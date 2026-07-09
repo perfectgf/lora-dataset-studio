@@ -144,7 +144,11 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete 
   // Nature du dataset : personnage (identité liée au trigger) vs concept (un acte/effet
   // récurrent lié au trigger — import brut, captions inversées, pas de référence/visage).
   const [kind, setKind] = useState('character');
+  // Concept only : ce que le captioneur doit OMETTRE de chaque caption pour que le concept
+  // se lie au trigger (l'inverse d'un LoRA de personnage). Obligatoire pour un concept.
+  const [conceptDesc, setConceptDesc] = useState('');
   const concept = kind === 'concept';
+  const canCreate = name.trim() && (!concept || conceptDesc.trim());
   // Séparation « déjà entraîné » (≥1 LoRA déployé) / « en cours » (dataset en
   // construction). Rétro-compat : sans le flag (ancien backend), tout va en cours.
   const inProgress = datasets.filter((d) => !d.trained);
@@ -195,14 +199,25 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete 
               className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
           </label>
         </div>
+        {/* Concept description : ce que la caption OMET (l'acte récurrent). Alimente le
+            {concept} des prompts caption/raffinage/ban-list. Décrire l'ACTE, pas le sujet. */}
+        {concept && (
+          <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
+            What is the recurring concept? <span className="text-fuchsia-300">(required — it will be omitted from every caption)</span>
+            <textarea value={conceptDesc} onChange={(e) => setConceptDesc(e.target.value)} rows={2}
+              placeholder="Describe the recurring act/effect itself, not the people — e.g. “a tongue licking an ice-cream cone”"
+              className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content resize-y" />
+          </label>
+        )}
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-content-subtle text-[0.6875rem]">
             {concept
               ? 'The trigger word is the token you type to summon this concept. Import raw images of it, then caption and train.'
               : 'The trigger word is the unique token you will type in prompts to summon this character.'}
           </p>
-          <button type="button" onClick={() => name.trim() && onCreate(name.trim(), trigger.trim(), kind)}
-            disabled={!name.trim()}
+          <button type="button"
+            onClick={() => canCreate && onCreate(name.trim(), trigger.trim(), kind, conceptDesc.trim())}
+            disabled={!canCreate}
             className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             Create
           </button>

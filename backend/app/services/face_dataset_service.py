@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import uuid
@@ -25,6 +26,8 @@ from .. import config as cfg
 # de batch pour rendre la VRAM à ComfyUI. ComfyUI est déjà en pause pendant la passe.
 _VISION_BATCH_KEEPALIVE = '5m'
 from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CAPTION_PROMPT_CONCEPT,
+                              CAPTION_REFINE_CONCEPT_PROMPT, CAPTION_LEAK_FIX_PROMPT,
+                              EXPAND_CONCEPT_TERMS_PROMPT,
                               CLASSIFY_PROMPT, HEAD_BBOX_PROMPT,
                               JOYCAPTION_PROMPT, aspect_for_label,
                               caption_has_identity_leak, drop_identity_sentences, drop_identity_tags,
@@ -143,10 +146,16 @@ def is_concept(ds) -> bool:
     return bool(ds) and (getattr(ds, 'kind', None) or '').lower() == 'concept'
 
 
-def create_dataset(user_id, name, trigger_word, kind=None):
+def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None):
+    k = normalize_kind(kind)
+    desc = (concept_desc or '').strip()
+    if k == 'concept' and not desc:
+        # The concept description is what the captioner OMITS; without it the
+        # inverted-caption logic has nothing to bind the trigger to. Required.
+        raise ValueError('concept_desc required for a concept dataset')
     ds = FaceDataset(user_id=str(user_id), name=(name or '').strip()[:100],
                      trigger_word=(trigger_word or '').strip()[:60] or 'zchar',
-                     kind=normalize_kind(kind))
+                     kind=k, concept_desc=(desc[:500] if k == 'concept' else None))
     db.session.add(ds)
     db.session.commit()
     return ds
@@ -349,6 +358,7 @@ def dataset_payload(user_id, dataset_id):
         'id': ds.id, 'name': ds.name, 'trigger_word': ds.trigger_word,
         'train_type': (ds.train_type or 'zimage'),
         'kind': 'concept' if concept else 'character',
+        'concept_desc': (ds.concept_desc or '') if concept else '',
         'ref_filename': ds.ref_filename,
         'ref_extra_filenames': extra_ref_filenames(ds), 'composition': comp,
         'face_thresholds': {'green': cfg.get('face_scoring.green'), 'orange': cfg.get('face_scoring.orange')},
@@ -651,6 +661,288 @@ def classify_images(user_id, dataset_id):
 
 
 # --- Captioning (JoyCaption / Qwen3-VL, backend picked in Settings) --------
+# --- Concept-omission guarantee (ban-list + verify + corrective rewrite) -----
+# Negative prompting ALONE leaks (~35% measured e2e on 3 unseen concepts): the
+# robustness comes from a deterministic OUTPUT check + targeted correction. Pipeline
+# per caption: regex detection (ban-list) -> if leak, Qwen rewrite naming the leaked
+# words (<=2 tries) -> mechanical safety net (drop the offending clause). The Qwen
+# calls are threaded in via `describe` (our vision seam is a local import inside the
+# caption batch); `describe=None` degrades to mechanical scrub only (backend 'joycaption').
+
+# The abliterated Qwen3-VL SOMETIMES emits its reasoning trace ("the task says... we
+# need to remove...") or an infinite loop instead of the refined caption - seen ~1/4
+# of images. We detect these unusable outputs to fall back on a DIRECT Qwen caption.
+_REFINE_REASONING_RE = re.compile(
+    r'\b(the (?:problem|instruction|task|draft|original) (?:says|mentions|has)'
+    r'|we (?:need|can|should) to (?:remove|rephrase|avoid)'
+    r'|so we (?:need|can|should)|let me |\brephrase\b|\bwait,'
+    r'|now, (?:remove|the|rephrase|let|we))', re.I)
+
+
+def _refine_output_ok(text, prior) -> bool:
+    """True if `text` looks like a CLEAN caption - neither the Qwen reasoning trace
+    nor a loop/rambling (bounded to ~2x the source caption `prior`)."""
+    t = (text or '').strip()
+    if not t or _REFINE_REASONING_RE.search(t):
+        return False
+    return len(t) <= 2 * len(prior or '') + 400
+
+
+# Words from concept_desc that are never discriminating (articles + generic adjectives
+# a legit caption uses elsewhere: "bare shoulders", "full-body"...).
+_TERMS_STOP = frozenset((
+    'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'by', 'with', 'to', 'from',
+    'that', 'this', 'as', 'is', 'are', 'his', 'her', 'their', 'its', 'it', 'one',
+    'act', 'shown', 'worn', 'being', 'person', 'subject', 'focal', 'point', 'visible',
+    'bare', 'exposed', 'full', 'close', 'closeup', 'close-up', 'wearing', 'showing'))
+
+
+def _fallback_concept_terms(desc) -> list:
+    """Minimal ban-list WITHOUT the LLM: the meaningful words of concept_desc itself
+    (always included, even when the LLM expansion succeeds - the user's words are the
+    ground truth)."""
+    words = re.split(r'[^a-zA-Z-]+', (desc or '').lower())
+    return sorted({w.strip('-') for w in words
+                   if len(w.strip('-')) >= 3 and w.strip('-') not in _TERMS_STOP})
+
+
+def _concept_terms_re(terms):
+    """Leak-detection regex: word boundaries, space/hyphen interchangeable ("two-piece"
+    <-> "two piece"), plurals/-s/-es/-ing/-ed tolerated. None if the list is empty."""
+    pats = []
+    for t in terms or []:
+        t = (t or '').strip().lower()
+        if len(t) < 3:
+            continue
+        p = re.escape(t).replace(r'\ ', r'[\s-]+').replace(r'\-', r'[\s-]+')
+        pats.append(p)
+    if not pats:
+        return None
+    return re.compile(r'\b(?:' + '|'.join(pats) + r')(?:e?s|ing|ed)?\b', re.I)
+
+
+def _scrub_concept_clauses(caption, leak_re):
+    """MECHANICAL net: drop the clauses (segments between , ; .) containing a forbidden
+    term - the whole clause, not just the word, to keep grammatical prose. If it destroys
+    too much (<30 chars), remove only the words."""
+    parts = re.split(r'([.;,])', caption or '')
+    kept = []
+    for i in range(0, len(parts), 2):
+        seg = parts[i]
+        punc = parts[i + 1] if i + 1 < len(parts) else ''
+        if seg.strip() and leak_re.search(seg):
+            continue
+        kept.append(seg + punc)
+    out = re.sub(r'\s{2,}', ' ', ''.join(kept)).strip(' ,;')
+    if len(out) >= 30:
+        return out
+    out = re.sub(r'\s{2,}', ' ', leak_re.sub('', caption or '')).strip(' ,;')
+    return out
+
+
+def _parse_terms_json(raw) -> list:
+    """Extract {"terms": [...]} from an LLM output (tolerates noise around the object)."""
+    raw = raw or ''
+    start, end = raw.find('{'), raw.rfind('}')
+    if start < 0 or end <= start:
+        return []
+    try:
+        data = json.loads(raw[start:end + 1])
+    except ValueError:
+        return []
+    terms = data.get('terms') if isinstance(data, dict) else None
+    if not isinstance(terms, list):
+        return []
+    out = []
+    for t in terms:
+        if isinstance(t, str):
+            t = t.strip().lower()
+            if 3 <= len(t) <= 40 and t not in _TERMS_STOP:
+                out.append(t)
+    return sorted(set(out))[:40]
+
+
+def _get_concept_terms(ds, image_path=None, describe=None) -> list:
+    """Dataset ban-list: union of (LLM expansion cached in ds.concept_terms) and (words
+    of concept_desc). The expansion runs ONCE (vision model already warm in the GPU
+    window, the image is just a vehicle - the prompt ignores it) and is cached ONLY if it
+    succeeds (a failure retries next batch). `describe` is our describe_image_ollama seam;
+    None -> fallback words only (no LLM call)."""
+    base = _fallback_concept_terms(ds.concept_desc)
+    stored = []
+    if getattr(ds, 'concept_terms', None):
+        try:
+            stored = [t for t in json.loads(ds.concept_terms) if isinstance(t, str)]
+        except ValueError:
+            stored = []
+    if stored:
+        return sorted(set(stored) | set(base))
+    if image_path and describe is not None:
+        try:
+            with open(image_path, 'rb') as fh:
+                raw = describe(
+                    fh.read(),
+                    EXPAND_CONCEPT_TERMS_PROMPT.format(concept=(ds.concept_desc or '').strip()),
+                    num_predict=5000, prefer_json=True, fmt='json',
+                    keep_alive=_VISION_BATCH_KEEPALIVE)
+        except OSError:
+            raw = ''
+        expanded = _parse_terms_json(raw)
+        if expanded:
+            ds.concept_terms = json.dumps(expanded)
+            db.session.commit()
+            logger.info('concept terms: %d terms generated for ds%s', len(expanded), ds.id)
+            return sorted(set(expanded) | set(base))
+        logger.info('concept terms: empty LLM expansion for ds%s -> desc fallback', ds.id)
+    return base
+
+
+def _enforce_concept_omission(caption, leak_re, image_bytes, concept_desc, describe=None):
+    """Guarantee omission: detect forbidden terms in `caption`, ask Qwen for a rewrite
+    that NAMES the offending words (<=2 tries, kept by _refine_output_ok), then a
+    mechanical net (clause drop). Returns the caption (unchanged if no leak). `describe`
+    is the vision seam; None -> skip the LLM fix, go straight to the mechanical scrub."""
+    if not leak_re or not (caption or '').strip():
+        return caption
+    if describe is not None:
+        for _ in range(2):
+            leaked = sorted({m.group(0).lower() for m in leak_re.finditer(caption)})
+            if not leaked:
+                return caption
+            fixed = ''
+            try:
+                fixed = describe(
+                    image_bytes,
+                    CAPTION_LEAK_FIX_PROMPT.format(existing=caption, concept=concept_desc,
+                                                   leaked=', '.join(leaked)),
+                    num_predict=5000, keep_alive=_VISION_BATCH_KEEPALIVE)
+            except Exception:  # noqa: BLE001 - best-effort correction
+                fixed = ''
+            fixed = (fixed or '').strip().strip('"').strip()
+            if _refine_output_ok(fixed, caption):
+                caption = fixed
+    if leak_re.search(caption):
+        caption = _scrub_concept_clauses(caption, leak_re)
+    return caption
+
+
+def _caption_concept(ds, force, backend):
+    """Concept caption pipeline (INVERTED logic): describe everything INCLUDING identity
+    but OMIT the recurring act so it binds to the trigger. JoyCaption is literal (it NAMES
+    the act/fluids/watermark) -> its drafts are REFINED by Qwen, then every caption passes
+    the ban-list omission guarantee. Backend gating is honored:
+      - 'joycaption' -> Joy drafts only + mechanical scrub (no Qwen calls);
+      - 'ollama'     -> Joy skipped, every image direct-Qwen + enforcement;
+      - 'auto'       -> Joy drafts refined by Qwen, no-Joy images direct-Qwen, all enforced."""
+    concept_desc = (ds.concept_desc or '').strip()
+    cap_prompt = CAPTION_PROMPT_CONCEPT.format(concept=concept_desc)
+    q = FaceDatasetImage.query.filter_by(dataset_id=ds.id, status='keep')
+    if not force:
+        q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))
+    todo = [(img, _img_path(img)) for img in q.all() if img.filename]
+    todo = [(img, p) for img, p in todo if p and os.path.exists(p)]
+    if not todo:
+        return 0
+    n = 0
+    remaining = list(todo)
+    refine_targets = []  # (img, p, joycap) -> Joy draft refined by Qwen
+    # 1) JoyCaption batch (draft) when the backend allows it.
+    if backend in ('auto', 'joycaption'):
+        jc = {}
+        try:
+            from .joycaption import caption_images_joycaption, is_available
+            if is_available():
+                jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
+            elif backend == 'joycaption':
+                raise RuntimeError('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.warning('caption concept: JoyCaption indisponible (%s)', e)
+        still = []
+        for img, p in remaining:
+            cap = (jc.get(p) or '').strip().strip('"').strip()
+            if cap:
+                refine_targets.append((img, p, cap))
+            else:
+                still.append((img, p))
+        remaining = still
+    # 2a) Backend 'joycaption' forced: no Qwen. Store Joy drafts scrubbed mechanically
+    #     (leak_re from the desc words only) - respects "no Ollama fallback".
+    if backend == 'joycaption':
+        leak_re = _concept_terms_re(_fallback_concept_terms(concept_desc))
+        for img, p, joycap in refine_targets:
+            try:
+                with open(p, 'rb') as fh:
+                    data = fh.read()
+            except OSError:
+                data = b''
+            final = _enforce_concept_omission(joycap, leak_re, data, concept_desc) or joycap
+            img.caption = final[:CAPTION_MAX_CHARS]
+            db.session.commit()
+            n += 1
+        return n
+    # 2b) Qwen passes ('auto'/'ollama'): refine Joy drafts, direct-caption the rest, all
+    #     enforced. One model load -> unload once at the end.
+    if refine_targets or remaining:
+        try:
+            from .vision_ollama import describe_image_ollama, unload_vision_model
+        except ImportError:
+            raise RuntimeError('vision (Ollama) service not configured/available yet')
+        # Ban-list (LLM expansion cached + desc words) -> leak regex, compiled ONCE per
+        # batch, AFTER the Joy subprocess finished (never two models in VRAM at once).
+        sample = refine_targets[0][1] if refine_targets else remaining[0][1]
+        leak_re = _concept_terms_re(_get_concept_terms(ds, image_path=sample,
+                                                       describe=describe_image_ollama))
+        try:
+            for img, p, joycap in refine_targets:
+                with open(p, 'rb') as fh:
+                    data = fh.read()
+                refined = ''
+                try:
+                    refined = describe_image_ollama(
+                        data, CAPTION_REFINE_CONCEPT_PROMPT.format(existing=joycap,
+                                                                   concept=concept_desc),
+                        num_predict=5000, keep_alive=_VISION_BATCH_KEEPALIVE)
+                except Exception as e:  # noqa: BLE001 - refine best-effort
+                    logger.warning('caption concept: Qwen refine failed (%s)', e)
+                refined = (refined or '').strip().strip('"').strip()
+                if _refine_output_ok(refined, joycap):
+                    final = refined
+                else:
+                    # Unusable refine (reasoning trace / loop) -> direct Qwen caption
+                    # (natively omits the concept), else keep the Joy draft.
+                    logger.info('caption concept: refine rejected -> direct Qwen (image %s)', img.id)
+                    alt = ''
+                    try:
+                        alt = describe_image_ollama(data, cap_prompt, num_predict=2000,
+                                                    keep_alive=_VISION_BATCH_KEEPALIVE)
+                    except Exception:  # noqa: BLE001
+                        alt = ''
+                    alt = (alt or '').strip().strip('"').strip()
+                    final = alt or joycap
+                final = _enforce_concept_omission(final, leak_re, data, concept_desc,
+                                                  describe=describe_image_ollama) or final
+                img.caption = final[:CAPTION_MAX_CHARS]
+                db.session.commit()
+                n += 1
+            for img, p in remaining:
+                with open(p, 'rb') as fh:
+                    data = fh.read()
+                cap = describe_image_ollama(data, cap_prompt, num_predict=2000,
+                                            keep_alive=_VISION_BATCH_KEEPALIVE)
+                cap = (cap or '').strip().strip('"').strip()
+                if cap:
+                    cap = _enforce_concept_omission(cap, leak_re, data, concept_desc,
+                                                    describe=describe_image_ollama) or cap
+                    img.caption = cap[:CAPTION_MAX_CHARS]
+                    db.session.commit()
+                    n += 1
+        finally:
+            unload_vision_model()  # libère la VRAM pour ComfyUI en fin de batch
+    return n
+
+
 def caption_images(user_id, dataset_id, force=False, mode=None):
     """Caption les images gardees. Defaut: seulement celles SANS caption ; force=True
     re-capte TOUTES les gardees (ecrase) - pour rejouer apres un changement de prompt.
@@ -669,19 +961,17 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return 0
-    # Dataset CONCEPT : logique INVERSÉE. On décrit tout (identité comprise) SAUF
-    # l'acte récurrent → prompt dédié + cleaner NO-OP (on ne retire surtout pas
-    # l'identité, qui doit rester dans la caption pour VARIER). Prose uniquement.
+    # Dataset CONCEPT : logique INVERSÉE (décrire tout SAUF l'acte récurrent → il se lie
+    # au trigger). Pipeline dédié Joy→Qwen + garantie d'omission (ban-list) : entièrement
+    # à part du chemin character ci-dessous. Respecte le backend gating.
     if is_concept(ds):
-        cap_prompt = CAPTION_PROMPT_CONCEPT
-        cleaner = lambda c: c  # noqa: E731 — on garde la caption telle quelle
-    else:
-        # Style de caption : prose (Z-Image) vs tags booru (SDXL booru-native type bigLove).
-        # Défaut AUTO selon le type entraîné ; un mode explicite (UI) l'emporte.
-        ttype = (getattr(ds, 'train_type', None) or 'zimage').lower()
-        mode = (mode or ('booru' if ttype == 'sdxl' else 'prose')).lower()
-        cap_prompt = CAPTION_PROMPT_BOORU if mode == 'booru' else JOYCAPTION_PROMPT
-        cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
+        return _caption_concept(ds, force, backend)
+    # Style de caption : prose (Z-Image) vs tags booru (SDXL booru-native type bigLove).
+    # Défaut AUTO selon le type entraîné ; un mode explicite (UI) l'emporte.
+    ttype = (getattr(ds, 'train_type', None) or 'zimage').lower()
+    mode = (mode or ('booru' if ttype == 'sdxl' else 'prose')).lower()
+    cap_prompt = CAPTION_PROMPT_BOORU if mode == 'booru' else JOYCAPTION_PROMPT
+    cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
     q = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
     if not force:
         q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))

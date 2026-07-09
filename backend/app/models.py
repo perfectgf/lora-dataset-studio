@@ -32,6 +32,13 @@ class FaceDataset(db.Model):
     # import/caption (cf face_dataset_service : is_concept). Colonne ajoutée après coup
     # → migration additive idempotente dans create_app (db.create_all n'ALTER jamais).
     kind = db.Column(String(16), nullable=True)
+    # Concept datasets only: what recurring act/concept must be OMITTED from every
+    # caption so it binds to the trigger (the inverse of a character LoRA). Feeds the
+    # {concept} placeholder of the caption/refine/ban-list prompts. concept_terms
+    # caches the LLM-expanded synonym ban-list (JSON list) used to detect & scrub
+    # leaks — both are additive columns (migration in create_app).
+    concept_desc = db.Column(Text, nullable=True)
+    concept_terms = db.Column(Text, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
 

@@ -324,6 +324,12 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
+    if masked and fds.is_concept(ds):
+        # A person-mask would erase the very concept we want the LoRA to learn
+        # (the recurring act, not a face). Force masked training OFF for concept
+        # datasets even if the caller/UI asked for it -- server-side guard.
+        logger.info('dataset %s concept -> masked training forced OFF (server guard)', dataset_id)
+        masked = False
     trigger = _safe_trigger(ds)
     out = str(_datasets_dir() / _run_name(ds))
     if os.path.isdir(out):

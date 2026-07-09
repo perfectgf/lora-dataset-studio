@@ -31,7 +31,12 @@ def dataset_create():
     name, trigger = (data.get('name') or '').strip(), (data.get('trigger_word') or '').strip()
     if not name or not trigger:
         return jsonify({'error': 'name and trigger_word are required'}), 400
-    ds = svc.create_dataset(LOCAL_USER, name, trigger, kind=data.get('kind'))
+    try:
+        ds = svc.create_dataset(LOCAL_USER, name, trigger, kind=data.get('kind'),
+                                concept_desc=data.get('concept_desc'))
+    except ValueError as e:
+        # concept dataset without a concept description -> 400 (not a 500)
+        return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'id': ds.id})
 
 

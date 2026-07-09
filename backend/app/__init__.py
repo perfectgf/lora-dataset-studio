@@ -14,6 +14,8 @@ FRONTEND_DIST = cfg.REPO_ROOT / 'frontend' / 'dist'
 # hardcoded constants (no user input) → safe to interpolate into the ALTER.
 _SCHEMA_ADDITIONS = (
     ('face_dataset', 'kind', 'VARCHAR(16)'),
+    ('face_dataset', 'concept_desc', 'TEXT'),
+    ('face_dataset', 'concept_terms', 'TEXT'),
 )
 
 def _apply_additive_migrations():
