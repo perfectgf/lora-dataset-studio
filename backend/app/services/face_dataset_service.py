@@ -46,6 +46,13 @@ def _comfy_output_dir():
 # finale tout en restant sous la fenêtre tokenizer (~512 tokens) à l'export trigger inclus.
 CAPTION_MAX_CHARS = 800
 
+# Padding du head-crop AUTO de la référence (côté du carré = grand côté de la bbox
+# tête × pad). Volontairement plus large que l'ancien 1.7 (jugé « trop serré ») pour
+# garder épaules + contexte par défaut ; le recadrage manuel depuis l'original permet
+# d'ajuster ensuite dans les deux sens. Ne concerne QUE la référence (les imports
+# gardent le défaut 1.7 de face_crop_to_square_webp).
+REF_CROP_PAD = 2.0
+
 
 def _dataset_dir(dataset_id) -> str:
     d = str(cfg.dataset_images_root() / str(dataset_id))
@@ -202,9 +209,12 @@ def set_image_caption(user_id, image_id, caption):
     return True
 
 
-def _crop_resize_file(path, x, y, w, h, size=1024):
+def _crop_resize_file(path, x, y, w, h, size=1024, dst=None):
     """Crop the file at `path` to (x,y,w,h) and RESIZE the crop to size x size
-    (no black padding - the manual crop is square, aspect=1). Overwrites in place."""
+    (no black padding - the manual crop is square, aspect=1). Writes to `dst`
+    (default: overwrite `path`). Passing a distinct `dst` lets the reference crop
+    read the untouched full-frame ORIGINAL and write the derived square — so a
+    re-crop can widen back out instead of only tightening the previous crop."""
     if not os.path.exists(path):
         return False
     src = Image.open(path).convert('RGB')
@@ -213,7 +223,7 @@ def _crop_resize_file(path, x, y, w, h, size=1024):
         return False
     out = io.BytesIO()
     src.crop(box).resize((size, size), Image.LANCZOS).save(out, 'WEBP', quality=92)
-    with open(path, 'wb') as fh:
+    with open(dst or path, 'wb') as fh:
         fh.write(out.getvalue())
     return True
 
@@ -333,12 +343,41 @@ def purge_unused(user_id, dataset_id):
     return n
 
 
+def _ref_crop_source_path(ds) -> str:
+    """The image a manual/auto re-crop reads from: the full-frame ORIGINAL when we
+    kept one, else the cropped ref (legacy datasets uploaded before we stored the
+    original — they can still be re-cropped, only not wider than the existing crop)."""
+    name = ds.ref_original_filename or ds.ref_filename
+    return os.path.join(_dataset_dir(ds.id), name)
+
+
 def crop_reference(user_id, dataset_id, x, y, w, h):
-    """Manually crop the dataset reference image to (x,y,w,h), resized to 1024."""
+    """Manually crop the dataset reference to (x,y,w,h), resized to 1024. The box is
+    in the ORIGINAL's pixel space (the editor shows the original), and we write the
+    derived square to ref_filename WITHOUT touching the original — so the user can
+    re-crop wider or tighter any number of times."""
     ds = get_dataset(user_id, dataset_id)
     if not ds or not ds.ref_filename:
         return False
-    return _crop_resize_file(_ref_path(ds), x, y, w, h)
+    return _crop_resize_file(_ref_crop_source_path(ds), x, y, w, h, dst=_ref_path(ds))
+
+
+def recrop_reference_auto(user_id, dataset_id):
+    """Re-run the automatic head-crop on the ORIGINAL, overwriting ref_filename.
+    Returns (ok, head_detected). CALLER holds the GPU vision window. Lets the user
+    reset to the auto framing after manual edits, without re-uploading the photo."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds or not ds.ref_filename:
+        return False, False
+    try:
+        with open(_ref_crop_source_path(ds), 'rb') as fh:
+            raw = fh.read()
+    except OSError:
+        return False, False
+    webp, detected = face_crop_to_square_webp(raw, pad=REF_CROP_PAD, return_detected=True)
+    with open(_ref_path(ds), 'wb') as fh:
+        fh.write(webp)
+    return True, detected
 
 
 def dataset_payload(user_id, dataset_id):
@@ -360,6 +399,7 @@ def dataset_payload(user_id, dataset_id):
         'kind': 'concept' if concept else 'character',
         'concept_desc': (ds.concept_desc or '') if concept else '',
         'ref_filename': ds.ref_filename,
+        'ref_original_filename': ds.ref_original_filename or '',
         'ref_extra_filenames': extra_ref_filenames(ds), 'composition': comp,
         'face_thresholds': {'green': cfg.get('face_scoring.green'), 'orange': cfg.get('face_scoring.orange')},
         'images': [{'id': i.id, 'filename': i.filename, 'source': i.source,

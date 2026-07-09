@@ -16,6 +16,7 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset', 'kind', 'VARCHAR(16)'),
     ('face_dataset', 'concept_desc', 'TEXT'),
     ('face_dataset', 'concept_terms', 'TEXT'),
+    ('face_dataset', 'ref_original_filename', 'VARCHAR(255)'),
 )
 
 def _apply_additive_migrations():

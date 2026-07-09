@@ -72,12 +72,21 @@ def dataset_set_ref(dataset_id):
     raw = f.read()
     try:
         with gpu_exclusive_vision_window():
-            webp, head_detected = svc.face_crop_to_square_webp(raw, return_detected=True)
+            webp, head_detected = svc.face_crop_to_square_webp(
+                raw, pad=svc.REF_CROP_PAD, return_detected=True)
     except Exception as e:
         return _map_error(e)
+    dsdir = svc._dataset_dir(dataset_id)
+    # Keep the full-frame ORIGINAL (aspect-kept, capped ~2048) so the crop editor can
+    # widen back out later — the auto head-crop is only the default framing, not a
+    # one-way lossy door (the old behavior discarded it and re-crops could only tighten).
+    orig_fn = f"{LOCAL_USER}_datasetreforig_{uuid.uuid4().hex[:8]}.webp"
+    with open(os.path.join(dsdir, orig_fn), 'wb') as fh:
+        fh.write(svc.normalize_to_webp(raw, size=2048))
     fn = f"{LOCAL_USER}_datasetref_{uuid.uuid4().hex[:8]}.webp"
-    with open(os.path.join(svc._dataset_dir(dataset_id), fn), 'wb') as fh:
+    with open(os.path.join(dsdir, fn), 'wb') as fh:
         fh.write(webp)
+    ds.ref_original_filename = orig_fn
     ds.ref_filename = fn
     svc.db.session.commit()
     resp = {'ok': True, 'ref_filename': fn, 'head_crop': head_detected}
@@ -127,6 +136,32 @@ def dataset_ref_crop(dataset_id):
     except (KeyError, ValueError, TypeError):
         return jsonify({'error': 'invalid crop box'}), 400
     return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
+
+
+@bp.post('/dataset/<int:dataset_id>/ref/recrop-auto')
+def dataset_ref_recrop_auto(dataset_id):
+    """Reset the reference to the automatic head-crop, re-run on the kept ORIGINAL
+    (no re-upload needed). Same GPU vision window as the initial upload."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        with gpu_exclusive_vision_window():
+            ok, head_detected = svc.recrop_reference_auto(LOCAL_USER, dataset_id)
+    except Exception as e:
+        return _map_error(e)
+    if not ok:
+        return jsonify({'error': 'no reference to re-crop'}), 400
+    resp = {'ok': True, 'head_crop': head_detected}
+    if not head_detected:
+        from .. import capabilities
+        model_ready = capabilities.probe_ollama_model()['ok']
+        resp['warning'] = (
+            "Auto head-crop needs the Ollama vision model, which isn't ready yet — "
+            'used a centered crop. Finish the Ollama step in Setup, then adjust with Crop.'
+            if not model_ready else
+            "Couldn't detect a face — used a centered crop. Use Crop to adjust it manually."
+        )
+    return jsonify(resp)
 
 
 @bp.post('/dataset/<int:dataset_id>/generate')

@@ -11,6 +11,10 @@ class FaceDataset(db.Model):
     name = db.Column(String(100), nullable=False)
     trigger_word = db.Column(String(60), nullable=False)
     ref_filename = db.Column(String(255), nullable=True)
+    # Original PLEIN CADRE de la référence (aspect conservé, capé ~2048), gardé pour
+    # que le recadrage manuel puisse RÉÉLARGIR au lieu de seulement resserrer le crop
+    # déjà fait. ref_filename = le carré dérivé (auto head-crop ou recadrage manuel).
+    ref_original_filename = db.Column(String(255), nullable=True)
     # Références ADDITIONNELLES (JSON list de filenames, cap côté service) : envoyées
     # en plus à Nano Banana pour renforcer la cohérence d'identité. La principale
     # (ref_filename) reste la seule source de Klein, du crop et du scoring InsightFace.
