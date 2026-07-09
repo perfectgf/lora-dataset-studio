@@ -3,12 +3,10 @@ import { Link } from 'react-router-dom'
 import { apiFetch, putJson, postJson } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
-import { deriveSetupSteps, deriveCapabilitySummary } from '../hooks/useSetupSteps'
-import SetupStep from '../components/setup/SetupStep'
+import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS } from '../hooks/useSetupSteps'
 import GuidedSteps from '../components/setup/GuidedSteps'
 import InstallRunner from '../components/setup/InstallRunner'
 
-const SKIP_KEY = 'setupSkipped'
 const INPUT_CLASS =
   'mt-1 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 text-sm text-content ' +
   'placeholder:text-content-subtle focus:border-primary focus:outline-none'
@@ -20,9 +18,14 @@ const KEY_FIELDS = [
     href: 'https://platform.openai.com/api-keys', help: 'Powers ChatGPT (gpt-image-2).' },
 ]
 
-function loadSkipped() {
-  try { return new Set(JSON.parse(localStorage.getItem(SKIP_KEY) || '[]')) }
-  catch { return new Set() }
+// A wizard "screen" is the welcome/scan, one per setup tool, then done.
+const SCREENS = ['welcome', ...SETUP_STEP_IDS, 'done']
+const TOTAL_TOOLS = SETUP_STEP_IDS.length
+
+const STATUS_META = {
+  ready: { glyph: '✓', label: 'Ready', cls: 'text-emerald-400' },
+  partial: { glyph: '◐', label: 'Almost there', cls: 'text-amber-400' },
+  available: { glyph: '○', label: 'Not set up', cls: 'text-content-subtle' },
 }
 
 export default function SetupPage() {
@@ -31,11 +34,12 @@ export default function SetupPage() {
   const [config, setConfig] = useState(null)
   const [secretsPresence, setSecretsPresence] = useState({})
   const [secretInputs, setSecretInputs] = useState({})
-  const [skipped, setSkipped] = useState(loadSkipped)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [detected, setDetected] = useState(null)   // autodetect result (path suggestions)
   const [detecting, setDetecting] = useState(false)
+  const [scanned, setScanned] = useState(false)     // the on-load scan has completed at least once
+  const [screen, setScreen] = useState(0)           // index into SCREENS
   const autodetectedRef = useRef(false)             // run the on-load autodetect only once
 
   const load = useCallback(async () => {
@@ -67,14 +71,15 @@ export default function SetupPage() {
       if (changed) {
         const saved = await putJson('/api/settings', { config: next })
         setConfig(saved.config)
-        await refresh(true)
-        toast.success('Detected installed tools and filled them in.')
       }
+      await refresh(true)
       return d
     } catch { return null }
-    finally { setDetecting(false) }
-  }, [refresh, toast])
+    finally { setDetecting(false); setScanned(true) }
+  }, [refresh])
 
+  // The scan runs BY ITSELF the moment settings load — the user watches it on the
+  // welcome screen, no button required.
   useEffect(() => {
     if (config && !autodetectedRef.current) { autodetectedRef.current = true; runAutodetect(config) }
   }, [config, runAutodetect])
@@ -91,19 +96,13 @@ export default function SetupPage() {
   const steps = useMemo(() => deriveSetupSteps(caps), [caps])
   const summary = useMemo(() => deriveCapabilitySummary(caps), [caps])
   const readyCount = summary.filter((s) => s.ok).length
+  const stepById = useMemo(() => Object.fromEntries(steps.map((s) => [s.id, s])), [steps])
 
   const setField = (section, key, value) =>
     setConfig((prev) => ({ ...prev, [section]: { ...prev[section], [key]: value } }))
 
-  const persistSkip = (next) => {
-    setSkipped(next)
-    localStorage.setItem(SKIP_KEY, JSON.stringify([...next]))
-  }
-  const skip = (id) => persistSkip(new Set(skipped).add(id))
-  const unskip = (id) => { const n = new Set(skipped); n.delete(id); persistSkip(n) }
-
   // Single write path: persist config + typed secrets, then force a re-probe so
-  // every card's status recomputes from fresh capabilities.
+  // every step's status recomputes from fresh capabilities.
   const persist = async () => {
     setBusy(true)
     try {
@@ -118,16 +117,9 @@ export default function SetupPage() {
     finally { setBusy(false) }
   }
 
-  const testTarget = async (target) => {
-    try {
-      const r = await postJson(`/api/settings/test/${target}`, {})
-      r.ok ? toast.success(r.detail) : toast.warning(r.detail)
-    } catch (e) { toast.error(e.message) }
-  }
-
   // Test the key the user JUST typed. The probe reads the SAVED secret, so save
   // that one key first (no need to fill anything else), then test + re-probe so
-  // the card flips to Ready. With no typed value, test whatever is already saved.
+  // the step flips to Ready. With no typed value, test whatever is already saved.
   const saveSecretThenTest = async (key, target) => {
     const typed = (secretInputs[key] || '').trim()
     try {
@@ -155,11 +147,6 @@ export default function SetupPage() {
     )
   }
 
-  // Skip collapses any not-yet-ready card (available OR partial); a card that
-  // reaches 'ready' always shows ready regardless of a prior skip.
-  const effective = (step) => (step.status !== 'ready' && skipped.has(step.id) ? 'skipped' : step.status)
-  const stepById = Object.fromEntries(steps.map((s) => [s.id, s]))
-
   const guidedField = (label, section, key, placeholder) => (
     <label className="block text-sm">
       <span className="font-medium text-content">{label}</span>
@@ -185,33 +172,18 @@ export default function SetupPage() {
     )
   }
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-content">Setup</h1>
-        <p className="mt-1 text-sm text-content-muted">
-          You can already build a dataset from your own photos — no setup required.
-          Everything below unlocks more. Set up what you need, skip the rest.
-        </p>
-        <p className="mt-2 text-xs text-content-subtle">{readyCount} of {summary.length} capabilities ready</p>
-        <button type="button" onClick={() => runAutodetect(config)} disabled={detecting}
-          className="mt-2 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised disabled:opacity-50">
-          {detecting ? 'Detecting…' : '🔍 Auto-detect installed tools'}
-        </button>
-        <span className="ml-2 text-xs text-content-subtle">
-          Finds Ollama, ComfyUI and ai-toolkit already on this machine and fills them in.
-        </span>
-      </div>
-
-      {/* 1. Image generation */}
-      <SetupStep step={stepById.image} index={1} effectiveStatus={effective(stepById.image)}>
+  // --- Per-tool step body (reuses the existing controls, one tool per screen) ---
+  const toolBody = (id) => {
+    const step = stepById[id]
+    if (id === 'image') {
+      return (
         <div className="space-y-4">
           {KEY_FIELDS.map((f) => (
             <div key={f.key}>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-content">{f.label}</span>
-                <span className={`text-xs ${stepById.image.engines[f.engine] ? 'text-emerald-400' : 'text-content-subtle'}`}>
-                  {stepById.image.engines[f.engine] ? '✓ Ready' : '○ Not set'}
+                <span className={`text-xs ${step.engines[f.engine] ? 'text-emerald-400' : 'text-content-subtle'}`}>
+                  {step.engines[f.engine] ? '✓ Ready' : '○ Not set'}
                 </span>
               </div>
               <p className="text-xs text-content-muted">{f.help}</p>
@@ -226,14 +198,13 @@ export default function SetupPage() {
               </div>
             </div>
           ))}
-          <p className="text-xs text-content-subtle">Klein (local) is set up in step 2 (ComfyUI).</p>
+          <p className="text-xs text-content-subtle">Klein (local) needs ComfyUI — the next step.</p>
           {saveRecheckBtn}
         </div>
-      </SetupStep>
-
-      {/* 2. ComfyUI */}
-      <SetupStep step={stepById.comfyui} index={2} effectiveStatus={effective(stepById.comfyui)}
-        onSkip={() => skip('comfyui')} onUnskip={() => unskip('comfyui')}>
+      )
+    }
+    if (id === 'comfyui') {
+      return (
         <GuidedSteps
           intro="ComfyUI is a local image generator. Install it once, then point the app at it."
           steps={[
@@ -244,16 +215,15 @@ export default function SetupPage() {
           {guidedField('ComfyUI API URL', 'comfyui', 'api_url', 'http://127.0.0.1:8188')}
           {guidedField('ComfyUI install directory', 'comfyui', 'base_dir', 'C:\\ComfyUI')}
           {detectedPathChip('comfyui', 'base_dir')}
-          {stepById.comfyui.reachable && !stepById.comfyui.hasKlein && (
+          {step.reachable && !step.hasKlein && (
             <p className="text-xs text-amber-400">Reachable, but no Klein model found. Place it in &lt;ComfyUI&gt;/models/unet/klein/.</p>
           )}
           {saveRecheckBtn}
         </GuidedSteps>
-      </SetupStep>
-
-      {/* 3. Ollama */}
-      <SetupStep step={stepById.ollama} index={3} effectiveStatus={effective(stepById.ollama)}
-        onSkip={() => skip('ollama')} onUnskip={() => unskip('ollama')}>
+      )
+    }
+    if (id === 'ollama') {
+      return (
         <GuidedSteps
           intro="Ollama runs local models for captioning and auto-framing."
           steps={[{ text: 'Install Ollama and start it (defaults to port 11434).' }]}
@@ -261,57 +231,211 @@ export default function SetupPage() {
           {guidedField('Ollama URL', 'ollama', 'url', 'http://127.0.0.1:11434')}
           {guidedField('Vision model', 'ollama', 'vision_model', 'qwen3-vl:8b')}
           {saveRecheckBtn}
-          {stepById.ollama.reachable && !stepById.ollama.visionModelReady && (
+          {step.reachable && !step.visionModelReady && (
             <div className="pt-2">
               <p className="mb-1 text-xs text-content-muted">Pull the vision model:</p>
-              <InstallRunner action="ollama_model" buttonLabel={`Pull ${stepById.ollama.visionModel || 'model'}`}
-                manualCommand={`ollama pull ${stepById.ollama.visionModel || 'qwen3-vl:8b'}`}
+              <InstallRunner action="ollama_model" buttonLabel={`Pull ${step.visionModel || 'model'}`}
+                manualCommand={`ollama pull ${step.visionModel || 'qwen3-vl:8b'}`}
                 onDone={() => refresh(true)} />
             </div>
           )}
         </GuidedSteps>
-      </SetupStep>
+      )
+    }
+    if (id === 'quality') {
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-content-muted">
+            Installs the Python ML extras (insightface, onnxruntime, rembg) into this app's environment.
+          </p>
+          <InstallRunner action="ml_extras" buttonLabel="Install (pip)"
+            manualCommand="pip install -r backend/requirements-ml.txt" onDone={() => refresh(true)} />
+        </div>
+      )
+    }
+    // training
+    return (
+      <GuidedSteps
+        intro="ai-toolkit trains the LoRA. Install it once, then point the app at its folder."
+        steps={[
+          { text: 'Clone ai-toolkit and set up its venv per its README.', command: 'git clone https://github.com/ostris/ai-toolkit' },
+        ]}
+        link={{ href: 'https://github.com/ostris/ai-toolkit', label: 'ai-toolkit on GitHub →' }}>
+        {guidedField('ai-toolkit directory', 'aitoolkit', 'dir', 'C:\\ai-toolkit')}
+        {detectedPathChip('aitoolkit', 'dir')}
+        {saveRecheckBtn}
+      </GuidedSteps>
+    )
+  }
 
-      {/* 4. Quality tools */}
-      <SetupStep step={stepById.quality} index={4} effectiveStatus={effective(stepById.quality)}
-        onSkip={() => skip('quality')} onUnskip={() => unskip('quality')}>
-        <p className="text-sm text-content-muted">
-          Installs the Python ML extras (insightface, onnxruntime, rembg) into this app's environment.
-        </p>
-        <InstallRunner action="ml_extras" buttonLabel="Install (pip)"
-          manualCommand="pip install -r backend/requirements-ml.txt" onDone={() => refresh(true)} />
-      </SetupStep>
+  const goNext = () => setScreen((i) => Math.min(i + 1, SCREENS.length - 1))
+  const goBack = () => setScreen((i) => Math.max(i - 1, 0))
+  const kind = SCREENS[screen]
 
-      {/* 5. ai-toolkit */}
-      <SetupStep step={stepById.training} index={5} effectiveStatus={effective(stepById.training)}
-        onSkip={() => skip('training')} onUnskip={() => unskip('training')}>
-        <GuidedSteps
-          intro="ai-toolkit trains the LoRA. Install it once, then point the app at its folder."
-          steps={[
-            { text: 'Clone ai-toolkit and set up its venv per its README.', command: 'git clone https://github.com/ostris/ai-toolkit' },
-          ]}
-          link={{ href: 'https://github.com/ostris/ai-toolkit', label: 'ai-toolkit on GitHub →' }}>
-          {guidedField('ai-toolkit directory', 'aitoolkit', 'dir', 'C:\\ai-toolkit')}
-          {detectedPathChip('aitoolkit', 'dir')}
-          {saveRecheckBtn}
-        </GuidedSteps>
-      </SetupStep>
+  // Progress dots: one per tool step, filled when that tool is ready.
+  const ProgressDots = () => (
+    <div className="flex items-center gap-1.5" aria-hidden="true">
+      {SETUP_STEP_IDS.map((id, i) => {
+        const active = kind === id
+        const ready = stepById[id].status === 'ready'
+        return (
+          <span key={id}
+            className={`h-2 rounded-full transition-all ${active ? 'w-6 bg-primary'
+              : ready ? 'w-2 bg-emerald-400' : 'w-2 bg-border-strong'}`} />
+        )
+      })}
+    </div>
+  )
 
-      {/* Summary */}
+  const skipLink = (
+    <Link to="/datasets" className="text-xs text-content-subtle underline hover:text-content">
+      Skip setup — I'll do it later
+    </Link>
+  )
+
+  // --- Welcome + live machine scan --------------------------------------------
+  if (kind === 'welcome') {
+    const scanRows = [
+      { label: 'Local generation — ComfyUI', ok: stepById.comfyui.reachable,
+        hint: detected && detected.comfyui && detected.comfyui.base_dir },
+      { label: 'Captioning — Ollama', ok: stepById.ollama.reachable,
+        hint: detected && detected.ollama && detected.ollama.url },
+      { label: 'LoRA training — ai-toolkit', ok: stepById.training.valid,
+        hint: detected && detected.aitoolkit && detected.aitoolkit.dir },
+    ]
+    return (
+      <div className="mx-auto max-w-2xl space-y-6">
+        <div className="text-center">
+          <div className="text-3xl" aria-hidden="true">🧬</div>
+          <h1 className="mt-2 text-2xl font-bold text-content">Welcome to LoRA Dataset Studio</h1>
+          <p className="mt-2 text-sm text-content-muted">
+            Let's set up your machine. I'll scan what's already installed and help you install the rest —
+            you can also start building a dataset from your own photos right now, no setup required.
+          </p>
+        </div>
+
+        <section className="rounded-xl border border-border bg-surface p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-content">
+              {detecting ? 'Scanning your machine…' : 'Machine scan'}
+            </h2>
+            {detecting
+              ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-primary" aria-hidden="true" />
+              : (
+                <button type="button" onClick={() => runAutodetect(config)}
+                  className="text-xs text-primary underline">Re-scan</button>
+              )}
+          </div>
+          <ul className="mt-4 space-y-2">
+            {scanRows.map((r) => (
+              <li key={r.label} className="flex items-center justify-between gap-3 text-sm">
+                <span className="flex items-center gap-2">
+                  <span aria-hidden="true" className={detecting ? 'text-content-subtle'
+                    : r.ok ? 'text-emerald-400' : 'text-content-subtle'}>
+                    {detecting ? '…' : r.ok ? '✓' : '✗'}
+                  </span>
+                  <span className={r.ok ? 'text-content' : 'text-content-muted'}>{r.label}</span>
+                </span>
+                <span className="truncate text-right font-mono text-xs text-content-subtle">
+                  {detecting ? '' : r.ok ? 'found' : (r.hint ? 'installed — needs a click' : 'not found')}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {scanned && !detecting && (
+            <p className="mt-3 text-xs text-content-subtle">
+              {readyCount} of {summary.length} capabilities ready. Reachable services were filled in automatically.
+            </p>
+          )}
+        </section>
+
+        <div className="flex items-center justify-between">
+          {skipLink}
+          <button type="button" onClick={goNext}
+            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
+            Start setup →
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // --- Done / summary ----------------------------------------------------------
+  if (kind === 'done') {
+    return (
+      <div className="mx-auto max-w-2xl space-y-6">
+        <div className="text-center">
+          <div className="text-3xl" aria-hidden="true">🎉</div>
+          <h1 className="mt-2 text-2xl font-bold text-content">You're all set</h1>
+          <p className="mt-1 text-sm text-content-muted">{readyCount} of {summary.length} capabilities ready.</p>
+        </div>
+        <section className="rounded-xl border border-border bg-surface p-5">
+          <h2 className="text-base font-semibold text-content">What's unlocked</h2>
+          <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
+            {summary.map((s) => (
+              <li key={s.label} className={`flex items-center gap-2 text-sm ${s.ok ? 'text-content' : 'text-content-subtle'}`}>
+                <span aria-hidden="true" className={s.ok ? 'text-emerald-400' : 'text-content-subtle'}>{s.ok ? '✓' : '✗'}</span>
+                {s.label}
+              </li>
+            ))}
+          </ul>
+        </section>
+        <div className="flex items-center justify-between">
+          <button type="button" onClick={goBack} className="text-xs text-content-subtle underline hover:text-content">
+            ← Back
+          </button>
+          <Link to="/datasets" className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
+            Build your first dataset →
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  // --- A single tool step ------------------------------------------------------
+  const step = stepById[kind]
+  const stepNo = SETUP_STEP_IDS.indexOf(kind) + 1
+  const meta = STATUS_META[step.status] || STATUS_META.available
+  const isLastTool = stepNo === TOTAL_TOOLS
+  return (
+    <div className="mx-auto max-w-2xl space-y-5">
+      <div className="flex items-center justify-between">
+        <ProgressDots />
+        <span className="text-xs text-content-subtle">Step {stepNo} of {TOTAL_TOOLS}</span>
+      </div>
+
       <section className="rounded-xl border border-border bg-surface p-5">
-        <h2 className="text-base font-semibold text-content">Summary</h2>
-        <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
-          {summary.map((s) => (
-            <li key={s.label} className={`flex items-center gap-2 text-sm ${s.ok ? 'text-content' : 'text-content-subtle'}`}>
-              <span aria-hidden="true" className={s.ok ? 'text-emerald-400' : 'text-content-subtle'}>{s.ok ? '✓' : '✗'}</span>
-              {s.label}
-            </li>
-          ))}
-        </ul>
-        <Link to="/datasets" className="mt-4 inline-block rounded-lg bg-gradient-primary px-4 py-2 text-sm font-semibold text-white">
-          Build your first dataset →
-        </Link>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold text-content">
+              {step.title}
+              {step.recommended && (
+                <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  Recommended
+                </span>
+              )}
+            </h1>
+            <p className="mt-1 text-xs text-content-muted">Unlocks: {step.unlocks.join(' · ')}</p>
+          </div>
+          <span className={`inline-flex shrink-0 items-center gap-1 text-xs font-medium ${meta.cls}`}>
+            <span aria-hidden="true">{meta.glyph}</span>{meta.label}
+          </span>
+        </div>
+        <div className="mt-4">{toolBody(kind)}</div>
       </section>
+
+      <div className="flex items-center justify-between">
+        <button type="button" onClick={goBack} className="text-xs text-content-subtle underline hover:text-content">
+          ← Back
+        </button>
+        <div className="flex items-center gap-4">
+          {skipLink}
+          <button type="button" onClick={goNext}
+            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
+            {isLastTool ? 'Finish →' : (step.status === 'ready' ? 'Next →' : 'Skip / Next →')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
