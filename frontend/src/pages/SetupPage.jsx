@@ -366,18 +366,17 @@ export default function SetupPage() {
       if (!isReady(SETUP_STEP_IDS[i])) return SETUP_STEP_IDS[i]
     return null
   }
-  // Captioning is the ONE capability the wizard insists on — you may not Next/Skip
-  // past the Ollama step until it's covered. But captioning is satisfied by EITHER
-  // Ollama's vision model OR JoyCaption (ai-toolkit), so the gate lifts once JoyCaption
-  // is available. Nothing else is hard-gated: you can build a dataset from your own
-  // photos and export it to train elsewhere. The global "Skip setup" link is still
-  // the deliberate bail-out so no one is ever truly trapped.
-  const joycaptionReady = !!(caps.captioners && caps.captioners.joycaption)
+  // Captioning is the ONE capability the wizard insists on. Z-Image (the default
+  // training type) needs Ollama's vision model for prose captions — JoyCaption only
+  // covers SDXL booru tags — so the Ollama gate does NOT lift just because JoyCaption
+  // is present. The MODEL, not merely Ollama being up, is what matters. Nothing else
+  // is hard-gated (build from your own photos + export to train elsewhere stays open).
+  // The global "Skip setup" link is still the deliberate bail-out.
   const blockReason = (id) => {
-    if (id !== 'ollama' || isReady(id) || joycaptionReady) return null
+    if (id !== 'ollama' || isReady(id)) return null
     const s = stepById[id]
-    if (!s.reachable) return "Ollama isn't detected. Install it and start it (port 11434) — or set up ai-toolkit (JoyCaption) instead — to continue."
-    if (!s.visionModelReady) return 'Pull the vision model below to continue — the model is what powers captioning. (Or set up ai-toolkit for JoyCaption instead.)'
+    if (!s.reachable) return "Ollama isn't detected — Z-Image captioning needs it. Install it and start it (port 11434) to continue."
+    if (!s.visionModelReady) return 'Pull the vision model below to continue — Z-Image captioning needs it (JoyCaption only covers SDXL).'
     return 'Finish this step to continue.'
   }
   // The scan already knows what's installed — so "Start setup" / Next land on the
