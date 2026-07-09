@@ -366,18 +366,18 @@ export default function SetupPage() {
       if (!isReady(SETUP_STEP_IDS[i])) return SETUP_STEP_IDS[i]
     return null
   }
-  // Steps important enough that you may NOT Next/Skip past them unfinished — the
-  // wizard blocks forward navigation until they're done. Captioning (Ollama + its
-  // vision model) is the essential one: the model, not just Ollama being up, is
-  // what matters. The global "Skip setup" link is still the deliberate bail-out.
-  const REQUIRED = { ollama: true }
+  // Captioning is the ONE capability the wizard insists on — you may not Next/Skip
+  // past the Ollama step until it's covered. But captioning is satisfied by EITHER
+  // Ollama's vision model OR JoyCaption (ai-toolkit), so the gate lifts once JoyCaption
+  // is available. Nothing else is hard-gated: you can build a dataset from your own
+  // photos and export it to train elsewhere. The global "Skip setup" link is still
+  // the deliberate bail-out so no one is ever truly trapped.
+  const joycaptionReady = !!(caps.captioners && caps.captioners.joycaption)
   const blockReason = (id) => {
-    if (!REQUIRED[id] || isReady(id)) return null
+    if (id !== 'ollama' || isReady(id) || joycaptionReady) return null
     const s = stepById[id]
-    if (id === 'ollama') {
-      if (!s.reachable) return "Ollama isn't detected. Install it and start it (port 11434) to continue."
-      if (!s.visionModelReady) return 'Pull the vision model below to continue — the model is what powers captioning.'
-    }
+    if (!s.reachable) return "Ollama isn't detected. Install it and start it (port 11434) — or set up ai-toolkit (JoyCaption) instead — to continue."
+    if (!s.visionModelReady) return 'Pull the vision model below to continue — the model is what powers captioning. (Or set up ai-toolkit for JoyCaption instead.)'
     return 'Finish this step to continue.'
   }
   // The scan already knows what's installed — so "Start setup" / Next land on the
