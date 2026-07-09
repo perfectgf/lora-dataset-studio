@@ -46,11 +46,34 @@ def _append(action, line):
         del log[:-_LOG_MAX]
 
 
+def _quote(p: str) -> str:
+    # Quote paths with spaces so the manual command is copy-paste-safe: the
+    # portable bundle can be extracted under e.g. C:\Users\...\LoRA Dataset Studio\.
+    return f'"{p}"' if ' ' in p else p
+
+
+def manual_command(action) -> str:
+    """The exact command that reproduces an install BY HAND, scoped to THIS app's
+    own interpreter (sys.executable). A copy-paste then targets the SAME
+    environment the app imports from -- the portable bundle's python\\python.exe or
+    the dev venv -- instead of whatever bare `pip` happens to be first on PATH
+    (which is the whole point of the user's question: a plain `pip install` would
+    land in the wrong environment and the extras would never be importable)."""
+    if action == 'ml_extras':
+        return f'{_quote(sys.executable)} -m pip install -r {_quote(str(_ML_REQUIREMENTS))}'
+    if action == 'ollama_model':
+        model = (cfg.get('ollama.vision_model') or '').strip() or '<vision-model>'
+        return f'ollama pull {model}'
+    return ''
+
+
 def status(action) -> dict:
     run = _runs.get(action)
+    cmd = manual_command(action)
     if run is None:
-        return {'state': 'idle', 'returncode': None, 'log': []}
-    return {'state': run['state'], 'returncode': run['returncode'], 'log': list(run['log'])}
+        return {'state': 'idle', 'returncode': None, 'log': [], 'manual_command': cmd}
+    return {'state': run['state'], 'returncode': run['returncode'],
+            'log': list(run['log']), 'manual_command': cmd}
 
 
 def start(action) -> dict:

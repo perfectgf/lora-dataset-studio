@@ -11,7 +11,40 @@ def _reset_runs():
 
 def test_status_idle_when_never_started():
     from app import setup_installer
-    assert setup_installer.status('ml_extras') == {'state': 'idle', 'returncode': None, 'log': []}
+    s = setup_installer.status('ml_extras')
+    assert s['state'] == 'idle' and s['returncode'] is None and s['log'] == []
+    assert 'manual_command' in s   # always present so the UI can show a correct fallback
+
+
+def test_manual_command_ml_extras_is_scoped_to_this_interpreter():
+    """The manual fallback must target THIS app's interpreter (sys.executable),
+    not a bare `pip` on PATH -- otherwise a copy-paste installs into the wrong
+    environment and the extras stay unimportable."""
+    import sys
+    from app import setup_installer
+    cmd = setup_installer.manual_command('ml_extras')
+    assert sys.executable in cmd
+    assert '-m pip install -r' in cmd
+    assert 'requirements-ml.txt' in cmd
+    assert not cmd.startswith('pip ')   # never bare pip
+
+def test_manual_command_quotes_paths_with_spaces(monkeypatch):
+    from app import setup_installer
+    monkeypatch.setattr(setup_installer.sys, 'executable', r'C:\LoRA Dataset Studio\python\python.exe')
+    cmd = setup_installer.manual_command('ml_extras')
+    assert '"C:\\LoRA Dataset Studio\\python\\python.exe"' in cmd
+
+def test_manual_command_ollama_model(app):
+    from app import setup_installer, config
+    with app.app_context():
+        config.save_config({'ollama': {'vision_model': 'qwen3-vl:8b'}})
+        assert setup_installer.manual_command('ollama_model') == 'ollama pull qwen3-vl:8b'
+
+def test_status_includes_manual_command_while_running():
+    from app import setup_installer
+    setup_installer._runs['ml_extras'] = {'state': 'running', 'returncode': None, 'log': ['x']}
+    s = setup_installer.status('ml_extras')
+    assert s['state'] == 'running' and 'requirements-ml.txt' in s['manual_command']
 
 
 def test_start_unknown_action_raises():

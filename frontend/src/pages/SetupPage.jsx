@@ -338,10 +338,26 @@ export default function SetupPage() {
       return (
         <div className="space-y-3">
           <p className="text-sm text-content-muted">
-            Installs the Python ML extras (insightface, onnxruntime, rembg) into this app's environment.
+            Two optional helpers installed into this app's own Python environment (insightface,
+            onnxruntime, rembg). Both run on CPU — they never touch the GPU or ComfyUI — and the app
+            works fully without them; they just make curation and training cleaner:
           </p>
+          <ul className="space-y-2 text-sm text-content-muted">
+            <li>
+              <span className="font-semibold text-content">🎭 Face-similarity scoring</span> — powers the
+              "Analyze faces" pass: it scores how closely each generated image resembles your reference
+              photo, so you can keep the ones that truly look like the person and drop the off ones. It
+              only ranks — it never deletes anything.
+            </li>
+            <li>
+              <span className="font-semibold text-content">🧍 Person masks</span> — isolates the subject
+              from the background for <span className="italic">masked training</span>: the décor is weighted
+              down so the LoRA binds the identity to the person, not the room or the lighting. Optional —
+              a training without masks is still a valid training.
+            </li>
+          </ul>
           <InstallRunner action="ml_extras" buttonLabel="Install (pip)"
-            manualCommand="pip install -r backend/requirements-ml.txt" onDone={() => refresh(true)} />
+            manualCommand="python -m pip install -r backend/requirements-ml.txt" onDone={() => refresh(true)} />
         </div>
       )
     }

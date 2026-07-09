@@ -11,11 +11,18 @@ export default function InstallRunner({ action, buttonLabel, manualCommand, onDo
   const [state, setState] = useState('idle')  // idle|running|success|error
   const [log, setLog] = useState([])
   const [returncode, setReturncode] = useState(null)
+  // The manual fallback command comes from the BACKEND (scoped to sys.executable,
+  // absolute + quoted) so copy-pasting it hits the app's own interpreter, not a
+  // stray `pip` on PATH. The prop is only a fallback until the first fetch lands.
+  const [manualCmd, setManualCmd] = useState(manualCommand)
   const timer = useRef(null)
   const mountedRef = useRef(true)
   const fails = useRef(0)
 
-  const apply = (s) => { setState(s.state); setLog(s.log || []); setReturncode(s.returncode) }
+  const apply = (s) => {
+    setState(s.state); setLog(s.log || []); setReturncode(s.returncode)
+    if (s.manual_command) setManualCmd(s.manual_command)
+  }
 
   const poll = async () => {
     try {
@@ -48,7 +55,9 @@ export default function InstallRunner({ action, buttonLabel, manualCommand, onDo
   useEffect(() => {
     mountedRef.current = true
     apiFetch(`/api/setup/install/${action}/status`).then((s) => {
-      if (!mountedRef.current || s.state === 'idle') return
+      if (!mountedRef.current) return
+      if (s.manual_command) setManualCmd(s.manual_command)   // even when idle
+      if (s.state === 'idle') return
       apply(s)
       if (s.state === 'running') timer.current = setTimeout(poll, POLL_MS)
     }).catch(() => { /* not attached; leave the button idle */ })
@@ -86,7 +95,7 @@ export default function InstallRunner({ action, buttonLabel, manualCommand, onDo
             : 'Could not start the install. Run this manually instead:'}
         </p>
       )}
-      <CopyCommand command={manualCommand} />
+      <CopyCommand command={manualCmd} />
     </div>
   )
 }
