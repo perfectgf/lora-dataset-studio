@@ -24,7 +24,7 @@ const KEY_FIELDS = [
 // fp8/q4 builds (Klein 9B fp8 fits a 24 GB RTX 4090; the 8B vision model ~8 GB).
 const DEFAULT_VISION_MODEL = 'huihui_ai/qwen3-vl-abliterated:8b'
 const VISION_MODEL_VRAM = '≈ 8 GB VRAM'
-const KLEIN_MODEL_VRAM = '≈ 24 GB VRAM (fp8, RTX 4090+)'
+const KLEIN_MODEL_VRAM = '≈ 16 GB VRAM (fp8; ~29 GB at bf16)'
 
 // A wizard "screen" is the welcome/scan, one per setup tool, then done.
 const SCREENS = ['welcome', ...SETUP_STEP_IDS, 'done']
