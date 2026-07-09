@@ -295,6 +295,15 @@ export function useDataset() {
     setRefNonce((n) => n + 1);
   }, [currentId, refresh, toast]);
 
+  // Reset to the automatic head-crop (re-run on the kept original, no re-upload).
+  const recropRefAuto = useCallback(async () => {
+    const d = await postJson(`/api/dataset/${currentId}/ref/recrop-auto`, {});
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+    if (d.warning) toast.warning(d.warning); else toast.success('Reset to auto crop');
+    await refresh();
+    setRefNonce((n) => n + 1);
+  }, [currentId, refresh, toast]);
+
   const deleteImage = useCallback(async (imageId) => {
     const d = await postJson(`/api/dataset/image/${imageId}/delete`);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -409,7 +418,7 @@ export function useDataset() {
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
-           setStatus, setCaption, crop, cropRef, deleteImage, cancelPending, regenerate, analyzing, analyzeFaces,
+           setStatus, setCaption, crop, cropRef, recropRefAuto, deleteImage, cancelPending, regenerate, analyzing, analyzeFaces,
            purgeUnused, exportZip, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, prepareBase };

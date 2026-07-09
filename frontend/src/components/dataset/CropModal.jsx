@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Cropper from 'react-easy-crop';
 
-export default function CropModal({ imageUrl, onCancel, onConfirm }) {
+export default function CropModal({ imageUrl, onCancel, onConfirm, onReset }) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [area, setArea] = useState(null);
@@ -32,6 +32,13 @@ export default function CropModal({ imageUrl, onCancel, onConfirm }) {
             onChange={(e) => setZoom(Number(e.target.value))} className="flex-1 accent-indigo-500" />
         </label>
         <div className="flex gap-2 justify-end">
+          {onReset && (
+            <button type="button" onClick={onReset}
+              title="Re-run the automatic head-crop on the original image"
+              className="mr-auto px-4 py-2 rounded-lg bg-surface text-content-muted text-sm">
+              ↺ Reset to auto
+            </button>
+          )}
           <button type="button" ref={cancelRef} onClick={onCancel}
             className="px-4 py-2 rounded-lg bg-surface text-content text-sm">Cancel</button>
           <button type="button" disabled={!area}

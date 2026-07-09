@@ -243,9 +243,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
           onConfirm={async (box) => { await ds.crop(cropImg.id, box); setCropImg(null); }} />
       )}
       {refCrop && d.ref_filename && (
-        <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(d.ref_filename)}`}
+        // Feed the crop editor the full-frame ORIGINAL (when kept) so the box can widen
+        // back out — not just tighten the already-cropped square. Legacy datasets with
+        // no stored original fall back to the cropped ref (can only tighten, as before).
+        <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(d.ref_original_filename || d.ref_filename)}`}
           onCancel={() => setRefCrop(false)}
-          onConfirm={async (box) => { await ds.cropRef(box); setRefCrop(false); }} />
+          onConfirm={async (box) => { await ds.cropRef(box); setRefCrop(false); }}
+          onReset={d.ref_original_filename
+            ? async () => { await ds.recropRefAuto(); setRefCrop(false); }
+            : undefined} />
       )}
       {viewImgLive && (
         <DatasetLightbox img={viewImgLive} datasetId={d.id}
