@@ -37,6 +37,11 @@ guided by the wizard:
 
 On a **build machine** (Windows 10+, a host `python` 3.9–3.12 on PATH, internet):
 
+**Easiest — double-click `packaging\build.bat`.** It checks for Python, runs the
+build with the right execution policy, and opens the output folder when done.
+
+Or from a terminal:
+
 ```powershell
 python packaging\make_icon.py        # (re)generate icon.ico — optional, it's committed
 powershell -ExecutionPolicy Bypass -File packaging\build_portable.ps1
