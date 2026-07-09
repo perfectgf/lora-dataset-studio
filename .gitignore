@@ -19,6 +19,11 @@ venv/
 # node
 frontend/node_modules/
 
+# packaging build artifacts (portable bundle) — the sources are committed, not the output
+packaging/build/
+packaging/dist/
+packaging/*.spec
+
 # OS
 .DS_Store
 Thumbs.db
