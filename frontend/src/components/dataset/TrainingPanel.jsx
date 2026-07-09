@@ -75,6 +75,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
   // Bases selon le type choisi (zimage : officiel + merges ; sdxl : checkpoints ComfyUI).
   const currentBases = baseInfo?.bases_by_type?.[trainType] || baseInfo?.bases || [];
+  // base_dir non configuré → les listers renvoient [] : distinguer « aucun modèle de
+  // cette famille » de « ComfyUI pas encore pointé » (le vrai motif sur un clone neuf).
+  // Défaut true tant que baseInfo n'est pas chargé, pour ne pas flasher la CTA au montage.
+  const comfyConfigured = baseInfo?.comfyui_configured !== false;
   const isCustomBase = !!base;
   // La conversion diffusers ne concerne QUE Z-Image (SDXL = single-file direct).
   const needsConversion = trainType === 'zimage' && isCustomBase;
@@ -288,7 +292,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               aria-label="Base model"
               className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[230px]">
               {(currentBases.length ? currentBases
-                : [{ value: '', label: trainType === 'sdxl' ? 'No SDXL checkpoint found' : trainType === 'krea' ? 'Official — Krea 2 Turbo' : 'Official — Z-Image-Turbo' }]).map((b) => (
+                : [{ value: '', label: trainType === 'sdxl' ? (comfyConfigured ? 'No SDXL checkpoint found' : 'ComfyUI not configured') : trainType === 'krea' ? 'Official — Krea 2 Turbo' : 'Official — Z-Image-Turbo' }]).map((b) => (
                 <option key={b.value} value={b.value}>
                   {b.label}{b.value && baseInfo?.converted?.[b.value] ? ' ✓' : ''}
                 </option>
@@ -304,6 +308,17 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               </select>
             )}
           </div>
+          {!comfyConfigured && trainType !== 'krea' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-amber-300 text-[0.625rem]">
+                ⚠️ ComfyUI folder not set — training bases can't be listed{trainType === 'sdxl' ? '' : ' (the official Z-Image base still works)'}.
+              </span>
+              <a href="#/setup"
+                className="px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-[0.6875rem] font-semibold">
+                Point the app at ComfyUI →
+              </a>
+            </div>
+          )}
           {needsConversion && !baseConverted && !convertRunning && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-amber-300 text-[0.625rem]">⚠️ Base must be converted before training (~12 GB, a few min, one time only).</span>

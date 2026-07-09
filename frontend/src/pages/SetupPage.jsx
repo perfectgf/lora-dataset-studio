@@ -77,6 +77,12 @@ export default function SetupPage() {
       fillEmpty('ollama', 'url', d.ollama && d.ollama.url)
       fillEmpty('ollama', 'vision_model', d.ollama && d.ollama.vision_model)
       fillEmpty('comfyui', 'api_url', d.comfyui && d.comfyui.api_url)
+      // base_dir drives every training-base lister (get_checkpoint_models /
+      // get_zimage_models resolve from comfyui.base_dir/models). The detector
+      // only reports a folder that HAS main.py + models/, so it's a real ComfyUI
+      // install — safe to auto-apply, not just suggest. Without this, a reachable
+      // ComfyUI still shows "No SDXL checkpoint found" until the user clicks the chip.
+      fillEmpty('comfyui', 'base_dir', d.comfyui && d.comfyui.base_dir)
       if (changed) {
         const saved = await putJson('/api/settings', { config: next })
         setConfig(saved.config)
