@@ -153,7 +153,19 @@ def is_concept(ds) -> bool:
     return bool(ds) and (getattr(ds, 'kind', None) or '').lower() == 'concept'
 
 
-def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None):
+# Familles de modèle entraînables (= pipeline ai-toolkit). Source de vérité côté UI
+# ET validation : choisie à la création, drive le format de caption (sdxl→booru, sinon
+# prose) et le regroupement du menu. Reste modifiable ensuite (TrainingPanel).
+TRAIN_TYPES = ('zimage', 'sdxl', 'krea')
+
+
+def normalize_train_type(t) -> str:
+    """Famille valide en minuscules, défaut 'zimage' (toute valeur inconnue/None)."""
+    t = (t or '').strip().lower()
+    return t if t in TRAIN_TYPES else 'zimage'
+
+
+def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, train_type=None):
     k = normalize_kind(kind)
     desc = (concept_desc or '').strip()
     if k == 'concept' and not desc:
@@ -162,10 +174,22 @@ def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None):
         raise ValueError('concept_desc required for a concept dataset')
     ds = FaceDataset(user_id=str(user_id), name=(name or '').strip()[:100],
                      trigger_word=(trigger_word or '').strip()[:60] or 'zchar',
-                     kind=k, concept_desc=(desc[:500] if k == 'concept' else None))
+                     kind=k, concept_desc=(desc[:500] if k == 'concept' else None),
+                     train_type=normalize_train_type(train_type))
     db.session.add(ds)
     db.session.commit()
     return ds
+
+
+def set_train_type(user_id, dataset_id, train_type) -> bool:
+    """Change the target model family later (kept in sync with the TrainingPanel
+    selector so the menu re-groups). Normalizes; unknown -> zimage. False if absent."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return False
+    ds.train_type = normalize_train_type(train_type)
+    db.session.commit()
+    return True
 
 
 def get_dataset(user_id, dataset_id):

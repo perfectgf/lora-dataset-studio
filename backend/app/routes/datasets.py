@@ -33,11 +33,22 @@ def dataset_create():
         return jsonify({'error': 'name and trigger_word are required'}), 400
     try:
         ds = svc.create_dataset(LOCAL_USER, name, trigger, kind=data.get('kind'),
-                                concept_desc=data.get('concept_desc'))
+                                concept_desc=data.get('concept_desc'),
+                                train_type=data.get('train_type'))
     except ValueError as e:
         # concept dataset without a concept description -> 400 (not a 500)
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'id': ds.id})
+
+
+@bp.post('/dataset/<int:dataset_id>/train-type')
+def dataset_set_train_type(dataset_id):
+    """Change a dataset's target model family (Z-Image/SDXL/Krea) after creation.
+    Dataset metadata — NOT ai-toolkit-gated, so you can organize the menu even
+    before training is configured. Keeps the TrainingPanel and the grouped menu in sync."""
+    data = request.get_json(silent=True) or {}
+    ok = svc.set_train_type(LOCAL_USER, dataset_id, data.get('train_type'))
+    return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
 
 
 @bp.get('/dataset/variations')
@@ -51,7 +62,8 @@ def dataset_list():
     dss = svc.list_datasets(LOCAL_USER)
     return jsonify({'datasets': [
         {'id': d.id, 'name': d.name, 'trigger_word': d.trigger_word, 'ref_filename': d.ref_filename,
-         'kind': 'concept' if (d.kind or '').lower() == 'concept' else 'character'}
+         'kind': 'concept' if (d.kind or '').lower() == 'concept' else 'character',
+         'train_type': (d.train_type or 'zimage')}
         for d in dss]})
 
 
