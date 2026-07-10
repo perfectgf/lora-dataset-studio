@@ -210,7 +210,9 @@ export function useDataset() {
     const fd = new FormData(); [...files].forEach((f) => fd.append('files', f));
     const d = await postJson(`/api/dataset/${currentId}/import`, fd, true);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
-    toast.success(`${d.imported} imported`);
+    const dup = d.duplicates || 0;
+    toast.success(`${d.imported} imported${dup ? ` · ${dup} duplicate(s) skipped` : ''}`);
+    if (dup && !d.imported) toast.warning('All files were already in the dataset (perceptual duplicates).');
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 

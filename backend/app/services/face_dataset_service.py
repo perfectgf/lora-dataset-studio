@@ -570,11 +570,20 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
 
 
 # --- Import + classify (Qwen3-VL) ------------------------------------------
-def import_images(user_id, dataset_id, files_bytes, crop=False):
+def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, stats=None):
     """Normalize (or head-crop) + persist + create import rows (status=keep).
     When crop=True, each image is auto head-cropped via Qwen3-VL - the CALLER
     must then hold the GPU-exclusive window - and is by construction a face,
     so framing='face' is set directly (no classify pass needed).
+
+    dedupe=True (the /import route) drops perceptual duplicates by dHash — both
+    within the batch and vs the dataset's existing files. The hash is computed on
+    the NORMALIZED result (what's actually stored), so a re-import of the same
+    photo matches its earlier crop instead of comparing a full frame to a head
+    crop. Skips are counted in stats['duplicates'] when a stats dict is passed.
+    Default stays False: service-level callers (scrape flow dedupes upstream on
+    the ORIGINALS, before paying the crop) keep the historical behavior.
+
     Returns (ids, failed_count)."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
@@ -583,6 +592,7 @@ def import_images(user_id, dataset_id, files_bytes, crop=False):
     # un head-crop) et on préserve le ratio (normalize_to_webp, pas de bandes noires
     # qu'un LoRA apprendrait). Personnage sans crop = ancien comportement carré padé.
     concept = is_concept(ds)
+    seen = _existing_dhashes(dataset_id) if dedupe else None
     ids = []
     failed = 0
     for raw in files_bytes:
@@ -597,6 +607,19 @@ def import_images(user_id, dataset_id, files_bytes, crop=False):
             failed += 1
             logger.warning(f"dataset import: image skipped (dataset {dataset_id}): {e}")
             continue
+        if dedupe:
+            try:
+                with Image.open(io.BytesIO(webp)) as im:
+                    fp = _dhash(im)
+            except (OSError, ValueError):
+                fp = None   # unreadable output would have failed above; belt & braces
+            if fp is not None:
+                if any(_hamming(fp, s) <= SCRAPE_DHASH_MAX_DISTANCE for s in seen):
+                    if stats is not None:
+                        stats['duplicates'] = stats.get('duplicates', 0) + 1
+                    logger.info(f"dataset import: perceptual duplicate skipped (dataset {dataset_id})")
+                    continue
+                seen.append(fp)
         fn = f"{user_id}_dataset_{uuid.uuid4().hex[:8]}.webp"
         with open(os.path.join(_dataset_dir(dataset_id), fn), 'wb') as fh:
             fh.write(webp)

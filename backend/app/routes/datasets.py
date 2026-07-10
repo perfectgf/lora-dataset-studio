@@ -212,17 +212,22 @@ def dataset_import(dataset_id):
         return jsonify({'error': 'max 20 images per import'}), 400
     # Dataset CONCEPT : import BRUT (plan entier, pas de head-crop) → aucune passe
     # vision → PAS de fenêtre GPU exclusive (on ne stoppe pas ComfyUI pour rien).
+    stats = {}
     if svc.is_concept(ds):
-        ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=False)
-        return jsonify({'ok': True, 'imported': len(ids), 'failed': failed})
+        ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=False,
+                                        dedupe=True, stats=stats)
+        return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
+                        'duplicates': stats.get('duplicates', 0)})
     try:
         # batch (head-crop vision par image) : heartbeat de la fenêtre = ComfyUI arrêté
         # tout le batch ; le TTL n'est qu'un filet anti-crash.
         with gpu_exclusive_vision_window(flag_ttl=600):
-            ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=True)  # auto head-crop
+            ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=True,  # auto head-crop
+                                            dedupe=True, stats=stats)
     except Exception as e:
         return _map_error(e)
-    return jsonify({'ok': True, 'imported': len(ids), 'failed': failed})
+    return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
+                    'duplicates': stats.get('duplicates', 0)})
 
 
 @bp.post('/dataset/<int:dataset_id>/scrape-import')

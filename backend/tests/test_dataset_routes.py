@@ -67,6 +67,31 @@ def test_images_batch_route_validates_and_applies(client, app):
     assert payload['images'][0]['status'] == 'keep'
 
 
+def test_import_route_reports_duplicates(client):
+    """The /import envelope exposes the perceptual-duplicate count so the UI can
+    say '2 imported · 1 duplicate skipped'. Concept dataset -> crop=False path
+    (no GPU window to stub)."""
+    from PIL import Image as PILImage
+    def grad(direction):
+        ramp = list(range(0, 256, 32))
+        if direction == 'rtl':
+            ramp = ramp[::-1]
+        small = PILImage.new('L', (8, 8)); small.putdata([ramp[x] for _ in range(8) for x in range(8)])
+        buf = io.BytesIO(); small.resize((800, 800), PILImage.BILINEAR).convert('RGB').save(buf, 'PNG')
+        return buf.getvalue()
+    ds_id = client.post('/api/dataset/create', json={
+        'name': 'CDup', 'trigger_word': 'cdup', 'kind': 'concept',
+        'concept_desc': 'a test concept'}).get_json()['id']
+    data = {'files': [(io.BytesIO(grad('ltr')), 'a.png'),
+                      (io.BytesIO(grad('ltr')), 'b.png'),
+                      (io.BytesIO(grad('rtl')), 'c.png')]}
+    resp = client.post(f'/api/dataset/{ds_id}/import', data=data,
+                       content_type='multipart/form-data')
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['imported'] == 2 and body['duplicates'] == 1 and body['failed'] == 0
+
+
 def test_variations_catalog(client):
     resp = client.get('/api/dataset/variations')
     assert resp.status_code == 200

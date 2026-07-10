@@ -121,7 +121,7 @@ def test_import_route_concept_skips_gpu_window(client, monkeypatch):
 
     captured = {}
 
-    def fake_import(user_id, dataset_id, files, crop=False):
+    def fake_import(user_id, dataset_id, files, crop=False, **kw):
         captured['crop'] = crop
         return [1], 0
 

@@ -157,6 +157,57 @@ def test_batch_invalid_action_raises(app):
             svc.batch_image_action(LOCAL_USER, ds.id, [1], 'rm_rf')
 
 
+def _grad_png(direction='ltr', w=800, h=800):
+    """Low-frequency horizontal gradient — solid colors all dHash to 0, so dedup
+    tests need a pattern that survives the 9x8 downscale (see the scrape tests)."""
+    ramp = list(range(0, 256, 32))
+    if direction == 'rtl':
+        ramp = ramp[::-1]
+    small = Image.new('L', (8, 8)); small.putdata([ramp[x] for _ in range(8) for x in range(8)])
+    buf = io.BytesIO(); small.resize((w, h), Image.BILINEAR).convert('RGB').save(buf, 'PNG')
+    return buf.getvalue()
+
+
+def test_import_dedupe_skips_intra_batch_duplicate(app):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Dd', 'dd')
+        stats = {}
+        ids, failed = svc.import_images(LOCAL_USER, ds.id,
+                                        [_grad_png('ltr'), _grad_png('ltr'), _grad_png('rtl')],
+                                        crop=False, dedupe=True, stats=stats)
+        assert len(ids) == 2 and failed == 0          # ltr kept once, rtl distinct
+        assert stats == {'duplicates': 1}
+
+
+def test_import_dedupe_skips_vs_existing_images(app):
+    """Re-importing a photo already in the dataset (earlier call) is dropped —
+    the hash is computed on the NORMALIZED file, so it matches what's stored."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'De', 'de')
+        ids1, _ = svc.import_images(LOCAL_USER, ds.id, [_grad_png('ltr')], crop=False, dedupe=True)
+        assert len(ids1) == 1
+        stats = {}
+        ids2, _ = svc.import_images(LOCAL_USER, ds.id, [_grad_png('ltr')],
+                                    crop=False, dedupe=True, stats=stats)
+        assert ids2 == [] and stats == {'duplicates': 1}
+
+
+def test_import_dedupe_off_by_default(app):
+    """Historical behavior preserved: without dedupe=True the same bytes import twice
+    (scrape flow dedupes upstream on the originals and must not pay a second pass)."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Df', 'df')
+        ids1, _ = svc.import_images(LOCAL_USER, ds.id, [_grad_png('ltr')], crop=False)
+        ids2, _ = svc.import_images(LOCAL_USER, ds.id, [_grad_png('ltr')], crop=False)
+        assert len(ids1) == 1 and len(ids2) == 1
+
+
 def test_delete_dataset_without_lora_training_module(app):
     """lora_training (Task 19) doesn't exist yet in phase 1 -> delete_dataset must
     still succeed (purge step is best-effort and silently skipped)."""
