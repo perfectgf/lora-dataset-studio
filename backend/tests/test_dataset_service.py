@@ -289,6 +289,31 @@ def test_import_dedupe_off_by_default(app):
         assert len(ids1) == 1 and len(ids2) == 1
 
 
+def test_api_batch_skips_cancelled_rows(app, monkeypatch):
+    """Stop during a Nano Banana batch: cancel_pending deletes the pending rows —
+    the worker must then SKIP the API call for those items (each call is billed),
+    not generate-then-discard."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    calls = []
+    monkeypatch.setattr(svc, '_api_generate_fn',
+                        lambda engine: (lambda *a, **k: calls.append(1) or _png()))
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Stop', 'stop')
+        import os
+        os.makedirs(svc._dataset_dir(ds.id), exist_ok=True)
+        live = FaceDatasetImage(dataset_id=ds.id, status='pending', klein_model='nanobanana')
+        gone = FaceDatasetImage(dataset_id=ds.id, status='pending', klein_model='nanobanana')
+        svc.db.session.add_all([live, gone]); svc.db.session.commit()
+        live_id, gone_id = live.id, gone.id
+        svc.db.session.delete(gone); svc.db.session.commit()   # = cancel_pending
+        svc._run_nanobanana_batch(app, [(live_id, 'p', '1:1'), (gone_id, 'p', '1:1')],
+                                  [_png()], engine='nanobanana')
+        assert len(calls) == 1                                  # only the live row hit the API
+        assert svc.db.session.get(FaceDatasetImage, live_id).filename
+
+
 def test_delete_dataset_without_lora_training_module(app):
     """lora_training (Task 19) doesn't exist yet in phase 1 -> delete_dataset must
     still succeed (purge step is best-effort and silently skipped)."""

@@ -1416,6 +1416,14 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
         # item = (image_id, prompt, aspect) ; aspect optionnel (rétro-compat → '1:1').
         image_id, prompt = item[0], item[1]
         aspect = item[2] if len(item) > 2 else '1:1'
+        # Stop AVANT l'appel API : cancel_pending supprime les lignes en vol — si
+        # celle-ci a disparu, ne pas payer une génération qui sera jetée (le bouton
+        # Stop doit économiser le RESTE du batch, pas seulement masquer les tuiles).
+        with app.app_context():
+            row = db.session.get(FaceDatasetImage, image_id)
+            if row is None or row.status != 'pending':
+                logger.info(f"{engine} batch: row {image_id} cancelled - API call skipped")
+                return
         out = None
         try:
             out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=n_refs),

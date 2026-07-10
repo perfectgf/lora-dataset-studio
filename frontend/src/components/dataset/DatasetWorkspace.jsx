@@ -170,12 +170,20 @@ export default function DatasetWorkspace({ ds, onBack }) {
       )}
 
       {pending > 0 && (
-        <div className="flex items-center gap-2 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2">
-          <span className="animate-pulse" aria-hidden>⏳</span>
-          <span className="text-content text-sm">{pending} Klein generation(s) in progress…</span>
+        <div className="flex items-center gap-3 rounded-lg border-2 border-indigo-400/60 bg-indigo-500/15 px-3 py-2.5">
+          <span className="animate-pulse text-lg" aria-hidden>⏳</span>
+          <div className="flex flex-col">
+            <span className="text-content text-sm font-semibold">
+              {pending} generation(s) in progress…
+            </span>
+            <span className="text-content-subtle text-[0.6875rem]">
+              First results look wrong? Stop now — the remaining API calls are skipped (not billed).
+            </span>
+          </div>
           <button type="button" onClick={ds.cancelPending} disabled={ds.busy}
-            className="ml-auto px-2.5 py-1 rounded-lg bg-red-600/80 text-white text-xs font-semibold disabled:opacity-40">
-            Cancel all
+            title="Cancels every generation still in flight; finished images stay."
+            className="ml-auto shrink-0 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-bold disabled:opacity-40">
+            ⏹ Stop generation
           </button>
         </div>
       )}
