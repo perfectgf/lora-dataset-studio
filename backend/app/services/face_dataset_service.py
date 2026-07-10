@@ -692,6 +692,11 @@ def dataset_payload(user_id, dataset_id):
                     'framing': i.framing, 'variation_label': i.variation_label,
                     'status': i.status, 'caption': i.caption,
                     'fail_reason': i.fail_reason,
+                    # Per-image identity-leak flag: lets the UI LIST the offending
+                    # captions for quick manual treatment (the aggregate badge
+                    # alone forced a hunt through the grid).
+                    'leak': bool(not concept and i.status == 'keep'
+                                 and caption_has_identity_leak(i.caption, body=body)),
                     'face_score': i.face_score, 'face_state': i.face_state} for i in imgs],
         # Dataset CONCEPT : décrire l'identité est VOULU (le concept, pas le visage,
         # se lie au trigger) → le badge « fuite d'identité » n'a aucun sens, on le zéro.
@@ -1904,6 +1909,13 @@ _INFO = ("Trigger: {trigger}\nImages: {n}\nComposition: {comp}\n\n"
 
 
 def build_export_zip(user_id, dataset_id) -> bytes:
+    """Training-ready ZIP in the PUBLIC-TOOL layout, not an app-internal format:
+    one `10_<trigger>/` folder of `image.png` + same-stem `image.txt` caption
+    pairs (captions carry the resolved trigger inline). That single shape feeds
+    every mainstream trainer as-is: ai-toolkit (point the dataset at the folder;
+    the folder name is ignored), kohya_ss / sd-scripts (drop under img/ — the
+    `10_` prefix IS kohya's repeats convention), OneTrainer & friends (image+txt
+    pairs). The info file is .md so no caption-scanner ever picks it up."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
@@ -1912,6 +1924,8 @@ def build_export_zip(user_id, dataset_id) -> bytes:
     if not kept:
         raise ValueError('no kept images to export')
     safe = ''.join(c for c in ds.name if c.isalnum() or c in ('-', '_')) or 'dataset'
+    safe_trigger = ''.join(c for c in ds.trigger_word if c.isalnum() or c in ('-', '_')) or 'lora'
+    folder = f"10_{safe_trigger}"
     comp = {'face': 0, 'bust': 0, 'body': 0, 'back': 0}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -1923,8 +1937,8 @@ def build_export_zip(user_id, dataset_id) -> bytes:
             try:
                 rpng = io.BytesIO()
                 Image.open(ref_path).convert('RGB').save(rpng, 'PNG')
-                zf.writestr(f"{safe}_dataset/{safe}_000_ref.png", rpng.getvalue())
-                zf.writestr(f"{safe}_dataset/{safe}_000_ref.txt", ds.trigger_word)
+                zf.writestr(f"{folder}/{safe}_000_ref.png", rpng.getvalue())
+                zf.writestr(f"{folder}/{safe}_000_ref.txt", ds.trigger_word)
             except OSError:
                 pass
         for n, img in enumerate(kept, 1):
@@ -1933,12 +1947,12 @@ def build_export_zip(user_id, dataset_id) -> bytes:
                 continue
             png = io.BytesIO()
             Image.open(path).convert('RGB').save(png, 'PNG')
-            base = f"{safe}_dataset/{safe}_{n:03d}"
+            base = f"{folder}/{safe}_{n:03d}"
             zf.writestr(f"{base}.png", png.getvalue())
             cap = (img.caption or '').strip()
             zf.writestr(f"{base}.txt", f"{ds.trigger_word}, {cap}" if cap else ds.trigger_word)
             if img.framing in comp:
                 comp[img.framing] += 1
-        zf.writestr(f"{safe}_dataset/_dataset_info.txt",
+        zf.writestr(f"{folder}/_dataset_info.md",
                     _INFO.format(trigger=ds.trigger_word, n=len(kept), comp=comp))
     return buf.getvalue()

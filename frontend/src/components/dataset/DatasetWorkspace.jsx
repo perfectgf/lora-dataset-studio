@@ -26,6 +26,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [viewImg, setViewImg] = useState(null);
   const [showImages, setShowImages] = useState(true);
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
+  const [showLeaks, setShowLeaks] = useState(false);       // liste dépliée des captions qui fuient
   const [checkpointCount, setCheckpointCount] = useState(0);
   // Hooks must run unconditionally on every render — deriveSteps() null-guards `d`,
   // so this is safe to call before the loading early-return below.
@@ -148,10 +149,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 ✅ 0 leak ({d.caption_leak.captioned})
               </span>
             ) : (
-              <span className="self-center text-amber-400 text-[0.8125rem]"
-                title="These captions mention hair/face/skin → identity won't bind to the trigger. Re-caption or edit them.">
-                ⚠️ {d.caption_leak.leaking}/{d.caption_leak.captioned} identity leak
-              </span>
+              <button type="button" onClick={() => setShowLeaks((v) => !v)}
+                aria-expanded={showLeaks}
+                title="These captions mention hair/face/skin → identity won't bind to the trigger. Click to list and fix them here."
+                className="self-center text-amber-400 text-[0.8125rem] underline decoration-amber-400/50 decoration-dashed">
+                ⚠️ {d.caption_leak.leaking}/{d.caption_leak.captioned} identity leak {showLeaks ? '▴' : '▾'}
+              </button>
             )
           )}
           <button type="button" disabled={!kept}
@@ -184,6 +187,38 @@ export default function DatasetWorkspace({ ds, onBack }) {
             }} />
         </div>
       </div>
+
+      {/* Identity-leak triage list: every leaking caption editable IN PLACE
+          (saves on blur, like the grid) — no more hunting through the tiles. */}
+      {showLeaks && !concept && (
+        <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 p-3 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-amber-300 text-sm font-semibold">⚠️ Captions leaking identity</span>
+            <span className="text-content-subtle text-[0.6875rem]">
+              they mention hair / face / skin{bodyFid ? ' / body marks' : ''} — the identity
+              won't bind to the trigger. Edit here (saves when you click away) or 🔄 Re-caption.
+            </span>
+            <button type="button" onClick={() => setShowLeaks(false)}
+              className="ml-auto text-content-subtle hover:text-content text-sm" aria-label="Close the leak list">✕</button>
+          </div>
+          {images.filter((i) => i.leak).map((img) => (
+            <div key={img.id} className="flex gap-2 items-start">
+              <img src={`/api/dataset/${d.id}/img/${encodeURIComponent(img.filename)}`}
+                alt={img.variation_label || 'dataset image'} loading="lazy"
+                className="w-14 h-14 rounded-lg object-cover shrink-0 bg-black" />
+              <textarea defaultValue={img.caption || ''} rows={2}
+                onBlur={(e) => {
+                  if (e.target.value !== (img.caption || '')) ds.setCaption(img.id, e.target.value);
+                }}
+                aria-label={`Caption of image ${img.id}`}
+                className="flex-1 bg-app/60 border border-amber-400/30 rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
+            </div>
+          ))}
+          {images.filter((i) => i.leak).length === 0 && (
+            <p className="text-emerald-400 text-[0.8125rem]">✅ All clear — no leaking caption left.</p>
+          )}
+        </div>
+      )}
 
       {/* Two-column workspace: a sticky vertical progress checklist on the left,
           the dataset content on the right. Concept datasets have no reference/
