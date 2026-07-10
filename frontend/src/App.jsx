@@ -24,9 +24,16 @@ function NavBar() {
   return (
     <header className="border-b border-border bg-surface-overlay/90 backdrop-blur-sm sticky top-0 z-40">
       <div className="mx-auto flex max-w-5xl items-center gap-6 px-4 py-3">
-        <span className="bg-gradient-primary bg-clip-text text-base font-bold text-transparent">
+        <NavLink to="/datasets" title="Back to the datasets page"
+          onClick={() => {
+            // Home = the datasets LIST: clear the persisted open dataset and tell
+            // the mounted page (same-route clicks don't remount) to close it.
+            try { localStorage.removeItem('datasetCurrentId'); } catch { /* ignore */ }
+            window.dispatchEvent(new CustomEvent('lds:home'));
+          }}
+          className="bg-gradient-primary bg-clip-text text-base font-bold text-transparent no-underline">
           LoRA Dataset Studio
-        </span>
+        </NavLink>
         <nav className="flex gap-1" aria-label="Main navigation">
           <NavLink to="/datasets" className={navItemClass}>Datasets</NavLink>
           <NavLink to="/setup" className={navItemClass}>

@@ -88,6 +88,13 @@ export function useDataset() {
     } catch { /* ignore */ }
   }, [currentId]);
   useEffect(() => { if (currentId) refresh(currentId); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Navbar title = home: closes the open workspace even when already on /datasets
+  // (same-route NavLink clicks don't remount the page).
+  useEffect(() => {
+    const goHome = () => setCurrentId(null);
+    window.addEventListener('lds:home', goHome);
+    return () => window.removeEventListener('lds:home', goHome);
+  }, []);
 
   // Mirror in-flight dataset generations into the global JobsContext so the
   // floating jobs dock shows (and can cancel) them like other generations.
