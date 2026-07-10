@@ -148,6 +148,19 @@ def probe_masks() -> dict:
     return {'ok': ok, 'detail': 'rembg import OK' if ok else 'import failed'}
 
 
+def probe_scrape_deps() -> dict:
+    """The scraper's optional Python deps (requirements-scrape.txt). find_spec
+    only (no import cost): the scrape stack runs IN-PROCESS, so the app's own
+    interpreter is the one that must see the packages. curl_cffi + gallery_dl
+    are the two hard requirements (picazor/civitai fetch, gallery enumeration);
+    bs4/cloudscraper ride along in the same install."""
+    import importlib.util
+    missing = [m for m in ('curl_cffi', 'gallery_dl', 'bs4', 'cloudscraper')
+               if importlib.util.find_spec(m) is None]
+    return {'ok': not missing,
+            'detail': 'scrape deps OK' if not missing else f"missing: {', '.join(missing)}"}
+
+
 def _model_files(folder) -> list:
     try:
         if not folder.is_dir():
@@ -388,6 +401,7 @@ def probe(force=False) -> dict:
         },
         'face_scoring': face_scoring['ok'],
         'masks': masks['ok'],
+        'scrape_deps': probe_scrape_deps()['ok'],
         'training_visible': aitoolkit['ok'],
         'studio_visible': comfy['ok'],
     }

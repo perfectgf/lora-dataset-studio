@@ -92,6 +92,33 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   }, [nsfwMode]);
   const [customPrompt, setCustomPrompt] = useState('');
   const [customFraming, setCustomFraming] = useState('body');
+  // User-authored shot cards ("Add" under the free prompt): they live in their
+  // own Custom group after BACK, are selectable like catalog cards and are the
+  // only DELETABLE ones (catalog cards stay fixed). Persisted across sessions.
+  const [customShots, setCustomShots] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('datasetCustomShots') || '[]'); }
+    catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('datasetCustomShots', JSON.stringify(customShots)); }
+    catch { /* ignore */ }
+  }, [customShots]);
+
+  const addCustomShot = () => {
+    const p = customPrompt.trim();
+    if (!p) return;
+    const hot = nsfwMode && isKlein;
+    const shot = { id: `custom_${Date.now()}`, label: `${hot ? '🔞' : '✨'} ${p.slice(0, 40)}`,
+                   prompt: p, framing: customFraming, nsfw: hot };
+    setCustomShots((s) => [...s, shot]);
+    setSelected((s) => new Set(s).add(shot.id));   // freshly added = selected
+    setCustomPrompt('');
+  };
+
+  const removeCustomShot = (id) => {
+    setCustomShots((s) => s.filter((c) => c.id !== id));
+    setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
+  };
   // Identity LoRA strength (F1): higher = closer to the reference face,
   // lower = more variety in the generated variations.
   // dx8152 consistency LoRA: anchors STRUCTURE, its guide recommends ~0.5 and
@@ -160,14 +187,16 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
     return g;
   }, [catalog]);
 
-  // Switching to an API engine drops any selected NSFW shots (Klein-only).
+  // Switching to an API engine drops any selected NSFW shots (Klein-only) —
+  // catalog nsfw_ entries AND 🔞 custom cards alike.
   useEffect(() => {
     if (isKlein) return;
+    const hotCustom = new Set(customShots.filter((c) => c.nsfw).map((c) => c.id));
     setSelected((s) => {
-      const n = new Set([...s].filter((id) => !id.startsWith('nsfw_')));
+      const n = new Set([...s].filter((id) => !id.startsWith('nsfw_') && !hotCustom.has(id)));
       return n.size === s.size ? s : n;
     });
-  }, [isKlein]);
+  }, [isKlein, customShots]);
 
   // "Already in the dataset" per variation label: live images (kept, pending or
   // still generating — not failed/rejected) → the green ✓×N state on the cards.
@@ -204,10 +233,12 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   });
 
   // Never wipe the current selection when the preset is unavailable (M6).
+  // Toggle: re-clicking the ACTIVE preset (exact selection match) clears the
+  // whole selection instead of re-applying it.
   const applyPreset = (key) => {
     const ids = presets[key];
     if (!ids?.length) return;
-    setSelected(new Set(ids));
+    setSelected(activePreset === key ? new Set() : new Set(ids));
   };
 
   const go = () => {
@@ -219,15 +250,12 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       variations.push(...nsfwCatalog.filter((e) => selected.has(e.id))
         .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing, nsfw: true })));
     }
-    // Free-prompt custom shot: available on EVERY engine. It rides the NSFW
-    // register only when the 🔞 mode is on (Klein) — the label prefix is what
-    // regenerate uses to re-pick the uncensored wrapper.
-    const custom = customPrompt.trim();
-    if (custom) {
-      const hot = nsfwMode && isKlein;
-      variations.push({ label: `${hot ? '🔞' : '✨'} ${custom.slice(0, 40)}`, prompt: custom,
-                        framing: customFraming, ...(hot ? { nsfw: true } : {}) });
-    }
+    // Custom cards: selectable like catalog shots; 🔞 ones only ride with Klein
+    // (the label prefix is what regenerate uses to re-pick the uncensored wrapper).
+    variations.push(...customShots
+      .filter((c) => selected.has(c.id) && (isKlein || !c.nsfw))
+      .map((c) => ({ label: c.label, prompt: c.prompt, framing: c.framing,
+                     ...(c.nsfw ? { nsfw: true } : {}) })));
     if (!variations.length) return;
     // Guard-rail: the selection survives a previous Generate, so a re-click would
     // re-generate (and re-bill) shots that already exist. Ask — OK = duplicates
@@ -256,7 +284,6 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       `This will launch ${toGen.length * multiplier} API generation(s) `
       + `≈ $${cost.toFixed(2)} (${isNB ? 'Nano Banana' : 'ChatGPT'}).\n\nProceed?`)) return;
     onGenerate(toGen, multiplier, klein, loraStrength, generator);
-    setCustomPrompt('');   // one-shot: a custom prompt is consumed by the batch it launched
   };
 
   return (
@@ -468,6 +495,49 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
             </div>
           );
         })}
+
+        {/* Custom group — user-authored cards (the only deletable ones). */}
+        {customShots.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span aria-hidden="true">✨</span>
+              <span className="text-[0.6875rem] uppercase font-semibold text-content-muted">Custom</span>
+              <span className="text-content-subtle text-[0.625rem]">your own shots — remove with ✕</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5">
+              {customShots.map((c) => {
+                const on = selected.has(c.id);
+                const done = doneByLabel.get(c.label) || 0;
+                const blocked = c.nsfw && !isKlein;   // 🔞 card while an API engine is active
+                const cls = on
+                  ? 'bg-primary/20 border-primary/50 text-white ring-1 ring-primary/30'
+                  : done > 0
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100/90 hover:bg-emerald-500/15'
+                    : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised';
+                return (
+                  <div key={c.id} className={`relative flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border transition-colors ${cls} ${blocked ? 'opacity-40' : ''}`}>
+                    <button type="button" onClick={() => !blocked && toggle(c.id)} aria-pressed={on}
+                      disabled={blocked}
+                      title={blocked ? '🔞 shot — switch the generator to Klein' : c.prompt}
+                      className="flex items-center gap-1.5 flex-1 min-w-0 text-left disabled:cursor-not-allowed">
+                      <ShotIllustration framing={c.framing} label={c.label} className="w-7 h-7 shrink-0" />
+                      <span className="min-w-0 leading-tight truncate">{c.label}</span>
+                      <span className="ml-auto shrink-0 flex items-center gap-1">
+                        {done > 0 && <span className="text-emerald-300 font-semibold">✓×{done}</span>}
+                        {on && <span className="text-indigo-300" aria-hidden="true">✓</span>}
+                      </span>
+                    </button>
+                    <button type="button" onClick={() => removeCustomShot(c.id)}
+                      aria-label={`Remove custom shot ${c.label}`} title="Remove this custom shot"
+                      className="shrink-0 w-4 h-4 grid place-items-center rounded bg-black/40 text-content-subtle hover:text-white text-[0.625rem] leading-none">
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 🔞 NSFW — local Klein only. Uncensored body catalog + free prompt.
@@ -529,8 +599,8 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
           selected catalog shots. */}
       <div className="flex flex-col gap-1">
         <label className="text-content-muted text-[0.6875rem]" htmlFor="custom-shot-prompt">
-          ✨ Custom shot (free prompt — describe outfit, pose and setting; included in the
-          next Generate){nsfwMode && isKlein ? ' — 🔞 register active' : ''}
+          ✨ Custom shot (free prompt — describe outfit, pose and setting, then Add: it becomes
+          a selectable card in the Custom group above){nsfwMode && isKlein ? ' — 🔞 register active' : ''}
         </label>
         <div className="flex gap-1.5 items-start">
           <textarea id="custom-shot-prompt" value={customPrompt} rows={2}
@@ -544,6 +614,10 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
               <option key={fr} value={fr}>{FRAMING_LABEL[fr]}</option>
             ))}
           </select>
+          <button type="button" onClick={addCustomShot} disabled={!customPrompt.trim()}
+            className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
+            ＋ Add
+          </button>
         </div>
       </div>
 

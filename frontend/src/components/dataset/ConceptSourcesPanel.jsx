@@ -13,12 +13,15 @@
 import { useState, useCallback } from 'react';
 import { useToast } from '../common/Toast';
 import { postJson } from '../../hooks/useDataset';
+import { useCapabilities } from '../../context/CapabilitiesContext';
+import InstallRunner from '../setup/InstallRunner';
 
 const thumbFor = (it) =>
   `/api/scrape/thumb?url=${encodeURIComponent(it.thumbnail || it.url)}`;
 
 export default function ConceptSourcesPanel({ onImport, busy }) {
   const toast = useToast();
+  const { caps, refresh } = useCapabilities();
   const [url, setUrl] = useState('');
   const [items, setItems] = useState([]);
   const [page, setPage] = useState(0);
@@ -80,6 +83,20 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
           aim for 20-50 varied images
         </span>
       </div>
+
+      {/* Scrape extras (curl_cffi, gallery-dl, cloudscraper…) live in the
+          optional requirements-scrape.txt — without them most sources fail
+          ("curl_cffi non disponible"). One-click install into THIS interpreter. */}
+      {caps.scrape_deps === false && (
+        <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-2 flex flex-col gap-1.5">
+          <p className="text-amber-200 text-[0.6875rem]">
+            ⚠ The scraper&apos;s Python packages are not installed (curl_cffi, gallery-dl,
+            cloudscraper…) — most sources (Picazor included) need them.
+          </p>
+          <InstallRunner action="scrape_extras" buttonLabel="⬇ Install scraper extras"
+            onDone={() => refresh(true)} />
+        </div>
+      )}
 
       {/* URL → scan. Chosen images are downloaded straight into THIS dataset. */}
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); runScan(0); }}>

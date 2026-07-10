@@ -52,9 +52,13 @@ _KLEIN_DOWNLOADS = {
     },
 }
 
-INSTALL_ACTIONS = ('ml_extras', 'ollama_model') + tuple(_KLEIN_DOWNLOADS)
+INSTALL_ACTIONS = ('ml_extras', 'scrape_extras', 'ollama_model') + tuple(_KLEIN_DOWNLOADS)
 
 _ML_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-ml.txt'
+_SCRAPE_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-scrape.txt'
+# pip -r installers share one worker; both target THIS interpreter (the scrape
+# stack runs in-process, so any other environment would be invisible to the app).
+_PIP_REQUIREMENTS = {'ml_extras': _ML_REQUIREMENTS, 'scrape_extras': _SCRAPE_REQUIREMENTS}
 _LOG_MAX = 400  # ring-buffer the log so a chatty pip can't grow unbounded
 
 _lock = threading.Lock()
@@ -93,8 +97,8 @@ def manual_command(action) -> str:
     the dev venv -- instead of whatever bare `pip` happens to be first on PATH
     (which is the whole point of the user's question: a plain `pip install` would
     land in the wrong environment and the extras would never be importable)."""
-    if action == 'ml_extras':
-        return f'{_quote(sys.executable)} -m pip install -r {_quote(str(_ML_REQUIREMENTS))}'
+    if action in _PIP_REQUIREMENTS:
+        return f'{_quote(sys.executable)} -m pip install -r {_quote(str(_PIP_REQUIREMENTS[action]))}'
     if action == 'ollama_model':
         model = (cfg.get('ollama.vision_model') or '').strip() or '<vision-model>'
         return f'ollama pull {model}'
@@ -168,7 +172,7 @@ def _execute(action):
         rc = _WORKERS[action](action)
         _runs[action]['returncode'] = rc
         _runs[action]['state'] = 'success' if rc == 0 else 'error'
-        if action == 'ml_extras' and rc == 0:
+        if action in _PIP_REQUIREMENTS and rc == 0:
             try:
                 capabilities.clear_import_cache()
             except Exception:
@@ -189,8 +193,11 @@ def _execute(action):
 
 
 def _run_ml_extras(action) -> int:
+    """Generic `pip install -r` worker (name kept for existing callers/tests):
+    serves ml_extras AND scrape_extras via _PIP_REQUIREMENTS."""
     proc = subprocess.Popen(
-        [sys.executable, '-m', 'pip', 'install', '-r', str(_ML_REQUIREMENTS)],
+        [sys.executable, '-m', 'pip', 'install', '-r',
+         str(_PIP_REQUIREMENTS.get(action, _ML_REQUIREMENTS))],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
     )
     for line in proc.stdout:
