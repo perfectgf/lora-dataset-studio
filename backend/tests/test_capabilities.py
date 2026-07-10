@@ -171,6 +171,27 @@ def test_import_probe_result_is_cached(app, monkeypatch):
     assert len(calls) == 1
 
 
+def test_import_probe_timeout_is_not_cached_as_failure(app, monkeypatch):
+    """_import_ok → None (subprocess TIMEOUT, e.g. rembg's first cold import
+    compiling numba caches) must report not-ready NOW but not poison the 10 min
+    cache: the next probe re-tries (warm import ~1 s → ✓). A real import error
+    (False) stays cached as before."""
+    with app.app_context():
+        from app import capabilities
+        calls = []
+        monkeypatch.setattr(capabilities, '_import_ok',
+                            lambda *a, **k: calls.append(1) or None)   # timeout
+        capabilities._import_cache.clear()
+        assert capabilities.probe_masks()['ok'] is False
+        assert capabilities.probe_masks()['ok'] is False
+        assert len(calls) == 2                       # re-probed: nothing cached
+        monkeypatch.setattr(capabilities, '_import_ok',
+                            lambda *a, **k: calls.append(1) or False)  # real failure
+        assert capabilities.probe_masks()['ok'] is False
+        assert capabilities.probe_masks()['ok'] is False
+        assert len(calls) == 3                       # cached after the real False
+
+
 def test_import_probe_cache_key_includes_interpreter_path(app, monkeypatch):
     """Changing interpreter path should invalidate the import cache."""
     with app.app_context():

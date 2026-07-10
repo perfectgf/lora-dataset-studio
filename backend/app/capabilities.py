@@ -35,10 +35,17 @@ def _http_ok(url, timeout=3) -> bool:
         return False
 
 
-def _import_ok(python: str, module_expr: str, timeout=20) -> bool:
+def _import_ok(python: str, module_expr: str, timeout=60):
+    """True/False = the import deterministically succeeded/failed. None = TIMEOUT —
+    unknown, NOT a proven absence. The very first `import rembg` after an install
+    compiles numba/scikit-image caches while the antivirus scans 40 MB of fresh
+    DLLs: measured ~20 s cold vs ~1 s warm — a 20 s timeout read as False showed
+    'Person masks ✗' for 10 min right after a SUCCESSFUL install."""
     try:
         result = subprocess.run([python, '-c', module_expr], capture_output=True, timeout=timeout)
         return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return None
     except Exception:
         return False
 
@@ -50,6 +57,10 @@ def _cached_import(key: str, python: str, module_expr: str) -> bool:
     if cached is not None and now - cached[0] < _IMPORT_TTL:
         return cached[1]
     ok = _import_ok(python, module_expr)
+    if ok is None:
+        # Timeout → report not-ready NOW but don't poison the cache: the next
+        # probe re-tries against a warm import instead of a 600 s false ✗.
+        return False
     _import_cache[cache_key] = (now, ok)
     return ok
 
