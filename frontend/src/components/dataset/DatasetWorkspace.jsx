@@ -139,6 +139,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
             className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             ⬇ Export ZIP ({kept})
           </button>
+          <button type="button" onClick={ds.exportBackup}
+            title="Full portable backup: all images with statuses, captions, scores and settings — restore it on any machine from the Datasets page."
+            className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm">
+            💾 Backup
+          </button>
         </div>
       </div>
 

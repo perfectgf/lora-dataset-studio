@@ -210,6 +210,68 @@ def test_replace_captions_ignores_non_kept_and_validates(app):
             svc.replace_in_captions(LOCAL_USER, ds.id, 'a', 'b', mode='regex')
 
 
+# --- Full backup / restore -----------------------------------------------------
+
+def test_backup_roundtrip_restores_everything(app):
+    import os
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Bak', 'bak', train_type='sdxl')
+        d = svc._dataset_dir(ds.id); os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, 'ref.webp'), 'wb').write(_png())
+        ds.ref_filename = 'ref.webp'
+        ds.best_settings = '{"strength": 0.8}'
+        open(os.path.join(d, 'a.webp'), 'wb').write(_png((0, 255, 0)))
+        svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, filename='a.webp', status='keep',
+                                            framing='bust', caption='a green coat',
+                                            face_score=0.61, face_state='scorable'))
+        svc.db.session.commit()
+        data = svc.build_backup_zip(LOCAL_USER, ds.id)
+        restored = svc.import_backup_zip(LOCAL_USER, data)
+        assert restored.id != ds.id
+        assert restored.name == 'Bak' and restored.trigger_word == 'bak'
+        assert restored.train_type == 'sdxl' and restored.best_settings == '{"strength": 0.8}'
+        assert restored.ref_filename == 'ref.webp'
+        assert os.path.isfile(os.path.join(svc._dataset_dir(restored.id), 'ref.webp'))
+        rows = FaceDatasetImage.query.filter_by(dataset_id=restored.id).all()
+        assert len(rows) == 1
+        r = rows[0]
+        assert (r.filename, r.status, r.framing, r.caption) == ('a.webp', 'keep', 'bust', 'a green coat')
+        assert r.face_score == 0.61 and r.face_state == 'scorable'
+        assert os.path.isfile(os.path.join(svc._dataset_dir(restored.id), 'a.webp'))
+
+
+def test_backup_import_rejects_garbage_and_traversal(app):
+    import io as _io
+    import zipfile as _zip
+    import pytest
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        with pytest.raises(ValueError, match='not a zip'):
+            svc.import_backup_zip(LOCAL_USER, b'garbage')
+        # a zip without our manifest is refused
+        buf = _io.BytesIO()
+        with _zip.ZipFile(buf, 'w') as z:
+            z.writestr('foo.txt', 'x')
+        with pytest.raises(ValueError, match='not a dataset backup'):
+            svc.import_backup_zip(LOCAL_USER, buf.getvalue())
+        # traversal / nested entries are silently skipped, rows without files dropped
+        buf = _io.BytesIO()
+        with _zip.ZipFile(buf, 'w') as z:
+            z.writestr('manifest.json', '{"format": "lds-dataset-backup", "version": 1, '
+                                        '"name": "Evil", "trigger_word": "evil"}')
+            z.writestr('images.json', '[{"filename": "../../evil.webp", "status": "keep"}]')
+            z.writestr('images/../../evil.webp', 'x')
+        restored = svc.import_backup_zip(LOCAL_USER, buf.getvalue())
+        from app.models import FaceDatasetImage
+        assert FaceDatasetImage.query.filter_by(dataset_id=restored.id).count() == 0
+        import os
+        assert not os.path.exists(os.path.join(svc._dataset_dir(restored.id), '..', '..', 'evil.webp'))
+
+
 def test_batch_invalid_action_raises(app):
     import pytest
     from app.services import face_dataset_service as svc
@@ -311,6 +373,10 @@ def test_api_batch_skips_cancelled_rows(app, monkeypatch):
         svc._run_nanobanana_batch(app, [(live_id, 'p', '1:1'), (gone_id, 'p', '1:1')],
                                   [_png()], engine='nanobanana')
         assert len(calls) == 1                                  # only the live row hit the API
+        # The worker committed in ITS OWN app context — drop this session's stale
+        # snapshot before re-reading (same phenomenon link_completed_dataset_image
+        # documents for the queue monitor thread).
+        svc.db.session.expire_all()
         assert svc.db.session.get(FaceDatasetImage, live_id).filename
 
 

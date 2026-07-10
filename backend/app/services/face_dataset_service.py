@@ -367,6 +367,122 @@ def purge_unused(user_id, dataset_id):
     return n
 
 
+# --- Sauvegarde / restauration complète d'un dataset ---------------------------
+# ZIP portable (≠ export d'entraînement) : manifest + réglages + TOUTES les images
+# avec statuts/captions/scores — pour archiver ou déplacer un dataset entre machines.
+BACKUP_FORMAT = 'lds-dataset-backup'
+BACKUP_VERSION = 1
+_BACKUP_MAX_FILES = 600
+_BACKUP_MAX_BYTES = 2 * 1024 * 1024 * 1024   # 2 GB uncompressed (zip-bomb guard)
+_BACKUP_NAME_RE = re.compile(r'^[\w.-]+\.(webp|jpg|jpeg|png)$', re.IGNORECASE)
+
+# Champs snapshotés tels quels par ligne image (job_id/klein_model exclus : liés
+# à la machine source — un backup restauré ne peut pas « regénérer »).
+_BACKUP_IMG_FIELDS = ('filename', 'source', 'framing', 'variation_label', 'status',
+                      'caption', 'variation_prompt', 'face_score', 'face_state')
+
+
+def build_backup_zip(user_id, dataset_id) -> bytes:
+    """Self-contained backup of one dataset: manifest.json (settings) +
+    images.json (rows) + ref/ + images/ files. Skips rows without a file
+    (in-flight/failed generations are not restorable)."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    dsdir = _dataset_dir(dataset_id)
+    rows = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id)
+            .filter(FaceDatasetImage.filename.isnot(None)).all())
+    manifest = {
+        'format': BACKUP_FORMAT, 'version': BACKUP_VERSION,
+        'name': ds.name, 'trigger_word': ds.trigger_word,
+        'kind': ds.kind, 'concept_desc': ds.concept_desc, 'concept_terms': ds.concept_terms,
+        'train_type': ds.train_type, 'train_base_model': ds.train_base_model,
+        'train_variant': ds.train_variant, 'best_settings': ds.best_settings,
+        'ref_filename': ds.ref_filename, 'ref_original_filename': ds.ref_original_filename,
+        'ref_extra_filenames': ds.ref_extra_filenames,
+    }
+    images_meta = [{f: getattr(img, f) for f in _BACKUP_IMG_FIELDS} for img in rows]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=1))
+        z.writestr('images.json', json.dumps(images_meta, ensure_ascii=False, indent=1))
+        ref_names = [n for n in (ds.ref_filename, ds.ref_original_filename) if n]
+        try:
+            ref_names += list(json.loads(ds.ref_extra_filenames or '[]'))
+        except ValueError:
+            pass
+        for n in ref_names:
+            p = os.path.join(dsdir, n)
+            if os.path.isfile(p):
+                z.write(p, f'ref/{n}')
+        for img in rows:
+            p = os.path.join(dsdir, img.filename)
+            if os.path.isfile(p):
+                z.write(p, f'images/{img.filename}')
+    return buf.getvalue()
+
+
+def import_backup_zip(user_id, zip_bytes):
+    """Restore a backup as a NEW dataset (never merges into an existing one).
+    Hardened: manifest format/version check, per-entry filename whitelist (no
+    separators/traversal), file-count and uncompressed-size caps. Returns the
+    created FaceDataset."""
+    try:
+        z = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    except zipfile.BadZipFile:
+        raise ValueError('not a zip file')
+    try:
+        manifest = json.loads(z.read('manifest.json').decode('utf-8'))
+        images_meta = json.loads(z.read('images.json').decode('utf-8'))
+    except (KeyError, ValueError):
+        raise ValueError('not a dataset backup (manifest.json/images.json missing or invalid)')
+    if manifest.get('format') != BACKUP_FORMAT:
+        raise ValueError('not a dataset backup')
+    if int(manifest.get('version') or 0) > BACKUP_VERSION:
+        raise ValueError('backup made by a newer version of the app - update first')
+    infos = [i for i in z.infolist() if i.filename.startswith(('ref/', 'images/'))]
+    if len(infos) > _BACKUP_MAX_FILES:
+        raise ValueError(f'too many files in backup (max {_BACKUP_MAX_FILES})')
+    if sum(i.file_size for i in infos) > _BACKUP_MAX_BYTES:
+        raise ValueError('backup too large (max 2 GB uncompressed)')
+    name = (manifest.get('name') or 'Restored dataset')[:100]
+    trigger = (manifest.get('trigger_word') or 'restored')[:60]
+    ds = create_dataset(user_id, name, trigger, kind=manifest.get('kind'),
+                        concept_desc=manifest.get('concept_desc'),
+                        train_type=manifest.get('train_type'))
+    for field in ('concept_terms', 'train_base_model', 'train_variant', 'best_settings',
+                  'ref_filename', 'ref_original_filename', 'ref_extra_filenames'):
+        setattr(ds, field, manifest.get(field))
+    dsdir = _dataset_dir(ds.id)
+    os.makedirs(dsdir, exist_ok=True)
+    extracted = set()
+    for info in infos:
+        base = os.path.basename(info.filename)
+        if not _BACKUP_NAME_RE.match(base) or base != info.filename.split('/', 1)[1]:
+            continue   # nested path or weird name -> skip, never traverse
+        with z.open(info) as src, open(os.path.join(dsdir, base), 'wb') as dst:
+            shutil.copyfileobj(src, dst, 1024 * 1024)
+        extracted.add(base)
+    n_rows = 0
+    for meta in images_meta:
+        fn = meta.get('filename')
+        if not fn or fn not in extracted:
+            continue   # metadata without its file -> drop the row, not the import
+        img = FaceDatasetImage(dataset_id=ds.id,
+                               **{f: meta.get(f) for f in _BACKUP_IMG_FIELDS if f != 'filename'},
+                               filename=fn)
+        db.session.add(img)
+        n_rows += 1
+    # Refs referenced by the manifest but absent from the zip -> clear (no dangling).
+    if ds.ref_filename and ds.ref_filename not in extracted:
+        ds.ref_filename = None
+    if ds.ref_original_filename and ds.ref_original_filename not in extracted:
+        ds.ref_original_filename = None
+    db.session.commit()
+    logger.info(f"dataset backup restored: '{name}' -> #{ds.id} ({n_rows} image rows)")
+    return ds
+
+
 def replace_in_captions(user_id, dataset_id, find, replace, mode='text'):
     """Bulk-edit the captions of KEPT images (the ones that train). Two modes:
 

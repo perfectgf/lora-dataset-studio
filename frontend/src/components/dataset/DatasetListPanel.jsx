@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import ShotIllustration from './ShotIllustration';
 
 // Fixed gradient palette for the dataset avatars — deterministic per name so a
@@ -147,7 +147,8 @@ function DatasetCard({ d, onOpen, onDelete }) {
   );
 }
 
-export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete }) {
+export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete, onRestore }) {
+  const restoreRef = useRef(null);
   const [name, setName] = useState('');
   const [trigger, setTrigger] = useState('');
   // Nature du dataset : personnage (identité liée au trigger) vs concept (un acte/effet
@@ -241,6 +242,21 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete 
             className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             Create
           </button>
+          {onRestore && (
+            <>
+              <button type="button" onClick={() => restoreRef.current?.click()}
+                title="Restore a dataset from a backup zip (made with the 💾 Backup button) — creates a new dataset."
+                className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
+                📦 Restore backup
+              </button>
+              <input ref={restoreRef} type="file" accept=".zip,application/zip" className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onRestore(f);
+                  e.target.value = '';
+                }} />
+            </>
+          )}
         </div>
       </div>
 

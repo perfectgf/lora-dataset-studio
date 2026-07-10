@@ -449,11 +449,26 @@ export function useDataset() {
     if (currentId) window.open(`/api/dataset/${currentId}/export`, '_blank');
   }, [currentId]);
 
+  // Full portable backup (images + captions + settings) — distinct from the
+  // training-format export. Restore creates a NEW dataset and opens it.
+  const exportBackup = useCallback(() => {
+    if (currentId) window.open(`/api/dataset/${currentId}/backup`, '_blank');
+  }, [currentId]);
+
+  const importBackup = useCallback(async (file) => {
+    const fd = new FormData(); fd.append('file', file);
+    const d = await postJson('/api/dataset/backup/import', fd, true);
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+    toast.success(`Dataset « ${d.name} » restored`);
+    await fetchList();
+    await open(d.id);
+  }, [fetchList, open, toast]);
+
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, deleteImage, batchImages, replaceCaptions, cancelPending, regenerate, analyzing, analyzeFaces,
-           purgeUnused, exportZip, refresh, train, stopTraining, continueTraining,
+           purgeUnused, exportZip, exportBackup, importBackup, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, prepareBase };
 }

@@ -17,7 +17,7 @@ export default function DatasetPage() {
         <div className="max-w-3xl mx-auto">
           <h1 className="text-lg font-bold text-content mb-3">🧬 Dataset Maker — face for LoRA</h1>
           <DatasetListPanel datasets={ds.datasets} onOpen={ds.open} onCreate={ds.create}
-            onDelete={ds.deleteDataset} />
+            onDelete={ds.deleteDataset} onRestore={ds.importBackup} />
         </div>
       )}
     </div>

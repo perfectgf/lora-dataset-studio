@@ -409,6 +409,33 @@ def dataset_export(dataset_id):
                      download_name=f'dataset_{dataset_id}.zip')
 
 
+@bp.get('/dataset/<int:dataset_id>/backup')
+def dataset_backup(dataset_id):
+    """Full portable backup (manifest + settings + ALL images with status/captions/
+    scores) — distinct from /export, the training-format ZIP."""
+    try:
+        data = svc.build_backup_zip(LOCAL_USER, dataset_id)
+    except ValueError as e:
+        return _map_error(e)
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    safe = ''.join(c if c.isalnum() or c in '-_' else '_' for c in (ds.name if ds else str(dataset_id)))
+    return send_file(io.BytesIO(data), mimetype='application/zip', as_attachment=True,
+                     download_name=f'lds_backup_{safe}.zip')
+
+
+@bp.post('/dataset/backup/import')
+def dataset_backup_import():
+    """Restore a backup zip as a NEW dataset."""
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'error': 'no file'}), 400
+    try:
+        ds = svc.import_backup_zip(LOCAL_USER, f.read())
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'id': ds.id, 'name': ds.name})
+
+
 @bp.get('/dataset/<int:dataset_id>/img/<path:filename>')
 def dataset_image_file(dataset_id, filename):
     if not svc.get_dataset(LOCAL_USER, dataset_id):
