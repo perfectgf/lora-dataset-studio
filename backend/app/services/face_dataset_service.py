@@ -367,6 +367,48 @@ def purge_unused(user_id, dataset_id):
     return n
 
 
+# Batch curation (multi-select in the grid). 'pending' = reset the triage state.
+BATCH_ACTIONS = ('keep', 'reject', 'pending', 'delete', 'clear_caption')
+
+
+def batch_image_action(user_id, dataset_id, image_ids, action):
+    """Apply one whitelisted action to a set of this dataset's images in one call
+    (the grid's multi-select). Ownership is checked once on the dataset; ids that
+    don't belong to it (or don't exist) are silently skipped, so a stale selection
+    after a poll refresh can't touch another dataset's rows. Returns the number of
+    images actually affected."""
+    if action not in BATCH_ACTIONS:
+        raise ValueError('invalid action')
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return 0
+    ids = [int(i) for i in (image_ids or []) if isinstance(i, (int, float, str)) and str(i).lstrip('-').isdigit()]
+    if not ids:
+        return 0
+    rows = (FaceDatasetImage.query
+            .filter_by(dataset_id=dataset_id)
+            .filter(FaceDatasetImage.id.in_(ids)).all())
+    n = 0
+    if action == 'delete':
+        # Per-image path: reuses delete_image (file removal + pending-job cancel).
+        for img in rows:
+            if delete_image(user_id, img.id):
+                n += 1
+        return n
+    for img in rows:
+        if action == 'clear_caption':
+            img.caption = None
+        else:
+            # Never resurrect a failed generation into keep/reject — the tile has
+            # no file; regenerate is the only way out of 'failed'.
+            if img.status == 'failed':
+                continue
+            img.status = action
+        n += 1
+    db.session.commit()
+    return n
+
+
 def _ref_crop_source_path(ds) -> str:
     """The image a manual/auto re-crop reads from: the full-frame ORIGINAL when we
     kept one, else the cropped ref (legacy datasets uploaded before we stored the

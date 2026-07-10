@@ -319,6 +319,17 @@ export function useDataset() {
     await refresh();
   }, [refresh, toast]);
 
+  // Multi-select curation: one request for the whole selection (grid checkboxes
+  // + auto-triage). action: keep|reject|pending|delete|clear_caption.
+  const batchImages = useCallback(async (ids, action, { silent = false } = {}) => {
+    if (!ids || !ids.length) return 0;
+    const d = await postJson(`/api/dataset/${currentId}/images/batch`, { ids, action });
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return 0; }
+    if (!silent) toast.success(`${d.affected} image(s) updated`);
+    await refresh();
+    return d.affected;
+  }, [currentId, refresh, toast]);
+
   const cancelPending = useCallback(async () => {
     const d = await postJson(`/api/dataset/${currentId}/cancel`);
     if (d.ok) toast.success(`${d.cancelled} generation(s) cancelled`);
@@ -427,7 +438,7 @@ export function useDataset() {
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
-           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, deleteImage, cancelPending, regenerate, analyzing, analyzeFaces,
+           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, deleteImage, batchImages, cancelPending, regenerate, analyzing, analyzeFaces,
            purgeUnused, exportZip, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, prepareBase };

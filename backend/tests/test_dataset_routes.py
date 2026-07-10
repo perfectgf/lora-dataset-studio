@@ -42,6 +42,31 @@ def test_get_unknown_id_404(client):
     assert resp.status_code == 404
 
 
+def test_images_batch_route_validates_and_applies(client, app):
+    ds_id = _create(client, 'Batch', 'batch').get_json()['id']
+    # seed one committed image row through the service (no engine needed)
+    with app.app_context():
+        import os
+        from app.services import face_dataset_service as svc
+        from app.models import FaceDatasetImage
+        d = svc._dataset_dir(ds_id); os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, 'a.webp'), 'wb').write(_png_bytes())
+        img = FaceDatasetImage(dataset_id=ds_id, filename='a.webp', status='pending', framing='face')
+        svc.db.session.add(img); svc.db.session.commit()
+        img_id = img.id
+    assert client.post(f'/api/dataset/{ds_id}/images/batch',
+                       json={'ids': [img_id], 'action': 'nope'}).status_code == 400
+    assert client.post(f'/api/dataset/{ds_id}/images/batch',
+                       json={'ids': [], 'action': 'keep'}).status_code == 400
+    assert client.post('/api/dataset/999999/images/batch',
+                       json={'ids': [img_id], 'action': 'keep'}).status_code == 404
+    ok = client.post(f'/api/dataset/{ds_id}/images/batch',
+                     json={'ids': [img_id], 'action': 'keep'})
+    assert ok.status_code == 200 and ok.get_json() == {'ok': True, 'affected': 1}
+    payload = client.get(f'/api/dataset/{ds_id}').get_json()
+    assert payload['images'][0]['status'] == 'keep'
+
+
 def test_variations_catalog(client):
     resp = client.get('/api/dataset/variations')
     assert resp.status_code == 200

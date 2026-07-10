@@ -86,6 +86,77 @@ def test_import_images_normalizes_and_persists(app):
         assert payload['images'][0]['status'] == 'keep'
 
 
+def _seed_images(svc, ds_id, n=3, status='pending'):
+    """N committed image rows with real files, returns their ids."""
+    import os
+    from app.models import FaceDatasetImage
+    d = svc._dataset_dir(ds_id); os.makedirs(d, exist_ok=True)
+    ids = []
+    for i in range(n):
+        fn = f'img{i}.webp'
+        open(os.path.join(d, fn), 'wb').write(_png((i * 40, 0, 0)))
+        img = FaceDatasetImage(dataset_id=ds_id, filename=fn, status=status, framing='face')
+        svc.db.session.add(img); svc.db.session.flush(); ids.append(img.id)
+    svc.db.session.commit()
+    return ids
+
+
+def test_batch_keep_and_clear_caption(app):
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Bk', 'bk')
+        ids = _seed_images(svc, ds.id)
+        assert svc.batch_image_action(LOCAL_USER, ds.id, ids, 'keep') == 3
+        rows = FaceDatasetImage.query.filter(FaceDatasetImage.id.in_(ids)).all()
+        assert all(r.status == 'keep' for r in rows)
+        rows[0].caption = 'a caption'; svc.db.session.commit()
+        assert svc.batch_image_action(LOCAL_USER, ds.id, [ids[0]], 'clear_caption') == 1
+        assert svc.db.session.get(FaceDatasetImage, ids[0]).caption is None
+
+
+def test_batch_delete_removes_rows_and_files(app):
+    import os
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Bd', 'bd')
+        ids = _seed_images(svc, ds.id)
+        assert svc.batch_image_action(LOCAL_USER, ds.id, ids, 'delete') == 3
+        assert FaceDatasetImage.query.filter_by(dataset_id=ds.id).count() == 0
+        assert not any(f.startswith('img') for f in os.listdir(svc._dataset_dir(ds.id)))
+
+
+def test_batch_skips_foreign_and_failed(app):
+    """Ids from ANOTHER dataset are silently skipped (stale selection can't cross
+    datasets), and a 'failed' tile is never resurrected into keep."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds1 = svc.create_dataset(LOCAL_USER, 'B1', 'b1')
+        ds2 = svc.create_dataset(LOCAL_USER, 'B2', 'b2')
+        own = _seed_images(svc, ds1.id, n=1)
+        foreign = _seed_images(svc, ds2.id, n=1)
+        failed = _seed_images(svc, ds1.id, n=1, status='failed')
+        n = svc.batch_image_action(LOCAL_USER, ds1.id, own + foreign + failed, 'keep')
+        assert n == 1   # own only; failed skipped, foreign filtered out
+        assert svc.db.session.get(FaceDatasetImage, foreign[0]).status == 'pending'
+        assert svc.db.session.get(FaceDatasetImage, failed[0]).status == 'failed'
+
+
+def test_batch_invalid_action_raises(app):
+    import pytest
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Bx', 'bx')
+        with pytest.raises(ValueError):
+            svc.batch_image_action(LOCAL_USER, ds.id, [1], 'rm_rf')
+
+
 def test_delete_dataset_without_lora_training_module(app):
     """lora_training (Task 19) doesn't exist yet in phase 1 -> delete_dataset must
     still succeed (purge step is best-effort and silently skipped)."""

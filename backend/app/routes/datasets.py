@@ -330,6 +330,23 @@ def dataset_image_regenerate(image_id):
     return jsonify({'ok': True, 'job_id': job_id})
 
 
+@bp.post('/dataset/<int:dataset_id>/images/batch')
+def dataset_images_batch(dataset_id):
+    """Multi-select curation: apply one action to many images in one request.
+    Body: {ids: [int, ...], action: keep|reject|pending|delete|clear_caption}."""
+    data = request.get_json(silent=True) or {}
+    action = data.get('action')
+    ids = data.get('ids')
+    if action not in svc.BATCH_ACTIONS:
+        return jsonify({'error': 'invalid action'}), 400
+    if not isinstance(ids, list) or not ids:
+        return jsonify({'error': "'ids' must be a non-empty list"}), 400
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    n = svc.batch_image_action(LOCAL_USER, dataset_id, ids, action)
+    return jsonify({'ok': True, 'affected': n})
+
+
 @bp.post('/dataset/<int:dataset_id>/purge')
 def dataset_purge(dataset_id):
     if not svc.get_dataset(LOCAL_USER, dataset_id):

@@ -34,7 +34,8 @@ function faceBadge(img, thresholds) {
 }
 
 export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, onCrop, onDelete,
-                                          onRegenerate, onView, nonce = 0, faceThresholds }) {
+                                          onRegenerate, onView, nonce = 0, faceThresholds,
+                                          selected = false, onToggleSelect }) {
   const [cap, setCap] = useState(img.caption || '');
   // While the textarea has focus, a poll-driven refresh must never overwrite
   // the draft (C1) — the server value only syncs in when nobody is typing.
@@ -54,8 +55,18 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
   const borderCls = fb ? fb.border : `border-2 ${STATUS_CLS[img.status] || 'border-border'}`;
 
   return (
-    <div className={`rounded-lg ${borderCls} bg-app/40 overflow-hidden flex flex-col`}>
+    <div className={`rounded-lg ${borderCls} ${selected ? 'ring-2 ring-indigo-400' : ''} bg-app/40 overflow-hidden flex flex-col`}>
       <div className="relative aspect-square bg-black">
+        {onToggleSelect && img.filename && (
+          <label
+            className="absolute bottom-1 left-1 z-10 flex items-center justify-center w-6 h-6 rounded bg-black/60 cursor-pointer"
+            title="Select for bulk actions"
+            onClick={(e) => e.stopPropagation()}>
+            <input type="checkbox" checked={selected} onChange={() => onToggleSelect(img.id)}
+              aria-label={`Select ${displayLabel(img.variation_label) || 'this image'} for bulk actions`}
+              className="w-4 h-4 accent-indigo-500 cursor-pointer" />
+          </label>
+        )}
         {url ? (
           <button type="button" onClick={() => onView?.(img)}
             title="Inspect (zoom)"

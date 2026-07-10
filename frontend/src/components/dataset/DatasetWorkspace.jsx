@@ -241,6 +241,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <DatasetGrid images={d.images} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}
             onCrop={setCropImg} onDelete={ds.deleteImage}
             onRegenerate={(id) => ds.regenerate(id)} onView={setViewImg}
+            onBatch={ds.batchImages} busy={ds.busy}
             nonces={ds.nonces} faceThresholds={d.face_thresholds} />
         )}
       </div>
