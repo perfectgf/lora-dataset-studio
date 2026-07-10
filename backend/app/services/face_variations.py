@@ -110,6 +110,37 @@ VARIATION_CATALOG = [
     _e('bust_land', 'framing', 'bust', 'Buste, cadre paysage',
        'upper body portrait, landscape framing, environment visible on the sides, outdoor',
        cb=True, aspect='4:3'),
+    # --- Body emphasis (fidélité corps) : silhouette RÉELLEMENT visible mais dans
+    # le registre AUTORISÉ des moteurs API (vêtements ajustés, maillot de bain en
+    # contexte plage/piscine, tenue de sport, robe moulante, contre-jour). Pas de
+    # contournement de filtre : pour du contenu explicite → Klein en local.
+    _e('bust_fitted_top', 'outfit', 'bust', 'Buste, haut ajusté',
+       'upper body portrait, fitted ribbed knit top, natural relaxed pose, soft indoor light',
+       co=True, cb=True),
+    _e('bust_summer_dress', 'outfit', 'bust', 'Buste, robe d\'été',
+       'upper body portrait, fitted summer dress with thin straps, golden hour light, outdoor',
+       co=True, cb=True),
+    _e('bust_swim', 'outfit', 'bust', 'Buste, maillot (plage)',
+       'upper body portrait, wearing a bikini top, sunny beach in the background, bright '
+       'daylight, natural relaxed pose', co=True, cb=True),
+    _e('body_bodycon', 'outfit', 'body', 'Corps, robe moulante',
+       'full body shot, elegant fitted bodycon evening dress, standing, upscale hotel lobby, '
+       'warm ambient light', co=True, cb=True),
+    _e('body_athletic', 'outfit', 'body', 'Corps, tenue de sport',
+       'full body shot, athletic sportswear, fitted leggings and sports top, gym setting, '
+       'confident stance', co=True, cb=True),
+    _e('body_swim_beach', 'outfit', 'body', 'Corps, bikini plage',
+       'full body shot, wearing a bikini, standing on a sunny beach, natural relaxed pose, '
+       'bright daylight', co=True, cb=True, aspect='3:4'),
+    _e('body_swim_pool', 'outfit', 'body', 'Corps, maillot piscine',
+       'full body shot, one-piece swimsuit, standing at the edge of a swimming pool, summer '
+       'daylight', co=True, cb=True, aspect='3:4'),
+    _e('body_jeans_fit', 'outfit', 'body', 'Corps, jean ajusté',
+       'full body shot, fitted high-waisted jeans and tucked-in top, urban street, daylight',
+       co=True, cb=True),
+    _e('body_silhouette', 'lighting', 'body', 'Corps, silhouette contre-jour',
+       'full body shot, backlit near a large window, figure outlined by rim light, elegant '
+       'fitted dress, moody interior', co=True, cb=True),
     # Gros plans VISAGE en formats variés (preset visage-centré) : la robustesse de
     # format sur le visage lui-même, sans plan corps (corps reste générique).
     _e('face_land', 'framing', 'face', 'Visage, cadre paysage',
@@ -170,9 +201,23 @@ _FULLBODY_FOCUSED = [
     'body_sit_terrace', 'body_field_wide',
     'back_34',
 ]
+# Body-emphasis (fidélité corps, 25 = 8 visage / 8 buste / 8 corps / 1 dos — aligné
+# sur la cible de composition body-fidelity 8/8/8/2, le dos se génère en x2) : les
+# plans buste/corps privilégient les tenues qui MONTRENT la silhouette (ajusté,
+# maillot, sport, moulant, contre-jour) tout en restant dans le registre accepté
+# par les moteurs API. Le visage garde son noyau identité.
+_BODY_EMPHASIS = [
+    'face_front_neutral', 'face_front_smile', 'face_34l_smile', 'face_34r_laugh',
+    'face_profile_l', 'face_window', 'face_golden', 'face_studio',
+    'bust_front', 'bust_34', 'bust_fitted_top', 'bust_summer_dress', 'bust_swim',
+    'bust_outdoor', 'bust_jacket', 'bust_evening',
+    'body_stand_front', 'body_stand_34', 'body_bodycon', 'body_athletic',
+    'body_swim_beach', 'body_swim_pool', 'body_jeans_fit', 'body_silhouette',
+    'back_34',
+]
 _PRESETS = {'balanced_25': _BALANCED_25, 'zimage_12': _ZIMAGE_12,
             'balanced_multiformat': _BALANCED_MULTIFORMAT, 'face_focused': _FACE_FOCUSED,
-            'fullbody_focused': _FULLBODY_FOCUSED}
+            'fullbody_focused': _FULLBODY_FOCUSED, 'body_emphasis': _BODY_EMPHASIS}
 _BY_ID = {e['id']: e for e in VARIATION_CATALOG}
 
 

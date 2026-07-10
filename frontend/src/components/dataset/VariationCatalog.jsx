@@ -26,6 +26,7 @@ const PRESET_META = [
   { key: 'balanced_multiformat', name: 'Multi-format', hint: 'Balanced set with landscape / vertical / cinema frames mixed in.' },
   { key: 'face_focused', name: 'Face-focused', hint: 'Face only (close-ups + busts, varied formats, no body shots) — body stays generic.' },
   { key: 'fullbody_focused', name: 'Full-body', hint: 'Reliable full-body: ~50/50 identity (face+bust) and full-body + back, varied formats. For a character that must hold up full-length without losing the face.' },
+  { key: 'body_emphasis', name: 'Body emphasis', hint: 'Body-fidelity pick: figure-revealing but API-safe outfits (fitted tops, swimwear at the beach/pool, sportswear, bodycon, backlit silhouette) so the body shape is actually visible in the training shots. For explicit content, generate with the local Klein engine instead.' },
 ];
 
 /** Mini stacked bar showing a preset's framing mix (face/bust/body/back). */
@@ -72,7 +73,7 @@ function GpuIcon({ className }) {
   );
 }
 
-export default function VariationCatalog({ onGenerate, busy, hasRef, composition }) {
+export default function VariationCatalog({ onGenerate, busy, hasRef, composition, images = [], bodyFidelity = false }) {
   const toast = useToast();
   const { caps } = useCapabilities();
   const [catalog, setCatalog] = useState([]);
@@ -118,13 +119,18 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
         if (cancelled) return;
         setCatalog(d.catalog || []);
         setPresets(d.presets || {});
-        setSelected(new Set(d.presets?.balanced_25 || []));
+        // Body-fidelity datasets start on the body-emphasis preset (figure-visible
+        // outfits); everyone else keeps the balanced default.
+        const def = bodyFidelity ? (d.presets?.body_emphasis || d.presets?.balanced_25)
+          : d.presets?.balanced_25;
+        setSelected(new Set(def || []));
       })
       .catch(() => {
         // Loud failure (M6): an empty catalog otherwise looks like a UI bug.
         if (!cancelled) toast.error('Could not load the variation catalog');
       });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast]);
 
   const byFraming = useMemo(() => {
@@ -132,6 +138,17 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
     catalog.forEach((e) => g[e.framing]?.push(e));
     return g;
   }, [catalog]);
+
+  // "Already in the dataset" per variation label: live images (kept, pending or
+  // still generating — not failed/rejected) → the green ✓×N state on the cards.
+  const doneByLabel = useMemo(() => {
+    const m = new Map();
+    for (const img of images) {
+      if (!img.variation_label || img.status === 'failed' || img.status === 'reject') continue;
+      m.set(img.variation_label, (m.get(img.variation_label) || 0) + 1);
+    }
+    return m;
+  }, [images]);
 
   // Framing mix of each preset — feeds the mini composition bar on its card.
   const presetStats = useMemo(() => {
@@ -288,6 +305,23 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
         </div>
       </div>
 
+      {/* Card-state legend — three unambiguous states (the amber chips in the
+          group headers are the composition quota, a separate concern). */}
+      <div className="flex items-center gap-3 flex-wrap text-[0.625rem] text-content-subtle" aria-hidden="true">
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded border border-primary/50 bg-primary/20 ring-1 ring-primary/30" />
+          selected — will be generated
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded border border-emerald-500/40 bg-emerald-500/10" />
+          <span className="text-emerald-300">✓×N</span> already in your dataset
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded border border-border bg-app/40" />
+          not selected
+        </span>
+      </div>
+
       {/* Shot picker, grouped by framing with a quota progress bar per group. */}
       <div className="max-h-80 overflow-auto flex flex-col gap-2 pr-1">
         {['face', 'bust', 'body', 'back'].map((fr) => {
@@ -298,7 +332,7 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
           return (
             <div key={fr}>
               <div className="flex items-center gap-2 mb-1"
-                title={`Your dataset contains ${have} "${FRAMING_LABEL[fr]}" image(s). Target for balanced training: ${TARGET[fr]}. The amber cards below are the ones to generate to fill the gap (this does NOT affect the generation selection).`}>
+                title={`Your dataset contains ${have} "${FRAMING_LABEL[fr]}" image(s). Target for balanced training: ${TARGET[fr]} (this quota does NOT affect the generation selection).`}>
                 <ShotIllustration framing={fr} label=""
                   className={`w-5 h-5 ${missing ? 'text-amber-300' : 'text-content-subtle'}`} />
                 <span className={`text-[0.6875rem] uppercase font-semibold ${missing ? 'text-amber-300' : 'text-content-muted'}`}>
@@ -322,24 +356,35 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5">
                 {byFraming[fr].map((e) => {
                   const on = selected.has(e.id);
+                  const done = doneByLabel.get(e.label) || 0;
                   const emoji = contextEmoji(e.label);
-                  // Unselected cards of a DEFICIT framing glow amber: the visual
-                  // quota cue ("pick these to fill what's missing").
+                  // Three unambiguous states (cf. legend above): indigo = selected,
+                  // green = already generated in this dataset, neutral = neither.
+                  // The old amber "deficit" glow on unselected cards read as a
+                  // selection — the quota cue now lives only in the group header.
                   const cls = on
                     ? 'bg-primary/20 border-primary/50 text-white ring-1 ring-primary/30'
-                    : missing > 0
-                      ? 'border-amber-400/50 bg-amber-400/10 text-amber-200 hover:bg-amber-400/15'
-                      : 'border-border text-content-muted hover:bg-surface-raised';
+                    : done > 0
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100/90 hover:bg-emerald-500/15'
+                      : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised';
                   return (
                     <button key={e.id} type="button" onClick={() => toggle(e.id)}
                       aria-pressed={on}
+                      title={done > 0 ? `${done} image(s) of this shot already in the dataset` : undefined}
                       className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border text-left transition-colors ${cls}`}>
                       <ShotIllustration framing={e.framing} label={e.label} className="w-7 h-7 shrink-0" />
                       <span className="min-w-0 leading-tight">
                         {emoji && <span className="mr-1" aria-hidden="true">{emoji}</span>}
                         {displayLabel(e.label)}
                       </span>
-                      {on && <span className="ml-auto shrink-0 text-indigo-300" aria-hidden="true">✓</span>}
+                      <span className="ml-auto shrink-0 flex items-center gap-1">
+                        {done > 0 && (
+                          <span className="text-emerald-300 font-semibold" aria-label={`${done} already in the dataset`}>
+                            ✓×{done}
+                          </span>
+                        )}
+                        {on && <span className="text-indigo-300" aria-hidden="true">✓</span>}
+                      </span>
                     </button>
                   );
                 })}

@@ -233,8 +233,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
           </div>
 
           <div id="gf-generate" className="scroll-mt-4">
-            <VariationCatalog onGenerate={ds.generate} busy={ds.busy} hasRef={!!d.ref_filename}
-              composition={d.composition} />
+            <VariationCatalog key={`vc-${d.id}-${bodyFid}`} onGenerate={ds.generate} busy={ds.busy}
+              hasRef={!!d.ref_filename} composition={d.composition} images={images}
+              bodyFidelity={bodyFid} />
           </div>
         </>
       )}
