@@ -346,92 +346,20 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         <TrainingProgress datasetId={ds.currentId} base={base} trainType={trainType} />
       )}
 
-      {/* --- Base d'entraînement : officielle (recommandé) ou merge ComfyUI custom.
-           Affichée MÊME pendant un training en cours → choisir la base du job mis
-           en file (sinon « Mettre en file » réutilisait silencieusement la base persistée). --- */}
-      {(
-        <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-surface px-3 py-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-content-muted text-[0.625rem] uppercase">LoRA type</span>
-            <select value={trainType} onChange={(e) => onTypeChange(e.target.value)}
-              aria-label="Type of LoRA to train"
-              title="Z-Image (prose, Qwen3 encoder) ~20 img · SDXL (ComfyUI checkpoints) ~30 img · Krea 2 (prose, base fixe Turbo) ~20 img"
-              className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
-              <option value="zimage">Z-Image (~20 img)</option>
-              <option value="sdxl">SDXL (~30 img)</option>
-              <option value="krea">Krea 2 (~20 img)</option>
-            </select>
-            <span className="text-content-muted text-[0.625rem] uppercase">
-              Base{status.in_progress ? ' (next queued job)' : ''}
-            </span>
-            <select value={base} onChange={(e) => setBase(e.target.value)}
-              aria-label="Base model"
-              className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[230px]">
-              {(currentBases.length ? currentBases
-                : [{ value: '', label: trainType === 'sdxl' ? (comfyConfigured ? 'No SDXL checkpoint found' : 'ComfyUI not configured') : trainType === 'krea' ? 'Official — Krea 2' : 'Official — Z-Image-Turbo' }]).map((b) => (
-                <option key={b.value} value={b.value}>
-                  {b.label}{b.value && baseInfo?.converted?.[b.value] ? ' ✓' : ''}
-                </option>
-              ))}
-            </select>
-            {trainType === 'zimage' && isCustomBase && (
-              <select value={variant} onChange={(e) => setVariant(e.target.value)}
-                title="Base model variant (sets the de-distillation adapter + the sampler)"
-                className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
-                <option value="turbo">Turbo (distilled)</option>
-                <option value="base">Base (non-distilled)</option>
-                <option value="deturbo">De-Turbo</option>
-              </select>
-            )}
-            {/* Krea 2 : reco officielle « train on Raw, validate on Turbo ». Le RAW
-                (non distillé) est le checkpoint prévu pour le fine-tuning ; sa LoRA
-                transfère vers Turbo à l'inférence. Turbo+adapter = alternative VRAM. */}
-            {trainType === 'krea' && (
-              <select value={variant} onChange={(e) => setVariant(e.target.value)}
-                aria-label="Krea 2 training base"
-                title="Krea 2 training base — Raw is the official recommendation (best quality; the LoRA transfers to Turbo at inference). Turbo+adapter is the VRAM-friendly alternative. First Raw training downloads the Raw weights (~24 GB) and runs longer."
-                className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
-                <option value="base">Raw (recommended)</option>
-                <option value="turbo">Turbo (w/ adapter)</option>
-              </select>
-            )}
-          </div>
-          {!comfyConfigured && trainType !== 'krea' && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-amber-300 text-[0.625rem]">
-                ⚠️ ComfyUI folder not set — training bases can't be listed{trainType === 'sdxl' ? '' : ' (the official Z-Image base still works)'}.
-              </span>
-              <a href="#/setup"
-                className="px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-[0.6875rem] font-semibold">
-                Point the app at ComfyUI →
-              </a>
-            </div>
-          )}
-          {needsConversion && !baseConverted && !convertRunning && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-amber-300 text-[0.625rem]">⚠️ Base must be converted before training (~12 GB, a few min, one time only).</span>
-              <button type="button" onClick={doPrepareBase}
-                className="px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-[0.6875rem] font-semibold">
-                ⚙️ Convert the base
-              </button>
-            </div>
-          )}
-          {convertRunning && (
-            <span className="text-indigo-300 text-[0.625rem] flex items-center gap-1.5">
-              <span className="inline-block w-3 h-3 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />
-              Converting the base… (~a few minutes)
-            </span>
-          )}
-          {baseConverted && (
-            <span className="text-green-400/80 text-[0.625rem]">✓ Base ready — training will produce a LoRA native to this model.</span>
-          )}
-          {convertError && (
-            <span className="text-red-300 text-[0.625rem] break-words">❌ Conversion failed: {convertError}</span>
-          )}
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* --- Chemin essentiel : choisir le type de LoRA et lancer. Le reste
+           (base/variante, masked, plafond de steps, programmation) vit dans
+           « Advanced options » ci-dessous — replié par défaut, tout y reste
+           accessible en un clic. --- */}
+      <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
+        <span className="text-content-muted text-[0.625rem] uppercase">LoRA type</span>
+        <select value={trainType} onChange={(e) => onTypeChange(e.target.value)}
+          aria-label="Type of LoRA to train"
+          title="Z-Image (prose, Qwen3 encoder) ~20 img · SDXL (ComfyUI checkpoints) ~30 img · Krea 2 (prose, base fixe Turbo) ~20 img"
+          className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+          <option value="zimage">Z-Image (~20 img)</option>
+          <option value="sdxl">SDXL (~30 img)</option>
+          <option value="krea">Krea 2 (~20 img)</option>
+        </select>
         <button type="button" disabled={!status.installed || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12) || status.in_progress || baseBlocksTrain || sdxlNeedsBase}
           title={baseBlocksTrain ? 'Convert the custom base first'
             : sdxlNeedsBase ? 'Choose a base SDXL checkpoint'
@@ -451,31 +379,6 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
           <span aria-hidden>🚀</span> Train the LoRA
         </button>
-        <label className="flex items-center gap-1.5 text-[0.6875rem] text-content-muted cursor-pointer"
-          title={concept
-            ? 'For a CONCEPT dataset keep this OFF — a person mask would erase the very concept you are training. Masking only makes sense for a person/face LoRA.'
-            : 'Masked training: a person mask is generated for every image (rembg, CPU) and the background only weighs 10% of the loss — identity binds to the face, not the room. Uncheck to train the old way.'}>
-          <input type="checkbox" checked={masked} onChange={(e) => setMasked(e.target.checked)}
-            aria-label="Masked training (background at 10%)"
-            className="accent-primary w-3.5 h-3.5" />
-          <span className={masked ? 'text-emerald-300' : ''}>🎭 Masked (bg 10%)</span>
-          {concept && masked && (
-            <span className="text-amber-300" title="A person mask would erase the concept.">⚠️ off recommended for concepts</span>
-          )}
-        </label>
-        {!status.in_progress && keptCount >= 10 && (
-          <label className="flex items-center gap-1.5 text-content-subtle text-[0.6875rem]"
-            title="Target training steps. Leave empty for the adaptive value (~120/image, capped 1500–3500). Set a lower cap (e.g. 2000) to stop earlier — it trains faster and lighter; then pick the best checkpoint in the Test Studio. Applies to Train, Add to queue and Schedule.">
-            <span className="uppercase text-content-muted text-[0.625rem]">Steps</span>
-            <input type="number" min={500} step={100}
-              value={stepsOverride}
-              onChange={(e) => setStepsOverride(e.target.value)}
-              placeholder={String(recoSteps)}
-              aria-label="Target training steps (leave empty for adaptive)"
-              className="w-[4.5rem] rounded border border-border bg-app/60 px-1.5 py-0.5 text-content tabular-nums text-[0.75rem]" />
-            <span>{stepsOverride.trim() ? 'target' : `≈ adaptive (${keptCount} img)`}</span>
-          </label>
-        )}
         {status.in_progress && (
           <button type="button" onClick={async () => { await ds.stopTraining(); refreshStatus(); }}
             className="px-3 py-1.5 rounded-lg bg-red-600/80 text-white text-sm font-semibold">
@@ -491,42 +394,171 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             {queued ? '✓ Queued' : `➕ Add to queue (${baseLabel})`}
           </button>
         )}
-        {status.installed && keptCount >= (TRAIN_MIN[trainType]?.[0] ?? 12) && (
-          <button type="button" disabled={queued || baseBlocksTrain} onClick={openSched}
-            aria-expanded={showSched}
-            title={baseBlocksTrain
-              ? 'Convert the selected custom base first'
-              : 'Schedule this training for a specific day and time — it will queue up if another training is running then'}
-            className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold disabled:opacity-40">
-            {queued ? '✓ Queued' : '⏰ Schedule'}
-          </button>
-        )}
-        {/* () => … sinon React passe l'event en 1er arg → forBase = PointerEvent
-            → base_model=[object Object] → run inexistant → liste vide. */}
-        <button type="button" onClick={() => loadCheckpoints(base)}
-          className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm">
-          View checkpoints
-        </button>
+        {/* Résumé lisible de la config que le prochain run utilisera — les
+            réglages eux-mêmes vivent dans « Advanced options ». */}
+        <span className="ml-auto text-content-subtle text-[0.625rem]"
+          title="The configuration the next run will use — change it in Advanced options below">
+          base « {baseLabel} » · {masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : 'adaptive steps'}
+        </span>
       </div>
 
-      {showSched && !queued && (
-        <div className="flex items-center gap-2 flex-wrap rounded-lg border border-amber-400/30 bg-amber-500/5 px-3 py-2">
-          <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
-            <span className="uppercase">Start at</span>
-            <input type="datetime-local" value={schedAt}
-              onChange={(e) => setSchedAt(e.target.value)}
-              aria-label="Scheduled training date and time"
-              className="rounded border border-border bg-app/60 px-2 py-1 text-content text-[0.8125rem]" />
-          </label>
-          <span className="text-content-subtle text-[0.625rem]">
-            Base « {baseLabel} » — if another training is running at that time, it waits in the queue.
-          </span>
-          <button type="button" onClick={schedule} disabled={!schedAt}
-            className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-            Schedule
-          </button>
-        </div>
+      {/* Pointeur visible quand le bouton Train est bloqué par un réglage qui
+          vit dans la section repliée — sinon la cause resterait cachée. */}
+      {(baseBlocksTrain || sdxlNeedsBase) && (
+        <p className="m-0 text-amber-300 text-[0.6875rem]">
+          ⚠ {sdxlNeedsBase
+            ? 'SDXL needs a base checkpoint — pick one in Advanced options below.'
+            : convertRunning
+              ? 'The selected base is being converted — training unlocks when it finishes (details in Advanced options).'
+              : 'The selected custom base must be converted once before training — open Advanced options below.'}
+        </p>
       )}
+
+      <details className="rounded-lg border border-border bg-surface open:pb-2.5">
+        <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
+          ⚙️ Advanced options
+          <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
+            base &amp; variant · masked training · steps · scheduling
+          </span>
+        </summary>
+        <div className="px-3 pt-1 flex flex-col gap-2">
+          {/* --- Base d'entraînement : officielle (recommandé) ou merge ComfyUI custom.
+               Affichée MÊME pendant un training en cours → choisir la base du job mis
+               en file (sinon « Mettre en file » réutilisait silencieusement la base persistée). --- */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-content-muted text-[0.625rem] uppercase">
+                Base{status.in_progress ? ' (next queued job)' : ''}
+              </span>
+              <select value={base} onChange={(e) => setBase(e.target.value)}
+                aria-label="Base model"
+                className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[230px]">
+                {(currentBases.length ? currentBases
+                  : [{ value: '', label: trainType === 'sdxl' ? (comfyConfigured ? 'No SDXL checkpoint found' : 'ComfyUI not configured') : trainType === 'krea' ? 'Official — Krea 2' : 'Official — Z-Image-Turbo' }]).map((b) => (
+                  <option key={b.value} value={b.value}>
+                    {b.label}{b.value && baseInfo?.converted?.[b.value] ? ' ✓' : ''}
+                  </option>
+                ))}
+              </select>
+              {trainType === 'zimage' && isCustomBase && (
+                <select value={variant} onChange={(e) => setVariant(e.target.value)}
+                  title="Base model variant (sets the de-distillation adapter + the sampler)"
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                  <option value="turbo">Turbo (distilled)</option>
+                  <option value="base">Base (non-distilled)</option>
+                  <option value="deturbo">De-Turbo</option>
+                </select>
+              )}
+              {/* Krea 2 : reco officielle « train on Raw, validate on Turbo ». Le RAW
+                  (non distillé) est le checkpoint prévu pour le fine-tuning ; sa LoRA
+                  transfère vers Turbo à l'inférence. Turbo+adapter = alternative VRAM. */}
+              {trainType === 'krea' && (
+                <select value={variant} onChange={(e) => setVariant(e.target.value)}
+                  aria-label="Krea 2 training base"
+                  title="Krea 2 training base — Raw is the official recommendation (best quality; the LoRA transfers to Turbo at inference). Turbo+adapter is the VRAM-friendly alternative. First Raw training downloads the Raw weights (~24 GB) and runs longer."
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                  <option value="base">Raw (recommended)</option>
+                  <option value="turbo">Turbo (w/ adapter)</option>
+                </select>
+              )}
+            </div>
+            {!comfyConfigured && trainType !== 'krea' && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-amber-300 text-[0.625rem]">
+                  ⚠️ ComfyUI folder not set — training bases can't be listed{trainType === 'sdxl' ? '' : ' (the official Z-Image base still works)'}.
+                </span>
+                <a href="#/setup"
+                  className="px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-[0.6875rem] font-semibold">
+                  Point the app at ComfyUI →
+                </a>
+              </div>
+            )}
+            {needsConversion && !baseConverted && !convertRunning && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-amber-300 text-[0.625rem]">⚠️ Base must be converted before training (~12 GB, a few min, one time only).</span>
+                <button type="button" onClick={doPrepareBase}
+                  className="px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-[0.6875rem] font-semibold">
+                  ⚙️ Convert the base
+                </button>
+              </div>
+            )}
+            {convertRunning && (
+              <span className="text-indigo-300 text-[0.625rem] flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />
+                Converting the base… (~a few minutes)
+              </span>
+            )}
+            {baseConverted && (
+              <span className="text-green-400/80 text-[0.625rem]">✓ Base ready — training will produce a LoRA native to this model.</span>
+            )}
+            {convertError && (
+              <span className="text-red-300 text-[0.625rem] break-words">❌ Conversion failed: {convertError}</span>
+            )}
+          </div>
+
+          <label className="flex items-center gap-1.5 text-[0.6875rem] text-content-muted cursor-pointer"
+            title={concept
+              ? 'For a CONCEPT dataset keep this OFF — a person mask would erase the very concept you are training. Masking only makes sense for a person/face LoRA.'
+              : 'Masked training: a person mask is generated for every image (rembg, CPU) and the background only weighs 10% of the loss — identity binds to the face, not the room. Uncheck to train the old way.'}>
+            <input type="checkbox" checked={masked} onChange={(e) => setMasked(e.target.checked)}
+              aria-label="Masked training (background at 10%)"
+              className="accent-primary w-3.5 h-3.5" />
+            <span className={masked ? 'text-emerald-300' : ''}>🎭 Masked (bg 10%)</span>
+            {concept && masked && (
+              <span className="text-amber-300" title="A person mask would erase the concept.">⚠️ off recommended for concepts</span>
+            )}
+          </label>
+
+          {!status.in_progress && keptCount >= 10 && (
+            <label className="flex items-center gap-1.5 text-content-subtle text-[0.6875rem]"
+              title="Target training steps. Leave empty for the adaptive value (~120/image, capped 1500–3500). Set a lower cap (e.g. 2000) to stop earlier — it trains faster and lighter; then pick the best checkpoint in the Test Studio. Applies to Train, Add to queue and Schedule.">
+              <span className="uppercase text-content-muted text-[0.625rem]">Steps</span>
+              <input type="number" min={500} step={100}
+                value={stepsOverride}
+                onChange={(e) => setStepsOverride(e.target.value)}
+                placeholder={String(recoSteps)}
+                aria-label="Target training steps (leave empty for adaptive)"
+                className="w-[4.5rem] rounded border border-border bg-app/60 px-1.5 py-0.5 text-content tabular-nums text-[0.75rem]" />
+              <span>{stepsOverride.trim() ? 'target' : `≈ adaptive (${keptCount} img)`}</span>
+            </label>
+          )}
+
+          {status.installed && keptCount >= (TRAIN_MIN[trainType]?.[0] ?? 12) && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button type="button" disabled={queued || baseBlocksTrain} onClick={openSched}
+                aria-expanded={showSched}
+                title={baseBlocksTrain
+                  ? 'Convert the selected custom base first'
+                  : 'Schedule this training for a specific day and time — it will queue up if another training is running then'}
+                className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold disabled:opacity-40">
+                {queued ? '✓ Queued' : '⏰ Schedule'}
+              </button>
+              <span className="text-content-subtle text-[0.625rem]">
+                run this training later, at a day &amp; time you pick
+              </span>
+            </div>
+          )}
+
+          {showSched && !queued && (
+            <div className="flex items-center gap-2 flex-wrap rounded-lg border border-amber-400/30 bg-amber-500/5 px-3 py-2">
+              <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
+                <span className="uppercase">Start at</span>
+                <input type="datetime-local" value={schedAt}
+                  onChange={(e) => setSchedAt(e.target.value)}
+                  aria-label="Scheduled training date and time"
+                  className="rounded border border-border bg-app/60 px-2 py-1 text-content text-[0.8125rem]" />
+              </label>
+              <span className="text-content-subtle text-[0.625rem]">
+                Base « {baseLabel} » — if another training is running at that time, it waits in the queue.
+              </span>
+              <button type="button" onClick={schedule} disabled={!schedAt}
+                className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+                Schedule
+              </button>
+            </div>
+          )}
+        </div>
+      </details>
 
       {Array.isArray(status.queue) && status.queue.length > 0 && (
         <div className="flex flex-col gap-1 rounded-lg border border-indigo-400/30 bg-indigo-500/5 px-3 py-2">
@@ -566,83 +598,110 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         </p>
       )}
 
-      {checkpoints.length > 0 && (
-        <div className="flex flex-col gap-1">
+      {/* --- Résultats : checkpoints du run + LoRA déjà importés dans ComfyUI.
+           Repliés par défaut ; le résumé du summary donne les comptes sans ouvrir. */}
+      <details className="rounded-lg border border-border bg-surface open:pb-2.5">
+        <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
+          📦 Checkpoints &amp; trained LoRAs
+          <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
+            {ckLoaded
+              ? `${checkpoints.length} checkpoint(s) · ${imported.length} in ComfyUI`
+              : 'the files your training runs produce'}
+          </span>
+        </summary>
+        <div className="px-3 pt-1 flex flex-col gap-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-content-muted text-[0.625rem] uppercase">
-              Checkpoints — base « {baseLabel} » (pick the earliest one that holds the identity)
+            {/* () => … sinon React passe l'event en 1er arg → forBase = PointerEvent
+                → base_model=[object Object] → run inexistant → liste vide. */}
+            <button type="button" onClick={() => loadCheckpoints(base)}
+              title="Reload the checkpoint list for the selected base"
+              className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
+              ↻ Refresh checkpoints
+            </button>
+            <span className="text-content-subtle text-[0.625rem]">
+              import the checkpoint you like into ComfyUI to use (and test) the LoRA
             </span>
-            <button type="button" disabled={bestEpochBusy}
-              onClick={findBestEpoch}
-              title="Scores every training sample vs the reference photo (face similarity, CPU) and recommends the checkpoint that holds the identity best — needs the Quality tools (ML extras)."
-              className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-[0.6875rem] font-semibold disabled:opacity-40">
-              {bestEpochBusy ? '🏆 Scoring samples…' : '🏆 Find best epoch'}
-            </button>
-            <button type="button" disabled={status.in_progress || baseBlocksTrain}
-              onClick={async () => {
-                const last = Math.max(...checkpoints.map((c) => c.step));
-                if (window.confirm(`Resume training « ${baseLabel} » from step ${last} and continue for +1000 steps (→ ${last + 1000})?`)) {
-                  await ds.continueTraining(1000, base, variant); refreshStatus(); loadCheckpoints(base);
-                }
-              }}
-              title={baseBlocksTrain ? 'Convert the custom base first' : 'Resumes from this base’s last checkpoint and trains 1000 more steps'}
-              className="ml-auto px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-[0.6875rem] font-semibold disabled:opacity-40">
-              ▶ Continue training (+1000)
-            </button>
           </div>
-          {bestEpoch && !bestEpoch.available && (
-            <p className="m-0 text-amber-300 text-[0.625rem]">🏆 {bestEpoch.reason}</p>
+
+          {checkpoints.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-content-muted text-[0.625rem] uppercase">
+                  Checkpoints — base « {baseLabel} » (pick the earliest one that holds the identity)
+                </span>
+                <button type="button" disabled={bestEpochBusy}
+                  onClick={findBestEpoch}
+                  title="Scores every training sample vs the reference photo (face similarity, CPU) and recommends the checkpoint that holds the identity best — needs the Quality tools (ML extras)."
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-[0.6875rem] font-semibold disabled:opacity-40">
+                  {bestEpochBusy ? '🏆 Scoring samples…' : '🏆 Find best epoch'}
+                </button>
+                <button type="button" disabled={status.in_progress || baseBlocksTrain}
+                  onClick={async () => {
+                    const last = Math.max(...checkpoints.map((c) => c.step));
+                    if (window.confirm(`Resume training « ${baseLabel} » from step ${last} and continue for +1000 steps (→ ${last + 1000})?`)) {
+                      await ds.continueTraining(1000, base, variant); refreshStatus(); loadCheckpoints(base);
+                    }
+                  }}
+                  title={baseBlocksTrain ? 'Convert the custom base first' : 'Resumes from this base’s last checkpoint and trains 1000 more steps'}
+                  className="ml-auto px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-[0.6875rem] font-semibold disabled:opacity-40">
+                  ▶ Continue training (+1000)
+                </button>
+              </div>
+              {bestEpoch && !bestEpoch.available && (
+                <p className="m-0 text-amber-300 text-[0.625rem]">🏆 {bestEpoch.reason}</p>
+              )}
+              {bestEpoch?.available && (
+                <p className="m-0 text-amber-200 text-[0.625rem]">
+                  🏆 Best identity at <span className="font-semibold">step {bestEpoch.best_step}</span>
+                  {' '}({(bestEpoch.steps.find((s) => s.step === bestEpoch.best_step)?.mean_sim ?? 0).toFixed(2)} mean similarity)
+                  {' '}— per step: {bestEpoch.steps.map((s) => `${s.step}:${s.mean_sim.toFixed(2)}`).join(' · ')}
+                </p>
+              )}
+              {checkpoints.map((c) => (
+                <div key={c.filename} className="flex items-center gap-2 text-[0.6875rem]">
+                  <span className={c.final ? 'text-green-400 font-semibold' : 'text-content'}>
+                    {c.final ? '✓ final (training complete)' : `step ${c.step}`}
+                  </span>
+                  {bestEpoch?.available && bestEpoch.checkpoint === c.filename && (
+                    <span className="px-1.5 py-px rounded border border-amber-400/50 bg-amber-400/15 text-amber-200 font-semibold"
+                      title={`Closest checkpoint to the best-scoring step (${bestEpoch.best_step})`}>
+                      🏆 recommended
+                    </span>
+                  )}
+                  <button type="button" onClick={() => ds.importCheckpoint(c.filename, base, trainType)}
+                    className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
+                    Import → {lorasLabel}
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
-          {bestEpoch?.available && (
-            <p className="m-0 text-amber-200 text-[0.625rem]">
-              🏆 Best identity at <span className="font-semibold">step {bestEpoch.best_step}</span>
-              {' '}({(bestEpoch.steps.find((s) => s.step === bestEpoch.best_step)?.mean_sim ?? 0).toFixed(2)} mean similarity)
-              {' '}— per step: {bestEpoch.steps.map((s) => `${s.step}:${s.mean_sim.toFixed(2)}`).join(' · ')}
+
+          {ckLoaded && checkpoints.length === 0 && !status.in_progress && (
+            <p className="m-0 text-content-subtle text-[0.625rem]">
+              No checkpoint for base « {baseLabel} » — run a training on this base first.
             </p>
           )}
-          {checkpoints.map((c) => (
-            <div key={c.filename} className="flex items-center gap-2 text-[0.6875rem]">
-              <span className={c.final ? 'text-green-400 font-semibold' : 'text-content'}>
-                {c.final ? '✓ final (training complete)' : `step ${c.step}`}
+
+          {imported.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-content-muted text-[0.625rem] uppercase">
+                In ComfyUI ({lorasLabel}) — delete the ones you no longer need
               </span>
-              {bestEpoch?.available && bestEpoch.checkpoint === c.filename && (
-                <span className="px-1.5 py-px rounded border border-amber-400/50 bg-amber-400/15 text-amber-200 font-semibold"
-                  title={`Closest checkpoint to the best-scoring step (${bestEpoch.best_step})`}>
-                  🏆 recommended
-                </span>
-              )}
-              <button type="button" onClick={() => ds.importCheckpoint(c.filename, base, trainType)}
-                className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
-                Import → {lorasLabel}
-              </button>
+              {imported.map((c) => (
+                <div key={c.filename} className="flex items-center gap-2 text-[0.6875rem]">
+                  <span className="text-content break-all">{c.label}</span>
+                  <button type="button" onClick={() => removeImported(c.filename, c.label)}
+                    title={`Delete this LoRA from ComfyUI's ${lorasLabel} folder`}
+                    className="ml-auto px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">
+                    🗑 Delete
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
-      )}
-
-      {ckLoaded && checkpoints.length === 0 && !status.in_progress && (
-        <p className="m-0 text-content-subtle text-[0.625rem]">
-          No checkpoint for base « {baseLabel} » — run a training on this base first.
-        </p>
-      )}
-
-      {imported.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className="text-content-muted text-[0.625rem] uppercase">
-            In ComfyUI ({lorasLabel}) — delete the ones you no longer need
-          </span>
-          {imported.map((c) => (
-            <div key={c.filename} className="flex items-center gap-2 text-[0.6875rem]">
-              <span className="text-content break-all">{c.label}</span>
-              <button type="button" onClick={() => removeImported(c.filename, c.label)}
-                title={`Delete this LoRA from ComfyUI's ${lorasLabel} folder`}
-                className="ml-auto px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">
-                🗑 Delete
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      </details>
 
       {preflightReport && (
         <PreflightModal report={preflightReport} datasetId={ds.currentId} ds={ds}

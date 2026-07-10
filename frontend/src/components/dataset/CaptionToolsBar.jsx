@@ -43,6 +43,18 @@ export default function CaptionToolsBar({ images, trainType, onReplace, busy }) 
       </button>
       {open && (
         <div className="mt-2 flex flex-col gap-2">
+          {/* Plain-language primer: what captions are and what these tools do —
+              a newcomer shouldn't need to guess why find/replace or tag frequency
+              matter for training. */}
+          <p className="m-0 text-content-subtle text-[0.6875rem] leading-relaxed">
+            Captions are the text the LoRA reads each image by. These tools edit{' '}
+            <span className="text-content-muted font-medium">every kept caption at once</span> — use them to
+            fix a word that slipped into all of them, or to strip/rename a tag that keeps repeating.
+            {' '}<span className="text-content-muted font-medium">Text</span> mode swaps a phrase anywhere;
+            {' '}<span className="text-content-muted font-medium">tag</span> mode treats captions as
+            comma-separated tags and matches a whole tag (best for booru / SDXL).
+          </p>
+          <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Find &amp; replace</span>
           <div className="flex items-center gap-2 flex-wrap">
             <input value={find} onChange={(e) => setFind(e.target.value)}
               placeholder={tagMode ? 'tag to replace/remove' : 'text to find'}
@@ -65,8 +77,16 @@ export default function CaptionToolsBar({ images, trainType, onReplace, busy }) 
             </button>
           </div>
           {freq.length > 0 && (
-            <div className="flex flex-wrap gap-1" aria-label="Most frequent caption tags">
-              {freq.map(([tag, n]) => (
+            <div className="flex flex-col gap-1">
+              <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Most frequent tags</span>
+              <p className="m-0 text-content-subtle text-[0.6875rem] leading-relaxed">
+                A word in many captions gets strongly tied to your trigger. If it's something you'd rather
+                keep <span className="text-content-muted font-medium">prompt-controllable</span> (an outfit,
+                a pose, a setting), remove it here so it doesn't bake into the character. Click a tag to load
+                it into Find (tag mode); leave Replace empty to strip it from every caption.
+              </p>
+              <div className="flex flex-wrap gap-1" aria-label="Most frequent caption tags">
+                {freq.map(([tag, n]) => (
                 <button key={tag} type="button"
                   onClick={() => { setFind(tag); setTagMode(true); }}
                   title={`"${tag}" appears in ${n} caption(s) — click to fill Find (tag mode)`}
@@ -74,6 +94,7 @@ export default function CaptionToolsBar({ images, trainType, onReplace, busy }) 
                   {tag} <span className="text-content-subtle">×{n}</span>
                 </button>
               ))}
+              </div>
             </div>
           )}
         </div>

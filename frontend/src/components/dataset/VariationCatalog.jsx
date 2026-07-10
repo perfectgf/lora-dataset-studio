@@ -299,6 +299,12 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       {/* Engine cards — Klein (local GPU) vs Nano Banana Pro vs ChatGPT (APIs).
           Each card disables itself with an actionable hint when its engine
           isn't configured/reachable or was turned off in Settings. */}
+      <div className="flex items-center gap-2">
+        <span className="text-content-muted text-[0.6875rem] uppercase">Engine</span>
+        <span className="text-content-subtle text-[0.625rem]">
+          where the images are made — Klein runs free on your GPU, APIs bill per image
+        </span>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <button type="button" onClick={() => setGenerator('klein')} aria-pressed={isKlein}
           disabled={!klAvailable}
@@ -408,8 +414,15 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
         </div>
       </div>
 
-      {/* Card-state legend — three unambiguous states (the amber chips in the
-          group headers are the composition quota, a separate concern). */}
+      {/* Shot list header + card-state legend — three unambiguous states (the
+          amber chips in the group headers are the composition quota, a
+          separate concern). */}
+      <div className="flex items-center gap-2 pt-1">
+        <span className="text-content-muted text-[0.6875rem] uppercase">Shots</span>
+        <span className="text-content-subtle text-[0.625rem]">
+          a preset pre-selects a balanced mix — click any card to add or remove it
+        </span>
+      </div>
       <div className="flex items-center gap-3 flex-wrap text-[0.625rem] text-content-subtle" aria-hidden="true">
         <span className="flex items-center gap-1">
           <span className="w-3 h-3 rounded border border-primary/50 bg-primary/20 ring-1 ring-primary/30" />
@@ -596,48 +609,70 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
 
       {/* Custom shot — free prompt, EVERY engine (rides the 🔞 register only when
           NSFW mode is on with Klein). Included in the next Generate alongside the
-          selected catalog shots. */}
-      <div className="flex flex-col gap-1">
-        <label className="text-content-muted text-[0.6875rem]" htmlFor="custom-shot-prompt">
-          ✨ Custom shot (free prompt — describe outfit, pose and setting, then Add: it becomes
-          a selectable card in the Custom group above){nsfwMode && isKlein ? ' — 🔞 register active' : ''}
-        </label>
-        <div className="flex gap-1.5 items-start">
-          <textarea id="custom-shot-prompt" value={customPrompt} rows={2}
-            onChange={(e) => setCustomPrompt(e.target.value)}
-            placeholder="e.g. full body shot, sitting on a vintage motorbike in a garage, leather jacket, warm light"
-            className="flex-1 bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
-          <select value={customFraming} onChange={(e) => setCustomFraming(e.target.value)}
-            aria-label="Custom shot framing"
-            className="bg-app/60 border border-border rounded px-1 py-1 text-[0.6875rem] text-content">
-            {['face', 'bust', 'body', 'back'].map((fr) => (
-              <option key={fr} value={fr}>{FRAMING_LABEL[fr]}</option>
-            ))}
-          </select>
-          <button type="button" onClick={addCustomShot} disabled={!customPrompt.trim()}
-            className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
-            ＋ Add
-          </button>
-        </div>
-      </div>
-
-      {isKlein && klAvailable && (
-        <div className="flex flex-col gap-0.5">
-          <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
-            <span className="whitespace-nowrap">
-              Consistency LoRA: {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
-            </span>
-            <input type="range" min={0} max={1.2} step={0.05} value={loraStrength}
-              onChange={(e) => setLoraStrength(Number(e.target.value))}
-              aria-label="Consistency LoRA strength"
-              className="flex-1 min-w-[120px] accent-indigo-500" />
+          selected catalog shots. Collapsed by default (power-user tool) — the
+          <details> keeps its fields mounted, so drafts survive fold/unfold. */}
+      <details className="rounded-lg border border-border bg-app/30 open:pb-2">
+        <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
+          ✨ Custom shot
+          <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
+            write your own prompt — it becomes a reusable card in the Custom group above{nsfwMode && isKlein ? ' — 🔞 register active' : ''}
+          </span>
+        </summary>
+        <div className="px-2.5 pt-1 flex flex-col gap-1">
+          <label className="text-content-muted text-[0.6875rem]" htmlFor="custom-shot-prompt">
+            Describe outfit, pose and setting, pick a framing, then Add.
           </label>
-          <p className="text-content-subtle text-[0.625rem]">
-            Anchors the COMPOSITION, not the face — high values suppress pose/framing changes.
-            ~0.5 balanced · 0.2–0.4 for big restagings · 0 = off. Face identity comes from the
-            reference photo(s); add extra references for a stronger identity lock.
-          </p>
+          <div className="flex gap-1.5 items-start">
+            <textarea id="custom-shot-prompt" value={customPrompt} rows={2}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              placeholder="e.g. full body shot, sitting on a vintage motorbike in a garage, leather jacket, warm light"
+              className="flex-1 bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
+            <select value={customFraming} onChange={(e) => setCustomFraming(e.target.value)}
+              aria-label="Custom shot framing"
+              className="bg-app/60 border border-border rounded px-1 py-1 text-[0.6875rem] text-content">
+              {['face', 'bust', 'body', 'back'].map((fr) => (
+                <option key={fr} value={fr}>{FRAMING_LABEL[fr]}</option>
+              ))}
+            </select>
+            <button type="button" onClick={addCustomShot} disabled={!customPrompt.trim()}
+              className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
+              ＋ Add
+            </button>
+          </div>
         </div>
+      </details>
+
+      {/* Klein-only tuning, grouped: model file + consistency-LoRA strength.
+          A <details> so the defaults stay out of a newcomer's way — children
+          remain mounted, so the model picker still reports its choice. */}
+      {isKlein && klAvailable && (
+        <details className="rounded-lg border border-border bg-app/30 open:pb-2">
+          <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
+            🖥️ Klein tuning
+            <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
+              model file · consistency LoRA {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
+            </span>
+          </summary>
+          <div className="px-2.5 pt-1 flex flex-col gap-2">
+            <div className="max-w-sm"><Flux2KleinModelPicker onChange={setKlein} /></div>
+            <div className="flex flex-col gap-0.5">
+              <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
+                <span className="whitespace-nowrap">
+                  Consistency LoRA: {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
+                </span>
+                <input type="range" min={0} max={1.2} step={0.05} value={loraStrength}
+                  onChange={(e) => setLoraStrength(Number(e.target.value))}
+                  aria-label="Consistency LoRA strength"
+                  className="flex-1 min-w-[120px] accent-indigo-500" />
+              </label>
+              <p className="text-content-subtle text-[0.625rem]">
+                Anchors the COMPOSITION, not the face — high values suppress pose/framing changes.
+                ~0.5 balanced · 0.2–0.4 for big restagings · 0 = off. Face identity comes from the
+                reference photo(s); add extra references for a stronger identity lock.
+              </p>
+            </div>
+          </div>
+        </details>
       )}
       <div className="flex items-center gap-2 flex-wrap border-t border-border pt-2">
         <span className="text-content-muted text-[0.6875rem]">{selected.size} selected</span>
@@ -648,14 +683,14 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
             ✕ Deselect all
           </button>
         )}
-        <label className="text-content-muted text-[0.6875rem] flex items-center">×
+        <label className="text-content-muted text-[0.6875rem] flex items-center"
+          title="Generate each selected shot this many times">×
           <select value={multiplier} onChange={(e) => setMultiplier(+e.target.value)}
             aria-label="Variation multiplier"
             className="bg-app/60 border border-border rounded px-1 py-0.5 text-content ml-1">
             {[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </label>
-        {isKlein && klAvailable && <div className="flex-1 min-w-[140px]"><Flux2KleinModelPicker onChange={setKlein} /></div>}
         {!hasRef && (
           <span className="text-amber-300 text-[0.6875rem]">Set a reference photo first</span>
         )}

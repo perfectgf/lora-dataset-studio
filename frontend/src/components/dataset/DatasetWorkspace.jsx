@@ -16,6 +16,25 @@ import GuidedChecklist from './GuidedChecklist';
 import NextStepCard from './NextStepCard';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
 
+/* En-tête de section numéroté : le workspace se lit désormais de haut en bas
+   dans l'ordre des étapes de la checklist, chaque section portant une ligne
+   d'aide en clair pour les non-experts. Purement présentationnel. */
+function SectionHeading({ n, title, help }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span aria-hidden
+        className="grid place-items-center w-5 h-5 shrink-0 rounded-full bg-primary/15 border border-primary/40 text-indigo-300 text-[0.6875rem] font-bold">
+        {n}
+      </span>
+      <h2 className="m-0 text-content font-semibold text-sm">{title}</h2>
+      {help && <span className="text-content-subtle text-[0.6875rem]">{help}</span>}
+    </div>
+  );
+}
+
+// Style partagé des items du menu « ⋯ More » du header (actions secondaires).
+const MENU_ITEM = 'w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-md text-sm text-content hover:bg-surface-raised disabled:opacity-40';
+
 export default function DatasetWorkspace({ ds, onBack }) {
   const navigate = useNavigate();
   const { caps } = useCapabilities();
@@ -78,6 +97,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* ---- Header : identité du dataset + UNE action primaire (Export ZIP).
+           Les actions secondaires (backup, import-fusion, fidélité, purge)
+           vivent dans le menu discret « ⋯ More » — un clic pour les atteindre,
+           hors du chemin d'un premier utilisateur. ---- */}
       <div className="flex items-center gap-2 flex-wrap">
         <button type="button" onClick={onBack}
           className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm transition-colors">
@@ -92,71 +115,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <code className="text-indigo-300 font-semibold">{d.trigger_word || '—'}</code>
           <span aria-hidden className="text-content-subtle">⧉</span>
         </button>
-        <div className="ml-auto flex gap-2">
-          {unused > 0 && (
-            <button type="button" disabled={ds.busy}
-              onClick={() => {
-                if (window.confirm(`Permanently delete the ${unused} rejected/failed image(s) (files included)?`)) ds.purgeUnused();
-              }}
-              title="Permanently delete rejected and failed images"
-              className="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-sm disabled:opacity-40">
-              🧹 Purge ({unused})
-            </button>
-          )}
-          {!concept && (
-            <button type="button" disabled={ds.busy}
-              onClick={() => ds.setDatasetFidelity?.(bodyFid ? 'face' : 'body')}
-              title={bodyFid
-                ? 'Body fidelity ON: captions also omit tattoos/scars/marks (they bind to the trigger), composition targets more bust/body shots, imports keep the full frame by default. Click to go back to face-only.'
-                : 'Face-only fidelity (default): the LoRA learns the face; body shape follows the prompt. Click for FULL-BODY fidelity (body shape & marks bind to the trigger too).'}
-              className={`px-3 py-1.5 rounded-lg border text-sm ${bodyFid
-                ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-300 font-semibold'
-                : 'border-border bg-surface text-content-muted'}`}>
-              🧍 Body fidelity{bodyFid ? ' ✓' : ''}
-            </button>
-          )}
-          {!concept && (
-            <select value={effCaptionMode} onChange={(e) => setCaptionMode(e.target.value)} disabled={ds.busy}
-              title="Caption style — Prose (Z-Image) or Booru tags (SDXL booru-native, e.g. bigLove). Defaults to auto based on the dataset's type."
-              className="px-2 py-1.5 rounded-lg bg-surface border border-border text-content text-[0.8125rem] disabled:opacity-40">
-              <option value="prose">📝 Prose</option>
-              <option value="booru">🏷️ Booru tags</option>
-            </select>
-          )}
-          <button type="button" onClick={() => ds.caption(effCaptionMode)} disabled={ds.busy}
-            className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
-            {ds.captioning ? `✨ ${keptCaptioned}/${kept} captioned…` : '✨ Caption the kept ones'}
-          </button>
-          <button type="button" disabled={ds.busy || !keptCaptioned}
-            onClick={() => {
-              if (window.confirm(`Re-captioning overwrites the ${keptCaptioned} existing caption(s) (new prompt, no face description). Continue?`)) ds.recaption(effCaptionMode);
-            }}
-            title="Re-generates all captions with the prompt that doesn't describe identity (face/hair)"
-            className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
-            🔄 Re-caption
-          </button>
-          {!concept && (
-            <button type="button" onClick={ds.analyzeFaces} disabled={ds.busy || !d.ref_filename}
-              title={d.ref_filename ? "Scores each image's facial resemblance vs the reference (deletes nothing)" : "Set a reference photo first"}
-              className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
-              {ds.analyzing ? '🎭 Analyzing…' : '🎭 Analyze faces'}
-            </button>
-          )}
-          {!concept && d.caption_leak && d.caption_leak.captioned > 0 && (
-            d.caption_leak.leaking === 0 ? (
-              <span className="self-center text-emerald-400 text-[0.8125rem]"
-                title="No caption describes hair/face/skin — identity binds to the trigger.">
-                ✅ 0 leak ({d.caption_leak.captioned})
-              </span>
-            ) : (
-              <button type="button" onClick={() => setShowLeaks((v) => !v)}
-                aria-expanded={showLeaks}
-                title="These captions mention hair/face/skin → identity won't bind to the trigger. Click to list and fix them here."
-                className="self-center text-amber-400 text-[0.8125rem] underline decoration-amber-400/50 decoration-dashed">
-                ⚠️ {d.caption_leak.leaking}/{d.caption_leak.captioned} identity leak {showLeaks ? '▴' : '▾'}
-              </button>
-            )
-          )}
+        <div className="ml-auto flex items-center gap-2">
           <button type="button" disabled={!kept}
             onClick={() => {
               // Guard-rails: untriaged images are silently EXCLUDED from the zip,
@@ -169,16 +128,52 @@ export default function DatasetWorkspace({ ds, onBack }) {
             className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             ⬇ Export ZIP ({kept})
           </button>
-          <button type="button" onClick={ds.exportBackup}
-            title="Full portable backup: all images with statuses, captions, scores and settings — restore it on any machine from the Datasets page."
-            className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm">
-            💾 Backup
-          </button>
-          <button type="button" onClick={() => zipInput.current?.click()} disabled={ds.busy}
-            title="Merge an existing training dataset into this one: a ZIP of images with kohya-style same-name .txt captions (any folder layout). Aspect kept, perceptual duplicates skipped."
-            className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
-            📦 Import dataset
-          </button>
+          {/* summary en display:flex → pas de marqueur natif ; les items restent
+              montés en permanence (details ne fait que masquer l'affichage). */}
+          <details className="relative">
+            <summary
+              title="More dataset actions — backup, merge another dataset in, fidelity, cleanup"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm cursor-pointer select-none">
+              ⋯ More
+            </summary>
+            <div className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-border bg-surface shadow-xl p-1.5 flex flex-col gap-0.5">
+              <button type="button" onClick={ds.exportBackup}
+                title="Full portable backup: all images with statuses, captions, scores and settings — restore it on any machine from the Datasets page."
+                className={MENU_ITEM}>
+                💾 Backup
+                <span className="ml-auto text-content-subtle text-[0.625rem]">portable copy</span>
+              </button>
+              <button type="button" onClick={() => zipInput.current?.click()} disabled={ds.busy}
+                title="Merge an existing training dataset into this one: a ZIP of images with kohya-style same-name .txt captions (any folder layout). Aspect kept, perceptual duplicates skipped."
+                className={MENU_ITEM}>
+                📦 Import dataset
+                <span className="ml-auto text-content-subtle text-[0.625rem]">merge a ZIP in</span>
+              </button>
+              {!concept && (
+                <button type="button" disabled={ds.busy}
+                  onClick={() => ds.setDatasetFidelity?.(bodyFid ? 'face' : 'body')}
+                  title={bodyFid
+                    ? 'Body fidelity ON: captions also omit tattoos/scars/marks (they bind to the trigger), composition targets more bust/body shots, imports keep the full frame by default. Click to go back to face-only.'
+                    : 'Face-only fidelity (default): the LoRA learns the face; body shape follows the prompt. Click for FULL-BODY fidelity (body shape & marks bind to the trigger too).'}
+                  className={`${MENU_ITEM} ${bodyFid ? 'text-emerald-300' : ''}`}>
+                  🧍 Body fidelity
+                  <span className={`ml-auto text-[0.625rem] ${bodyFid ? 'text-emerald-300 font-semibold' : 'text-content-subtle'}`}>
+                    {bodyFid ? '✓ on' : 'off'}
+                  </span>
+                </button>
+              )}
+              {unused > 0 && (
+                <button type="button" disabled={ds.busy}
+                  onClick={() => {
+                    if (window.confirm(`Permanently delete the ${unused} rejected/failed image(s) (files included)?`)) ds.purgeUnused();
+                  }}
+                  title="Permanently delete rejected and failed images"
+                  className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-md text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-40">
+                  🧹 Purge rejected/failed ({unused})
+                </button>
+              )}
+            </div>
+          </details>
           <input ref={zipInput} type="file" accept=".zip,application/zip" className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -188,180 +183,244 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </div>
       </div>
 
-      {/* Identity-leak triage list: every leaking caption editable IN PLACE
-          (saves on blur, like the grid) — no more hunting through the tiles. */}
-      {showLeaks && !concept && (
-        <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 p-3 flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-amber-300 text-sm font-semibold">⚠️ Captions leaking identity</span>
-            <span className="text-content-subtle text-[0.6875rem]">
-              they mention hair / face / skin{bodyFid ? ' / body marks' : ''} — the identity
-              won't bind to the trigger. Edit here (saves when you click away) or 🔄 Re-caption.
-            </span>
-            <button type="button" onClick={() => setShowLeaks(false)}
-              className="ml-auto text-content-subtle hover:text-content text-sm" aria-label="Close the leak list">✕</button>
-          </div>
-          {images.filter((i) => i.leak).map((img) => (
-            <div key={img.id} className="flex gap-2 items-start">
-              <img src={`/api/dataset/${d.id}/img/${encodeURIComponent(img.filename)}`}
-                alt={img.variation_label || 'dataset image'} loading="lazy"
-                className="w-14 h-14 rounded-lg object-cover shrink-0 bg-black" />
-              <textarea defaultValue={img.caption || ''} rows={2}
-                onBlur={(e) => {
-                  if (e.target.value !== (img.caption || '')) ds.setCaption(img.id, e.target.value);
-                }}
-                aria-label={`Caption of image ${img.id}`}
-                className="flex-1 bg-app/60 border border-amber-400/30 rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
-            </div>
-          ))}
-          {images.filter((i) => i.leak).length === 0 && (
-            <p className="text-emerald-400 text-[0.8125rem]">✅ All clear — no leaking caption left.</p>
-          )}
-        </div>
-      )}
-
       {/* Two-column workspace: a sticky vertical progress checklist on the left,
           the dataset content on the right. Concept datasets have no reference/
           generate flow, so they keep the single-column layout (the wrapper is
           display:contents -> no visual change, no sidebar). */}
       <div className={concept ? 'contents' : 'grid grid-cols-1 lg:grid-cols-[15rem_minmax(0,1fr)] gap-3 items-start'}>
         {!concept && (
-          <aside className="lg:sticky lg:top-4 lg:self-start">
+          // Sticky checklist spans the viewport height and centers its content
+          // vertically (flex-col + justify-center) so, after jumping to a section,
+          // it stays mid-screen instead of stranded in the top-left corner. The
+          // nav still stretches to the full 15rem column (default align stretch).
+          <aside className="lg:sticky lg:top-0 lg:h-screen lg:flex lg:flex-col lg:justify-center">
             <GuidedChecklist steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
           </aside>
         )}
-        <div className="flex flex-col gap-3 min-w-0">
+        <div className="flex flex-col gap-4 min-w-0">
           {!concept && (
             <NextStepCard step={nextStep} trainMode={!!caps.training_visible} busy={ds.busy}
               totalImages={images.length} onAction={nextAction} actionLabel={nextActionLabel} />
           )}
 
-      {ds.busy && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2">
-          <span className="inline-block w-4 h-4 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" aria-hidden />
-          <span className="text-content text-sm">
-            {ds.captioning
-              ? `Captioning in progress — ${keptCaptioned}/${kept} captioned… ComfyUI is paused.`
-              : 'GPU processing in progress (analysis / cropping / captioning)… ComfyUI is paused during the pass.'}
-          </span>
-        </div>
-      )}
-
-      {pending > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border-2 border-indigo-400/60 bg-indigo-500/15 px-3 py-2.5">
-          <span className="animate-pulse text-lg" aria-hidden>⏳</span>
-          <div className="flex flex-col">
-            <span className="text-content text-sm font-semibold">
-              {pending} generation(s) in progress…
-            </span>
-            <span className="text-content-subtle text-[0.6875rem]">
-              First results look wrong? Stop now — the remaining API calls are skipped (not billed).
-            </span>
-          </div>
-          <button type="button" onClick={ds.cancelPending} disabled={ds.busy}
-            title="Cancels every generation still in flight; finished images stay."
-            className="ml-auto shrink-0 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-bold disabled:opacity-40">
-            ⏹ Stop generation
-          </button>
-        </div>
-      )}
-
-      {!concept && <CompositionBar composition={d.composition} bodyFidelity={bodyFid} />}
-
-      {concept ? (
-        // Concept : pas de photo de référence ni de générateur — on peuple le dataset
-        // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
-        <div id="gf-reference" className="flex flex-col gap-3 scroll-mt-20">
-          <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
-          <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
-        </div>
-      ) : (
-        <>
-          <div id="gf-reference" className="grid grid-cols-1 lg:grid-cols-2 gap-3 scroll-mt-20">
-            <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
-              onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
-              extraRefs={d.ref_extra_filenames || []}
-              onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
-            {/* Head-crop optional: ON tags framing='face' at import (I2); OFF keeps
-                the original framing so bust/body photos import as-is. Body-fidelity
-                datasets default OFF (full frames are the point) — key remounts the
-                dropzone so the default follows a fidelity switch. */}
-            <ImportDropzone key={`${d.id}-${bodyFid}`} onImport={(f, o) => ds.importFiles(f, o)}
-              busy={ds.busy} cropOption defaultCrop={!bodyFid} />
-          </div>
-
-          {/* Scraper (character datasets too): scan a gallery URL → pick → import
-              full-frame — then crop each tile manually (✂ on the card). Collapsed
-              by default to keep the reference/generate flow prominent. */}
-          <details className="rounded-lg border border-border bg-surface open:pb-3">
-            <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
-              🕸 Scrape images from the web
-              <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
-                scan a gallery URL, pick images, import full-frame — crop them afterwards
+          {ds.busy && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2">
+              <span className="inline-block w-4 h-4 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" aria-hidden />
+              <span className="text-content text-sm">
+                {ds.captioning
+                  ? `Captioning in progress — ${keptCaptioned}/${kept} captioned… ComfyUI is paused.`
+                  : 'GPU processing in progress (analysis / cropping / captioning)… ComfyUI is paused during the pass.'}
               </span>
-            </summary>
-            <div className="px-3">
-              <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
             </div>
-          </details>
-
-          <div id="gf-generate" className="scroll-mt-20">
-            <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}
-              onGenerate={(...args) => {
-                // Guard-rail: a batch is already in flight — launching another one
-                // on top is usually an accidental double-click, not a plan.
-                if (pending > 0 && !window.confirm(
-                  `A generation batch is already running (${pending} in flight).\n\nLaunch another one anyway?`)) return;
-                ds.generate(...args);
-              }}
-              hasRef={!!d.ref_filename} composition={d.composition} images={images}
-              bodyFidelity={bodyFid} />
-          </div>
-        </>
-      )}
-
-      <div id="gf-training" className="scroll-mt-20">
-        <TrainingPanel ds={ds} keptCount={kept} kind={d.kind} onCheckpointsChange={setCheckpointCount} />
-      </div>
-
-      {/* Lanceur du Studio de test LoRA : page dédiée plein écran /studio?dataset=
-          (le LoRA du dataset y est pré-coché). Le dataset ouvert est persisté
-          (useDataset) → « ← Retour au Dataset Maker » rouvre ce workspace.
-          Hidden when ComfyUI isn't reachable — the Studio needs it to generate. */}
-      {caps.studio_visible && (
-        <button type="button" onClick={() => navigate(`/studio?dataset=${d.id}`)}
-          className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/5 px-3 py-2.5 text-left hover:bg-purple-500/10 transition-colors">
-          <span aria-hidden>🎛️</span>
-          <span className="text-content font-semibold text-sm">LoRA testing studio</span>
-          {d.best_settings && (
-            <span className="text-amber-300 text-[0.6875rem]" title="Saved winning settings">
-              ★ {fmt(d.best_settings.strength)}
-            </span>
           )}
-          <span className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-xs font-semibold">
-            ⤢ Open Studio
-          </span>
-        </button>
-      )}
 
-      <div id="gf-images" className="flex flex-col gap-2 scroll-mt-20">
-        <button type="button" onClick={() => setShowImages((v) => !v)} aria-expanded={showImages}
-          className="flex items-center gap-2 text-left text-content font-semibold text-sm">
-          <span aria-hidden>🖼️</span> Dataset images
-          <span className="text-content-subtle text-[0.6875rem] font-normal">{images.length}</span>
-          <span aria-hidden className="ml-auto text-content-subtle">{showImages ? '▾' : '▸'}</span>
-        </button>
-        {showImages && (
-          <CaptionToolsBar images={images} trainType={d.train_type} onReplace={ds.replaceCaptions} busy={ds.busy} />
-        )}
-        {showImages && (
-          <DatasetGrid images={d.images} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}
-            onCrop={setCropImg} onDelete={ds.deleteImage}
-            onRegenerate={(id) => ds.regenerate(id)} onView={setViewImg}
-            onBatch={ds.batchImages} busy={ds.busy}
-            nonces={ds.nonces} faceThresholds={d.face_thresholds} />
-        )}
-      </div>
+          {pending > 0 && (
+            <div className="flex items-center gap-3 rounded-lg border-2 border-indigo-400/60 bg-indigo-500/15 px-3 py-2.5">
+              <span className="animate-pulse text-lg" aria-hidden>⏳</span>
+              <div className="flex flex-col">
+                <span className="text-content text-sm font-semibold">
+                  {pending} generation(s) in progress…
+                </span>
+                <span className="text-content-subtle text-[0.6875rem]">
+                  First results look wrong? Stop now — the remaining API calls are skipped (not billed).
+                </span>
+              </div>
+              <button type="button" onClick={ds.cancelPending} disabled={ds.busy}
+                title="Cancels every generation still in flight; finished images stay."
+                className="ml-auto shrink-0 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-bold disabled:opacity-40">
+                ⏹ Stop generation
+              </button>
+            </div>
+          )}
+
+          {/* ============ Étape 1 (+2) : constituer le dataset. Concept : sources
+               scrapées + import brut. Personnage : référence puis génération/import. */}
+          {concept ? (
+            // Concept : pas de photo de référence ni de générateur — on peuple le dataset
+            // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
+            <section id="gf-reference" className="flex flex-col gap-2 scroll-mt-20">
+              <SectionHeading n={1} title="Add images"
+                help="a concept LoRA learns from real images — scrape galleries or drop photos" />
+              <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
+              <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
+            </section>
+          ) : (
+            <>
+              <section id="gf-reference" className="flex flex-col gap-2 scroll-mt-20">
+                <SectionHeading n={1} title="Reference photo"
+                  help="one clear photo of the face — every generated variation starts from it" />
+                <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
+                  onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
+                  extraRefs={d.ref_extra_filenames || []}
+                  onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
+              </section>
+
+              <section id="gf-generate" className="flex flex-col gap-2 scroll-mt-20">
+                <SectionHeading n={2} title="Add images"
+                  help="generate AI variations of the reference — and mix in a few real photos if you have them" />
+                <CompositionBar composition={d.composition} bodyFidelity={bodyFid} />
+                <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}
+                  onGenerate={(...args) => {
+                    // Guard-rail: a batch is already in flight — launching another one
+                    // on top is usually an accidental double-click, not a plan.
+                    if (pending > 0 && !window.confirm(
+                      `A generation batch is already running (${pending} in flight).\n\nLaunch another one anyway?`)) return;
+                    ds.generate(...args);
+                  }}
+                  hasRef={!!d.ref_filename} composition={d.composition} images={images}
+                  bodyFidelity={bodyFid} />
+                {/* Head-crop optional: ON tags framing='face' at import (I2); OFF keeps
+                    the original framing so bust/body photos import as-is. Body-fidelity
+                    datasets default OFF (full frames are the point) — key remounts the
+                    dropzone so the default follows a fidelity switch. */}
+                <ImportDropzone key={`${d.id}-${bodyFid}`} onImport={(f, o) => ds.importFiles(f, o)}
+                  busy={ds.busy} cropOption defaultCrop={!bodyFid} />
+                {/* Scraper (character datasets too): scan a gallery URL → pick → import
+                    full-frame — then crop each tile manually (✂ on the card). Collapsed
+                    by default to keep the reference/generate flow prominent. */}
+                <details className="rounded-lg border border-border bg-surface open:pb-3">
+                  <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
+                    🕸 Scrape images from the web
+                    <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
+                      scan a gallery URL, pick images, import full-frame — crop them afterwards
+                    </span>
+                  </summary>
+                  <div className="px-3">
+                    <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
+                  </div>
+                </details>
+              </section>
+            </>
+          )}
+
+          {/* ============ Curation + caption : trier ✓/✕ puis légender les gardées.
+               La barre d'outils caption (mode, lancer, re-caption, analyse, fuite)
+               vit ICI, à côté de la grille qu'elle concerne — plus dans le header. */}
+          <section id="gf-images" className="flex flex-col gap-2 scroll-mt-20">
+            <SectionHeading n={concept ? 2 : 3} title="Curate & caption"
+              help="keep ✓ the good shots, reject ✕ the rest — then caption the kept ones (captions are what training reads)" />
+
+            <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
+              {!concept && (
+                <select value={effCaptionMode} onChange={(e) => setCaptionMode(e.target.value)} disabled={ds.busy}
+                  title="Caption style — Prose (Z-Image) or Booru tags (SDXL booru-native, e.g. bigLove). Defaults to auto based on the dataset's type."
+                  className="px-2 py-1.5 rounded-lg bg-surface border border-border text-content text-[0.8125rem] disabled:opacity-40">
+                  <option value="prose">📝 Prose</option>
+                  <option value="booru">🏷️ Booru tags</option>
+                </select>
+              )}
+              <button type="button" onClick={() => ds.caption(effCaptionMode)} disabled={ds.busy}
+                className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+                {ds.captioning ? `✨ ${keptCaptioned}/${kept} captioned…` : '✨ Caption the kept ones'}
+              </button>
+              <button type="button" disabled={ds.busy || !keptCaptioned}
+                onClick={() => {
+                  if (window.confirm(`Re-captioning overwrites the ${keptCaptioned} existing caption(s) (new prompt, no face description). Continue?`)) ds.recaption(effCaptionMode);
+                }}
+                title="Re-generates all captions with the prompt that doesn't describe identity (face/hair)"
+                className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
+                🔄 Re-caption
+              </button>
+              {!concept && (
+                <button type="button" onClick={ds.analyzeFaces} disabled={ds.busy || !d.ref_filename}
+                  title={d.ref_filename ? "Scores each image's facial resemblance vs the reference (deletes nothing)" : "Set a reference photo first"}
+                  className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
+                  {ds.analyzing ? '🎭 Analyzing…' : '🎭 Analyze faces'}
+                </button>
+              )}
+              {!concept && d.caption_leak && d.caption_leak.captioned > 0 && (
+                d.caption_leak.leaking === 0 ? (
+                  <span className="ml-auto text-emerald-400 text-[0.8125rem]"
+                    title="No caption describes hair/face/skin — identity binds to the trigger.">
+                    ✅ 0 leak ({d.caption_leak.captioned})
+                  </span>
+                ) : (
+                  <button type="button" onClick={() => setShowLeaks((v) => !v)}
+                    aria-expanded={showLeaks}
+                    title="These captions mention hair/face/skin → identity won't bind to the trigger. Click to list and fix them here."
+                    className="ml-auto text-amber-400 text-[0.8125rem] underline decoration-amber-400/50 decoration-dashed">
+                    ⚠️ {d.caption_leak.leaking}/{d.caption_leak.captioned} identity leak {showLeaks ? '▴' : '▾'}
+                  </button>
+                )
+              )}
+            </div>
+
+            {/* Identity-leak triage list: every leaking caption editable IN PLACE
+                (saves on blur, like the grid) — no more hunting through the tiles. */}
+            {showLeaks && !concept && (
+              <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 p-3 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-300 text-sm font-semibold">⚠️ Captions leaking identity</span>
+                  <span className="text-content-subtle text-[0.6875rem]">
+                    they mention hair / face / skin{bodyFid ? ' / body marks' : ''} — the identity
+                    won't bind to the trigger. Edit here (saves when you click away) or 🔄 Re-caption.
+                  </span>
+                  <button type="button" onClick={() => setShowLeaks(false)}
+                    className="ml-auto text-content-subtle hover:text-content text-sm" aria-label="Close the leak list">✕</button>
+                </div>
+                {images.filter((i) => i.leak).map((img) => (
+                  <div key={img.id} className="flex gap-2 items-start">
+                    <img src={`/api/dataset/${d.id}/img/${encodeURIComponent(img.filename)}`}
+                      alt={img.variation_label || 'dataset image'} loading="lazy"
+                      className="w-14 h-14 rounded-lg object-cover shrink-0 bg-black" />
+                    <textarea defaultValue={img.caption || ''} rows={2}
+                      onBlur={(e) => {
+                        if (e.target.value !== (img.caption || '')) ds.setCaption(img.id, e.target.value);
+                      }}
+                      aria-label={`Caption of image ${img.id}`}
+                      className="flex-1 bg-app/60 border border-amber-400/30 rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
+                  </div>
+                ))}
+                {images.filter((i) => i.leak).length === 0 && (
+                  <p className="text-emerald-400 text-[0.8125rem]">✅ All clear — no leaking caption left.</p>
+                )}
+              </div>
+            )}
+
+            <button type="button" onClick={() => setShowImages((v) => !v)} aria-expanded={showImages}
+              className="flex items-center gap-2 text-left text-content font-semibold text-sm">
+              <span aria-hidden>🖼️</span> Dataset images
+              <span className="text-content-subtle text-[0.6875rem] font-normal">{images.length}</span>
+              <span aria-hidden className="ml-auto text-content-subtle">{showImages ? '▾' : '▸'}</span>
+            </button>
+            {showImages && (
+              <CaptionToolsBar images={images} trainType={d.train_type} onReplace={ds.replaceCaptions} busy={ds.busy} />
+            )}
+            {showImages && (
+              <DatasetGrid images={d.images} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}
+                onCrop={setCropImg} onDelete={ds.deleteImage}
+                onRegenerate={(id) => ds.regenerate(id)} onView={setViewImg}
+                onBatch={ds.batchImages} busy={ds.busy}
+                nonces={ds.nonces} faceThresholds={d.face_thresholds} />
+            )}
+          </section>
+
+          {/* ============ Entraînement (et lanceur du Studio de test). */}
+          <section id="gf-training" className="flex flex-col gap-2 scroll-mt-20">
+            <SectionHeading n={concept ? 3 : 4} title="Train"
+              help="turn the kept & captioned images into a LoRA — or export the ZIP (top right) to train elsewhere" />
+            <TrainingPanel ds={ds} keptCount={kept} kind={d.kind} onCheckpointsChange={setCheckpointCount} />
+
+            {/* Lanceur du Studio de test LoRA : page dédiée plein écran /studio?dataset=
+                (le LoRA du dataset y est pré-coché). Le dataset ouvert est persisté
+                (useDataset) → « ← Retour au Dataset Maker » rouvre ce workspace.
+                Hidden when ComfyUI isn't reachable — the Studio needs it to generate. */}
+            {caps.studio_visible && (
+              <button type="button" onClick={() => navigate(`/studio?dataset=${d.id}`)}
+                className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/5 px-3 py-2.5 text-left hover:bg-purple-500/10 transition-colors">
+                <span aria-hidden>🎛️</span>
+                <span className="text-content font-semibold text-sm">LoRA testing studio</span>
+                {d.best_settings && (
+                  <span className="text-amber-300 text-[0.6875rem]" title="Saved winning settings">
+                    ★ {fmt(d.best_settings.strength)}
+                  </span>
+                )}
+                <span className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-xs font-semibold">
+                  ⤢ Open Studio
+                </span>
+              </button>
+            )}
+          </section>
         </div>{/* /right column */}
       </div>{/* /workspace grid */}
 
