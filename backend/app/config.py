@@ -17,7 +17,7 @@ def _config_path() -> Path:
 ENV_PATH = Path(os.environ.get('LDS_ENV', str(REPO_ROOT / '.env')))
 load_dotenv(ENV_PATH)
 
-SECRET_KEYS = ('GEMINI_API_KEY', 'OPENAI_API_KEY')
+SECRET_KEYS = ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'HF_TOKEN')
 
 DEFAULTS = {
     'server': {'host': '127.0.0.1', 'port': 5000},

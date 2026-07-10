@@ -182,3 +182,193 @@ def test_run_ollama_model_http_error(app, monkeypatch):
 
     assert rc == 1
     assert any('HTTP 500' in line for line in setup_installer._runs['ollama_model']['log'])
+
+
+# --- Klein one-click downloads --------------------------------------------
+# The four Klein assets download straight into the VALIDATED ComfyUI tree so the
+# model listers pick them up with zero manual file-moving. A fake ComfyUI dir is
+# just main.py + models/ (what capabilities._is_comfyui_dir checks).
+import os
+
+
+def _make_comfyui(root):
+    base = root / 'ComfyUI'
+    (base / 'models').mkdir(parents=True, exist_ok=True)
+    (base / 'main.py').write_text('# fake ComfyUI entrypoint', encoding='utf-8')
+    return base
+
+
+class _FakeGet:
+    """Stand-in for requests.get(..., stream=True) used as a context manager."""
+    def __init__(self, status=200, payload=b'', capture=None):
+        self._payload = payload
+        self.status_code = status
+        self.headers = {'content-length': str(len(payload))} if payload else {}
+        self._capture = capture
+
+    def __call__(self, url, **kw):
+        if self._capture is not None:
+            self._capture['url'] = url
+            self._capture['headers'] = kw.get('headers')
+        return self
+
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+    def iter_content(self, chunk_size=0):
+        if self._payload:
+            yield self._payload
+
+
+def test_install_actions_include_klein_downloads():
+    from app import setup_installer
+    for a in ('klein_model', 'klein_lora', 'klein_text_encoder', 'klein_vae'):
+        assert a in setup_installer.INSTALL_ACTIONS
+
+
+def test_klein_dest_path_under_validated_base(app, tmp_path):
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        dest = setup_installer._klein_dest_path('klein_lora')
+    assert dest == str(base / 'models' / 'loras' / 'klein'
+                       / 'Flux2-Klein-9B-consistency-V2.safetensors')
+
+
+def test_klein_model_dest_is_unet_klein(app, tmp_path):
+    """The diffusion model must land in models/unet/klein/ -- that is the ONLY
+    place capabilities._scan_models() detects a Klein UNET (base_name 'unet',
+    subfolder named 'klein'). A wrong subfolder downloads 15 GB the app can't see."""
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        dest = setup_installer._klein_dest_path('klein_model')
+    assert dest.endswith(os.path.join('models', 'unet', 'klein',
+                                      'flux-2-klein-9b-fp8.safetensors'))
+
+
+def test_klein_dest_path_requires_valid_comfyui(app, tmp_path):
+    from app import setup_installer, config
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(tmp_path / 'not-comfyui')}})
+        with pytest.raises(setup_installer.Precondition):
+            setup_installer._klein_dest_path('klein_lora')
+
+
+def test_manual_command_klein_lora_is_curl_to_real_url(app, tmp_path):
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        cmd = setup_installer.manual_command('klein_lora')
+    assert cmd.startswith('curl -L -o ')
+    assert 'huggingface.co/dx8152/Flux2-Klein-9B-Consistency' in cmd
+    assert 'Flux2-Klein-9B-consistency-V2.safetensors' in cmd
+
+
+def test_manual_command_klein_uses_placeholder_when_unconfigured(app, tmp_path):
+    """No validated ComfyUI -> the copy-paste command still makes sense, pointing
+    at a <ComfyUI> placeholder instead of raising."""
+    from app import setup_installer, config
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': ''}})
+        cmd = setup_installer.manual_command('klein_vae')
+    assert '<ComfyUI>' in cmd
+    assert 'flux2-vae.safetensors' in cmd
+
+
+def test_run_klein_download_gated_401_logs_recovery_steps(app, tmp_path, monkeypatch):
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        monkeypatch.setattr(setup_installer.requests, 'get', _FakeGet(status=401))
+        setup_installer._runs['klein_model'] = setup_installer._new_run()
+        rc = setup_installer._run_klein_download('klein_model')
+    assert rc == 1
+    log = setup_installer._runs['klein_model']['log']
+    assert any('license-gated' in l for l in log)
+    assert any('HF_TOKEN' in l for l in log)
+
+
+def test_run_klein_download_streams_to_part_then_renames(app, tmp_path, monkeypatch):
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    payload = b'x' * (10 * 1024 * 1024)
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        monkeypatch.setattr(setup_installer.requests, 'get', _FakeGet(payload=payload))
+        setup_installer._runs['klein_vae'] = setup_installer._new_run()
+        rc = setup_installer._run_klein_download('klein_vae')
+        dest = setup_installer._klein_dest_path('klein_vae')
+    assert rc == 0
+    assert os.path.isfile(dest)
+    assert not os.path.exists(dest + '.part')   # atomic rename left no partial
+
+
+def test_run_klein_download_sends_bearer_when_token_set(app, tmp_path, monkeypatch):
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    cap = {}
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        monkeypatch.setenv('HF_TOKEN', 'hf_secret')
+        monkeypatch.setattr(setup_installer.requests, 'get',
+                            _FakeGet(payload=b'z' * 1024, capture=cap))
+        setup_installer._runs['klein_model'] = setup_installer._new_run()
+        setup_installer._run_klein_download('klein_model')
+    assert cap['headers'].get('Authorization') == 'Bearer hf_secret'
+
+
+def test_run_klein_download_skips_when_already_present(app, tmp_path, monkeypatch):
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    def boom(*a, **k):
+        raise AssertionError('network must not be hit when the file already exists')
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        dest = setup_installer._klein_dest_path('klein_lora')
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, 'wb') as f:
+            f.write(b'already downloaded')
+        monkeypatch.setattr(setup_installer.requests, 'get', boom)
+        setup_installer._runs['klein_lora'] = setup_installer._new_run()
+        rc = setup_installer._run_klein_download('klein_lora')
+    assert rc == 0
+    assert any('already present' in l for l in setup_installer._runs['klein_lora']['log'])
+
+
+def test_start_klein_blocks_on_low_disk(app, tmp_path, monkeypatch):
+    import collections
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    Usage = collections.namedtuple('Usage', 'total used free')
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        # 1 GB free vs 15 GB needed for the model -> precondition must block start()
+        monkeypatch.setattr(setup_installer.shutil, 'disk_usage',
+                            lambda p: Usage(0, 0, int(1e9)))
+        with pytest.raises(setup_installer.Precondition):
+            setup_installer.start('klein_model')
+
+
+def test_start_klein_requires_valid_comfyui(app, tmp_path):
+    from app import setup_installer, config
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(tmp_path / 'nope')}})
+        with pytest.raises(setup_installer.Precondition):
+            setup_installer.start('klein_lora')
+
+
+def test_execute_klein_success_clears_model_caches(monkeypatch):
+    from app import setup_installer
+    import app.utils.comfyui as comfyui
+    calls = []
+    monkeypatch.setattr(setup_installer, '_WORKERS', {'klein_lora': lambda a: 0})
+    monkeypatch.setattr(comfyui, 'clear_model_caches', lambda: calls.append(1))
+    setup_installer._runs['klein_lora'] = setup_installer._new_run()
+    setup_installer._execute('klein_lora')
+    assert setup_installer._runs['klein_lora']['state'] == 'success'
+    assert calls == [1]

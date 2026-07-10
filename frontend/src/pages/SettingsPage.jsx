@@ -6,6 +6,8 @@ import { useCapabilities } from '../context/CapabilitiesContext'
 const SECRET_FIELDS = [
   { key: 'GEMINI_API_KEY', label: 'Gemini API key', testTarget: 'gemini', help: 'Powers the Nano Banana engine.' },
   { key: 'OPENAI_API_KEY', label: 'OpenAI API key', testTarget: 'openai', help: 'Powers the ChatGPT (gpt-image-2) engine.' },
+  { key: 'HF_TOKEN', label: 'Hugging Face token', testTarget: null,
+    help: 'Only needed to auto-download license-gated models (the Klein fp8 model). Read token from hf.co/settings/tokens, after accepting the model license.' },
 ]
 
 const ENGINE_OPTIONS = [
@@ -212,9 +214,11 @@ export default function SettingsPage() {
                 placeholder={secretsPresence[f.key] ? 'Already set — enter a new value to replace it' : 'Not set'}
                 className={INPUT_CLASS}
               />
-              <TestResult result={testResults[f.testTarget]} />
+              {f.testTarget && <TestResult result={testResults[f.testTarget]} />}
             </div>
-            <TestButton target={f.testTarget} onResult={(r) => recordTestResult(f.testTarget, r)} />
+            {f.testTarget && (
+              <TestButton target={f.testTarget} onResult={(r) => recordTestResult(f.testTarget, r)} />
+            )}
           </div>
         ))}
       </Card>

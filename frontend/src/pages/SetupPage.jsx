@@ -268,11 +268,55 @@ export default function SetupPage() {
                 generated variations (the "Face fidelity" slider drives its strength). Without it, generation still works
                 but the face drifts more.
               </p>
+              {step.dirValid ? (
+                <div className="space-y-2 rounded-md border border-border bg-surface-raised/40 p-2.5">
+                  <p className="text-content text-xs font-medium">
+                    ⬇ One-click downloads — straight into the validated ComfyUI folders:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <p className="mb-1 text-[0.6875rem] text-content-muted">
+                        Klein model (fp8) → <span className="font-mono">models/unet/klein/</span>
+                        <span className="block text-amber-300/90">
+                          License-gated: accept it on the official page, then add an HF_TOKEN in Settings → API keys.
+                        </span>
+                      </p>
+                      <InstallRunner action="klein_model" buttonLabel="⬇ Download Klein model"
+                        onDone={() => refresh(true)} />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[0.6875rem] text-content-muted">
+                        Consistency LoRA (331 MB) → <span className="font-mono">models/loras/klein/</span>
+                      </p>
+                      <InstallRunner action="klein_lora" buttonLabel="⬇ Download consistency LoRA"
+                        onDone={() => refresh(true)} />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[0.6875rem] text-content-muted">
+                        Text encoder (~8.7 GB) → <span className="font-mono">models/text_encoders/</span>
+                      </p>
+                      <InstallRunner action="klein_text_encoder" buttonLabel="⬇ Download text encoder"
+                        onDone={() => refresh(true)} />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[0.6875rem] text-content-muted">
+                        VAE (336 MB) → <span className="font-mono">models/vae/</span>
+                      </p>
+                      <InstallRunner action="klein_vae" buttonLabel="⬇ Download VAE"
+                        onDone={() => refresh(true)} />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-content-subtle">
+                  Validate the ComfyUI install directory above (Save &amp; re-check) to unlock one-click downloads.
+                </p>
+              )}
               <p className="flex flex-wrap gap-x-4 gap-y-1">
                 <a href="https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8" target="_blank" rel="noreferrer"
-                  className="text-primary underline">Download the Klein model →</a>
+                  className="text-primary underline">Official Klein model page →</a>
                 <a href="https://huggingface.co/dx8152/Flux2-Klein-9B-Consistency" target="_blank" rel="noreferrer"
-                  className="text-primary underline">Download the consistency LoRA →</a>
+                  className="text-primary underline">Official consistency LoRA page →</a>
                 <a href="https://docs.comfy.org/tutorials/flux/flux-2-klein" target="_blank" rel="noreferrer"
                   className="text-primary underline">ComfyUI setup guide →</a>
               </p>

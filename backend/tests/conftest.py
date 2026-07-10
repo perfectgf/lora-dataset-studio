@@ -13,7 +13,7 @@ def _restore_secret_env():
     test with the keys unset makes the suite independent of the local .env; tests
     that need a key set it themselves via monkeypatch.setenv."""
     import os
-    keys = ('OPENAI_API_KEY', 'GEMINI_API_KEY')
+    keys = ('OPENAI_API_KEY', 'GEMINI_API_KEY', 'HF_TOKEN')
     saved = {k: os.environ.get(k) for k in keys}
     for k in keys:
         os.environ.pop(k, None)
