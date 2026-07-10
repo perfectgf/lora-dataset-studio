@@ -487,6 +487,32 @@ def test_build_job_config_krea_raw_default_and_turbo_optin(app, tmp_path):
         assert lt._run_name(ds).endswith('_Krea-2-Turbo')
 
 
+def test_archive_previous_run_renames_never_deletes(app, tmp_path):
+    """fresh=True écarte le run existant par RENAME `*_archived_<ts>` (checkpoints
+    conservés sur disque, purgeables via le préfixe trigger) ; sans run → None."""
+    import os
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        ds = svc.create_dataset(LOCAL_USER, 'K', 'freshtrig', train_type='krea')
+        assert lt.archive_previous_run(ds) is None          # aucun run → no-op
+        run_dir = lt._output_dir() / lt._run_name(ds)
+        run_dir.mkdir(parents=True)
+        (run_dir / 'lora_freshtrig_000002000.safetensors').write_bytes(b'ck')
+        dest = lt.archive_previous_run(ds)
+        assert dest and not run_dir.exists()                # écarté, pas détruit
+        assert os.path.isfile(os.path.join(dest, 'lora_freshtrig_000002000.safetensors'))
+        # Le nom archivé reste sur la frontière du run (u<user>_<trigger>, le
+        # préfixe que purge_training_artifacts balaie) → la suppression du
+        # dataset emporte aussi les archives.
+        assert lt._trigger_boundary(os.path.basename(dest), 'ulocal_freshtrig')
+        # Un relancement voit maintenant un dossier vierge → plus d'auto-resume.
+        assert lt.archive_previous_run(ds) is None
+
+
 def test_train_settings_family_defaults(app):
     """No train_settings → researched family-aware defaults: Krea/SDXL rank 32,
     Z-Image rank 16; SDXL keeps alpha = rank/2; others alpha = rank."""

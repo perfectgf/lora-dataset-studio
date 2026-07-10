@@ -399,7 +399,10 @@ export function useDataset() {
         masked: opts.masked !== false,
         // Cible de steps absolue (plafond choisi dans TrainingPanel) — omise si
         // vide → le backend calcule la valeur adaptative (recommended_steps).
-        ...(opts.steps ? { steps: opts.steps } : {}) });
+        ...(opts.steps ? { steps: opts.steps } : {}),
+        // fresh : écarte le run existant (archivé) → repart de zéro au lieu de
+        // reprendre le dernier checkpoint (choix Resume/Fresh du TrainingPanel).
+        ...(opts.fresh ? { fresh: true } : {}) });
     // L'entraînement tourne en CLI headless (pas l'UI ai-toolkit) → on N'OUVRE PAS
     // localhost:8675 (lien mort). La progression se suit ici (checkpoints + statut).
     if (d.ok) toast.success(`Training started (${d.steps || '?'} steps) — ComfyUI paused, follow the checkpoints here`);

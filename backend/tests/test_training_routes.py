@@ -83,8 +83,12 @@ def test_train_configured_forwards_kwargs(client, monkeypatch):
         'variant': 'turbo',
         'train_type': 'sdxl',
         'allow_caption_mismatch': True,
-        'masked': False
+        'masked': False,
+        'fresh': False,          # absent du body → False (resume historique)
     }
+    # fresh=true (choix « Start fresh » du panneau) traverse jusqu'au service.
+    client.post(f'/api/dataset/{ds_id}/train', json={'fresh': True})
+    assert captured['fresh'] is True
 
 
 def test_train_value_error_returns_400(client, monkeypatch):

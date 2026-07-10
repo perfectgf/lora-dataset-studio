@@ -48,7 +48,10 @@ def dataset_train(dataset_id):
                                  variant=d.get('variant', 'turbo'),
                                  train_type=d.get('train_type'),
                                  allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),
-                                 masked=d.get('masked', True))
+                                 masked=d.get('masked', True),
+                                 # fresh=True : écarte le run existant (archivé, pas
+                                 # détruit) → repart de zéro au lieu de l'auto-resume.
+                                 fresh=bool(d.get('fresh')))
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, **res})

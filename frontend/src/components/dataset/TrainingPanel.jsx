@@ -182,6 +182,28 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       return true;
     } catch { return true; }
   };
+  // Des checkpoints existent déjà → cliquer Train demande Resume ou Fresh :
+  // ai-toolkit REPREND silencieusement le dernier checkpoint du run (les images
+  // supprimées du dataset restent apprises dans ses poids) — après un remaniement
+  // du dataset, l'utilisateur veut presque toujours repartir de zéro. Le choix
+  // résout une promesse : 'fresh' | 'resume' | null (annuler).
+  const [resumeAsk, setResumeAsk] = useState(null);   // {latest, final} | null
+  const resumeResolver = useRef(null);
+  const resolveResume = (v) => {
+    setResumeAsk(null);
+    resumeResolver.current?.(v);
+    resumeResolver.current = null;
+  };
+  const askResumeOrFresh = () => {
+    if (!checkpoints.length) return Promise.resolve('resume');   // pas de run → lancement normal
+    const latest = Math.max(...checkpoints.map((c) => c.step));
+    const final = checkpoints.some((c) => c.final);
+    return new Promise((resolve) => {
+      resumeResolver.current = resolve;
+      setResumeAsk({ latest, final });
+    });
+  };
+
   // Masked training (fond 10 %) — défaut ON, persisté (partagé lancement/file/programmation).
   const [masked, setMaskedS] = useState(() => {
     try { return localStorage.getItem('trainMasked_v1') !== '0'; } catch { return true; }
@@ -385,10 +407,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               : undefined}
           onClick={async () => {
             if (!(await preflightOk())) return;
-            let d = await ds.train({ baseModel: base, variant, trainType, masked, steps: stepsN });
+            // Run existant → Resume (continue le LoRA) ou Fresh (archive le run,
+            // repart de zéro). Le mismatch-retry re-passe fresh : le 1er appel a
+            // échoué AVANT l'archivage (assert_trainable), rien n'a été écarté.
+            const mode = await askResumeOrFresh();
+            if (!mode) return;
+            const fresh = mode === 'fresh';
+            let d = await ds.train({ baseModel: base, variant, trainType, masked, steps: stepsN, fresh });
             if (d && d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
               if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nTrain anyway (force)?')) {
-                await ds.train({ baseModel: base, variant, trainType, masked, steps: stepsN, allowCaptionMismatch: true });
+                await ds.train({ baseModel: base, variant, trainType, masked, steps: stepsN, allowCaptionMismatch: true, fresh });
               }
             }
             refreshStatus();
@@ -786,6 +814,41 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       {preflightReport && (
         <PreflightModal report={preflightReport} datasetId={ds.currentId} ds={ds}
           onResolve={resolvePreflight} />
+      )}
+
+      {/* Resume ou Fresh : un run existe déjà pour ce (trigger, base). ai-toolkit
+          reprendrait silencieusement son dernier checkpoint — on demande. */}
+      {resumeAsk && (
+        <div role="dialog" aria-modal="true" aria-label="Previous training run found"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+          onKeyDown={(e) => { if (e.key === 'Escape') resolveResume(null); }}>
+          <div className="w-full max-w-md rounded-xl border border-border bg-surface-overlay p-4 flex flex-col gap-3">
+            <h3 className="m-0 text-content font-bold text-sm">
+              ⚠ Previous run found ({resumeAsk.final ? 'complete' : 'stopped'} · step {resumeAsk.latest})
+            </h3>
+            <p className="m-0 text-content-muted text-[0.8125rem] leading-relaxed">
+              Training will <b className="text-content">resume that LoRA</b> from its last
+              checkpoint — anything it learned from images you have since removed stays in
+              its weights. If the dataset changed, start fresh instead: the old run is
+              archived (not deleted) and checkpoints already imported into ComfyUI are kept.
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button type="button" onClick={() => resolveResume('fresh')}
+                className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold">
+                ↺ Start fresh
+              </button>
+              <button type="button" onClick={() => resolveResume('resume')}
+                title="Continue the existing LoRA from its last checkpoint (only useful with a HIGHER step target)."
+                className="px-3 py-1.5 rounded-lg border border-border bg-surface text-content text-sm hover:bg-surface-raised">
+                ▶ Continue from step {resumeAsk.latest}
+              </button>
+              <button type="button" onClick={() => resolveResume(null)}
+                className="ml-auto px-3 py-1.5 rounded-lg text-content-muted hover:text-content text-sm">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

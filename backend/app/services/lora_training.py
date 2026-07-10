@@ -1256,16 +1256,40 @@ def _watch_training(app, proc, log_path, dataset_id) -> None:
         logger.warning("watcher training : post-traitement échoué : %s", e)
 
 
+def archive_previous_run(ds) -> str | None:
+    """Écarte le dossier du run existant (rename en `*_archived_<horodatage>`,
+    jamais de suppression) pour que le prochain lancement reparte de ZÉRO au lieu
+    de l'auto-resume ai-toolkit — le cas « j'ai remanié le dataset, je veux un
+    LoRA neuf ». Les checkpoints archivés restent sur disque (récupérables à la
+    main) et tombent avec le dataset : le nom garde le préfixe `lora_<trigger>`
+    donc purge_training_artifacts les balaie aussi. Les copies déjà importées
+    dans ComfyUI (loras/<famille>) ne sont pas touchées. None si aucun run."""
+    run_dir = _output_dir() / _run_name(ds)
+    if not run_dir.is_dir():
+        return None
+    dest = f'{run_dir}_archived_{datetime.now().strftime("%Y%m%d-%H%M%S")}'
+    try:
+        os.rename(run_dir, dest)
+    except OSError as e:
+        # Dossier verrouillé (ex. antivirus, explorateur ouvert) → message actionnable.
+        raise ValueError(f'could not archive the previous run ({e}) - close anything '
+                         f'using "{run_dir}" and retry')
+    logger.info('fresh training: previous run archived -> %s', dest)
+    return dest
+
+
 def launch_training(user_id, dataset_id, steps: int | None = None, check_captions: bool = True,
                     base_model=None, variant: str | None = None, train_type: str | None = None,
-                    allow_caption_mismatch: bool = False, masked: bool = True) -> dict:
+                    allow_caption_mismatch: bool = False, masked: bool = True,
+                    fresh: bool = False) -> dict:
     """Export + config + pause ComfyUI (flag) + lance l'entraînement ai-toolkit
     en CLI headless (`run.py <config>`).
 
     ``steps`` = step cible (None → calculé par recommended_steps selon le nombre
     d'images). ai-toolkit reprend AUTOMATIQUEMENT depuis le dernier checkpoint
     présent dans le training_folder (get_latest_save_path), donc relancer avec un
-    steps > dernier_step continue l'entraînement.
+    steps > dernier_step continue l'entraînement. ``fresh=True`` écarte d'abord le
+    run existant (archive_previous_run) → repart de zéro sur le dataset actuel.
 
     Retourne {pid, config_path, log_path}. Raises RuntimeError if ai-toolkit isn't
     installed/configured (route maps this to 409, not 400 - it's a backend
@@ -1325,6 +1349,9 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     ds.train_base_model = base_model
     ds.train_variant = variant
     fds.db.session.commit()
+    # Repartir de zéro : écarter le run existant APRÈS la persistance base/variante
+    # (_run_name lit les valeurs persistées → on archive bien LE run qui serait repris).
+    archived = archive_previous_run(ds) if fresh else None
     # Steps adaptatifs si non imposés ; sinon override borné (jamais < 500).
     steps = recommended_steps(dataset_id) if steps is None else max(500, int(steps))
     # masked (défaut ON) : masques personne exportés à côté du dataset → la
@@ -1365,7 +1392,8 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     except Exception as e:
         logger.warning("watcher training non démarré : %s", e)
     return {'started': True, 'pid': proc.pid, 'config_path': config_path, 'steps': steps,
-            'dataset_folder': dataset_folder, 'log_path': log_path}
+            'dataset_folder': dataset_folder, 'log_path': log_path,
+            'fresh': bool(fresh), 'archived_run': archived}
 
 
 def continue_training(user_id, dataset_id, extra_steps: int = 1000,
