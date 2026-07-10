@@ -14,6 +14,7 @@ import DatasetLightbox from './DatasetLightbox';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import GuidedChecklist from './GuidedChecklist';
 import NextStepCard from './NextStepCard';
+import TrainingReadiness from './TrainingReadiness';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
 
 /* Chaque étape du workflow est une CARTE distincte plutôt qu'un simple titre
@@ -472,6 +473,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <StepSection n={concept ? 3 : 4} {...cardProps('gf-training')}
             title="Train"
             help="turn the kept & captioned images into a LoRA — or export the ZIP (top right) to train elsewhere">
+            {/* Pastille de préparation (miroir du preflight) : refreshKey borné aux
+                compteurs pertinents → pas de re-fetch à chaque poll du dataset. */}
+            {caps.training_visible && (
+              <TrainingReadiness datasetId={d.id} trainType={d.train_type}
+                refreshKey={`${kept}|${keptCaptioned}|${pending}|${triage}|${d.caption_leak?.leaking ?? ''}`}
+                onJump={(targetId) => jumpTo({ targetId })} />
+            )}
             <TrainingPanel ds={ds} keptCount={kept} kind={d.kind} onCheckpointsChange={setCheckpointCount} />
 
             {/* Lanceur du Studio de test LoRA : page dédiée plein écran /studio?dataset=

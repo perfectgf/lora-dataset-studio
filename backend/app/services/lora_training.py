@@ -1011,7 +1011,16 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     """Pre-launch sanity report: {'blockers': [...], 'warnings': [...]}. Blockers
     stop the launch (too few images for the family); warnings ask for one explicit
     confirm in the UI. Pure reads — never mutates, never raises on probe failures
-    (an unknown GPU must not block a run)."""
+    (an unknown GPU must not block a run).
+
+    Émet AUSSI `checks` (liste structurée {id,label,status,detail,target}) +
+    `verdict` ('ready'|'warnings'|'blocked') pour la pastille de préparation du
+    workspace — construits DANS LA MÊME PASSE que blockers/warnings (une seule
+    source de vérité, aucune règle dupliquée). `target` = id de section du
+    workspace (gf-generate/gf-images) où corriger — None quand rien à cibler.
+    NB : le check 'captioned' (images gardées sans caption) est un fail dans
+    `checks` (assert_trainable refusera le launch) mais volontairement PAS un
+    blocker ici — le flux modal existant (launch → erreur explicite) est conservé."""
     from .face_variations import caption_has_identity_leak
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
@@ -1019,6 +1028,11 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     ttype = _train_type(ds, train_type)
     label = _FAMILY_LABEL.get(ttype, ttype)
     blockers, warnings = [], []
+    checks = []
+
+    def _check(cid, clabel, status, detail, target=None):
+        checks.append({'id': cid, 'label': clabel, 'status': status,
+                       'detail': detail, 'target': target})
 
     rows = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).all()
     kept = [r for r in rows if r.status == 'keep' and r.filename]
@@ -1029,8 +1043,14 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     if n < floor:
         blockers.append(f'{n} kept image(s) — the hard minimum for a {label} LoRA is {floor}. '
                         'Generate or import more before training.')
+        _check('images', 'Enough images', 'fail',
+               f'{n} kept — the hard minimum for {label} is {floor}', 'gf-generate')
     elif n < reco:
         warnings.append(f'{n} kept image(s) — {reco} recommended for a solid {label} LoRA.')
+        _check('images', 'Enough images', 'warn',
+               f'{n} kept — {reco}+ recommended for a solid {label} LoRA', 'gf-generate')
+    else:
+        _check('images', 'Enough images', 'ok', f'{n} kept ({reco}+ recommended)')
 
     # 2) équilibre de composition
     if n:
@@ -1038,23 +1058,55 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
         for r in kept:
             if r.framing in comp:
                 comp[r.framing] += 1
+        _comp_ok = True
         if comp['bust'] + comp['body'] + comp['back'] == 0:
             warnings.append('every kept image is a face shot — the LoRA will struggle to '
                             'render busts and full-body scenes.')
+            _check('composition', 'Framing balance', 'warn',
+                   'all kept images are face shots — add bust/body shots', 'gf-generate')
+            _comp_ok = False
         if fds.is_body_fidelity(ds) and comp['body'] == 0:
             warnings.append('body fidelity is ON but there is no full-body shot — the body '
                             "can't be learned without body images.")
+            if _comp_ok:
+                _check('composition', 'Framing balance', 'warn',
+                       'body fidelity is ON but there is no full-body shot', 'gf-generate')
+                _comp_ok = False
+        if _comp_ok:
+            _check('composition', 'Framing balance', 'ok',
+                   f"face {comp['face']} · bust {comp['bust']} · body {comp['body']} · back {comp['back']}")
+
+    # 3bis) toutes les gardées ont une caption (sinon assert_trainable refusera le
+    # launch) — check UNIQUEMENT (pas de doublon du blocker de launch, cf. docstring).
+    uncaptioned = sum(1 for r in kept if not (r.caption or '').strip())
+    if n:
+        if uncaptioned:
+            _check('captioned', 'Every kept image captioned', 'fail',
+                   f'{uncaptioned}/{n} kept image(s) have no caption', 'gf-images')
+        else:
+            _check('captioned', 'Every kept image captioned', 'ok', f'{n}/{n} captioned')
 
     # 3) captions suspectes (trop courtes / dupliquées)
     caps = [(r.caption or '').strip() for r in kept if (r.caption or '').strip()]
     if caps:
+        _cap_ok = True
         short = sum(1 for c in caps if len(c.split()) < 8)
         if short / len(caps) > 0.3:
             warnings.append(f'{short}/{len(caps)} caption(s) are very short (<8 words) — '
                             'weak captions weaken prompt control.')
+            _check('caption_quality', 'Caption quality', 'warn',
+                   f'{short}/{len(caps)} captions are very short (<8 words)', 'gf-images')
+            _cap_ok = False
         if len(set(c.lower() for c in caps)) < len(caps) * 0.7:
             warnings.append('many captions are identical — the model learns nothing from '
                             'repeated text; re-caption for variety.')
+            if _cap_ok:
+                _check('caption_quality', 'Caption quality', 'warn',
+                       'many captions are identical — re-caption for variety', 'gf-images')
+                _cap_ok = False
+        if _cap_ok:
+            _check('caption_quality', 'Caption quality', 'ok',
+                   'varied, ≥8 words')
 
     # 4) fuite d'identité — on RETIENT les images fautives (pas juste le compte) pour
     # que l'UI liste lesquelles au moment du preflight, éditables sur place.
@@ -1067,6 +1119,11 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
         warnings.append(f'{len(leak_images)} caption(s) still describe the identity (face/hair'
                         f'{"/body marks" if body else ""}) — it will bind to those words '
                         'instead of the trigger. Re-caption or edit them.')
+        _check('leaks', 'No identity leaks', 'warn',
+               f'{len(leak_images)} caption(s) describe hair/face/skin — identity will bind '
+               'to those words, not the trigger', 'gf-images')
+    elif caps:
+        _check('leaks', 'No identity leaks', 'ok', '0 leaking caption')
 
     # 5) quasi-doublons parmi les kept (dHash pairwise, n<=~60 -> négligeable). On
     # retient les PAIRES (leurs deux images) pour que l'UI montre lesquelles rejeter.
@@ -1087,6 +1144,10 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
         if dup_pairs:
             warnings.append(f'{len(dup_pairs)} pair(s) of kept images are near-duplicates — '
                             'the model overfits repeated content; reject one of each pair.')
+            _check('duplicates', 'No near-duplicates', 'warn',
+                   f'{len(dup_pairs)} near-duplicate pair(s) — reject one of each', 'gf-images')
+        elif n:
+            _check('duplicates', 'No near-duplicates', 'ok', '0 pair')
     except Exception:
         pass   # best-effort: an unreadable file must not block the preflight
 
@@ -1095,6 +1156,10 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     if untriaged:
         warnings.append(f'{untriaged} image(s) still await triage (✓/✕) — they will NOT '
                         'be part of the training.')
+        _check('triage', 'Everything triaged', 'warn',
+               f'{untriaged} image(s) still await ✓/✕ — they will NOT train', 'gf-images')
+    elif rows:
+        _check('triage', 'Everything triaged', 'ok', 'no image awaiting ✓/✕')
 
     # 7) VRAM (Krea 2 mesuré à 24 GB ; None = inconnu, jamais bloquant)
     try:
@@ -1103,13 +1168,21 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
         if vram is not None and ttype == 'krea' and vram < _KREA_MIN_VRAM_GB:
             warnings.append(f'Krea 2 training needs ~{_KREA_MIN_VRAM_GB} GB of VRAM at 1024 '
                             f'— this GPU reports {vram} GB; expect OOM or extreme slowness.')
+            _check('vram', 'GPU memory', 'warn',
+                   f'Krea 2 needs ~{_KREA_MIN_VRAM_GB} GB VRAM — this GPU reports {vram} GB')
     except Exception:
         pass
+
+    # Verdict agrégé pour la pastille : un fail = 🔴, sinon un warn = 🟡, sinon 🟢.
+    statuses = {c['status'] for c in checks}
+    verdict = ('blocked' if 'fail' in statuses
+               else 'warnings' if 'warn' in statuses else 'ready')
 
     return {'blockers': blockers, 'warnings': warnings,
             # Détail « lesquelles » pour l'UI : images dont la caption fuit, et paires
             # quasi-doublons — le message reste agrégé, mais on peut drill-down + agir.
             'leak_images': leak_images, 'dup_pairs': dup_pairs,
+            'checks': checks, 'verdict': verdict,
             'kept': n, 'floor': floor, 'recommended': reco}
 
 

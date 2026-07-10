@@ -152,6 +152,47 @@ def test_preflight_clean_dataset_no_findings(app, monkeypatch):
     assert [w for w in r['warnings'] if 'recommended' not in w] == []
 
 
+def test_preflight_checks_and_verdict_mirror_findings(app, monkeypatch):
+    """`checks`/`verdict` (pastille de préparation) reflètent la même passe que
+    blockers/warnings : fail → blocked, warn seul → warnings, rien → ready.
+    Les lignes en défaut portent une cible de section (gf-*) pour le saut."""
+    from app.services import lora_training as lt
+    from app import capabilities
+    with app.app_context():
+        monkeypatch.setattr(capabilities, 'gpu_vram_gb', lambda: None)
+        # 🔴 blocked : sous le plancher famille
+        r = lt.training_preflight(LOCAL_USER, _mk(app, n_keep=8).id)
+        assert r['verdict'] == 'blocked'
+        img = next(c for c in r['checks'] if c['id'] == 'images')
+        assert img['status'] == 'fail' and img['target'] == 'gf-generate'
+        # 🟡 warnings : au-dessus du plancher, sous la reco (aucun fail)
+        r2 = lt.training_preflight(LOCAL_USER, _mk(app, n_keep=15, framing='body').id)
+        assert r2['verdict'] == 'warnings'
+        assert not any(c['status'] == 'fail' for c in r2['checks'])
+        # 🟢 ready : dataset propre (reco atteinte, body, captions variées)
+        ds3 = _mk(app, n_keep=20, framing='body',
+                  caption='full body shot of the subject walking through a sunny park wearing jeans')
+        r3 = lt.training_preflight(LOCAL_USER, ds3.id)
+        assert r3['verdict'] == 'ready'
+        assert all(c['status'] == 'ok' for c in r3['checks'])
+
+
+def test_preflight_uncaptioned_kept_is_fail_check_not_blocker(app, monkeypatch):
+    """Une gardée sans caption : fail dans `checks` (assert_trainable refusera le
+    launch) mais PAS de nouveau blocker — le flux modal existant est préservé."""
+    from app.services import lora_training as lt
+    from app import capabilities
+    with app.app_context():
+        monkeypatch.setattr(capabilities, 'gpu_vram_gb', lambda: None)
+        ds = _mk(app, n_keep=13, framing='body',
+                 extra_rows=[{'filename': 'nocap.webp', 'status': 'keep', 'framing': 'body'}])
+        r = lt.training_preflight(LOCAL_USER, ds.id)
+    cap = next(c for c in r['checks'] if c['id'] == 'captioned')
+    assert cap['status'] == 'fail' and cap['target'] == 'gf-images' and '1/14' in cap['detail']
+    assert r['verdict'] == 'blocked'
+    assert r['blockers'] == []          # le launch, lui, refusera via assert_trainable
+
+
 def test_preflight_route(client, app, monkeypatch):
     from app import capabilities
     monkeypatch.setattr(capabilities, 'gpu_vram_gb', lambda: None)
