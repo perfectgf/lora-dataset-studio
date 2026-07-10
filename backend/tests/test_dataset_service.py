@@ -147,6 +147,69 @@ def test_batch_skips_foreign_and_failed(app):
         assert svc.db.session.get(FaceDatasetImage, failed[0]).status == 'failed'
 
 
+def _seed_captioned(svc, ds_id, captions):
+    from app.models import FaceDatasetImage
+    ids = []
+    for i, cap in enumerate(captions):
+        img = FaceDatasetImage(dataset_id=ds_id, filename=f'c{i}.webp',
+                               status='keep', framing='face', caption=cap)
+        svc.db.session.add(img); svc.db.session.flush(); ids.append(img.id)
+    svc.db.session.commit()
+    return ids
+
+
+def test_replace_captions_text_mode(app):
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Rc', 'rc')
+        ids = _seed_captioned(svc, ds.id, ['a woman in a red dress', 'a red car', 'no match'])
+        n = svc.replace_in_captions(LOCAL_USER, ds.id, 'red', 'blue', mode='text')
+        assert n == 2
+        caps = [svc.db.session.get(FaceDatasetImage, i).caption for i in ids]
+        assert caps == ['a woman in a blue dress', 'a blue car', 'no match']
+
+
+def test_replace_captions_tag_mode_removes_cleanly(app):
+    """Tag removal must not leave dangling commas, matches the WHOLE tag only
+    (no substring bleed into 'blue eyeshadow'), and dedupes the result."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Rt', 'rt')
+        ids = _seed_captioned(svc, ds.id, [
+            '1girl, Blue Eyes, smile, blue eyeshadow',
+            'blue eyes, standing',
+            'sitting, smile'])
+        n = svc.replace_in_captions(LOCAL_USER, ds.id, 'blue eyes', '', mode='tag')
+        assert n == 2
+        caps = [svc.db.session.get(FaceDatasetImage, i).caption for i in ids]
+        assert caps == ['1girl, smile, blue eyeshadow', 'standing', 'sitting, smile']
+        # replace variant + dedup: smile -> grin while a grin already exists
+        svc.replace_in_captions(LOCAL_USER, ds.id, 'sitting', 'smile', mode='tag')
+        assert svc.db.session.get(FaceDatasetImage, ids[2]).caption == 'smile'
+
+
+def test_replace_captions_ignores_non_kept_and_validates(app):
+    import pytest
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Rv', 'rv')
+        img = FaceDatasetImage(dataset_id=ds.id, filename='r.webp',
+                               status='reject', caption='a red car')
+        svc.db.session.add(img); svc.db.session.commit()
+        assert svc.replace_in_captions(LOCAL_USER, ds.id, 'red', 'blue') == 0
+        assert svc.db.session.get(FaceDatasetImage, img.id).caption == 'a red car'
+        with pytest.raises(ValueError):
+            svc.replace_in_captions(LOCAL_USER, ds.id, '', 'x')
+        with pytest.raises(ValueError):
+            svc.replace_in_captions(LOCAL_USER, ds.id, 'a', 'b', mode='regex')
+
+
 def test_batch_invalid_action_raises(app):
     import pytest
     from app.services import face_dataset_service as svc

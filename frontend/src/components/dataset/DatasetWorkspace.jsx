@@ -8,6 +8,7 @@ import { fmt } from '../../utils/studioFormat';
 import ImportDropzone from './ImportDropzone';
 import ConceptSourcesPanel from './ConceptSourcesPanel';
 import DatasetGrid from './DatasetGrid';
+import CaptionToolsBar from './CaptionToolsBar';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
 import { useCapabilities } from '../../context/CapabilitiesContext';
@@ -237,6 +238,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <span className="text-content-subtle text-[0.6875rem] font-normal">{images.length}</span>
           <span aria-hidden className="ml-auto text-content-subtle">{showImages ? '▾' : '▸'}</span>
         </button>
+        {showImages && (
+          <CaptionToolsBar images={images} trainType={d.train_type} onReplace={ds.replaceCaptions} busy={ds.busy} />
+        )}
         {showImages && (
           <DatasetGrid images={d.images} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}
             onCrop={setCropImg} onDelete={ds.deleteImage}

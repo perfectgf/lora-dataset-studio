@@ -367,6 +367,54 @@ def purge_unused(user_id, dataset_id):
     return n
 
 
+def replace_in_captions(user_id, dataset_id, find, replace, mode='text'):
+    """Bulk-edit the captions of KEPT images (the ones that train). Two modes:
+
+    - 'text': plain substring replace, case-sensitive.
+    - 'tag':  the caption is treated as a comma-separated tag list (booru); `find`
+      must match a WHOLE tag (trimmed, case-insensitive) and is replaced by
+      `replace` — or dropped when `replace` is empty. Avoids the ', ,' artifacts a
+      substring removal would leave in tag captions. Result is deduped
+      case-insensitively (keeping first occurrence / original casing).
+
+    Returns the number of captions actually changed."""
+    if mode not in ('text', 'tag'):
+        raise ValueError('invalid mode')
+    find = (find or '').strip() if mode == 'tag' else (find or '')
+    if not find:
+        raise ValueError('find is required')
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return 0
+    rows = (FaceDatasetImage.query
+            .filter_by(dataset_id=dataset_id, status='keep')
+            .filter(FaceDatasetImage.caption.isnot(None)).all())
+    changed = 0
+    for img in rows:
+        old = img.caption or ''
+        if mode == 'text':
+            new = old.replace(find, replace or '')
+        else:
+            tags = [t.strip() for t in old.split(',')]
+            out, seen = [], set()
+            for t in tags:
+                if not t:
+                    continue
+                nt = (replace or '').strip() if t.lower() == find.lower() else t
+                if not nt or nt.lower() in seen:
+                    continue
+                seen.add(nt.lower())
+                out.append(nt)
+            new = ', '.join(out)
+        new = new.strip()[:CAPTION_MAX_CHARS] or None
+        if new != img.caption:
+            img.caption = new
+            changed += 1
+    if changed:
+        db.session.commit()
+    return changed
+
+
 # Batch curation (multi-select in the grid). 'pending' = reset the triage state.
 BATCH_ACTIONS = ('keep', 'reject', 'pending', 'delete', 'clear_caption')
 

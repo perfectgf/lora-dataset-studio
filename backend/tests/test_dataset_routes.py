@@ -92,6 +92,25 @@ def test_import_route_reports_duplicates(client):
     assert body['imported'] == 2 and body['duplicates'] == 1 and body['failed'] == 0
 
 
+def test_captions_replace_route(client, app):
+    ds_id = _create(client, 'Rep', 'rep').get_json()['id']
+    with app.app_context():
+        from app.services import face_dataset_service as svc
+        from app.models import FaceDatasetImage
+        svc.db.session.add(FaceDatasetImage(dataset_id=ds_id, filename='x.webp',
+                                            status='keep', caption='a red dress'))
+        svc.db.session.commit()
+    assert client.post(f'/api/dataset/{ds_id}/captions/replace',
+                       json={'find': '', 'replace': 'x'}).status_code == 400
+    assert client.post('/api/dataset/999999/captions/replace',
+                       json={'find': 'red', 'replace': 'blue'}).status_code == 404
+    ok = client.post(f'/api/dataset/{ds_id}/captions/replace',
+                     json={'find': 'red', 'replace': 'blue'})
+    assert ok.status_code == 200 and ok.get_json() == {'ok': True, 'changed': 1}
+    payload = client.get(f'/api/dataset/{ds_id}').get_json()
+    assert payload['images'][0]['caption'] == 'a blue dress'
+
+
 def test_variations_catalog(client):
     resp = client.get('/api/dataset/variations')
     assert resp.status_code == 200

@@ -321,6 +321,17 @@ export function useDataset() {
     await refresh();
   }, [refresh, toast]);
 
+  // Bulk find/replace across the kept images' captions. mode 'tag' = whole-tag
+  // comma-separated replacement (booru); 'text' = plain substring.
+  const replaceCaptions = useCallback(async (find, replace, mode = 'text') => {
+    const d = await postJson(`/api/dataset/${currentId}/captions/replace`,
+      { find, replace, mode });
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return 0; }
+    toast.success(`${d.changed} caption(s) updated`);
+    await refresh();
+    return d.changed;
+  }, [currentId, refresh, toast]);
+
   // Multi-select curation: one request for the whole selection (grid checkboxes
   // + auto-triage). action: keep|reject|pending|delete|clear_caption.
   const batchImages = useCallback(async (ids, action, { silent = false } = {}) => {
@@ -440,7 +451,7 @@ export function useDataset() {
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
-           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, deleteImage, batchImages, cancelPending, regenerate, analyzing, analyzeFaces,
+           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, deleteImage, batchImages, replaceCaptions, cancelPending, regenerate, analyzing, analyzeFaces,
            purgeUnused, exportZip, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, prepareBase };

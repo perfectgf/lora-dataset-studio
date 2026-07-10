@@ -335,6 +335,23 @@ def dataset_image_regenerate(image_id):
     return jsonify({'ok': True, 'job_id': job_id})
 
 
+@bp.post('/dataset/<int:dataset_id>/captions/replace')
+def dataset_captions_replace(dataset_id):
+    """Bulk find/replace across the KEPT images' captions.
+    Body: {find: str, replace: str, mode: 'text'|'tag'} — 'tag' does whole-tag
+    (comma-separated) replacement/removal for booru captions."""
+    data = request.get_json(silent=True) or {}
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        n = svc.replace_in_captions(LOCAL_USER, dataset_id,
+                                    data.get('find'), data.get('replace') or '',
+                                    mode=data.get('mode') or 'text')
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'changed': n})
+
+
 @bp.post('/dataset/<int:dataset_id>/images/batch')
 def dataset_images_batch(dataset_id):
     """Multi-select curation: apply one action to many images in one request.
