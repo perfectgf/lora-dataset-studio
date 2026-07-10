@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CompositionBar from './CompositionBar';
 import ReferencePanel from './ReferencePanel';
@@ -21,6 +21,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const { caps } = useCapabilities();
   const d = ds.data;
   const [cropImg, setCropImg] = useState(null);
+  const zipInput = useRef(null);   // hidden input for "Import dataset (ZIP)"
   const [refCrop, setRefCrop] = useState(false);
   const [viewImg, setViewImg] = useState(null);
   const [showImages, setShowImages] = useState(true);
@@ -170,6 +171,17 @@ export default function DatasetWorkspace({ ds, onBack }) {
             className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm">
             💾 Backup
           </button>
+          <button type="button" onClick={() => zipInput.current?.click()} disabled={ds.busy}
+            title="Merge an existing training dataset into this one: a ZIP of images with kohya-style same-name .txt captions (any folder layout). Aspect kept, perceptual duplicates skipped."
+            className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
+            📦 Import dataset
+          </button>
+          <input ref={zipInput} type="file" accept=".zip,application/zip" className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) ds.importDatasetZip(f);
+              e.target.value = '';
+            }} />
         </div>
       </div>
 
@@ -242,6 +254,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
             <ImportDropzone key={`${d.id}-${bodyFid}`} onImport={(f, o) => ds.importFiles(f, o)}
               busy={ds.busy} cropOption defaultCrop={!bodyFid} />
           </div>
+
+          {/* Scraper (character datasets too): scan a gallery URL → pick → import
+              full-frame — then crop each tile manually (✂ on the card). Collapsed
+              by default to keep the reference/generate flow prominent. */}
+          <details className="rounded-lg border border-border bg-surface open:pb-3">
+            <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
+              🕸 Scrape images from the web
+              <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
+                scan a gallery URL, pick images, import full-frame — crop them afterwards
+              </span>
+            </summary>
+            <div className="px-3">
+              <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
+            </div>
+          </details>
 
           <div id="gf-generate" className="scroll-mt-20">
             <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}

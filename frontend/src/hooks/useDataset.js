@@ -488,11 +488,27 @@ export function useDataset() {
     await open(d.id);
   }, [fetchList, open, toast]);
 
+  // Merge an EXISTING training dataset (ZIP of images + kohya-style same-stem
+  // .txt captions) into the open dataset — distinct from importBackup (which
+  // restores this app's own backup format as a NEW dataset).
+  const importDatasetZip = useCallback((file) => wrap(async () => {
+    const fd = new FormData(); fd.append('file', file);
+    const d = await postJson(`/api/dataset/${currentId}/import-zip`, fd, true);
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+    const parts = [`${d.imported} imported`];
+    if (d.captions) parts.push(`${d.captions} caption(s) attached`);
+    if (d.duplicates) parts.push(`${d.duplicates} duplicate(s) skipped`);
+    if (d.failed) parts.push(`${d.failed} unreadable`);
+    toast.success(parts.join(' · '));
+    if (d.small) toast.warning(`${d.small} image(s) under 768 px — they will stay soft in training.`);
+    await refresh();
+  }), [wrap, currentId, refresh, toast]);
+
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, cancelPending, regenerate, analyzing, analyzeFaces,
-           purgeUnused, exportZip, exportBackup, importBackup, refresh, train, stopTraining, continueTraining,
+           purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, prepareBase };
 }

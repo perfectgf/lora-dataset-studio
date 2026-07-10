@@ -213,16 +213,20 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   const go = () => {
     const variations = catalog.filter((e) => selected.has(e.id))
       .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing }));
-    // NSFW shots + free-prompt custom variation: local Klein only (the toggle is
-    // gated on the Klein engine, and the backend refuses them on API engines).
+    // NSFW shots: local Klein only (the toggle is gated on the Klein engine,
+    // and the backend refuses them on API engines).
     if (nsfwMode && isKlein) {
       variations.push(...nsfwCatalog.filter((e) => selected.has(e.id))
         .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing, nsfw: true })));
-      const custom = customPrompt.trim();
-      if (custom) {
-        variations.push({ label: `🔞 ${custom.slice(0, 40)}`, prompt: custom,
-                          framing: customFraming, nsfw: true });
-      }
+    }
+    // Free-prompt custom shot: available on EVERY engine. It rides the NSFW
+    // register only when the 🔞 mode is on (Klein) — the label prefix is what
+    // regenerate uses to re-pick the uncensored wrapper.
+    const custom = customPrompt.trim();
+    if (custom) {
+      const hot = nsfwMode && isKlein;
+      variations.push({ label: `${hot ? '🔞' : '✨'} ${custom.slice(0, 40)}`, prompt: custom,
+                        framing: customFraming, ...(hot ? { nsfw: true } : {}) });
     }
     if (!variations.length) return;
     // Guard-rail: the selection survives a previous Generate, so a re-click would
@@ -510,34 +514,38 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
                   );
                 })}
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-content-muted text-[0.6875rem]" htmlFor="nsfw-custom-prompt">
-                  Custom shot (free prompt — describe state, pose and setting; it is included
-                  in the next Generate)
-                </label>
-                <div className="flex gap-1.5 items-start">
-                  <textarea id="nsfw-custom-prompt" value={customPrompt} rows={2}
-                    onChange={(e) => setCustomPrompt(e.target.value)}
-                    placeholder="e.g. full body shot, kneeling nude on a rug in front of a fireplace, warm light"
-                    className="flex-1 bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
-                  <select value={customFraming} onChange={(e) => setCustomFraming(e.target.value)}
-                    aria-label="Custom shot framing"
-                    className="bg-app/60 border border-border rounded px-1 py-1 text-[0.6875rem] text-content">
-                    {['face', 'bust', 'body', 'back'].map((fr) => (
-                      <option key={fr} value={fr}>{FRAMING_LABEL[fr]}</option>
-                    ))}
-                  </select>
-                </div>
-                <p className="text-content-subtle text-[0.625rem]">
-                  Captions must keep describing the state (nude / lingerie…) so it stays
-                  promptable and does not bind to the trigger word — the captioner does this
-                  automatically.
-                </p>
-              </div>
+              <p className="text-content-subtle text-[0.625rem]">
+                Captions must keep describing the state (nude / lingerie…) so it stays
+                promptable and does not bind to the trigger word — the captioner does this
+                automatically. The Custom shot below follows this register while 🔞 is on.
+              </p>
             </>
           )}
         </div>
       )}
+
+      {/* Custom shot — free prompt, EVERY engine (rides the 🔞 register only when
+          NSFW mode is on with Klein). Included in the next Generate alongside the
+          selected catalog shots. */}
+      <div className="flex flex-col gap-1">
+        <label className="text-content-muted text-[0.6875rem]" htmlFor="custom-shot-prompt">
+          ✨ Custom shot (free prompt — describe outfit, pose and setting; included in the
+          next Generate){nsfwMode && isKlein ? ' — 🔞 register active' : ''}
+        </label>
+        <div className="flex gap-1.5 items-start">
+          <textarea id="custom-shot-prompt" value={customPrompt} rows={2}
+            onChange={(e) => setCustomPrompt(e.target.value)}
+            placeholder="e.g. full body shot, sitting on a vintage motorbike in a garage, leather jacket, warm light"
+            className="flex-1 bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
+          <select value={customFraming} onChange={(e) => setCustomFraming(e.target.value)}
+            aria-label="Custom shot framing"
+            className="bg-app/60 border border-border rounded px-1 py-1 text-[0.6875rem] text-content">
+            {['face', 'bust', 'body', 'back'].map((fr) => (
+              <option key={fr} value={fr}>{FRAMING_LABEL[fr]}</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {isKlein && klAvailable && (
         <div className="flex flex-col gap-0.5">

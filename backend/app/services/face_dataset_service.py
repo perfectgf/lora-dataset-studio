@@ -850,6 +850,92 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     return ids, failed
 
 
+# --- Import d'un dataset d'entraînement existant (ZIP kohya-style) -----------
+# Un ZIP d'images + sidecars .txt de même nom (la convention kohya/ai-toolkit) :
+# les images gardent leur ratio (normalize_to_webp, pas de crop), les captions
+# atterrissent sur les rows, dédup perceptuelle vs le lot ET le dataset. Les
+# fichiers sont réécrits sous des noms générés (jamais celui du zip → aucune
+# traversée possible), profondeur de dossiers libre.
+DATASET_ZIP_MAX_FILES = 400
+DATASET_ZIP_MAX_BYTES = 2 * 1024 * 1024 * 1024
+_DATASET_ZIP_IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.bmp')
+
+
+def import_dataset_zip(user_id, dataset_id, zip_bytes, stats=None):
+    """Import an existing training dataset into THIS dataset (merge, not create):
+    every image in the zip becomes an 'import' row (status=keep), a same-stem
+    .txt sidecar becomes its caption (truncated to CAPTION_MAX_CHARS). Returns
+    (ids, failed). ValueError on a non-zip / oversized archive."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    try:
+        z = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    except zipfile.BadZipFile:
+        raise ValueError('not a zip file')
+    infos = [i for i in z.infolist() if not i.is_dir()]
+    if len(infos) > DATASET_ZIP_MAX_FILES:
+        raise ValueError(f'too many files in the zip (max {DATASET_ZIP_MAX_FILES})')
+    if sum(i.file_size for i in infos) > DATASET_ZIP_MAX_BYTES:
+        raise ValueError('zip too large (max 2 GB uncompressed)')
+    captions = {}
+    for i in infos:
+        if i.filename.lower().endswith('.txt') and i.file_size <= 64 * 1024:
+            try:
+                captions[os.path.splitext(i.filename)[0]] = \
+                    z.read(i).decode('utf-8', 'replace').strip()
+            except (OSError, zipfile.BadZipFile):
+                pass
+    seen = _existing_dhashes(dataset_id)
+    ids, failed = [], 0
+    for i in infos:
+        if not i.filename.lower().endswith(_DATASET_ZIP_IMG_EXTS):
+            continue
+        try:
+            raw = z.read(i)
+        except (OSError, zipfile.BadZipFile):
+            failed += 1
+            continue
+        if stats is not None:   # même garde qualité que l'import de photos
+            try:
+                with Image.open(io.BytesIO(raw)) as im0:
+                    if min(im0.size) < SCRAPE_IMPORT_MIN_SIDE:
+                        stats['small'] = stats.get('small', 0) + 1
+            except Exception:
+                pass
+        try:
+            webp = normalize_to_webp(raw)
+        except Exception as e:
+            failed += 1
+            logger.warning(f"dataset zip import: image skipped ({i.filename}): {e}")
+            continue
+        try:
+            with Image.open(io.BytesIO(webp)) as im:
+                fp = _dhash(im)
+        except (OSError, ValueError):
+            fp = None
+        if fp is not None:
+            if any(_hamming(fp, s) <= SCRAPE_DHASH_MAX_DISTANCE for s in seen):
+                if stats is not None:
+                    stats['duplicates'] = stats.get('duplicates', 0) + 1
+                continue
+            seen.append(fp)
+        fn = f"{user_id}_dsimport_{uuid.uuid4().hex[:8]}.webp"
+        with open(os.path.join(_dataset_dir(dataset_id), fn), 'wb') as fh:
+            fh.write(webp)
+        cap = (captions.get(os.path.splitext(i.filename)[0]) or '').strip() or None
+        if cap:
+            cap = cap[:CAPTION_MAX_CHARS]
+            if stats is not None:
+                stats['captions'] = stats.get('captions', 0) + 1
+        img = FaceDatasetImage(dataset_id=dataset_id, source='import', status='keep',
+                               filename=fn, caption=cap)
+        db.session.add(img)
+        db.session.commit()
+        ids.append(img.id)
+    return ids, failed
+
+
 # --- Scrape direct → dataset concept ----------------------------------------
 # Construction de dataset AUTONOME : on scanne une URL de galerie (routes scrape
 # READ-ONLY, /api/scrape/scan + /thumb) et on télécharge les images choisies

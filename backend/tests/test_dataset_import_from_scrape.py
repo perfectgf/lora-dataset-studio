@@ -134,13 +134,19 @@ def test_download_scrape_item_rejects_private_host(app):
 
 
 # --- Route -------------------------------------------------------------------
-def test_route_rejects_non_concept(client, app):
+def test_route_accepts_character_datasets(client, app):
+    """The concept-only gate is GONE: character datasets scrape too (images
+    import full-frame, the user crops tiles manually afterwards)."""
     with app.app_context():
         p = svc.create_dataset(LOCAL_USER, 'Emma', 'z')  # character
         did = p.id
-    resp = client.post(f'/api/dataset/{did}/scrape-import',
-                       json={'items': [{'url': 'http://x/a.jpg'}]})
-    assert resp.status_code == 400 and 'concept' in resp.get_json()['error']
+    fake = {'imported': 1, 'skipped': {'duplicates': 0, 'low_res': 0, 'extreme_ratio': 0,
+                                       'not_image': 0, 'errors': 0}}
+    with patch('app.routes.datasets.svc.scrape_import_urls', return_value=fake):
+        resp = client.post(f'/api/dataset/{did}/scrape-import',
+                           json={'items': [{'url': 'http://x/a.jpg'}]})
+    assert resp.status_code == 200
+    assert resp.get_json()['imported'] == 1
 
 
 def test_route_validates_payload_and_cap(client, app):

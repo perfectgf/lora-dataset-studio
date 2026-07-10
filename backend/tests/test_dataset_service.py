@@ -512,3 +512,84 @@ def test_link_completed_dataset_image_without_comfyui_configured(app):
         svc.link_completed_dataset_image('job-123', 'result.webp', failed=False)
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
         assert refreshed.status == 'failed'
+
+
+# --- Import d'un dataset existant (ZIP kohya) --------------------------------
+def _training_zip(entries):
+    """entries: list of (arcname, bytes) — builds an in-memory zip."""
+    import io as _io, zipfile as _zip
+    buf = _io.BytesIO()
+    with _zip.ZipFile(buf, 'w') as z:
+        for name, data in entries:
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+def _patterned_png(seed):
+    """Distinct NON-uniform image: solid colors all share the same (zero) dHash
+    and would read as perceptual duplicates of each other."""
+    im = Image.new('RGB', (64, 64), (255, 255, 255))
+    for i in range(8):
+        x = (seed * 13 + i * 7) % 56
+        im.paste(((seed * 37) % 255, (i * 61) % 255, (seed * 7 + i * 29) % 255),
+                 (x, i * 8, x + 8, i * 8 + 8))
+    buf = io.BytesIO(); im.save(buf, 'PNG')
+    return buf.getvalue()
+
+
+def test_import_dataset_zip_images_and_captions(app):
+    """Kohya layout: images at any depth + same-stem .txt sidecars become rows
+    with captions; non-image files are ignored; aspect is preserved."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'ZipIn', 'zipin')
+        zb = _training_zip([
+            ('10_woman/a.png', _patterned_png(1)),
+            ('10_woman/a.txt', b'a woman standing on a beach, bikini'),
+            ('10_woman/b.png', _patterned_png(2)),
+            ('notes.md', b'ignore me'),
+        ])
+        stats = {}
+        ids, failed = svc.import_dataset_zip(LOCAL_USER, ds.id, zb, stats=stats)
+        assert len(ids) == 2 and failed == 0
+        assert stats.get('captions') == 1
+        rows = FaceDatasetImage.query.filter_by(dataset_id=ds.id).all()
+        caps = {r.caption for r in rows}
+        assert 'a woman standing on a beach, bikini' in caps
+        assert all(r.status == 'keep' and r.source == 'import' for r in rows)
+
+
+def test_import_dataset_zip_dedupes_and_rejects_bad_zip(app):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'ZipDup', 'zipdup')
+        same = _png((7, 7, 7))
+        zb = _training_zip([('a.png', same), ('b.png', same)])   # perceptual dupe
+        stats = {}
+        ids, _ = svc.import_dataset_zip(LOCAL_USER, ds.id, zb, stats=stats)
+        assert len(ids) == 1 and stats.get('duplicates') == 1
+        try:
+            svc.import_dataset_zip(LOCAL_USER, ds.id, b'not a zip at all')
+            assert False, 'expected ValueError'
+        except ValueError as e:
+            assert 'zip' in str(e)
+
+
+def test_import_zip_route(client, app):
+    import io as _io
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'ZipRoute', 'ziproute')
+        did = ds.id
+    zb = _training_zip([('img.png', _png((9, 90, 200))), ('img.txt', b'caption here')])
+    resp = client.post(f'/api/dataset/{did}/import-zip',
+                       data={'file': (_io.BytesIO(zb), 'train.zip')},
+                       content_type='multipart/form-data')
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['imported'] == 1 and body['captions'] == 1
+    assert client.post(f'/api/dataset/{did}/import-zip').status_code == 400  # no file

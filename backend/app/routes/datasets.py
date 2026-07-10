@@ -351,15 +351,14 @@ def dataset_import(dataset_id):
 
 @bp.post('/dataset/<int:dataset_id>/scrape-import')
 def dataset_scrape_import(dataset_id):
-    """Scrape DIRECT → dataset CONCEPT : downloads the SELECTED scanned images
+    """Scrape DIRECT → dataset: downloads the SELECTED scanned images
     ({items:[{url,title}]}) straight into the dataset. Quality filters + dedup
-    live in the service. Concept-only (the character path would need per-image
-    head-crop + a GPU window)."""
+    live in the service. Open to ALL dataset kinds: images import full-frame
+    (aspect kept, no head-crop) and the user crops each tile manually — the old
+    concept-only gate dated from when character imports forced a GPU head-crop."""
     ds = svc.get_dataset(LOCAL_USER, dataset_id)
     if not ds:
         return jsonify({'error': 'not found'}), 404
-    if not svc.is_concept(ds):
-        return jsonify({'error': 'concept datasets only'}), 400
     data = request.get_json(silent=True) or {}
     items = data.get('items') or []
     if not isinstance(items, list) or not items:
@@ -455,6 +454,27 @@ def dataset_image_regenerate(image_id):
     if job_id is None:
         return jsonify({'error': 'not found'}), 404
     return jsonify({'ok': True, 'job_id': job_id})
+
+
+@bp.post('/dataset/<int:dataset_id>/import-zip')
+def dataset_import_zip(dataset_id):
+    """Merge an EXISTING training dataset (ZIP of images + kohya-style same-stem
+    .txt captions) into this dataset. Aspect preserved, dHash dedupe, captions
+    attached to the rows."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'error': 'no file'}), 400
+    stats = {}
+    try:
+        ids, failed = svc.import_dataset_zip(LOCAL_USER, dataset_id, f.read(), stats=stats)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
+                    'duplicates': stats.get('duplicates', 0),
+                    'captions': stats.get('captions', 0),
+                    'small': stats.get('small', 0)})
 
 
 @bp.post('/dataset/<int:dataset_id>/captions/replace')
