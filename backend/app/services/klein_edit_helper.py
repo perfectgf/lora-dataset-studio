@@ -90,37 +90,56 @@ def _find_model_file(subparts, canonical, tokens):
     return None
 
 
-def resolve_klein_unet(selected=None):
-    """ComfyUI-relative `unet_name` for node 114, or None if no Klein model is on
-    disk. Scans models/unet/klein/ and models/diffusion_models/klein/ (the folders
-    the capability gate and the Setup downloads use) and returns the value WITH its
-    subfolder prefix (e.g. 'klein\\flux-2-klein-9b-fp8.safetensors'): a UNETLoader
-    lists files relative to models/unet, so the bare filename the picker sends is
-    not loadable on its own — the missing 'klein\\' prefix is the whole bug.
-    Inside klein/ every file IS a Klein UNET, so the picker's choice wins, then
-    the canonical download, then the first file."""
+def _klein_unet_folders():
+    """(subfolder_name, [model files]) for every 'klein'-named subfolder under
+    models/unet and models/diffusion_models — mirrors capabilities._scan_models,
+    so anything the picker lists is resolvable here. unet/ first (the canonical
+    download location), then shared-install folders like 'Flux2 klein'."""
     root = _models_root()
     if not root:
-        return None
-    bare_pick = os.path.basename(selected) if selected else None
-    canonical = _canonical_name('klein_model')
+        return []
+    out = []
     for base in ('unet', 'diffusion_models'):
-        folder = os.path.join(root, base, 'klein')
+        base_dir = os.path.join(root, base)
         try:
-            names = sorted(n for n in os.listdir(folder)
-                           if n.lower().endswith(_MODEL_SUFFIXES))
+            subs = sorted(d for d in os.listdir(base_dir)
+                          if 'klein' in d.lower() and os.path.isdir(os.path.join(base_dir, d)))
         except OSError:
             continue
-        if not names:
-            continue
-        if bare_pick and bare_pick in names:
-            pick = bare_pick
-        elif canonical in names:
-            pick = canonical
-        else:
-            pick = names[0]
-        return os.path.join('klein', pick)
-    return None
+        for sub in subs:
+            try:
+                names = sorted(n for n in os.listdir(os.path.join(base_dir, sub))
+                               if n.lower().endswith(_MODEL_SUFFIXES))
+            except OSError:
+                continue
+            if names:
+                out.append((sub, names))
+    return out
+
+
+def resolve_klein_unet(selected=None):
+    """ComfyUI-relative `unet_name` for node 114, or None if no Klein model is on
+    disk. Returns the value WITH its subfolder prefix (e.g.
+    'klein\\flux-2-klein-9b-fp8.safetensors' or 'Flux2 klein\\...-kv-fp8.safetensors'):
+    a UNETLoader lists files relative to models/unet (or diffusion_models), so the
+    bare filename the picker sends is not loadable on its own — the missing
+    subfolder prefix was the original bug. Preference: the picker's choice
+    (searched across ALL klein folders), then the canonical download, then the
+    first file found."""
+    folders = _klein_unet_folders()
+    if not folders:
+        return None
+    bare_pick = os.path.basename(selected) if selected else None
+    if bare_pick:
+        for sub, names in folders:
+            if bare_pick in names:
+                return os.path.join(sub, bare_pick)
+    canonical = _canonical_name('klein_model')
+    for sub, names in folders:
+        if canonical in names:
+            return os.path.join(sub, canonical)
+    sub, names = folders[0]
+    return os.path.join(sub, names[0])
 
 
 def resolve_klein_vae():

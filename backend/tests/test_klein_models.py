@@ -301,6 +301,36 @@ def test_klein_fanout_passes_dataset_extra_refs(app, tmp_path, monkeypatch):
         assert wf['77']['inputs']['positive'] == ['ds_ref1_latent', 0]
 
 
+# --- Shared installs: klein models under diffusion_models/ -------------------
+def test_scan_models_sees_klein_in_diffusion_models(app, tmp_path):
+    """Shared ComfyUI installs keep e.g. diffusion_models/'Flux2 klein'/ (the KV
+    variant) next to our canonical unet/klein/ download — both must feed the
+    capability gate and the picker, deduped."""
+    from app import config as cfg, capabilities
+    with app.app_context():
+        base = _comfy(tmp_path, cfg)     # unet/klein/flux-2-klein-9b-fp8
+        _install(base, 'models', 'diffusion_models', 'Flux2 klein',
+                 'flux-2-klein-9b-kv-fp8.safetensors')
+        models = capabilities._scan_models()
+        assert 'flux-2-klein-9b-fp8.safetensors' in models['klein']
+        assert 'flux-2-klein-9b-kv-fp8.safetensors' in models['klein']
+
+
+def test_resolver_honours_pick_from_diffusion_models_folder(app, tmp_path):
+    """Picking the KV variant in the picker must resolve to its OWN subfolder
+    prefix ('Flux2 klein\\...'), not be silently swapped for the unet/klein file."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg)
+        _install(base, 'models', 'diffusion_models', 'Flux2 klein',
+                 'flux-2-klein-9b-kv-fp8.safetensors')
+        assert keh.resolve_klein_unet('flux-2-klein-9b-kv-fp8.safetensors') == \
+            os.path.join('Flux2 klein', 'flux-2-klein-9b-kv-fp8.safetensors')
+        # No pick -> canonical download still wins.
+        assert keh.resolve_klein_unet() == os.path.join('klein', 'flux-2-klein-9b-fp8.safetensors')
+
+
 # --- NSFW mode (local Klein only) -------------------------------------------
 def test_nsfw_catalog_entries_are_well_formed():
     from app.services.face_variations import NSFW_VARIATION_CATALOG, is_nsfw_label

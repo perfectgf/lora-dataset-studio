@@ -186,12 +186,16 @@ def _scan_models() -> dict:
             name = sub.name
             if _ZIMAGE_RE.search(name):
                 result['zimage'].extend(_model_files(sub))
-            elif base_name == 'unet':
-                if name.lower() == 'klein':
-                    result['klein'].extend(_model_files(sub))
-                elif name.lower().startswith('krea'):
-                    result['krea'].extend(_model_files(sub))
+            # Any 'klein'-named subfolder under unet/ OR diffusion_models/ counts:
+            # shared installs keep e.g. diffusion_models/'Flux2 klein'/ (the KV
+            # variant) next to our canonical unet/klein/ download — hiding it made
+            # the picker blind to models the user already owns.
+            elif 'klein' in name.lower():
+                result['klein'].extend(_model_files(sub))
+            elif base_name == 'unet' and name.lower().startswith('krea'):
+                result['krea'].extend(_model_files(sub))
 
+    result['klein'] = sorted(set(result['klein']))
     result['sdxl'] = _model_files(models_dir / 'checkpoints')
     return result
 
