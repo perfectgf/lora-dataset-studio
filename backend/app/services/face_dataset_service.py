@@ -1585,7 +1585,8 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                 job_id = enqueue_klein_edit(
                     user_id=str(user_id), source_filename=ds.ref_filename,
                     source_path=_ref_path(ds),
-                    edit_prompt=wrap_variation_klein(v['prompt'], nsfw=nsfw),
+                    edit_prompt=wrap_variation_klein(v['prompt'], nsfw=nsfw,
+                                                     framing=v.get('framing')),
                     klein_model=klein_model,
                     lora_strength=lora_strength, extra_ref_paths=extra_paths,
                     extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
@@ -1671,7 +1672,8 @@ def regenerate_image(user_id, image_id, lora_strength=None, app=None):
     job_id = enqueue_klein_edit(
         user_id=str(user_id), source_filename=ds.ref_filename,
         source_path=_ref_path(ds),
-        edit_prompt=wrap_variation_klein(prompt, nsfw=is_nsfw_label(img.variation_label)),
+        edit_prompt=wrap_variation_klein(prompt, nsfw=is_nsfw_label(img.variation_label),
+                                         framing=img.framing),
         klein_model=img.klein_model,
         lora_strength=lora_strength, extra_ref_paths=extra_paths,
         extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,

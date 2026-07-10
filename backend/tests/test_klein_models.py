@@ -423,6 +423,22 @@ def test_variations_route_ships_nsfw_catalog_separately(client):
         assert not any(i.startswith('nsfw_') for i in ids)
 
 
+def test_wrap_klein_framing_detail_enriches_local_prompts():
+    """Klein prompt study (fal.ai/BFL guides): Klein under-fills terse tag
+    prompts (unlike the API engines which embellish on their own) — each framing
+    injects a concrete full-intended-result description. API wrapper untouched."""
+    from app.services.face_variations import wrap_variation, wrap_variation_klein
+    body = wrap_variation_klein('full body shot, standing in a cafe', framing='body')
+    assert 'head to toe' in body and '35mm' in body
+    face = wrap_variation_klein('close-up portrait, smiling', framing='face')
+    assert '85mm' in face and 'eyes in crisp focus' in face
+    none = wrap_variation_klein('anything')          # unknown/absent framing -> no detail block
+    assert '85mm' not in none and 'head to toe' not in none
+    # The photographic tail is Klein-only steering (negatives are dead at CFG 1).
+    assert 'natural skin texture' in body
+    assert 'natural skin texture' not in wrap_variation('full body shot')
+
+
 def test_wrap_variation_klein_is_instruction_first(app):
     """Klein is an instruction-edit model (Kontext lineage): the wrapper must ASK
     FOR THE CHANGE first and constrain the face second. The API-engine order

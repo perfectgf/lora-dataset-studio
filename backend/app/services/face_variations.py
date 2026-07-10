@@ -32,25 +32,55 @@ def wrap_variation(prompt: str, ref_count: int = 1) -> str:
     return f"{guard} {prompt}"
 
 
-def wrap_variation_klein(prompt: str, nsfw: bool = False) -> str:
+# Enrichissement PAR CADRAGE pour Klein (étude prompts 2026-07-10, sources :
+# guide fal.ai Flux2-klein + guide BFL FLUX.2) : Klein veut des descriptions
+# CONCRÈTES et détaillées (hiérarchie sujet → cadre → technique) — les tags
+# télégraphiques du catalogue suffisent aux moteurs API (qui brodent seuls)
+# mais SOUS-spécifient Klein, qui comble les trous arbitrairement.
+_KLEIN_FRAMING_DETAIL = {
+    'face': ('Close-up head-and-shoulders portrait: the face fills most of the frame, '
+             'both eyes in crisp focus, 85mm portrait lens look with gentle background '
+             'separation.'),
+    'bust': ('Half-length portrait from the waist up: torso and shoulders naturally '
+             'posed, hands relaxed if visible, 50mm lens look.'),
+    'body': ('Full-length shot: the ENTIRE body visible from head to toe including the '
+             'feet, natural standing distance, 35mm lens look, the figure well '
+             'proportioned within the frame.'),
+    'back': ('Seen from behind: back to the camera, head direction natural, full or '
+             'three-quarter figure.'),
+}
+
+
+def wrap_variation_klein(prompt: str, nsfw: bool = False, framing: str | None = None) -> str:
     """Klein (FLUX.2, Kontext-lineage) is an INSTRUCTION-edit model: it follows
     imperative edit commands (the consistency LoRA's own usage example is "Turn
     this cat into a dog"). The API-engine wrapper above — preservation order
     FIRST, descriptive tags after — reads as "change nothing", so Klein returned
     a near-copy of the reference (live repro 2026-07-10: every variation looked
-    like a plain upscale). Order matters: ask for the CHANGE first, constrain
-    the FACE second.
+    like a plain upscale). Structure follows the fal.ai/BFL edit guidance:
+      1. direct command first (the change),
+      2. the FULL intended result (framing-specific detail — Klein under-fills
+         terse tag prompts, unlike the API engines which embellish on their own),
+      3. restage + identity constraints,
+      4. photographic/technical tail.
+    NEGATIVE PROMPTS: dead end at CFG 1 (guidance-distilled model — the sampler
+    ignores the negative conditioning entirely; ComfyUI-NAG would be needed to
+    restore them). All steering therefore lives in the POSITIVE prompt.
     `nsfw=True` (local Klein only — the route refuses NSFW on API engines) drops
     the SFW clamp and allows explicit nudity with natural anatomy."""
+    detail = _KLEIN_FRAMING_DETAIL.get(framing or '', '')
     ending = ("Explicit nudity is allowed; render natural, anatomically correct forms. "
-              "Realistic photograph.") if nsfw else "Realistic photograph, SFW."
+              "Professional realistic photograph.") if nsfw else \
+             "Professional realistic photograph, SFW."
     return (
         f"Create a new photograph of the same person as the reference image: {prompt}. "
-        "Restage the shot to match this description — change the pose, camera angle and "
-        "framing accordingly; do not copy the composition of the reference image. "
-        "Keep the facial identity exactly the same: same eye shape and color, nose, "
-        "jawline, lips, skin tone and texture, and face proportions. "
-        f"Do not beautify or alter the face. {ending}")
+        + (f"{detail} " if detail else "")
+        + "Restage the shot to match this description — change the pose, camera angle and "
+          "framing accordingly; do not copy the composition of the reference image. "
+          "Keep the facial identity exactly the same: same eye shape and color, nose, "
+          "jawline, lips, skin tone and texture, and face proportions. Do not beautify "
+          "or alter the face. Sharp focus, natural skin texture with visible pores, "
+          f"realistic lighting with soft shadows, high detail. {ending}")
 
 
 def _e(i, axis, framing, label, prompt, co=False, cb=False, aspect=None):
