@@ -58,7 +58,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     let alive = true;
     ds.trainBaseInfo?.().then((info) => {
       if (alive && info) {
-        setBaseInfo(info); setBase(info.base || ''); setVariant(info.variant || 'turbo');
+        setBaseInfo(info); setBase(info.base || '');
+        // Défaut family-aware : Krea sans variante persistée → Raw (reco officielle
+        // « train on Raw, validate on Turbo ») ; les autres familles → Turbo.
+        setVariant(info.variant || ((info.train_type || 'zimage') === 'krea' ? 'base' : 'turbo'));
         setTrainType(info.train_type || 'zimage');
       }
     });
@@ -102,6 +105,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     setTrainType(t);
     const list = baseInfo?.bases_by_type?.[t] || [];
     setBase(t === 'sdxl' ? (list[0]?.value || '') : '');
+    // Krea → Raw par défaut (reco officielle « train on Raw, validate on Turbo »).
+    if (t === 'krea') setVariant('base');
     ds.setDatasetTrainType?.(t);
   };
 
@@ -350,7 +355,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               aria-label="Base model"
               className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[230px]">
               {(currentBases.length ? currentBases
-                : [{ value: '', label: trainType === 'sdxl' ? (comfyConfigured ? 'No SDXL checkpoint found' : 'ComfyUI not configured') : trainType === 'krea' ? 'Official — Krea 2 Turbo' : 'Official — Z-Image-Turbo' }]).map((b) => (
+                : [{ value: '', label: trainType === 'sdxl' ? (comfyConfigured ? 'No SDXL checkpoint found' : 'ComfyUI not configured') : trainType === 'krea' ? 'Official — Krea 2' : 'Official — Z-Image-Turbo' }]).map((b) => (
                 <option key={b.value} value={b.value}>
                   {b.label}{b.value && baseInfo?.converted?.[b.value] ? ' ✓' : ''}
                 </option>
@@ -363,6 +368,18 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 <option value="turbo">Turbo (distilled)</option>
                 <option value="base">Base (non-distilled)</option>
                 <option value="deturbo">De-Turbo</option>
+              </select>
+            )}
+            {/* Krea 2 : reco officielle « train on Raw, validate on Turbo ». Le RAW
+                (non distillé) est le checkpoint prévu pour le fine-tuning ; sa LoRA
+                transfère vers Turbo à l'inférence. Turbo+adapter = alternative VRAM. */}
+            {trainType === 'krea' && (
+              <select value={variant} onChange={(e) => setVariant(e.target.value)}
+                aria-label="Krea 2 training base"
+                title="Krea 2 training base — Raw is the official recommendation (best quality; the LoRA transfers to Turbo at inference). Turbo+adapter is the VRAM-friendly alternative. First Raw training downloads the Raw weights (~24 GB) and runs longer."
+                className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                <option value="base">Raw (recommended)</option>
+                <option value="turbo">Turbo (w/ adapter)</option>
               </select>
             )}
           </div>

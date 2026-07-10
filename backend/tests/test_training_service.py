@@ -380,8 +380,9 @@ def test_continue_training_refuses_while_in_progress(app):
 
 
 def test_process_training_queue_rearms_ttl_while_pid_alive(app, monkeypatch):
-    """A training run longer than the 4h TTL must not have its flags expire
-    mid-run: each poll while the pid is still alive re-arms them."""
+    """A training run longer than the state TTL (_TRAIN_STATE_TTL, 12h — long
+    enough for a Krea-2-Raw run) must not have its flags expire mid-run: each
+    poll while the pid is still alive re-arms them."""
     from app.services import lora_training as lt
     from app.job_queue import queue_manager
     with app.app_context():
@@ -440,3 +441,47 @@ def test_import_list_delete_checkpoint_roundtrip_filesystem_scan(app, tmp_path):
         assert removed_name == ck_name
         assert not os.path.isfile(dest)
         assert lt.list_imported_checkpoints(LOCAL_USER, ds.id) == []
+
+
+def test_default_variant_is_family_aware():
+    """Raw is the default ONLY for Krea (official « train on Raw » reco); every
+    other family keeps Turbo. This is what makes « Raw par défaut » hold on the
+    launch/queue paths even when no variant is passed."""
+    from app.services import lora_training as lt
+    assert lt._default_variant_for('krea') == 'base'      # -> Krea-2-Raw
+    assert lt._default_variant_for('zimage') == 'turbo'
+    assert lt._default_variant_for('sdxl') == 'turbo'
+    assert lt._default_variant_for(None) == 'turbo'
+
+
+def test_build_job_config_krea_raw_default_and_turbo_optin(app, tmp_path):
+    """Krea 2 defaults to the RAW base (non-distilled krea/Krea-2-Raw, NO training
+    adapter, previews at CFG 4 / 25 steps). Opting into Turbo swaps to
+    krea/Krea-2-Turbo + the Ostris adapter and CFG 1 / 8 steps. The two must carry
+    DIFFERENT run-name tags so their incompatible weights never share a folder."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        ds = svc.create_dataset(LOCAL_USER, 'Kira', 'zchar_kira', train_type='krea')
+        folder = tmp_path / 'ds'; folder.mkdir()
+
+        # Default (no train_variant persisted) -> RAW, the recommended base.
+        assert lt._krea_is_raw(ds) is True
+        rp = lt.build_job_config(ds, str(folder), steps=1500)['config']['process'][0]
+        assert rp['model']['name_or_path'] == 'krea/Krea-2-Raw'
+        assert 'assistant_lora_path' not in rp['model']
+        assert rp['sample']['guidance_scale'] == 4 and rp['sample']['sample_steps'] == 25
+        assert lt._run_name(ds).endswith('_Krea-2-Raw')
+
+        # Opt into Turbo -> Turbo base + adapter + Turbo sampling + distinct tag.
+        ds.train_variant = 'turbo'
+        svc.db.session.commit()
+        assert lt._krea_is_raw(ds) is False
+        tp = lt.build_job_config(ds, str(folder), steps=1500)['config']['process'][0]
+        assert tp['model']['name_or_path'] == 'krea/Krea-2-Turbo'
+        assert 'krea2_turbo_training_adapter' in tp['model']['assistant_lora_path']
+        assert tp['sample']['guidance_scale'] == 1 and tp['sample']['sample_steps'] == 8
+        assert lt._run_name(ds).endswith('_Krea-2-Turbo')

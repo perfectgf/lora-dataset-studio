@@ -42,6 +42,18 @@ logger = logging.getLogger(__name__)
 # (cadence prouvée). Curseur de tuning #1, un seul endroit.
 KREA_TRAIN_RESOLUTION = 1024
 
+# TTL des flags system_state d'un run (training_in_progress / _pid / _dataset_id /
+# _target_step). L'anti-concurrence repose sur le PID VIVANT, mais le GARDE lit
+# d'abord le flag `training_in_progress` (cf. is-training checks) : si son TTL
+# expire AU MILIEU d'un run, le flag retombe à False, le garde rouvre la porte et
+# la file lance un 2e entraînement par-dessus le 1er (collision mémoire → « page
+# file too small »). Un run Krea-2-Raw (non distillé, CFG 4 / 25 steps de preview)
+# dépasse 4 h → l'ancien TTL 4 h expirait avant la fin ET privait le snapshot du
+# checkpoint final de son target_step. 12 h couvre le plus long run réaliste ;
+# `process_training_queue` re-arme de toute façon les flags à chaque poll tant que
+# le PID vit, donc c'est une ceinture, pas la bretelle.
+_TRAIN_STATE_TTL = 12 * 3600
+
 
 # --- Path accessors (replace SRC's module-level AITOOLKIT_DIR/HF_HOME/... constants) --
 
@@ -241,6 +253,23 @@ def _base_tag(ds) -> str:
 KREA_BASE_LABEL = 'Krea-2-Turbo'   # mirrors name_or_path 'krea/Krea-2-Turbo'
 
 
+def _krea_is_raw(ds) -> bool:
+    """Krea 2 training base. `train_variant` 'base'/'raw' → Krea-2-Raw (non-distilled,
+    the official recommendation « train on Raw, validate on Turbo » — best quality,
+    the LoRA transfers to Turbo at inference); 'turbo' → Krea-2-Turbo + Ostris adapter
+    (VRAM-friendly). Default RAW when unset — that's the chosen product default, so the
+    tag and the job-config never disagree even if train_variant was never persisted."""
+    return (getattr(ds, 'train_variant', None) or 'base').lower() in ('base', 'raw')
+
+
+def _default_variant_for(family) -> str:
+    """Variante par défaut d'une famille quand aucune n'est fournie NI persistée :
+    Krea → 'base' (Raw, reco officielle), sinon 'turbo'. Utilisé par tous les
+    chemins de lancement (direct / file / reprise) pour que « Raw par défaut » tienne
+    de bout en bout, pas seulement quand l'UI envoie explicitement la variante."""
+    return 'base' if (family or 'zimage') == 'krea' else 'turbo'
+
+
 def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
     """Deployment-name suffix, family-aware. Like _base_tag, but for Krea
     (which has no base column - always Krea-2-Turbo) falls back to a constant tag
@@ -248,7 +277,10 @@ def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
     sélecteur UI de router vers Krea même si le train_type persisté diffère."""
     tag = _base_tag(ds) if base_model is _PERSISTED else _base_tag_for(base_model)
     if not tag and _train_type(ds, family) == 'krea':
-        tag = _base_tag_for(KREA_BASE_LABEL)   # -> '_Krea-2-Turbo'
+        # Raw and Turbo are DIFFERENT base checkpoints → distinct tags so their
+        # run folders / deployed LoRA names never collide (same trigger, same
+        # family, but incompatible weights would otherwise share a folder).
+        tag = _base_tag_for('Krea-2-Raw' if _krea_is_raw(ds) else KREA_BASE_LABEL)
     return tag
 
 
@@ -470,27 +502,33 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
 
 
 def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
-    """Job-config ai-toolkit pour le preset officiel `krea2:turbo`
-    (« Krea 2 Turbo w/ Training Adapter »). Valeurs alignées sur l'UI ai-toolkit
-    (ui/src/app/jobs/new/options.ts, entrée 'krea2:turbo', 2026-06-25) :
-    arch='krea2', name_or_path='krea/Krea-2-Turbo', assistant_lora_path = l'adapter
-    de training Krea 2 Turbo (retiré à l'inférence, exactement comme Z-Image),
-    quantize qfloat8 + low_vram pour tenir sur 24 Go.
+    """Job-config ai-toolkit pour Krea 2. Deux bases selon `train_variant` (cf.
+    _krea_is_raw), toutes deux arch='krea2', alignées sur l'UI ai-toolkit
+    (ui/src/app/jobs/new/options.ts) :
 
-    NB : Krea 2 s'entraîne DIRECTEMENT sur Turbo via l'adapter → pas besoin du RAW.
-    ⚠️ Requiert ai-toolkit À JOUR (commit « Add support for Krea2 », arch 'krea2')
-    sinon l'arch est inconnue (garde _aitoolkit_supports_krea). Réseau = 'lora' : VÉRIFIÉ
-    canonique 2026-06-26 (le preset options.ts `krea2:turbo` ne force PAS lokr ; le commit
-    « new lokr format » = format de SAUVEGARDE dispo, pas une obligation). Résolution
-    abaissée à KREA_TRAIN_RESOLUTION (768) car 1024 sature les 24 Go → ~180 s/it."""
+    - RAW (défaut, reco officielle « train on Raw, validate on Turbo ») :
+      name_or_path='krea/Krea-2-Raw' (non distillé), AUCUN assistant_lora_path (rien
+      à dé-distiller), previews en CFG 4 / 25 steps (le Raw a besoin d'un vrai CFG).
+      1er run = download des poids Raw (~24 Go) et run > 4 h → d'où _TRAIN_STATE_TTL 12 h.
+    - TURBO (opt-in, VRAM-friendly) : name_or_path='krea/Krea-2-Turbo' + l'adapter de
+      training Ostris (retiré à l'inférence, comme Z-Image), previews CFG 1 / 8 steps.
+
+    Commun : quantize qfloat8 + low_vram pour tenir sur 24 Go. ⚠️ Requiert ai-toolkit
+    À JOUR (commit « Add support for Krea2 », arch 'krea2') sinon l'arch est inconnue
+    (garde _aitoolkit_supports_krea). Réseau = 'lora' : VÉRIFIÉ canonique 2026-06-26.
+    Résolution KREA_TRAIN_RESOLUTION (1024, TE déchargé) car 768 seul tenait sinon."""
     trigger = _safe_trigger(ds)
+    is_raw = _krea_is_raw(ds)
     model = {
         'arch': 'krea2',
-        'name_or_path': 'krea/Krea-2-Turbo',
+        'name_or_path': 'krea/Krea-2-Raw' if is_raw else 'krea/Krea-2-Turbo',
         'quantize': True, 'quantize_te': True, 'low_vram': True, 'qtype': 'qfloat8',
-        'assistant_lora_path': ('ostris/krea2_turbo_training_adapter/'
-                                'krea2_turbo_training_adapter_v1.safetensors'),
     }
+    # Adapter de dé-distillation : Turbo UNIQUEMENT (le Raw est déjà non distillé →
+    # rien à retirer ; le charger dessus dégraderait le training).
+    if not is_raw:
+        model['assistant_lora_path'] = ('ostris/krea2_turbo_training_adapter/'
+                                        'krea2_turbo_training_adapter_v1.safetensors')
     return {
         'job': 'extension',
         'config': {
@@ -533,8 +571,9 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
                     'sampler': 'flowmatch',
                     'neg': '',
                     'sample_every': 250,
-                    'guidance_scale': 1,  # Turbo : cfg 1 / 8 steps (options.ts)
-                    'sample_steps': 8,
+                    # Turbo (distillé) : cfg 1 / 8 steps ; Raw (non distillé) : cfg 4 / 25 steps.
+                    'guidance_scale': 4 if is_raw else 1,
+                    'sample_steps': 25 if is_raw else 8,
                     'prompts': [
                         f'{trigger}, close-up portrait, neutral expression',
                         f'{trigger}, headshot, soft studio light',
@@ -1036,7 +1075,7 @@ def _watch_training(app, proc, log_path, dataset_id) -> None:
 
 
 def launch_training(user_id, dataset_id, steps: int | None = None, check_captions: bool = True,
-                    base_model=None, variant: str = 'turbo', train_type: str | None = None,
+                    base_model=None, variant: str | None = None, train_type: str | None = None,
                     allow_caption_mismatch: bool = False, masked: bool = True) -> dict:
     """Export + config + pause ComfyUI (flag) + lance l'entraînement ai-toolkit
     en CLI headless (`run.py <config>`).
@@ -1069,9 +1108,11 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # avoir été converti en diffusers d'abord (gate). On persiste le choix sur le
     # dataset → _run_name/_run_dir/list_checkpoints deviennent base-aware (run isolé).
     base_model = (base_model or '').strip() or None
-    variant = (variant or 'turbo').lower()
+    variant = (variant or '').strip().lower()
     if variant not in ('turbo', 'base', 'deturbo'):
-        variant = 'turbo'
+        # Aucune variante valide fournie → défaut family-aware (Krea → Raw). La famille
+        # de CE lancement vient du param train_type s'il est donné, sinon du dataset.
+        variant = _default_variant_for(train_type or getattr(ds, 'train_type', None))
     if train_type is not None:
         ds.train_type = train_type
     # Conversion diffusers : UNIQUEMENT pour Z-Image (SDXL = single-file direct,
@@ -1111,11 +1152,11 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # Pause GPU longue durée : le superviseur stoppe ComfyUI -> comfyui_ready=False
     # -> le dispatch worker se met en pause tout seul.
     queue_manager._set_system_state('training_error', None, ttl_seconds=1)  # reset crash précédent
-    queue_manager._set_system_state('training_in_progress', True, ttl_seconds=4 * 3600)
-    queue_manager._set_system_state('training_dataset_id', int(dataset_id), ttl_seconds=4 * 3600)
+    queue_manager._set_system_state('training_in_progress', True, ttl_seconds=_TRAIN_STATE_TTL)
+    queue_manager._set_system_state('training_dataset_id', int(dataset_id), ttl_seconds=_TRAIN_STATE_TTL)
     # Step cible : sert à snapshotter le final en nom NUMÉROTÉ à la fin (cf.
     # _snapshot_final_checkpoint) - ai-toolkit écrit le final sans numéro.
-    queue_manager._set_system_state('training_target_step', int(steps), ttl_seconds=4 * 3600)
+    queue_manager._set_system_state('training_target_step', int(steps), ttl_seconds=_TRAIN_STATE_TTL)
     # HF_HOME route les poids base/adapter sur le disque configuré. PYTHONIOENCODING
     # évite les crashs cp1252 sur les logs unicode. Jamais shell=True ; args en liste.
     env = dict(os.environ, HF_HOME=str(_hf_home()), PYTHONIOENCODING='utf-8')
@@ -1131,7 +1172,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     except (FileNotFoundError, OSError) as e:
         queue_manager._set_system_state('training_in_progress', False, ttl_seconds=None)
         raise ValueError(f"could not start training: {e}")
-    queue_manager._set_system_state('training_pid', proc.pid, ttl_seconds=4 * 3600)
+    queue_manager._set_system_state('training_pid', proc.pid, ttl_seconds=_TRAIN_STATE_TTL)
     # Watcher event-driven : libère ComfyUI / enchaîne la file dès la fin du
     # process (le poll de /train/status reste le filet de secours).
     try:
@@ -1466,7 +1507,7 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
         fds.db.session.commit()
     ttype = _train_type(ds)
     base = (ds.train_base_model if base_model is _PERSISTED else base_model) or None
-    var = (variant or ds.train_variant or 'turbo')
+    var = (variant or ds.train_variant or _default_variant_for(ttype))
     # Base custom (merge) Z-Image = doit être convertie AVANT (SDXL = single-file
     # direct, pas de conversion → on saute la vérif). Refus immédiat et lisible.
     if extra_steps is None and base and ttype == 'zimage':
@@ -1543,7 +1584,8 @@ def _launch_queued_item(item) -> None:
     else:
         launch_training(uid, ds_id, steps=item.get('steps'),
                         base_model=item.get('base_model'),
-                        variant=item.get('variant') or 'turbo',
+                        # None → launch_training applique le défaut family-aware (Krea → Raw).
+                        variant=item.get('variant'),
                         train_type=item.get('train_type'),
                         masked=item.get('masked', True))
 
@@ -1624,14 +1666,14 @@ def _advance_training_queue() -> str | None:
             # longer than 4h would see these flags silently expire mid-run,
             # and the GPU gate (job_queue / gpu_busy_reason) would think
             # nothing is running and let the queue/vision grab the GPU back.
-            queue_manager._set_system_state('training_in_progress', True, ttl_seconds=4 * 3600)
-            queue_manager._set_system_state('training_pid', pid, ttl_seconds=4 * 3600)
+            queue_manager._set_system_state('training_in_progress', True, ttl_seconds=_TRAIN_STATE_TTL)
+            queue_manager._set_system_state('training_pid', pid, ttl_seconds=_TRAIN_STATE_TTL)
             cur_dataset_id = queue_manager._get_system_state('training_dataset_id', None)
             if cur_dataset_id is not None:
-                queue_manager._set_system_state('training_dataset_id', cur_dataset_id, ttl_seconds=4 * 3600)
+                queue_manager._set_system_state('training_dataset_id', cur_dataset_id, ttl_seconds=_TRAIN_STATE_TTL)
             cur_target_step = queue_manager._get_system_state('training_target_step', None)
             if cur_target_step is not None:
-                queue_manager._set_system_state('training_target_step', cur_target_step, ttl_seconds=4 * 3600)
+                queue_manager._set_system_state('training_target_step', cur_target_step, ttl_seconds=_TRAIN_STATE_TTL)
             return None  # toujours en cours
         # Process mort alors que le flag est levé → training terminé.
         # Snapshot du final en nom NUMÉROTÉ (immuable) AVANT d'enchaîner/libérer :

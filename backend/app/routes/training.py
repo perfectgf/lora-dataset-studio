@@ -315,9 +315,9 @@ def dataset_train_base_info(dataset_id):
         name = c['name'] if isinstance(c, dict) else c
         sdxl_bases.append({'value': name,
                            'label': name.replace('\\', '/').split('/')[-1].rsplit('.', 1)[0]})
-    # Krea 2 s'entraîne sur une base FIXE (Krea 2 Turbo via training adapter) - pas
-    # de choix de checkpoint, pas de conversion.
-    krea_bases = [{'value': '', 'label': 'Official - Krea 2 Turbo (adapter)'}]
+    # Krea 2 : base officielle fixe (pas de checkpoint custom, pas de conversion) ; le
+    # choix Raw/Turbo se fait via le sélecteur `variant`, pas ici → label neutre.
+    krea_bases = [{'value': '', 'label': 'Official - Krea 2'}]
     # Les listers de bases (get_checkpoint_models / get_zimage_models) résolvent le
     # dossier des modèles depuis comfyui.base_dir → vides tant qu'il n'est pas
     # configuré. On expose ce fait pour que l'UI dise « configure ComfyUI dans Setup »
@@ -329,7 +329,9 @@ def dataset_train_base_info(dataset_id):
         models_dir = None
     comfyui_configured = bool(models_dir) and os.path.isdir(str(models_dir))
     return jsonify({'bases': bases, 'base': ds.train_base_model or '',
-                    'variant': ds.train_variant or 'turbo',
+                    # Défaut family-aware : Krea → Raw (reco officielle), sinon Turbo.
+                    # Le back-end (_krea_is_raw) applique le même défaut, ils s'accordent.
+                    'variant': ds.train_variant or ('base' if (ds.train_type or 'zimage') == 'krea' else 'turbo'),
                     'converted': converted,
                     'convert': zc.convert_status(),
                     'train_type': ds.train_type or 'zimage',

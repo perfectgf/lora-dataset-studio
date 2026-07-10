@@ -9,10 +9,12 @@ from unittest.mock import patch
 import pytest
 
 
-def _ds(train_type):
-    # Minimal stub satisfying _run_name / _safe_trigger / _train_type / _base_tag.
+def _ds(train_type, train_variant=None):
+    # Minimal stub satisfying _run_name / _safe_trigger / _train_type / _base_tag
+    # / _krea_is_raw (train_variant None → Krea defaults to Raw).
     return SimpleNamespace(id=1, user_id='local', trigger_word='AgentCTest',
-                           train_type=train_type, train_base_model=None)
+                           train_type=train_type, train_base_model=None,
+                           train_variant=train_variant)
 
 
 @pytest.fixture()
@@ -30,10 +32,13 @@ def test_write_job_config_is_run_name_scoped(training):
     lt, generated = training
     with patch('app.services.lora_training.build_job_config', return_value={'x': 1}):
         p_zimage = lt.write_job_config(_ds('zimage'), 'folderA')
-        p_krea = lt.write_job_config(_ds('krea'), 'folderB')
+        p_krea = lt.write_job_config(_ds('krea'), 'folderB')            # default -> Raw
+        p_krea_turbo = lt.write_job_config(_ds('krea', 'turbo'), 'folderC')
     assert os.path.basename(p_zimage) == 'ulocal_AgentCTest.json'
-    assert os.path.basename(p_krea) == 'ulocal_AgentCTest_Krea-2-Turbo.json'
-    assert os.path.isfile(p_zimage) and os.path.isfile(p_krea)  # no clobber
+    assert os.path.basename(p_krea) == 'ulocal_AgentCTest_Krea-2-Raw.json'
+    assert os.path.basename(p_krea_turbo) == 'ulocal_AgentCTest_Krea-2-Turbo.json'
+    # Raw and Turbo Krea configs must not clobber each other (incompatible weights).
+    assert os.path.isfile(p_zimage) and os.path.isfile(p_krea) and os.path.isfile(p_krea_turbo)
 
 
 def test_purge_removes_all_family_configs_but_not_sibling_trigger(training):
