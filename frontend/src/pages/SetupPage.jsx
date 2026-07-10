@@ -248,9 +248,18 @@ export default function SetupPage() {
                 To enable it, download <span className="font-mono">flux-2-klein-9b-fp8.safetensors</span> ({KLEIN_MODEL_VRAM}) into
                 <span className="font-mono"> &lt;ComfyUI&gt;/models/unet/klein/</span>.
               </p>
+              <p>
+                Also recommended: the <span className="text-content font-medium">consistency LoRA</span>{' '}
+                <span className="font-mono">Flux2-Klein-9B-consistency-V2.safetensors</span> (331 MB) into{' '}
+                <span className="font-mono">&lt;ComfyUI&gt;/models/loras/klein/</span> — it anchors the face identity of the
+                generated variations (the "Face fidelity" slider drives its strength). Without it, generation still works
+                but the face drifts more.
+              </p>
               <p className="flex flex-wrap gap-x-4 gap-y-1">
                 <a href="https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8" target="_blank" rel="noreferrer"
                   className="text-primary underline">Download the Klein model →</a>
+                <a href="https://huggingface.co/dx8152/Flux2-Klein-9B-Consistency" target="_blank" rel="noreferrer"
+                  className="text-primary underline">Download the consistency LoRA →</a>
                 <a href="https://docs.comfy.org/tutorials/flux/flux-2-klein" target="_blank" rel="noreferrer"
                   className="text-primary underline">ComfyUI setup guide →</a>
               </p>
