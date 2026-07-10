@@ -42,6 +42,17 @@ const LABELS = {
   'Visage, cadre paysage': 'Face, landscape framing',
   'Visage, cadre vertical': 'Face, vertical framing',
   'Visage, cadre cinema': 'Face, cinematic wide framing',
+  // NSFW catalog (local Klein only)
+  'Buste, lingerie': 'Bust, lingerie',
+  'Buste, topless': 'Bust, topless',
+  'Buste, serviette': 'Bust, bath towel',
+  'Corps, lingerie debout': 'Body standing, lingerie',
+  'Corps, nu debout': 'Body standing, nude',
+  'Corps, nu trois-quarts': 'Body three-quarter, nude',
+  'Corps, nu assis lit': 'Body sitting on bed, nude',
+  'Corps, nu allongé': 'Body lying down, nude',
+  'Corps, nu douche': 'Body in the shower, nude',
+  'Dos, nu': 'Back, nude',
 };
 
 /** Maps a backend catalog label to its English display text. Falls back to

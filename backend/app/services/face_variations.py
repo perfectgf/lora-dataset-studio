@@ -32,21 +32,25 @@ def wrap_variation(prompt: str, ref_count: int = 1) -> str:
     return f"{guard} {prompt}"
 
 
-def wrap_variation_klein(prompt: str) -> str:
+def wrap_variation_klein(prompt: str, nsfw: bool = False) -> str:
     """Klein (FLUX.2, Kontext-lineage) is an INSTRUCTION-edit model: it follows
     imperative edit commands (the consistency LoRA's own usage example is "Turn
     this cat into a dog"). The API-engine wrapper above — preservation order
     FIRST, descriptive tags after — reads as "change nothing", so Klein returned
     a near-copy of the reference (live repro 2026-07-10: every variation looked
     like a plain upscale). Order matters: ask for the CHANGE first, constrain
-    the FACE second."""
+    the FACE second.
+    `nsfw=True` (local Klein only — the route refuses NSFW on API engines) drops
+    the SFW clamp and allows explicit nudity with natural anatomy."""
+    ending = ("Explicit nudity is allowed; render natural, anatomically correct forms. "
+              "Realistic photograph.") if nsfw else "Realistic photograph, SFW."
     return (
         f"Create a new photograph of the same person as the reference image: {prompt}. "
         "Restage the shot to match this description — change the pose, camera angle and "
         "framing accordingly; do not copy the composition of the reference image. "
         "Keep the facial identity exactly the same: same eye shape and color, nose, "
         "jawline, lips, skin tone and texture, and face proportions. "
-        "Do not beautify or alter the face. Realistic photograph, SFW.")
+        f"Do not beautify or alter the face. {ending}")
 
 
 def _e(i, axis, framing, label, prompt, co=False, cb=False, aspect=None):
@@ -171,6 +175,56 @@ VARIATION_CATALOG = [
        cb=True, aspect='16:9'),
 ]
 
+# --- Catalogue NSFW (moteur Klein LOCAL uniquement) --------------------------
+# Plans corps non censurés pour la fidélité corporelle : jamais envoyés aux
+# moteurs API (route + service refusent), générés par le Klein local qui n'a pas
+# de filtre. Le registre reste "état + pose + décor" (lingerie/topless/nu) — pas
+# d'acte : c'est un dataset de PERSONNAGE, l'acte appartient au prompt d'usage.
+# Le caption doit décrire l'état (nude/lingerie) pour qu'il reste promptable et
+# ne se lie pas au trigger (principe d'inversion).
+NSFW_VARIATION_CATALOG = [
+    _e('nsfw_bust_lingerie', 'nsfw', 'bust', 'Buste, lingerie',
+       'bust shot, wearing delicate lace lingerie, bedroom, soft window light',
+       co=True, cb=True),
+    _e('nsfw_bust_topless', 'nsfw', 'bust', 'Buste, topless',
+       'bust shot, topless, bare chest, neutral indoor background, natural light',
+       co=True, cb=True),
+    _e('nsfw_bust_towel', 'nsfw', 'bust', 'Buste, serviette',
+       'bust shot, wrapped in a bath towel, bare shoulders, bathroom, soft light',
+       co=True, cb=True),
+    _e('nsfw_body_lingerie', 'nsfw', 'body', 'Corps, lingerie debout',
+       'full body shot, standing, matching lace lingerie set, bedroom interior, soft light',
+       co=True, cb=True, aspect='3:4'),
+    _e('nsfw_body_nude_stand', 'nsfw', 'body', 'Corps, nu debout',
+       'full body shot, standing fully nude, natural anatomy, relaxed pose, neutral studio '
+       'background, soft even light', co=True, cb=True, aspect='3:4'),
+    _e('nsfw_body_nude_34', 'nsfw', 'body', 'Corps, nu trois-quarts',
+       'full body shot, three-quarter view, fully nude, natural anatomy, standing by a large '
+       'window, soft daylight', co=True, cb=True, aspect='3:4'),
+    _e('nsfw_body_nude_sit', 'nsfw', 'body', 'Corps, nu assis lit',
+       'full body shot, sitting nude on the edge of a bed, relaxed natural pose, warm bedroom '
+       'light', co=True, cb=True, aspect='3:4'),
+    _e('nsfw_body_nude_lying', 'nsfw', 'body', 'Corps, nu allongé',
+       'full body shot, lying nude on a bed on her side, natural anatomy, soft morning light',
+       co=True, cb=True, aspect='4:3'),
+    _e('nsfw_body_shower', 'nsfw', 'body', 'Corps, nu douche',
+       'full body shot, nude in the shower, wet skin and hair, water droplets, glass and tile '
+       'background', co=True, cb=True, aspect='9:16'),
+    _e('nsfw_back_nude', 'nsfw', 'back', 'Dos, nu',
+       'full body shot from behind, standing nude, back and buttocks visible, natural anatomy, '
+       'neutral background', co=True, cb=True, aspect='3:4'),
+]
+
+_NSFW_LABELS = {e['label'] for e in NSFW_VARIATION_CATALOG}
+
+
+def is_nsfw_label(label) -> bool:
+    """True when a variation label belongs to the NSFW catalog or carries the 🔞
+    custom-prompt prefix — drives the Klein-only guard and the NSFW wrapper on
+    regeneration (the DB row only stores the label)."""
+    return bool(label) and (label in _NSFW_LABELS or label.startswith('🔞'))
+
+
 # Préréglage face-heavy (deep-research 2026-06-14) : majorité de visages — c'est là
 # que se joue la cohérence d'identité — et ≤4 plein-pied (le reste du catalogue
 # body/cafe/beach reste sélectionnable manuellement). 14 visage / 6 buste / 4 corps / 1 dos.
@@ -243,8 +297,10 @@ def select_preset(name: str):
 
 
 def prompt_by_label(label):
-    """Raw catalog prompt for a display label (fallback for pre-migration rows)."""
-    return next((e['prompt'] for e in VARIATION_CATALOG if e['label'] == label), None)
+    """Raw catalog prompt for a display label (fallback for pre-migration rows).
+    Searches the SFW catalog then the NSFW one (regenerate needs both)."""
+    return next((e['prompt'] for e in VARIATION_CATALOG + NSFW_VARIATION_CATALOG
+                 if e['label'] == label), None)
 
 
 # Aspect ratio par cadrage (deep-research 2026-06-14) : forcer tout en carré
@@ -266,7 +322,8 @@ def aspect_for_label(label, framing='face') -> str:
     """Ratio résolu PAR LABEL sur le catalogue serveur (autoritatif) — le frontend
     n'envoie pas l'aspect, et la régénération n'a que la ligne DB. Retrouve l'entrée
     par son label → son override ; label inconnu → fallback cadrage."""
-    e = next((x for x in VARIATION_CATALOG if x['label'] == label), None)
+    e = next((x for x in VARIATION_CATALOG + NSFW_VARIATION_CATALOG
+              if x['label'] == label), None)
     return aspect_for_entry(e) if e else aspect_for_framing(framing)
 
 

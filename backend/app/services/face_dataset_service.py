@@ -31,7 +31,8 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CAPTION_PROM
                               CLASSIFY_PROMPT, HEAD_BBOX_PROMPT,
                               JOYCAPTION_PROMPT, aspect_for_label, caption_prompt_for,
                               caption_has_identity_leak, drop_identity_sentences, drop_identity_tags,
-                              prompt_by_label, wrap_variation, wrap_variation_klein)
+                              is_nsfw_label, prompt_by_label, wrap_variation,
+                              wrap_variation_klein)
 
 logger = logging.getLogger(__name__)
 
@@ -1490,11 +1491,16 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                                    variation_prompt=v['prompt'], klein_model=klein_model)
             db.session.add(img)
             db.session.commit()
+            # NSFW (flag explicite OU label du catalogue NSFW) : wrapper sans le
+            # clamp SFW — chemin Klein local uniquement, les moteurs API sont
+            # refusés en amont (route + generate_variations_nanobanana).
+            nsfw = bool(v.get('nsfw')) or is_nsfw_label(v.get('label'))
             try:
                 job_id = enqueue_klein_edit(
                     user_id=str(user_id), source_filename=ds.ref_filename,
                     source_path=_ref_path(ds),
-                    edit_prompt=wrap_variation_klein(v['prompt']), klein_model=klein_model,
+                    edit_prompt=wrap_variation_klein(v['prompt'], nsfw=nsfw),
+                    klein_model=klein_model,
                     lora_strength=lora_strength, extra_ref_paths=extra_paths,
                     extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
                                     'variation_label': v.get('label')})
@@ -1579,7 +1585,8 @@ def regenerate_image(user_id, image_id, lora_strength=None, app=None):
     job_id = enqueue_klein_edit(
         user_id=str(user_id), source_filename=ds.ref_filename,
         source_path=_ref_path(ds),
-        edit_prompt=wrap_variation_klein(prompt), klein_model=img.klein_model,
+        edit_prompt=wrap_variation_klein(prompt, nsfw=is_nsfw_label(img.variation_label)),
+        klein_model=img.klein_model,
         lora_strength=lora_strength, extra_ref_paths=extra_paths,
         extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
                         'variation_label': img.variation_label})
@@ -1678,6 +1685,10 @@ def generate_variations_nanobanana(app, user_id, dataset_id, variations, multipl
     works unchanged (pending + no file = in flight). Returns the created ids."""
     if engine not in API_ENGINES:
         raise ValueError(f'unknown API engine: {engine}')
+    # Fail-closed : les variations NSFW ne partent JAMAIS vers un moteur API
+    # (comptes/API tiers) — elles n'existent que sur le chemin Klein local.
+    if any(v.get('nsfw') or is_nsfw_label(v.get('label')) for v in variations):
+        raise ValueError('NSFW variations run on the local Klein engine only')
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')

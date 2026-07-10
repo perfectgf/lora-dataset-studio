@@ -301,6 +301,98 @@ def test_klein_fanout_passes_dataset_extra_refs(app, tmp_path, monkeypatch):
         assert wf['77']['inputs']['positive'] == ['ds_ref1_latent', 0]
 
 
+# --- NSFW mode (local Klein only) -------------------------------------------
+def test_nsfw_catalog_entries_are_well_formed():
+    from app.services.face_variations import NSFW_VARIATION_CATALOG, is_nsfw_label
+    assert len(NSFW_VARIATION_CATALOG) >= 8
+    for e in NSFW_VARIATION_CATALOG:
+        assert e['id'].startswith('nsfw_')      # the UI's engine-switch cleanup keys on this
+        assert e['framing'] in ('face', 'bust', 'body', 'back')
+        assert is_nsfw_label(e['label'])
+    assert is_nsfw_label('🔞 custom whatever')  # free-prompt marker
+    assert not is_nsfw_label('Corps, plage (habille)')
+    assert not is_nsfw_label(None)
+
+
+def test_wrap_klein_nsfw_drops_sfw_clamp():
+    from app.services.face_variations import wrap_variation_klein
+    sfw = wrap_variation_klein('full body shot, standing')
+    nsfw = wrap_variation_klein('full body shot, standing fully nude', nsfw=True)
+    assert 'SFW' in sfw
+    assert 'SFW' not in nsfw
+    assert 'nudity is allowed' in nsfw
+    # Identity constraint survives in both registers.
+    assert 'Keep the facial identity exactly the same' in nsfw
+
+
+def test_prompt_and_aspect_lookup_cover_nsfw_labels(app):
+    from app.services.face_variations import prompt_by_label, aspect_for_label
+    with app.app_context():
+        assert 'nude' in (prompt_by_label('Corps, nu debout') or '')
+        assert aspect_for_label('Corps, nu douche') == '9:16'
+
+
+def test_generate_route_refuses_nsfw_on_api_engines(client):
+    resp = client.post('/api/dataset/1/generate', json={
+        'generator': 'nanobanana', 'multiplier': 1,
+        'variations': [{'label': 'Corps, nu debout', 'framing': 'body',
+                        'prompt': 'full body shot, standing fully nude'}],
+    })
+    assert resp.status_code == 400
+    assert 'Klein' in resp.get_json()['error']
+
+
+def test_service_fanout_refuses_nsfw_on_api_engines(app):
+    import pytest
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'NoApi', 'noapi')
+        with pytest.raises(ValueError, match='Klein engine only'):
+            svc.generate_variations_nanobanana(
+                None, LOCAL_USER, ds.id,
+                [{'label': 'x', 'framing': 'body', 'prompt': 'p', 'nsfw': True}], 1)
+
+
+def test_klein_fanout_nsfw_uses_uncensored_wrapper(app, tmp_path, monkeypatch):
+    from app import config as cfg
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.job_queue import queue_manager
+    with app.app_context():
+        _comfy(tmp_path, cfg, lora=True)
+        ds = svc.create_dataset(LOCAL_USER, 'Nsfw', 'nsfw')
+        d = svc._dataset_dir(ds.id)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'ref.webp'), 'wb') as fh:
+            fh.write(_png())
+        ds.ref_filename = 'ref.webp'
+        svc.db.session.commit()
+        captured = []
+        monkeypatch.setattr(queue_manager, 'add_job',
+                            lambda **kw: (captured.append(kw), kw['job_id'])[1])
+        svc.generate_variations(LOCAL_USER, ds.id, [
+            {'label': 'Corps, nu debout', 'framing': 'body',
+             'prompt': 'full body shot, standing fully nude'},
+            {'label': '🔞 custom', 'framing': 'body', 'prompt': 'custom pose', 'nsfw': True},
+            {'label': 'Corps debout face', 'framing': 'body', 'prompt': 'full body shot'},
+        ], 1, None)
+        texts = [c['workflow_data']['145']['inputs']['text1'] for c in captured]
+        assert 'nudity is allowed' in texts[0] and 'SFW' not in texts[0]   # catalog label
+        assert 'nudity is allowed' in texts[1]                             # explicit flag
+        assert 'SFW' in texts[2]                                           # SFW entry untouched
+
+
+def test_variations_route_ships_nsfw_catalog_separately(client):
+    d = client.get('/api/dataset/variations').get_json()
+    assert 'nsfw_catalog' in d and len(d['nsfw_catalog']) >= 8
+    sfw_ids = {e['id'] for e in d['catalog']}
+    assert not any(e['id'] in sfw_ids for e in d['nsfw_catalog'])
+    # NSFW ids never leak into the presets (they are opt-in only).
+    for ids in d['presets'].values():
+        assert not any(i.startswith('nsfw_') for i in ids)
+
+
 def test_wrap_variation_klein_is_instruction_first(app):
     """Klein is an instruction-edit model (Kontext lineage): the wrapper must ASK
     FOR THE CHANGE first and constrain the face second. The API-engine order

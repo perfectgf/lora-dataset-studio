@@ -77,10 +77,21 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   const toast = useToast();
   const { caps } = useCapabilities();
   const [catalog, setCatalog] = useState([]);
+  const [nsfwCatalog, setNsfwCatalog] = useState([]);
   const [presets, setPresets] = useState({});
   const [selected, setSelected] = useState(new Set());
   const [multiplier, setMultiplier] = useState(1);
   const [klein, setKlein] = useState(null);
+  // 🔞 NSFW mode — local Klein ONLY (the backend refuses NSFW on API engines).
+  // Unlocks the uncensored body catalog + a free-prompt custom variation.
+  const [nsfwMode, setNsfwMode] = useState(() => {
+    try { return localStorage.getItem('datasetNsfwMode') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('datasetNsfwMode', nsfwMode ? '1' : '0'); } catch { /* ignore */ }
+  }, [nsfwMode]);
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [customFraming, setCustomFraming] = useState('body');
   // Identity LoRA strength (F1): higher = closer to the reference face,
   // lower = more variety in the generated variations.
   // dx8152 consistency LoRA: anchors STRUCTURE, its guide recommends ~0.5 and
@@ -127,6 +138,7 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       .then((d) => {
         if (cancelled) return;
         setCatalog(d.catalog || []);
+        setNsfwCatalog(d.nsfw_catalog || []);
         setPresets(d.presets || {});
         // Body-fidelity datasets start on the body-emphasis preset (figure-visible
         // outfits); everyone else keeps the balanced default.
@@ -147,6 +159,15 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
     catalog.forEach((e) => g[e.framing]?.push(e));
     return g;
   }, [catalog]);
+
+  // Switching to an API engine drops any selected NSFW shots (Klein-only).
+  useEffect(() => {
+    if (isKlein) return;
+    setSelected((s) => {
+      const n = new Set([...s].filter((id) => !id.startsWith('nsfw_')));
+      return n.size === s.size ? s : n;
+    });
+  }, [isKlein]);
 
   // "Already in the dataset" per variation label: live images (kept, pending or
   // still generating — not failed/rejected) → the green ✓×N state on the cards.
@@ -192,6 +213,17 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   const go = () => {
     const variations = catalog.filter((e) => selected.has(e.id))
       .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing }));
+    // NSFW shots + free-prompt custom variation: local Klein only (the toggle is
+    // gated on the Klein engine, and the backend refuses them on API engines).
+    if (nsfwMode && isKlein) {
+      variations.push(...nsfwCatalog.filter((e) => selected.has(e.id))
+        .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing, nsfw: true })));
+      const custom = customPrompt.trim();
+      if (custom) {
+        variations.push({ label: `🔞 ${custom.slice(0, 40)}`, prompt: custom,
+                          framing: customFraming, nsfw: true });
+      }
+    }
     if (!variations.length) return;
     // Guard-rail: the selection survives a previous Generate, so a re-click would
     // re-generate (and re-bill) shots that already exist. Ask — OK = duplicates
@@ -220,6 +252,7 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       `This will launch ${toGen.length * multiplier} API generation(s) `
       + `≈ $${cost.toFixed(2)} (${isNB ? 'Nano Banana' : 'ChatGPT'}).\n\nProceed?`)) return;
     onGenerate(toGen, multiplier, klein, loraStrength, generator);
+    setCustomPrompt('');   // one-shot: a custom prompt is consumed by the batch it launched
   };
 
   return (
@@ -432,6 +465,79 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
           );
         })}
       </div>
+
+      {/* 🔞 NSFW — local Klein only. Uncensored body catalog + free prompt.
+          Never offered on the API engines (and the backend refuses them there). */}
+      {isKlein && klAvailable && (
+        <div className={`rounded-lg border p-2 flex flex-col gap-2 ${nsfwMode
+          ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-app/30'}`}>
+          <button type="button" onClick={() => setNsfwMode((v) => !v)} aria-pressed={nsfwMode}
+            className="flex items-center gap-2 text-left">
+            <span aria-hidden="true">🔞</span>
+            <span className={`text-[0.75rem] font-semibold ${nsfwMode ? 'text-rose-300' : 'text-content-muted'}`}>
+              NSFW mode {nsfwMode ? 'ON' : 'OFF'}
+            </span>
+            <span className="text-content-subtle text-[0.625rem]">
+              uncensored body shots — generated locally by Klein, never sent to an API
+            </span>
+            <span className={`ml-auto w-8 h-4 rounded-full relative transition-colors ${nsfwMode ? 'bg-rose-500/70' : 'bg-app/80 border border-border'}`}
+              aria-hidden="true">
+              <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${nsfwMode ? 'left-4' : 'left-0.5'}`} />
+            </span>
+          </button>
+          {nsfwMode && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5">
+                {nsfwCatalog.map((e) => {
+                  const on = selected.has(e.id);
+                  const done = doneByLabel.get(e.label) || 0;
+                  const cls = on
+                    ? 'bg-rose-500/20 border-rose-400/60 text-white ring-1 ring-rose-400/30'
+                    : done > 0
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100/90 hover:bg-emerald-500/15'
+                      : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised';
+                  return (
+                    <button key={e.id} type="button" onClick={() => toggle(e.id)} aria-pressed={on}
+                      title={done > 0 ? `${done} image(s) of this shot already in the dataset` : e.prompt}
+                      className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border text-left transition-colors ${cls}`}>
+                      <ShotIllustration framing={e.framing} label={e.label} className="w-7 h-7 shrink-0" />
+                      <span className="min-w-0 leading-tight">{displayLabel(e.label)}</span>
+                      <span className="ml-auto shrink-0 flex items-center gap-1">
+                        {done > 0 && <span className="text-emerald-300 font-semibold">✓×{done}</span>}
+                        {on && <span className="text-rose-300" aria-hidden="true">✓</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-content-muted text-[0.6875rem]" htmlFor="nsfw-custom-prompt">
+                  Custom shot (free prompt — describe state, pose and setting; it is included
+                  in the next Generate)
+                </label>
+                <div className="flex gap-1.5 items-start">
+                  <textarea id="nsfw-custom-prompt" value={customPrompt} rows={2}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                    placeholder="e.g. full body shot, kneeling nude on a rug in front of a fireplace, warm light"
+                    className="flex-1 bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
+                  <select value={customFraming} onChange={(e) => setCustomFraming(e.target.value)}
+                    aria-label="Custom shot framing"
+                    className="bg-app/60 border border-border rounded px-1 py-1 text-[0.6875rem] text-content">
+                    {['face', 'bust', 'body', 'back'].map((fr) => (
+                      <option key={fr} value={fr}>{FRAMING_LABEL[fr]}</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-content-subtle text-[0.625rem]">
+                  Captions must keep describing the state (nude / lingerie…) so it stays
+                  promptable and does not bind to the trigger word — the captioner does this
+                  automatically.
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {isKlein && klAvailable && (
         <div className="flex flex-col gap-0.5">

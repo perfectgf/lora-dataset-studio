@@ -15,7 +15,8 @@ from ..config import LOCAL_USER
 from ..gpu_window import gpu_exclusive_vision_window
 from ..services import face_dataset_service as svc
 from ..services import lora_test_studio as lts
-from ..services.face_variations import VARIATION_CATALOG, select_preset
+from ..services.face_variations import (NSFW_VARIATION_CATALOG, VARIATION_CATALOG,
+                                        is_nsfw_label, select_preset)
 from ..utils.comfyui import KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS, get_krea_loras
 from ._common import _map_error, _require_comfyui
 
@@ -64,6 +65,9 @@ def dataset_set_train_type(dataset_id):
 @bp.get('/dataset/variations')
 def dataset_variations():
     return jsonify({'catalog': VARIATION_CATALOG,
+                    # NSFW entries ship separately: the UI only shows them behind
+                    # the 🔞 toggle, and ONLY for the local Klein engine.
+                    'nsfw_catalog': NSFW_VARIATION_CATALOG,
                     'presets': {n: [e['id'] for e in select_preset(n)] for n in _PRESET_NAMES}})
 
 
@@ -277,6 +281,14 @@ def _autostart_optional_klein():
 def dataset_generate(dataset_id):
     data = request.get_json(silent=True) or {}
     generator = data.get('generator') or 'klein'
+    variations = data.get('variations') or []
+    # Route-level fail-closed: NSFW variations never reach an API engine — they
+    # exist only on the local Klein path (the service re-checks, defense in depth).
+    if generator in svc.API_ENGINES and any(
+            v.get('nsfw') or is_nsfw_label(v.get('label')) for v in variations):
+        return jsonify({'ok': False,
+                        'error': 'NSFW variations run on the local Klein engine only — '
+                                 'switch the generator to Klein.'}), 400
     try:
         if generator in svc.API_ENGINES:
             # API path (Gemini Nano Banana Pro or OpenAI ChatGPT gpt-image-2):
