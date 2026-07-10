@@ -232,9 +232,16 @@ export default function SetupPage() {
           {detectedPathChip('comfyui', 'base_dir')}
           {/* Validate the folder on Save & re-check: it must actually hold main.py +
               models/. A portable-wrapper path is auto-corrected to the nested ComfyUI on
-              save (so checkpoints are found); a genuinely wrong path is flagged here. */}
+              save (so checkpoints are found); a genuinely wrong path is flagged here.
+              The ✓/⚠ verdict comes from the last PROBE — while the field holds a path
+              that hasn't been saved yet, showing that verdict would judge the WRONG
+              string (a stale ⚠ next to a perfectly good typed path). Neutral hint then. */}
           {config.comfyui.base_dir && (
-            step.dirValid ? (
+            config.comfyui.base_dir !== step.baseDir ? (
+              <p className="text-xs text-content-subtle">
+                Path not checked yet — <span className="text-content">Save &amp; re-check</span> to validate it.
+              </p>
+            ) : step.dirValid ? (
               <p className="text-xs text-emerald-400">
                 ✓ ComfyUI found{step.resolvedDir ? <> at <span className="font-mono">{step.resolvedDir}</span></> : ''}.
               </p>
