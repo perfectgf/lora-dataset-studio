@@ -33,6 +33,7 @@ DEFAULTS = {
     'masks': {'python': ''},
     'klein': {'consistency_lora': 'klein/Flux2-Klein-9B-consistency-V2.safetensors',
               'consistency_strength': 0.9},
+    'updates': {'repo': 'perfectgf/lora-dataset-studio'},      # GitHub repo for the release feed
 }
 
 _lock = threading.Lock()

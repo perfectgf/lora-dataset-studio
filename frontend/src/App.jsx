@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { apiFetch } from './api/fetchClient'
 import { JobsProvider } from './context/JobsContext'
 import { ToastProvider, useToast } from './components/common/Toast'
 import { CapabilitiesProvider, useCapabilities } from './context/CapabilitiesContext'
@@ -44,6 +45,39 @@ function NavBar() {
   )
 }
 
+/** One-shot update banner: the server caches the GitHub release check 6 h, the
+ * banner shows once per browser session and is dismissible. Silent when the
+ * feed is unreachable (offline / no public release yet). */
+function UpdateBanner() {
+  const [info, setInfo] = useState(null)
+  useEffect(() => {
+    if (sessionStorage.getItem('updateBannerDismissed') === '1') return
+    apiFetch('/api/update/check')
+      .then((d) => { if (d && d.update_available) setInfo(d) })
+      .catch(() => { /* best-effort */ })
+  }, [])
+  if (!info) return null
+  return (
+    <div className="mx-auto max-w-5xl px-4 pt-3">
+      <div role="status"
+        className="flex items-center gap-2 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm">
+        <span aria-hidden>⬆</span>
+        <span className="text-content">
+          Update available — <span className="font-semibold">v{info.latest}</span> (you run v{info.current}).
+        </span>
+        <a href={info.url} target="_blank" rel="noreferrer"
+          className="font-semibold text-emerald-300 underline">
+          Download
+        </a>
+        <button type="button"
+          onClick={() => { setInfo(null); sessionStorage.setItem('updateBannerDismissed', '1') }}
+          aria-label="Dismiss update notice"
+          className="ml-auto px-1.5 text-content-subtle hover:text-content">✕</button>
+      </div>
+    </div>
+  )
+}
+
 /** Onboarding: a never-configured backend (no config.json yet) sends the
  * user straight to Settings instead of a workspace with nothing wired up. */
 function OnboardingRedirect() {
@@ -60,6 +94,7 @@ function Shell() {
     <>
       <NavBar />
       <OnboardingRedirect />
+      <UpdateBanner />
       <main id="main-content" tabIndex={-1} className="mx-auto max-w-5xl px-4 py-6">
         <Outlet />
       </main>

@@ -86,6 +86,60 @@ def test_test_connection_unknown_target(client):
     assert client.post('/api/settings/test/nope').status_code == 404
 
 
+@pytest.fixture()
+def _reset_update_cache():
+    from app.routes import settings as sroutes
+    sroutes._update_cache.update(ts=0.0, data=None)
+    yield
+    sroutes._update_cache.update(ts=0.0, data=None)
+
+
+class _FakeResp:
+    def __init__(self, status_code, body=None):
+        self.status_code = status_code
+        self._body = body or {}
+    def json(self):
+        return self._body
+
+
+def test_update_check_detects_newer_release(client, monkeypatch, _reset_update_cache):
+    import requests
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: _FakeResp(200, {
+        'tag_name': 'v9999.12.31', 'html_url': 'https://github.com/x/releases/tag/v9999.12.31'}))
+    d = client.get('/api/update/check').get_json()
+    assert d['update_available'] is True and d['latest'] == '9999.12.31'
+    assert d['url'].endswith('v9999.12.31')
+
+
+def test_update_check_same_version_and_cache(client, monkeypatch, _reset_update_cache):
+    import requests
+    from app.version import APP_VERSION
+    calls = []
+    monkeypatch.setattr(requests, 'get',
+                        lambda *a, **k: calls.append(1) or _FakeResp(200, {'tag_name': f'v{APP_VERSION}'}))
+    d = client.get('/api/update/check').get_json()
+    assert d['update_available'] is False and d['latest'] == APP_VERSION
+    client.get('/api/update/check')          # second call served from the 6h cache
+    assert len(calls) == 1
+
+
+def test_update_check_degrades_when_feed_unreachable(client, monkeypatch, _reset_update_cache):
+    import requests
+    def boom(*a, **k):
+        raise requests.ConnectionError('offline')
+    monkeypatch.setattr(requests, 'get', boom)
+    d = client.get('/api/update/check').get_json()
+    assert d['ok'] is True and d['update_available'] is False
+    assert 'unreachable' in d['reason']
+
+
+def test_update_check_private_repo_404(client, monkeypatch, _reset_update_cache):
+    import requests
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: _FakeResp(404))
+    d = client.get('/api/update/check').get_json()
+    assert d['update_available'] is False and '404' in d['reason']
+
+
 def test_logs_tail_reads_app_log(client, tmp_path, monkeypatch):
     import os
     data_dir = os.environ['LDS_DATA_DIR']    # tmp dir set by the app fixture

@@ -83,6 +83,45 @@ def test_connection(target):
     return jsonify(probe_fn())
 
 
+# Update check: compares the latest GitHub release tag to the local version.
+# Cached 6 h so the SPA banner can call it freely. Degrades to
+# update_available=False with a reason when the feed is unreachable (offline,
+# repo private, no release yet) — never an error, never a blocker.
+_UPDATE_TTL = 6 * 3600
+_update_cache = {'ts': 0.0, 'data': None}
+
+
+@bp.get('/update/check')
+def update_check():
+    import time
+    import requests
+    from ..version import APP_VERSION
+    now = time.time()
+    if (_update_cache['data'] is not None and (now - _update_cache['ts']) < _UPDATE_TTL
+            and not request.args.get('force')):
+        return jsonify(_update_cache['data'])
+    repo = cfg.get('updates.repo') or 'perfectgf/lora-dataset-studio'
+    out = {'ok': True, 'current': APP_VERSION, 'latest': None,
+           'update_available': False, 'url': f'https://github.com/{repo}/releases'}
+    try:
+        r = requests.get(f'https://api.github.com/repos/{repo}/releases/latest',
+                         timeout=6, headers={'Accept': 'application/vnd.github+json'})
+        if r.status_code == 200:
+            j = r.json()
+            latest = (j.get('tag_name') or '').lstrip('vV').strip()
+            out['latest'] = latest or None
+            out['url'] = j.get('html_url') or out['url']
+            # Date-based versions (YYYY.MM.DD[.N]) -> plain string comparison.
+            out['update_available'] = bool(latest) and latest > APP_VERSION
+        else:
+            out['reason'] = (f'release feed answered {r.status_code} '
+                             '(no public release yet?)')
+    except requests.RequestException:
+        out['reason'] = 'offline or GitHub unreachable'
+    _update_cache.update(ts=now, data=out)
+    return jsonify(out)
+
+
 @bp.get('/logs/tail')
 def logs_tail():
     """Last N lines of the server log for the in-app viewer — so a novice can
