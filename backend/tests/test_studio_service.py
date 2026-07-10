@@ -289,6 +289,67 @@ def test_build_cell_workflow_zimage_loads_real_json_and_injects_lora(app):
         assert workflow['9']['inputs']['model'] != ['1', 0]
 
 
+def test_apply_krea_base_model_sets_node20_and_validates(app):
+    """Base Krea locale : `base_model` remplace le UNET câblé du node 20, None le
+    laisse intact, hors-whitelist → ValueError (anti path-injection)."""
+    from app.services import lora_test_studio as lts
+    from app.utils.comfyui import load_workflow_local
+    with app.app_context():
+        lora = 'krea\\lora_k_000001000.safetensors'
+        base = 'krea\\my_custom_krea.safetensors'
+        common = dict(lora_name=lora, strength=0.9, prompt='p', seed=1,
+                      width=832, height=1216, allowed_loras={lora})
+        wf = load_workflow_local(str(lts.WORKFLOW_KREA_TURBO_PATH))
+        wired = wf['20']['inputs']['unet_name']
+        lts.apply_krea_lora_test_settings(wf, **common)                     # None → intact
+        assert wf['20']['inputs']['unet_name'] == wired
+        lts.apply_krea_lora_test_settings(wf, **common, base_model=base,
+                                          allowed_bases={base})
+        assert wf['20']['inputs']['unet_name'] == base
+        with pytest.raises(ValueError, match='unknown Krea base'):
+            lts.apply_krea_lora_test_settings(wf, **common,
+                                              base_model='..\\evil.safetensors',
+                                              allowed_bases={base})
+
+
+def test_krea_alt_base_models_excludes_wired_default(app, monkeypatch):
+    """Les listes de bases ALTERNATIVES excluent le UNET câblé du workflow (déjà
+    représenté par l'entrée « Official ») — quel que soit son dossier/sa casse."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        monkeypatch.setattr(lts, 'get_krea_models', lambda: [
+            'Krea\\krea2_turbo_fp8.safetensors',      # défaut câblé (sous-dossier)
+            'krea2_turbo_fp8.safetensors',            # copie racine du même défaut
+            'krea\\my_custom_krea.safetensors',
+        ])
+        assert lts.krea_alt_base_models() == ['krea\\my_custom_krea.safetensors']
+
+
+def test_build_cell_workflow_krea_honors_local_base(app, monkeypatch):
+    """Bout-en-bout cellule Krea : z_model (base locale) atterrit dans le node 20
+    et le LoRA testé est bien injecté — même canal de base que SDXL/Z-Image."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        lora = 'krea\\lora_k_000001000.safetensors'
+        base = 'krea\\my_custom_krea.safetensors'
+        monkeypatch.setattr(lts, 'get_krea_loras', lambda: [{'filename': lora}])
+        monkeypatch.setattr(lts, 'get_krea_models', lambda: [base])
+        wf = lts._build_cell_workflow(
+            user_id='local', checkpoint=lora, strength=0.9, prompt='a prompt',
+            seed=42, z_model=base, allowed_loras={lora}, dataset_id=1,
+            train_type='krea', trigger_word='kt')
+        assert wf['20']['inputs']['unet_name'] == base
+        lora_nodes = [n for n in wf.values()
+                      if isinstance(n, dict) and n.get('class_type') == 'LoraLoaderModelOnly']
+        assert any(n['inputs']['lora_name'] == lora for n in lora_nodes)
+        # z_model=None (entrée « Official ») → UNET câblé intact.
+        wf2 = lts._build_cell_workflow(
+            user_id='local', checkpoint=lora, strength=0.9, prompt='a prompt',
+            seed=42, z_model=None, allowed_loras={lora}, dataset_id=1,
+            train_type='krea', trigger_word='kt')
+        assert wf2['20']['inputs']['unet_name'] == 'Krea\\krea2_turbo_fp8.safetensors'
+
+
 def test_run_owned_and_owned_test_image_are_single_user_no_ops(app):
     """Checklist item 2: `_run_owned` always True, `_owned_test_image` drops the
     user comparison (single-user app, no cross-user ownership DB)."""

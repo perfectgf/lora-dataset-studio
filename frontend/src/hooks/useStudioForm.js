@@ -51,7 +51,9 @@ export function useStudioForm(d, datasetId, family = null) {
   // Filtre les checkpoints persistés qui n'existent plus (dataset modifié depuis).
   const chosenCps = (selCps ?? allFns).filter((fn) => allFns.includes(fn));
   const effectivePrompt = promptText ?? (d?.prompt || '');
-  const effectiveModels = selModels ?? (d?.z_models?.[0]?.value ? [d.z_models[0].value] : []);
+  // Défaut = 1re entrée de la liste — y compris « Official » (value '' , Krea) pour
+  // que la puce par défaut apparaisse pressée ; le backend mappe '' → défaut câblé.
+  const effectiveModels = selModels ?? (d?.z_models?.length ? [d.z_models[0].value] : []);
   const effectiveAspects = selAspects ?? (d?.default_aspect ? [d.default_aspect] : ['9:16']);
   const effectiveCfgs = selCfgs ?? (d?.default_cfg != null ? [d.default_cfg] : [1.0]);
   const effectiveSteps = selSteps ?? (d?.default_steps != null ? [d.default_steps] : [8]);

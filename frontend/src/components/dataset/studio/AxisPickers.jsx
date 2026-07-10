@@ -20,7 +20,9 @@ export default function AxisPickers({
     <>
       {Array.isArray(zModels) && zModels.length > 1 && (
         <div className="flex flex-col gap-1">
-          <span className="text-content-muted text-[0.625rem] uppercase">Base Z-Image model (multi)</span>
+          {/* Libellé générique : la liste vient du payload PAR FAMILLE (Z-Image,
+              checkpoints SDXL, ou « Official + UNET Krea locaux »). */}
+          <span className="text-content-muted text-[0.625rem] uppercase">Base model (multi)</span>
           <div className="flex gap-2 flex-wrap">
             {zModels.map((m) => (
               <button key={m.value} type="button" onClick={() => onToggleModel(m.value)}

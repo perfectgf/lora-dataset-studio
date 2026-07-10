@@ -25,9 +25,15 @@ def studio_base_models():
     if kind == 'sdxl':
         return jsonify({'models': lts.list_sdxl_base_models()})
     if kind == 'krea':
-        # Krea : UNET FIXE dans krea2_turbo.json (node 20) → aucun modèle de base à
-        # choisir. Liste vide → le front masque le sélecteur.
-        return jsonify({'models': []})
+        # Bases Krea locales ALTERNATIVES au UNET câblé de krea2_turbo.json (node 20).
+        # « Official » (filename vide → z_model absent → node intact) en tête = défaut.
+        # Aucune alternative sur disque → liste vide, le front masque le sélecteur.
+        alts = lts.krea_alt_base_models()
+        if not alts:
+            return jsonify({'models': []})
+        out = [{'filename': '', 'label': 'Official – Krea 2 Turbo'}]
+        out += [{'filename': m, 'label': m.split('\\')[-1].rsplit('.', 1)[0]} for m in alts]
+        return jsonify({'models': out})
     out = [{'filename': m, 'label': m.split('\\')[-1]} for m in get_zimage_models()]
     return jsonify({'models': out})
 

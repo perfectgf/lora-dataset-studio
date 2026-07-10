@@ -50,9 +50,9 @@ from ..job_queue import queue_manager
 from ..utils.comfyui import (FAMILY_LABELS, KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS,
                              KREA_ALLOWED_WEIGHT_DTYPES, apply_optimal_sampler_params,
                              family_of_lora, format_trained_lora_label, get_krea_loras,
-                             get_sdxl_loras, get_zimage_loras, get_zimage_models,
-                             inject_krea2t_enhancer, load_workflow_local,
-                             resolve_checkpoint_ckpt_name)
+                             get_krea_models, get_sdxl_loras, get_zimage_loras,
+                             get_zimage_models, inject_krea2t_enhancer,
+                             load_workflow_local, resolve_checkpoint_ckpt_name)
 from ..utils.zimage_helper import apply_zimage_settings
 
 logger = logging.getLogger(__name__)
@@ -492,11 +492,27 @@ def apply_sdxl_lora_test_settings(workflow, *, base_ckpt, lora_name, strength,
         _set("9", "filename_prefix", filename_prefix)
 
 
+# Basename du UNET câblé dans krea2_turbo.json (node 20) : l'entrée « Official »
+# des sélecteurs le représente déjà (valeur vide → on ne touche pas au node), donc
+# les listes de bases ALTERNATIVES l'excluent pour ne pas montrer le même modèle
+# deux fois. La whitelist de validation, elle, garde TOUT get_krea_models().
+_KREA_DEFAULT_BASE = 'krea2_turbo_fp8.safetensors'
+
+
+def krea_alt_base_models() -> list:
+    """Bases Krea locales ALTERNATIVES au UNET câblé du workflow : les checkpoints
+    trouvés par get_krea_models() moins le défaut. Vide → aucun choix à offrir
+    (les sélecteurs restent cachés, comportement historique)."""
+    return [m for m in get_krea_models()
+            if _basename(m).lower() != _KREA_DEFAULT_BASE]
+
+
 def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed,
                                   width, height, cfg=None, steps=None, batch_size=1,
                                   filename_prefix=None, allowed_loras=None, extra_loras=None,
                                   rebalance=None, sampler=None, scheduler=None,
-                                  weight_dtype=None, enhancer_strength=None):
+                                  weight_dtype=None, enhancer_strength=None,
+                                  base_model=None, allowed_bases=None):
     """Configure une cellule de test sur le workflow Krea 2 Turbo : le LoRA testé est
     injecté après le UNETLoader (node 20 → KSampler node 26), + prompt/seed/dims/steps/cfg.
     `extra_loras` = LoRA « always-on » (style/utilitaire) chaînés EN PLUS dans le même
@@ -507,14 +523,24 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
     (routes.py) : None = on NE touche PAS le node, défaut ON du workflow ; ≤1.0 = OFF
     (multiplier=1.0 + per_layer_weights neutres → passthrough SFW) ; >1.0 = ON à cette
     force (clampé 1..8). Mutate en place. Lève ValueError si le LoRA testé n'est pas dans
-    sa whitelist (anti path-injection)."""
+    sa whitelist (anti path-injection).
+
+    `base_model` : UNET Krea local à charger dans le node 20 à la place du défaut
+    câblé du workflow — même mécanique de base que SDXL (`base_ckpt`) / Z-Image
+    (`z_model`). None = on ne touche pas au node (défaut). Validé contre
+    `allowed_bases` (anti path-injection, comme le LoRA)."""
     if allowed_loras is not None and lora_name not in allowed_loras:
         raise ValueError(f"unknown Krea LoRA: {lora_name}")
+    if base_model and allowed_bases is not None and base_model not in allowed_bases:
+        raise ValueError(f"unknown Krea base model: {base_model}")
 
     def _set(node_id, key, value):
         n = workflow.get(node_id)
         if isinstance(n, dict) and key in n.get("inputs", {}):
             n["inputs"][key] = value
+
+    if base_model:
+        _set("20", "unet_name", base_model)
 
     _set("23", "text", prompt)                    # prompt (CLIPTextEncode Krea)
     _set("25", "width", int(width))
@@ -623,6 +649,9 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
             extra_loras=extra_loras, rebalance=rebalance,
             sampler=sampler, scheduler=scheduler, weight_dtype=weight_dtype,
             enhancer_strength=enhancer_strength,
+            # Base Krea locale optionnelle (z_model, même canal que SDXL/Z-Image) ;
+            # None = UNET câblé du workflow. Whitelist = scan disque (anti-injection).
+            base_model=z_model, allowed_bases=set(get_krea_models()),
         )
         return workflow
     workflow = load_workflow_local(str(WORKFLOW_ZTURBO_PATH))
@@ -816,14 +845,19 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
         if not models:
             raise ValueError('no SDXL checkpoint available')
     elif run_family == 'krea':
-        models = [None]  # Krea : UNET fixe → un seul « modèle » (z_model=None)
+        # None en tête = UNET câblé du workflow (défaut historique et repli) ; les
+        # checkpoints Krea locaux deviennent un axe de base optionnel comme ailleurs.
+        models = [None] + get_krea_models()
     else:
         models = get_zimage_models()
         if not models:
             raise ValueError('no Z-Image model available')
     # Modèle(s) de base - AXE de balayage optionnel (validés contre la whitelist).
     # z_models (liste) prioritaire ; sinon z_model unique (rétrocompat) ; sinon le 1er.
+    # '' (entrée « Official » du picker Krea) ≡ None = défaut de la famille — mappé
+    # AVANT validation pour que « Official + alternative » reste un axe à 2 valeurs.
     _req_models = list(z_models) if z_models else ([z_model] if z_model else [])
+    _req_models = [None if m in ('', None) else m for m in _req_models]
     valid_models = [m for m in _req_models if m in models] or [models[0]]
 
     try:
@@ -925,7 +959,9 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         if not models:
             raise ValueError('no SDXL checkpoint available')
     elif run_type == 'krea':
-        models = [None]  # Krea : UNET fixe (node 20) → pas d'axe de base (z_model=None)
+        # None en tête = UNET câblé (node 20), repli des runs sans base explicite ;
+        # les checkpoints Krea locaux sont désormais sélectionnables.
+        models = [None] + get_krea_models()
     else:
         models = get_zimage_models()
         if not models:
@@ -1133,7 +1169,10 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
                 _sdxl_bases = [m['filename'] for m in list_sdxl_base_models()]
             cell_models = _sdxl_bases
         elif cell_family == 'krea':
-            cell_models = [None]
+            # None en tête : les cellules legacy (z_model NULL) et celles dont la
+            # base locale a disparu du disque retombent sur le UNET câblé, jamais
+            # sur un modèle arbitraire.
+            cell_models = [None] + get_krea_models()
         else:
             cell_models = get_zimage_models()
         z_model = (img.z_model if (img.z_model and img.z_model in cell_models)
@@ -1523,14 +1562,15 @@ def set_best_settings(user_id, dataset_id, checkpoint, strength,
         raise ValueError(f'invalid strength: {strength!r}')
     if not 0.05 <= strength <= 2.0:
         raise ValueError(f'strength out of range: {strength}')
-    # Whitelist de bases selon la FAMILLE (SDXL → bases SDXL ; Krea → aucune base
-    # sélectionnable ; sinon Z-Image), sinon une base d'une autre famille était jetée.
+    # Whitelist de bases selon la FAMILLE (SDXL → bases SDXL ; Krea → UNET locaux
+    # scannés ; sinon Z-Image), sinon une base d'une autre famille était jetée.
     if family == 'sdxl':
         allowed_bases = {m['filename'] for m in list_sdxl_base_models()}
     elif family == 'krea':
-        allowed_bases = set()
+        allowed_bases = set(get_krea_models())
     else:
         allowed_bases = set(get_zimage_models())
+    z_model = z_model or None  # '' (entrée « Official » Krea) ≡ défaut → NULL
     if z_model and z_model not in allowed_bases:
         z_model = None  # modèle inconnu → on ne l'enregistre pas (au lieu de mentir)
     try:
@@ -1708,7 +1748,13 @@ def studio_payload(user_id, dataset_id, family=None) -> dict | None:
         z_models = [{'value': m['filename'], 'label': m['label']}
                     for m in list_sdxl_base_models()]
     elif eff == 'krea':
-        z_models = []
+        # Bases Krea locales ALTERNATIVES au UNET câblé. « Official » (value vide →
+        # z_model None → node 20 intact) reste en tête = défaut. Aucune alternative
+        # sur disque → liste vide, le front cache le sélecteur (comportement historique).
+        _alts = krea_alt_base_models()
+        z_models = ([{'value': '', 'label': 'Official – Krea 2 Turbo'}]
+                    + [{'value': m, 'label': _basename(m).rsplit('.', 1)[0]} for m in _alts]
+                    if _alts else [])
     else:
         z_models = [{'value': m, 'label': _basename(m).rsplit('.', 1)[0]}
                     for m in get_zimage_models()]

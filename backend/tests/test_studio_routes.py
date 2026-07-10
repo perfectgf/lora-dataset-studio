@@ -85,9 +85,25 @@ def test_studio_checkpoints_and_recent_prompts_smoke(client):
 
 
 def test_studio_base_models_krea_type_returns_empty_list(client):
+    # Aucun UNET Krea ALTERNATIF sur disque (env de test nu) → liste vide, le
+    # front cache le sélecteur (le UNET câblé du workflow reste le seul choix).
     resp = client.get('/api/studio/base-models?type=krea')
     assert resp.status_code == 200
     assert resp.get_json() == {'models': []}
+
+
+def test_studio_base_models_krea_lists_official_then_alternatives(client, monkeypatch):
+    """Des UNET Krea locaux existent → « Official » (filename vide = défaut câblé)
+    en tête, puis les alternatives, labels sans extension."""
+    from app.services import lora_test_studio as lts
+    monkeypatch.setattr(lts, 'krea_alt_base_models',
+                        lambda: ['krea\\my_custom_krea.safetensors'])
+    resp = client.get('/api/studio/base-models?type=krea')
+    assert resp.status_code == 200
+    assert resp.get_json() == {'models': [
+        {'filename': '', 'label': 'Official – Krea 2 Turbo'},
+        {'filename': 'krea\\my_custom_krea.safetensors', 'label': 'my_custom_krea'},
+    ]}
 
 
 # --- per-dataset lora-test/status --------------------------------------------

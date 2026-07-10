@@ -101,9 +101,9 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
         strengths,
         seed,
         count,
-        // Krea = UNET fixe → pas de base : on n'envoie jamais de z_model (évite de
-        // persister une base Z-Image absurde dans les métadonnées de score).
-        z_model: runType === 'krea' ? undefined : (selectedBase || undefined),
+        // Base du run : '' (entrée « Official », Krea) ou rien de coché → absent,
+        // le backend garde alors le défaut de la famille (UNET câblé / 1er modèle).
+        z_model: selectedBase || undefined,
         // Réglages globaux (resolution_tier, negative/sampler/detail/rebalance/…),
         // déjà gatés PAR FAMILLE côté backend — champs vides absents = défauts gardés.
         ...genSettings,
@@ -127,10 +127,10 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 items-start">
       <aside className="flex flex-col gap-3 lg:sticky lg:top-16 lg:max-h-[calc(100vh-7rem)] lg:overflow-auto">
-        {/* Picker de base : SDXL/Z-Image seulement. Krea = UNET fixe → jamais de base
-            (l'endpoint renvoie [] pour krea, donc baseModels est vide, mais on garde la
-            garde explicite runType!=='krea' au cas où). */}
-        {runType !== 'krea' && baseModels.length > 0 && (
+        {/* Picker de base — toutes familles. Krea : l'endpoint ne renvoie une liste
+            (Official + alternatives) que si des UNET Krea locaux existent ; sinon
+            vide → le sélecteur reste caché (défaut câblé du workflow). */}
+        {baseModels.length > 0 && (
           <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface p-3">
             <span className="text-content-muted text-[0.625rem] uppercase">
               Base model ({FAMILY_LABELS[runType] || 'Z-Image'})
