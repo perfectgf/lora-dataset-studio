@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { useToast } from '../common/Toast';
+import TrainingProgress from './TrainingProgress';
 
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
@@ -272,6 +273,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             </span>
           : <span aria-live="polite" className="ml-auto text-content-subtle text-[0.6875rem]">{keptCount} image(s) kept</span>}
       </div>
+
+      {/* Live progress of THIS dataset's run: bar + loss sparkline + sample
+          previews. Only while it is the one training (queued/other runs: no poll). */}
+      {status.in_progress && status.current?.dataset_id === ds.currentId && (
+        <TrainingProgress datasetId={ds.currentId} base={base} trainType={trainType} />
+      )}
 
       {/* --- Base d'entraînement : officielle (recommandé) ou merge ComfyUI custom.
            Affichée MÊME pendant un training en cours → choisir la base du job mis

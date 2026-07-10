@@ -26,6 +26,75 @@ class _FakeProc:
         return None
 
 
+# --- Live progress: log parsing + samples listing -----------------------------
+
+_TQDM = ('lora_t:   2%|▏         | 60/3000 [01:23<1:07:41,  1.38s/it, lr: 1.0e+00 loss: 3.412e-01]\r'
+         'lora_t:   3%|▏         | 100/3000 [02:18<1:06:12,  1.37s/it, lr: 1.0e+00 loss: 3.104e-01]\r'
+         'lora_t:   5%|▎         | 150/3000 [03:26<1:05:03,  1.37s/it, lr: 1.0e+00 loss: 2.981e-01]')
+
+
+def test_parse_training_log_extracts_progress():
+    from app.services.lora_training import _parse_training_log
+    p = _parse_training_log(_TQDM)
+    assert p['step'] == 150 and p['total'] == 3000
+    assert p['loss'] == pytest.approx(2.981e-01)
+    assert p['speed'] == '1.38s/it' or p['speed'] == '1.37s/it'
+    assert p['eta'] == '1:05:03'
+    assert p['loss_curve'] == [[60, pytest.approx(0.3412)],
+                               [100, pytest.approx(0.3104)],
+                               [150, pytest.approx(0.2981)]]
+
+
+def test_parse_training_log_ignores_incidental_ratios():
+    """Non-tqdm 'X/Y' text (dataset counts, resolutions) must not be read as
+    progress — only segments with a '%|' bar or a loss postfix count."""
+    from app.services.lora_training import _parse_training_log
+    p = _parse_training_log('Loading dataset: 25/25 images\nresolution 1024/1024\n')
+    assert p['step'] is None and p['loss_curve'] == []
+
+
+def test_parse_training_log_downsamples_curve():
+    from app.services import lora_training as lt
+    text = '\r'.join(
+        f'x:  1%|▏| {i}/9000 [00:01<00:01, 1.0s/it, loss: {0.5 - i * 1e-5:.3e}]'
+        for i in range(1, 1001))
+    p = lt._parse_training_log(text)
+    assert len(p['loss_curve']) == lt._PROG_CURVE_MAX_POINTS
+    assert p['loss_curve'][-1][0] == 1000     # last point always kept
+    assert p['step'] == 1000 and p['total'] == 9000
+
+
+def test_training_progress_reads_log_and_samples(app, tmp_path, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _configure_aitoolkit(tmp_path, monkeypatch, app)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Prog', 'prog')
+        run_parent = lt._output_dir() / lt._run_name(ds)
+        run_dir = run_parent / f'lora_{lt._safe_trigger(ds)}'
+        (run_dir / 'samples').mkdir(parents=True)
+        (run_parent / 'training.log').write_text(_TQDM, encoding='utf-8')
+        (run_dir / 'samples' / '1738259371342__000000250_0.jpg').write_bytes(b'x')
+        (run_dir / 'samples' / '1738259371342__000000500_1.jpg').write_bytes(b'x')
+        p = lt.training_progress(LOCAL_USER, ds.id)
+    assert p['log_exists'] is True and p['active'] is False
+    assert p['step'] == 150 and p['total'] == 3000
+    assert [s['step'] for s in p['samples']] == [500, 250]   # newest first
+
+
+def test_training_progress_no_log_yet(app, tmp_path, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _configure_aitoolkit(tmp_path, monkeypatch, app)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'NoLog', 'nolog')
+        p = lt.training_progress(LOCAL_USER, ds.id)
+    assert p == {'active': False, 'log_exists': False, 'step': None, 'total': None,
+                 'loss': None, 'speed': None, 'eta': None, 'loss_curve': [], 'samples': []}
+
+
 def test_recommended_steps_clamps(app):
     from app.services import lora_training as lt
     from app.services import face_dataset_service as svc

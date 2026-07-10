@@ -1128,6 +1128,111 @@ def training_status(user_id=None) -> dict:
             'queue': train_queue_view(user_id) if user_id is not None else []}
 
 
+# --- Suivi de progression (log tail + loss curve + samples) -------------------
+# ai-toolkit redirige tqdm dans training.log : les mises à jour sont séparées par
+# des \r sur une même « ligne », d'où le split sur [\r\n]. Un segment type :
+#   lora_x:   2%|▏| 60/3000 [01:23<1:07:41, 1.38s/it, lr: 1.0e+00 loss: 3.412e-01]
+_PROG_STEP_RE = re.compile(r'(\d+)/(\d+)')
+_PROG_LOSS_RE = re.compile(r'loss[:=]\s*([0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)')
+_PROG_SPEED_RE = re.compile(r'([\d.]+\s*(?:s/it|it/s))')
+_PROG_ETA_RE = re.compile(r'<\s*([\d:]+)\s*,')
+_SAMPLE_RE = re.compile(r'__(\d+)_(\d+)\.(?:jpg|jpeg|png|webp)$', re.IGNORECASE)
+_PROG_LOG_MAX_BYTES = 4 * 1024 * 1024   # tail cap: 3000 tqdm updates ≈ 0.5 MB
+_PROG_CURVE_MAX_POINTS = 200
+_PROG_SAMPLES_MAX = 24
+
+
+def _parse_training_log(text: str) -> dict:
+    """Extract (step, total, loss, speed, eta, loss_curve) from raw log text.
+    Pure function — unit-testable without a real run."""
+    out = {'step': None, 'total': None, 'loss': None, 'speed': None, 'eta': None,
+           'loss_curve': []}
+    curve = []
+    for seg in re.split(r'[\r\n]+', text):
+        lm = _PROG_LOSS_RE.search(seg)
+        # Only trust real tqdm segments ('%|' bar or a loss postfix) — the log also
+        # contains incidental 'X/Y' text (dataset counts, resolutions) that must not
+        # be read as progress.
+        if '%|' not in seg and not lm:
+            continue
+        sm = None
+        for sm in _PROG_STEP_RE.finditer(seg):
+            pass                             # last step/total occurrence of the segment
+        if not sm:
+            continue
+        step, total = int(sm.group(1)), int(sm.group(2))
+        if total <= 0 or step > total:
+            continue                         # e.g. '1024x1024' image sizes, not progress
+        out['step'], out['total'] = step, total
+        if lm:
+            try:
+                loss = float(lm.group(1))
+            except ValueError:
+                continue
+            out['loss'] = loss
+            if not curve or curve[-1][0] != step:
+                curve.append([step, loss])
+        spm = _PROG_SPEED_RE.search(seg)
+        if spm:
+            out['speed'] = spm.group(1).strip()
+        em = _PROG_ETA_RE.search(seg)
+        if em:
+            out['eta'] = em.group(1)
+    # Downsample evenly so the payload stays small on long runs.
+    if len(curve) > _PROG_CURVE_MAX_POINTS:
+        stride = len(curve) / _PROG_CURVE_MAX_POINTS
+        curve = [curve[int(i * stride)] for i in range(_PROG_CURVE_MAX_POINTS - 1)] + [curve[-1]]
+    out['loss_curve'] = curve
+    return out
+
+
+def _samples_dir(user_id, dataset_id, base_model=_PERSISTED, family=None) -> str:
+    return os.path.join(_run_dir(user_id, dataset_id, base_model, family), 'samples')
+
+
+def list_training_samples(user_id, dataset_id, base_model=_PERSISTED, family=None) -> list[dict]:
+    """Sample previews ai-toolkit writes every sample_every steps
+    (<run>/samples/<ts>__<step>_<promptidx>.jpg). Newest steps first, capped."""
+    d = _samples_dir(user_id, dataset_id, base_model, family)
+    if not os.path.isdir(d):
+        return []
+    out = []
+    for f in os.listdir(d):
+        m = _SAMPLE_RE.search(f)
+        if m:
+            out.append({'filename': f, 'step': int(m.group(1)), 'prompt_idx': int(m.group(2))})
+    out.sort(key=lambda s: (-s['step'], s['prompt_idx']))
+    return out[:_PROG_SAMPLES_MAX]
+
+
+def training_progress(user_id, dataset_id, base_model=_PERSISTED, family=None) -> dict:
+    """Live view of a run: parsed log progress + sample listing. Never raises on a
+    missing/unreadable log (a run that hasn't started writing yet is normal) —
+    only on an unknown dataset (route → 404 via get_dataset)."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    cur_id = queue_manager._get_system_state('training_dataset_id', None)
+    active = (bool(queue_manager._get_system_state('training_in_progress', False))
+              and cur_id is not None and int(cur_id) == int(dataset_id)
+              and _pid_alive(queue_manager._get_system_state('training_pid', None)))
+    log_path = os.path.join(str(_output_dir() / _run_name(ds, base_model, family)), 'training.log')
+    parsed = {'step': None, 'total': None, 'loss': None, 'speed': None, 'eta': None,
+              'loss_curve': []}
+    log_exists = os.path.isfile(log_path)
+    if log_exists:
+        try:
+            size = os.path.getsize(log_path)
+            with open(log_path, encoding='utf-8', errors='replace') as fh:
+                if size > _PROG_LOG_MAX_BYTES:
+                    fh.seek(size - _PROG_LOG_MAX_BYTES)
+                parsed = _parse_training_log(fh.read())
+        except OSError:
+            log_exists = False
+    return {'active': active, 'log_exists': log_exists, **parsed,
+            'samples': list_training_samples(user_id, dataset_id, base_model, family)}
+
+
 # --- File d'attente d'entraînement -------------------------------------------
 TRAIN_QUEUE_KEY = 'lora_train_queue'
 

@@ -7,6 +7,7 @@ No login - single local user (`cfg.LOCAL_USER`). Every route except
 ai-toolkit isn't configured, so it degrades to `{'available': False}` instead.
 """
 import os
+import re
 from datetime import datetime
 
 from flask import Blueprint, current_app, request, jsonify
@@ -198,6 +199,57 @@ def dataset_train_checkpoints(dataset_id):
     return jsonify({'checkpoints': lt.list_checkpoints(LOCAL_USER, dataset_id, **kw),
                     'recommended_steps': lt.recommended_steps(dataset_id),
                     'imported': lt.list_imported_checkpoints(LOCAL_USER, dataset_id, family=fam)})
+
+
+@bp.get('/dataset/<int:dataset_id>/train/progress')
+def dataset_train_progress(dataset_id):
+    """Live run view for the TrainingPanel: parsed log progress (step/total/loss/
+    speed/eta + downsampled loss curve) and the sample previews ai-toolkit writes.
+    Answers 200 with log_exists=false before the log shows up — pollable early."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    bm = request.args.get('base_model')
+    fam = request.args.get('train_type') or None
+    kw = {} if bm is None else {'base_model': bm}
+    if fam:
+        kw['family'] = fam
+    try:
+        return jsonify(lt.training_progress(LOCAL_USER, dataset_id, **kw))
+    except Exception as e:
+        return _map_error(e)
+
+
+_SAMPLE_NAME_RE = re.compile(r'^[\w.-]+\.(?:jpg|jpeg|png|webp)$', re.IGNORECASE)
+
+
+@bp.get('/dataset/<int:dataset_id>/train/sample/<filename>')
+def dataset_train_sample(dataset_id, filename):
+    """Serve one training sample image. Filename is whitelist-validated (no
+    separators/traversal) and resolved strictly inside the run's samples dir."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    if not _SAMPLE_NAME_RE.match(filename) or filename != os.path.basename(filename):
+        return jsonify({'error': 'invalid filename'}), 400
+    bm = request.args.get('base_model')
+    fam = request.args.get('train_type') or None
+    kw = {} if bm is None else {'base_model': bm}
+    if fam:
+        kw['family'] = fam
+    try:
+        d = lt._samples_dir(LOCAL_USER, dataset_id, **kw)
+    except Exception as e:
+        return _map_error(e)
+    path = os.path.join(d, filename)
+    if not os.path.isfile(path):
+        return jsonify({'error': 'not found'}), 404
+    from flask import send_file
+    return send_file(path, conditional=True)
 
 
 @bp.get('/dataset/<int:dataset_id>/train/base-info')
