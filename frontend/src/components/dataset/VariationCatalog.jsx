@@ -190,7 +190,26 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   const go = () => {
     const variations = catalog.filter((e) => selected.has(e.id))
       .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing }));
-    if (variations.length) onGenerate(variations, multiplier, klein, loraStrength, generator);
+    if (!variations.length) return;
+    // Guard-rail: the selection survives a previous Generate, so a re-click would
+    // re-generate (and re-bill) shots that already exist. Ask — OK = duplicates
+    // on purpose, Cancel = only the newly added shots.
+    const dupes = variations.filter((v) => doneByLabel.get(v.label));
+    let toGen = variations;
+    if (dupes.length === variations.length) {
+      if (!window.confirm(
+        `All ${dupes.length} selected shot(s) already exist in the dataset (green ✓×N cards).\n\n`
+        + 'Generate them AGAIN anyway (duplicates)?')) return;
+    } else if (dupes.length > 0) {
+      const fresh = variations.length - dupes.length;
+      if (!window.confirm(
+        `${dupes.length} of the ${variations.length} selected shot(s) already exist in the dataset.\n\n`
+        + `OK — generate everything (including ${dupes.length} duplicate(s))\n`
+        + `Cancel — only generate the ${fresh} new one(s)`)) {
+        toGen = variations.filter((v) => !doneByLabel.get(v.label));
+      }
+    }
+    if (toGen.length) onGenerate(toGen, multiplier, klein, loraStrength, generator);
   };
 
   return (
