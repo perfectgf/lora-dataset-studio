@@ -1,7 +1,9 @@
 /** Manual crop editor with a STRETCHABLE box: drag the 8 handles to resize, drag
  * inside to move — any shape, not just square (training buckets non-square
- * images fine). Ratio presets snap the box; `lockSquare` (reference crop) keeps
- * it 1:1 (the reference feeds the identity pipeline, which expects a square).
+ * images fine). Ratio presets snap the box; `defaultAspect` presets the initial
+ * ratio (the reference crop starts at 1:1 — its historical convention — but
+ * stays freely reshapeable: nothing downstream actually requires a square).
+ * `lockSquare` pins 1:1 and hides the ratio row (kept for callers that need it).
  * Returns the box in NATURAL image pixels, same contract as before.
  * Custom implementation (no react-easy-crop): that lib pins a fixed frame and
  * moves the image under it — it cannot stretch the selection itself. */
@@ -51,10 +53,11 @@ function ratioBox(cur, ratio, W, H) {
   return clampBox({ x: cx - w / 2, y: cy - h / 2, w, h }, W, H);
 }
 
-export default function CropModal({ imageUrl, onCancel, onConfirm, onReset, lockSquare = false }) {
+export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
+                                    lockSquare = false, defaultAspect = null }) {
   const [nat, setNat] = useState(null);        // {W, H} natural size
   const [box, setBox] = useState(null);        // crop box in NATURAL px
-  const [aspect, setAspect] = useState(lockSquare ? 1 : null);   // null = free
+  const [aspect, setAspect] = useState(lockSquare ? 1 : defaultAspect);   // null = free
   const imgRef = useRef(null);
   const cancelRef = useRef(null);
   const dragRef = useRef(null);                // {mode, start, startBox}
@@ -62,10 +65,12 @@ export default function CropModal({ imageUrl, onCancel, onConfirm, onReset, lock
   const onImgLoad = (e) => {
     const W = e.target.naturalWidth; const H = e.target.naturalHeight;
     setNat({ W, H });
-    // Initial box: centered square (lockSquare) or centered 80% of the frame.
-    if (lockSquare) {
-      const side = Math.min(W, H);
-      setBox({ x: (W - side) / 2, y: (H - side) / 2, w: side, h: side });
+    // Initial box: largest centered box of the initial ratio, or 80% of the frame.
+    const a = lockSquare ? 1 : defaultAspect;
+    if (a) {
+      let w = W; let h = w / a;
+      if (h > H) { h = H; w = h * a; }
+      setBox({ x: (W - w) / 2, y: (H - h) / 2, w, h });
     } else {
       setBox(clampBox({ x: W * 0.1, y: H * 0.1, w: W * 0.8, h: H * 0.8 }, W, H));
     }

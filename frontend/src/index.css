@@ -212,3 +212,18 @@
 .profile-spinner {
   animation: spin 1s linear infinite;
 }
+
+/* Guided-checklist jump: flash the targeted section so the eye lands on it.
+   Applied by DatasetWorkspace.jumpTo for ~1.5 s, restartable on repeat clicks. */
+@keyframes gfFlash {
+  0%   { box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.75); background-color: rgba(99, 102, 241, 0.12); }
+  60%  { box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.35); background-color: rgba(99, 102, 241, 0.05); }
+  100% { box-shadow: 0 0 0 3px rgba(129, 140, 248, 0);    background-color: transparent; }
+}
+.gf-highlight {
+  animation: gfFlash 1.4s ease-out 1;
+  border-radius: 0.5rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gf-highlight { animation: none; box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.5); }
+}

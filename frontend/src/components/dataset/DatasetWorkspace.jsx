@@ -48,8 +48,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const pending = images.filter((i) => i.status === 'pending' && !i.filename).length;
   const jumpTo = (step) => {
     const el = document.getElementById(step.targetId);
-    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      const b = el.querySelector('button:not([disabled])'); if (b) b.focus({ preventScroll: true }); }
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const b = el.querySelector('button:not([disabled])'); if (b) b.focus({ preventScroll: true });
+    // Flash the landed-on section (gf-highlight, index.css) so the eye finds it.
+    // remove + reflow restarts the animation when the same step is clicked twice.
+    el.classList.remove('gf-highlight');
+    void el.offsetWidth;
+    el.classList.add('gf-highlight');
+    window.setTimeout(() => el.classList.remove('gf-highlight'), 1500);
   };
   const nextAction = () => {
     if (!nextStep) return;
@@ -213,13 +220,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
       {concept ? (
         // Concept : pas de photo de référence ni de générateur — on peuple le dataset
         // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
-        <div id="gf-reference" className="flex flex-col gap-3 scroll-mt-4">
+        <div id="gf-reference" className="flex flex-col gap-3 scroll-mt-20">
           <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
           <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
         </div>
       ) : (
         <>
-          <div id="gf-reference" className="grid grid-cols-1 lg:grid-cols-2 gap-3 scroll-mt-4">
+          <div id="gf-reference" className="grid grid-cols-1 lg:grid-cols-2 gap-3 scroll-mt-20">
             <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
               onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
               extraRefs={d.ref_extra_filenames || []}
@@ -232,7 +239,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
               busy={ds.busy} cropOption defaultCrop={!bodyFid} />
           </div>
 
-          <div id="gf-generate" className="scroll-mt-4">
+          <div id="gf-generate" className="scroll-mt-20">
             <VariationCatalog key={`vc-${d.id}-${bodyFid}`} onGenerate={ds.generate} busy={ds.busy}
               hasRef={!!d.ref_filename} composition={d.composition} images={images}
               bodyFidelity={bodyFid} />
@@ -240,7 +247,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </>
       )}
 
-      <div id="gf-training" className="scroll-mt-4">
+      <div id="gf-training" className="scroll-mt-20">
         <TrainingPanel ds={ds} keptCount={kept} kind={d.kind} onCheckpointsChange={setCheckpointCount} />
       </div>
 
@@ -264,7 +271,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </button>
       )}
 
-      <div id="gf-images" className="flex flex-col gap-2 scroll-mt-4">
+      <div id="gf-images" className="flex flex-col gap-2 scroll-mt-20">
         <button type="button" onClick={() => setShowImages((v) => !v)} aria-expanded={showImages}
           className="flex items-center gap-2 text-left text-content font-semibold text-sm">
           <span aria-hidden>🖼️</span> Dataset images
@@ -295,7 +302,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         // back out — not just tighten the already-cropped square. Legacy datasets with
         // no stored original fall back to the cropped ref (can only tighten, as before).
         <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(d.ref_original_filename || d.ref_filename)}`}
-          lockSquare
+          defaultAspect={1}
           onCancel={() => setRefCrop(false)}
           onConfirm={async (box) => { await ds.cropRef(box); setRefCrop(false); }}
           onReset={d.ref_original_filename
