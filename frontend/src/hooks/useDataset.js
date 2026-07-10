@@ -234,8 +234,10 @@ export function useDataset() {
     const d = await postJson(`/api/dataset/${currentId}/import`, fd, true);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     const dup = d.duplicates || 0;
+    const small = d.small || 0;
     toast.success(`${d.imported} imported${dup ? ` · ${dup} duplicate(s) skipped` : ''}`);
     if (dup && !d.imported) toast.warning('All files were already in the dataset (perceptual duplicates).');
+    if (small) toast.warning(`${small} image(s) are under 768 px — training only downscales, they will stay soft.`);
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 

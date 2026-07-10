@@ -861,6 +861,110 @@ def recommended_steps(dataset_id) -> int:
     return max(1500, min(3500, target))
 
 
+# --- Preflight d'entraînement (garde-fous, lecture seule) -----------------------
+# Plancher DUR / recommandé par famille. Sous le plancher → blocker ; entre les
+# deux → warning à confirmer. 10 images fixes pour tout le monde sous-estimait
+# SDXL (booru, plus gourmand en variété) et laissait passer des runs voués au
+# surapprentissage.
+TRAIN_MIN_IMAGES = {'zimage': (12, 20), 'sdxl': (20, 30), 'krea': (15, 20)}
+_FAMILY_LABEL = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2'}
+# VRAM mesurée : Krea 2 (12B) sature un 24 GB à 1024 (cf. KREA_TRAIN_RESOLUTION).
+_KREA_MIN_VRAM_GB = 24
+
+
+def training_preflight(user_id, dataset_id, train_type=None) -> dict:
+    """Pre-launch sanity report: {'blockers': [...], 'warnings': [...]}. Blockers
+    stop the launch (too few images for the family); warnings ask for one explicit
+    confirm in the UI. Pure reads — never mutates, never raises on probe failures
+    (an unknown GPU must not block a run)."""
+    from .face_variations import caption_has_identity_leak
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    ttype = _train_type(ds, train_type)
+    label = _FAMILY_LABEL.get(ttype, ttype)
+    blockers, warnings = [], []
+
+    rows = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).all()
+    kept = [r for r in rows if r.status == 'keep' and r.filename]
+    n = len(kept)
+
+    # 1) minimum d'images par famille
+    floor, reco = TRAIN_MIN_IMAGES.get(ttype, (12, 20))
+    if n < floor:
+        blockers.append(f'{n} kept image(s) — the hard minimum for a {label} LoRA is {floor}. '
+                        'Generate or import more before training.')
+    elif n < reco:
+        warnings.append(f'{n} kept image(s) — {reco} recommended for a solid {label} LoRA.')
+
+    # 2) équilibre de composition
+    if n:
+        comp = {'face': 0, 'bust': 0, 'body': 0, 'back': 0}
+        for r in kept:
+            if r.framing in comp:
+                comp[r.framing] += 1
+        if comp['bust'] + comp['body'] + comp['back'] == 0:
+            warnings.append('every kept image is a face shot — the LoRA will struggle to '
+                            'render busts and full-body scenes.')
+        if fds.is_body_fidelity(ds) and comp['body'] == 0:
+            warnings.append('body fidelity is ON but there is no full-body shot — the body '
+                            "can't be learned without body images.")
+
+    # 3) captions suspectes (trop courtes / dupliquées)
+    caps = [(r.caption or '').strip() for r in kept if (r.caption or '').strip()]
+    if caps:
+        short = sum(1 for c in caps if len(c.split()) < 8)
+        if short / len(caps) > 0.3:
+            warnings.append(f'{short}/{len(caps)} caption(s) are very short (<8 words) — '
+                            'weak captions weaken prompt control.')
+        if len(set(c.lower() for c in caps)) < len(caps) * 0.7:
+            warnings.append('many captions are identical — the model learns nothing from '
+                            'repeated text; re-caption for variety.')
+
+    # 4) fuite d'identité
+    body = fds.is_body_fidelity(ds)
+    leaking = sum(1 for c in caps if caption_has_identity_leak(c, body=body))
+    if leaking:
+        warnings.append(f'{leaking} caption(s) still describe the identity (face/hair'
+                        f'{"/body marks" if body else ""}) — it will bind to those words '
+                        'instead of the trigger. Re-caption or edit them.')
+
+    # 5) quasi-doublons parmi les kept (dHash pairwise, n<=~60 -> négligeable)
+    try:
+        hashes = []
+        for r in kept:
+            p = fds._img_path(r)
+            if p and os.path.exists(p):
+                with Image.open(p) as im:
+                    hashes.append(fds._dhash(im))
+        dup_pairs = sum(1 for i in range(len(hashes)) for j in range(i + 1, len(hashes))
+                        if fds._hamming(hashes[i], hashes[j]) <= fds.SCRAPE_DHASH_MAX_DISTANCE)
+        if dup_pairs:
+            warnings.append(f'{dup_pairs} pair(s) of kept images are near-duplicates — '
+                            'the model overfits repeated content; reject one of each pair.')
+    except Exception:
+        pass   # best-effort: an unreadable file must not block the preflight
+
+    # 11) images encore en attente de tri (elles ne s'entraînent PAS)
+    untriaged = sum(1 for r in rows if r.status == 'pending' and r.filename)
+    if untriaged:
+        warnings.append(f'{untriaged} image(s) still await triage (✓/✕) — they will NOT '
+                        'be part of the training.')
+
+    # 7) VRAM (Krea 2 mesuré à 24 GB ; None = inconnu, jamais bloquant)
+    try:
+        from .. import capabilities
+        vram = capabilities.gpu_vram_gb()
+        if vram is not None and ttype == 'krea' and vram < _KREA_MIN_VRAM_GB:
+            warnings.append(f'Krea 2 training needs ~{_KREA_MIN_VRAM_GB} GB of VRAM at 1024 '
+                            f'— this GPU reports {vram} GB; expect OOM or extreme slowness.')
+    except Exception:
+        pass
+
+    return {'blockers': blockers, 'warnings': warnings,
+            'kept': n, 'floor': floor, 'recommended': reco}
+
+
 # --- Garde-fou espace disque ---------------------------------------------------
 # Un run plein (10 checkpoints ~0,3-2 Go + latents/samples) et une conversion
 # diffusers (~12 Go) qui crashent à 90 % pour cause de disque plein laissent des

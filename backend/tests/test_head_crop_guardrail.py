@@ -123,7 +123,7 @@ def test_ref_route_no_warning_when_head_detected(client, monkeypatch):
     monkeypatch.setattr(dr, 'gpu_exclusive_vision_window', lambda: contextlib.nullcontext())
 
     resp = client.post(f'/api/dataset/{did}/ref',
-                       data={'file': (io.BytesIO(_png()), 'ref.png'), 'crop': '1'},
+                       data={'file': (io.BytesIO(_png(900, 900)), 'ref.png'), 'crop': '1'},
                        content_type='multipart/form-data')
     body = resp.get_json()
     assert body['head_crop'] is True and 'warning' not in body
@@ -143,7 +143,7 @@ def test_ref_route_default_is_manual_no_vision_no_warning(client, monkeypatch):
         return (b'RIFFwebp', False)
     monkeypatch.setattr(dr.svc, 'face_crop_to_square_webp', fake_crop)
     resp = client.post(f'/api/dataset/{did}/ref',
-                       data={'file': (io.BytesIO(_png()), 'ref.png')},
+                       data={'file': (io.BytesIO(_png(900, 900)), 'ref.png')},
                        content_type='multipart/form-data')
     body = resp.get_json()
     assert resp.status_code == 200 and body['ok'] is True

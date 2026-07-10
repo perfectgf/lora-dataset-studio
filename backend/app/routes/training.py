@@ -252,6 +252,24 @@ def dataset_train_sample(dataset_id, filename):
     return send_file(path, conditional=True)
 
 
+@bp.get('/dataset/<int:dataset_id>/train/preflight')
+def dataset_train_preflight(dataset_id):
+    """Pre-launch sanity report (blockers + warnings): image floor per family,
+    composition balance, caption quality, identity leaks, near-duplicates,
+    untriaged images, VRAM. The TrainingPanel calls it before Train/Queue/
+    Schedule and turns warnings into ONE confirm."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        return jsonify({'ok': True, **lt.training_preflight(
+            LOCAL_USER, dataset_id, train_type=request.args.get('train_type') or None)})
+    except Exception as e:
+        return _map_error(e)
+
+
 @bp.post('/dataset/<int:dataset_id>/train/best-epoch')
 def dataset_train_best_epoch(dataset_id):
     """Score every training sample vs the reference (face similarity, CPU) and

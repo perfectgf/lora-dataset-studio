@@ -149,6 +149,16 @@ def normalize_kind(kind) -> str | None:
     return 'concept' if (kind or '').strip().lower() == 'concept' else None
 
 
+def _safe_json(text):
+    """None-safe json.loads for TEXT columns holding JSON (never raises)."""
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
 def is_concept(ds) -> bool:
     return bool(ds) and (getattr(ds, 'kind', None) or '').lower() == 'concept'
 
@@ -672,6 +682,10 @@ def dataset_payload(user_id, dataset_id):
         'ref_filename': ds.ref_filename,
         'ref_original_filename': ds.ref_original_filename or '',
         'ref_extra_filenames': extra_ref_filenames(ds), 'composition': comp,
+        # Réglages gagnants du Studio (JSON → objet). Manquait du payload : le badge
+        # ★ du workspace ne s'affichait jamais, et le garde-fou « suppression d'un
+        # checkpoint référencé » en a besoin.
+        'best_settings': _safe_json(ds.best_settings),
         'face_thresholds': {'green': cfg.get('face_scoring.green'), 'orange': cfg.get('face_scoring.orange')},
         'images': [{'id': i.id, 'filename': i.filename, 'source': i.source,
                     'framing': i.framing, 'variation_label': i.variation_label,
@@ -795,6 +809,16 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     ids = []
     failed = 0
     for raw in files_bytes:
+        # Garde-fou qualité : ai-toolkit ne fait que RÉDUIRE — une image sous
+        # 768 px de petit côté reste floue à l'entraînement. Comptée (toast),
+        # jamais bloquée : c'est parfois la seule photo disponible.
+        if stats is not None:
+            try:
+                with Image.open(io.BytesIO(raw)) as im0:
+                    if min(im0.size) < SCRAPE_IMPORT_MIN_SIDE:
+                        stats['small'] = stats.get('small', 0) + 1
+            except Exception:
+                pass
         try:
             webp = face_crop_to_square_webp(raw) if crop else normalize_to_webp(raw)
         except Exception as e:

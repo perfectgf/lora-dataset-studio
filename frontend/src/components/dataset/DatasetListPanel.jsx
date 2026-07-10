@@ -210,6 +210,15 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
             <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
               placeholder={concept ? 'e.g. cim_act' : 'e.g. zchar_emma'}
               className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
+            {/* Guard-rail: a plain short word ("emma", "girl") collides with the base
+                model's existing vocabulary — the identity bleeds into that word
+                everywhere. A unique token (prefix/underscore/digits) binds cleanly. */}
+            {trigger.trim() && /^[a-z]{1,7}$/i.test(trigger.trim()) && (
+              <span className="text-amber-300 text-[0.625rem]">
+                ⚠ “{trigger.trim()}” looks like a common word — the base model already has a meaning
+                for it. Prefer a unique token like <span className="font-mono">zchar_{trigger.trim().toLowerCase()}</span>.
+              </span>
+            )}
           </label>
         </div>
         {/* Modèle cible : fixe le format de caption (SDXL→tags booru, sinon prose) et la

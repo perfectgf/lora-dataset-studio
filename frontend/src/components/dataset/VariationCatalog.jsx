@@ -209,7 +209,15 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
         toGen = variations.filter((v) => !doneByLabel.get(v.label));
       }
     }
-    if (toGen.length) onGenerate(toGen, multiplier, klein, loraStrength, generator);
+    if (!toGen.length) return;
+    // Guard-rail: API engines bill per image — above $5 estimated, confirm with
+    // the amount (silent for the free local Klein).
+    const rate = isNB ? 0.15 : isGPT ? 0.17 : 0;
+    const cost = toGen.length * multiplier * rate;
+    if (cost > 5 && !window.confirm(
+      `This will launch ${toGen.length * multiplier} API generation(s) `
+      + `≈ $${cost.toFixed(2)} (${isNB ? 'Nano Banana' : 'ChatGPT'}).\n\nProceed?`)) return;
+    onGenerate(toGen, multiplier, klein, loraStrength, generator);
   };
 
   return (

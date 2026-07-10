@@ -376,13 +376,25 @@ def test_import_dedupe_off_by_default(app):
         assert len(ids1) == 1 and len(ids2) == 1
 
 
+class _SerialPool:
+    """Deterministic stand-in for ThreadPoolExecutor: the real 3-worker pool on the
+    test's shared in-memory sqlite is flaky (thread-scoped sessions racing on one
+    connection). Prod runs a WAL file DB — the concurrency isn't what's under test."""
+    def __init__(self, *a, **k): pass
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def map(self, fn, items): return [fn(i) for i in items]
+
+
 def test_api_batch_skips_cancelled_rows(app, monkeypatch):
     """Stop during a Nano Banana batch: cancel_pending deletes the pending rows —
     the worker must then SKIP the API call for those items (each call is billed),
     not generate-then-discard."""
+    import concurrent.futures
     from app.services import face_dataset_service as svc
     from app.models import FaceDatasetImage
     from app.config import LOCAL_USER
+    monkeypatch.setattr(concurrent.futures, 'ThreadPoolExecutor', _SerialPool)
     calls = []
     monkeypatch.setattr(svc, '_api_generate_fn',
                         lambda engine: (lambda *a, **k: calls.append(1) or _png()))
@@ -408,9 +420,11 @@ def test_api_batch_skips_cancelled_rows(app, monkeypatch):
 def test_api_batch_failure_stores_reason(app, monkeypatch):
     """A failed API generation must persist WHY (fail_reason) — the tile shows it
     instead of a mute 'failed'. Exposed in the payload; cleared on regenerate."""
+    import concurrent.futures
     from app.services import face_dataset_service as svc
     from app.models import FaceDatasetImage
     from app.config import LOCAL_USER
+    monkeypatch.setattr(concurrent.futures, 'ThreadPoolExecutor', _SerialPool)
     def boom(*a, **k):
         raise RuntimeError('quota exceeded (429)')
     monkeypatch.setattr(svc, '_api_generate_fn', lambda engine: boom)

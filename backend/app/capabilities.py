@@ -245,6 +245,35 @@ def _detect_ollama() -> dict:
     return out
 
 
+# --- GPU VRAM probe (nvidia-smi, cached) ---------------------------------------
+_gpu_cache = {'ts': 0.0, 'gb': None}
+_GPU_TTL = 600
+
+
+def gpu_vram_gb():
+    """Total VRAM of GPU 0 in GB via nvidia-smi, cached 10 min. None when it can't
+    be determined (no NVIDIA GPU / nvidia-smi absent) — callers must treat None
+    as 'unknown', never as 0 (an unknown GPU must not trigger OOM warnings)."""
+    import subprocess
+    now = time.time()
+    if _gpu_cache['ts'] and (now - _gpu_cache['ts']) < _GPU_TTL:
+        return _gpu_cache['gb']
+    gb = None
+    try:
+        proc = subprocess.run(
+            ['nvidia-smi', '--query-gpu=memory.total', '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if proc.returncode == 0:
+            first = (proc.stdout or '').strip().splitlines()
+            if first:
+                gb = round(float(first[0].strip()) / 1024, 1)   # MiB -> GB
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        gb = None
+    _gpu_cache.update(ts=now, gb=gb)
+    return gb
+
+
 def _is_comfyui_dir(d) -> bool:
     try:
         return (d / 'main.py').exists() and (d / 'models').is_dir()

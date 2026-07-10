@@ -22,7 +22,7 @@ from ._common import _map_error, _require_comfyui
 bp = Blueprint('datasets', __name__, url_prefix='/api')
 
 _PRESET_NAMES = ('balanced_25', 'zimage_12', 'balanced_multiformat',
-                 'face_focused', 'fullbody_focused')
+                 'face_focused', 'fullbody_focused', 'body_emphasis')
 
 
 @bp.post('/dataset/create')
@@ -92,6 +92,19 @@ def dataset_set_ref(dataset_id):
     if not f or not f.filename:
         return jsonify({'error': 'no file'}), 400
     raw = f.read()
+    # Garde-fou qualité : une référence basse résolution dégrade TOUTES les
+    # variations générées (l'anchor identité part de là). On avertit, sans bloquer.
+    low_res_warning = None
+    try:
+        from PIL import Image as PILImage
+        import io as _io
+        with PILImage.open(_io.BytesIO(raw)) as im0:
+            if min(im0.size) < 768:
+                low_res_warning = (
+                    f'This reference is only {im0.size[0]}x{im0.size[1]} px — under 768 px the '
+                    'generated variations will inherit the softness. A sharper photo gives a better LoRA.')
+    except Exception:
+        pass
     # Auto head-crop OPT-IN (form field crop='1') : par défaut on fait un carré
     # centré PIL pur — instantané, pas de passe vision, pas de pause ComfyUI —
     # et l'utilisateur ajuste avec ✂ Crop (l'éditeur lit l'original plein cadre).
@@ -134,6 +147,8 @@ def dataset_set_ref(dataset_id):
             if not model_ready else
             "Couldn't detect a face — used a centered crop. Use the Crop button to adjust it manually."
         )
+    if low_res_warning:
+        resp['warning'] = f"{resp['warning']} {low_res_warning}" if resp.get('warning') else low_res_warning
     return jsonify(resp)
 
 
@@ -241,7 +256,8 @@ def dataset_import(dataset_id):
         ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=False,
                                         dedupe=True, stats=stats)
         return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
-                        'duplicates': stats.get('duplicates', 0)})
+                        'duplicates': stats.get('duplicates', 0),
+                        'small': stats.get('small', 0)})
     try:
         # batch (head-crop vision par image) : heartbeat de la fenêtre = ComfyUI arrêté
         # tout le batch ; le TTL n'est qu'un filet anti-crash.
@@ -251,7 +267,8 @@ def dataset_import(dataset_id):
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
-                    'duplicates': stats.get('duplicates', 0)})
+                    'duplicates': stats.get('duplicates', 0),
+                    'small': stats.get('small', 0)})
 
 
 @bp.post('/dataset/<int:dataset_id>/scrape-import')

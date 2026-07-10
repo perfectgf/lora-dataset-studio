@@ -50,11 +50,14 @@ export default function SetupPage() {
   const [screen, setScreen] = useState(0)           // index into SCREENS
   const [advancing, setAdvancing] = useState(false) // Next is mid save-&-recheck
   const autodetectedRef = useRef(false)             // run the on-load autodetect only once
+  // Last SERVER-acknowledged config (JSON) — dirty = user edits not yet saved.
+  const savedConfigRef = useRef(null)
 
   const load = useCallback(async () => {
     try {
       const data = await apiFetch('/api/settings')
       setConfig(data.config); setSecretsPresence(data.secrets); setLoadError(false)
+      savedConfigRef.current = JSON.stringify(data.config)
     } catch (e) { setLoadError(true); toast.error(`Failed to load settings: ${e.message}`) }
   }, [toast])
   useEffect(() => { load() }, [load])
@@ -86,6 +89,7 @@ export default function SetupPage() {
       if (changed) {
         const saved = await putJson('/api/settings', { config: next })
         setConfig(saved.config)
+        savedConfigRef.current = JSON.stringify(saved.config)
       }
       await refresh(true)
       return d
@@ -104,7 +108,8 @@ export default function SetupPage() {
     const next = { ...config, [section]: { ...config[section], [key]: val } }
     try {
       const saved = await putJson('/api/settings', { config: next })
-      setConfig(saved.config); await refresh(true); toast.success('Applied.')
+      setConfig(saved.config); savedConfigRef.current = JSON.stringify(saved.config)
+      await refresh(true); toast.success('Applied.')
     } catch (e) { toast.error(`Save failed: ${e.message}`) }
   }
 
@@ -126,6 +131,7 @@ export default function SetupPage() {
       )
       const data = await putJson('/api/settings', { config, secrets })
       setConfig(data.config); setSecretsPresence(data.secrets); setSecretInputs({})
+      savedConfigRef.current = JSON.stringify(data.config)
       await refresh(true)
       toast.success('Saved.')
     } catch (e) { toast.error(`Save failed: ${e.message}`) }
@@ -471,7 +477,15 @@ export default function SetupPage() {
     const nxt = nextUnfinished(toolIdx(kind))
     setScreen(nxt ? screenOf(nxt) : DONE)
   }
+  // Guard-rail: Back (unlike Save & continue) does NOT save — warn before losing
+  // typed-but-unsaved fields (config edits or a typed secret).
+  const hasUnsaved = () => (
+    (savedConfigRef.current != null && JSON.stringify(config) !== savedConfigRef.current)
+    || Object.values(secretInputs).some((v) => (v || '').trim())
+  )
   const goBack = () => {
+    if (hasUnsaved() && !window.confirm(
+      'You have unsaved changes on this step - they will be lost.\n\nGo back without saving?')) return
     if (kind === 'done') {
       const last = [...SETUP_STEP_IDS].reverse().find((id) => !isReady(id))
       return setScreen(last ? screenOf(last) : 0)

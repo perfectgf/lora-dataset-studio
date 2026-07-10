@@ -155,6 +155,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
           )}
           <button type="button" disabled={!kept}
             onClick={() => {
+              // Guard-rails: untriaged images are silently EXCLUDED from the zip,
+              // and uncaptioned kept ones export as trigger-only.
+              const triage = images.filter((i) => i.status === 'pending' && i.filename).length;
+              if (triage && !window.confirm(`${triage} image(s) still await triage (✓/✕) and will NOT be in the ZIP. Export anyway?`)) return;
               if (keptUncaptioned && !window.confirm(`${keptUncaptioned} kept image(s) without a caption (trigger only). Export anyway?`)) return;
               ds.exportZip();
             }}
@@ -240,7 +244,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
           </div>
 
           <div id="gf-generate" className="scroll-mt-20">
-            <VariationCatalog key={`vc-${d.id}-${bodyFid}`} onGenerate={ds.generate} busy={ds.busy}
+            <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}
+              onGenerate={(...args) => {
+                // Guard-rail: a batch is already in flight — launching another one
+                // on top is usually an accidental double-click, not a plan.
+                if (pending > 0 && !window.confirm(
+                  `A generation batch is already running (${pending} in flight).\n\nLaunch another one anyway?`)) return;
+                ds.generate(...args);
+              }}
               hasRef={!!d.ref_filename} composition={d.composition} images={images}
               bodyFidelity={bodyFid} />
           </div>

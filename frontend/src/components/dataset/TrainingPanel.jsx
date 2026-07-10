@@ -5,6 +5,10 @@ import { useCapabilities } from '../../context/CapabilitiesContext';
 import { useToast } from '../common/Toast';
 import TrainingProgress from './TrainingProgress';
 
+// Plancher dur / recommandé par famille — miroir de TRAIN_MIN_IMAGES côté serveur
+// (le preflight reste l'autorité ; ceci ne sert qu'à désactiver le bouton tôt).
+const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20] };
+
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
  * Poll régulier : c'est ce poll qui fait avancer la file (fin du courant → suivant). */
@@ -126,6 +130,23 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     const msg = (d && d.error) || fallback;
     toast.error(d && d.hint ? `${msg} — ${d.hint}` : msg);
   };
+
+  // Pre-launch sanity gate (server preflight): blockers stop with a toast,
+  // warnings collapse into ONE confirm. Unreachable preflight never blocks.
+  const preflightOk = async () => {
+    try {
+      const r = await fetch(
+        `/api/dataset/${ds.currentId}/train/preflight?train_type=${encodeURIComponent(trainType)}`,
+        { credentials: 'include' });
+      if (!r.ok) return true;
+      const d = await r.json();
+      if (d.blockers?.length) { toast.error(d.blockers.join('\n')); return false; }
+      if (d.warnings?.length) {
+        return window.confirm(`Before training:\n\n• ${d.warnings.join('\n• ')}\n\nStart anyway?`);
+      }
+      return true;
+    } catch { return true; }
+  };
   // Masked training (fond 10 %) — défaut ON, persisté (partagé lancement/file/programmation).
   const [masked, setMaskedS] = useState(() => {
     try { return localStorage.getItem('trainMasked_v1') !== '0'; } catch { return true; }
@@ -152,6 +173,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     : null;
 
   const enqueue = async () => {
+    if (!(await preflightOk())) return;
     // Mise en file AVEC la base/variante choisie (sinon le job reprend la base persistée).
     let d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`, { base_model: base, variant, train_type: trainType, masked, steps: stepsN });
     if (d && d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
@@ -190,6 +212,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   };
   const schedule = async () => {
     if (!schedAt) return;
+    if (!(await preflightOk())) return;
     let d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`,
       { at: schedAt, base_model: base, variant, train_type: trainType, masked, steps: stepsN });
     if (d && d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
@@ -227,7 +250,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     // liste « IN COMFYUI » + les checkpoints pour CETTE famille (sinon liste figée).
   }, [base, trainType, ds.currentId, baseInfo, caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
   const removeImported = async (filename, label) => {
-    if (!window.confirm(`Permanently delete « ${label} » from ComfyUI's ${lorasLabel} folder?`)) return;
+    // Guard-rail: this LoRA may be the one the Studio's ★ best settings point to —
+    // deleting it silently breaks the saved winning combo.
+    const best = ds.data?.best_settings;
+    const isBest = best?.lora_filename
+      && String(best.lora_filename).split(/[\\/]/).pop() === String(filename).split(/[\\/]/).pop();
+    const msg = isBest
+      ? `⚠ « ${label} » is the LoRA saved as this dataset's ★ BEST SETTINGS in the Test Studio.\n\nDelete it anyway? The saved combo will stop working.`
+      : `Permanently delete « ${label} » from ComfyUI's ${lorasLabel} folder?`;
+    if (!window.confirm(msg)) return;
     await ds.deleteCheckpoint(filename, trainType);
     loadCheckpoints();
   };
@@ -371,10 +402,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       )}
 
       <div className="flex items-center gap-2 flex-wrap">
-        <button type="button" disabled={!status.installed || keptCount < 10 || status.in_progress || baseBlocksTrain || sdxlNeedsBase}
+        <button type="button" disabled={!status.installed || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12) || status.in_progress || baseBlocksTrain || sdxlNeedsBase}
           title={baseBlocksTrain ? 'Convert the custom base first'
-            : sdxlNeedsBase ? 'Choose a base SDXL checkpoint' : undefined}
+            : sdxlNeedsBase ? 'Choose a base SDXL checkpoint'
+            : keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12)
+              ? `${keptCount} kept image(s) — the minimum for ${typeLabel} is ${TRAIN_MIN[trainType]?.[0] ?? 12}`
+              : undefined}
           onClick={async () => {
+            if (!(await preflightOk())) return;
             let d = await ds.train({ baseModel: base, variant, trainType, masked, steps: stepsN });
             if (d && d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
               if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nTrain anyway (force)?')) {
@@ -417,7 +452,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             Finish / re-enable ComfyUI
           </button>
         )}
-        {status.in_progress && status.installed && keptCount >= 10 && (
+        {status.in_progress && status.installed && keptCount >= (TRAIN_MIN[trainType]?.[0] ?? 12) && (
           <button type="button" disabled={queued || baseBlocksTrain} onClick={enqueue}
             title={baseBlocksTrain
               ? 'Convert the selected custom base first'
@@ -426,7 +461,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             {queued ? '✓ Queued' : `➕ Add to queue (${baseLabel})`}
           </button>
         )}
-        {status.installed && keptCount >= 10 && (
+        {status.installed && keptCount >= (TRAIN_MIN[trainType]?.[0] ?? 12) && (
           <button type="button" disabled={queued || baseBlocksTrain} onClick={openSched}
             aria-expanded={showSched}
             title={baseBlocksTrain
@@ -494,8 +529,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         </p>
       )}
 
-      {keptCount < 10 && (
-        <p className="m-0 text-content-subtle text-[0.625rem]">At least 10 kept images recommended before training.</p>
+      {keptCount < (TRAIN_MIN[trainType]?.[1] ?? 20) && (
+        <p className="m-0 text-content-subtle text-[0.625rem]">
+          {typeLabel}: minimum {TRAIN_MIN[trainType]?.[0] ?? 12} kept images,{' '}
+          {TRAIN_MIN[trainType]?.[1] ?? 20} recommended — you have {keptCount}.
+        </p>
       )}
 
       {checkpoints.length > 0 && (
