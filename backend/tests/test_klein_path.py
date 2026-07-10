@@ -148,6 +148,68 @@ def test_generate_klein_unconfigured_comfyui_raises_models_missing(app):
                                     klein_model='k.safetensors')
 
 
+def test_save_prefix_is_unique_per_job(app, tmp_path, monkeypatch):
+    """SaveImage numbers files from what's in ComfyUI's output folder, and the
+    app moves results out right after completion — a SHARED prefix made the
+    counter re-issue the same name (live repro: 4 different seeds all saved as
+    local_DatasetFace_00002_.png) so every tile displayed the same image. The
+    prefix must therefore be unique per job."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    from app.job_queue import queue_manager
+    with app.app_context():
+        _configure_comfy_dirs(tmp_path, cfg)
+        src = tmp_path / 'ref.png'; src.write_bytes(_png())
+        prefixes = []
+        monkeypatch.setattr(queue_manager, 'add_job',
+                            lambda **kw: (prefixes.append(kw['workflow_data']['9']['inputs']['filename_prefix']),
+                                          kw['job_id'])[1])
+        for _ in range(2):
+            keh.enqueue_klein_edit(user_id='local', source_filename='ref.png',
+                                   edit_prompt='p', source_path=str(src))
+        assert len(prefixes) == 2
+        assert prefixes[0] != prefixes[1]            # unique per job
+        assert all(p.startswith('local_DatasetFace_') for p in prefixes)
+
+
+def test_link_never_overwrites_existing_dataset_file(app, tmp_path):
+    """Residual name collision (two jobs reporting the same output filename):
+    the second link must store under a RENAMED file, not overwrite the first
+    tile's image."""
+    from app import config as cfg
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        base = _configure_comfy_dirs(tmp_path, cfg)
+        ds = svc.create_dataset(LOCAL_USER, 'Col', 'col')
+        rows = []
+        for jid in ('job-a', 'job-b'):
+            img = FaceDatasetImage(dataset_id=ds.id, source='generated', status='pending',
+                                   job_id=jid, klein_model='k.safetensors')
+            svc.db.session.add(img)
+            rows.append(img)
+        svc.db.session.commit()
+
+        out_dir = base / 'output'
+        (out_dir / 'same.png').write_bytes(b'FIRST')
+        svc.link_completed_dataset_image('job-a', 'same.png')
+        (out_dir / 'same.png').write_bytes(b'SECOND')      # ComfyUI re-issued the name
+        svc.link_completed_dataset_image('job-b', 'same.png')
+
+        a = svc.db.session.get(FaceDatasetImage, rows[0].id)
+        b = svc.db.session.get(FaceDatasetImage, rows[1].id)
+        assert a.filename == 'same.png'
+        assert b.filename != 'same.png'                    # renamed, not overwritten
+        da = os.path.join(svc._dataset_dir(ds.id), a.filename)
+        db_ = os.path.join(svc._dataset_dir(ds.id), b.filename)
+        with open(da, 'rb') as fh:
+            assert fh.read() == b'FIRST'                   # first tile intact
+        with open(db_, 'rb') as fh:
+            assert fh.read() == b'SECOND'
+
+
 def test_generate_klein_bad_dataset_id_returns_400_not_409(client):
     """Task 8 flagged: generate_variations imports klein_edit_helper BEFORE
     validating dataset_id, so pre-lift (ImportError -> RuntimeError -> 409) a

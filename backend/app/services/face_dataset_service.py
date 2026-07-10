@@ -1743,10 +1743,20 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
             img.fail_reason = 'ComfyUI output dir not configured - the finished file could not be located'
             logger.warning(f"dataset link: ComfyUI output dir not configured (job {job_id})")
         else:
-            img.filename = filename
             # Move the completed file from the shared output dir to the per-dataset dir.
             src = os.path.join(output_dir, filename)
             dst = os.path.join(_dataset_dir(img.dataset_id), filename)
+            if os.path.exists(src) and os.path.exists(dst):
+                # Collision guard: NEVER overwrite another tile's file. ComfyUI's
+                # SaveImage counter re-issued the same name when earlier results
+                # were moved out of its output folder — every tile then displayed
+                # the same (last) image. The prefix is unique per job now, but a
+                # residual collision must degrade to a rename, not a silent loss.
+                base, ext = os.path.splitext(filename)
+                filename = f"{base}_{uuid.uuid4().hex[:6]}{ext}"
+                dst = os.path.join(_dataset_dir(img.dataset_id), filename)
+                logger.warning(f"dataset link: name collision, storing as {filename}")
+            img.filename = filename
             if os.path.exists(src):
                 shutil.move(src, dst)
             elif not os.path.exists(dst):

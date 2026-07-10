@@ -247,7 +247,13 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     workflow["52"]["inputs"]["image"] = comfy_input
     workflow["145"]["inputs"]["text1"] = edit_prompt
     workflow["77"]["inputs"]["seed"] = random.randint(0, 2 ** 64 - 1)
-    workflow["9"]["inputs"]["filename_prefix"] = f"{user_id}_DatasetFace"
+    # UNIQUE prefix per job: SaveImage numbers files from what's currently in
+    # ComfyUI's output folder, and the app MOVES each result out right after
+    # completion — with a shared prefix the counter kept re-issuing the same
+    # name (live repro: 4 different seeds/prompts all saved as
+    # local_DatasetFace_00002_.png), so every tile displayed the same file,
+    # each new generation overwriting the previous one in the dataset dir.
+    workflow["9"]["inputs"]["filename_prefix"] = f"{user_id}_DatasetFace_{uid}"
     workflow["114"]["inputs"]["unet_name"] = unet_ref
     workflow["10"]["inputs"]["vae_name"] = vae_ref
     workflow["90"]["inputs"]["clip_name"] = te_ref
