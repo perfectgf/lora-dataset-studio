@@ -559,6 +559,13 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       )}
       <div className="flex items-center gap-2 flex-wrap border-t border-border pt-2">
         <span className="text-content-muted text-[0.6875rem]">{selected.size} selected</span>
+        {selected.size > 0 && (
+          <button type="button" onClick={() => setSelected(new Set())}
+            className="text-content-subtle text-[0.6875rem] underline decoration-border hover:text-content"
+            title="Clear the whole selection (presets and shots)">
+            ✕ Deselect all
+          </button>
+        )}
         <label className="text-content-muted text-[0.6875rem] flex items-center">×
           <select value={multiplier} onChange={(e) => setMultiplier(+e.target.value)}
             aria-label="Variation multiplier"
