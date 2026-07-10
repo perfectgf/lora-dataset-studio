@@ -67,6 +67,44 @@ def test_resolve_vae_and_text_encoder_pick_installed_files(app, tmp_path):
         assert keh.resolve_klein_text_encoder() == 'qwen_3_8b_fp8mixed.safetensors'
 
 
+def test_resolve_text_encoder_never_grabs_another_familys_qwen(app, tmp_path):
+    """Regression (live repro 2026-07-10): on a ComfyUI shared with other apps,
+    text_encoders/ holds qwen3vl_4b (Z-Image) and qwen_2.5_vl (Qwen-Image) next
+    to Klein's qwen_3_8b_fp8mixed. qwen3vl_4b sorts FIRST ('3' < '_'), and a
+    loose "contains 'qwen'" match wired it into the graph -> KSampler died on
+    'mat1 and mat2 shapes cannot be multiplied'. Canonical file present -> must
+    win; only foreign qwen encoders present -> None (missing => auto-download),
+    NEVER a wrong-family pick."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg, te=True)
+        _install(base, 'models', 'text_encoders', 'qwen3vl_4b_fp8_scaled.safetensors')
+        _install(base, 'models', 'text_encoders', 'qwen_2.5_vl_7b_fp8_scaled.safetensors')
+        _install(base, 'models', 'text_encoders', 'clip_l.safetensors')
+        assert keh.resolve_klein_text_encoder() == 'qwen_3_8b_fp8mixed.safetensors'
+        # Remove the canonical file: foreign qwen encoders must NOT be picked up.
+        os.remove(str(base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors'))
+        assert keh.resolve_klein_text_encoder() is None
+        assert 'klein_text_encoder' in keh.klein_missing_assets()
+
+
+def test_resolve_vae_never_grabs_another_familys_vae(app, tmp_path):
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg, vae=True)
+        _install(base, 'models', 'vae', 'qwen_image_vae.safetensors')
+        _install(base, 'models', 'vae', 'Wan2_2_VAE_bf16.safetensors')
+        # The double-extension variant some installs carry is an acceptable flux2 match.
+        _install(base, 'models', 'vae', 'flux2_vae.safetensors.safetensors')
+        assert keh.resolve_klein_vae() == 'flux2-vae.safetensors'      # canonical wins
+        os.remove(str(base / 'models' / 'vae' / 'flux2-vae.safetensors'))
+        assert keh.resolve_klein_vae() == 'flux2_vae.safetensors.safetensors'  # narrow token ok
+        os.remove(str(base / 'models' / 'vae' / 'flux2_vae.safetensors.safetensors'))
+        assert keh.resolve_klein_vae() is None                          # never wan/qwen
+
+
 def test_missing_assets_reports_absent_subset(app, tmp_path):
     from app import config as cfg
     from app.services import klein_edit_helper as keh

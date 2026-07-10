@@ -56,9 +56,23 @@ def _models_root():
     return str(d) if d else None
 
 
-def _first_model_file(subparts, prefer=None):
-    """First model file under <models>/<subparts...>, preferring a name that
-    contains any token in `prefer`. Returns the bare filename, or None."""
+# Canonical filenames = the exact files the Setup installer downloads (single
+# source of truth: setup_installer._KLEIN_DOWNLOADS dest names). Matching MUST be
+# canonical-first with NARROW token fallbacks: on a ComfyUI shared with other
+# apps, models/text_encoders/ holds many families' encoders and a loose
+# "contains 'qwen'" match wired Z-Image's qwen3vl_4b TE (sorts before
+# qwen_3_8b_fp8mixed: '3' < '_') into the Klein graph -> KSampler died on
+# "mat1 and mat2 shapes cannot be multiplied". Wrong model >> missing model:
+# missing triggers the auto-download, wrong fails at runtime with a cryptic error.
+def _canonical_name(action):
+    from .. import setup_installer
+    return setup_installer._KLEIN_DOWNLOADS[action]['dest'][-1]
+
+
+def _find_model_file(subparts, canonical, tokens):
+    """Model file under <models>/<subparts...>: the canonical filename if present,
+    else the first (sorted) name containing any of the NARROW tokens. None when
+    nothing matches — never a blind first-file-in-folder guess."""
     root = _models_root()
     if not root:
         return None
@@ -68,11 +82,12 @@ def _first_model_file(subparts, prefer=None):
                        if n.lower().endswith(_MODEL_SUFFIXES))
     except OSError:
         return None
-    if prefer:
-        for n in names:
-            if any(tok in n.lower() for tok in prefer):
-                return n
-    return names[0] if names else None
+    if canonical in names:
+        return canonical
+    for n in names:
+        if any(tok in n.lower() for tok in tokens):
+            return n
+    return None
 
 
 def resolve_klein_unet(selected=None):
@@ -81,11 +96,14 @@ def resolve_klein_unet(selected=None):
     the capability gate and the Setup downloads use) and returns the value WITH its
     subfolder prefix (e.g. 'klein\\flux-2-klein-9b-fp8.safetensors'): a UNETLoader
     lists files relative to models/unet, so the bare filename the picker sends is
-    not loadable on its own — the missing 'klein\\' prefix is the whole bug."""
+    not loadable on its own — the missing 'klein\\' prefix is the whole bug.
+    Inside klein/ every file IS a Klein UNET, so the picker's choice wins, then
+    the canonical download, then the first file."""
     root = _models_root()
     if not root:
         return None
     bare_pick = os.path.basename(selected) if selected else None
+    canonical = _canonical_name('klein_model')
     for base in ('unet', 'diffusion_models'):
         folder = os.path.join(root, base, 'klein')
         try:
@@ -95,21 +113,31 @@ def resolve_klein_unet(selected=None):
             continue
         if not names:
             continue
-        pick = bare_pick if (bare_pick and bare_pick in names) else names[0]
+        if bare_pick and bare_pick in names:
+            pick = bare_pick
+        elif canonical in names:
+            pick = canonical
+        else:
+            pick = names[0]
         return os.path.join('klein', pick)
     return None
 
 
 def resolve_klein_vae():
-    """`vae_name` for node 10 — the Setup install is models/vae/flux2-vae.safetensors
-    (the hardcoded 'flux2_vae.safetensors.safetensors' in the lifted workflow is a
-    double-extension typo that never matches)."""
-    return _first_model_file(('vae',), prefer=('flux2', 'flux-2', 'flux_2'))
+    """`vae_name` for node 10 — canonical flux2-vae.safetensors, else a narrow
+    flux2-vae token match (covers the 'flux2_vae.safetensors.safetensors'
+    double-extension variant some installs carry). Never e.g. qwen_image_vae."""
+    return _find_model_file(('vae',), _canonical_name('klein_vae'),
+                            ('flux2-vae', 'flux2_vae', 'flux-2-vae', 'flux_2_vae'))
 
 
 def resolve_klein_text_encoder():
-    """`clip_name` for node 90 — models/text_encoders/qwen_3_8b_fp8mixed.safetensors."""
-    return _first_model_file(('text_encoders',), prefer=('qwen',))
+    """`clip_name` for node 90 — canonical qwen_3_8b_fp8mixed.safetensors, else a
+    narrow qwen_3_8b token match. NEVER a bare 'qwen' match: qwen3vl_* (Z-Image)
+    and qwen_2.5_vl_* (Qwen-Image) encoders live in the same folder and produce
+    incompatible embeddings."""
+    return _find_model_file(('text_encoders',), _canonical_name('klein_text_encoder'),
+                            ('qwen_3_8b', 'qwen3_8b', 'qwen-3-8b'))
 
 
 def _consistency_lora():

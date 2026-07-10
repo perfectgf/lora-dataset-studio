@@ -454,3 +454,61 @@ def test_process_one_completes_with_real_submit_contract(app):
             row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
             assert row.status == 'completed'
             assert row.comfyui_prompt_id == 'p1'
+
+
+def test_poll_outputs_stashes_execution_error_on_job_row(app):
+    """A ComfyUI runtime failure (e.g. wrong text encoder -> KSampler matmul
+    error) must land on the job row's error_message so the failed tile can show
+    WHY — the live repro was 'mat1 and mat2 shapes cannot be multiplied'."""
+    from app.job_queue import queue_manager, _poll_outputs
+    from app.models import ImageGenerationQueue
+    history = {'prompt-err': {'outputs': {}, 'status': {
+        'status_str': 'error', 'completed': False,
+        'messages': [['execution_start', {}],
+                     ['execution_error', {'node_id': '77', 'node_type': 'KSampler',
+                                          'exception_message': 'mat1 and mat2 shapes cannot be multiplied (512x7680 and 12288x4096)\n\nTIPS: ...'}]],
+    }}}
+    with app.app_context():
+        jid = queue_manager.add_job(workflow_data={'1': {}})
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        row.comfyui_prompt_id = 'prompt-err'
+        from app.extensions import db
+        db.session.commit()
+        with patch('app.utils.comfyui.get_comfyui_history', return_value=history):
+            filename, failed = _poll_outputs('prompt-err', timeout=1)
+        assert (filename, failed) == (None, True)   # 2-tuple contract unchanged
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        assert 'KSampler' in row.error_message
+        assert 'mat1 and mat2' in row.error_message
+
+
+def test_failed_job_reason_reaches_dataset_tile(app):
+    """process_one end-to-end on a runtime failure: the execution error stashed
+    by the poll must flow through _dispatch_completion into the dataset row's
+    fail_reason (not the generic 'see the server log' message)."""
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue, FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.extensions import db
+
+    def fake_poll(prompt_id, timeout=None):
+        job = ImageGenerationQueue.query.filter_by(comfyui_prompt_id=prompt_id).first()
+        job.error_message = 'ComfyUI KSampler: mat1 and mat2 shapes cannot be multiplied'
+        db.session.commit()
+        return None, True
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'ErrProp', 'errprop')
+        jid = queue_manager.add_job(workflow_data={'1': {}},
+                                    metadata={'model_name': 'klein_edit_dataset'})
+        img = FaceDatasetImage(dataset_id=ds.id, source='generated', status='pending',
+                               job_id=jid, klein_model='k.safetensors')
+        db.session.add(img)
+        db.session.commit()
+        with patch('app.job_queue._submit', return_value='prompt-err2'), \
+             patch('app.job_queue._poll_outputs', side_effect=fake_poll):
+            assert queue_manager.process_one() is True
+        refreshed = db.session.get(FaceDatasetImage, img.id)
+        assert refreshed.status == 'failed'
+        assert 'mat1 and mat2' in refreshed.fail_reason

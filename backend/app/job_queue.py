@@ -91,7 +91,18 @@ def _poll_outputs(prompt_id, timeout=POLL_TIMEOUT_SECONDS):
                     return img['filename'], False
         status = (entry or {}).get('status') or {}
         if status.get('status_str') == 'error' or (status.get('completed') and not outputs):
-            return None, True  # ComfyUI errored, or finished the prompt with no image -> failure
+            # ComfyUI errored, or finished with no image. Stash the execution
+            # error on the job row BEFORE returning (the 2-tuple contract stays):
+            # process_one/_dispatch_completion surface it on the dataset tile, so
+            # a runtime failure (wrong text encoder, OOM...) reads as itself, not
+            # as a generic "see the server log".
+            detail = _execution_error_detail(status)
+            if detail:
+                job = ImageGenerationQueue.query.filter_by(comfyui_prompt_id=prompt_id).first()
+                if job:
+                    job.error_message = detail
+                    db.session.commit()
+            return None, True
 
         job = ImageGenerationQueue.query.filter_by(comfyui_prompt_id=prompt_id).first()
         if job:
@@ -101,6 +112,23 @@ def _poll_outputs(prompt_id, timeout=POLL_TIMEOUT_SECONDS):
         if time.monotonic() >= deadline:
             return None, True
         time.sleep(POLL_INTERVAL_SECONDS)
+
+
+def _execution_error_detail(status) -> str | None:
+    """One human-readable line out of a ComfyUI history `status` block: the
+    execution_error message (+ failing node) that explains WHY a run died.
+    Truncated — some tracebacks embed whole tensors."""
+    try:
+        for m in status.get('messages') or []:
+            if isinstance(m, (list, tuple)) and len(m) >= 2 and m[0] == 'execution_error':
+                info = m[1] or {}
+                node = info.get('node_type') or info.get('node_id') or '?'
+                exc = ' '.join(str(info.get('exception_message') or '').split())
+                if exc:
+                    return f'ComfyUI {node}: {exc}'[:400]
+    except Exception:  # malformed history must never break the poll loop
+        pass
+    return None
 
 
 def _dispatch_completion(job, filename, failed):
@@ -116,7 +144,11 @@ def _dispatch_completion(job, filename, failed):
             lora_test_studio.link_completed_test_image(job.job_id, filename, failed=failed)
         elif md.get('model_name') == 'klein_edit_dataset':
             from .services import face_dataset_service
-            face_dataset_service.link_completed_dataset_image(job.job_id, filename, failed=failed)
+            # The bare fallback 'generation failed' is LESS useful than the tile's
+            # own default (which points at the server log) — only pass real detail.
+            reason = job.error_message if job.error_message != 'generation failed' else None
+            face_dataset_service.link_completed_dataset_image(
+                job.job_id, filename, failed=failed, reason=reason)
     except Exception:
         logger.exception('job_queue: completion dispatch failed for job %s', job.job_id)
         # The link callback crashed before flipping its row out of 'pending' -
@@ -219,18 +251,23 @@ class JobQueueManager:
                 _dispatch_completion(job, None, True)
                 return True
             filename, failed = _poll_outputs(prompt_id, POLL_TIMEOUT_SECONDS)
+            error_detail = None   # a poll failure already stashed its detail on the row
         except Exception as exc:
             logger.warning('job_queue: job %s failed: %s', job.job_id, exc)
             filename, failed = None, True
+            error_detail = str(exc)[:400]   # e.g. the ComfyUI 400 validation body
 
         db.session.refresh(job)
         if job.status == 'cancelled':  # cancelled by another request while in flight
             _dispatch_completion(job, filename, True)
             return True
 
+        # Precedence on failure: submit exception > detail stashed by the poll
+        # (already on the row) > generic. Never clobber a specific message.
         job.update_status('failed' if failed else 'completed',
                           result_filename=filename,
-                          error_message=None if not failed else 'generation failed')
+                          error_message=None if not failed else
+                          (error_detail or job.error_message or 'generation failed'))
         db.session.commit()
         _dispatch_completion(job, filename, failed)
         return True

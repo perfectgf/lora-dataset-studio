@@ -1711,14 +1711,16 @@ def generate_variations_nanobanana(app, user_id, dataset_id, variations, multipl
 
 
 # --- Completion linking (called from the job queue) -------------------------
-def link_completed_dataset_image(job_id, filename, failed=False):
+def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
     """Attach a finished fan-out job to its FaceDatasetImage row.
 
     Called from the job-queue completion/failure/cancel paths, which may run in
     a long-lived monitor thread whose SQLAlchemy session holds a STALE read
     snapshot (rows committed by other threads are invisible). If the first
     lookup misses, end the transaction (rollback) and retry on a fresh snapshot
-    before concluding the row really doesn't exist."""
+    before concluding the row really doesn't exist.
+    `reason` (the job row's error_message, e.g. a ComfyUI execution error) shows
+    on the failed tile so the user sees WHY, not a generic 'see the log'."""
     img = FaceDatasetImage.query.filter_by(job_id=job_id).first()
     if img is None:
         db.session.rollback()  # drop the stale read snapshot, then re-read
@@ -1728,7 +1730,8 @@ def link_completed_dataset_image(job_id, filename, failed=False):
         return
     if failed:
         img.status = 'failed'
-        img.fail_reason = img.fail_reason or 'Klein generation failed (see 🪵 Server log in Settings for the ComfyUI error)'
+        img.fail_reason = (img.fail_reason or reason
+                           or 'Klein generation failed (see 🪵 Server log in Settings for the ComfyUI error)')
     else:
         output_dir = _comfy_output_dir()
         if output_dir is None:  # ComfyUI not configured -> can't locate the file, treat as failed
