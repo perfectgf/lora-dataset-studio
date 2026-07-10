@@ -531,17 +531,6 @@ def dataset_payload(user_id, dataset_id):
 
 
 # --- Image normalization ---------------------------------------------------
-def normalize_to_square_webp(image_bytes: bytes, size: int = 1024) -> bytes:
-    """Resize to fit size x size, pad to square (black), return WEBP bytes."""
-    im = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-    im.thumbnail((size, size), Image.LANCZOS)
-    canvas = Image.new('RGB', (size, size), (0, 0, 0))
-    canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2))
-    out = io.BytesIO()
-    canvas.save(out, 'WEBP', quality=92)
-    return out.getvalue()
-
-
 def normalize_to_webp(image_bytes: bytes, size: int = 1024) -> bytes:
     """Resize so the longest side ≤ `size`, KEEP the aspect ratio (no square pad),
     return WEBP. Pour les variations Nano Banana : un plan corps reste en portrait
@@ -636,21 +625,16 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return [], 0
-    # Dataset CONCEPT : on garde le PLAN ENTIER (l'acte à apprendre est rarement dans
-    # un head-crop) et on préserve le ratio (normalize_to_webp, pas de bandes noires
-    # qu'un LoRA apprendrait). Personnage sans crop = ancien comportement carré padé.
-    concept = is_concept(ds)
+    # Sans head-crop, on préserve TOUJOURS le ratio (normalize_to_webp) : l'ancien
+    # chemin « carré padé » ajoutait des bandes noires que le LoRA apprendrait, et
+    # forçait tous les imports personnage en carré — un plan buste/corps importé
+    # doit rester tel quel (ai-toolkit gère le bucketing multi-ratios).
     seen = _existing_dhashes(dataset_id) if dedupe else None
     ids = []
     failed = 0
     for raw in files_bytes:
         try:
-            if crop:
-                webp = face_crop_to_square_webp(raw)
-            elif concept:
-                webp = normalize_to_webp(raw)
-            else:
-                webp = normalize_to_square_webp(raw)
+            webp = face_crop_to_square_webp(raw) if crop else normalize_to_webp(raw)
         except Exception as e:
             failed += 1
             logger.warning(f"dataset import: image skipped (dataset {dataset_id}): {e}")

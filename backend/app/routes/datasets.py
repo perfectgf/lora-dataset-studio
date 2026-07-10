@@ -210,10 +210,14 @@ def dataset_import(dataset_id):
         return jsonify({'error': 'no files'}), 400
     if len(files) > 20:
         return jsonify({'error': 'max 20 images per import'}), 400
-    # Dataset CONCEPT : import BRUT (plan entier, pas de head-crop) → aucune passe
-    # vision → PAS de fenêtre GPU exclusive (on ne stoppe pas ComfyUI pour rien).
+    # Head-crop OPTIONNEL (form field crop='0' → OFF) : un plan buste/corps importé
+    # doit pouvoir rester tel quel — le crop tête carré systématique transformait
+    # tout import en gros plan. Dataset CONCEPT : jamais de head-crop.
+    # Sans crop → import BRUT (ratio préservé) → aucune passe vision → PAS de
+    # fenêtre GPU exclusive (on ne stoppe pas ComfyUI pour rien).
     stats = {}
-    if svc.is_concept(ds):
+    want_crop = (not svc.is_concept(ds)) and request.form.get('crop', '1') != '0'
+    if not want_crop:
         ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=False,
                                         dedupe=True, stats=stats)
         return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,

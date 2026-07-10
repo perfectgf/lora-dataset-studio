@@ -102,13 +102,15 @@ def test_import_concept_keeps_aspect(app):
         assert w > h and w <= 1024
 
 
-def test_import_character_no_crop_pads_square(app):
+def test_import_character_no_crop_keeps_aspect(app):
+    """Un import personnage SANS head-crop préserve le ratio (plus de carré padé :
+    les bandes noires étaient apprises par le LoRA et tout import devenait carré)."""
     with app.app_context():
         p = svc.create_dataset(LOCAL_USER, 'Emma', 'z')  # character
         ids, _ = svc.import_images(LOCAL_USER, p.id, [_png(800, 400)], crop=False)
         img = db.session.get(FaceDatasetImage, ids[0])
         w, h = Image.open(svc._img_path(img)).size
-        assert w == h  # carré padé (comportement historique personnage)
+        assert (w, h) == (800, 400)  # ratio d'origine, pas de padding
 
 
 # --- 4) Route d'import concept : PAS de fenêtre GPU exclusive -----------------

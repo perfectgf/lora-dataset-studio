@@ -231,6 +231,24 @@ def _grad_png(direction='ltr', w=800, h=800):
     return buf.getvalue()
 
 
+def test_import_without_crop_keeps_aspect_ratio(app):
+    """crop=False must PRESERVE the framing: an 800x400 photo stays 2:1 (no square
+    pad, no black bands a LoRA would learn) — the old path padded to 1024x1024."""
+    import os
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    buf = io.BytesIO(); Image.new('RGB', (800, 400), (10, 120, 40)).save(buf, 'PNG')
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Ar', 'ar')
+        ids, failed = svc.import_images(LOCAL_USER, ds.id, [buf.getvalue()], crop=False)
+        assert len(ids) == 1 and failed == 0
+        img = svc.db.session.get(FaceDatasetImage, ids[0])
+        with Image.open(os.path.join(svc._dataset_dir(ds.id), img.filename)) as im:
+            w, h = im.size
+    assert (w, h) == (800, 400)   # unchanged (<=1024), NOT padded to a square
+
+
 def test_import_dedupe_skips_intra_batch_duplicate(app):
     from app.services import face_dataset_service as svc
     from app.config import LOCAL_USER

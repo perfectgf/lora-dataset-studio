@@ -196,8 +196,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
               onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
               extraRefs={d.ref_extra_filenames || []}
               onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
-            {/* No auto-classify: the backend tags framing='face' at import time (I2). */}
-            <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
+            {/* Head-crop optional: ON tags framing='face' at import (I2); OFF keeps
+                the original framing so bust/body photos import as-is. */}
+            <ImportDropzone onImport={(f, o) => ds.importFiles(f, o)} busy={ds.busy} cropOption />
           </div>
 
           <div id="gf-generate" className="scroll-mt-4">

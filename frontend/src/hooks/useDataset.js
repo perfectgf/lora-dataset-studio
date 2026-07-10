@@ -206,8 +206,9 @@ export function useDataset() {
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 
-  const importFiles = useCallback((files) => wrap(async () => {
+  const importFiles = useCallback((files, { crop = true } = {}) => wrap(async () => {
     const fd = new FormData(); [...files].forEach((f) => fd.append('files', f));
+    if (!crop) fd.append('crop', '0');   // keep the original framing (no square head-crop)
     const d = await postJson(`/api/dataset/${currentId}/import`, fd, true);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     const dup = d.duplicates || 0;

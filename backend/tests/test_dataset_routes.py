@@ -67,6 +67,29 @@ def test_images_batch_route_validates_and_applies(client, app):
     assert payload['images'][0]['status'] == 'keep'
 
 
+def test_import_route_crop_0_skips_gpu_window(client, monkeypatch):
+    """Character import with crop='0' keeps the original framing: import_images is
+    called with crop=False and the GPU-exclusive vision window is NOT opened."""
+    import app.routes.datasets as dr
+    ds_id = _create(client, 'NoCrop', 'nocrop').get_json()['id']
+    captured = {}
+
+    def fake_import(user_id, dataset_id, files, crop=True, **kw):
+        captured['crop'] = crop
+        return [1], 0
+
+    def boom(*a, **k):
+        raise AssertionError('GPU window must not open when head-crop is off')
+
+    monkeypatch.setattr(dr.svc, 'import_images', fake_import)
+    monkeypatch.setattr(dr, 'gpu_exclusive_vision_window', boom)
+    resp = client.post(f'/api/dataset/{ds_id}/import',
+                       data={'files': (io.BytesIO(_png_bytes()), 'a.png'), 'crop': '0'},
+                       content_type='multipart/form-data')
+    assert resp.status_code == 200
+    assert captured['crop'] is False
+
+
 def test_import_route_reports_duplicates(client):
     """The /import envelope exposes the perceptual-duplicate count so the UI can
     say '2 imported · 1 duplicate skipped'. Concept dataset -> crop=False path
