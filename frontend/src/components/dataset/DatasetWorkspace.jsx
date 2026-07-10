@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CompositionBar from './CompositionBar';
 import ReferencePanel from './ReferencePanel';
@@ -17,34 +17,52 @@ import NextStepCard from './NextStepCard';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
 
 /* Chaque étape du workflow est une CARTE distincte plutôt qu'un simple titre
-   flottant : un bandeau-titre teinté (gros numéro + titre + aide en clair) posé
-   sur un corps encadré. La carte de l'étape COURANTE porte un anneau d'accent
-   indigo pour que l'œil s'y pose. Cette séparation nette remplace l'ancien
-   espacement discret entre sections. `id` + `scroll-mt` restent sur la <section>
-   pour le saut depuis la checklist et le flash gf-highlight. Présentationnel. */
-function StepSection({ n, title, help, id, active, children }) {
+   flottant : un bandeau-titre teinté (numéro, ou ✓ vert une fois l'étape faite)
+   posé sur un corps encadré. La carte COURANTE porte un anneau indigo + une
+   pastille « You are here ». Une étape TERMINÉE se replie sur son bandeau (avec
+   un résumé) — repli calculé à l'ouverture du dataset, l'étape en cours restant
+   toujours dépliée. L'état ouvert/fermé est piloté par le parent (`open`) pour
+   qu'un saut depuis la checklist puisse ré-ouvrir une carte repliée. `id` +
+   `scroll-mt` restent sur la <section> (saut + flash gf-highlight). */
+function StepSection({ n, title, help, id, active, done, summary, open, onToggle, children }) {
+  const collapsible = !active;   // l'étape en cours ne se replie jamais
   return (
     <section id={id}
       className={`scroll-mt-20 rounded-lg border bg-surface overflow-hidden transition-colors ${
         active ? 'border-primary/50 ring-1 ring-primary/25' : 'border-border'}`}>
-      <div className={`flex items-center gap-2.5 flex-wrap px-4 py-2.5 border-b bg-surface-raised ${
-        active ? 'border-primary/40' : 'border-border'}`}>
+      <button type="button"
+        onClick={collapsible ? onToggle : undefined}
+        aria-expanded={collapsible ? open : undefined}
+        className={`w-full text-left flex items-center gap-2.5 flex-wrap px-4 py-2.5 border-b bg-surface-raised transition-colors ${
+          active ? 'border-primary/40 cursor-default' : 'border-border hover:bg-white/[0.06]'}`}>
         <span aria-hidden
           className={`grid place-items-center w-7 h-7 shrink-0 rounded-full border text-sm font-bold ${
-            active ? 'bg-primary/25 border-primary/60 text-indigo-200' : 'bg-primary/10 border-primary/30 text-indigo-300'}`}>
-          {n}
+            done ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+              : active ? 'bg-primary/25 border-primary/60 text-indigo-200'
+                : 'bg-primary/10 border-primary/30 text-indigo-300'}`}>
+          {done ? '✓' : n}
         </span>
         <h2 className="m-0 text-content font-semibold text-sm">{title}</h2>
-        {help && <span className="text-content-subtle text-[0.6875rem]">{help}</span>}
-        {active && (
-          <span className="ml-auto shrink-0 rounded-full bg-primary/15 border border-primary/40 px-2 py-0.5 text-indigo-200 text-[0.625rem] font-semibold uppercase tracking-wide">
-            You are here
-          </span>
-        )}
-      </div>
-      <div className="flex flex-col gap-2 p-4">
-        {children}
-      </div>
+        {/* Déplié → l'aide pédagogique ; replié → le résumé de ce qui est fait. */}
+        {open
+          ? (help && <span className="text-content-subtle text-[0.6875rem]">{help}</span>)
+          : (summary && <span className="text-content-muted text-[0.6875rem] tabular-nums">{summary}</span>)}
+        <span className="ml-auto shrink-0 flex items-center gap-2">
+          {active && (
+            <span className="rounded-full bg-primary/15 border border-primary/40 px-2 py-0.5 text-indigo-200 text-[0.625rem] font-semibold uppercase tracking-wide">
+              You are here
+            </span>
+          )}
+          {collapsible && (
+            <span aria-hidden className="text-content-subtle text-xs">{open ? '▾' : '▸'}</span>
+          )}
+        </span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 p-4">
+          {children}
+        </div>
+      )}
     </section>
   );
 }
@@ -64,9 +82,16 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
   const [showLeaks, setShowLeaks] = useState(false);       // liste dépliée des captions qui fuient
   const [checkpointCount, setCheckpointCount] = useState(0);
+  // Repli des cartes d'étape : override manuel par section id (gf-*). Vide au
+  // départ → chaque carte suit son défaut (repliée si terminée & non-courante).
+  // Un clic sur le bandeau écrit ici ; un saut depuis la checklist force l'ouverture.
+  const [openMap, setOpenMap] = useState({});
   // Hooks must run unconditionally on every render — deriveSteps() null-guards `d`,
   // so this is safe to call before the loading early-return below.
   const { steps, nextStep } = useGuidedFlow(d, caps, checkpointCount);
+  // Changer de dataset repart d'un repli « propre » (les overrides visent des ids
+  // partagés entre datasets, sinon ils fuiteraient d'un dataset à l'autre).
+  useEffect(() => { setOpenMap({}); }, [d?.id]);
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
   const images = d.images || [];
@@ -84,7 +109,38 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Style de caption : défaut AUTO (SDXL booru-native → booru tags ; sinon prose), surchargé par le sélecteur.
   const effCaptionMode = captionMode || (d.train_type === 'sdxl' ? 'booru' : 'prose');
   const pending = images.filter((i) => i.status === 'pending' && !i.filename).length;
+  const triage = images.filter((i) => i.status === 'pending' && i.filename).length;   // generated, awaiting ✓/✕
+
+  // ── État « terminé » + résumé par carte (bandeau ✓ vert + repli). Un id de
+  //    section (gf-*) est replié par défaut quand il est fini et non-courant. ──
+  const stepDone = {
+    'gf-reference': concept ? images.length > 0 : !!d.ref_filename,
+    'gf-generate': images.length > 0,
+    'gf-images': kept > 0 && triage === 0 && keptUncaptioned === 0,
+    'gf-training': checkpointCount > 0,
+  };
+  const stepSummary = {
+    'gf-reference': concept ? `${images.length} image(s)` : 'Reference set',
+    'gf-generate': `${images.length} image(s)`,
+    'gf-images': kept > 0
+      ? `${kept} kept${keptUncaptioned === 0 ? ' · all captioned' : ` · ${keptCaptioned}/${kept} captioned`}`
+      : 'nothing kept yet',
+    'gf-training': checkpointCount > 0 ? `${checkpointCount} checkpoint(s)` : 'not trained yet',
+  };
+  const isActive = (id) => nextStep?.targetId === id;
+  // Ouverte si : c'est l'étape courante ; sinon l'override manuel ; sinon le
+  // défaut (dépliée tant que non terminée, repliée une fois terminée).
+  const sectionOpen = (id) => isActive(id) || (id in openMap ? openMap[id] : !stepDone[id]);
+  const toggleSection = (id) => setOpenMap((m) => ({ ...m, [id]: !sectionOpen(id) }));
+  // Toutes les props d'état d'une carte pour un id de section donné.
+  const cardProps = (id) => ({
+    id, active: isActive(id), done: stepDone[id], summary: stepSummary[id],
+    open: sectionOpen(id), onToggle: () => toggleSection(id),
+  });
+
   const jumpTo = (step) => {
+    // Ré-ouvre une carte repliée avant d'y sauter (une étape terminée l'est).
+    setOpenMap((m) => ({ ...m, [step.targetId]: true }));
     const el = document.getElementById(step.targetId);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -255,7 +311,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           {concept ? (
             // Concept : pas de photo de référence ni de générateur — on peuple le dataset
             // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
-            <StepSection n={1} id="gf-reference" active={nextStep?.targetId === 'gf-reference'}
+            <StepSection n={1} {...cardProps('gf-reference')}
               title="Add images"
               help="a concept LoRA learns from real images — scrape galleries or drop photos">
               <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
@@ -263,7 +319,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             </StepSection>
           ) : (
             <>
-              <StepSection n={1} id="gf-reference" active={nextStep?.targetId === 'gf-reference'}
+              <StepSection n={1} {...cardProps('gf-reference')}
                 title="Reference photo"
                 help="one clear photo of the face — every generated variation starts from it">
                 <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
@@ -272,7 +328,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
               </StepSection>
 
-              <StepSection n={2} id="gf-generate" active={nextStep?.targetId === 'gf-generate'}
+              <StepSection n={2} {...cardProps('gf-generate')}
                 title="Add images"
                 help="generate AI variations of the reference — and mix in a few real photos if you have them">
                 <CompositionBar composition={d.composition} bodyFidelity={bodyFid} />
@@ -313,7 +369,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           {/* ============ Curation + caption : trier ✓/✕ puis légender les gardées.
                La barre d'outils caption (mode, lancer, re-caption, analyse, fuite)
                vit ICI, à côté de la grille qu'elle concerne — plus dans le header. */}
-          <StepSection n={concept ? 2 : 3} id="gf-images" active={nextStep?.targetId === 'gf-images'}
+          <StepSection n={concept ? 2 : 3} {...cardProps('gf-images')}
             title="Curate & caption"
             help="keep ✓ the good shots, reject ✕ the rest — then caption the kept ones (captions are what training reads)">
 
@@ -413,7 +469,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           </StepSection>
 
           {/* ============ Entraînement (et lanceur du Studio de test). */}
-          <StepSection n={concept ? 3 : 4} id="gf-training" active={nextStep?.targetId === 'gf-training'}
+          <StepSection n={concept ? 3 : 4} {...cardProps('gf-training')}
             title="Train"
             help="turn the kept & captioned images into a LoRA — or export the ZIP (top right) to train elsewhere">
             <TrainingPanel ds={ds} keptCount={kept} kind={d.kind} onCheckpointsChange={setCheckpointCount} />
