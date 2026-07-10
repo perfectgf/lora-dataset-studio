@@ -84,3 +84,19 @@ def test_capabilities_endpoint(client):
 
 def test_test_connection_unknown_target(client):
     assert client.post('/api/settings/test/nope').status_code == 404
+
+
+def test_logs_tail_reads_app_log(client, tmp_path, monkeypatch):
+    import os
+    data_dir = os.environ['LDS_DATA_DIR']    # tmp dir set by the app fixture
+    os.makedirs(data_dir, exist_ok=True)
+    with open(os.path.join(data_dir, 'app.log'), 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(f'line {i}' for i in range(500)) + '\n')
+    d = client.get('/api/logs/tail?n=100').get_json()
+    assert d['ok'] is True and d['file'] == 'app.log'
+    assert len(d['lines']) == 100 and d['lines'][-1] == 'line 499'
+
+
+def test_logs_tail_empty_when_no_log(client):
+    d = client.get('/api/logs/tail').get_json()
+    assert d == {'ok': True, 'file': None, 'lines': []}

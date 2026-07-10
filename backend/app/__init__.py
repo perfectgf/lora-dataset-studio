@@ -42,6 +42,27 @@ def create_app(config_object=None):
     )
     app.config.update(config_object or {})
 
+    # File logging (skipped under TESTING): every module logger flows into
+    # data/app.log (rotating, 2 MB x 2) so the in-app log viewer — and a novice
+    # reporting a bug — always has something to read, launcher or not (the
+    # portable launcher additionally captures raw stdout into data/server.log).
+    if not app.config.get('TESTING'):
+        import logging
+        from logging.handlers import RotatingFileHandler
+        root = logging.getLogger()
+        log_path = str(data_dir / 'app.log')
+        if not any(isinstance(h, RotatingFileHandler)
+                   and getattr(h, 'baseFilename', '') == os.path.abspath(log_path)
+                   for h in root.handlers):
+            fh = RotatingFileHandler(log_path, maxBytes=2 * 1024 * 1024,
+                                     backupCount=2, encoding='utf-8')
+            fh.setFormatter(logging.Formatter(
+                '%(asctime)s %(levelname)s %(name)s: %(message)s'))
+            fh.setLevel(logging.INFO)
+            root.addHandler(fh)
+            if root.level > logging.INFO or root.level == logging.NOTSET:
+                root.setLevel(logging.INFO)
+
     db.init_app(app)
     csrf.init_app(app)
 

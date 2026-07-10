@@ -81,3 +81,31 @@ def test_connection(target):
     if probe_fn is None:
         return jsonify({'error': f"unknown test target '{target}'"}), 404
     return jsonify(probe_fn())
+
+
+@bp.get('/logs/tail')
+def logs_tail():
+    """Last N lines of the server log for the in-app viewer — so a novice can
+    copy-paste an error instead of hunting for files. Reads data/app.log (the
+    app's own rotating log), falling back to data/server.log (the portable
+    launcher's raw stdout capture)."""
+    import os
+    from pathlib import Path
+    try:
+        n = max(10, min(1000, int(request.args.get('n', 300))))
+    except ValueError:
+        n = 300
+    data_dir = Path(os.environ.get('LDS_DATA_DIR', str(cfg.REPO_ROOT / 'data')))
+    for name in ('app.log', 'server.log'):
+        p = data_dir / name
+        if p.is_file():
+            try:
+                size = p.stat().st_size
+                with open(p, encoding='utf-8', errors='replace') as fh:
+                    if size > 512 * 1024:               # tail window, never the whole file
+                        fh.seek(size - 512 * 1024)
+                    lines = fh.read().splitlines()[-n:]
+                return jsonify({'ok': True, 'file': name, 'lines': lines})
+            except OSError:
+                continue
+    return jsonify({'ok': True, 'file': None, 'lines': []})
