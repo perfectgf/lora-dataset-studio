@@ -32,6 +32,23 @@ def wrap_variation(prompt: str, ref_count: int = 1) -> str:
     return f"{guard} {prompt}"
 
 
+def wrap_variation_klein(prompt: str) -> str:
+    """Klein (FLUX.2, Kontext-lineage) is an INSTRUCTION-edit model: it follows
+    imperative edit commands (the consistency LoRA's own usage example is "Turn
+    this cat into a dog"). The API-engine wrapper above — preservation order
+    FIRST, descriptive tags after — reads as "change nothing", so Klein returned
+    a near-copy of the reference (live repro 2026-07-10: every variation looked
+    like a plain upscale). Order matters: ask for the CHANGE first, constrain
+    the FACE second."""
+    return (
+        f"Create a new photograph of the same person as the reference image: {prompt}. "
+        "Restage the shot to match this description — change the pose, camera angle and "
+        "framing accordingly; do not copy the composition of the reference image. "
+        "Keep the facial identity exactly the same: same eye shape and color, nose, "
+        "jawline, lips, skin tone and texture, and face proportions. "
+        "Do not beautify or alter the face. Realistic photograph, SFW.")
+
+
 def _e(i, axis, framing, label, prompt, co=False, cb=False, aspect=None):
     return {'id': i, 'axis': axis, 'framing': framing, 'label': label,
             'prompt': prompt, 'changes_outfit': co, 'changes_bg': cb, 'aspect': aspect}

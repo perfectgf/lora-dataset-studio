@@ -31,7 +31,7 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CAPTION_PROM
                               CLASSIFY_PROMPT, HEAD_BBOX_PROMPT,
                               JOYCAPTION_PROMPT, aspect_for_label, caption_prompt_for,
                               caption_has_identity_leak, drop_identity_sentences, drop_identity_tags,
-                              prompt_by_label, wrap_variation)
+                              prompt_by_label, wrap_variation, wrap_variation_klein)
 
 logger = logging.getLogger(__name__)
 
@@ -1491,7 +1491,7 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                 job_id = enqueue_klein_edit(
                     user_id=str(user_id), source_filename=ds.ref_filename,
                     source_path=_ref_path(ds),
-                    edit_prompt=wrap_variation(v['prompt']), klein_model=klein_model,
+                    edit_prompt=wrap_variation_klein(v['prompt']), klein_model=klein_model,
                     lora_strength=lora_strength,
                     extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
                                     'variation_label': v.get('label')})
@@ -1575,7 +1575,7 @@ def regenerate_image(user_id, image_id, lora_strength=None, app=None):
     job_id = enqueue_klein_edit(
         user_id=str(user_id), source_filename=ds.ref_filename,
         source_path=_ref_path(ds),
-        edit_prompt=wrap_variation(prompt), klein_model=img.klein_model,
+        edit_prompt=wrap_variation_klein(prompt), klein_model=img.klein_model,
         lora_strength=lora_strength,
         extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
                         'variation_label': img.variation_label})

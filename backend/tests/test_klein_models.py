@@ -206,6 +206,49 @@ def test_generate_all_present_proceeds_and_bg_fetches_lora(app, client, tmp_path
     assert started == ['klein_lora']   # optional consistency LoRA fetched in the background
 
 
+def test_wrap_variation_klein_is_instruction_first(app):
+    """Klein is an instruction-edit model (Kontext lineage): the wrapper must ASK
+    FOR THE CHANGE first and constrain the face second. The API-engine order
+    (preserve-EXACTLY first, description after) made Klein return a near-copy of
+    the reference — the live 'it just upscaled my reference' repro."""
+    from app.services.face_variations import wrap_variation_klein
+    p = wrap_variation_klein('close-up portrait, left profile view, neutral')
+    assert 'close-up portrait, left profile view, neutral' in p
+    change = p.index('Create a new photograph')
+    compose = p.index('do not copy the composition')
+    identity = p.index('Keep the facial identity')
+    assert change < compose < identity
+    assert 'Preserve their facial identity EXACTLY' not in p   # the API wrapper's poison
+
+
+def test_klein_fanout_uses_instruction_wrapper(app, tmp_path, monkeypatch):
+    """The Klein fan-out must feed the workflow's prompt node (145) the
+    instruction-style wrapper, not the API engines' preservation-first guard."""
+    from app import config as cfg
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.job_queue import queue_manager
+    with app.app_context():
+        _comfy(tmp_path, cfg, lora=True)
+        ds = svc.create_dataset(LOCAL_USER, 'Wrap', 'wrap')
+        d = svc._dataset_dir(ds.id)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'ref.webp'), 'wb') as fh:
+            fh.write(_png())
+        ds.ref_filename = 'ref.webp'
+        svc.db.session.commit()
+        captured = []
+        monkeypatch.setattr(queue_manager, 'add_job',
+                            lambda **kw: (captured.append(kw), kw['job_id'])[1])
+        svc.generate_variations(LOCAL_USER, ds.id,
+                                [{'label': 'x', 'framing': 'face', 'prompt': 'left profile view'}],
+                                1, klein_model=None)
+        text = captured[0]['workflow_data']['145']['inputs']['text1']
+        assert 'left profile view' in text
+        assert 'do not copy the composition' in text
+        assert text.startswith('Create a new photograph')
+
+
 def test_generate_unconfigured_comfyui_says_configure_first(app, client, tmp_path, monkeypatch):
     from app import setup_installer
     started = []
