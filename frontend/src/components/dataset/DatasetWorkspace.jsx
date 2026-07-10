@@ -294,6 +294,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         // back out — not just tighten the already-cropped square. Legacy datasets with
         // no stored original fall back to the cropped ref (can only tighten, as before).
         <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(d.ref_original_filename || d.ref_filename)}`}
+          lockSquare
           onCancel={() => setRefCrop(false)}
           onConfirm={async (box) => { await ds.cropRef(box); setRefCrop(false); }}
           onReset={d.ref_original_filename
@@ -303,7 +304,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
       {viewImgLive && (
         <DatasetLightbox img={viewImgLive} datasetId={d.id}
           nonce={(ds.nonces && ds.nonces[viewImgLive.id]) || 0}
-          onClose={() => setViewImg(null)} />
+          onClose={() => setViewImg(null)}
+          onCrop={(img) => { setViewImg(null); setCropImg(img); }} />
       )}
     </div>
   );

@@ -265,10 +265,12 @@ def set_image_caption(user_id, image_id, caption):
 
 
 def _crop_resize_file(path, x, y, w, h, size=1024, dst=None):
-    """Crop the file at `path` to (x,y,w,h) and RESIZE the crop to size x size
-    (no black padding - the manual crop is square, aspect=1). Writes to `dst`
-    (default: overwrite `path`). Passing a distinct `dst` lets the reference crop
-    read the untouched full-frame ORIGINAL and write the derived square — so a
+    """Crop the file at `path` to (x,y,w,h) and resize the crop so its LONG side
+    equals `size`, PRESERVING the box's aspect ratio: a square box keeps the
+    historical size x size output, a 2:3 box yields 683x1024 — no padding, no
+    distortion (ai-toolkit buckets handle non-square training images). Writes to
+    `dst` (default: overwrite `path`). Passing a distinct `dst` lets the reference
+    crop read the untouched full-frame ORIGINAL and write the derived crop — so a
     re-crop can widen back out instead of only tightening the previous crop."""
     if not os.path.exists(path):
         return False
@@ -276,8 +278,13 @@ def _crop_resize_file(path, x, y, w, h, size=1024, dst=None):
     box = (max(0, int(x)), max(0, int(y)), min(src.width, int(x + w)), min(src.height, int(y + h)))
     if box[2] <= box[0] or box[3] <= box[1]:
         return False
+    bw, bh = box[2] - box[0], box[3] - box[1]
+    if bw >= bh:
+        out_w, out_h = size, max(1, round(size * bh / bw))
+    else:
+        out_w, out_h = max(1, round(size * bw / bh)), size
     out = io.BytesIO()
-    src.crop(box).resize((size, size), Image.LANCZOS).save(out, 'WEBP', quality=92)
+    src.crop(box).resize((out_w, out_h), Image.LANCZOS).save(out, 'WEBP', quality=92)
     with open(dst or path, 'wb') as fh:
         fh.write(out.getvalue())
     return True

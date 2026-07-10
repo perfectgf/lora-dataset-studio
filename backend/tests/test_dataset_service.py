@@ -210,6 +210,31 @@ def test_replace_captions_ignores_non_kept_and_validates(app):
             svc.replace_in_captions(LOCAL_USER, ds.id, 'a', 'b', mode='regex')
 
 
+# --- Non-square manual crop ------------------------------------------------------
+
+def test_crop_image_preserves_box_aspect(app):
+    """A 2:1 crop box must yield a 2:1 file (1024x512), not a distorted square;
+    a square box keeps the historical 1024x1024."""
+    import os
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Cr', 'cr')
+        d = svc._dataset_dir(ds.id); os.makedirs(d, exist_ok=True)
+        buf = io.BytesIO(); Image.new('RGB', (1600, 1200), (90, 30, 30)).save(buf, 'PNG')
+        open(os.path.join(d, 'w.webp'), 'wb').write(buf.getvalue())
+        img = FaceDatasetImage(dataset_id=ds.id, filename='w.webp', status='keep')
+        svc.db.session.add(img); svc.db.session.commit()
+        assert svc.crop_image(LOCAL_USER, img.id, 0, 0, 1000, 500) is True
+        with Image.open(os.path.join(d, 'w.webp')) as im:
+            assert im.size == (1024, 512)
+        # square box -> historical square output
+        assert svc.crop_image(LOCAL_USER, img.id, 0, 0, 400, 400) is True
+        with Image.open(os.path.join(d, 'w.webp')) as im:
+            assert im.size == (1024, 1024)
+
+
 # --- Full backup / restore -----------------------------------------------------
 
 def test_backup_roundtrip_restores_everything(app):

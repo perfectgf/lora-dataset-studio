@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { displayLabel } from '../../utils/labels';
 
-export default function DatasetLightbox({ img, datasetId, nonce = 0, onClose }) {
+export default function DatasetLightbox({ img, datasetId, nonce = 0, onClose, onCrop }) {
   const [full, setFull] = useState(false); // false = fit screen, true = 100 %
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
@@ -58,6 +58,13 @@ export default function DatasetLightbox({ img, datasetId, nonce = 0, onClose }) 
         <span className="text-white/50 text-[11px]">
           {full ? '100 % — click image to fit' : 'fitted — click image for 100 %'}
         </span>
+        {onCrop && (
+          <button type="button" onClick={() => onCrop(img)}
+            title="Open the crop editor for this image (stretchable box, any ratio)"
+            className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold">
+            ✂ Crop
+          </button>
+        )}
       </div>
     </div>
   );
