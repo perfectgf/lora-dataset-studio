@@ -676,6 +676,7 @@ def dataset_payload(user_id, dataset_id):
         'images': [{'id': i.id, 'filename': i.filename, 'source': i.source,
                     'framing': i.framing, 'variation_label': i.variation_label,
                     'status': i.status, 'caption': i.caption,
+                    'fail_reason': i.fail_reason,
                     'face_score': i.face_score, 'face_state': i.face_state} for i in imgs],
         # Dataset CONCEPT : décrire l'identité est VOULU (le concept, pas le visage,
         # se lie au trigger) → le badge « fuite d'identité » n'a aucun sens, on le zéro.
@@ -1513,6 +1514,7 @@ def regenerate_image(user_id, image_id, lora_strength=None, app=None):
         img.filename = None
         img.caption = None
         img.status = 'pending'
+        img.fail_reason = None   # fresh attempt: drop the previous failure message
         db.session.commit()
         aspect = aspect_for_label(img.variation_label, img.framing)
         ref_bytes = _all_ref_bytes(ds)  # principale + extras (multi-références)
@@ -1530,6 +1532,7 @@ def regenerate_image(user_id, image_id, lora_strength=None, app=None):
             img.filename = fn
         else:
             img.status = 'failed'
+            img.fail_reason = f'{engine}: empty response (often a content-policy refusal or a transient API error - retry usually works)'
         db.session.commit()
         return engine
 
@@ -1548,6 +1551,7 @@ def regenerate_image(user_id, image_id, lora_strength=None, app=None):
     img.filename = None
     img.caption = None
     img.job_id = job_id
+    img.fail_reason = None   # fresh attempt: drop the previous failure message
     db.session.commit()
     return job_id
 
@@ -1592,11 +1596,17 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
                 logger.info(f"{engine} batch: row {image_id} cancelled - API call skipped")
                 return
         out = None
+        fail_reason = None
         try:
             out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=n_refs),
                                aspect_ratio=aspect)
+            if not out:
+                # api_generate signale certains refus/vides par un retour falsy
+                # sans lever — sans raison, la tuile "failed" resterait muette.
+                fail_reason = f'{engine}: empty response (often a content-policy refusal or a transient API error - retry usually works)'
         except Exception as e:
             logger.warning(f"{engine} batch: generation error for row {image_id}: {e}")
+            fail_reason = f'{engine}: {str(e)[:400]}'
         with app.app_context():
             img = db.session.get(FaceDatasetImage, image_id)
             if img is None:
@@ -1612,8 +1622,10 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
                 except Exception as e:
                     logger.warning(f"{engine} batch: save failed for row {image_id}: {e}")
                     img.status = 'failed'
+                    img.fail_reason = f'saving the image failed: {str(e)[:400]}'
             else:
                 img.status = 'failed'
+                img.fail_reason = fail_reason
             db.session.commit()
 
     logger.info(f"{engine} batch: start ({len(items)} variation(s))")
@@ -1684,10 +1696,12 @@ def link_completed_dataset_image(job_id, filename, failed=False):
         return
     if failed:
         img.status = 'failed'
+        img.fail_reason = img.fail_reason or 'Klein generation failed (see 🪵 Server log in Settings for the ComfyUI error)'
     else:
         output_dir = _comfy_output_dir()
         if output_dir is None:  # ComfyUI not configured -> can't locate the file, treat as failed
             img.status = 'failed'
+            img.fail_reason = 'ComfyUI output dir not configured - the finished file could not be located'
             logger.warning(f"dataset link: ComfyUI output dir not configured (job {job_id})")
         else:
             img.filename = filename

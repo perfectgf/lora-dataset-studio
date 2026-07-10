@@ -110,6 +110,13 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   const gptAvailable = enabledEngines.includes('chatgpt') && caps.engines.chatgpt;
   const klAvailable = enabledEngines.includes('klein') && caps.engines.klein;
   const currentAvailable = isKlein ? klAvailable : isNB ? nbAvailable : gptAvailable;
+  // Klein unavailable has THREE distinct causes — the hint must name the right
+  // one (a reachable ComfyUI with no Klein model used to show "Configure
+  // ComfyUI", sending the user to re-check a step that was already green).
+  const kleinHint = klAvailable ? null
+    : !enabledEngines.includes('klein') ? '⚠ Klein is disabled in Settings (engines)'
+    : !caps.comfyui?.reachable ? '⚠ Configure ComfyUI in Settings'
+    : '⚠ Klein model missing — download it in the Setup step (models/unet/klein/)';
 
   useEffect(() => {
     let cancelled = false;
@@ -218,7 +225,10 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
             {klAvailable ? (
               <span className="text-content-subtle text-[0.625rem]">Runs on this machine — slower, tunable face fidelity.</span>
             ) : (
-              <span className="text-amber-300 text-[0.625rem]">⚠ Configure ComfyUI in Settings</span>
+              <a href="#/setup" onClick={(e) => e.stopPropagation()}
+                className="text-amber-300 text-[0.625rem] underline decoration-amber-300/50">
+                {kleinHint}
+              </a>
             )}
           </span>
         </button>

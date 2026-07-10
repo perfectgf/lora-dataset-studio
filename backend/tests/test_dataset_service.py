@@ -405,6 +405,30 @@ def test_api_batch_skips_cancelled_rows(app, monkeypatch):
         assert svc.db.session.get(FaceDatasetImage, live_id).filename
 
 
+def test_api_batch_failure_stores_reason(app, monkeypatch):
+    """A failed API generation must persist WHY (fail_reason) — the tile shows it
+    instead of a mute 'failed'. Exposed in the payload; cleared on regenerate."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    def boom(*a, **k):
+        raise RuntimeError('quota exceeded (429)')
+    monkeypatch.setattr(svc, '_api_generate_fn', lambda engine: boom)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Fr', 'fr')
+        import os
+        os.makedirs(svc._dataset_dir(ds.id), exist_ok=True)
+        img = FaceDatasetImage(dataset_id=ds.id, status='pending', klein_model='nanobanana')
+        svc.db.session.add(img); svc.db.session.commit()
+        svc._run_nanobanana_batch(app, [(img.id, 'p', '1:1')], [_png()], engine='nanobanana')
+        svc.db.session.expire_all()
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.status == 'failed'
+        assert 'nanobanana' in row.fail_reason and 'quota exceeded' in row.fail_reason
+        payload = svc.dataset_payload(LOCAL_USER, ds.id)
+        assert payload['images'][0]['fail_reason'] == row.fail_reason
+
+
 def test_delete_dataset_without_lora_training_module(app):
     """lora_training (Task 19) doesn't exist yet in phase 1 -> delete_dataset must
     still succeed (purge step is best-effort and silently skipped)."""

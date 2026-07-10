@@ -74,6 +74,10 @@ class FaceDatasetImage(db.Model):
     # extreme_pose|unreadable|error. Score brut persiste -> seuils recalibrables cote UI.
     face_score = db.Column(Float, nullable=True)
     face_state = db.Column(String(16), nullable=True)
+    # Pourquoi status='failed' : message d'erreur du moteur (API/sauvegarde/queue),
+    # affiché sur la tuile — sinon l'échec est muet et l'utilisateur relance à
+    # l'aveugle. Nettoyé au regenerate. Colonne additive (migration create_app).
+    fail_reason = db.Column(Text, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
 
     def __repr__(self):

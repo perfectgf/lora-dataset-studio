@@ -76,8 +76,21 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               className="w-full h-full object-cover" />
           </button>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-content-subtle text-xs">
-            {img.status === 'failed' ? 'failed' : '…'}
+          <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-2 text-center"
+            title={img.status === 'failed' ? (img.fail_reason || 'generation failed') : undefined}>
+            {img.status === 'failed' ? (
+              <>
+                <span className="text-red-300 text-xs font-semibold">⚠ failed</span>
+                {img.fail_reason && (
+                  <span className="text-content-subtle text-[0.5625rem] leading-tight line-clamp-4 break-words">
+                    {img.fail_reason}
+                  </span>
+                )}
+                <span className="text-content-subtle text-[0.5625rem]">🔄 to retry</span>
+              </>
+            ) : (
+              <span className="text-content-subtle text-xs">…</span>
+            )}
           </div>
         )}
         <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[10px] bg-black/60 text-white pointer-events-none">
