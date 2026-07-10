@@ -92,10 +92,19 @@ def dataset_set_ref(dataset_id):
     if not f or not f.filename:
         return jsonify({'error': 'no file'}), 400
     raw = f.read()
+    # Auto head-crop OPT-IN (form field crop='1') : par défaut on fait un carré
+    # centré PIL pur — instantané, pas de passe vision, pas de pause ComfyUI —
+    # et l'utilisateur ajuste avec ✂ Crop (l'éditeur lit l'original plein cadre).
+    # Même UX que l'import de photos ; « Reset to auto » reste le chemin vision explicite.
+    want_auto = request.form.get('crop', '0') == '1'
     try:
-        with gpu_exclusive_vision_window():
+        if want_auto:
+            with gpu_exclusive_vision_window():
+                webp, head_detected = svc.face_crop_to_square_webp(
+                    raw, pad=svc.REF_CROP_PAD, return_detected=True)
+        else:
             webp, head_detected = svc.face_crop_to_square_webp(
-                raw, pad=svc.REF_CROP_PAD, return_detected=True)
+                raw, pad=svc.REF_CROP_PAD, return_detected=True, use_vision=False)
     except Exception as e:
         return _map_error(e)
     dsdir = svc._dataset_dir(dataset_id)
@@ -112,10 +121,11 @@ def dataset_set_ref(dataset_id):
     ds.ref_filename = fn
     svc.db.session.commit()
     resp = {'ok': True, 'ref_filename': fn, 'head_crop': head_detected}
-    if not head_detected:
-        # GUARD-RAIL: don't silently ship a body-centered crop. Tell the user WHY the
-        # auto head-crop didn't run — the usual cause on a fresh install is the Ollama
-        # vision model not being pulled — and how to recover (Setup + the Crop button).
+    if want_auto and not head_detected:
+        # GUARD-RAIL: don't silently ship a body-centered crop when auto WAS asked.
+        # Tell the user WHY it didn't run — the usual cause on a fresh install is the
+        # Ollama vision model not being pulled — and how to recover (Setup + Crop).
+        # (Manual mode: the centered crop is the intended behavior, no warning.)
         from .. import capabilities
         model_ready = capabilities.probe_ollama_model()['ok']
         resp['warning'] = (

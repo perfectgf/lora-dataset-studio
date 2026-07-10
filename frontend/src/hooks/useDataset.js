@@ -181,14 +181,17 @@ export function useDataset() {
     finally { busyRef.current = false; setBusy(false); }
   }, []);
 
-  const setRef = useCallback((file) => wrap(async () => {
+  const setRef = useCallback((file, { autoCrop = false } = {}) => wrap(async () => {
     const fd = new FormData(); fd.append('file', file);
+    // Auto head-crop is OPT-IN (vision pass, pauses ComfyUI). Default: instant
+    // centered crop, then the user adjusts with ✂ Crop (reads the full original).
+    if (autoCrop) fd.append('crop', '1');
     const d = await postJson(`/api/dataset/${currentId}/ref`, fd, true);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     // GUARD-RAIL: the backend head-crop can silently fall back to a centered crop
     // (e.g. vision model not pulled). Surface its reason instead of a plain success.
     if (d.warning) toast.warning(d.warning);
-    else toast.success('Reference set');
+    else toast.success(autoCrop ? 'Reference set (auto head-crop)' : 'Reference set — adjust with ✂ Crop if needed');
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 

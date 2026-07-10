@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 
 // Cap identique à MAX_EXTRA_REFS côté backend (face_dataset_service).
 const MAX_EXTRA_REFS = 3;
@@ -7,6 +7,9 @@ export default function ReferencePanel({ refFilename, datasetId, onSetRef, onCro
                                          extraRefs = [], onAddExtraRef, onRemoveExtraRef }) {
   const inp = useRef(null);
   const inpExtra = useRef(null);
+  // Auto head-crop = OPT-IN (vision pass, pauses ComfyUI). Default OFF: upload is
+  // instant (centered square) and ✂ Crop adjusts manually — faster in practice.
+  const [autoCrop, setAutoCrop] = useState(false);
   const imgUrl = (fn) => `/api/dataset/${datasetId}/img/${encodeURIComponent(fn)}${nonce ? `?v=${nonce}` : ''}`;
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3">
@@ -18,8 +21,8 @@ export default function ReferencePanel({ refFilename, datasetId, onSetRef, onCro
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-content text-sm font-medium">Reference photo</span>
-          <span className="text-content-subtle text-[0.6875rem]">source of Klein variations (auto head-crop)</span>
-          <div className="flex gap-1.5">
+          <span className="text-content-subtle text-[0.6875rem]">source of Klein variations — crop with ✂ after upload</span>
+          <div className="flex gap-1.5 items-center flex-wrap">
             <button type="button" onClick={() => inp.current?.click()} disabled={busy}
               className="px-2.5 py-1 rounded-lg bg-surface-raised text-content text-xs disabled:opacity-40">
               {refFilename ? 'Change' : 'Set'} reference
@@ -28,9 +31,15 @@ export default function ReferencePanel({ refFilename, datasetId, onSetRef, onCro
               <button type="button" onClick={onCropRef} disabled={busy}
                 className="px-2.5 py-1 rounded-lg bg-surface-raised text-content text-xs disabled:opacity-40">✂ Crop</button>
             )}
+            <label className="flex items-center gap-1 text-[0.625rem] text-content-muted cursor-pointer"
+              title="ON: a vision pass finds the head and crops around it (slower, pauses ComfyUI). OFF (default): instant centered square — adjust with ✂ Crop, usually faster.">
+              <input type="checkbox" checked={autoCrop} onChange={(e) => setAutoCrop(e.target.checked)}
+                className="accent-indigo-500 w-3 h-3" />
+              ✂ Auto head-crop
+            </label>
           </div>
           <input ref={inp} type="file" accept="image/*" className="hidden"
-            onChange={(e) => { if (e.target.files[0]) onSetRef(e.target.files[0]); e.target.value = ''; }} />
+            onChange={(e) => { if (e.target.files[0]) onSetRef(e.target.files[0], { autoCrop }); e.target.value = ''; }} />
         </div>
       </div>
 

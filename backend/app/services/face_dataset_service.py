@@ -726,7 +726,7 @@ def detect_head_bbox(image_bytes):
 
 
 def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 1.7,
-                             *, return_detected: bool = False):
+                             *, return_detected: bool = False, use_vision: bool = True):
     """Head-crop (Qwen3-VL bbox, generous padding for hair + shoulders) into a
     SQUARE that FILLS `size` - no black padding, no distortion (the square is
     shrunk to fit inside the image so it never needs letterboxing). Falls back to
@@ -734,10 +734,13 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
 
     `return_detected=True` -> (webp_bytes, head_detected) so the caller can WARN the
     user when it silently fell back to a centered crop (e.g. vision model not pulled)
-    instead of leaving them puzzled by a body-centered reference."""
+    instead of leaving them puzzled by a body-centered reference.
+
+    `use_vision=False` -> skip the bbox detection entirely (fast pure-PIL centered
+    square, no GPU window needed) — the manual-first reference flow."""
     im = Image.open(io.BytesIO(image_bytes)).convert('RGB')
     W, H = im.size
-    norm = detect_head_bbox(image_bytes)
+    norm = detect_head_bbox(image_bytes) if use_vision else None
     half = 0
     if norm:
         x1, y1, x2, y2 = norm[0] * W, norm[1] * H, norm[2] * W, norm[3] * H
