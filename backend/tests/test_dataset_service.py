@@ -473,13 +473,14 @@ def test_detect_head_bbox_falls_back_to_none_when_ollama_unreachable(app, monkey
         assert isinstance(out, (bytes, bytearray)) and len(out) > 0
 
 
-def test_generate_variations_klein_raises_runtime_error_when_unconfigured(app):
-    """klein_edit_helper (Task 14) exists, so the fan-out actually reaches
-    enqueue_klein_edit -- with no comfyui.base_dir configured, that raises
-    RuntimeError('ComfyUI is not configured'). Needs a non-empty variations
-    list (an empty one short-circuits the fan-out loop before ComfyUI is ever
-    touched) and a reference image (checked before the fan-out starts)."""
+def test_generate_variations_klein_raises_models_missing_when_unconfigured(app):
+    """With no comfyui.base_dir configured, the model preflight finds none of the
+    Klein files on disk and raises KleinModelsMissing BEFORE creating any rows (the
+    route turns that into an actionable 'configure ComfyUI / downloading' 409).
+    Needs a non-empty variations list and a reference image (checked first)."""
+    import pytest
     from app.services import face_dataset_service as svc
+    from app.services.klein_edit_helper import KleinModelsMissing
     from app.config import LOCAL_USER
     import os
     with app.app_context():
@@ -490,14 +491,10 @@ def test_generate_variations_klein_raises_runtime_error_when_unconfigured(app):
             fh.write(_png())
         ds.ref_filename = 'ref.webp'
         svc.db.session.commit()
-        try:
+        with pytest.raises(KleinModelsMissing):
             svc.generate_variations(LOCAL_USER, ds.id,
                                     [{'label': 'x', 'framing': 'face', 'prompt': 'p'}],
                                     1, 'some_klein_model')
-            raised = False
-        except RuntimeError as e:
-            raised = 'ComfyUI is not configured' in str(e)
-        assert raised
 
 
 def test_link_completed_dataset_image_without_comfyui_configured(app):

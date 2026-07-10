@@ -14,14 +14,24 @@ def _png(color=(255, 0, 0)):
     return buf.getvalue()
 
 
-def _configure_comfy_dirs(tmp_path, cfg):
-    """Real tmp dirs for input/output/models/loras/klein so the helper's file
-    ops (copy into input, check for the consistency LoRA) run against a real
-    filesystem instead of unconfigured Nones."""
+def _configure_comfy_dirs(tmp_path, cfg, install_models=True):
+    """Real tmp dirs for a ComfyUI tree so the helper's file ops run against a
+    real filesystem instead of unconfigured Nones. With install_models=True the
+    three graph-critical Klein files are placed in their canonical folders (the
+    layout the Setup downloads use) so the model preflight passes; main.py makes
+    resolve_comfyui_base() treat the folder as a real ComfyUI install."""
     base = tmp_path / 'comfyui'
     (base / 'input').mkdir(parents=True)
     (base / 'output').mkdir(parents=True)
     (base / 'models' / 'loras' / 'klein').mkdir(parents=True)
+    (base / 'main.py').write_text('# fake ComfyUI', encoding='utf-8')
+    if install_models:
+        (base / 'models' / 'unet' / 'klein').mkdir(parents=True)
+        (base / 'models' / 'unet' / 'klein' / 'flux-2-klein-9b-fp8.safetensors').write_bytes(b'unet')
+        (base / 'models' / 'vae').mkdir(parents=True)
+        (base / 'models' / 'vae' / 'flux2-vae.safetensors').write_bytes(b'vae')
+        (base / 'models' / 'text_encoders').mkdir(parents=True)
+        (base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors').write_bytes(b'te')
     cfg.save_config({'comfyui': {'base_dir': str(base)}})
     return base
 
@@ -120,23 +130,22 @@ def test_link_completed_dataset_image_failed_marks_row_no_move(app, tmp_path):
         assert (out_dir / 'never.png').exists()  # never moved
 
 
-def test_generate_klein_unconfigured_comfyui_raises_runtime_error(app):
-    """No comfyui.base_dir configured -> enqueue_klein_edit's own input-dir
-    check raises RuntimeError (klein_edit_helper now exists, so this is no
-    longer the Task-8-era ImportError path)."""
+def test_generate_klein_unconfigured_comfyui_raises_models_missing(app):
+    """No comfyui.base_dir configured -> the model preflight finds NONE of the
+    Klein files on disk and raises KleinModelsMissing (which the route turns into
+    an actionable 'configure ComfyUI / downloading' 409, not a 500 or a dataset
+    full of failed tiles)."""
+    import pytest
     from app.services import face_dataset_service as svc
+    from app.services.klein_edit_helper import KleinModelsMissing
     from app.services.face_variations import select_preset
     from app.config import LOCAL_USER
 
     with app.app_context():
         ds = _make_dataset_with_ref(svc, LOCAL_USER, 'NoComfy', 'nocomfy')
-        try:
+        with pytest.raises(KleinModelsMissing):
             svc.generate_variations(LOCAL_USER, ds.id, select_preset('zimage_12')[:1], 1,
                                     klein_model='k.safetensors')
-            raised = False
-        except RuntimeError as e:
-            raised = 'ComfyUI is not configured' in str(e)
-        assert raised
 
 
 def test_generate_klein_bad_dataset_id_returns_400_not_409(client):
@@ -222,4 +231,12 @@ def test_workflow_json_loads_and_consistency_lora_from_config(app, tmp_path, mon
         expected_lora_name = patched_lora.replace('/', os.sep)
         assert lora_node['inputs']['lora_name'] == expected_lora_name
         assert lora_node['inputs']['strength_model'] == 0.42
-        assert workflow['139']['inputs']['model'] == ['ds_consistency_lora', 0]
+        # The loaders now reference the ACTUAL installed files, not the workflow's
+        # hardcoded developer filenames.
+        assert workflow['114']['inputs']['unet_name'] == os.path.join('klein', 'flux-2-klein-9b-fp8.safetensors')
+        assert workflow['10']['inputs']['vae_name'] == 'flux2-vae.safetensors'
+        assert workflow['90']['inputs']['clip_name'] == 'qwen_3_8b_fp8mixed.safetensors'
+        # The base 'realistic' LoRA (node 139) isn't installed here -> it's bypassed
+        # and removed, and its consumer (102.model) is rewired to the consistency LoRA.
+        assert '139' not in workflow
+        assert workflow['102']['inputs']['model'] == ['ds_consistency_lora', 0]

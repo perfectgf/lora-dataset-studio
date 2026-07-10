@@ -1460,6 +1460,14 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
         raise ValueError('dataset not found')
     if not ds.ref_filename:
         raise ValueError('reference image required')
+    # Preflight the Klein model files BEFORE creating any rows: a missing model
+    # then surfaces as one actionable "downloading, retry" 409 (route handler) —
+    # not a dataset full of failed tiles, each doomed by a ComfyUI validation
+    # error on a file that isn't there.
+    from .klein_edit_helper import klein_missing_assets, KLEIN_REQUIRED, KleinModelsMissing
+    _missing = klein_missing_assets()
+    if any(a in _missing for a in KLEIN_REQUIRED):
+        raise KleinModelsMissing(_missing)
     mult = max(1, int(multiplier))
     total = len(variations) * mult
     if total > MAX_FANOUT:

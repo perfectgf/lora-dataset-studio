@@ -211,6 +211,68 @@ def dataset_ref_recrop_auto(dataset_id):
     return jsonify(resp)
 
 
+_KLEIN_ASSET_LABELS = {
+    'klein_model': 'Klein model', 'klein_text_encoder': 'text encoder',
+    'klein_vae': 'VAE', 'klein_lora': 'consistency LoRA',
+}
+
+
+def _autostart_klein_downloads(missing):
+    """Kick off background downloads for the missing Klein assets. Returns
+    (started, needs_token). Never raises — a download that can't start (already
+    running, disk precondition) is reported, not fatal. The license-gated Klein
+    model is only fired when an HF_TOKEN exists (it would 401 otherwise)."""
+    from .. import setup_installer, config as cfg
+    has_token = bool(cfg.secret('HF_TOKEN'))
+    started = []
+    for action in missing:
+        if action == 'klein_model' and not has_token:
+            continue  # gated: can't succeed without a token — instruct instead of firing
+        try:
+            setup_installer.start(action)
+            started.append(action)
+        except setup_installer.AlreadyRunning:
+            started.append(action)  # already in flight still counts as "downloading"
+        except Exception:
+            pass  # Precondition (disk) — surfaced via the message, never a crash
+    return started, ('klein_model' in missing and not has_token)
+
+
+def _klein_missing_response(missing):
+    """Turn a KleinModelsMissing into a (body, 409): auto-start the missing
+    downloads into the validated ComfyUI tree and tell the user to retry. When
+    ComfyUI itself isn't a real install, there's nowhere to place the files —
+    return the 'configure ComfyUI first' message instead. Shared by the batch
+    generate and the single-tile regenerate paths."""
+    from .. import capabilities, config as cfg
+    if not capabilities.resolve_comfyui_base(cfg.get('comfyui.base_dir') or '')['valid']:
+        return jsonify({'ok': False,
+                        'error': 'Point the app at your ComfyUI install folder in '
+                                 'Setup ▸ ComfyUI first, so the Klein models can be '
+                                 'downloaded into it.'}), 409
+    started, needs_token = _autostart_klein_downloads(missing)
+    names = ', '.join(_KLEIN_ASSET_LABELS.get(m, m) for m in missing)
+    it = 'them' if len(missing) > 1 else 'it'
+    msg = (f"Klein needs {names}. I've started downloading {it} into your ComfyUI "
+           "folder — watch progress in Setup ▸ ComfyUI, then retry generation.")
+    if needs_token:
+        msg += (" ⚠ The Klein model is license-gated: accept the licence on its "
+                "Hugging Face page and paste an HF_TOKEN in Settings ▸ API keys, "
+                "otherwise it can't download.")
+    return jsonify({'ok': False, 'error': msg, 'klein_missing': missing,
+                    'downloading': started, 'needs_token': needs_token}), 409
+
+
+def _autostart_optional_klein():
+    """Fire-and-forget: fetch any still-missing OPTIONAL Klein asset (the
+    consistency LoRA) after a successful generate, so it's present next time.
+    Never blocks or raises — required assets are already present at this point."""
+    from ..services import klein_edit_helper as keh
+    optional = [m for m in keh.klein_missing_assets() if m in keh.KLEIN_RECOMMENDED]
+    if optional:
+        _autostart_klein_downloads(optional)
+
+
 @bp.post('/dataset/<int:dataset_id>/generate')
 def dataset_generate(dataset_id):
     data = request.get_json(silent=True) or {}
@@ -230,7 +292,11 @@ def dataset_generate(dataset_id):
                                           data.get('variations') or [], data.get('multiplier', 1),
                                           data.get('klein_model'),
                                           lora_strength=data.get('lora_strength'))
+            _autostart_optional_klein()  # bg-fetch the consistency LoRA if it's absent
     except Exception as e:
+        from ..services.klein_edit_helper import KleinModelsMissing
+        if isinstance(e, KleinModelsMissing):  # a required Klein model isn't installed
+            return _klein_missing_response(e.missing)
         return _map_error(e)
     return jsonify({'ok': True, 'created': len(ids)})
 
@@ -370,6 +436,9 @@ def dataset_image_regenerate(image_id):
                                       lora_strength=data.get('lora_strength'),
                                       app=current_app._get_current_object())
     except Exception as e:
+        from ..services.klein_edit_helper import KleinModelsMissing
+        if isinstance(e, KleinModelsMissing):
+            return _klein_missing_response(e.missing)  # auto-download, tell them to retry
         return _map_error(e)
     if job_id is None:
         return jsonify({'error': 'not found'}), 404

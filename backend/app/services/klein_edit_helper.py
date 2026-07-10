@@ -30,7 +30,131 @@ WORKFLOW_IMPROVE_SKIN_PATH = cfg.BACKEND_DIR / 'workflows' / 'improve skin.json'
 
 # Nodes this helper rewires — fail LOUDLY if the workflow file changes shape
 # instead of silently enqueuing a job with the wrong source/prompt/model.
-_REQUIRED_NODES = ('52', '145', '77', '9', '114')
+_REQUIRED_NODES = ('52', '145', '77', '9', '114', '10', '90')
+
+# The Klein pipeline's model dependencies, keyed by the setup_installer download
+# action that provides each. REQUIRED = the graph is invalid without it (block +
+# auto-download); RECOMMENDED = quality only (the consistency LoRA — degrade).
+KLEIN_REQUIRED = ('klein_model', 'klein_text_encoder', 'klein_vae')
+KLEIN_RECOMMENDED = ('klein_lora',)
+
+_MODEL_SUFFIXES = ('.safetensors', '.gguf', '.sft')
+
+
+class KleinModelsMissing(Exception):
+    """A graph-critical Klein asset (UNET / text-encoder / VAE) is not on disk, so
+    a valid job can't be built. `.missing` lists ALL absent assets (incl. the
+    optional consistency LoRA) as setup_installer action names, so the caller can
+    auto-download them instead of firing a doomed ComfyUI job."""
+    def __init__(self, missing):
+        self.missing = list(missing)
+        super().__init__('Klein models missing: ' + ', '.join(self.missing))
+
+
+def _models_root():
+    d = cfg.comfyui_dir('models')
+    return str(d) if d else None
+
+
+def _first_model_file(subparts, prefer=None):
+    """First model file under <models>/<subparts...>, preferring a name that
+    contains any token in `prefer`. Returns the bare filename, or None."""
+    root = _models_root()
+    if not root:
+        return None
+    folder = os.path.join(root, *subparts)
+    try:
+        names = sorted(n for n in os.listdir(folder)
+                       if n.lower().endswith(_MODEL_SUFFIXES))
+    except OSError:
+        return None
+    if prefer:
+        for n in names:
+            if any(tok in n.lower() for tok in prefer):
+                return n
+    return names[0] if names else None
+
+
+def resolve_klein_unet(selected=None):
+    """ComfyUI-relative `unet_name` for node 114, or None if no Klein model is on
+    disk. Scans models/unet/klein/ and models/diffusion_models/klein/ (the folders
+    the capability gate and the Setup downloads use) and returns the value WITH its
+    subfolder prefix (e.g. 'klein\\flux-2-klein-9b-fp8.safetensors'): a UNETLoader
+    lists files relative to models/unet, so the bare filename the picker sends is
+    not loadable on its own — the missing 'klein\\' prefix is the whole bug."""
+    root = _models_root()
+    if not root:
+        return None
+    bare_pick = os.path.basename(selected) if selected else None
+    for base in ('unet', 'diffusion_models'):
+        folder = os.path.join(root, base, 'klein')
+        try:
+            names = sorted(n for n in os.listdir(folder)
+                           if n.lower().endswith(_MODEL_SUFFIXES))
+        except OSError:
+            continue
+        if not names:
+            continue
+        pick = bare_pick if (bare_pick and bare_pick in names) else names[0]
+        return os.path.join('klein', pick)
+    return None
+
+
+def resolve_klein_vae():
+    """`vae_name` for node 10 — the Setup install is models/vae/flux2-vae.safetensors
+    (the hardcoded 'flux2_vae.safetensors.safetensors' in the lifted workflow is a
+    double-extension typo that never matches)."""
+    return _first_model_file(('vae',), prefer=('flux2', 'flux-2', 'flux_2'))
+
+
+def resolve_klein_text_encoder():
+    """`clip_name` for node 90 — models/text_encoders/qwen_3_8b_fp8mixed.safetensors."""
+    return _first_model_file(('text_encoders',), prefer=('qwen',))
+
+
+def _consistency_lora():
+    """(relative_name, absolute_path) of the configured consistency LoRA, or
+    (name, None) when the loras dir is unset."""
+    name = (cfg.get('klein.consistency_lora') or '').replace('/', os.sep)
+    lora_dir = cfg.comfyui_dir('loras')
+    if not (lora_dir and name):
+        return name or None, None
+    return name, os.path.join(str(lora_dir), name)
+
+
+def klein_missing_assets():
+    """Which Klein assets are NOT on disk, as setup_installer action names (a
+    subset of KLEIN_REQUIRED + KLEIN_RECOMMENDED). Drives both the generate-time
+    block and the auto-download."""
+    missing = []
+    if not resolve_klein_unet():
+        missing.append('klein_model')
+    if not resolve_klein_text_encoder():
+        missing.append('klein_text_encoder')
+    if not resolve_klein_vae():
+        missing.append('klein_vae')
+    _, lora_path = _consistency_lora()
+    if not (lora_path and os.path.exists(lora_path)):
+        missing.append('klein_lora')
+    return missing
+
+
+def _bypass_node(workflow, node_id, passthrough_input):
+    """Delete node_id and reconnect every consumer of its output slot 0 to the
+    node's own `passthrough_input` upstream. Used to drop a LoRA loader whose file
+    is absent (its consumers wire straight to its `model` input) so ComfyUI never
+    fails validation on a missing LoRA."""
+    node = workflow.get(node_id)
+    if not node:
+        return
+    upstream = node.get('inputs', {}).get(passthrough_input)
+    if upstream is None:
+        return
+    for other in workflow.values():
+        for k, v in list(other.get('inputs', {}).items()):
+            if isinstance(v, list) and len(v) == 2 and v[0] == node_id:
+                other['inputs'][k] = upstream
+    workflow.pop(node_id, None)
 
 
 def _comfy_input_dir() -> str:
@@ -61,7 +185,6 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
         source_path = os.path.join(out_dir, source_filename)
     if not os.path.exists(source_path):
         raise ValueError(f"source image not found: {source_filename}")
-    comfy_input_dir = _comfy_input_dir()
     workflow = load_workflow_local(str(WORKFLOW_IMPROVE_SKIN_PATH))
     if not workflow:
         raise ValueError("failed to load Klein edit workflow")
@@ -69,6 +192,19 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
         if node not in workflow:
             raise ValueError(f"workflow node {node} missing — improve skin.json has changed")
 
+    # Resolve every loader node against what is ACTUALLY installed — the lifted
+    # workflow hardcodes the developer's own ComfyUI filenames (see module
+    # docstring), none of which match a fresh install. Block BEFORE copying the
+    # source / enqueuing when a graph-critical asset is absent, so the caller can
+    # auto-download it instead of firing a job every tile of which would fail.
+    unet_ref = resolve_klein_unet(klein_model)
+    vae_ref = resolve_klein_vae()
+    te_ref = resolve_klein_text_encoder()
+    missing = klein_missing_assets()
+    if any(a in missing for a in KLEIN_REQUIRED):
+        raise KleinModelsMissing(missing)
+
+    comfy_input_dir = _comfy_input_dir()
     uid = uuid.uuid4().hex[:8]
     comfy_input = f"edit_source_{uid}_{source_filename}"
     shutil.copy2(source_path, os.path.join(comfy_input_dir, comfy_input))
@@ -77,34 +213,20 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     workflow["145"]["inputs"]["text1"] = edit_prompt
     workflow["77"]["inputs"]["seed"] = random.randint(0, 2 ** 64 - 1)
     workflow["9"]["inputs"]["filename_prefix"] = f"{user_id}_DatasetFace"
-    # The improve-skin workflow's default UNET file is not guaranteed present on
-    # disk → fall back to the first available Flux.2 Klein model so node 114 never
-    # references a missing file (silent generation failure).
-    if not klein_model:
-        try:
-            from ..utils.comfyui import get_flux2_klein_models
-            models = get_flux2_klein_models()
-            if models:
-                klein_model = models[0]['filename']
-        except Exception:
-            pass
-    if klein_model:
-        workflow["114"]["inputs"]["unet_name"] = klein_model
+    workflow["114"]["inputs"]["unet_name"] = unet_ref
+    workflow["10"]["inputs"]["vae_name"] = vae_ref
+    workflow["90"]["inputs"]["clip_name"] = te_ref
 
-    # Inject the consistency LoRA between the UNET (114) and the existing LoRA
-    # node (139) → chain: 114 -> consistency -> 139 -> rest. Improves face fidelity.
-    # Skipped (degraded but functional) if the LoRA file or node 139 is missing.
-    consistency_lora = (cfg.get('klein.consistency_lora') or '').replace('/', os.sep)
-    consistency_strength = cfg.get('klein.consistency_strength')
-    lora_dir = cfg.comfyui_dir('loras')
-    lora_path = (os.path.join(str(lora_dir), consistency_lora)
-                if lora_dir and consistency_lora else None)
+    # Inject the consistency LoRA between the UNET (114) and the base LoRA node
+    # (139) → chain 114 -> consistency -> 139. Improves face fidelity. Skipped
+    # (degraded but functional) if the LoRA file or node 139 is missing.
+    consistency_lora, lora_path = _consistency_lora()
     if "139" not in workflow:
         logger.warning("workflow node 139 missing — consistency LoRA injection skipped")
     elif not lora_path or not os.path.exists(lora_path):
         logger.warning(f"consistency LoRA not found at {lora_path} — injection skipped")
     else:
-        strength = consistency_strength
+        strength = cfg.get('klein.consistency_strength')
         if lora_strength is not None:
             strength = max(0.0, min(1.5, float(lora_strength)))
         workflow["ds_consistency_lora"] = {
@@ -114,6 +236,17 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
             "_meta": {"title": "Dataset consistency LoRA"},
         }
         workflow["139"]["inputs"]["model"] = ["ds_consistency_lora", 0]
+
+    # The base style LoRA in node 139 (klein\realistic.safetensors) belongs to the
+    # source app's ComfyUI and is NOT part of the Klein install — bypass it when
+    # its file is absent so ComfyUI doesn't fail validation on a missing LoRA. The
+    # consistency LoRA injected above (if any) stays in the chain.
+    base_lora = (workflow.get("139", {}).get("inputs", {}).get("lora_name") or '').replace('/', os.sep)
+    loras_dir = cfg.comfyui_dir('loras')
+    base_lora_path = os.path.join(str(loras_dir), base_lora) if (loras_dir and base_lora) else None
+    if "139" in workflow and (not base_lora_path or not os.path.exists(base_lora_path)):
+        logger.info("base LoRA %r absent — bypassing node 139", base_lora)
+        _bypass_node(workflow, "139", "model")
 
     job_id = str(uuid.uuid4())
     meta = {"model_name": "klein_edit_dataset"}
