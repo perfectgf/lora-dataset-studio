@@ -16,19 +16,36 @@ import GuidedChecklist from './GuidedChecklist';
 import NextStepCard from './NextStepCard';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
 
-/* En-tête de section numéroté : le workspace se lit désormais de haut en bas
-   dans l'ordre des étapes de la checklist, chaque section portant une ligne
-   d'aide en clair pour les non-experts. Purement présentationnel. */
-function SectionHeading({ n, title, help }) {
+/* Chaque étape du workflow est une CARTE distincte plutôt qu'un simple titre
+   flottant : un bandeau-titre teinté (gros numéro + titre + aide en clair) posé
+   sur un corps encadré. La carte de l'étape COURANTE porte un anneau d'accent
+   indigo pour que l'œil s'y pose. Cette séparation nette remplace l'ancien
+   espacement discret entre sections. `id` + `scroll-mt` restent sur la <section>
+   pour le saut depuis la checklist et le flash gf-highlight. Présentationnel. */
+function StepSection({ n, title, help, id, active, children }) {
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span aria-hidden
-        className="grid place-items-center w-5 h-5 shrink-0 rounded-full bg-primary/15 border border-primary/40 text-indigo-300 text-[0.6875rem] font-bold">
-        {n}
-      </span>
-      <h2 className="m-0 text-content font-semibold text-sm">{title}</h2>
-      {help && <span className="text-content-subtle text-[0.6875rem]">{help}</span>}
-    </div>
+    <section id={id}
+      className={`scroll-mt-20 rounded-lg border bg-surface overflow-hidden transition-colors ${
+        active ? 'border-primary/50 ring-1 ring-primary/25' : 'border-border'}`}>
+      <div className={`flex items-center gap-2.5 flex-wrap px-4 py-2.5 border-b bg-surface-raised ${
+        active ? 'border-primary/40' : 'border-border'}`}>
+        <span aria-hidden
+          className={`grid place-items-center w-7 h-7 shrink-0 rounded-full border text-sm font-bold ${
+            active ? 'bg-primary/25 border-primary/60 text-indigo-200' : 'bg-primary/10 border-primary/30 text-indigo-300'}`}>
+          {n}
+        </span>
+        <h2 className="m-0 text-content font-semibold text-sm">{title}</h2>
+        {help && <span className="text-content-subtle text-[0.6875rem]">{help}</span>}
+        {active && (
+          <span className="ml-auto shrink-0 rounded-full bg-primary/15 border border-primary/40 px-2 py-0.5 text-indigo-200 text-[0.625rem] font-semibold uppercase tracking-wide">
+            You are here
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col gap-2 p-4">
+        {children}
+      </div>
+    </section>
   );
 }
 
@@ -197,7 +214,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             <GuidedChecklist steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
           </aside>
         )}
-        <div className="flex flex-col gap-4 min-w-0">
+        <div className="flex flex-col gap-5 min-w-0">
           {!concept && (
             <NextStepCard step={nextStep} trainMode={!!caps.training_visible} busy={ds.busy}
               totalImages={images.length} onAction={nextAction} actionLabel={nextActionLabel} />
@@ -238,26 +255,26 @@ export default function DatasetWorkspace({ ds, onBack }) {
           {concept ? (
             // Concept : pas de photo de référence ni de générateur — on peuple le dataset
             // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
-            <section id="gf-reference" className="flex flex-col gap-2 scroll-mt-20">
-              <SectionHeading n={1} title="Add images"
-                help="a concept LoRA learns from real images — scrape galleries or drop photos" />
+            <StepSection n={1} id="gf-reference" active={nextStep?.targetId === 'gf-reference'}
+              title="Add images"
+              help="a concept LoRA learns from real images — scrape galleries or drop photos">
               <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
               <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
-            </section>
+            </StepSection>
           ) : (
             <>
-              <section id="gf-reference" className="flex flex-col gap-2 scroll-mt-20">
-                <SectionHeading n={1} title="Reference photo"
-                  help="one clear photo of the face — every generated variation starts from it" />
+              <StepSection n={1} id="gf-reference" active={nextStep?.targetId === 'gf-reference'}
+                title="Reference photo"
+                help="one clear photo of the face — every generated variation starts from it">
                 <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
                   onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
                   extraRefs={d.ref_extra_filenames || []}
                   onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
-              </section>
+              </StepSection>
 
-              <section id="gf-generate" className="flex flex-col gap-2 scroll-mt-20">
-                <SectionHeading n={2} title="Add images"
-                  help="generate AI variations of the reference — and mix in a few real photos if you have them" />
+              <StepSection n={2} id="gf-generate" active={nextStep?.targetId === 'gf-generate'}
+                title="Add images"
+                help="generate AI variations of the reference — and mix in a few real photos if you have them">
                 <CompositionBar composition={d.composition} bodyFidelity={bodyFid} />
                 <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}
                   onGenerate={(...args) => {
@@ -289,16 +306,16 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
                   </div>
                 </details>
-              </section>
+              </StepSection>
             </>
           )}
 
           {/* ============ Curation + caption : trier ✓/✕ puis légender les gardées.
                La barre d'outils caption (mode, lancer, re-caption, analyse, fuite)
                vit ICI, à côté de la grille qu'elle concerne — plus dans le header. */}
-          <section id="gf-images" className="flex flex-col gap-2 scroll-mt-20">
-            <SectionHeading n={concept ? 2 : 3} title="Curate & caption"
-              help="keep ✓ the good shots, reject ✕ the rest — then caption the kept ones (captions are what training reads)" />
+          <StepSection n={concept ? 2 : 3} id="gf-images" active={nextStep?.targetId === 'gf-images'}
+            title="Curate & caption"
+            help="keep ✓ the good shots, reject ✕ the rest — then caption the kept ones (captions are what training reads)">
 
             <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
               {!concept && (
@@ -393,12 +410,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 onBatch={ds.batchImages} busy={ds.busy}
                 nonces={ds.nonces} faceThresholds={d.face_thresholds} />
             )}
-          </section>
+          </StepSection>
 
           {/* ============ Entraînement (et lanceur du Studio de test). */}
-          <section id="gf-training" className="flex flex-col gap-2 scroll-mt-20">
-            <SectionHeading n={concept ? 3 : 4} title="Train"
-              help="turn the kept & captioned images into a LoRA — or export the ZIP (top right) to train elsewhere" />
+          <StepSection n={concept ? 3 : 4} id="gf-training" active={nextStep?.targetId === 'gf-training'}
+            title="Train"
+            help="turn the kept & captioned images into a LoRA — or export the ZIP (top right) to train elsewhere">
             <TrainingPanel ds={ds} keptCount={kept} kind={d.kind} onCheckpointsChange={setCheckpointCount} />
 
             {/* Lanceur du Studio de test LoRA : page dédiée plein écran /studio?dataset=
@@ -420,7 +437,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 </span>
               </button>
             )}
-          </section>
+          </StepSection>
         </div>{/* /right column */}
       </div>{/* /workspace grid */}
 
