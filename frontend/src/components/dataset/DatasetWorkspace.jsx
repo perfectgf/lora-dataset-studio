@@ -11,7 +11,7 @@ import DatasetGrid from './DatasetGrid';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
 import { useCapabilities } from '../../context/CapabilitiesContext';
-import GuidedStepper from './GuidedStepper';
+import GuidedChecklist from './GuidedChecklist';
 import NextStepCard from './NextStepCard';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
 
@@ -141,13 +141,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </div>
       </div>
 
-      {!concept && (
-        <>
-          <GuidedStepper steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
-          <NextStepCard step={nextStep} trainMode={!!caps.training_visible} busy={ds.busy}
-            totalImages={images.length} onAction={nextAction} actionLabel={nextActionLabel} />
-        </>
-      )}
+      {/* Two-column workspace: a sticky vertical progress checklist on the left,
+          the dataset content on the right. Concept datasets have no reference/
+          generate flow, so they keep the single-column layout (the wrapper is
+          display:contents -> no visual change, no sidebar). */}
+      <div className={concept ? 'contents' : 'grid grid-cols-1 lg:grid-cols-[15rem_minmax(0,1fr)] gap-3 items-start'}>
+        {!concept && (
+          <aside className="lg:sticky lg:top-4 lg:self-start">
+            <GuidedChecklist steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
+          </aside>
+        )}
+        <div className="flex flex-col gap-3 min-w-0">
+          {!concept && (
+            <NextStepCard step={nextStep} trainMode={!!caps.training_visible} busy={ds.busy}
+              totalImages={images.length} onAction={nextAction} actionLabel={nextActionLabel} />
+          )}
 
       {ds.busy && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2">
@@ -236,6 +244,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
             nonces={ds.nonces} faceThresholds={d.face_thresholds} />
         )}
       </div>
+        </div>{/* /right column */}
+      </div>{/* /workspace grid */}
 
       {cropImg && cropImg.filename && (
         <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(cropImg.filename)}`}
