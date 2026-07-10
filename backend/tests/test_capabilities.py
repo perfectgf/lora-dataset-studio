@@ -29,6 +29,34 @@ def test_probe_all_off_when_unconfigured(app):
     assert caps['engines'] == {'nanobanana': False, 'chatgpt': False, 'klein': False}
     assert caps['training_visible'] is False and caps['studio_visible'] is False
 
+def test_python_ml_status_reports_version_and_range(app):
+    """The probe exposes the interpreter version + whether it's inside the ML-wheel
+    range (3.10–3.12), so the setup can warn before a doomed pip install."""
+    with app.app_context():
+        from app import capabilities
+        with patch('app.capabilities._http_ok', return_value=False):
+            caps = capabilities.probe(force=True)
+    py = caps['python']
+    assert py['ml_range'] == '3.10–3.12'
+    assert isinstance(py['ml_supported'], bool)
+    # ml_supported must agree with the reported version's minor.
+    major, minor = (int(x) for x in py['version'].split('.')[:2])
+    assert py['ml_supported'] == (major == 3 and 10 <= minor <= 12)
+
+
+@pytest.mark.parametrize('info,ok', [((3, 9, 1), False), ((3, 10, 0), True),
+                                     ((3, 12, 9), True), ((3, 13, 0), False), ((3, 14, 0), False)])
+def test_python_ml_status_boundaries(app, info, ok):
+    import types
+    with app.app_context():
+        from app import capabilities
+        vi = types.SimpleNamespace(major=info[0], minor=info[1], micro=info[2])
+        with patch('app.capabilities.sys.version_info', vi):
+            st = capabilities.python_ml_status()
+    assert st['ml_supported'] is ok
+    assert st['version'] == f'{info[0]}.{info[1]}.{info[2]}'
+
+
 def test_chatgpt_on_with_key(app, monkeypatch):
     monkeypatch.setenv('OPENAI_API_KEY', 'sk-x')
     with app.app_context():

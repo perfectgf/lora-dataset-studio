@@ -422,6 +422,21 @@ export default function SetupPage() {
               a training without masks is still a valid training.
             </li>
           </ul>
+          {caps.python && !caps.python.ml_supported && (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-content space-y-1">
+              <p>
+                <span className="font-semibold text-amber-300">⚠ Python {caps.python.version} —</span>{' '}
+                these extras need Python {caps.python.ml_range}. insightface / numpy&lt;2 / onnxruntime publish
+                no prebuilt packages for {caps.python.version}, so the install below will try to compile them
+                and most likely fail.
+              </p>
+              <p className="text-content-muted">
+                They're optional — you can skip this step, or install them into a separate Python 3.11/3.12
+                environment and point <span className="font-mono">face_scoring.python</span> +{' '}
+                <span className="font-mono">masks.python</span> at it in Settings.
+              </p>
+            </div>
+          )}
           <InstallRunner action="ml_extras" buttonLabel="Install (pip)"
             manualCommand="python -m pip install -r backend/requirements-ml.txt" onDone={() => refresh(true)} />
         </div>

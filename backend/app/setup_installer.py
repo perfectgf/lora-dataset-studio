@@ -195,6 +195,29 @@ def _execute(action):
 def _run_ml_extras(action) -> int:
     """Generic `pip install -r` worker (name kept for existing callers/tests):
     serves ml_extras AND scrape_extras via _PIP_REQUIREMENTS."""
+    # ml_extras (insightface/numpy<2/onnx) has no wheels outside Python 3.10–3.12;
+    # on a newer interpreter pip source-builds and fails with a cryptic numpy
+    # conflict. Lead the log with a plain-English explanation + the fix so the
+    # traceback that follows is already contextualized. (scrape_extras is pure
+    # Python — no such ceiling — so it's exempt.)
+    if action == 'ml_extras':
+        ps = capabilities.python_ml_status()
+        if not ps['ml_supported']:
+            for line in (
+                '=' * 64,
+                f"NOTE: this app runs on Python {ps['version']}, but the ML extras",
+                f"need Python {ps['ml_range']} (insightface / numpy<2 / onnxruntime",
+                "publish no wheels for newer versions → pip will try to BUILD them",
+                "from source and the install will likely fail below.",
+                "",
+                "These extras are OPTIONAL — they only add face-resemblance scoring",
+                "and background masking. You can:",
+                "  1. Skip them (the app works without them), or",
+                "  2. Install them into a separate Python 3.11/3.12 venv and set",
+                "     face_scoring.python + masks.python to it in Settings.",
+                '=' * 64,
+            ):
+                _append(action, line)
     proc = subprocess.Popen(
         [sys.executable, '-m', 'pip', 'install', '-r',
          str(_PIP_REQUIREMENTS.get(action, _ML_REQUIREMENTS))],

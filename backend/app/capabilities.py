@@ -148,6 +148,27 @@ def probe_masks() -> dict:
     return {'ok': ok, 'detail': 'rembg import OK' if ok else 'import failed'}
 
 
+# Prebuilt wheels for the ML extras (insightface 0.7.3, numpy<2, onnxruntime,
+# rembg, opencv) exist for CPython 3.10–3.12 only. On a newer interpreter (3.13+)
+# there is no numpy<2 / insightface wheel, so `pip install -r requirements-ml.txt`
+# falls back to source builds that can't resolve (numpy build-dep clash) — the
+# cryptic failure a fresh-clone user hits. Surface the version so the setup can
+# warn UP FRONT instead of after a 200-line pip traceback.
+_ML_PY_MIN = (3, 10)
+_ML_PY_MAX = (3, 12)
+
+
+def python_ml_status() -> dict:
+    """Version of THIS interpreter (the one `ml_extras` installs into via
+    sys.executable) and whether it is inside the wheel-supported ML range."""
+    v = sys.version_info
+    return {
+        'version': f'{v.major}.{v.minor}.{v.micro}',
+        'ml_supported': _ML_PY_MIN <= (v.major, v.minor) <= _ML_PY_MAX,
+        'ml_range': f'{_ML_PY_MIN[0]}.{_ML_PY_MIN[1]}–{_ML_PY_MAX[0]}.{_ML_PY_MAX[1]}',
+    }
+
+
 def probe_scrape_deps() -> dict:
     """The scraper's optional Python deps (requirements-scrape.txt). find_spec
     only (no import cost): the scrape stack runs IN-PROCESS, so the app's own
@@ -401,6 +422,7 @@ def probe(force=False) -> dict:
         },
         'face_scoring': face_scoring['ok'],
         'masks': masks['ok'],
+        'python': python_ml_status(),
         'scrape_deps': probe_scrape_deps()['ok'],
         'training_visible': aitoolkit['ok'],
         'studio_visible': comfy['ok'],
