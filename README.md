@@ -19,6 +19,8 @@ The end-to-end flow:
 11. **Test Studio** — grid-test checkpoint × strength combinations through ComfyUI, vote on outputs, and rank checkpoints by face similarity.
 12. **Export** the curated, captioned dataset as a ZIP.
 
+> 📖 **New to LoRA datasets?** Read the [Dataset Guide](docs/DATASET_GUIDE.md) — what makes a dataset work, caption rules, per-model settings, and a pre-flight checklist. It's also built into the app (the **Guide** tab).
+
 ## Why this instead of driving ai-toolkit directly?
 
 "Instead of" is the wrong frame: this app is **not a competitor to [ai-toolkit](https://github.com/ostris/ai-toolkit) — it orchestrates it**. When you click Train, ai-toolkit is the engine running underneath. The real question is whether to drive ai-toolkit through this studio or use it directly (its own UI and config files):

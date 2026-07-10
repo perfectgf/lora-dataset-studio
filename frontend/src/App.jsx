@@ -10,6 +10,7 @@ import DatasetPage from './pages/DatasetPage'
 import StudioPage from './pages/StudioPage'
 import SettingsPage from './pages/SettingsPage'
 import SetupPage from './pages/SetupPage'
+import GuidePage from './pages/GuidePage'
 import { recommendedMet } from './hooks/useSetupSteps'
 
 const NAV_ITEM_BASE =
@@ -36,6 +37,7 @@ function NavBar() {
         </NavLink>
         <nav className="flex gap-1" aria-label="Main navigation">
           <NavLink to="/datasets" className={navItemClass}>Datasets</NavLink>
+          <NavLink to="/guide" className={navItemClass}>Guide</NavLink>
           <NavLink to="/setup" className={navItemClass}>
             <span className="inline-flex items-center gap-1">
               Setup
@@ -130,6 +132,7 @@ function AppInner() {
           <Route element={<Shell />}>
             <Route path="/" element={<Navigate to="/datasets" replace />} />
             <Route path="/datasets" element={<DatasetPage />} />
+            <Route path="/guide" element={<GuidePage />} />
             <Route path="/studio" element={<StudioPage />} />
             <Route path="/dataset/studio/:id" element={<StudioPage />} />
             <Route path="/settings" element={<SettingsPage />} />
