@@ -31,8 +31,12 @@ DEFAULTS = {
     'training': {'default_family': 'zimage'},
     'face_scoring': {'python': '', 'models_root': '', 'green': 0.50, 'orange': 0.45},
     'masks': {'python': ''},
+    # consistency_strength: the dx8152 LoRA anchors STRUCTURE (composition/
+    # background), not the face — its own guide says start at 0.5 and that
+    # 0.8-1.0 "can prevent edits from applying". 0.9 made every variation a
+    # near-copy of the reference. 0 disables the LoRA entirely.
     'klein': {'consistency_lora': 'klein/Flux2-Klein-9B-consistency-V2.safetensors',
-              'consistency_strength': 0.9},
+              'consistency_strength': 0.5},
     'updates': {'repo': 'perfectgf/lora-dataset-studio'},      # GitHub repo for the release feed
 }
 

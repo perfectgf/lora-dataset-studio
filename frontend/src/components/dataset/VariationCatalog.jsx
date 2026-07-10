@@ -83,7 +83,9 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   const [klein, setKlein] = useState(null);
   // Identity LoRA strength (F1): higher = closer to the reference face,
   // lower = more variety in the generated variations.
-  const [loraStrength, setLoraStrength] = useState(0.9);
+  // dx8152 consistency LoRA: anchors STRUCTURE, its guide recommends ~0.5 and
+  // warns 0.8-1.0 can stop edits from applying (0.9 made variations near-copies).
+  const [loraStrength, setLoraStrength] = useState(0.5);
   // Generator backend: Nano Banana Pro (Gemini API, ~0,15 $/image, zero GPU,
   // best face fidelity — user-validated default) or local Klein (GPU, free).
   const [generator, setGenerator] = useState(() => {
@@ -434,14 +436,18 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       {isKlein && klAvailable && (
         <div className="flex flex-col gap-0.5">
           <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
-            <span className="whitespace-nowrap">Face fidelity (LoRA): {loraStrength.toFixed(2)}</span>
-            <input type="range" min={0.5} max={1.2} step={0.05} value={loraStrength}
+            <span className="whitespace-nowrap">
+              Consistency LoRA: {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
+            </span>
+            <input type="range" min={0} max={1.2} step={0.05} value={loraStrength}
               onChange={(e) => setLoraStrength(Number(e.target.value))}
-              aria-label="Identity LoRA strength"
+              aria-label="Consistency LoRA strength"
               className="flex-1 min-w-[120px] accent-indigo-500" />
           </label>
           <p className="text-content-subtle text-[0.625rem]">
-            higher = closer to the reference, lower = more variety
+            Anchors the COMPOSITION, not the face — high values suppress pose/framing changes.
+            ~0.5 balanced · 0.2–0.4 for big restagings · 0 = off. Face identity comes from the
+            reference photo(s); add extra references for a stronger identity lock.
           </p>
         </div>
       )}

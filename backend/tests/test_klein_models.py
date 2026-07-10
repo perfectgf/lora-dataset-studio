@@ -206,6 +206,101 @@ def test_generate_all_present_proceeds_and_bg_fetches_lora(app, client, tmp_path
     assert started == ['klein_lora']   # optional consistency LoRA fetched in the background
 
 
+def test_default_consistency_strength_is_half(app):
+    """The dx8152 consistency LoRA anchors STRUCTURE; its guide recommends
+    starting at 0.5 and warns 0.8-1.0 can stop edits from applying. The old 0.9
+    default made every variation a near-copy of the reference."""
+    from app import config as cfg
+    with app.app_context():
+        assert cfg.get('klein.consistency_strength') == 0.5
+
+
+def test_lora_strength_zero_skips_consistency_lora(app, tmp_path, monkeypatch):
+    """Slider fully left (0) must disable the consistency LoRA entirely — the
+    escape hatch when even mid strengths suppress the requested restaging."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    from app.job_queue import queue_manager
+    with app.app_context():
+        _comfy(tmp_path, cfg, lora=True)
+        cfg.save_config({'klein': {'consistency_lora': 'klein/Flux2-Klein-9B-consistency-V2.safetensors'}})
+        src = tmp_path / 'ref.png'; src.write_bytes(_png())
+        captured = {}
+        monkeypatch.setattr(queue_manager, 'add_job', lambda **kw: (captured.update(kw), kw['job_id'])[1])
+        keh.enqueue_klein_edit(user_id='local', source_filename='ref.png',
+                               edit_prompt='p', source_path=str(src), lora_strength=0)
+        wf = captured['workflow_data']
+        assert 'ds_consistency_lora' not in wf
+        # Base 'realistic' LoRA absent too -> node 139 bypassed -> 102 wired to the UNET.
+        assert wf['102']['inputs']['model'] == ['114', 0]
+
+
+def test_extra_refs_chain_native_reference_latents(app, tmp_path, monkeypatch):
+    """Multi-reference: each extra identity ref becomes a Load->Scale->Encode->
+    ReferenceLatent chain hanging off node 92, and the sampler's positive input
+    points at the LAST link. No extras -> workflow untouched (77.positive == 92)."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    from app.job_queue import queue_manager
+    with app.app_context():
+        _comfy(tmp_path, cfg, lora=True)
+        src = tmp_path / 'ref.png'; src.write_bytes(_png())
+        r1 = tmp_path / 'extra1.webp'; r1.write_bytes(_png((10, 200, 10)))
+        r2 = tmp_path / 'extra2.webp'; r2.write_bytes(_png((200, 10, 10)))
+        captured = {}
+        monkeypatch.setattr(queue_manager, 'add_job', lambda **kw: (captured.update(kw), kw['job_id'])[1])
+        keh.enqueue_klein_edit(user_id='local', source_filename='ref.png',
+                               edit_prompt='p', source_path=str(src),
+                               extra_ref_paths=[str(r1), str(r2), str(tmp_path / 'gone.webp')])
+        wf = captured['workflow_data']
+        # Chain: 92 -> ds_ref1_latent -> ds_ref2_latent -> 77.positive (missing file skipped).
+        assert wf['ds_ref1_latent']['inputs']['conditioning'] == ['92', 0]
+        assert wf['ds_ref2_latent']['inputs']['conditioning'] == ['ds_ref1_latent', 0]
+        assert wf['77']['inputs']['positive'] == ['ds_ref2_latent', 0]
+        assert 'ds_ref3_latent' not in wf
+        # Each extra encodes through the SAME VAE loader as the primary ref.
+        assert wf['ds_ref1_encode']['inputs']['vae'] == ['10', 0]
+        # Both extras were copied into the ComfyUI input dir.
+        input_dir = os.path.join(str(tmp_path / 'comfyui'), 'input')
+        assert any('extra1' in f for f in os.listdir(input_dir))
+        assert any('extra2' in f for f in os.listdir(input_dir))
+
+        # Control: no extras -> the sampler still reads the stock node 92.
+        captured.clear()
+        keh.enqueue_klein_edit(user_id='local', source_filename='ref.png',
+                               edit_prompt='p', source_path=str(src))
+        assert captured['workflow_data']['77']['inputs']['positive'] == ['92', 0]
+
+
+def test_klein_fanout_passes_dataset_extra_refs(app, tmp_path, monkeypatch):
+    """The fan-out forwards the dataset's extra refs (same files as the Nano
+    Banana multi-ref path) into the Klein workflow."""
+    import json as _json
+    from app import config as cfg
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.job_queue import queue_manager
+    with app.app_context():
+        _comfy(tmp_path, cfg, lora=True)
+        ds = svc.create_dataset(LOCAL_USER, 'Multi', 'multi')
+        d = svc._dataset_dir(ds.id)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'ref.webp'), 'wb') as fh:
+            fh.write(_png())
+        with open(os.path.join(d, 'xref.webp'), 'wb') as fh:
+            fh.write(_png((5, 5, 250)))
+        ds.ref_filename = 'ref.webp'
+        ds.ref_extra_filenames = _json.dumps(['xref.webp'])
+        svc.db.session.commit()
+        captured = []
+        monkeypatch.setattr(queue_manager, 'add_job',
+                            lambda **kw: (captured.append(kw), kw['job_id'])[1])
+        svc.generate_variations(LOCAL_USER, ds.id,
+                                [{'label': 'x', 'framing': 'face', 'prompt': 'p'}], 1, None)
+        wf = captured[0]['workflow_data']
+        assert wf['77']['inputs']['positive'] == ['ds_ref1_latent', 0]
+
+
 def test_wrap_variation_klein_is_instruction_first(app):
     """Klein is an instruction-edit model (Kontext lineage): the wrapper must ASK
     FOR THE CHANGE first and constrain the face second. The API-engine order

@@ -1479,6 +1479,9 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                  .filter(FaceDatasetImage.filename.is_(None)).count())
     if in_flight + total > MAX_FANOUT:
         raise ValueError(f'too many generations in flight ({in_flight}), wait or cancel')
+    # Extra identity refs (multi-references) : chaînées en ReferenceLatent natifs
+    # côté Klein — mêmes fichiers que le chemin Nano Banana multi-réfs.
+    extra_paths = [os.path.join(_dataset_dir(ds.id), fn) for fn in extra_ref_filenames(ds)]
     ids = []
     for v in variations:
         for _ in range(mult):
@@ -1492,7 +1495,7 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                     user_id=str(user_id), source_filename=ds.ref_filename,
                     source_path=_ref_path(ds),
                     edit_prompt=wrap_variation_klein(v['prompt']), klein_model=klein_model,
-                    lora_strength=lora_strength,
+                    lora_strength=lora_strength, extra_ref_paths=extra_paths,
                     extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
                                     'variation_label': v.get('label')})
             except Exception:
@@ -1572,11 +1575,12 @@ def regenerate_image(user_id, image_id, lora_strength=None, app=None):
         from .klein_edit_helper import enqueue_klein_edit
     except ImportError:
         raise RuntimeError('ComfyUI is not configured')
+    extra_paths = [os.path.join(_dataset_dir(ds.id), fn) for fn in extra_ref_filenames(ds)]
     job_id = enqueue_klein_edit(
         user_id=str(user_id), source_filename=ds.ref_filename,
         source_path=_ref_path(ds),
         edit_prompt=wrap_variation_klein(prompt), klein_model=img.klein_model,
-        lora_strength=lora_strength,
+        lora_strength=lora_strength, extra_ref_paths=extra_paths,
         extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
                         'variation_label': img.variation_label})
     img.status = 'pending'

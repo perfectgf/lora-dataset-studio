@@ -264,9 +264,9 @@ export default function SetupPage() {
               <p>
                 Also recommended: the <span className="text-content font-medium">consistency LoRA</span>{' '}
                 <span className="font-mono">Flux2-Klein-9B-consistency-V2.safetensors</span> (331 MB) into{' '}
-                <span className="font-mono">&lt;ComfyUI&gt;/models/loras/klein/</span> — it anchors the face identity of the
-                generated variations (the "Face fidelity" slider drives its strength). Without it, generation still works
-                but the face drifts more.
+                <span className="font-mono">&lt;ComfyUI&gt;/models/loras/klein/</span> — it anchors the composition between
+                edits (the "Consistency LoRA" slider drives its strength; ~0.5 is balanced, high values suppress
+                pose changes). Face identity itself comes from the reference photo(s).
               </p>
               {step.dirValid ? (
                 <div className="space-y-2 rounded-md border border-border bg-surface-raised/40 p-2.5">

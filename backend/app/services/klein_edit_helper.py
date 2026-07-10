@@ -198,14 +198,21 @@ def _comfy_output_dir():
 
 
 def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
-                       extra_metadata=None, lora_strength=None, source_path=None):
+                       extra_metadata=None, lora_strength=None, source_path=None,
+                       extra_ref_paths=None):
     """Copy the source into ComfyUI input, configure the single Klein edit
     workflow, and enqueue it. Returns the app job_id. Raises ValueError on a
     missing source / unloadable workflow / missing required node, RuntimeError
     if ComfyUI isn't configured.
-    `lora_strength` overrides `klein.consistency_strength` (clamped [0.0, 1.5]).
+    `lora_strength` overrides `klein.consistency_strength` (clamped [0.0, 1.5]);
+    0 disables the consistency LoRA entirely (it anchors composition, and even
+    mid strengths can suppress big restagings).
     `source_path` overrides the default ComfyUI output dir/<source_filename> lookup
-    so callers with per-dataset storage can pass the full path directly."""
+    so callers with per-dataset storage can pass the full path directly.
+    `extra_ref_paths`: additional identity reference images (the dataset's extra
+    refs) chained as native ReferenceLatent nodes — Klein consumes several
+    references natively, and extra angles of the same face lock identity better
+    than the single primary ref."""
     if source_path is None:
         out_dir = _comfy_output_dir()
         if out_dir is None:
@@ -245,18 +252,54 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     workflow["10"]["inputs"]["vae_name"] = vae_ref
     workflow["90"]["inputs"]["clip_name"] = te_ref
 
+    # Multi-reference (native): chain each extra identity ref into the POSITIVE
+    # conditioning — Klein reads several ReferenceLatent nodes natively. The
+    # primary ref stays first and strongest (2 MP, node 92); extras add identity
+    # signal from other angles at 1 MP. cfg=1 → the negative chain (110) is
+    # ignored by the sampler, so it is left untouched. A missing extra file is
+    # skipped silently (same tolerance as the Nano Banana multi-ref path).
+    prev = "92"
+    for i, ref_path in enumerate(extra_ref_paths or [], start=1):
+        if not ref_path or not os.path.exists(ref_path):
+            logger.warning(f"klein multi-ref: extra ref missing on disk: {ref_path}")
+            continue
+        ref_input = f"edit_ref{i}_{uid}_{os.path.basename(ref_path)}"
+        shutil.copy2(ref_path, os.path.join(comfy_input_dir, ref_input))
+        load_id, scale_id = f"ds_ref{i}_load", f"ds_ref{i}_scale"
+        enc_id, lat_id = f"ds_ref{i}_encode", f"ds_ref{i}_latent"
+        workflow[load_id] = {"class_type": "LoadImage", "inputs": {"image": ref_input},
+                             "_meta": {"title": f"Extra identity ref {i}"}}
+        workflow[scale_id] = {"class_type": "ImageScaleToTotalPixels",
+                              "inputs": {"upscale_method": "lanczos", "megapixels": 1,
+                                         "resolution_steps": 1, "image": [load_id, 0]},
+                              "_meta": {"title": f"Scale extra ref {i}"}}
+        workflow[enc_id] = {"class_type": "VAEEncode",
+                            "inputs": {"pixels": [scale_id, 0], "vae": ["10", 0]},
+                            "_meta": {"title": f"Encode extra ref {i}"}}
+        workflow[lat_id] = {"class_type": "ReferenceLatent",
+                            "inputs": {"conditioning": [prev, 0], "latent": [enc_id, 0]},
+                            "_meta": {"title": f"Reference latent extra {i}"}}
+        prev = lat_id
+    if prev != "92":
+        workflow["77"]["inputs"]["positive"] = [prev, 0]
+
     # Inject the consistency LoRA between the UNET (114) and the base LoRA node
-    # (139) → chain 114 -> consistency -> 139. Improves face fidelity. Skipped
+    # (139) → chain 114 -> consistency -> 139. NOTE: this LoRA anchors STRUCTURE
+    # (composition/background) — its own guide recommends ~0.5 and warns 0.8-1.0
+    # can stop edits from applying. Strength 0 (slider fully left) skips the
+    # node entirely so the base edit behaviour is reachable. Also skipped
     # (degraded but functional) if the LoRA file or node 139 is missing.
     consistency_lora, lora_path = _consistency_lora()
+    strength = cfg.get('klein.consistency_strength')
+    if lora_strength is not None:
+        strength = max(0.0, min(1.5, float(lora_strength)))
     if "139" not in workflow:
         logger.warning("workflow node 139 missing — consistency LoRA injection skipped")
     elif not lora_path or not os.path.exists(lora_path):
         logger.warning(f"consistency LoRA not found at {lora_path} — injection skipped")
+    elif not strength or float(strength) <= 0:
+        logger.info("consistency LoRA strength 0 — injection skipped (LoRA off)")
     else:
-        strength = cfg.get('klein.consistency_strength')
-        if lora_strength is not None:
-            strength = max(0.0, min(1.5, float(lora_strength)))
         workflow["ds_consistency_lora"] = {
             "class_type": "LoraLoaderModelOnly",
             "inputs": {"lora_name": consistency_lora,
