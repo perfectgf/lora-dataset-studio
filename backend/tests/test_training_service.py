@@ -485,3 +485,62 @@ def test_build_job_config_krea_raw_default_and_turbo_optin(app, tmp_path):
         assert 'krea2_turbo_training_adapter' in tp['model']['assistant_lora_path']
         assert tp['sample']['guidance_scale'] == 1 and tp['sample']['sample_steps'] == 8
         assert lt._run_name(ds).endswith('_Krea-2-Turbo')
+
+
+def test_train_settings_family_defaults(app):
+    """No train_settings → researched family-aware defaults: Krea/SDXL rank 32,
+    Z-Image rank 16; SDXL keeps alpha = rank/2; others alpha = rank."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        z = svc.create_dataset(LOCAL_USER, 'Z', 'zt', train_type='zimage')
+        k = svc.create_dataset(LOCAL_USER, 'K', 'kt', train_type='krea')
+        assert lt._lora_rank(z, 'zimage') == 16 and lt._lora_alpha(16, 'zimage') == 16
+        assert lt._lora_rank(k, 'krea') == 32 and lt._lora_alpha(32, 'krea') == 32
+        assert lt._lora_alpha(32, 'sdxl') == 16      # SDXL half-strength preserved
+        eff = lt.effective_train_settings(k)
+        assert eff['rank'] is None and eff['effective_rank'] == 32   # None = Auto
+        assert eff['resolution'] == '768,1024' and eff['save_every'] == 250
+
+
+def test_default_job_config_uses_researched_defaults(app, tmp_path):
+    """Fresh Krea/Z-Image config: multi-scale [768,1024], save_every 250, and the
+    family rank (Krea 32/32, Z-Image 16/16)."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        folder = tmp_path / 'ds'; folder.mkdir()
+        for tt, rank in (('zimage', 16), ('krea', 32)):
+            ds = svc.create_dataset(LOCAL_USER, tt, f't_{tt}', train_type=tt)
+            p = lt.build_job_config(ds, str(folder), 1500)['config']['process'][0]
+            assert p['network']['linear'] == rank and p['network']['linear_alpha'] == rank
+            assert p['datasets'][0]['resolution'] == [768, 1024]
+            assert p['save']['save_every'] == 250
+
+
+def test_update_train_settings_persists_validates_and_applies(app, tmp_path):
+    """update_train_settings persists a valid patch, rejects out-of-range values,
+    feeds build_job_config, and 'auto' clears a knob back to the family default."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        folder = tmp_path / 'ds'; folder.mkdir()
+        ds = svc.create_dataset(LOCAL_USER, 'K', 'kt', train_type='krea')
+        eff = lt.update_train_settings(LOCAL_USER, ds.id, {'rank': 64, 'resolution': '1024', 'save_every': 500})
+        assert eff['rank'] == 64 and eff['resolution'] == '1024' and eff['save_every'] == 500
+        p = lt.build_job_config(ds, str(folder), 1500)['config']['process'][0]
+        assert p['network']['linear'] == 64 and p['network']['linear_alpha'] == 64
+        assert p['datasets'][0]['resolution'] == [1024] and p['save']['save_every'] == 500
+        with pytest.raises(ValueError):
+            lt.update_train_settings(LOCAL_USER, ds.id, {'rank': 7})        # not in choices
+        with pytest.raises(ValueError):
+            lt.update_train_settings(LOCAL_USER, ds.id, {'save_every': 123})
+        eff2 = lt.update_train_settings(LOCAL_USER, ds.id, {'rank': 'auto'})  # clears to default
+        assert eff2['rank'] is None and eff2['effective_rank'] == 32

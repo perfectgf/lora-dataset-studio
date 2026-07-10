@@ -270,6 +270,99 @@ def _default_variant_for(family) -> str:
     return 'base' if (family or 'zimage') == 'krea' else 'turbo'
 
 
+# --- Réglages ai-toolkit avancés, éditables par dataset (persistés en JSON dans
+#     `train_settings`). Absent/NULL → défaut family-aware issu de la recherche
+#     (cf. Research vault 2026-07-10). Toute valeur hors des listes autorisées
+#     retombe sur le défaut : on ne pousse JAMAIS une config invalide à ai-toolkit. ---
+_DEFAULT_RANK = {'zimage': 16, 'krea': 32, 'sdxl': 32}   # Z-Image reste 16 (choix user) ; Krea/SDXL 32
+_RANK_CHOICES = (8, 16, 24, 32, 48, 64)
+_RES_CHOICES = {'768,1024': [768, 1024], '1024': [1024]}  # multi-échelle par défaut
+_SAVE_CHOICES = (250, 500, 1000)
+
+
+def _train_settings(ds) -> dict:
+    """Parse le blob JSON `train_settings` en dict (jamais lève ; {} si absent/cassé)."""
+    raw = getattr(ds, 'train_settings', None)
+    if not raw:
+        return {}
+    try:
+        d = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def _lora_rank(ds, family) -> int:
+    r = _train_settings(ds).get('rank')
+    return r if r in _RANK_CHOICES else _DEFAULT_RANK.get(family, 32)
+
+
+def _lora_alpha(rank, family) -> int:
+    """ai-toolkit : alpha = rank (échelle 1.0) pour zimage/krea. SDXL garde son
+    choix délibéré alpha = rank/2 (« demi-force », validé par la recherche)."""
+    return max(1, rank // 2) if family == 'sdxl' else rank
+
+
+def _train_res(ds) -> list:
+    return _RES_CHOICES.get(_train_settings(ds).get('resolution'), [768, 1024])
+
+
+def _save_every(ds) -> int:
+    v = _train_settings(ds).get('save_every')
+    return v if v in _SAVE_CHOICES else 250
+
+
+def effective_train_settings(ds, family=None) -> dict:
+    """Réglages pour la famille courante — ce que « Advanced options » affiche et
+    ce que build_job_config enverra. `rank` = choix STOCKÉ (None = auto/défaut) pour
+    que le select re-coche « Auto » ; `effective_rank`/`alpha`/`default_rank` = ce
+    qui sera réellement utilisé (pour le libellé explicatif)."""
+    fam = family or _train_type(ds)
+    s = _train_settings(ds)
+    stored_rank = s.get('rank') if s.get('rank') in _RANK_CHOICES else None
+    eff_rank = stored_rank if stored_rank else _DEFAULT_RANK.get(fam, 32)
+    res = s.get('resolution')
+    return {'rank': stored_rank,                       # None → Auto (défaut family-aware)
+            'effective_rank': eff_rank,                # ce qui part à ai-toolkit
+            'alpha': _lora_alpha(eff_rank, fam),
+            'default_rank': _DEFAULT_RANK.get(fam, 32),
+            'resolution': res if res in _RES_CHOICES else '768,1024',
+            'save_every': _save_every(ds)}
+
+
+def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
+    """Valide + fusionne un patch {rank?, resolution?, save_every?} dans
+    train_settings. Une clé à None/'auto' est RETIRÉE (retour au défaut family).
+    Retourne les réglages effectifs pour la famille courante."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    cur = _train_settings(ds)
+    if 'rank' in patch:
+        r = patch['rank']
+        if r in (None, 'auto'):
+            cur.pop('rank', None)
+        elif r in _RANK_CHOICES:
+            cur['rank'] = r
+        else:
+            raise ValueError(f'rank must be one of {_RANK_CHOICES} (or auto)')
+    if 'resolution' in patch:
+        v = patch['resolution']
+        if v in _RES_CHOICES:
+            cur['resolution'] = v
+        else:
+            raise ValueError(f'resolution must be one of {list(_RES_CHOICES)}')
+    if 'save_every' in patch:
+        v = patch['save_every']
+        if v in _SAVE_CHOICES:
+            cur['save_every'] = v
+        else:
+            raise ValueError(f'save_every must be one of {_SAVE_CHOICES}')
+    ds.train_settings = json.dumps(cur) if cur else None
+    fds.db.session.commit()
+    return effective_train_settings(ds)
+
+
 def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
     """Deployment-name suffix, family-aware. Like _base_tag, but for Krea
     (which has no base column - always Krea-2-Turbo) falls back to a constant tag
@@ -444,6 +537,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
                                         'zimage_turbo_training_adapter_v2.safetensors')
     # Previews : Turbo = 8 steps / cfg 1 ; non-distillé = plus de steps + CFG réel.
     sample_steps, guidance = (8, 1) if variant == 'turbo' else (25, 4)
+    _zrank = _lora_rank(ds, 'zimage')   # défaut 16 (choix user) ; éditable via train_settings
 
     return {
         'job': 'extension',
@@ -454,8 +548,8 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
                 'training_folder': str(_output_dir() / _run_name(ds)),
                 'device': 'cuda:0',
                 'trigger_word': trigger,
-                'network': {'type': 'lora', 'linear': 16, 'linear_alpha': 16},
-                'save': {'dtype': 'float16', 'save_every': 500, 'max_step_saves_to_keep': 10},
+                'network': {'type': 'lora', 'linear': _zrank, 'linear_alpha': _lora_alpha(_zrank, 'zimage')},
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
                 'datasets': [{
                     'folder_path': dataset_folder,
                     'caption_ext': 'txt',
@@ -464,7 +558,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
                     # sujet ; l'identité doit vivre dans le trigger, pas les mots).
                     'caption_dropout_rate': 0.05,
                     'cache_latents_to_disk': True,
-                    'resolution': [1024],
+                    'resolution': _train_res(ds),
                     **_mask_fields(dataset_folder),
                 }],
                 'train': {
@@ -519,6 +613,7 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
     Résolution KREA_TRAIN_RESOLUTION (1024, TE déchargé) car 768 seul tenait sinon."""
     trigger = _safe_trigger(ds)
     is_raw = _krea_is_raw(ds)
+    _krank = _lora_rank(ds, 'krea')   # défaut 32/32 (recherche) ; éditable via train_settings
     model = {
         'arch': 'krea2',
         'name_or_path': 'krea/Krea-2-Raw' if is_raw else 'krea/Krea-2-Turbo',
@@ -538,8 +633,8 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
                 'training_folder': str(_output_dir() / _run_name(ds)),
                 'device': 'cuda:0',
                 'trigger_word': trigger,
-                'network': {'type': 'lora', 'linear': 16, 'linear_alpha': 16},
-                'save': {'dtype': 'float16', 'save_every': 500, 'max_step_saves_to_keep': 10},
+                'network': {'type': 'lora', 'linear': _krank, 'linear_alpha': _lora_alpha(_krank, 'krea')},
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
                 'datasets': [{
                     'folder_path': dataset_folder,
                     'caption_ext': 'txt',
@@ -549,7 +644,7 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
                     # training (cf. unload_text_encoder) → libère ~4-8 Go → 1024 tient sans offload.
                     # Valide ici car train_text_encoder=False (sorties figées → cachables sans perte).
                     'cache_text_embeddings': True,
-                    'resolution': [KREA_TRAIN_RESOLUTION],
+                    'resolution': _train_res(ds),
                     **_mask_fields(dataset_folder),
                 }],
                 'train': {
@@ -597,6 +692,7 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int) -> dict:
         raise ValueError('SDXL: a base checkpoint is required')
     model = {'arch': 'sdxl', 'name_or_path': _sdxl_base_path(base_model),
              'quantize': False, 'quantize_te': False}
+    _srank = _lora_rank(ds, 'sdxl')   # défaut 32 ; alpha = rank/2 (demi-force, conservé)
     return {
         'job': 'extension',
         'config': {
@@ -606,14 +702,14 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int) -> dict:
                 'training_folder': str(_output_dir() / _run_name(ds)),
                 'device': 'cuda:0',
                 'trigger_word': trigger,
-                'network': {'type': 'lora', 'linear': 32, 'linear_alpha': 16},
-                'save': {'dtype': 'float16', 'save_every': 500, 'max_step_saves_to_keep': 10},
+                'network': {'type': 'lora', 'linear': _srank, 'linear_alpha': _lora_alpha(_srank, 'sdxl')},
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
                 'datasets': [{
                     'folder_path': dataset_folder,
                     'caption_ext': 'txt',
                     'caption_dropout_rate': 0.05,
                     'cache_latents_to_disk': True,
-                    'resolution': [1024],
+                    'resolution': _train_res(ds),
                     **_mask_fields(dataset_folder),
                 }],
                 'train': {

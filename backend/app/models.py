@@ -28,6 +28,9 @@ class FaceDataset(db.Model):
     # l'adapter de de-distillation. Isole aussi le run d'entraînement par base.
     train_base_model = db.Column(Text, nullable=True)
     train_variant = db.Column(String(20), nullable=True)
+    # Réglages ai-toolkit avancés éditables par dataset (JSON) : rank, resolution,
+    # save_every. NULL = défauts family-aware. Cf. lora_training._train_settings.
+    train_settings = db.Column(Text, nullable=True)
     # Famille de modèle entraînée : 'zimage' (défaut/None) ou 'sdxl'. Pilote la
     # branche de build_job_config (arch/scheduler/base) et le dossier loras d'import.
     train_type = db.Column(String(16), nullable=True)

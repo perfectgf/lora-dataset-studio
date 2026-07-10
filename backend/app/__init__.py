@@ -18,6 +18,7 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset', 'concept_terms', 'TEXT'),
     ('face_dataset', 'ref_original_filename', 'VARCHAR(255)'),
     ('face_dataset', 'fidelity', 'VARCHAR(8)'),
+    ('face_dataset', 'train_settings', 'TEXT'),
     ('face_dataset_image', 'fail_reason', 'TEXT'),
 )
 

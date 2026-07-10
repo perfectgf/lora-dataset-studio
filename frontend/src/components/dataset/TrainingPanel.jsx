@@ -28,6 +28,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const [variant, setVariant] = useState('turbo');
   // Type de LoRA : 'zimage' (défaut, encodeur Qwen3-4B) ou 'sdxl' (checkpoints ComfyUI).
   const [trainType, setTrainType] = useState('zimage');
+  // Réglages ai-toolkit avancés éditables (rank / resolution / save_every), chargés
+  // depuis base-info ; persistés par POST /train/settings via ds.setTrainSettings.
+  const [adv, setAdv] = useState(null);
 
   const refreshStatus = async () => {
     try {
@@ -64,6 +67,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         // « train on Raw, validate on Turbo ») ; les autres familles → Turbo.
         setVariant(info.variant || ((info.train_type || 'zimage') === 'krea' ? 'base' : 'turbo'));
         setTrainType(info.train_type || 'zimage');
+        setAdv(info.train_settings || null);
       }
     });
     return () => { alive = false; };
@@ -109,6 +113,19 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     // Krea → Raw par défaut (reco officielle « train on Raw, validate on Turbo »).
     if (t === 'krea') setVariant('base');
     ds.setDatasetTrainType?.(t);
+  };
+
+  // Réglages avancés effectifs (client-side pour que le défaut family-aware du rank
+  // suive un changement de type SANS re-fetch). `adv.rank` null = Auto.
+  const advRankChoice = adv?.rank ?? 'auto';
+  const advDefaultRank = trainType === 'zimage' ? 16 : 32;   // miroir de _DEFAULT_RANK
+  const advEffRank = advRankChoice === 'auto' ? advDefaultRank : advRankChoice;
+  const advEffAlpha = trainType === 'sdxl' ? Math.max(1, Math.floor(advEffRank / 2)) : advEffRank;
+  const advRes = adv?.resolution ?? '768,1024';
+  const advSave = adv?.save_every ?? 250;
+  const saveAdv = async (patch) => {
+    const eff = await ds.setTrainSettings?.(patch);
+    if (eff) setAdv(eff);
   };
 
   // Normalizes like useDataset's own postJson: a non-2xx response (e.g. the
@@ -418,7 +435,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
           ⚙️ Advanced options
           <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
-            base &amp; variant · masked training · steps · scheduling
+            base &amp; variant · rank · resolution · masked · steps · scheduling
           </span>
         </summary>
         <div className="px-3 pt-1 flex flex-col gap-2">
@@ -494,6 +511,69 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             {convertError && (
               <span className="text-red-300 text-[0.625rem] break-words">❌ Conversion failed: {convertError}</span>
             )}
+          </div>
+
+          {/* Model & training knobs — researched defaults (see the Research note),
+              editable per dataset. Each carries a plain-English "why / how". */}
+          <div className="flex flex-col gap-2 rounded-lg border border-border bg-app/30 p-2.5">
+            <span className="text-content-muted text-[0.625rem] uppercase tracking-wide">Model &amp; training</span>
+
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-content text-[0.75rem] w-28 shrink-0">LoRA rank</span>
+                <select value={String(advRankChoice)}
+                  onChange={(e) => saveAdv({ rank: e.target.value === 'auto' ? 'auto' : Number(e.target.value) })}
+                  aria-label="LoRA rank"
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                  <option value="auto">Auto ({advDefaultRank})</option>
+                  <option value="8">8</option><option value="16">16</option><option value="24">24</option>
+                  <option value="32">32</option><option value="48">48</option><option value="64">64</option>
+                </select>
+                <span className="text-content-subtle text-[0.625rem] tabular-nums">→ rank {advEffRank} / alpha {advEffAlpha}</span>
+              </div>
+              <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                <b className="text-content-muted font-medium">Why:</b> how much capacity the LoRA has to memorize the
+                identity. <b className="text-content-muted font-medium">How:</b> higher (32+) captures a hard face more
+                faithfully but makes a bigger file and can overfit small sets; lower (16) is lighter and fine for clean
+                frontal datasets. ai-toolkit ties alpha to rank (SDXL keeps alpha = rank ÷ 2).
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-content text-[0.75rem] w-28 shrink-0">Resolution</span>
+                <select value={advRes} onChange={(e) => saveAdv({ resolution: e.target.value })}
+                  aria-label="Training resolution"
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                  <option value="768,1024">768 + 1024 (multi-scale)</option>
+                  <option value="1024">1024 only</option>
+                </select>
+              </div>
+              <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                <b className="text-content-muted font-medium">Why:</b> the size(s) images are trained at.
+                <b className="text-content-muted font-medium"> How:</b> multi-scale trains at two sizes so the LoRA holds
+                up from a close-up face to a full-body shot; single 1024 is a bit faster. (Either way ai-toolkit buckets
+                images by aspect ratio.)
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-content text-[0.75rem] w-28 shrink-0">Save checkpoint</span>
+                <select value={String(advSave)} onChange={(e) => saveAdv({ save_every: Number(e.target.value) })}
+                  aria-label="Checkpoint frequency"
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                  <option value="250">every 250 steps</option>
+                  <option value="500">every 500 steps</option>
+                  <option value="1000">every 1000 steps</option>
+                </select>
+              </div>
+              <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                <b className="text-content-muted font-medium">Why:</b> how often a checkpoint is written.
+                <b className="text-content-muted font-medium"> How:</b> finer (250) gives more epochs to pick the
+                least-overfit one in the Test Studio; coarser saves disk. Only the last 10 are kept.
+              </span>
+            </div>
           </div>
 
           <label className="flex items-center gap-1.5 text-[0.6875rem] text-content-muted cursor-pointer"

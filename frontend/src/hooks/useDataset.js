@@ -414,6 +414,15 @@ export function useDataset() {
     return r.ok ? await r.json() : null;
   }, [currentId]);
 
+  // Persiste un patch de réglages avancés ai-toolkit (rank / resolution /
+  // save_every). Renvoie les réglages effectifs, ou null en cas d'échec.
+  const setTrainSettings = useCallback(async (patch) => {
+    const d = await postJson(`/api/dataset/${currentId}/train/settings`, patch);
+    if (d.ok) return d.train_settings;
+    toast.error(d.error || 'Could not save the setting');
+    return null;
+  }, [currentId, toast]);
+
   // Lance la conversion d'un merge ComfyUI -> diffusers (thread arrière-plan).
   const prepareBase = useCallback(async (baseModel) => {
     const d = await postJson(`/api/dataset/${currentId}/train/prepare-base`, { base_model: baseModel });
@@ -510,5 +519,5 @@ export function useDataset() {
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, cancelPending, regenerate, analyzing, analyzeFaces,
            purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
-           trainBaseInfo, prepareBase };
+           trainBaseInfo, setTrainSettings, prepareBase };
 }

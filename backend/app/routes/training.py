@@ -337,7 +337,26 @@ def dataset_train_base_info(dataset_id):
                     'train_type': ds.train_type or 'zimage',
                     'comfyui_configured': comfyui_configured,
                     'models_dir': str(models_dir) if models_dir else '',
+                    # Réglages avancés effectifs (persistés ∪ défauts family-aware) pour
+                    # la famille courante : rank/alpha/resolution/save_every → le panneau
+                    # « Advanced options » les affiche et laisse les éditer.
+                    'train_settings': lt.effective_train_settings(ds),
                     'bases_by_type': {'zimage': bases, 'sdxl': sdxl_bases, 'krea': krea_bases}})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/settings')
+def dataset_train_settings(dataset_id):
+    """Persiste un patch de réglages avancés {rank?, resolution?, save_every?} sur le
+    dataset (validé + borné côté service). Renvoie les réglages effectifs résultants."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    d = request.get_json(silent=True) or {}
+    try:
+        eff = lt.update_train_settings(LOCAL_USER, dataset_id, d)
+    except ValueError as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'train_settings': eff})
 
 
 @bp.post('/dataset/<int:dataset_id>/train/prepare-base')
