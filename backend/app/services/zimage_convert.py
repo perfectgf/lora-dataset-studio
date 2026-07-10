@@ -24,7 +24,8 @@ import threading
 
 from .. import config as cfg
 from ..job_queue import queue_manager
-from .lora_training import _aitoolkit_dir, _hf_home, _venv_python
+from .lora_training import (_aitoolkit_dir, _hf_home, _venv_python,
+                            assert_free_disk, MIN_FREE_GB_CONVERT)
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,9 @@ def start_convert_async(app, z_model: str) -> None:
     (running/done/error). Refuse si une conversion tourne déjà."""
     if not _resolve_merge(z_model):
         raise ValueError(f'base model not found: {z_model}')
+    # ~12 Go écrits : refuser tout de suite plutôt qu'un crash à 90 % qui laisse
+    # un dossier diffusers incomplet (is_converted=False mais 10 Go consommés).
+    assert_free_disk(_converted_root(), MIN_FREE_GB_CONVERT, 'the base conversion (~12 GB)')
     # Acquisition ATOMIQUE du verrou (check-then-set sous lock) : empêche deux
     # conversions 12 Go concurrentes (double-clic / 2 datasets en même temps).
     with _convert_lock:

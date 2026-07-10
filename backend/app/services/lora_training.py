@@ -861,6 +861,39 @@ def recommended_steps(dataset_id) -> int:
     return max(1500, min(3500, target))
 
 
+# --- Garde-fou espace disque ---------------------------------------------------
+# Un run plein (10 checkpoints ~0,3-2 Go + latents/samples) et une conversion
+# diffusers (~12 Go) qui crashent à 90 % pour cause de disque plein laissent des
+# artefacts corrompus. On refuse AVANT, avec un message actionnable.
+MIN_FREE_GB_TRAIN = 10
+MIN_FREE_GB_CONVERT = 15
+
+
+def free_disk_gb(path) -> float | None:
+    """Free space (GB) on the drive holding `path` (climbs to the nearest existing
+    parent — the target dir may not exist yet). None if it can't be determined
+    (never blocks on a stat failure)."""
+    try:
+        p = os.path.abspath(str(path))
+        while p and not os.path.exists(p):
+            parent = os.path.dirname(p)
+            if parent == p:
+                break
+            p = parent
+        return shutil.disk_usage(p).free / 1e9
+    except OSError:
+        return None
+
+
+def assert_free_disk(path, min_gb, what) -> None:
+    """Raise ValueError when the drive holding `path` has under `min_gb` GB free."""
+    free = free_disk_gb(path)
+    if free is not None and free < min_gb:
+        raise ValueError(
+            f'not enough disk space for {what}: {free:.1f} GB free on the target drive, '
+            f'~{min_gb} GB needed - free up space and retry')
+
+
 def _log_tail(path: str, n: int = 30) -> str:
     """Dernières `n` lignes d'un fichier log (pour remonter une erreur ai-toolkit)."""
     try:
@@ -917,6 +950,8 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
+    # Disque plein à mi-run = checkpoints corrompus ; refuser AVANT d'exporter.
+    assert_free_disk(_output_dir(), MIN_FREE_GB_TRAIN, 'a training run')
     # Garde-fou anti double-lancement : un entraînement DÉJÀ vivant (flag levé +
     # pid en vie) → refuser. Deux process sur le même GPU/dossier corrompent
     # l'optimizer partagé (incident Test/Test 2). Un pid mort avec flag encore

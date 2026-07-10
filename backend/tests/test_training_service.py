@@ -95,6 +95,39 @@ def test_training_progress_no_log_yet(app, tmp_path, monkeypatch):
                  'loss': None, 'speed': None, 'eta': None, 'loss_curve': [], 'samples': []}
 
 
+# --- Disk-space guard ----------------------------------------------------------
+
+def test_assert_free_disk_blocks_when_low(monkeypatch, tmp_path):
+    from app.services import lora_training as lt
+    monkeypatch.setattr(lt.shutil, 'disk_usage', lambda p: type('u', (), {'free': 2e9})())
+    with pytest.raises(ValueError, match='not enough disk space'):
+        lt.assert_free_disk(tmp_path, 10, 'a training run')
+
+
+def test_assert_free_disk_passes_and_never_blocks_on_stat_failure(monkeypatch, tmp_path):
+    from app.services import lora_training as lt
+    monkeypatch.setattr(lt.shutil, 'disk_usage', lambda p: type('u', (), {'free': 500e9})())
+    lt.assert_free_disk(tmp_path, 10, 'x')          # plenty of space -> no raise
+    def boom(p): raise OSError('no stat')
+    monkeypatch.setattr(lt.shutil, 'disk_usage', boom)
+    lt.assert_free_disk(tmp_path, 10, 'x')          # undeterminable -> no raise
+    # climbs to the nearest existing parent for a not-yet-created target
+    monkeypatch.setattr(lt.shutil, 'disk_usage', lambda p: type('u', (), {'free': 500e9})())
+    assert lt.free_disk_gb(tmp_path / 'not' / 'yet' / 'created') == 500.0
+
+
+def test_launch_training_refuses_on_low_disk(app, tmp_path, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _configure_aitoolkit(tmp_path, monkeypatch, app)
+    monkeypatch.setattr(lt.shutil, 'disk_usage', lambda p: type('u', (), {'free': 1e9})())
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Low', 'low')
+        with pytest.raises(ValueError, match='not enough disk space'):
+            lt.launch_training(LOCAL_USER, ds.id, check_captions=False)
+
+
 # --- Best-epoch selection (face similarity on the run's samples) --------------
 
 def _prog_dataset_with_samples(app, tmp_path, monkeypatch, name='Best', trigger='best'):
