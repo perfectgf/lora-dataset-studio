@@ -960,26 +960,36 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
             warnings.append('many captions are identical — the model learns nothing from '
                             'repeated text; re-caption for variety.')
 
-    # 4) fuite d'identité
+    # 4) fuite d'identité — on RETIENT les images fautives (pas juste le compte) pour
+    # que l'UI liste lesquelles au moment du preflight, éditables sur place.
     body = fds.is_body_fidelity(ds)
-    leaking = sum(1 for c in caps if caption_has_identity_leak(c, body=body))
-    if leaking:
-        warnings.append(f'{leaking} caption(s) still describe the identity (face/hair'
+    leak_images = [{'id': r.id, 'filename': r.filename, 'caption': (r.caption or '').strip()}
+                   for r in kept
+                   if (r.caption or '').strip()
+                   and caption_has_identity_leak((r.caption or '').strip(), body=body)]
+    if leak_images:
+        warnings.append(f'{len(leak_images)} caption(s) still describe the identity (face/hair'
                         f'{"/body marks" if body else ""}) — it will bind to those words '
                         'instead of the trigger. Re-caption or edit them.')
 
-    # 5) quasi-doublons parmi les kept (dHash pairwise, n<=~60 -> négligeable)
+    # 5) quasi-doublons parmi les kept (dHash pairwise, n<=~60 -> négligeable). On
+    # retient les PAIRES (leurs deux images) pour que l'UI montre lesquelles rejeter.
+    dup_pairs = []
     try:
-        hashes = []
+        hp = []  # [(row, dhash)] pour les kept lisibles sur disque
         for r in kept:
             p = fds._img_path(r)
             if p and os.path.exists(p):
                 with Image.open(p) as im:
-                    hashes.append(fds._dhash(im))
-        dup_pairs = sum(1 for i in range(len(hashes)) for j in range(i + 1, len(hashes))
-                        if fds._hamming(hashes[i], hashes[j]) <= fds.SCRAPE_DHASH_MAX_DISTANCE)
+                    hp.append((r, fds._dhash(im)))
+        for i in range(len(hp)):
+            for j in range(i + 1, len(hp)):
+                if fds._hamming(hp[i][1], hp[j][1]) <= fds.SCRAPE_DHASH_MAX_DISTANCE:
+                    ra, rb = hp[i][0], hp[j][0]
+                    dup_pairs.append({'a': {'id': ra.id, 'filename': ra.filename},
+                                      'b': {'id': rb.id, 'filename': rb.filename}})
         if dup_pairs:
-            warnings.append(f'{dup_pairs} pair(s) of kept images are near-duplicates — '
+            warnings.append(f'{len(dup_pairs)} pair(s) of kept images are near-duplicates — '
                             'the model overfits repeated content; reject one of each pair.')
     except Exception:
         pass   # best-effort: an unreadable file must not block the preflight
@@ -1001,6 +1011,9 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
         pass
 
     return {'blockers': blockers, 'warnings': warnings,
+            # Détail « lesquelles » pour l'UI : images dont la caption fuit, et paires
+            # quasi-doublons — le message reste agrégé, mais on peut drill-down + agir.
+            'leak_images': leak_images, 'dup_pairs': dup_pairs,
             'kept': n, 'floor': floor, 'recommended': reco}
 
 

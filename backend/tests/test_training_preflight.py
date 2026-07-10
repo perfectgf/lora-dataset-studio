@@ -65,6 +65,53 @@ def test_preflight_warns_identical_and_leaking_captions(app):
         r = lt.training_preflight(LOCAL_USER, ds.id)
     assert any('identical' in w for w in r['warnings'])
     assert any('describe the identity' in w for w in r['warnings'])
+    # « which ones » : every one of the 20 hair-leak captions is listed, with the
+    # shape the UI needs to render a thumbnail + editable caption.
+    assert len(r['leak_images']) == 20
+    li = r['leak_images'][0]
+    assert set(li) == {'id', 'filename', 'caption'} and 'hair' in li['caption']
+
+
+def _grad_png(path, reverse=False):
+    """64px horizontal grayscale gradient — a stable, non-uniform dHash. reverse
+    flips it so its dHash is the bitwise opposite (max hamming distance)."""
+    from PIL import Image
+    w = h = 64
+    img = Image.new('RGB', (w, h))
+    px = img.load()
+    for y in range(h):
+        for x in range(w):
+            t = (w - 1 - x) if reverse else x
+            v = int(255 * t / (w - 1))
+            px[x, y] = (v, v, v)
+    img.save(path)
+
+
+def test_preflight_lists_near_duplicate_pairs(app):
+    """dup_pairs names the two offending images per near-duplicate pair (dHash),
+    so the UI can show the pair and let one be rejected. Two identical gradients
+    form one pair; a reversed gradient is far enough to stay out of it."""
+    import os
+    from app.services import face_dataset_service as svc
+    from app.services import lora_training as lt
+    from app.models import FaceDatasetImage
+    with app.app_context():
+        ds = _mk(app, n_keep=0)
+        d = svc._dataset_dir(ds.id)
+        os.makedirs(d, exist_ok=True)
+        spec = [('dupA.png', False), ('dupB.png', False), ('other.png', True)]
+        for fn, rev in spec:
+            _grad_png(os.path.join(d, fn), reverse=rev)
+            svc.db.session.add(FaceDatasetImage(
+                dataset_id=ds.id, filename=fn, status='keep', framing='body',
+                caption='a distinct descriptive caption with a fair number of words'))
+        svc.db.session.commit()
+        r = lt.training_preflight(LOCAL_USER, ds.id)
+    assert len(r['dup_pairs']) == 1
+    pair = r['dup_pairs'][0]
+    assert {pair['a']['filename'], pair['b']['filename']} == {'dupA.png', 'dupB.png'}
+    assert 'other.png' not in (pair['a']['filename'], pair['b']['filename'])
+    assert any('near-duplicate' in w for w in r['warnings'])
 
 
 def test_preflight_warns_untriaged_and_short_captions(app):

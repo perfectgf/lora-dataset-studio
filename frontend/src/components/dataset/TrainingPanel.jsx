@@ -1,9 +1,10 @@
 // react-frontend/src/components/dataset/TrainingPanel.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { useToast } from '../common/Toast';
 import TrainingProgress from './TrainingProgress';
+import PreflightModal from './PreflightModal';
 
 // Plancher dur / recommandé par famille — miroir de TRAIN_MIN_IMAGES côté serveur
 // (le preflight reste l'autorité ; ceci ne sert qu'à désactiver le bouton tôt).
@@ -137,7 +138,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   };
 
   // Pre-launch sanity gate (server preflight): blockers stop with a toast,
-  // warnings collapse into ONE confirm. Unreachable preflight never blocks.
+  // warnings open the interactive PreflightModal (lists WHICH captions leak /
+  // WHICH pairs duplicate, editable/rejectable in place) and await the user's
+  // Start-anyway / Cancel. Unreachable preflight never blocks.
+  const [preflightReport, setPreflightReport] = useState(null);
+  const preflightResolver = useRef(null);
+  const resolvePreflight = (ok) => {
+    setPreflightReport(null);
+    preflightResolver.current?.(ok);
+    preflightResolver.current = null;
+  };
   const preflightOk = async () => {
     try {
       const r = await fetch(
@@ -147,7 +157,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       const d = await r.json();
       if (d.blockers?.length) { toast.error(d.blockers.join('\n')); return false; }
       if (d.warnings?.length) {
-        return window.confirm(`Before training:\n\n• ${d.warnings.join('\n• ')}\n\nStart anyway?`);
+        return await new Promise((resolve) => {
+          preflightResolver.current = resolve;
+          setPreflightReport(d);
+        });
       }
       return true;
     } catch { return true; }
@@ -629,6 +642,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             </div>
           ))}
         </div>
+      )}
+
+      {preflightReport && (
+        <PreflightModal report={preflightReport} datasetId={ds.currentId} ds={ds}
+          onResolve={resolvePreflight} />
       )}
     </div>
   );
