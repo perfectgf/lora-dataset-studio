@@ -237,6 +237,23 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     if (info) setBaseInfo(info);
   };
 
+  // Best-epoch (jandordoe): score the run's samples vs the reference, recommend
+  // the checkpoint closest to the best-scoring step. Result cleared on base change.
+  const [bestEpoch, setBestEpoch] = useState(null);
+  const [bestEpochBusy, setBestEpochBusy] = useState(false);
+  useEffect(() => { setBestEpoch(null); }, [base, trainType, ds.currentId]);
+  const findBestEpoch = async () => {
+    setBestEpochBusy(true);
+    try {
+      const d = await postTrain(`/api/dataset/${ds.currentId}/train/best-epoch`,
+        { base_model: base, train_type: trainType });
+      if (d && d.ok === false) { toastTrainError(d, 'best-epoch scoring failed'); return; }
+      setBestEpoch(d);
+    } finally {
+      setBestEpochBusy(false);
+    }
+  };
+
   // Estimation des steps adaptatifs (~120/image, bornés [1500,3500]) — purement
   // indicative ; le backend recalcule la valeur autoritaire au lancement.
   const recoSteps = Math.max(1500, Math.min(3500, Math.round((keptCount * 120) / 100) * 100));
@@ -487,6 +504,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             <span className="text-content-muted text-[0.625rem] uppercase">
               Checkpoints — base « {baseLabel} » (pick the earliest one that holds the identity)
             </span>
+            <button type="button" disabled={bestEpochBusy}
+              onClick={findBestEpoch}
+              title="Scores every training sample vs the reference photo (face similarity, CPU) and recommends the checkpoint that holds the identity best — needs the Quality tools (ML extras)."
+              className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-[0.6875rem] font-semibold disabled:opacity-40">
+              {bestEpochBusy ? '🏆 Scoring samples…' : '🏆 Find best epoch'}
+            </button>
             <button type="button" disabled={status.in_progress || baseBlocksTrain}
               onClick={async () => {
                 const last = Math.max(...checkpoints.map((c) => c.step));
@@ -499,11 +522,27 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               ▶ Continue training (+1000)
             </button>
           </div>
+          {bestEpoch && !bestEpoch.available && (
+            <p className="m-0 text-amber-300 text-[0.625rem]">🏆 {bestEpoch.reason}</p>
+          )}
+          {bestEpoch?.available && (
+            <p className="m-0 text-amber-200 text-[0.625rem]">
+              🏆 Best identity at <span className="font-semibold">step {bestEpoch.best_step}</span>
+              {' '}({(bestEpoch.steps.find((s) => s.step === bestEpoch.best_step)?.mean_sim ?? 0).toFixed(2)} mean similarity)
+              {' '}— per step: {bestEpoch.steps.map((s) => `${s.step}:${s.mean_sim.toFixed(2)}`).join(' · ')}
+            </p>
+          )}
           {checkpoints.map((c) => (
             <div key={c.filename} className="flex items-center gap-2 text-[0.6875rem]">
               <span className={c.final ? 'text-green-400 font-semibold' : 'text-content'}>
                 {c.final ? '✓ final (training complete)' : `step ${c.step}`}
               </span>
+              {bestEpoch?.available && bestEpoch.checkpoint === c.filename && (
+                <span className="px-1.5 py-px rounded border border-amber-400/50 bg-amber-400/15 text-amber-200 font-semibold"
+                  title={`Closest checkpoint to the best-scoring step (${bestEpoch.best_step})`}>
+                  🏆 recommended
+                </span>
+              )}
               <button type="button" onClick={() => ds.importCheckpoint(c.filename, base, trainType)}
                 className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
                 Import → {lorasLabel}

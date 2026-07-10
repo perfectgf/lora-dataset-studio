@@ -1190,9 +1190,11 @@ def _samples_dir(user_id, dataset_id, base_model=_PERSISTED, family=None) -> str
     return os.path.join(_run_dir(user_id, dataset_id, base_model, family), 'samples')
 
 
-def list_training_samples(user_id, dataset_id, base_model=_PERSISTED, family=None) -> list[dict]:
+def list_training_samples(user_id, dataset_id, base_model=_PERSISTED, family=None,
+                          limit=_PROG_SAMPLES_MAX) -> list[dict]:
     """Sample previews ai-toolkit writes every sample_every steps
-    (<run>/samples/<ts>__<step>_<promptidx>.jpg). Newest steps first, capped."""
+    (<run>/samples/<ts>__<step>_<promptidx>.jpg). Newest steps first, capped
+    (limit=None → all, for the best-epoch scoring pass)."""
     d = _samples_dir(user_id, dataset_id, base_model, family)
     if not os.path.isdir(d):
         return []
@@ -1202,7 +1204,52 @@ def list_training_samples(user_id, dataset_id, base_model=_PERSISTED, family=Non
         if m:
             out.append({'filename': f, 'step': int(m.group(1)), 'prompt_idx': int(m.group(2))})
     out.sort(key=lambda s: (-s['step'], s['prompt_idx']))
-    return out[:_PROG_SAMPLES_MAX]
+    return out if limit is None else out[:limit]
+
+
+def score_checkpoint_samples(user_id, dataset_id, base_model=_PERSISTED, family=None) -> dict:
+    """Best-epoch selection (jandordoe method): every training sample is an output
+    of the LoRA at its step — scoring their face similarity vs the dataset
+    reference (insightface, CPU, one subprocess for the whole set) tells which
+    step holds the identity best. The recommended checkpoint is the saved one
+    closest to that step.
+
+    Returns {'available': bool, 'reason'?: str, 'steps': [{'step','mean_sim','n'}],
+    'best_step': int|None, 'checkpoint': str|None} — never raises on missing
+    prerequisites, the UI shows `reason` instead."""
+    from . import face_similarity
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    if not ds.ref_filename:
+        return {'available': False, 'reason': 'this dataset has no reference photo'}
+    ref_path = os.path.join(fds._dataset_dir(ds.id), ds.ref_filename)
+    if not face_similarity.is_available():
+        return {'available': False,
+                'reason': 'face scoring is not installed (Quality tools step in Setup)'}
+    samples = list_training_samples(user_id, dataset_id, base_model, family, limit=None)
+    if not samples:
+        return {'available': False, 'reason': 'no training samples yet (they appear every 250 steps)'}
+    sdir = _samples_dir(user_id, dataset_id, base_model, family)
+    paths = [os.path.join(sdir, s['filename']) for s in samples]
+    results = face_similarity.score_dataset_faces(ref_path, paths)
+    if not results:
+        return {'available': False, 'reason': 'face scoring failed (see server log)'}
+    by_step = {}
+    for s, p in zip(samples, paths):
+        r = results.get(p)
+        if r and r.get('state') == 'scorable' and r.get('sim') is not None:
+            by_step.setdefault(s['step'], []).append(float(r['sim']))
+    steps = [{'step': st, 'mean_sim': round(sum(v) / len(v), 4), 'n': len(v)}
+             for st, v in sorted(by_step.items())]
+    if not steps:
+        return {'available': False, 'reason': 'no scorable face in the samples'}
+    best = max(steps, key=lambda s: s['mean_sim'])
+    # Map the winning sample step to the CLOSEST saved checkpoint (samples every
+    # 250 steps, checkpoints every 500 — they rarely align exactly).
+    cks = list_checkpoints(user_id, dataset_id, base_model, family)
+    ck = min(cks, key=lambda c: abs(c['step'] - best['step']))['filename'] if cks else None
+    return {'available': True, 'steps': steps, 'best_step': best['step'], 'checkpoint': ck}
 
 
 def training_progress(user_id, dataset_id, base_model=_PERSISTED, family=None) -> dict:

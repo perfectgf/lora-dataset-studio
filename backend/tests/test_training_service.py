@@ -95,6 +95,76 @@ def test_training_progress_no_log_yet(app, tmp_path, monkeypatch):
                  'loss': None, 'speed': None, 'eta': None, 'loss_curve': [], 'samples': []}
 
 
+# --- Best-epoch selection (face similarity on the run's samples) --------------
+
+def _prog_dataset_with_samples(app, tmp_path, monkeypatch, name='Best', trigger='best'):
+    """Dataset with a reference + a fake run: samples at steps 250/500 and
+    checkpoints at 500/1000. Returns (ds, sample_paths_by_step)."""
+    import os
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _configure_aitoolkit(tmp_path, monkeypatch, app)
+    ds = svc.create_dataset(LOCAL_USER, name, trigger)
+    os.makedirs(svc._dataset_dir(ds.id), exist_ok=True)
+    open(os.path.join(svc._dataset_dir(ds.id), 'ref.webp'), 'wb').write(b'x')
+    ds.ref_filename = 'ref.webp'; svc.db.session.commit()
+    run_dir = lt._output_dir() / lt._run_name(ds) / f'lora_{lt._safe_trigger(ds)}'
+    (run_dir / 'samples').mkdir(parents=True)
+    by_step = {}
+    for step in (250, 500):
+        for idx in (0, 1):
+            p = run_dir / 'samples' / f'173__{step:09d}_{idx}.jpg'
+            p.write_bytes(b'x')
+            by_step.setdefault(step, []).append(str(p))
+    (run_dir / f'lora_{lt._safe_trigger(ds)}_000000500.safetensors').write_bytes(b'x')
+    (run_dir / f'lora_{lt._safe_trigger(ds)}_000001000.safetensors').write_bytes(b'x')
+    return ds, by_step
+
+
+def test_score_checkpoint_samples_picks_best_step(app, tmp_path, monkeypatch):
+    from app.services import lora_training as lt
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds, by_step = _prog_dataset_with_samples(app, tmp_path, monkeypatch)
+        # step 250 scores 0.40/0.44 ; step 500 scores 0.62/0.58 -> best = 500
+        sims = {by_step[250][0]: 0.40, by_step[250][1]: 0.44,
+                by_step[500][0]: 0.62, by_step[500][1]: 0.58}
+        # score_checkpoint_samples importe face_similarity À L'APPEL → patcher le
+        # module suffit (pas de référence figée à contourner).
+        from app.services import face_similarity as fsim
+        monkeypatch.setattr(fsim, 'is_available', lambda: True)
+        monkeypatch.setattr(fsim, 'score_dataset_faces',
+                            lambda ref, paths, **kw: {p: {'state': 'scorable', 'sim': sims[p]}
+                                                      for p in paths})
+        r = lt.score_checkpoint_samples(LOCAL_USER, ds.id)
+    assert r['available'] is True
+    assert r['best_step'] == 500
+    assert r['steps'] == [{'step': 250, 'mean_sim': 0.42, 'n': 2},
+                          {'step': 500, 'mean_sim': 0.6, 'n': 2}]
+    assert r['checkpoint'].endswith('_000000500.safetensors')
+
+
+def test_score_checkpoint_samples_degrades_cleanly(app, tmp_path, monkeypatch):
+    """Missing prerequisites answer {'available': False, reason} — never a 500."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _configure_aitoolkit(tmp_path, monkeypatch, app)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'NoRef', 'noref')
+        r = lt.score_checkpoint_samples(LOCAL_USER, ds.id)
+        assert r['available'] is False and 'reference' in r['reason']
+        import os
+        os.makedirs(svc._dataset_dir(ds.id), exist_ok=True)
+        open(os.path.join(svc._dataset_dir(ds.id), 'ref.webp'), 'wb').write(b'x')
+        ds.ref_filename = 'ref.webp'; svc.db.session.commit()
+        from app.services import face_similarity as fsim
+        monkeypatch.setattr(fsim, 'is_available', lambda: True)
+        r = lt.score_checkpoint_samples(LOCAL_USER, ds.id)   # no samples dir yet
+        assert r['available'] is False and 'samples' in r['reason']
+
+
 def test_recommended_steps_clamps(app):
     from app.services import lora_training as lt
     from app.services import face_dataset_service as svc

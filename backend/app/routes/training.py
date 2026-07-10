@@ -252,6 +252,28 @@ def dataset_train_sample(dataset_id, filename):
     return send_file(path, conditional=True)
 
 
+@bp.post('/dataset/<int:dataset_id>/train/best-epoch')
+def dataset_train_best_epoch(dataset_id):
+    """Score every training sample vs the reference (face similarity, CPU) and
+    recommend the checkpoint closest to the best-scoring step. Synchronous —
+    one insightface subprocess for the whole set (~seconds to ~1 min)."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    d = request.get_json(silent=True) or {}
+    bm = d.get('base_model')
+    fam = d.get('train_type') or None
+    kw = {} if bm is None else {'base_model': bm}
+    if fam:
+        kw['family'] = fam
+    try:
+        return jsonify({'ok': True, **lt.score_checkpoint_samples(LOCAL_USER, dataset_id, **kw)})
+    except Exception as e:
+        return _map_error(e)
+
+
 @bp.get('/dataset/<int:dataset_id>/train/base-info')
 def dataset_train_base_info(dataset_id):
     """Bases entraînables (officielle + merges Z-Image), base/variante choisies du
