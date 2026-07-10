@@ -1,12 +1,13 @@
 /** Drop / pick real photos to import into the dataset. */
 import { useRef, useState } from 'react';
 
-export default function ImportDropzone({ onImport, busy, cropOption = false }) {
+export default function ImportDropzone({ onImport, busy, cropOption = false, defaultCrop = true }) {
   const inputRef = useRef(null);
   const [over, setOver] = useState(false);
   // Auto head-crop (square, vision pass). OFF keeps the original framing —
   // a bust/body photo stays a bust/body photo (aspect kept, no padding).
-  const [crop, setCrop] = useState(true);
+  // Body-fidelity datasets pass defaultCrop=false: full frames are the point.
+  const [crop, setCrop] = useState(defaultCrop);
 
   const handle = (files) => {
     if (busy) return; // drop events bypass pointer-events-none — guard here too (I2)

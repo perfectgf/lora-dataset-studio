@@ -34,11 +34,21 @@ def dataset_create():
     try:
         ds = svc.create_dataset(LOCAL_USER, name, trigger, kind=data.get('kind'),
                                 concept_desc=data.get('concept_desc'),
-                                train_type=data.get('train_type'))
+                                train_type=data.get('train_type'),
+                                fidelity=data.get('fidelity'))
     except ValueError as e:
         # concept dataset without a concept description -> 400 (not a 500)
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'id': ds.id})
+
+
+@bp.post('/dataset/<int:dataset_id>/fidelity')
+def dataset_set_fidelity(dataset_id):
+    """Toggle face-only vs full-body fidelity. Affects FUTURE captions (re-caption
+    to apply), the composition target and the import crop default."""
+    data = request.get_json(silent=True) or {}
+    ok = svc.set_fidelity(LOCAL_USER, dataset_id, data.get('fidelity'))
+    return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
 
 
 @bp.post('/dataset/<int:dataset_id>/train-type')

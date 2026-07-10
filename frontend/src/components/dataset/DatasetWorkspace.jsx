@@ -36,6 +36,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // de variations, analyse faciale, badge de fuite, composition, flux guidé) — il ne
   // reste que import brut → curation → caption (inversée) → entraînement.
   const concept = d.kind === 'concept';
+  // Fidélité corps : captions bannissent aussi les marques corporelles, composition
+  // cible plus de bustes/corps, import plein cadre par défaut.
+  const bodyFid = d.fidelity === 'body';
   const kept = images.filter((i) => i.status === 'keep').length;
   const unused = images.filter((i) => i.status === 'reject' || i.status === 'failed').length;
   const keptUncaptioned = images.filter((i) => i.status === 'keep' && !i.caption).length;
@@ -89,6 +92,18 @@ export default function DatasetWorkspace({ ds, onBack }) {
               title="Permanently delete rejected and failed images"
               className="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-sm disabled:opacity-40">
               🧹 Purge ({unused})
+            </button>
+          )}
+          {!concept && (
+            <button type="button" disabled={ds.busy}
+              onClick={() => ds.setDatasetFidelity?.(bodyFid ? 'face' : 'body')}
+              title={bodyFid
+                ? 'Body fidelity ON: captions also omit tattoos/scars/marks (they bind to the trigger), composition targets more bust/body shots, imports keep the full frame by default. Click to go back to face-only.'
+                : 'Face-only fidelity (default): the LoRA learns the face; body shape follows the prompt. Click for FULL-BODY fidelity (body shape & marks bind to the trigger too).'}
+              className={`px-3 py-1.5 rounded-lg border text-sm ${bodyFid
+                ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-300 font-semibold'
+                : 'border-border bg-surface text-content-muted'}`}>
+              🧍 Body fidelity{bodyFid ? ' ✓' : ''}
             </button>
           )}
           {!concept && (
@@ -193,7 +208,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </div>
       )}
 
-      {!concept && <CompositionBar composition={d.composition} />}
+      {!concept && <CompositionBar composition={d.composition} bodyFidelity={bodyFid} />}
 
       {concept ? (
         // Concept : pas de photo de référence ni de générateur — on peuple le dataset
@@ -210,8 +225,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
               extraRefs={d.ref_extra_filenames || []}
               onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
             {/* Head-crop optional: ON tags framing='face' at import (I2); OFF keeps
-                the original framing so bust/body photos import as-is. */}
-            <ImportDropzone onImport={(f, o) => ds.importFiles(f, o)} busy={ds.busy} cropOption />
+                the original framing so bust/body photos import as-is. Body-fidelity
+                datasets default OFF (full frames are the point) — key remounts the
+                dropzone so the default follows a fidelity switch. */}
+            <ImportDropzone key={`${d.id}-${bodyFid}`} onImport={(f, o) => ds.importFiles(f, o)}
+              busy={ds.busy} cropOption defaultCrop={!bodyFid} />
           </div>
 
           <div id="gf-generate" className="scroll-mt-4">

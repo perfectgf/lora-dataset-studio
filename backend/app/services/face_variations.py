@@ -331,6 +331,33 @@ CAPTION_LEAK_FIX_PROMPT = (
     "quotation marks, no commentary.")
 
 
+# --- Mode FIDÉLITÉ CORPS (fidelity='body') -------------------------------------
+# Pour un LoRA qui doit reproduire AUSSI la morphologie, les marques corporelles
+# PERMANENTES (tatouages, cicatrices, taches de naissance, piercings) sont de
+# l'identité au même titre que le visage : les décrire dans la caption les lierait
+# aux mots au lieu du trigger. Blocs AJOUTÉS aux prompts de base (la morphologie —
+# body build, breast size… — y est déjà bannie).
+BODY_FIDELITY_PROSE_SUFFIX = (
+    "\n\nBODY-FIDELITY RULE - this subject's BODY is part of the learned identity. "
+    "Additionally NEVER mention: tattoos, scars, birthmarks, moles, piercings or any "
+    "permanent body marking; body proportions or measurements; breast/chest size; "
+    "muscle definition. Clothing, pose and framing must still be fully described.")
+
+BODY_FIDELITY_BOORU_SUFFIX = (
+    "\n\nBODY-FIDELITY RULE - additionally never tag permanent body markings or "
+    "proportions: no tattoo, scar, birthmark, mole, piercing, abs, muscular or "
+    "measurement tags. Clothing, pose and framing tags stay required.")
+
+
+def caption_prompt_for(mode, body=False) -> str:
+    """The caption prompt for a character dataset: prose vs booru, with the extra
+    body-identity ban block when the dataset targets full-body fidelity."""
+    base = CAPTION_PROMPT_BOORU if mode == 'booru' else JOYCAPTION_PROMPT
+    if not body:
+        return base
+    return base + (BODY_FIDELITY_BOORU_SUFFIX if mode == 'booru' else BODY_FIDELITY_PROSE_SUFFIX)
+
+
 # Detecteur INDICATIF de VRAIS descripteurs d'identite (cheveux/peau/couleur d'yeux/
 # forme de visage/traits). Ne flague PAS "the face" (lumiere) ni "eyes open/looking"
 # (expression) — calibre empiriquement sur 31 captions reelles.
@@ -342,10 +369,18 @@ _IDENTITY_LEAK = re.compile(
     r'|\b(?:round|oval|square|angular|heart-shaped|long|narrow|wide|slim|chubby)\s+face\b',
     re.I)
 
+# Marques corporelles permanentes = identité en mode body-fidelity (détection + drop).
+_BODY_LEAK = re.compile(
+    r'\btattoos?\b|\btattooed\b|\bscars?\b|\bscarred\b|\bbirthmarks?\b|\bmoles?\b'
+    r'|\bpiercings?\b|\bpierced\b', re.I)
 
-def caption_has_identity_leak(caption) -> bool:
-    """True si la caption mentionne un VRAI trait d'identite. Detecteur SEUL (badge)."""
-    return bool(caption and _IDENTITY_LEAK.search(caption))
+
+def caption_has_identity_leak(caption, body=False) -> bool:
+    """True si la caption mentionne un VRAI trait d'identite. Detecteur SEUL (badge).
+    body=True (fidélité corps) flague AUSSI les marques corporelles permanentes."""
+    if not caption:
+        return False
+    return bool(_IDENTITY_LEAK.search(caption) or (body and _BODY_LEAK.search(caption)))
 
 
 # Post-filtre : drop les PHRASES decrivant un trait d'identite. Avec le prompt
@@ -357,10 +392,12 @@ _DROP_SENT = re.compile(
     r'|\bskin\s+(?:tone|texture)\b', re.I)
 
 
-def drop_identity_sentences(caption) -> str:
-    """Retire les phrases d'identite isolees d'une caption (post-captioning)."""
+def drop_identity_sentences(caption, body=False) -> str:
+    """Retire les phrases d'identite isolees d'une caption (post-captioning).
+    body=True retire aussi les phrases décrivant une marque corporelle permanente."""
     parts = re.split(r'(?<=[.!?])\s+', caption or '')
-    kept = [s for s in parts if s.strip() and not _DROP_SENT.search(s)]
+    kept = [s for s in parts if s.strip() and not _DROP_SENT.search(s)
+            and not (body and _BODY_LEAK.search(s))]
     return ' '.join(kept).strip()
 
 
@@ -404,7 +441,12 @@ _IDENTITY_TAG_EXACT = frozenset({
 })
 
 
-def _is_identity_tag(tag) -> bool:
+# Marques corporelles permanentes (mode body-fidelity) — par sous-chaîne : couvre
+# tattoo/arm_tattoo/tattooed, scar/scar_on_face, piercing/ear_piercing…
+_BODY_TAG_CONTAINS = ('tattoo', 'scar', 'birthmark', 'piercing', 'pierced')
+
+
+def _is_identity_tag(tag, body=False) -> bool:
     t = (tag or '').strip().lower().replace(' ', '_')
     if not t:
         return False
@@ -412,15 +454,18 @@ def _is_identity_tag(tag) -> bool:
         return True
     if 'eyes' in t:  # garde l'EXPRESSION (closed_eyes, wink), drop la couleur (blue_eyes)
         return not any(k in t for k in ('closed', 'wink', 'half'))
+    if body and any(sub in t for sub in _BODY_TAG_CONTAINS):
+        return True
     return any(sub in t for sub in _IDENTITY_TAG_CONTAINS)
 
 
-def drop_identity_tags(caption) -> str:
+def drop_identity_tags(caption, body=False) -> str:
     """Retire les tags booru d'identité d'une caption en liste de tags (mode booru),
-    pendant booru de drop_identity_sentences (mode prose)."""
+    pendant booru de drop_identity_sentences (mode prose). body=True retire aussi
+    les marques corporelles permanentes (fidélité corps)."""
     if not caption:
         return ''
-    kept = [t.strip() for t in caption.split(',') if t.strip() and not _is_identity_tag(t)]
+    kept = [t.strip() for t in caption.split(',') if t.strip() and not _is_identity_tag(t, body=body)]
     return ', '.join(kept).strip()
 
 

@@ -161,6 +161,9 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
   // Concept only : ce que le captioneur doit OMETTRE de chaque caption pour que le concept
   // se lie au trigger (l'inverse d'un LoRA de personnage). Obligatoire pour un concept.
   const [conceptDesc, setConceptDesc] = useState('');
+  // Character only : fidélité visage seul (défaut) ou visage + corps (les marques
+  // corporelles sont bannies des captions et la composition cible plus de corps).
+  const [fidelity, setFidelity] = useState('face');
   const concept = kind === 'concept';
   const canCreate = name.trim() && (!concept || conceptDesc.trim());
   return (
@@ -220,6 +223,27 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
             <option value="krea">Krea 2 (prose captions)</option>
           </select>
         </label>
+        {/* Fidélité (personnage) : visage seul (défaut) vs visage + corps. En mode corps,
+            les marques corporelles permanentes sont bannies des captions (elles se lient
+            au trigger) et la composition cible plus de bustes/corps. */}
+        {!concept && (
+          <div className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
+            <span>Fidelity <span className="text-content-subtle normal-case">— what the LoRA must reproduce (changeable later)</span></span>
+            <div className="flex gap-1.5">
+              {[['face', '🙂 Face', 'Identity = the face. Body shape may vary with the prompt.'],
+                ['body', '🧍 Face + body', 'Total fidelity: body shape, tattoos and marks bind to the trigger too. Prefers full-frame imports and more bust/body shots.']].map(
+                ([val, label, hint]) => (
+                  <button key={val} type="button" onClick={() => setFidelity(val)} title={hint}
+                    className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                      fidelity === val
+                        ? 'border-primary/60 bg-primary/15 text-content'
+                        : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised'}`}>
+                    {label}
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
         {/* Concept description : ce que la caption OMET (l'acte récurrent). Alimente le
             {concept} des prompts caption/raffinage/ban-list. Décrire l'ACTE, pas le sujet. */}
         {concept && (
@@ -237,7 +261,8 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
               : 'The trigger word is the unique token you will type in prompts to summon this character.'}
           </p>
           <button type="button"
-            onClick={() => canCreate && onCreate(name.trim(), trigger.trim(), kind, conceptDesc.trim(), trainType)}
+            onClick={() => canCreate && onCreate(name.trim(), trigger.trim(), kind, conceptDesc.trim(), trainType,
+              concept ? undefined : fidelity)}
             disabled={!canCreate}
             className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             Create

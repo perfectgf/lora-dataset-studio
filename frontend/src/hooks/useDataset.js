@@ -134,14 +134,26 @@ export function useDataset() {
 
   const open = useCallback(async (id) => { setCurrentId(id); await refresh(id); }, [refresh]);
 
-  const create = useCallback(async (name, trigger, kind, conceptDesc, trainType) => {
+  const create = useCallback(async (name, trigger, kind, conceptDesc, trainType, fidelity) => {
     const d = await postJson('/api/dataset/create',
       { name, trigger_word: trigger, ...(kind ? { kind } : {}),
         ...(trainType ? { train_type: trainType } : {}),
+        ...(fidelity ? { fidelity } : {}),
         ...(kind === 'concept' && conceptDesc ? { concept_desc: conceptDesc } : {}) });
     if (d.ok) { await fetchList(); await open(d.id); toast.success('Dataset created'); }
     else toast.error(d.error || 'Unexpected error');
   }, [fetchList, open, toast]);
+
+  // Face-only <-> full-body fidelity (character datasets). Future captions ban
+  // permanent body marks too; composition target and import default follow.
+  const setDatasetFidelity = useCallback(async (fidelity) => {
+    const d = await postJson(`/api/dataset/${currentId}/fidelity`, { fidelity });
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+    toast.success(fidelity === 'body'
+      ? 'Body fidelity ON — re-caption to apply to existing captions'
+      : 'Back to face-only fidelity');
+    await refresh();
+  }, [currentId, refresh, toast]);
 
   // Change the target model family later (from the TrainingPanel selector) so the
   // grouped menu re-sorts. Refreshes the list; silent on failure (non-critical).
@@ -467,7 +479,7 @@ export function useDataset() {
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
-           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, deleteImage, batchImages, replaceCaptions, cancelPending, regenerate, analyzing, analyzeFaces,
+           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, cancelPending, regenerate, analyzing, analyzeFaces,
            purgeUnused, exportZip, exportBackup, importBackup, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, prepareBase };

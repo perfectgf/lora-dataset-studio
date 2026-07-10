@@ -36,6 +36,11 @@ class FaceDataset(db.Model):
     # import/caption (cf face_dataset_service : is_concept). Colonne ajoutée après coup
     # → migration additive idempotente dans create_app (db.create_all n'ALTER jamais).
     kind = db.Column(String(16), nullable=True)
+    # Cible de fidélité (datasets personnage) : NULL/'face' (historique) ou 'body'.
+    # 'body' = le LoRA doit reproduire AUSSI la morphologie/les marques corporelles →
+    # captions bannissent en plus tatouages/cicatrices/grains de beauté (ils se lient
+    # au trigger), composition cible plus de bustes/corps, import plein cadre par défaut.
+    fidelity = db.Column(String(8), nullable=True)
     # Concept datasets only: what recurring act/concept must be OMITTED from every
     # caption so it binds to the trigger (the inverse of a character LoRA). Feeds the
     # {concept} placeholder of the caption/refine/ban-list prompts. concept_terms

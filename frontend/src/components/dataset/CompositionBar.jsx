@@ -1,10 +1,13 @@
-/** Live composition balance vs the recommended training target (≈25 balanced:
- * 12 face / 6 bust / 6 body / 1 back). Shows the DEFICIT so the user knows
- * exactly which image types are still missing after curation/rejections. */
-const TARGET = { face: 12, bust: 6, body: 6, back: 1 };
+/** Live composition balance vs the recommended training target. Face-only
+ * (default): ≈25 balanced — 12 face / 6 bust / 6 body / 1 back. Body-fidelity:
+ * the body must be learned too, so the target shifts to 8/8/8/2 (≈26). Shows
+ * the DEFICIT so the user knows exactly which image types are still missing. */
+const TARGET_FACE = { face: 12, bust: 6, body: 6, back: 1 };
+const TARGET_BODY = { face: 8, bust: 8, body: 8, back: 2 };
 const LABEL = { face: 'Face', bust: 'Bust', body: 'Body', back: 'Back' };
 
-export default function CompositionBar({ composition }) {
+export default function CompositionBar({ composition, bodyFidelity = false }) {
+  const TARGET = bodyFidelity ? TARGET_BODY : TARGET_FACE;
   const c = composition || { face: 0, bust: 0, body: 0, back: 0 };
   const total = (c.face || 0) + (c.bust || 0) + (c.body || 0) + (c.back || 0);
   const missing = Object.keys(TARGET)
@@ -14,7 +17,9 @@ export default function CompositionBar({ composition }) {
   return (
     <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-content-muted text-[0.6875rem] uppercase tracking-wide">Composition ({total})</span>
+        <span className="text-content-muted text-[0.6875rem] uppercase tracking-wide">
+          Composition ({total}){bodyFidelity && <span className="text-emerald-400 normal-case"> · body fidelity</span>}
+        </span>
         {['face', 'bust', 'body', 'back'].map((k) => {
           const low = (c[k] || 0) < TARGET[k];
           return (

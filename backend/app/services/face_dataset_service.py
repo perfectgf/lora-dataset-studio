@@ -29,7 +29,7 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CAPTION_PROM
                               CAPTION_REFINE_CONCEPT_PROMPT, CAPTION_LEAK_FIX_PROMPT,
                               EXPAND_CONCEPT_TERMS_PROMPT,
                               CLASSIFY_PROMPT, HEAD_BBOX_PROMPT,
-                              JOYCAPTION_PROMPT, aspect_for_label,
+                              JOYCAPTION_PROMPT, aspect_for_label, caption_prompt_for,
                               caption_has_identity_leak, drop_identity_sentences, drop_identity_tags,
                               prompt_by_label, wrap_variation)
 
@@ -153,6 +153,33 @@ def is_concept(ds) -> bool:
     return bool(ds) and (getattr(ds, 'kind', None) or '').lower() == 'concept'
 
 
+# Cibles de fidélité (datasets personnage). 'body' = le LoRA reproduit AUSSI la
+# morphologie : captions bannissent en plus les marques corporelles permanentes
+# (elles se lient au trigger), composition recommandée plus corps/buste, import
+# plein cadre par défaut.
+FIDELITIES = ('face', 'body')
+
+
+def normalize_fidelity(f) -> str:
+    f = (f or '').strip().lower()
+    return f if f in FIDELITIES else 'face'
+
+
+def is_body_fidelity(ds) -> bool:
+    return bool(ds) and (getattr(ds, 'fidelity', None) or 'face').lower() == 'body'
+
+
+def set_fidelity(user_id, dataset_id, fidelity) -> bool:
+    """Switch face-only <-> full-body fidelity later. Affects FUTURE captions
+    (re-caption to apply) + the composition target + the import crop default."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return False
+    ds.fidelity = normalize_fidelity(fidelity)
+    db.session.commit()
+    return True
+
+
 # Familles de modèle entraînables (= pipeline ai-toolkit). Source de vérité côté UI
 # ET validation : choisie à la création, drive le format de caption (sdxl→booru, sinon
 # prose) et le regroupement du menu. Reste modifiable ensuite (TrainingPanel).
@@ -165,7 +192,8 @@ def normalize_train_type(t) -> str:
     return t if t in TRAIN_TYPES else 'zimage'
 
 
-def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, train_type=None):
+def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, train_type=None,
+                   fidelity=None):
     k = normalize_kind(kind)
     desc = (concept_desc or '').strip()
     if k == 'concept' and not desc:
@@ -175,7 +203,10 @@ def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, tr
     ds = FaceDataset(user_id=str(user_id), name=(name or '').strip()[:100],
                      trigger_word=(trigger_word or '').strip()[:60] or 'zchar',
                      kind=k, concept_desc=(desc[:500] if k == 'concept' else None),
-                     train_type=normalize_train_type(train_type))
+                     train_type=normalize_train_type(train_type),
+                     # fidelity ne concerne que les personnages (un concept décrit
+                     # librement les corps — c'est l'acte qui est omis).
+                     fidelity=(normalize_fidelity(fidelity) if k != 'concept' else None))
     db.session.add(ds)
     db.session.commit()
     return ds
@@ -395,7 +426,8 @@ def build_backup_zip(user_id, dataset_id) -> bytes:
     manifest = {
         'format': BACKUP_FORMAT, 'version': BACKUP_VERSION,
         'name': ds.name, 'trigger_word': ds.trigger_word,
-        'kind': ds.kind, 'concept_desc': ds.concept_desc, 'concept_terms': ds.concept_terms,
+        'kind': ds.kind, 'fidelity': ds.fidelity,
+        'concept_desc': ds.concept_desc, 'concept_terms': ds.concept_terms,
         'train_type': ds.train_type, 'train_base_model': ds.train_base_model,
         'train_variant': ds.train_variant, 'best_settings': ds.best_settings,
         'ref_filename': ds.ref_filename, 'ref_original_filename': ds.ref_original_filename,
@@ -451,7 +483,7 @@ def import_backup_zip(user_id, zip_bytes):
                         concept_desc=manifest.get('concept_desc'),
                         train_type=manifest.get('train_type'))
     for field in ('concept_terms', 'train_base_model', 'train_variant', 'best_settings',
-                  'ref_filename', 'ref_original_filename', 'ref_extra_filenames'):
+                  'ref_filename', 'ref_original_filename', 'ref_extra_filenames', 'fidelity'):
         setattr(ds, field, manifest.get(field))
     dsdir = _dataset_dir(ds.id)
     os.makedirs(dsdir, exist_ok=True)
@@ -623,10 +655,12 @@ def dataset_payload(user_id, dataset_id):
         if i.framing in comp and i.status not in ('reject', 'failed'):
             comp[i.framing] += 1
     concept = is_concept(ds)
+    body = is_body_fidelity(ds)
     return {
         'id': ds.id, 'name': ds.name, 'trigger_word': ds.trigger_word,
         'train_type': (ds.train_type or 'zimage'),
         'kind': 'concept' if concept else 'character',
+        'fidelity': (ds.fidelity or 'face') if not concept else 'face',
         'concept_desc': (ds.concept_desc or '') if concept else '',
         'ref_filename': ds.ref_filename,
         'ref_original_filename': ds.ref_original_filename or '',
@@ -638,9 +672,10 @@ def dataset_payload(user_id, dataset_id):
                     'face_score': i.face_score, 'face_state': i.face_state} for i in imgs],
         # Dataset CONCEPT : décrire l'identité est VOULU (le concept, pas le visage,
         # se lie au trigger) → le badge « fuite d'identité » n'a aucun sens, on le zéro.
+        # Fidélité corps : les marques corporelles comptent aussi comme fuite.
         'caption_leak': {
             'leaking': 0 if concept else sum(
-                1 for i in imgs if i.status == 'keep' and caption_has_identity_leak(i.caption)),
+                1 for i in imgs if i.status == 'keep' and caption_has_identity_leak(i.caption, body=body)),
             'captioned': sum(1 for i in imgs if i.status == 'keep' and i.caption),
         },
     }
@@ -1262,8 +1297,14 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     # Défaut AUTO selon le type entraîné ; un mode explicite (UI) l'emporte.
     ttype = (getattr(ds, 'train_type', None) or 'zimage').lower()
     mode = (mode or ('booru' if ttype == 'sdxl' else 'prose')).lower()
-    cap_prompt = CAPTION_PROMPT_BOORU if mode == 'booru' else JOYCAPTION_PROMPT
-    cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
+    # Fidélité corps : le prompt bannit EN PLUS les marques corporelles permanentes
+    # (tatouages/cicatrices/piercings…) et le post-filtre les retire — elles doivent
+    # se lier au trigger, pas aux mots (même principe que le visage).
+    body = is_body_fidelity(ds)
+    cap_prompt = caption_prompt_for(mode, body=body)
+    base_cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
+    def cleaner(text):
+        return base_cleaner(text, body=body)
     q = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
     if not force:
         q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))
