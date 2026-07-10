@@ -226,6 +226,37 @@ def test_install_actions_include_klein_downloads():
         assert a in setup_installer.INSTALL_ACTIONS
 
 
+def test_every_action_has_a_worker_and_manual_command(app):
+    """Structural invariant: EVERY whitelisted action must have a worker (a
+    missing entry died at runtime as \"error: 'scrape_extras'\" — the action was
+    in INSTALL_ACTIONS/manual_command but absent from _WORKERS) and a non-empty
+    manual fallback so the UI can always show a copy-paste alternative."""
+    from app import setup_installer
+    with app.app_context():
+        for a in setup_installer.INSTALL_ACTIONS:
+            assert a in setup_installer._WORKERS, f'no worker for {a}'
+            assert setup_installer.manual_command(a), f'no manual command for {a}'
+
+
+def test_run_scrape_extras_targets_scrape_requirements(monkeypatch):
+    """The shared pip worker must install the file matching THE ACTION — not
+    always requirements-ml.txt."""
+    from app import setup_installer
+    seen = {}
+    class FakeProc:
+        stdout = iter(())
+        returncode = 0
+        def wait(self): return 0
+    def fake_popen(cmd, **kw):
+        seen['cmd'] = cmd
+        return FakeProc()
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', fake_popen)
+    setup_installer._runs['scrape_extras'] = setup_installer._new_run()
+    rc = setup_installer._run_ml_extras('scrape_extras')
+    assert rc == 0
+    assert any('requirements-scrape.txt' in str(part) for part in seen['cmd'])
+
+
 def test_klein_dest_path_under_validated_base(app, tmp_path):
     from app import setup_installer, config
     base = _make_comfyui(tmp_path)

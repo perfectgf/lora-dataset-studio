@@ -283,5 +283,11 @@ def _run_ollama_model(action) -> int:
     return 0
 
 
-_WORKERS = {'ml_extras': _run_ml_extras, 'ollama_model': _run_ollama_model,
+_WORKERS = {**{a: _run_ml_extras for a in _PIP_REQUIREMENTS},   # ml_extras + scrape_extras
+            'ollama_model': _run_ollama_model,
             **{a: _run_klein_download for a in _KLEIN_DOWNLOADS}}
+# Structural invariant: every whitelisted action MUST have a worker — a missing
+# entry surfaces as a cryptic "error: '<action>'" KeyError at runtime (live
+# repro: scrape_extras was added to INSTALL_ACTIONS but not here).
+assert set(INSTALL_ACTIONS) == set(_WORKERS), \
+    f'INSTALL_ACTIONS/_WORKERS mismatch: {set(INSTALL_ACTIONS) ^ set(_WORKERS)}'
