@@ -92,6 +92,13 @@ None of these are bundled — each one is optional, installed separately, and th
 
 ## Install
 
+First, get the code (every option below starts from here):
+
+```bash
+git clone https://github.com/perfectgf/lora-dataset-studio.git
+cd lora-dataset-studio
+```
+
 ### Option 1 — start.bat (Windows, one command)
 
 The repo ships with the frontend prebuilt (`frontend/dist/`), so this doesn't need Node.js:
@@ -100,7 +107,7 @@ The repo ships with the frontend prebuilt (`frontend/dist/`), so this doesn't ne
 start.bat
 ```
 
-This creates a `.venv`, installs `backend/requirements.txt`, opens `http://127.0.0.1:5000/` in your browser, and starts the server. Requires Python 3.11+ (the script looks for `py` then `python` on PATH).
+This picks a compatible Python (it tries `py -3.12`, `py -3.11`, `py -3.10` — the range with prebuilt wheels for the optional ML extras), creates a `.venv`, installs `backend/requirements.txt`, opens `http://127.0.0.1:5050/` in your browser, and starts the server. A newer Python (3.13+) still runs the core app but can't install the ML extras. Override the port with `set LDS_PORT=<port>` before running.
 
 ### Option 2 — manual venv (any OS)
 
