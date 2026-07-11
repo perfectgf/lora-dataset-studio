@@ -170,3 +170,60 @@ def test_caption_concept_uses_concept_prompt_and_keeps_identity(app, monkeypatch
         db.session.refresh(img)
         # l'identité est CONSERVÉE (cleaner no-op) — pas de suppression de « hair ».
         assert 'hair' in (img.caption or '')
+
+
+# --- update_dataset_settings (édition post-création) -------------------------
+def test_update_settings_name_and_trigger(app):
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'Old', 'oldtrig')
+        res = svc.update_dataset_settings(LOCAL_USER, d.id, name='New', trigger_word='newtrig')
+        assert res == {'ok': True, 'concept_desc_changed': False}
+        db.session.refresh(d)
+        assert d.name == 'New' and d.trigger_word == 'newtrig'
+
+
+def test_update_settings_empty_trigger_rejected(app):
+    import pytest
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'X', 'trig')
+        with pytest.raises(ValueError):
+            svc.update_dataset_settings(LOCAL_USER, d.id, trigger_word='   ')
+        db.session.refresh(d)
+        assert d.trigger_word == 'trig'   # inchangé
+
+
+def test_update_settings_concept_desc_resets_avoidlist_cache(app):
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'C', 'cact', kind='concept', concept_desc=CONCEPT_DESC)
+        d.concept_terms = '["ice", "cream", "cone"]'   # cache LLM simulé
+        db.session.commit()
+        res = svc.update_dataset_settings(LOCAL_USER, d.id, concept_desc='a mirror selfie')
+        assert res['concept_desc_changed'] is True
+        db.session.refresh(d)
+        assert d.concept_desc == 'a mirror selfie'
+        assert d.concept_terms is None   # cache invalidé → régénéré au prochain caption
+
+
+def test_update_settings_same_concept_desc_keeps_cache(app):
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'C', 'cact', kind='concept', concept_desc=CONCEPT_DESC)
+        d.concept_terms = '["ice"]'
+        db.session.commit()
+        res = svc.update_dataset_settings(LOCAL_USER, d.id, concept_desc=CONCEPT_DESC)
+        assert res['concept_desc_changed'] is False
+        db.session.refresh(d)
+        assert d.concept_terms == '["ice"]'   # inchangé → pas de re-génération inutile
+
+
+def test_update_settings_concept_desc_ignored_on_character(app):
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'P', 'ptrig')   # character
+        res = svc.update_dataset_settings(LOCAL_USER, d.id, concept_desc='whatever')
+        assert res['concept_desc_changed'] is False
+        db.session.refresh(d)
+        assert d.concept_desc is None   # un personnage n'a pas de concept_desc
+
+
+def test_update_settings_missing_dataset_returns_none(app):
+    with app.app_context():
+        assert svc.update_dataset_settings(LOCAL_USER, 999999, name='x') is None

@@ -170,6 +170,22 @@ export function useDataset() {
     if (d.ok) fetchList();
   }, [currentId, fetchList]);
 
+  // Edit name / trigger / (concept) description after creation. Trigger change is
+  // safe (prepended at export); a concept-desc change resets the avoid-list → the
+  // toast nudges a re-caption (same contract as fidelity). Refreshes both views.
+  const updateSettings = useCallback(async ({ name, trigger_word, concept_desc }) => {
+    if (!currentId) return { ok: false };
+    const d = await postJson(`/api/dataset/${currentId}/settings`,
+      { name, trigger_word, concept_desc });
+    if (!d.ok) { toast.error(d.error || 'Could not save settings'); return d; }
+    toast.success(d.concept_desc_changed
+      ? 'Saved — concept changed; re-caption to apply it to existing captions'
+      : 'Settings saved');
+    await refresh();
+    fetchList();
+    return d;
+  }, [currentId, refresh, fetchList, toast]);
+
   const deleteDataset = useCallback(async (id) => {
     const d = await postJson(`/api/dataset/${id}/delete`);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -517,7 +533,7 @@ export function useDataset() {
   }), [wrap, currentId, refresh, toast]);
 
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
-           deleteDataset, setCurrentId, setRef, addExtraRef, removeExtraRef,
+           deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, cancelPending, regenerate, analyzing, analyzeFaces,
            purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, refresh, train, stopTraining, continueTraining,

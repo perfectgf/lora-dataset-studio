@@ -234,6 +234,41 @@ def set_train_type(user_id, dataset_id, train_type) -> bool:
     return True
 
 
+def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None,
+                            concept_desc=None):
+    """Edit a dataset's identity AFTER creation. Returns {'ok', 'concept_desc_changed'}
+    or None if the dataset is absent; raises ValueError on invalid input.
+
+    Changing the **trigger word** is safe and needs NO re-caption: captions are stored
+    without it (it's prepended at export). Changing a concept dataset's **description**
+    (what the captions must omit) invalidates the cached LLM avoid-list (concept_terms)
+    so it regenerates — but images already captioned keep the OLD omission until
+    re-captioned (same 'future captions' contract as set_fidelity)."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return None
+    if name is not None:
+        n = (name or '').strip()
+        if n:
+            ds.name = n[:100]
+    if trigger_word is not None:
+        t = (trigger_word or '').strip()
+        if not t:
+            raise ValueError('trigger_word cannot be empty')
+        ds.trigger_word = t[:60]
+    concept_changed = False
+    if concept_desc is not None and is_concept(ds):
+        d = (concept_desc or '').strip()
+        if not d:
+            raise ValueError('concept_desc required for a concept dataset')
+        if d[:500] != (ds.concept_desc or ''):
+            ds.concept_desc = d[:500]
+            ds.concept_terms = None   # invalidate the cached LLM avoid-list → regenerated next caption
+            concept_changed = True
+    db.session.commit()
+    return {'ok': True, 'concept_desc_changed': concept_changed}
+
+
 def get_dataset(user_id, dataset_id):
     ds = db.session.get(FaceDataset, dataset_id)
     return ds if ds and str(ds.user_id) == str(user_id) else None

@@ -11,6 +11,7 @@ import DatasetGrid from './DatasetGrid';
 import CaptionToolsBar from './CaptionToolsBar';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
+import DatasetSettingsModal from './DatasetSettingsModal';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import GuidedChecklist from './GuidedChecklist';
 import NextStepCard from './NextStepCard';
@@ -87,6 +88,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // départ → chaque carte suit son défaut (repliée si terminée & non-courante).
   // Un clic sur le bandeau écrit ici ; un saut depuis la checklist force l'ouverture.
   const [openMap, setOpenMap] = useState({});
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Hooks must run unconditionally on every render — deriveSteps() null-guards `d`,
   // so this is safe to call before the loading early-return below.
   const { steps, nextStep } = useGuidedFlow(d, caps, checkpointCount);
@@ -222,6 +224,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 className={MENU_ITEM}>
                 📦 Import dataset
                 <span className="ml-auto text-content-subtle text-[0.625rem]">merge a ZIP in</span>
+              </button>
+              <button type="button" onClick={() => setSettingsOpen(true)}
+                title="Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list."
+                className={MENU_ITEM}>
+                ⚙️ Edit settings
+                <span className="ml-auto text-content-subtle text-[0.625rem]">
+                  name · trigger{concept ? ' · concept' : ''}
+                </span>
               </button>
               {!concept && (
                 <button type="button" disabled={ds.busy}
@@ -527,6 +537,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
           nonce={(ds.nonces && ds.nonces[viewImgLive.id]) || 0}
           onClose={() => setViewImg(null)}
           onCrop={(img) => { setViewImg(null); setCropImg(img); }} />
+      )}
+      {settingsOpen && (
+        <DatasetSettingsModal d={d} busy={ds.busy}
+          onSave={ds.updateSettings} onClose={() => setSettingsOpen(false)} />
       )}
     </div>
   );

@@ -62,6 +62,22 @@ def dataset_set_train_type(dataset_id):
     return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
 
 
+@bp.post('/dataset/<int:dataset_id>/settings')
+def dataset_update_settings(dataset_id):
+    """Edit name / trigger word / (concept) description after creation. Changing the
+    trigger is safe (it's prepended at export — no re-caption). Changing a concept
+    dataset's description resets the caption avoid-list cache; re-caption to apply it
+    to existing captions (response flags concept_desc_changed for the UI hint)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        res = svc.update_dataset_settings(
+            LOCAL_USER, dataset_id, name=data.get('name'),
+            trigger_word=data.get('trigger_word'), concept_desc=data.get('concept_desc'))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return (jsonify(res), 200) if res else (jsonify({'error': 'not found'}), 404)
+
+
 @bp.get('/dataset/variations')
 def dataset_variations():
     return jsonify({'catalog': VARIATION_CATALOG,
