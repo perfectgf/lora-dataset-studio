@@ -62,17 +62,26 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
     }
   }, [url, scanning, toast]);
 
-  // Reddit keyword search: build a reddit search URL (global or subreddit-scoped)
-  // and route it through the same scan pipeline. Reddit locked anonymous browsing,
-  // so the backend RedditSource enumerates via the authenticated OAuth API.
+  // Reddit search, three modes depending on which field is filled:
+  //   keyword only          → search all of Reddit for the term
+  //   keyword + subreddit    → search that term WITHIN one community (cleaner)
+  //   subreddit only         → browse that community's top posts (no term)
+  // All build a reddit URL routed through the same scan pipeline; the backend
+  // RedditSource enumerates via the authenticated OAuth API (anon browsing is walled).
   const runRedditSearch = useCallback(() => {
+    if (scanning) return;
     const q = kw.trim();
-    if (!q || scanning) return;
     const s = sub.trim().replace(/^\/?(r\/)?/i, '').replace(/[^A-Za-z0-9_]/g, '');
-    const p = new URLSearchParams({ q, sort: 'top', t: 'all', type: 'link' });
-    const built = s
-      ? `https://www.reddit.com/r/${s}/search/?${p.toString()}&restrict_sr=1`
-      : `https://www.reddit.com/search/?${p.toString()}`;
+    if (!q && !s) return;
+    let built;
+    if (q) {
+      const p = new URLSearchParams({ q, sort: 'top', t: 'all', type: 'link' });
+      built = s
+        ? `https://www.reddit.com/r/${s}/search/?${p.toString()}&restrict_sr=1`
+        : `https://www.reddit.com/search/?${p.toString()}`;
+    } else {
+      built = `https://www.reddit.com/r/${s}/top/?t=all`;   // subreddit only → browse top
+    }
     setUrl(built);
     runScan(0, built);
   }, [kw, sub, scanning, runScan]);
@@ -134,33 +143,42 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
         </button>
       </form>
 
-      {/* Reddit keyword search — a keyword (optionally scoped to a subreddit) is
-          turned into a reddit search URL and scanned through the same pipeline.
-          Label sits on its own line so it can never crowd the inputs. */}
+      {/* Reddit search — two fields, three modes (keyword / keyword+sub / sub only).
+          Both build a reddit URL routed through the same scan pipeline. */}
       <div className="rounded-lg border border-border bg-white/5 px-2 py-2 flex flex-col gap-1.5">
-        <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1.5 flex-wrap">
-          <span className="flex items-center gap-1"><span aria-hidden>🔎</span> Search Reddit by keyword</span>
-          <span className="text-content-muted">— scope to a subreddit for cleaner, on-topic results</span>
+        <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1">
+          <span aria-hidden>🔎</span> Search Reddit
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={kw} onChange={(e) => setKw(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
-            placeholder="keyword (e.g. film portrait)"
+            placeholder="keyword — what to look for (e.g. film portrait)"
+            title="The term to search for across Reddit. Leave empty to browse a subreddit's top posts."
             className="flex-[2] min-w-[9rem] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
           />
           <span className="text-content-subtle text-sm shrink-0">in r/</span>
           <input
             value={sub} onChange={(e) => setSub(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
-            placeholder="subreddit (optional)"
+            placeholder="community, e.g. analog (optional)"
+            title="A subreddit name (community). Restricts the search to it — cleaner results. This is also how you reach NSFW communities."
             className="flex-[1] min-w-[7rem] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
           />
-          <button type="button" onClick={runRedditSearch} disabled={scanning || !kw.trim()}
+          <button type="button" onClick={runRedditSearch} disabled={scanning || (!kw.trim() && !sub.trim())}
             className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40 shrink-0">
             Search
           </button>
         </div>
+        {/* Plain-language explanation of the two fields. */}
+        <p className="text-content-muted text-[0.6875rem] leading-relaxed">
+          <b className="text-content-subtle">Keyword</b> searches all of Reddit for a term.
+          Add a <b className="text-content-subtle">subreddit</b> (a community — the part after
+          <code className="px-1 text-content-subtle">r/</code>, e.g. <code className="px-1 text-content-subtle">analog</code>,
+          <code className="px-1 text-content-subtle">photographs</code>) to search only inside it — far cleaner,
+          on-topic images (and the way to reach NSFW communities). <b className="text-content-subtle">Subreddit alone</b>,
+          no keyword → just browse its top posts.
+        </p>
       </div>
 
       {items.length > 0 && (
