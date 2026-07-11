@@ -136,29 +136,31 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
 
       {/* Reddit keyword search — a keyword (optionally scoped to a subreddit) is
           turned into a reddit search URL and scanned through the same pipeline.
-          Scoping to a subreddit yields far cleaner, on-topic results. */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-raised/40 px-2 py-1.5">
-        <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1 shrink-0">
-          <span aria-hidden>🔎</span> Search Reddit
+          Label sits on its own line so it can never crowd the inputs. */}
+      <div className="rounded-lg border border-border bg-surface-raised/40 px-2 py-2 flex flex-col gap-1.5">
+        <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1.5 flex-wrap">
+          <span className="flex items-center gap-1"><span aria-hidden>🔎</span> Search Reddit by keyword</span>
+          <span className="text-content-subtle/70">— scope to a subreddit for cleaner, on-topic results</span>
         </span>
-        <input
-          value={kw} onChange={(e) => setKw(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
-          placeholder="keyword (e.g. film portrait)"
-          className="flex-1 min-w-[8rem] px-2.5 py-1.5 rounded-lg bg-surface border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
-        />
-        <span className="text-content-subtle text-[0.6875rem] shrink-0">in r/</span>
-        <input
-          value={sub} onChange={(e) => setSub(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
-          placeholder="subreddit (optional)"
-          title="Scoping to a subreddit gives much cleaner, on-topic results"
-          className="w-36 px-2.5 py-1.5 rounded-lg bg-surface border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
-        />
-        <button type="button" onClick={runRedditSearch} disabled={scanning || !kw.trim()}
-          className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40 shrink-0">
-          Search
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={kw} onChange={(e) => setKw(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
+            placeholder="keyword (e.g. film portrait)"
+            className="flex-[2] min-w-[9rem] px-2.5 py-1.5 rounded-lg bg-surface border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
+          />
+          <span className="text-content-subtle text-sm shrink-0">in r/</span>
+          <input
+            value={sub} onChange={(e) => setSub(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
+            placeholder="subreddit (optional)"
+            className="flex-[1] min-w-[7rem] px-2.5 py-1.5 rounded-lg bg-surface border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
+          />
+          <button type="button" onClick={runRedditSearch} disabled={scanning || !kw.trim()}
+            className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40 shrink-0">
+            Search
+          </button>
+        </div>
       </div>
 
       {items.length > 0 && (
