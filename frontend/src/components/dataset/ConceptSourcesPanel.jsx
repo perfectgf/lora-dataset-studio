@@ -30,6 +30,9 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
   const [paginated, setPaginated] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
+  // URLs whose thumbnail failed to load (dead/expired source links). Hidden from
+  // the grid so you only ever see & pick live images — dead galleries are common.
+  const [broken, setBroken] = useState(() => new Set());
   // Preview tile size (px). A category scrape returns whole galleries (many
   // off-concept frames) → larger previews speed up eyeballing. Persisted.
   const [tile, setTile] = useState(() => {
@@ -55,7 +58,7 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
       setItems((prev) => (nextPage === 0 ? imgs : [...prev, ...imgs]));
       setPaginated(!!body.paginated);
       setPage(nextPage);
-      if (nextPage === 0) setSelected(new Set());  // fresh scan resets selection; "Load more" keeps it
+      if (nextPage === 0) { setSelected(new Set()); setBroken(new Set()); }  // fresh scan resets; "Load more" keeps it
       if (imgs.length === 0 && nextPage === 0) toast.info('No images found on this page.');
     } finally {
       setScanning(false);
@@ -91,6 +94,15 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
       const next = new Set(prev);
       if (next.has(u)) next.delete(u); else next.add(u);
       return next;
+    });
+  };
+
+  // Thumbnail failed → the source image is dead/expired. Hide it and un-select it.
+  const markBroken = (u) => {
+    setBroken((prev) => new Set(prev).add(u));
+    setSelected((prev) => {
+      if (!prev.has(u)) return prev;
+      const next = new Set(prev); next.delete(u); return next;
     });
   };
 
@@ -181,14 +193,23 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
         </p>
       </div>
 
-      {items.length > 0 && (
+      {items.length > 0 && (() => {
+        // Only live thumbnails are shown/pickable; dead source links are hidden.
+        const liveItems = items.filter((it) => !broken.has(it.url));
+        const deadCount = items.length - liveItems.length;
+        return (
         <>
           <div className="flex items-center gap-2 text-[0.6875rem] text-content-subtle flex-wrap">
-            <button type="button" onClick={() => setSelected(new Set(items.map((it) => it.url)))}
-              title="Selects all loaded images"
+            <button type="button" onClick={() => setSelected(new Set(liveItems.map((it) => it.url)))}
+              title="Selects all live (loaded) images"
               className="px-2 py-0.5 rounded border border-border hover:text-content">
-              Select all ({items.length})
+              Select all ({liveItems.length})
             </button>
+            {deadCount > 0 && (
+              <span title="Images whose source link is dead/expired — hidden from the grid.">
+                🚫 {deadCount} dead hidden
+              </span>
+            )}
             {selected.size > 0 && (
               <button type="button" onClick={() => setSelected(new Set())}
                 className="px-2 py-0.5 rounded border border-border hover:text-content">
@@ -207,14 +228,15 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
 
           <div className="grid gap-1.5 overflow-y-auto max-h-[34rem] pr-1"
             style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${tile}px, 1fr))` }}>
-            {items.map((it) => {
+            {liveItems.map((it) => {
               const on = selected.has(it.url);
               return (
                 <button type="button" key={it.url} onClick={() => toggle(it.url)}
                   aria-pressed={on} title={it.title || it.url}
                   className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all
                     ${on ? 'border-indigo-400' : 'border-transparent hover:border-border-strong'}`}>
-                  <img src={thumbFor(it)} alt="" loading="lazy" className="w-full h-full object-cover" />
+                  <img src={thumbFor(it)} alt="" loading="lazy" onError={() => markBroken(it.url)}
+                    className="w-full h-full object-cover" />
                   <span aria-hidden
                     className={`absolute top-1 right-1 w-4 h-4 rounded-full text-[0.625rem] leading-4 text-center font-bold
                       ${on ? 'bg-indigo-500 text-white' : 'bg-black/50 text-white/70'}`}>
@@ -232,7 +254,8 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
             </button>
           )}
         </>
-      )}
+        );
+      })()}
     </section>
   );
 }
