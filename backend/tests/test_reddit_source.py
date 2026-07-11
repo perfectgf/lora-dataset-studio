@@ -183,3 +183,57 @@ def test_scan_token_failure_is_graceful(monkeypatch):
     monkeypatch.setattr(reddit, '_get_token', lambda: None)
     items, err = reddit.RedditSource().scan(Match(url='https://www.reddit.com/r/x/'))
     assert items is None and 'authentification' in err
+
+
+# --- 429 rate-limit handling ------------------------------------------------
+class _Resp:
+    def __init__(self, status, headers=None, body=None):
+        self.status_code = status
+        self.headers = headers or {}
+        self._body = body or {}
+
+    def json(self):
+        return self._body
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests as _r
+            raise _r.HTTPError(f'{self.status_code}')
+
+
+def test_reset_seconds_reads_headers():
+    assert reddit._reset_seconds(_Resp(429, {'retry-after': '30'})) == 30
+    assert reddit._reset_seconds(_Resp(429, {'x-ratelimit-reset': '540.0'})) == 540
+    assert reddit._reset_seconds(_Resp(429, {})) is None
+
+
+def test_api_get_429_far_reset_raises_ratelimited(monkeypatch):
+    monkeypatch.setattr(reddit.requests, 'get',
+                        lambda *a, **k: _Resp(429, {'x-ratelimit-reset': '600'}))
+    slept = []
+    monkeypatch.setattr(reddit.time, 'sleep', lambda s: slept.append(s))
+    try:
+        reddit._api_get('/search', {}, 'tok')
+        assert False, 'should have raised'
+    except reddit.RedditRateLimited as e:
+        assert e.reset_seconds == 600
+    assert slept == []          # far reset → no retry sleep
+
+
+def test_api_get_429_near_reset_retries_once(monkeypatch):
+    seq = [_Resp(429, {'retry-after': '2'}), _Resp(200, {}, {'ok': 1})]
+    monkeypatch.setattr(reddit.requests, 'get', lambda *a, **k: seq.pop(0))
+    monkeypatch.setattr(reddit.time, 'sleep', lambda s: None)
+    monkeypatch.setitem(reddit._token_cache, 'value', 'tok')
+    assert reddit._api_get('/search', {}, 'tok') == {'ok': 1}   # retry succeeded
+
+
+def test_scan_rate_limited_returns_actionable_message(monkeypatch):
+    monkeypatch.setattr(reddit, '_get_token', lambda: 'tok')
+
+    def boom(path, params, tok):
+        raise reddit.RedditRateLimited(45)
+    monkeypatch.setattr(reddit, '_api_get', boom)
+    items, err = reddit.RedditSource().scan(Match(url='https://www.reddit.com/search/?q=cats'))
+    assert items is None
+    assert '1000' in err and '~45s' in err

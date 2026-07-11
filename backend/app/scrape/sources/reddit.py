@@ -50,6 +50,7 @@ _UA = 'LoRA-Dataset-Studio/1.0 (+https://github.com/perfectgf/lora-dataset-studi
 _GDL_CLIENT_ID = '6N9uN0krSDE-ig'
 
 _HTTP_TIMEOUT = 20
+_MAX_429_RETRY_WAIT = 4    # sur 429, on ne re-tente qu'UNE fois si le reset est proche
 _BATCH_POSTS = 30          # posts récupérés par « page » (chaque post ≈ 1-N images)
 _SCAN_MAX = 200            # plafond d'items remontés par un scan (payload borné)
 _SORTS = frozenset({'hot', 'new', 'top', 'rising', 'controversial', 'best'})
@@ -279,9 +280,32 @@ def _get_token():
     return tok
 
 
+class RedditRateLimited(Exception):
+    """429 Reddit : quota (~1000 req / 10 min, par IP+client) temporairement épuisé.
+    Porte le délai avant reset (secondes) si connu, pour un message actionnable."""
+    def __init__(self, reset_seconds=None):
+        self.reset_seconds = reset_seconds
+        super().__init__('reddit rate limited')
+
+
+def _reset_seconds(resp):
+    """Secondes avant reset du quota : en-tête Retry-After sinon x-ratelimit-reset.
+    None si illisible."""
+    for key in ('retry-after', 'x-ratelimit-reset'):
+        val = resp.headers.get(key)
+        if val:
+            try:
+                return max(0, int(float(val)))
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
 def _api_get(api_path: str, params: dict, token: str) -> dict:
     """GET authentifié sur oauth.reddit.com. Lève requests.HTTPError/RequestException
-    (attrapé par scan). Renouvelle le jeton une fois sur 401 (jeton expiré en vol)."""
+    (attrapé par scan). Renouvelle le jeton une fois sur 401 (jeton expiré en vol).
+    Sur 429 : une seule re-tentative si le reset est proche (≤ _MAX_429_RETRY_WAIT),
+    sinon lève RedditRateLimited (message actionnable côté scan)."""
     def _do(tok):
         return requests.get(_API_BASE + api_path, params=params,
                             headers={'User-Agent': _UA, 'Authorization': f'Bearer {tok}'},
@@ -292,6 +316,13 @@ def _api_get(api_path: str, params: dict, token: str) -> dict:
         tok2 = _get_token()
         if tok2:
             r = _do(tok2)
+    if r.status_code == 429:
+        wait = _reset_seconds(r)
+        if wait is not None and wait <= _MAX_429_RETRY_WAIT:  # blip transitoire → 1 retry
+            time.sleep(wait + 1)
+            r = _do(_token_cache['value'] or token)
+        if r.status_code == 429:
+            raise RedditRateLimited(_reset_seconds(r))
     r.raise_for_status()
     return r.json()
 
@@ -375,6 +406,10 @@ class RedditSource(Source):
                         if len(items) >= _SCAN_MAX:
                             return items, None
             return items, None
+        except RedditRateLimited as e:
+            wait = f' Réessaie dans ~{e.reset_seconds}s.' if e.reset_seconds else ' Réessaie dans une minute.'
+            return None, ('Reddit limite temporairement les requêtes (quota partagé '
+                          '~1000 requêtes / 10 min).' + wait)
         except requests.RequestException as e:
             return None, f'Reddit : échec réseau ({e}).'
         except Exception as e:   # garde-fou : scan() ne lève jamais
