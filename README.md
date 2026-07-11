@@ -1,10 +1,23 @@
 # LoRA Dataset Studio
 
-A single-user, self-hosted workbench for building the dataset that goes into a face/character LoRA — from a single reference photo to a trained, ranked checkpoint — without hand-editing captions or juggling three separate tools.
+A single-user, self-hosted workbench for building the dataset that goes into a face/character **or concept** LoRA — from a single reference photo (or a pile of scraped images) to a trained, ranked checkpoint — without hand-editing captions or juggling three separate tools.
 
 It exists because the useful part of LoRA training (curating a clean, balanced, well-captioned image set) is normally scattered across a scraper, an image editor, a captioning script, and a training config someone hand-tunes per run. This app puts that whole pipeline behind one UI: generate variations from a reference photo, curate them with a live composition meter, caption them automatically, score them for face fidelity, train a LoRA, and rank the resulting checkpoints — all from a browser tab, on your own machine.
 
-The end-to-end flow:
+## Highlights
+
+The parts of LoRA-making that usually mean four separate tools, bundled behind one UI:
+
+- **Two dataset types.**
+  - **Character** — pin an identity from one reference photo. The app fans out a **45-shot variation catalog** (expression / angle / lighting / framing / outfit / background) so the set spans close-up to full-body without you writing a single prompt.
+  - **Concept** — train a *style, object, or action* instead of a person. Captioning **inverts**: it describes everything *except* the concept (with an identity-leak check), so the concept is what binds to the trigger — and masked training turns itself off so it doesn't erase what you're teaching.
+- **Three ways to source images** — **generate** them (Nano Banana Pro / ChatGPT / local Klein), **import** your own, or **scrape** them. The built-in scraper turns a **Reddit keyword search** (or an image-gallery URL) into a pick-and-import grid that downloads straight into a concept dataset — SSRF-hardened, perceptually de-duplicated, and quality-filtered (min side, aspect ratio) on the way in.
+- **Face-detection suite** — **InsightFace** identity scoring drops off-identity shots *before* they poison training, **auto head-crop** frames imports on the face, and a vision model **auto-classifies framing** (face / bust / body / back) to feed a live composition meter aiming at a balanced 12 / 6 / 6 / 1 set.
+- **Auto-prompting in both modes** — the 45-shot character catalog above, plus concept captioning that's leak-aware — so you rarely hand-write a prompt *or* a caption.
+- **Training you don't hand-tune** — adaptive step counts (scaled to image count, clamped), a training queue with scheduling, masked training from **auto-generated rembg masks**, continue-+N steps, and auto-import of the finished LoRA into ComfyUI.
+- **Test Studio** — grid-test checkpoint × strength, vote (Wilson-ranked), and rank checkpoints by face similarity to pick the epoch that nails the identity *before* it overcooks.
+
+The end-to-end flow (character path — a **concept** dataset skips the reference photo and reference-driven generation in steps 2–3, sourcing images by scrape/import instead):
 
 1. **Create a dataset** — name + trigger word.
 2. **Upload a reference photo** (+ up to 3 extra reference images for multi-angle consistency).
@@ -27,7 +40,8 @@ The end-to-end flow:
 
 | Stage of the job | ai-toolkit alone | LoRA Dataset Studio |
 |---|---|---|
-| Build the dataset from one photo | ❌ none — you arrive with your images | ✅ 3-engine fan-out, 36-shot framing catalog, 12/6/6/1 composition target |
+| Build the dataset from one photo | ❌ none — you arrive with your images | ✅ 3-engine fan-out, 45-shot variation catalog, 12/6/6/1 composition target |
+| Build the dataset from the web | ❌ none | ✅ scrape a Reddit keyword search / gallery URL straight into a concept dataset (dedup + quality filters) |
 | Curate | ❌ your file explorer | ✅ keep/reject, crop, composition meter, **InsightFace scoring** to drop off-identity shots *before* training |
 | Captions | ❌ write them yourself | ✅ JoyCaption/Ollama, prose vs booru by family, identity-leak detection |
 | Masked training | ⚙️ consumes `mask_path` if you supply masks | ✅ generates rembg masks and writes the config for you |
@@ -49,6 +63,8 @@ Not every feature needs every backend. The app degrades gracefully — API keys 
 | Auto-classify framing / auto head-crop | Ollama (vision model) |
 | Face-similarity scoring | `backend/requirements-ml.txt` (insightface + onnxruntime) |
 | Person masks | `backend/requirements-ml.txt` (rembg) |
+| Scrape images into a concept dataset (Reddit keyword search + gallery URLs) | `backend/requirements-scrape.txt` (gallery-dl + curl_cffi) |
+| Concept-caption inversion (identity-leak-aware) | Ollama **or** ai-toolkit (JoyCaption) |
 | LoRA training | ai-toolkit installed and configured |
 | Test Studio (checkpoint testing) | ComfyUI reachable |
 
