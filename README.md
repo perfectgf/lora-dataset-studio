@@ -140,7 +140,7 @@ hidden or guided through Setup).
 | **Auto-captioning & framing** (Ollama vision, 8B model) | ~8 GB VRAM | ~7 GB | Runs alongside generation, not concurrently |
 | **Local generation** (Klein 9B fp8 via ComfyUI) | ~16 GB VRAM | ~30 GB (model + text encoder + VAE) | Free, NSFW-capable; Setup downloads the models |
 | **LoRA training — Z-Image / SDXL** (ai-toolkit) | 16 GB+ recommended | 10 GB+ free enforced per run | Quantized (qfloat8) + low-VRAM mode |
-| **LoRA training — Krea 2** (ai-toolkit) | **24 GB VRAM** (enforced warning) | ~24 GB base download (Raw) + 10 GB+ free | 12B model; measured saturating 24 GB at 1024px |
+| **LoRA training — Krea 2** (ai-toolkit) | **24 GB VRAM** at 1024px (enforced warning) | ~24 GB base download (Raw) + 10 GB+ free | 12B model. Under 24 GB, set **Resolution → 768 only** in ⚙️ Advanced options — the main VRAM lever |
 | **Face scoring / person masks** (ML extras) | none (CPU) | ~3 GB | Python **3.10–3.12 required** (no wheels beyond) |
 
 - **OS**: Windows 10/11 for the full local stack (`start.bat`, portable bundle). Linux/macOS work for API-only + manual venv.

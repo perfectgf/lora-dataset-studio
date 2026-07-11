@@ -587,6 +587,11 @@ def test_update_train_settings_persists_validates_and_applies(app, tmp_path):
         ds = svc.create_dataset(LOCAL_USER, 'K', 'kt', train_type='krea')
         eff = lt.update_train_settings(LOCAL_USER, ds.id, {'rank': 64, 'resolution': '1024', 'save_every': 500})
         assert eff['rank'] == 64 and eff['resolution'] == '1024' and eff['save_every'] == 500
+        # '768' seul = levier basse-VRAM (GPU < 24 GB) → accepté et appliqué au job.
+        assert lt.update_train_settings(LOCAL_USER, ds.id, {'resolution': '768'})['resolution'] == '768'
+        p768 = lt.build_job_config(ds, str(folder), 1500)['config']['process'][0]
+        assert p768['datasets'][0]['resolution'] == [768]
+        lt.update_train_settings(LOCAL_USER, ds.id, {'resolution': '1024'})   # restore pour la suite
         p = lt.build_job_config(ds, str(folder), 1500)['config']['process'][0]
         assert p['network']['linear'] == 64 and p['network']['linear_alpha'] == 64
         assert p['datasets'][0]['resolution'] == [1024] and p['save']['save_every'] == 500

@@ -277,7 +277,9 @@ def _default_variant_for(family) -> str:
 #     retombe sur le défaut : on ne pousse JAMAIS une config invalide à ai-toolkit. ---
 _DEFAULT_RANK = {'zimage': 16, 'krea': 32, 'sdxl': 32}   # Z-Image reste 16 (choix user) ; Krea/SDXL 32
 _RANK_CHOICES = (8, 16, 24, 32, 48, 64)
-_RES_CHOICES = {'768,1024': [768, 1024], '1024': [1024]}  # multi-échelle par défaut
+# multi-échelle par défaut ; '768' seul = LE levier basse-VRAM (Krea 12B : 1024
+# sature un 24 GB à ~180 s/it, 768 mesuré ~3,5 s/it — cf. commentaire de tête).
+_RES_CHOICES = {'768,1024': [768, 1024], '1024': [1024], '768': [768]}
 _SAVE_CHOICES = (250, 500, 1000)
 
 

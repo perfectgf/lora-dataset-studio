@@ -575,13 +575,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
                   <option value="768,1024">768 + 1024 (multi-scale)</option>
                   <option value="1024">1024 only</option>
+                  <option value="768">768 only (low VRAM)</option>
                 </select>
               </div>
               <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
-                <b className="text-content-muted font-medium">Why:</b> the size(s) images are trained at.
-                <b className="text-content-muted font-medium"> How:</b> multi-scale trains at two sizes so the LoRA holds
-                up from a close-up face to a full-body shot; single 1024 is a bit faster. (Either way ai-toolkit buckets
-                images by aspect ratio.)
+                <b className="text-content-muted font-medium">Why:</b> the size(s) images are trained at — and the #1
+                VRAM lever. <b className="text-content-muted font-medium">How:</b> multi-scale trains at two sizes so
+                the LoRA holds up from a close-up face to a full-body shot; single 1024 is a bit faster.
+                <b className="text-content-muted font-medium"> 768 only</b> cuts memory use sharply and trains much
+                faster — your best shot at Krea 2 on a GPU under 24 GB, at some cost in fine detail.
               </span>
             </div>
 

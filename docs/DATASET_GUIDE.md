@@ -105,6 +105,9 @@ Rules of thumb:
   every 250 and pick the best one instead.
 - **Turbo variant (Krea)** is the VRAM/time-friendly fallback — fine for drafts,
   Raw for the final run.
+- **GPU under 24 GB?** Resolution is the #1 memory lever: set it to **768 only**
+  (Krea 2 especially — 1024 saturates a 24 GB card). You trade some fine detail
+  for a run that actually fits and trains far faster.
 
 ---
 
