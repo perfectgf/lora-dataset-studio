@@ -396,22 +396,24 @@ JOYCAPTION_PROMPT = CAPTION_PROMPT
 # d'identité (on GARDE l'identité).
 CAPTION_PROMPT_CONCEPT = (
     "Caption Type: Straightforward.\n\n"
-    "This is a CONCEPT training image. Every image in this set shares ONE recurring "
-    "element - THE CONCEPT - which is: {concept}.\n\n"
-    "That single shared concept is what the model is learning, so it must NEVER be named "
-    "or described: do NOT write it, do NOT label it, do NOT describe the focal detail that "
-    "shows it. Describe everything AROUND it instead.\n\n"
-    "You MUST describe, in full and freely (identity is NOT hidden here): the people "
-    "present and their appearance (hair, face, body, skin), their pose and body position, "
+    "This is one image from a CONCEPT training set. The single element every image in the "
+    "set shares is: {concept}. Describe the whole scene EXCEPT that shared element - simply "
+    "leave it unmentioned, as if it were not there. Never name it, and never describe the "
+    "act, object, device or surface that shows it.\n\n"
+    "Describe, in full and freely (nothing about the people is hidden): the people present "
+    "and their appearance (hair, face, body, skin, marks), their pose and body position, "
     "their expression and gaze, any clothing or state of undress and its colours, the "
-    "setting or location, the camera angle and framing (close-up, three-quarter, "
-    "full-body, from above, from below, point of view), and the lighting and mood.\n\n"
-    "Also NEVER transcribe any watermark, website URL, studio name, or text printed on the "
+    "setting or location, the framing (close-up, three-quarter, full-body, from above, "
+    "from below), and the lighting and mood. Write as a neutral outside observer of the "
+    "person and their surroundings - describe what is in the scene, not how the picture was "
+    "taken.\n\n"
+    "Never transcribe any watermark, website URL, studio name, or text printed on the "
     "image.\n\n"
     "Output ONE caption as flowing natural-language prose, beginning with the shot type "
     "and framing, then the people and pose, then expression, then clothing/setting, then "
     "lighting and mood - but leaving the shared concept itself UNSPOKEN. Output only the "
-    "caption itself - no preamble, no \"Here is\", no quotation marks, no commentary.")
+    "caption itself - no preamble, no reasoning, no \"Here is\", no quotation marks, no "
+    "commentary.")
 
 
 # Passe de RAFFINAGE concept (Joy→Qwen) : JoyCaption est très détaillé mais LITTÉRAL —

@@ -1209,13 +1209,35 @@ _TERMS_STOP = frozenset((
     'bare', 'exposed', 'full', 'close', 'closeup', 'close-up', 'wearing', 'showing'))
 
 
+# A concept training caption must describe the SUBJECT, never the act of image capture.
+# The abliterated Qwen reliably leaks capture-language ("holding a phone to frame the
+# shot", "point-of-view mirror", "capturing her reflection") that the LLM ban-list
+# expansion never fully enumerates - for "a candid mirror selfie" it returned only
+# mirror/self-* variants, so phone/smartphone/camera/reflection leaked into ~45/54
+# captions. This DETERMINISTIC lexicon is unioned into the ban-list whenever the concept
+# is photographic (selfie/mirror/photo/portrait/pov/camera/phone), so those words are
+# ALWAYS scrubbed regardless of the LLM. Reproducible from a fresh clone - no reliance on
+# the flaky expansion for words we already know.
+_CAPTURE_TRIGGERS = ('selfie', 'mirror', 'photo', 'picture', 'portrait', 'camera',
+                     'phone', 'pov', 'point of view', 'snapshot', 'webcam', 'pic ')
+_CAPTURE_LEXICON = frozenset((
+    'selfie', 'self-portrait', 'self-portraiture', 'self-photograph', 'self-shot',
+    'mirror', 'reflection', 'reflected', 'reflective surface',
+    'phone', 'smartphone', 'cellphone', 'cell phone', 'mobile phone', 'iphone',
+    'camera', 'webcam', 'front-facing', 'pov', 'point of view', 'point-of-view'))
+
+
 def _fallback_concept_terms(desc) -> list:
     """Minimal ban-list WITHOUT the LLM: the meaningful words of concept_desc itself
     (always included, even when the LLM expansion succeeds - the user's words are the
-    ground truth)."""
-    words = re.split(r'[^a-zA-Z-]+', (desc or '').lower())
-    return sorted({w.strip('-') for w in words
-                   if len(w.strip('-')) >= 3 and w.strip('-') not in _TERMS_STOP})
+    ground truth), PLUS the capture lexicon when the concept is photographic."""
+    d = (desc or '').lower()
+    words = re.split(r'[^a-zA-Z-]+', d)
+    terms = {w.strip('-') for w in words
+             if len(w.strip('-')) >= 3 and w.strip('-') not in _TERMS_STOP}
+    if any(k in d for k in _CAPTURE_TRIGGERS):
+        terms |= _CAPTURE_LEXICON
+    return sorted(terms)
 
 
 def _concept_terms_re(terms):
@@ -1456,6 +1478,11 @@ def _caption_concept(ds, force, backend):
                     final = _enforce_concept_omission(joycap, leak_re, data, concept_desc,
                                                       describe=describe_image_ollama) or joycap
                     if not _usable_caption(final):
+                        # force=re-do-all: overwrite any stale pre-fix caption with blank
+                        # (trigger-only is valid for a concept LoRA) rather than retain it.
+                        if force and (img.caption or ''):
+                            img.caption = ''
+                            db.session.commit()
                         logger.info('caption concept: no usable caption for image %s -> left blank', img.id)
                         continue
                 img.caption = final[:CAPTION_MAX_CHARS]
@@ -1475,6 +1502,9 @@ def _caption_concept(ds, force, backend):
                     db.session.commit()
                     n += 1
                 else:
+                    if force and (img.caption or ''):
+                        img.caption = ''
+                        db.session.commit()
                     logger.info('caption concept: no usable direct caption for image %s -> left blank', img.id)
         finally:
             unload_vision_model()  # libère la VRAM pour ComfyUI en fin de batch

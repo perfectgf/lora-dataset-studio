@@ -303,3 +303,46 @@ def test_expand_prompt_is_loop_resistant():
     assert 'glistening' not in low and 'dripping' not in low and 'sticky' not in low
     assert 'once' in low and 'stop' in low
     assert '{concept}' in P or '{{' in P                   # placeholder survives .format
+
+
+# --- Deterministic capture lexicon (the phone/camera/reflection leak fix) ---------------
+def test_fallback_terms_inject_capture_lexicon_for_selfie():
+    """A photographic concept ALWAYS bans the full capture vocabulary, even though the LLM
+    expansion for 'a candid mirror selfie' only ever returned mirror/self-* variants."""
+    terms = set(svc._fallback_concept_terms('a candid mirror selfie'))
+    for must in ('phone', 'smartphone', 'camera', 'reflection', 'selfie', 'mirror',
+                 'pov', 'point of view', 'webcam'):
+        assert must in terms, f'{must!r} must be banned for a selfie concept'
+    assert 'candid' in terms                                # the desc's own words too
+
+
+def test_fallback_terms_trigger_variants():
+    """Any photographic keyword in the desc pulls in the lexicon (not just 'selfie')."""
+    for desc in ('a phone selfie', 'a bathroom mirror shot', 'a webcam photo',
+                 'a candid self-portrait', 'a POV picture'):
+        terms = set(svc._fallback_concept_terms(desc))
+        assert {'phone', 'camera', 'reflection'} <= terms, desc
+
+
+def test_fallback_terms_no_lexicon_for_nonphotographic_concept():
+    """A non-photographic concept must NOT drag in phone/camera (those would wrongly scrub
+    legitimate description in an unrelated dataset)."""
+    terms = set(svc._fallback_concept_terms('a red balloon'))
+    assert 'phone' not in terms and 'camera' not in terms and 'selfie' not in terms
+    assert 'red' in terms and 'balloon' in terms
+
+
+def test_leak_re_from_lexicon_catches_real_leaks():
+    """End-to-end: the regex built from the selfie ban-list matches the exact phrasings
+    that leaked in the live run (smartphone, standalone camera/mirror/reflection)."""
+    leak_re = svc._concept_terms_re(svc._fallback_concept_terms('a candid mirror selfie'))
+    for leaky in (
+        'She holds a black smartphone in her right hand to frame the image.',
+        'a woman holding a phone to capture her reflection in the mirror',
+        'Close-up framing captures a woman angled toward the camera.',
+        'A point of view reflection shot in the bathroom.',
+    ):
+        assert leak_re.search(leaky), leaky
+    # a clean caption (no capture-language) must NOT trip the detector
+    assert not leak_re.search(
+        'Full-body shot of a woman with dark hair in a sunlit bedroom, soft warm light.')
