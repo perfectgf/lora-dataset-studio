@@ -28,9 +28,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const [variant, setVariant] = useState('turbo');
   // Type de LoRA : 'zimage' (défaut, encodeur Qwen3-4B) ou 'sdxl' (checkpoints ComfyUI).
   const [trainType, setTrainType] = useState('zimage');
-  // Réglages ai-toolkit avancés éditables (rank / resolution / save_every), chargés
-  // depuis base-info ; persistés par POST /train/settings via ds.setTrainSettings.
+  // Réglages ai-toolkit avancés éditables (rank / resolution / save_every /
+  // sample_every / sample_prompts), chargés depuis base-info ; persistés par POST
+  // /train/settings via ds.setTrainSettings.
   const [adv, setAdv] = useState(null);
+  // Textarea des prompts de preview : état local (édition libre), sauvé au blur —
+  // resynchronisé sur la valeur stockée canonique chaque fois que `adv` arrive/change.
+  const [samplePromptsText, setSamplePromptsText] = useState('');
 
   const refreshStatus = async () => {
     try {
@@ -123,9 +127,23 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const advEffAlpha = trainType === 'sdxl' ? Math.max(1, Math.floor(advEffRank / 2)) : advEffRank;
   const advRes = adv?.resolution ?? '768,1024';
   const advSave = adv?.save_every ?? 250;
+  const advSampleEvery = adv?.sample_every ?? 250;
+  const advSampleEveryChoices = adv?.sample_every_choices ?? [100, 250, 500, 1000];
+  const advSampleDefault = adv?.sample_prompts_default ?? [];
+  const advMaxPrompts = adv?.max_sample_prompts ?? 8;
   const saveAdv = async (patch) => {
     const eff = await ds.setTrainSettings?.(patch);
     if (eff) setAdv(eff);
+  };
+  // Seed / re-sync the preview-prompts textarea from the stored value whenever
+  // base-info (re)loads. Save is on blur, so the user is never mid-typing here.
+  useEffect(() => {
+    setSamplePromptsText((adv?.sample_prompts ?? []).join('\n'));
+  }, [adv?.sample_prompts]);
+  const saveSamplePrompts = () => {
+    const stored = (adv?.sample_prompts ?? []).join('\n');
+    if (samplePromptsText === stored) return;      // no-op → skip the round-trip
+    saveAdv({ sample_prompts: samplePromptsText }); // server splits on newlines + trims
   };
 
   // Normalizes like useDataset's own postJson: a non-2xx response (e.g. the
@@ -602,6 +620,37 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 <b className="text-content-muted font-medium">Why:</b> how often a checkpoint is written.
                 <b className="text-content-muted font-medium"> How:</b> finer (250) gives more epochs to pick the
                 least-overfit one in the Test Studio; coarser saves disk. Only the last 10 are kept.
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-content text-[0.75rem] w-28 shrink-0">Preview every</span>
+                <select value={String(advSampleEvery)} onChange={(e) => saveAdv({ sample_every: Number(e.target.value) })}
+                  aria-label="Preview sample frequency"
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                  {advSampleEveryChoices.map((n) => (
+                    <option key={n} value={String(n)}>every {n} steps</option>
+                  ))}
+                </select>
+              </div>
+              <label className="flex flex-col gap-1 mt-1">
+                <span className="text-content text-[0.75rem]">Preview prompts</span>
+                <textarea value={samplePromptsText}
+                  onChange={(e) => setSamplePromptsText(e.target.value)}
+                  onBlur={saveSamplePrompts}
+                  rows={4}
+                  placeholder={advSampleDefault.length ? advSampleDefault.join('\n') : 'one prompt per line'}
+                  aria-label="Preview sample prompts, one per line"
+                  className="px-2 py-1.5 rounded-lg border border-border bg-surface text-content text-[0.75rem] font-mono leading-relaxed resize-y placeholder:text-content-subtle" />
+              </label>
+              <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                <b className="text-content-muted font-medium">Why:</b> these are the test images ai-toolkit renders
+                during the run so you can watch the LoRA learn (and later pick the best epoch).
+                <b className="text-content-muted font-medium"> How:</b> one prompt per line, up to {advMaxPrompts}. Your
+                trigger word is added automatically if you leave it out. {concept
+                  ? 'Leave empty for concept-friendly defaults (the greyed text) — the portrait wording only fits a person LoRA.'
+                  : 'Leave empty for the portrait defaults shown greyed.'}
               </span>
             </div>
           </div>

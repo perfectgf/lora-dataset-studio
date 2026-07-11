@@ -601,3 +601,69 @@ def test_update_train_settings_persists_validates_and_applies(app, tmp_path):
             lt.update_train_settings(LOCAL_USER, ds.id, {'save_every': 123})
         eff2 = lt.update_train_settings(LOCAL_USER, ds.id, {'rank': 'auto'})  # clears to default
         assert eff2['rank'] is None and eff2['effective_rank'] == 32
+
+
+def test_sample_prompts_defaults_are_kind_aware(app):
+    """Preview defaults differ by kind: a character LoRA gets the portrait battery,
+    a concept LoRA gets the concept alone (portrait wording would drag it off-topic).
+    Both are surfaced trigger-resolved for the UI placeholder; nothing is stored yet."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        char = svc.create_dataset(LOCAL_USER, 'P', 'ptrig', train_type='zimage')
+        con = svc.create_dataset(LOCAL_USER, 'C', 'ctrig', train_type='zimage',
+                                 kind='concept', concept_desc='a mirror selfie')
+        ce = lt.effective_train_settings(char)
+        assert ce['sample_every'] == 250 and ce['sample_prompts'] == []
+        # character default = portrait battery, trigger baked in for the placeholder
+        assert any('portrait' in p for p in ce['sample_prompts_default'])
+        assert all(p.startswith('ptrig') for p in ce['sample_prompts_default'])
+        # concept default = the trigger alone, never portrait/headshot wording
+        cd = lt.effective_train_settings(con)['sample_prompts_default']
+        assert 'ctrig' in cd
+        assert not any('portrait' in p or 'headshot' in p for p in cd)
+
+
+def test_sample_prompts_custom_persist_inject_and_build(app, tmp_path):
+    """Custom preview prompts persist raw, auto-prepend the trigger when missing (so
+    the preview actually exercises the LoRA) but never double it, and flow into
+    build_job_config. sample_every is validated against its choice set."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        folder = tmp_path / 'ds'; folder.mkdir()
+        ds = svc.create_dataset(LOCAL_USER, 'Z', 'ztrig', train_type='zimage')
+        eff = lt.update_train_settings(LOCAL_USER, ds.id, {
+            'sample_prompts': ['on a beach at sunset', 'ztrig in the snow'],
+            'sample_every': 500,
+        })
+        assert eff['sample_every'] == 500
+        assert eff['sample_prompts'] == ['on a beach at sunset', 'ztrig in the snow']  # stored raw
+        p = lt.build_job_config(ds, str(folder), 1500)['config']['process'][0]['sample']
+        assert p['sample_every'] == 500
+        # line 1 had no trigger → prepended; line 2 already had it → untouched (not doubled)
+        assert p['prompts'] == ['ztrig, on a beach at sunset', 'ztrig in the snow']
+        with pytest.raises(ValueError):
+            lt.update_train_settings(LOCAL_USER, ds.id, {'sample_every': 300})   # not in choices
+
+
+def test_sample_prompts_string_cap_and_reset(app):
+    """A newline string is accepted (UI convenience), blanks dropped, list capped at
+    _MAX_SAMPLE_PROMPTS, and an empty value resets to the kind defaults."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Z', 'ztrig', train_type='zimage')
+        many = '\n'.join(f'scene {i}' for i in range(20))
+        eff = lt.update_train_settings(LOCAL_USER, ds.id, {'sample_prompts': many})
+        assert len(eff['sample_prompts']) == lt._MAX_SAMPLE_PROMPTS      # capped
+        eff2 = lt.update_train_settings(LOCAL_USER, ds.id, {'sample_prompts': 'a\n\n   \nb'})
+        assert eff2['sample_prompts'] == ['a', 'b']                      # blanks dropped
+        eff3 = lt.update_train_settings(LOCAL_USER, ds.id, {'sample_prompts': ''})
+        assert eff3['sample_prompts'] == []                             # cleared → defaults
+        assert any('portrait' in p for p in lt._sample_prompts(ds, 'ztrig'))

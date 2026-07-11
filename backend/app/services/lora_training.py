@@ -315,6 +315,79 @@ def _save_every(ds) -> int:
     return v if v in _SAVE_CHOICES else 250
 
 
+# --- Prompts de preview (sample) -----------------------------------------------
+# ai-toolkit génère une image par prompt tous les `sample_every` steps pendant le
+# run (dossier .../samples), pour voir le LoRA converger. Les défauts historiques
+# décrivaient un VISAGE (« close-up portrait, headshot… ») — hors sujet pour un
+# dataset « concept ». D'où un défaut distinct selon le kind, et un override total
+# par l'utilisateur (Advanced options → Preview prompts).
+_SAMPLE_EVERY_CHOICES = (100, 250, 500, 1000)
+_MAX_SAMPLE_PROMPTS = 8   # 1 image générée / prompt / palier → borne le coût des previews
+
+_DEFAULT_SAMPLE_PROMPTS_CHARACTER = [
+    '{trigger}, close-up portrait, neutral expression',
+    '{trigger}, headshot, soft studio light',
+    '{trigger}, full body, walking outdoors, smiling',
+    '{trigger}, sitting in a cafe, casual outfit',
+]
+# Un concept n'est pas un visage : on l'exerce seul sous quelques cadrages neutres
+# (le vocabulaire « portrait / headshot » tirerait un LoRA non-visage hors sujet).
+_DEFAULT_SAMPLE_PROMPTS_CONCEPT = [
+    '{trigger}',
+    '{trigger}, high detail, sharp focus',
+    '{trigger}, wide shot',
+    '{trigger}, cinematic lighting',
+]
+
+
+def _default_sample_prompts(ds) -> list:
+    return list(_DEFAULT_SAMPLE_PROMPTS_CONCEPT if fds.is_concept(ds)
+                else _DEFAULT_SAMPLE_PROMPTS_CHARACTER)
+
+
+def _inject_trigger(prompt: str, trigger: str) -> str:
+    """Une preview DOIT solliciter le LoRA : si la ligne ne mentionne pas déjà le
+    trigger (insensible à la casse), on le préfixe — sinon l'image teste le modèle
+    de base, pas l'entraînement en cours."""
+    p = (prompt or '').strip()
+    if not trigger:
+        return p
+    if not p:
+        return trigger
+    return p if trigger.lower() in p.lower() else f'{trigger}, {p}'
+
+
+def _resolved_default_sample_prompts(ds, trigger) -> list:
+    """Défauts (selon le kind) avec `{trigger}` substitué — pour l'aperçu UI."""
+    return [_inject_trigger(l.replace('{trigger}', trigger), trigger)
+            for l in _default_sample_prompts(ds)]
+
+
+def _sample_prompts(ds, trigger) -> list:
+    """Prompts de preview effectifs : liste custom de train_settings si présente,
+    sinon défaut selon le kind. `{trigger}` (placeholder explicite) ET le trigger en
+    clair sont gérés ; le trigger est auto-préfixé s'il manque. Toujours ≥1 prompt,
+    ≤_MAX_SAMPLE_PROMPTS (borne le nombre d'images générées par palier)."""
+    raw = _train_settings(ds).get('sample_prompts')
+    tmpl = raw if (isinstance(raw, list)
+                   and any(isinstance(x, str) and x.strip() for x in raw)) \
+        else _default_sample_prompts(ds)
+    out = []
+    for line in tmpl:
+        if not isinstance(line, str) or not line.strip():
+            continue
+        resolved = line.replace('{trigger}', trigger) if '{trigger}' in line else line
+        out.append(_inject_trigger(resolved, trigger))
+        if len(out) >= _MAX_SAMPLE_PROMPTS:
+            break
+    return out or [_inject_trigger('', trigger)]
+
+
+def _sample_every(ds) -> int:
+    v = _train_settings(ds).get('sample_every')
+    return v if v in _SAMPLE_EVERY_CHOICES else 250
+
+
 def effective_train_settings(ds, family=None) -> dict:
     """Réglages pour la famille courante — ce que « Advanced options » affiche et
     ce que build_job_config enverra. `rank` = choix STOCKÉ (None = auto/défaut) pour
@@ -325,18 +398,27 @@ def effective_train_settings(ds, family=None) -> dict:
     stored_rank = s.get('rank') if s.get('rank') in _RANK_CHOICES else None
     eff_rank = stored_rank if stored_rank else _DEFAULT_RANK.get(fam, 32)
     res = s.get('resolution')
+    trig = _safe_trigger(ds)
+    stored_prompts = s.get('sample_prompts')
     return {'rank': stored_rank,                       # None → Auto (défaut family-aware)
             'effective_rank': eff_rank,                # ce qui part à ai-toolkit
             'alpha': _lora_alpha(eff_rank, fam),
             'default_rank': _DEFAULT_RANK.get(fam, 32),
             'resolution': res if res in _RES_CHOICES else '768,1024',
-            'save_every': _save_every(ds)}
+            'save_every': _save_every(ds),
+            'sample_every': _sample_every(ds),
+            # liste STOCKÉE brute (telle que tapée) ou [] → textarea vide = « défauts ».
+            'sample_prompts': stored_prompts if isinstance(stored_prompts, list) else [],
+            # défaut résolu (kind + trigger courant) : placeholder/aperçu quand vide.
+            'sample_prompts_default': _resolved_default_sample_prompts(ds, trig),
+            'sample_every_choices': list(_SAMPLE_EVERY_CHOICES),
+            'max_sample_prompts': _MAX_SAMPLE_PROMPTS}
 
 
 def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
-    """Valide + fusionne un patch {rank?, resolution?, save_every?} dans
-    train_settings. Une clé à None/'auto' est RETIRÉE (retour au défaut family).
-    Retourne les réglages effectifs pour la famille courante."""
+    """Valide + fusionne un patch {rank?, resolution?, save_every?, sample_every?,
+    sample_prompts?} dans train_settings. Une clé à None/'auto'/vide est RETIRÉE
+    (retour au défaut). Retourne les réglages effectifs pour la famille courante."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
@@ -361,6 +443,27 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
             cur['save_every'] = v
         else:
             raise ValueError(f'save_every must be one of {_SAVE_CHOICES}')
+    if 'sample_every' in patch:
+        v = patch['sample_every']
+        if v in _SAMPLE_EVERY_CHOICES:
+            cur['sample_every'] = v
+        else:
+            raise ValueError(f'sample_every must be one of {_SAMPLE_EVERY_CHOICES}')
+    if 'sample_prompts' in patch:
+        v = patch['sample_prompts']
+        # Accepte aussi une string multi-lignes (une par prompt) pour le confort UI.
+        if isinstance(v, str):
+            v = v.splitlines()
+        if v in (None, ''):
+            cur.pop('sample_prompts', None)               # vide → retour aux défauts kind-aware
+        elif isinstance(v, list):
+            cleaned = [str(x).strip() for x in v if str(x).strip()][:_MAX_SAMPLE_PROMPTS]
+            if cleaned:
+                cur['sample_prompts'] = cleaned
+            else:
+                cur.pop('sample_prompts', None)
+        else:
+            raise ValueError('sample_prompts must be a list of strings (or empty to reset)')
     ds.train_settings = json.dumps(cur) if cur else None
     fds.db.session.commit()
     return effective_train_settings(ds)
@@ -583,15 +686,10 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
                 'sample': {
                     'sampler': 'flowmatch',
                     'neg': '',   # cohérence avec SDXL : défaut ai-toolkit = False (booléen) → fragile
-                    'sample_every': 250,
+                    'sample_every': _sample_every(ds),
                     'guidance_scale': guidance,
                     'sample_steps': sample_steps,
-                    'prompts': [
-                        f'{trigger}, close-up portrait, neutral expression',
-                        f'{trigger}, headshot, soft studio light',
-                        f'{trigger}, full body, walking outdoors, smiling',
-                        f'{trigger}, sitting in a cafe, casual outfit',
-                    ],
+                    'prompts': _sample_prompts(ds, trigger),
                 },
             }],
         },
@@ -668,16 +766,11 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
                 'sample': {
                     'sampler': 'flowmatch',
                     'neg': '',
-                    'sample_every': 250,
+                    'sample_every': _sample_every(ds),
                     # Turbo (distillé) : cfg 1 / 8 steps ; Raw (non distillé) : cfg 4 / 25 steps.
                     'guidance_scale': 4 if is_raw else 1,
                     'sample_steps': 25 if is_raw else 8,
-                    'prompts': [
-                        f'{trigger}, close-up portrait, neutral expression',
-                        f'{trigger}, headshot, soft studio light',
-                        f'{trigger}, full body, walking outdoors, smiling',
-                        f'{trigger}, sitting in a cafe, casual outfit',
-                    ],
+                    'prompts': _sample_prompts(ds, trigger),
                 },
             }],
         },
@@ -735,15 +828,10 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int) -> dict:
                     # baseline (« text input must be of type str »). SDXL crashait juste avant la
                     # 1re step. '' est un str valide → sample sans négatif (voulu pour un LoRA sujet).
                     'neg': '',
-                    'sample_every': 250,
+                    'sample_every': _sample_every(ds),
                     'guidance_scale': 6,
                     'sample_steps': 28,
-                    'prompts': [
-                        f'{trigger}, close-up portrait, neutral expression',
-                        f'{trigger}, headshot, soft studio light',
-                        f'{trigger}, full body, walking outdoors, smiling',
-                        f'{trigger}, sitting in a cafe, casual outfit',
-                    ],
+                    'prompts': _sample_prompts(ds, trigger),
                 },
             }],
         },
