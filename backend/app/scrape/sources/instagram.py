@@ -361,7 +361,7 @@ from . import registry
 class InstagramSource(Source):
     name = 'instagram'
     priority = 100
-    category = 'image'   # classé image (demande user) → ouvert aux non-admins
+    category = 'image'   # classé image (choix produit) → ouvert aux non-admins
     capabilities = Capabilities(can_enumerate_profile=True, needs_auth=True, own_downloader=False)
 
     def match(self, url):

@@ -446,7 +446,7 @@ from . import registry
 class PicazorSource(Source):
     name = 'picazor'
     priority = 100
-    category = 'image'   # classé image (demande user) → ouvert aux non-admins
+    category = 'image'   # classé image (choix produit) → ouvert aux non-admins
     capabilities = Capabilities(can_enumerate_profile=True,
                                 media_kinds=frozenset({'video', 'image'}),
                                 own_downloader=True)

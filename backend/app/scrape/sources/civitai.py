@@ -22,7 +22,7 @@ from .gdl_source import GalleryDlSource, resolve_cookies
 from . import gdl
 from . import registry
 
-# token.txt du skill civitai-download (homelab user) — dernier recours si ni
+# token.txt hérité d’un outil local (dernier recours si ni
 # l'env ni le dossier cookies admin ne fournissent la clé.
 _SKILL_TOKEN_PATH = os.path.expanduser('~/.claude/skills/civitai-download/token.txt')
 

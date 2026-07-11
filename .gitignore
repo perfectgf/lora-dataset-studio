@@ -32,3 +32,6 @@ Thumbs.db
 .superpowers/
 .claude/
 .playwright-mcp/
+
+# internal planning artifacts (local machine paths) — keep local, never publish
+docs/superpowers/

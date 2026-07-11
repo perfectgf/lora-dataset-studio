@@ -10,7 +10,7 @@ gallery-dl (extracteur `pornpics`) reconnaît nativement ces pages catégorie
 file de galeries, chaque galerie énumère ses images. Contenu public (pas d'auth).
 
 NB historique : Realbooru + ImageFap retirés (sites de mauvaise qualité / risque
-sécu, demande user 2026-06-27) ; Motherless retiré avant (DNS injoignable).
+sécu, demande utilisateur 2026-06-27) ; Motherless retiré avant (DNS injoignable).
 
 L'énumération du listing et le téléchargement sont délégués à gdl.py via
 GalleryDlSource.
@@ -32,7 +32,7 @@ _PHOTO_CAPS = Capabilities(
 
 # Plafond d'items remontés par un scan. Bien plus haut que le défaut gdl (120) :
 # une catégorie PornPics pagine sur PLUSIEURS galeries (gdl.enumerate récurse dans
-# les albums type 6) et user veut la catégorie, pas juste la 1re galerie.
+# les albums type 6) et on veut la catégorie entière, pas juste la 1re galerie.
 # gallery-dl auto-pagine ; --range 1-N borne juste le total (les --simulate restent
 # rapides, métadonnées seules).
 _PHOTO_SCAN_MAX = 400
