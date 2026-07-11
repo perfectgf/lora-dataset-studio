@@ -449,17 +449,24 @@ CAPTION_REFINE_CONCEPT_PROMPT = (
 # GÉNÉRATION amorce l'effet « éléphant rose » ; la robustesse vient de la vérification en
 # sortie + correction ciblée. Format JSON objet (le grammar-mode d'Ollama produit un objet
 # plus fiablement qu'un tableau nu). Accolades DOUBLÉES → survivent au .format(concept=…).
+# Loop-resistant on purpose: the earlier version listed residue examples ("glistening,
+# dripping, sticky, white substance") and asked for 8-25 terms — the abliterated Qwen
+# latched onto the examples and looped combinatorially ("mirror selfie shot",
+# "self-portrait photograph"…) past the token budget, leaving an UNCLOSED array that
+# json.loads rejected → empty ban-list → the concept leaked into every caption. So: no
+# seeding examples, "each term once, then STOP", 6-15 terms, and an explicit ban on
+# listing the PEOPLE/body/clothing (which must stay DESCRIBED, never scrubbed).
 EXPAND_CONCEPT_TERMS_PROMPT = (
-    "Ignore the attached image entirely. You are building a caption BLOCKLIST.\n"
+    "Ignore the attached image entirely. You are building a caption BLOCKLIST for a "
+    "CONCEPT training set.\n"
     "Concept: \"{concept}\".\n"
-    "List every English word or short phrase (3 words max) that a photo captioner might "
-    "use to NAME this concept or its direct components: synonyms, slang, anatomical or "
-    "clothing names, verb forms (e.g. licking, licked, licks), singular and plural, AND "
-    "words describing its visible appearance, texture or residue (e.g. for a fluid: "
-    "glistening, dripping, sticky, white substance).\n"
-    "Do NOT include generic words that also describe unrelated things (colors, 'woman', "
-    "'bare', 'skin', 'close-up', 'wet').\n"
-    "Output ONLY a JSON object: {{\"terms\": [\"...\", \"...\"]}} with 8-25 lowercase strings.")
+    "List the words and short phrases (max 3 words) a photo captioner would use to NAME "
+    "this concept itself, or the object, device, surface or action that shows it - plus "
+    "close synonyms and singular/plural forms.\n"
+    "Rules: ONLY words that specifically point to the concept. Do NOT list the people, "
+    "their body, skin, clothing, colours, pose, expression or setting. Each term at most "
+    "ONCE - never repeat a word or pad with combinations. Give 6 to 15 terms, then STOP.\n"
+    "Output ONLY a JSON object: {{\"terms\": [\"term one\", \"term two\"]}}")
 
 
 # Réécriture CORRECTIVE après détection de fuite : on nomme les mots EXACTS qui ont fui

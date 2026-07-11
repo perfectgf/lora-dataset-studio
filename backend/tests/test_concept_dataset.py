@@ -227,3 +227,79 @@ def test_update_settings_concept_desc_ignored_on_character(app):
 def test_update_settings_missing_dataset_returns_none(app):
     with app.app_context():
         assert svc.update_dataset_settings(LOCAL_USER, 999999, name='x') is None
+
+
+# --- Ban-list parser: salvage the looping/unclosed JSON the abliterated Qwen emits ----
+# Real failure mode (2026-07): the model lists the good concept terms first, then loops
+# into combinatorial padding and never closes the array -> json.loads fails. The OLD
+# parser returned [] -> empty ban-list -> the concept leaked into EVERY caption. The new
+# parser must salvage the leading terms, keep order, de-dup, and cap.
+def test_parse_terms_json_clean_object():
+    out = svc._parse_terms_json('noise {"terms": ["Mirror", "phone", "selfie"]} trailing')
+    assert out == ['mirror', 'phone', 'selfie']            # order kept, lowercased
+
+
+def test_parse_terms_json_salvages_unclosed_loop():
+    raw = ('{ "terms": ["mirror selfie", "self-portrait", "reflection", "camera", '
+           '"phone", "selfie", "mirror", "mirror selfie shot", "self-portrait photo", '
+           '"mirror image capture", "selfie')  # LOOPING + never closed (no final ] })
+    out = svc._parse_terms_json(raw)
+    # the concept-specific leaders survive even though json.loads can't parse this
+    for t in ('mirror selfie', 'self-portrait', 'reflection', 'camera', 'phone', 'selfie', 'mirror'):
+        assert t in out
+    assert out == list(dict.fromkeys(out))                 # de-duped, order preserved
+    assert len(out) <= 25                                  # padding can't dominate
+
+
+def test_parse_terms_json_dedupes_and_drops_stopwords():
+    raw = '{"terms": ["mirror", "mirror", "the", "a", "in", "phone", "bare"]}'
+    # 'the'/'in'/'bare' are stopwords, 'a' is too short -> only the real terms, once each
+    assert svc._parse_terms_json(raw) == ['mirror', 'phone']
+
+
+def test_parse_terms_json_no_terms_returns_empty():
+    assert svc._parse_terms_json('sorry, I cannot help with that') == []
+    assert svc._parse_terms_json('') == []
+
+
+# --- Reasoning-trace / degenerate caption rejection (the ~5 broken captions) -----------
+def test_refine_output_rejects_reasoning_traces():
+    prior = 'a detailed joycaption draft describing the whole scene at length' * 2
+    # Reasoning/meta phrasings are rejected by BOTH gates (never committed, never a refine).
+    for bad in (
+        'Yes, this describes the mirror frame, the floor and the bed, but not the concept.',
+        'The original caption says the lighting is soft and even, which is correct.',
+        'Now, check for leaked words - none. The caption looks clean enough.',
+        'We need to remove the mirror and rephrase around it so the prose stays natural.',
+    ):
+        assert svc._refine_output_ok(bad, prior) is False
+        assert svc._usable_caption(bad) is False
+
+
+def test_refine_output_rejects_degenerate_but_usable_allows_terse():
+    prior = 'a long joycaption draft describing the whole scene in rich detail here'
+    # A degenerate one-liner is bounced from the REFINE (too short -> fall back to direct),
+    # but _usable_caption does NOT gate on length (a terse post-scrub caption still commits;
+    # the truly degenerate case is scrubbed to empty upstream and rejected by the blank check).
+    assert svc._refine_output_ok('taking a picture', prior) is False
+    assert svc._usable_caption('taking a picture') is True
+    assert svc._usable_caption('') is False
+    assert svc._usable_caption('   ') is False
+
+
+def test_refine_output_accepts_clean_caption():
+    prior = 'joy draft'
+    good = ('Full-body shot framed by a wooden doorway, a woman with dark hair tied back '
+            'stands in a sunlit bedroom, her expression calm, soft warm light across the floor.')
+    assert svc._refine_output_ok(good, good) is True
+    assert svc._usable_caption(good) is True
+
+
+def test_expand_prompt_is_loop_resistant():
+    """Guard against reintroducing the loop-seeding examples: the prompt must NOT list
+    residue examples and MUST tell the model to emit each term once and stop."""
+    from app.services.face_variations import EXPAND_CONCEPT_TERMS_PROMPT as P
+    low = P.lower()
+    assert 'glistening' not in low and 'dripping' not in low and 'sticky' not in low
+    assert 'once' in low and 'stop' in low
+    assert '{concept}' in P or '{{' in P                   # placeholder survives .format

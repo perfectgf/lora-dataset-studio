@@ -1161,20 +1161,43 @@ def classify_images(user_id, dataset_id):
 # The abliterated Qwen3-VL SOMETIMES emits its reasoning trace ("the task says... we
 # need to remove...") or an infinite loop instead of the refined caption - seen ~1/4
 # of images. We detect these unusable outputs to fall back on a DIRECT Qwen caption.
+# Matches the reasoning/meta phrasings the abliterated Qwen leaks INSTEAD of a caption.
+# Widened after real leaks slipped through ("Yes, this describes…", "The original caption
+# says…", "Now, check for…", "I think this works"): allow words between "the task/caption"
+# and its verb, and add the yes/now/check/i-think markers. Descriptive prose essentially
+# never contains these, so a false reject just falls back to a direct caption - cheap.
 _REFINE_REASONING_RE = re.compile(
-    r'\b(the (?:problem|instruction|task|draft|original) (?:says|mentions|has)'
-    r'|we (?:need|can|should) to (?:remove|rephrase|avoid)'
-    r'|so we (?:need|can|should)|let me |\brephrase\b|\bwait,'
-    r'|now, (?:remove|the|rephrase|let|we))', re.I)
+    r'(?:'
+    r'\bthe (?:problem|instruction|task|draft|original|caption)(?:\s+\w+){0,4}\s+'
+    r'(?:says?|said|mentions?|has|reads?|describes?|is)\b'
+    r'|\bwe (?:need|can|should) to (?:remove|rephrase|avoid|describe|keep)'
+    r'|\bso we (?:need|can|should)\b'
+    r'|\blet me\b|\brephrase\b|\bwait,|\bnow,\s|\bcheck for\b'
+    r'|\bi think\b|\bi need to\b|\byes,\s+(?:this|that|the|we|it|but)'
+    r')', re.I)
+
+# A concept caption is scene-exhaustive prose; anything this short is a degenerate
+# output (e.g. "taking a picture") that just names the concept - never a real caption.
+_MIN_CONCEPT_CAPTION_CHARS = 40
 
 
 def _refine_output_ok(text, prior) -> bool:
-    """True if `text` looks like a CLEAN caption - neither the Qwen reasoning trace
-    nor a loop/rambling (bounded to ~2x the source caption `prior`)."""
+    """True if `text` looks like a CLEAN caption - not the Qwen reasoning trace, not a
+    degenerate one-liner, not a loop/rambling (bounded to ~2x the source caption `prior`)."""
     t = (text or '').strip()
-    if not t or _REFINE_REASONING_RE.search(t):
+    if len(t) < _MIN_CONCEPT_CAPTION_CHARS or _REFINE_REASONING_RE.search(t):
         return False
     return len(t) <= 2 * len(prior or '') + 400
+
+
+def _usable_caption(text) -> bool:
+    """A committable concept caption: non-empty prose that is NOT a reasoning trace.
+    Length is deliberately NOT gated here - a legitimately terse caption left after the
+    clause-scrub must still commit; only the refine-vs-fallback choice (_refine_output_ok)
+    weighs length. A degenerate "taking a picture" is handled upstream: the ban-list
+    scrubs the concept out, leaving an empty string this rejects."""
+    t = (text or '').strip()
+    return bool(t) and not _REFINE_REASONING_RE.search(t)
 
 
 # Words from concept_desc that are never discriminating (articles + generic adjectives
@@ -1230,25 +1253,37 @@ def _scrub_concept_clauses(caption, leak_re):
 
 
 def _parse_terms_json(raw) -> list:
-    """Extract {"terms": [...]} from an LLM output (tolerates noise around the object)."""
+    """Extract the term list from an LLM blocklist reply. Tolerates noise around the
+    object AND — critically for the abliterated Qwen, which frequently LOOPS and never
+    closes the JSON array (so json.loads fails) — salvages the quoted strings directly,
+    KEEPING their order: the model emits the good, concept-specific terms first, then
+    combinatorial padding ("mirror selfie shot", "self-portrait photograph"…). Ordered
+    de-dup (the loop repeats), stopwords dropped, capped so the padding can't dominate."""
     raw = raw or ''
+    terms = None
     start, end = raw.find('{'), raw.rfind('}')
-    if start < 0 or end <= start:
-        return []
-    try:
-        data = json.loads(raw[start:end + 1])
-    except ValueError:
-        return []
-    terms = data.get('terms') if isinstance(data, dict) else None
-    if not isinstance(terms, list):
-        return []
-    out = []
+    if 0 <= start < end:
+        try:
+            data = json.loads(raw[start:end + 1])
+            if isinstance(data, dict) and isinstance(data.get('terms'), list):
+                terms = data['terms']
+        except ValueError:
+            terms = None
+    if terms is None:
+        # Unclosed/looping array → pull the quoted strings after "terms" in order.
+        m = re.search(r'"terms"\s*:\s*\[(.*)', raw, re.S)
+        terms = re.findall(r'"([^"\\]{1,60})"', m.group(1) if m else raw)
+    out, seen = [], set()
     for t in terms:
-        if isinstance(t, str):
-            t = t.strip().lower()
-            if 3 <= len(t) <= 40 and t not in _TERMS_STOP:
-                out.append(t)
-    return sorted(set(out))[:40]
+        if not isinstance(t, str):
+            continue
+        t = t.strip().lower()
+        if 3 <= len(t) <= 40 and t not in _TERMS_STOP and t not in seen:
+            seen.add(t)
+            out.append(t)
+            if len(out) >= 25:
+                break
+    return out
 
 
 def _get_concept_terms(ds, image_path=None, describe=None) -> list:
@@ -1272,7 +1307,10 @@ def _get_concept_terms(ds, image_path=None, describe=None) -> list:
                 raw = describe(
                     fh.read(),
                     EXPAND_CONCEPT_TERMS_PROMPT.format(concept=(ds.concept_desc or '').strip()),
-                    num_predict=5000, prefer_json=True, fmt='json',
+                    # 1200 is ample for a 6-15 term list; keeping it tight bounds the
+                    # abliterated model's combinatorial loop so the salvage in
+                    # _parse_terms_json keeps the good leading terms.
+                    num_predict=1200, prefer_json=True, fmt='json',
                     keep_alive=_VISION_BATCH_KEEPALIVE)
         except OSError:
             raw = ''
@@ -1412,6 +1450,14 @@ def _caption_concept(ds, force, backend):
                     final = alt or joycap
                 final = _enforce_concept_omission(final, leak_re, data, concept_desc,
                                                   describe=describe_image_ollama) or final
+                if not _usable_caption(final):
+                    # Refine AND direct both unusable → fall back to the Joy draft (clean
+                    # prose), scrubbed of any leak; leave blank if even that fails.
+                    final = _enforce_concept_omission(joycap, leak_re, data, concept_desc,
+                                                      describe=describe_image_ollama) or joycap
+                    if not _usable_caption(final):
+                        logger.info('caption concept: no usable caption for image %s -> left blank', img.id)
+                        continue
                 img.caption = final[:CAPTION_MAX_CHARS]
                 db.session.commit()
                 n += 1
@@ -1424,9 +1470,12 @@ def _caption_concept(ds, force, backend):
                 if cap:
                     cap = _enforce_concept_omission(cap, leak_re, data, concept_desc,
                                                     describe=describe_image_ollama) or cap
+                if _usable_caption(cap):
                     img.caption = cap[:CAPTION_MAX_CHARS]
                     db.session.commit()
                     n += 1
+                else:
+                    logger.info('caption concept: no usable direct caption for image %s -> left blank', img.id)
         finally:
             unload_vision_model()  # libère la VRAM pour ComfyUI en fin de batch
     return n
