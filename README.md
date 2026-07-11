@@ -128,12 +128,25 @@ This builds and runs the API-only mode (see `Dockerfile` / `docker-compose.yml`)
 
 Both keys are stored in a git-ignored `.env` file (see `.env.example`) — they're never written to `config.json` and never committed.
 
-## Hardware notes
+## Minimum requirements
 
-- **API-only**: any machine that runs Python 3.11+. No GPU needed.
-- **Local GPU (Klein / Z-Image inference)**: NVIDIA GPU with 12 GB+ VRAM recommended.
-- **Training**: VRAM requirements vary by family (Z-Image, SDXL, Krea 2) — check the relevant ai-toolkit job preset before starting a run.
-- **Face scoring / masks**: the CPU-only ML extras (`insightface`, `onnxruntime`, `rembg`) don't touch the GPU.
+The app scales from "no GPU at all" to a full local training rig — each capability
+has its own floor, and everything degrades gracefully (missing pieces are simply
+hidden or guided through Setup).
+
+| Mode / capability | GPU (NVIDIA) | Disk | Notes |
+|---|---|---|---|
+| **API-only** (generate via Gemini/ChatGPT, curate, caption via API, export ZIP) | none | ~2 GB | Any machine with Python 3.10–3.12; Docker image available |
+| **Auto-captioning & framing** (Ollama vision, 8B model) | ~8 GB VRAM | ~7 GB | Runs alongside generation, not concurrently |
+| **Local generation** (Klein 9B fp8 via ComfyUI) | ~16 GB VRAM | ~30 GB (model + text encoder + VAE) | Free, NSFW-capable; Setup downloads the models |
+| **LoRA training — Z-Image / SDXL** (ai-toolkit) | 16 GB+ recommended | 10 GB+ free enforced per run | Quantized (qfloat8) + low-VRAM mode |
+| **LoRA training — Krea 2** (ai-toolkit) | **24 GB VRAM** (enforced warning) | ~24 GB base download (Raw) + 10 GB+ free | 12B model; measured saturating 24 GB at 1024px |
+| **Face scoring / person masks** (ML extras) | none (CPU) | ~3 GB | Python **3.10–3.12 required** (no wheels beyond) |
+
+- **OS**: Windows 10/11 for the full local stack (`start.bat`, portable bundle). Linux/macOS work for API-only + manual venv.
+- **Python**: 3.10–3.12. `start.bat` picks a compatible interpreter automatically; 3.13+ runs the core app but can't install the ML extras.
+- **RAM**: 16 GB+ recommended when training locally.
+- Reference rig used for development: RTX 4090 (24 GB) — every number above was measured or enforced there.
 
 ## Configuration reference
 

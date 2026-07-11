@@ -82,10 +82,20 @@ Copy-Item -Force (Join-Path $Root 'README.md') $Stage -ErrorAction SilentlyConti
 Copy-Item -Force (Join-Path $Root 'LICENSE')   $Stage -ErrorAction SilentlyContinue
 
 # 4) Launcher exe (host python + PyInstaller; tkinter is bundled automatically).
+#    PyInstaller needs CPython 3.9-3.12 — bare `python` may resolve to a newer one
+#    (the exact trap start.bat dodges for the ML extras), so resolve a compatible
+#    host interpreter through the py launcher first, newest supported first.
 Step 'Building the launcher exe (PyInstaller)'
-python -m pip show pyinstaller *> $null
-if ($LASTEXITCODE -ne 0) { python -m pip install pyinstaller }
-python -m PyInstaller --noconfirm --onefile --noconsole `
+$HostPy = $null
+foreach ($v in '3.12', '3.11', '3.10', '3.9') {
+  $exe = & py "-$v" -c 'import sys; print(sys.executable)' 2>$null
+  if ($LASTEXITCODE -eq 0 -and $exe) { $HostPy = $exe.Trim(); break }
+}
+if (-not $HostPy) { $HostPy = 'python' }   # last resort — may fail on 3.13+
+Write-Host "    host python for PyInstaller: $HostPy"
+& $HostPy -m pip show pyinstaller *> $null
+if ($LASTEXITCODE -ne 0) { & $HostPy -m pip install pyinstaller }
+& $HostPy -m PyInstaller --noconfirm --onefile --noconsole `
   --name 'LoRA Dataset Studio' --icon (Join-Path $Here 'icon.ico') `
   --distpath (Join-Path $Build 'launcher') --workpath (Join-Path $Build 'pyi') `
   --specpath $Build (Join-Path $Here 'launcher.py')
