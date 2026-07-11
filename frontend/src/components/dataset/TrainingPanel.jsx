@@ -726,6 +726,22 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
               ↻ Refresh checkpoints
             </button>
+            {/* Ouvre les dossiers dans l'explorateur du poste (app locale) :
+                loras = imports ComfyUI de la famille ; run = checkpoints bruts. */}
+            <button type="button"
+              onClick={() => postTrain(`/api/dataset/${ds.currentId}/train/open-folder`,
+                { target: 'loras', train_type: trainType })}
+              title={`Open the ComfyUI folder where imported ${typeLabel} LoRAs live (loras/${trainType === 'zimage' ? 'z image' : trainType})`}
+              className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
+              📂 LoRA folder
+            </button>
+            <button type="button"
+              onClick={() => postTrain(`/api/dataset/${ds.currentId}/train/open-folder`,
+                { target: 'run', train_type: trainType, base_model: base })}
+              title="Open this run's output folder (raw checkpoints, samples, training log)"
+              className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
+              📂 Run folder
+            </button>
             <span className="text-content-subtle text-[0.625rem]">
               import the checkpoint you like into ComfyUI to use (and test) the LoRA
             </span>

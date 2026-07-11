@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 from datetime import datetime
 
@@ -760,6 +761,35 @@ def _run_dir(user_id, dataset_id, base_model=_PERSISTED, family=None) -> str:
     # famille sélectionnée (Krea vs Z-Image) - sans quoi le panneau montre les
     # checkpoints du mauvais run quand deux familles partagent le même trigger.
     return str(_output_dir() / _run_name(ds, base_model, family) / f'lora_{_safe_trigger(ds)}')
+
+
+def open_training_folder(user_id, dataset_id, target='loras', family=None,
+                         base_model=_PERSISTED) -> str:
+    """Ouvre dans l'explorateur de fichiers du POSTE (app locale mono-utilisateur,
+    le navigateur tourne sur la même machine) le dossier des LoRA :
+    'loras' → dossier d'import ComfyUI de la famille (loras/krea, loras/sdxl,
+    loras/z image) ; 'run' → dossier de checkpoints du run courant (base+famille).
+    Cibles FIXES résolues côté serveur — le client n'envoie jamais de chemin.
+    Crée le dossier au besoin (avant un premier import il n'existe pas encore).
+    Retourne le chemin ouvert."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    if target == 'run':
+        path = _run_dir(user_id, dataset_id, base_model, family)
+    elif target == 'loras':
+        path = _lora_dest_dir(ds, family)
+    else:
+        raise ValueError('unknown folder target')
+    os.makedirs(path, exist_ok=True)
+    if os.name == 'nt':
+        os.startfile(path)                                   # Explorateur Windows
+    elif sys.platform == 'darwin':
+        subprocess.Popen(['open', path])
+    else:
+        subprocess.Popen(['xdg-open', path])
+    logger.info('open folder (%s): %s', target, path)
+    return path
 
 
 def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None) -> list[dict]:

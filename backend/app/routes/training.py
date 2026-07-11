@@ -387,6 +387,26 @@ def dataset_train_prepare_base(dataset_id):
     return jsonify({'ok': True, 'status': 'running'})
 
 
+@bp.post('/dataset/<int:dataset_id>/train/open-folder')
+def dataset_train_open_folder(dataset_id):
+    """Ouvre le dossier des LoRA dans l'explorateur du poste (app locale) :
+    target 'loras' (import ComfyUI de la famille) ou 'run' (checkpoints du run).
+    Chemins résolus serveur — le body ne transporte jamais de chemin."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    d = request.get_json(silent=True) or {}
+    kw = {'target': d.get('target') or 'loras'}
+    if d.get('train_type'):
+        kw['family'] = d.get('train_type')
+    if 'base_model' in d:
+        kw['base_model'] = d.get('base_model')
+    try:
+        path = lt.open_training_folder(LOCAL_USER, dataset_id, **kw)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'path': path})
+
+
 @bp.post('/dataset/<int:dataset_id>/train/checkpoint/delete')
 def dataset_train_checkpoint_delete(dataset_id):
     gate = _require_aitoolkit()

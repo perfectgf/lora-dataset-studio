@@ -487,6 +487,32 @@ def test_build_job_config_krea_raw_default_and_turbo_optin(app, tmp_path):
         assert lt._run_name(ds).endswith('_Krea-2-Turbo')
 
 
+def test_open_training_folder_fixed_targets_and_creates(app, tmp_path, monkeypatch):
+    """'loras' → dossier d'import ComfyUI de la famille ; 'run' → dossier du run.
+    Chemins résolus serveur, créés au besoin, ouverts via l'explorateur (seam
+    os.startfile patché) ; cible inconnue → ValueError."""
+    import os as _os
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    opened = []
+    monkeypatch.setattr(lt.os, 'startfile', lambda p: opened.append(p), raising=False)
+    monkeypatch.setattr(lt.subprocess, 'Popen', lambda a, **k: opened.append(a[-1]))
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')},
+                         'comfyui': {'base_dir': str(tmp_path / 'comfy')}})
+        ds = svc.create_dataset(LOCAL_USER, 'K', 'foldertrig', train_type='krea')
+        p1 = lt.open_training_folder(LOCAL_USER, ds.id, target='loras')
+        assert p1.replace('/', _os.sep).endswith(_os.sep.join(('models', 'loras', 'krea')))
+        assert _os.path.isdir(p1)                       # créé au besoin
+        p2 = lt.open_training_folder(LOCAL_USER, ds.id, target='run')
+        assert 'foldertrig' in p2 and _os.path.isdir(p2)
+        assert opened == [p1, p2]
+        with pytest.raises(ValueError, match='unknown folder target'):
+            lt.open_training_folder(LOCAL_USER, ds.id, target='../evil')
+
+
 def test_archive_previous_run_renames_never_deletes(app, tmp_path):
     """fresh=True écarte le run existant par RENAME `*_archived_<ts>` (checkpoints
     conservés sur disque, purgeables via le préfixe trigger) ; sans run → None."""
