@@ -86,15 +86,25 @@ Copy-Item -Force (Join-Path $Root 'LICENSE')   $Stage -ErrorAction SilentlyConti
 #    (the exact trap start.bat dodges for the ML extras), so resolve a compatible
 #    host interpreter through the py launcher first, newest supported first.
 Step 'Building the launcher exe (PyInstaller)'
+# PS 5.1 gotcha: with $ErrorActionPreference='Stop', a NATIVE command writing to
+# stderr WHILE redirected (2>$null / *>$null) raises a terminating
+# NativeCommandError — pip's "WARNING: Package(s) not found" killed the build.
+# Relax EAP around the native probes and trust $LASTEXITCODE instead.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 $HostPy = $null
 foreach ($v in '3.12', '3.11', '3.10', '3.9') {
   $exe = & py "-$v" -c 'import sys; print(sys.executable)' 2>$null
-  if ($LASTEXITCODE -eq 0 -and $exe) { $HostPy = $exe.Trim(); break }
+  if ($LASTEXITCODE -eq 0 -and $exe) { $HostPy = "$exe".Trim(); break }
 }
 if (-not $HostPy) { $HostPy = 'python' }   # last resort — may fail on 3.13+
 Write-Host "    host python for PyInstaller: $HostPy"
 & $HostPy -m pip show pyinstaller *> $null
-if ($LASTEXITCODE -ne 0) { & $HostPy -m pip install pyinstaller }
+if ($LASTEXITCODE -ne 0) {
+  & $HostPy -m pip install --disable-pip-version-check pyinstaller
+  if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $prevEAP; throw 'pip install pyinstaller failed.' }
+}
+$ErrorActionPreference = $prevEAP
 & $HostPy -m PyInstaller --noconfirm --onefile --noconsole `
   --name 'LoRA Dataset Studio' --icon (Join-Path $Here 'icon.ico') `
   --distpath (Join-Path $Build 'launcher') --workpath (Join-Path $Build 'pyi') `
