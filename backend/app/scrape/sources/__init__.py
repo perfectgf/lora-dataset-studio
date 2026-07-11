@@ -25,6 +25,7 @@ from . import tiktok     # noqa: F401
 from . import image_sites  # noqa: F401  (pornpics — vraies photos par catégorie)
 from . import civitai     # noqa: F401  (civitai.com/.red — images IA par tag)
 from . import fapello     # noqa: F401  (fapello.com + miroirs de langue — page modèle)
+from . import reddit       # noqa: F401  (reddit.com — recherche mot-clé via API OAuth)
 from . import universal  # noqa: F401
 
 # Invariant : exactement une source universelle, noms uniques. Lève au démarrage

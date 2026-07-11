@@ -23,6 +23,8 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
   const toast = useToast();
   const { caps, refresh } = useCapabilities();
   const [url, setUrl] = useState('');
+  const [kw, setKw] = useState('');       // Reddit keyword search
+  const [sub, setSub] = useState('');     // optional subreddit scope
   const [items, setItems] = useState([]);
   const [page, setPage] = useState(0);
   const [paginated, setPaginated] = useState(false);
@@ -39,8 +41,10 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
     try { localStorage.setItem('conceptTileSize', String(v)); } catch { /* ignore */ }
   };
 
-  const runScan = useCallback(async (nextPage) => {
-    const target = url.trim();
+  // `explicitUrl` lets the Reddit keyword search scan a freshly-built URL without
+  // waiting for the `url` state to flush; "Load more" omits it and reuses `url`.
+  const runScan = useCallback(async (nextPage, explicitUrl) => {
+    const target = (explicitUrl ?? url).trim();
     if (!target || scanning) return;
     setScanning(true);
     try {
@@ -57,6 +61,21 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
       setScanning(false);
     }
   }, [url, scanning, toast]);
+
+  // Reddit keyword search: build a reddit search URL (global or subreddit-scoped)
+  // and route it through the same scan pipeline. Reddit locked anonymous browsing,
+  // so the backend RedditSource enumerates via the authenticated OAuth API.
+  const runRedditSearch = useCallback(() => {
+    const q = kw.trim();
+    if (!q || scanning) return;
+    const s = sub.trim().replace(/^\/?(r\/)?/i, '').replace(/[^A-Za-z0-9_]/g, '');
+    const p = new URLSearchParams({ q, sort: 'top', t: 'all', type: 'link' });
+    const built = s
+      ? `https://www.reddit.com/r/${s}/search/?${p.toString()}&restrict_sr=1`
+      : `https://www.reddit.com/search/?${p.toString()}`;
+    setUrl(built);
+    runScan(0, built);
+  }, [kw, sub, scanning, runScan]);
 
   const toggle = (u) => {
     setSelected((prev) => {
@@ -114,6 +133,33 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
           ⬇ Import {selected.size || ''}
         </button>
       </form>
+
+      {/* Reddit keyword search — a keyword (optionally scoped to a subreddit) is
+          turned into a reddit search URL and scanned through the same pipeline.
+          Scoping to a subreddit yields far cleaner, on-topic results. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-raised/40 px-2 py-1.5">
+        <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1 shrink-0">
+          <span aria-hidden>🔎</span> Search Reddit
+        </span>
+        <input
+          value={kw} onChange={(e) => setKw(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
+          placeholder="keyword (e.g. film portrait)"
+          className="flex-1 min-w-[8rem] px-2.5 py-1.5 rounded-lg bg-surface border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
+        />
+        <span className="text-content-subtle text-[0.6875rem] shrink-0">in r/</span>
+        <input
+          value={sub} onChange={(e) => setSub(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
+          placeholder="subreddit (optional)"
+          title="Scoping to a subreddit gives much cleaner, on-topic results"
+          className="w-36 px-2.5 py-1.5 rounded-lg bg-surface border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
+        />
+        <button type="button" onClick={runRedditSearch} disabled={scanning || !kw.trim()}
+          className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40 shrink-0">
+          Search
+        </button>
+      </div>
 
       {items.length > 0 && (
         <>

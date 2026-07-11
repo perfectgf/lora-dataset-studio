@@ -32,6 +32,10 @@ class Platform(Enum):
     # Fapello (fapello.com + miroirs de langue fr./de./es.…) — page modèle =
     # file de posts, chaque post 1 média direct. Énuméré via gallery-dl.
     FAPELLO = "fapello"
+    # Reddit (reddit.com — subreddits, posts, liens de partage /s/) — LE filon
+    # « vraies photos amateur » (r/OOTD, fit checks, photo dumps…) pour les
+    # datasets de style/concept. Énuméré via gallery-dl.
+    REDDIT = "reddit"
     GENERIC = "generic"   # toute autre URL http(s) — déléguée à yt-dlp
     UNKNOWN = "unknown"
 
@@ -162,6 +166,11 @@ class URLValidator:
         # Volontairement ABSENT de VALID_DOMAINS → la garde stricte de domaine n'écarte
         # pas les sous-domaines de langue (la source normalise l'hôte avant gallery-dl).
         ('fapello.com', Platform.FAPELLO),
+        # reddit.com (www/old/new/sh.…) + redd.it (shortener + CDN i.redd.it). Comme
+        # Fapello : ABSENT de VALID_DOMAINS, la source canonicalise vers www.reddit.com
+        # (résolution des liens de partage /s/ incluse) avant gallery-dl.
+        ('reddit.com', Platform.REDDIT),
+        ('redd.it', Platform.REDDIT),
     ]
 
     @staticmethod
@@ -246,7 +255,8 @@ class URLValidator:
             return cls._validate_erome(url)
         if platform in (Platform.COOMER, Platform.KEMONO, Platform.BUNKR,
                         Platform.CYBERDROP, Platform.X, Platform.TIKTOK,
-                        Platform.PORNPICS, Platform.CIVITAI, Platform.FAPELLO):
+                        Platform.PORNPICS, Platform.CIVITAI, Platform.FAPELLO,
+                        Platform.REDDIT):
             return cls._validate_gallerydl_platform(url, platform)
 
         # Inatteignable : tout Platform détecté ci-dessus a son _validate_X.
