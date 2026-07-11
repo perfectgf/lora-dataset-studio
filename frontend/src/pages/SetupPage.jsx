@@ -269,7 +269,7 @@ export default function SetupPage() {
                 pose changes). Face identity itself comes from the reference photo(s).
               </p>
               {step.dirValid ? (
-                <div className="space-y-2 rounded-md border border-border bg-surface-raised/40 p-2.5">
+                <div className="space-y-2 rounded-md border border-border bg-white/5 p-2.5">
                   <p className="text-content text-xs font-medium">
                     ⬇ One-click downloads — straight into the validated ComfyUI folders:
                   </p>
