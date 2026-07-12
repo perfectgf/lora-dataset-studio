@@ -207,6 +207,25 @@ Not every feature needs every backend. The app degrades gracefully — API keys 
 
 **Full local** — everything above plus Klein/Z-Image generation, captioning via JoyCaption, face scoring, masks, training, and Test Studio. Requires ComfyUI and/or ai-toolkit running on the same host (or reachable over the network) and an NVIDIA GPU with 12 GB+ VRAM for Klein/Z-Image inference. Training VRAM depends on the model family (Z-Image, SDXL, and Krea 2 have different footprints) — check the family's ai-toolkit preset before queuing a run. The face-scoring and masking helpers (`requirements-ml.txt`) run fine on CPU; they don't need the GPU.
 
+## Cloud training (vast.ai) — experimental
+
+No local GPU? Add a **vast.ai API key** (Settings → Secrets, or the setup
+wizard) and use **☁️ Train in cloud** in the Training panel. The app rents a
+verified-datacenter GPU, uploads your dataset, trains with the exact same
+ai-toolkit configuration as a local run, downloads the resulting
+`.safetensors`, and terminates the pod automatically.
+
+- Cost: you pay vast.ai directly (typical Z-Image run: **~$1–2**). A price cap
+  (`cloud.max_price_per_hour`) and a hard runtime cap
+  (`cloud.max_runtime_minutes`, default 4 h) are enforced.
+- Supported families: **Z-Image and Krea** (official Hugging Face bases).
+  SDXL and custom converted bases require local training.
+- Safety: pods are labeled `lds-<run-id>`; on every app start, orphaned pods
+  are destroyed automatically. If the app is closed mid-run, the pod keeps
+  training and the app resumes monitoring on restart.
+- Privacy note: the pod belongs to your vast.ai account; dataset images and
+  checkpoints transit through it and are destroyed with the pod.
+
 ---
 
 ## Setup & install
