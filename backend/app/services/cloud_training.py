@@ -15,7 +15,7 @@ import os
 import secrets as pysecrets
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from .. import config as cfg
@@ -226,8 +226,11 @@ def reconcile_orphans(app) -> int:
                     continue
                 kept_run = kept_by_instance.get(iid)
                 if kept_run is not None:
-                    age = (now - kept_run.finished_at) if kept_run.finished_at else timedelta(0)
-                    if age.total_seconds() <= max_seconds:
+                    # No finished_at (shouldn't happen -- every writer stamps it) means
+                    # the recovery window can't be established: fail toward the leak-safety
+                    # invariant (reap) rather than sparing an unbounded pod.
+                    if kept_run.finished_at and \
+                            (now - kept_run.finished_at).total_seconds() <= max_seconds:
                         continue    # still within the manual-recovery window -> spare
                     try:
                         if vast_client.destroy_instance(inst['instance_id']):
@@ -287,7 +290,7 @@ def boot_recover(app):
                             run.id, run.vast_instance_id)
                 _start_monitor_for_app(app, run.id)
             else:
-                _set(run, status='error',
+                _set(run, status='error', finished_at=datetime.utcnow(),
                      error='app restarted before the pod was created')
     except Exception:
         logger.exception('cloud boot recovery failed')

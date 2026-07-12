@@ -223,6 +223,56 @@ def test_reconcile_reaps_expired_error_pod_kept(ct, app, monkeypatch):
         assert kept.error.endswith('pod reaped after the recovery window')
 
 
+def test_reconcile_error_pod_kept_absent_from_instances_is_noop(ct, app, monkeypatch):
+    """The kept pod may already be gone (destroyed by hand, or a previous
+    reconcile pass) -- if vast.ai no longer lists it, there is nothing to
+    destroy or annotate."""
+    with app.app_context():
+        run = ct.CloudTrainingRun(dataset_id=1, status='error_pod_kept',
+                                  vast_instance_id='555', vast_label='lds-1',
+                                  job_name='j', error='checkpoint download failed',
+                                  finished_at=datetime.utcnow() - timedelta(minutes=500))
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        monkeypatch.setattr(ct.vast_client, 'list_instances', lambda: [])
+        monkeypatch.setattr(ct.vast_client, 'destroy_instance',
+                            lambda iid: (_ for _ in ()).throw(
+                                AssertionError('nothing to destroy')))
+        n = ct.reconcile_orphans(app)
+        assert n == 0
+        ct.db.session.expire_all()
+        kept = ct.CloudTrainingRun.query.get(run.id)
+        assert kept.error == 'checkpoint download failed'   # untouched
+
+
+def test_reconcile_keeps_active_and_spares_error_pod_kept_together(ct, app, monkeypatch):
+    """One reconcile pass must apply both policies at once: keep the truly
+    active run's pod, spare the still-recoverable error_pod_kept pod, and
+    destroy the plain orphan."""
+    destroyed = []
+    with app.app_context():
+        active = ct.CloudTrainingRun(dataset_id=1, status='training',
+                                     vast_instance_id='111', vast_label='lds-1',
+                                     job_name='j1')
+        kept_run = ct.CloudTrainingRun(dataset_id=2, status='error_pod_kept',
+                                       vast_instance_id='555', vast_label='lds-2',
+                                       job_name='j2', error='checkpoint download failed',
+                                       finished_at=datetime.utcnow() - timedelta(minutes=10))
+        ct.db.session.add_all([active, kept_run])
+        ct.db.session.commit()
+        active_id, kept_id = active.id, kept_run.id
+        monkeypatch.setattr(ct.vast_client, 'list_instances', lambda: [
+            {'instance_id': '111', 'label': f'lds-{active_id}'},   # active -> keep
+            {'instance_id': '555', 'label': f'lds-{kept_id}'},     # recoverable -> spare
+            {'instance_id': '222', 'label': 'lds-99'},             # orphan -> destroy
+        ])
+        monkeypatch.setattr(ct.vast_client, 'destroy_instance',
+                            lambda iid: destroyed.append(iid) or True)
+        n = ct.reconcile_orphans(app)
+        assert destroyed == ['222']
+        assert n == 1
+
+
 def test_launch_failure_frees_the_active_slot(ct, app, seeded_dataset, monkeypatch):
     """A mid-launch failure (after the row is created) must not strand a
     'preparing' row forever -- the run flips to 'error' so the single active
