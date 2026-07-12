@@ -389,10 +389,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     if (!caps.training_visible) onCheckpointsChange?.(0);
   }, [caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cloud run status (global — one cloud run active at a time, across all
-  // datasets). Polled independently of the local `status` poll above, and
-  // only while a vast.ai key is actually configured.
-  const [cloudStatus, setCloudStatus] = useState({ configured: false, active: null, last: null });
+  // Cloud run status (global — several cloud runs may be active at once,
+  // across different datasets, up to cloudStatus.limit). Polled independently
+  // of the local `status` poll above, and only while a vast.ai key is
+  // actually configured.
+  const [cloudStatus, setCloudStatus] = useState({
+    configured: false, limit: 1, actives: [], active: null, total_price_per_hour: 0, last: null,
+  });
   useEffect(() => {
     if (!caps.cloud_training) return undefined;
     let alive = true;
@@ -407,8 +410,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     t = setTimeout(tick, 0);
     return () => { alive = false; clearTimeout(t); };
   }, [caps.cloud_training]);
-  const cloudActive = cloudStatus.active;
-  const cloudActiveHere = cloudActive && cloudActive.dataset_id === ds.currentId;
+  // Compat: older servers (or a stale poll) may still answer with only the
+  // single `active` field — fall back to a 1-element list built from it.
+  const actives = cloudStatus.actives || (cloudStatus.active ? [cloudStatus.active] : []);
+  const cloudActiveHere = actives.find((a) => a.dataset_id === ds.currentId);
 
   if (!caps.training_visible) {
     return (
@@ -455,20 +460,20 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2 text-[0.6875rem] text-sky-200 flex-wrap">
             <span aria-hidden>☁️</span>
-            <span className="font-semibold">Cloud run — {cloudActive.status}</span>
-            {cloudActive.gpu && <span>{cloudActive.gpu}</span>}
-            {cloudActive.price_per_hour != null && (
-              <span className="tabular-nums">${cloudActive.price_per_hour}/h · ~${cloudActive.cost_estimate} so far</span>
+            <span className="font-semibold">Cloud run — {cloudActiveHere.status}</span>
+            {cloudActiveHere.gpu && <span>{cloudActiveHere.gpu}</span>}
+            {cloudActiveHere.price_per_hour != null && (
+              <span className="tabular-nums">${cloudActiveHere.price_per_hour}/h · ~${cloudActiveHere.cost_estimate} so far</span>
             )}
             <button type="button" className="ml-auto px-2 py-0.5 rounded bg-red-600/80 text-white text-[0.6875rem] font-semibold"
-              onClick={async () => { await postJson('/api/dataset/train/cloud/stop', {}); }}>
+              onClick={async () => { await postJson('/api/dataset/train/cloud/stop', { run_id: cloudActiveHere.run_id }); }}>
               Stop cloud run
             </button>
           </div>
           <TrainingProgress datasetId={ds.currentId} base={base} trainType={trainType} cloud />
         </div>
       )}
-      {caps.cloud_training && !cloudActive && cloudStatus.last
+      {caps.cloud_training && !cloudActiveHere && cloudStatus.last
         && cloudStatus.last.dataset_id === ds.currentId
         && cloudStatus.last.checkpoint_ready && cloudStatus.last.status === 'done' && (
         <a href={`/api/dataset/${ds.currentId}/train/cloud/checkpoint`}
@@ -518,11 +523,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         </button>
         {caps.cloud_training && (
           <button type="button"
-            disabled={trainType === 'sdxl' || !!cloudActive
+            disabled={trainType === 'sdxl' || !!cloudActiveHere
+              || actives.length >= (cloudStatus.limit || 1)
               || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12)}
             title={trainType === 'sdxl'
               ? 'SDXL needs a local base checkpoint — cloud supports Z-Image and Krea'
-              : cloudActive ? 'A cloud run is already active'
+              : cloudActiveHere ? 'This dataset already has an active cloud run'
+              : actives.length >= (cloudStatus.limit || 1)
+                ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — raise it in Settings`
               : `Rents a vast.ai GPU for this run (~$1-2), auto-terminated`}
             onClick={async () => {
               const d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
@@ -571,6 +579,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           base « {baseLabel} » · {maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : 'adaptive steps'}
         </span>
       </div>
+
+      {actives.length > 0 && (
+        <p className="m-0 text-content-subtle text-[0.625rem]">
+          ☁ {actives.length}/{cloudStatus.limit || 1} cloud runs — ${cloudStatus.total_price_per_hour || 0}/h total
+        </p>
+      )}
 
       {/* Pointeur visible quand le bouton Train est bloqué par un réglage qui
           vit dans la section repliée — sinon la cause resterait cachée. */}

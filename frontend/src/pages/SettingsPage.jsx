@@ -626,6 +626,41 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      <Card title="Cloud training" help="vast.ai GPU rental limits — how many training pods may run at once, and the price ceiling used when searching for an offer.">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="cloud-max-concurrent-runs" className="block text-sm font-medium text-content">
+              Max simultaneous cloud runs
+            </label>
+            <input
+              id="cloud-max-concurrent-runs"
+              type="number"
+              min="1"
+              max="10"
+              step="1"
+              value={config.cloud?.max_concurrent_runs ?? 1}
+              onChange={(e) => setField('cloud', 'max_concurrent_runs', parseInt(e.target.value) || 1)}
+              className={INPUT_CLASS}
+            />
+          </div>
+          <div>
+            <label htmlFor="cloud-max-price-per-hour" className="block text-sm font-medium text-content">
+              Max price per hour ($)
+            </label>
+            <input
+              id="cloud-max-price-per-hour"
+              type="number"
+              min="0.1"
+              max="5"
+              step="0.05"
+              value={config.cloud?.max_price_per_hour ?? 0.8}
+              onChange={(e) => setField('cloud', 'max_price_per_hour', parseFloat(e.target.value) || 0)}
+              className={INPUT_CLASS}
+            />
+          </div>
+        </div>
+      </Card>
+
       <div className="flex justify-end">
         <button
           type="button"
