@@ -58,11 +58,15 @@ function TestResult({ result }) {
   )
 }
 
-function TestButton({ target, onResult }) {
+function TestButton({ target, onResult, beforeTest }) {
   const [busy, setBusy] = useState(false)
   const run = async () => {
     setBusy(true)
     try {
+      // Secret fields pass beforeTest to persist the value still sitting in the
+      // write-only input: the probe reads the SAVED key, so testing an unsaved
+      // paste would always answer "key missing".
+      if (beforeTest) await beforeTest()
       onResult(await postJson(`/api/settings/test/${target}`, {}))
     } catch (e) {
       onResult({ ok: false, detail: e.message || 'Test failed' })
@@ -87,7 +91,7 @@ function TestButton({ target, onResult }) {
 function VastKeyGuide() {
   const link = 'font-medium text-sky-300 underline hover:text-sky-200'
   return (
-    <details className="mb-2 rounded-lg border border-border bg-surface-raised/60 px-3 py-2">
+    <details className="mb-2 rounded-lg border border-border bg-surface px-3 py-2 open:pb-3">
       <summary className="cursor-pointer select-none text-xs font-medium text-content">
         <span aria-hidden>📖</span> How to get a vast.ai API key (≈2 minutes)
       </summary>
@@ -110,8 +114,8 @@ function VastKeyGuide() {
           the list is empty.
         </li>
         <li>
-          Paste the key in the field below, hit <strong>Save changes</strong>, then{' '}
-          <strong>Test</strong> — it should answer “connected as &lt;your account&gt;”.
+          Paste the key in the field below and press <strong>Test</strong> — it saves the
+          key automatically and should answer “connected as &lt;your account&gt;”.
         </li>
       </ol>
     </details>
@@ -325,6 +329,19 @@ export default function SettingsPage() {
     }
   }
 
+  // Save a single secret field's pending value (used by the Test button so
+  // "paste key -> Test" just works without a separate Save click). No-op when
+  // the field is empty; a failed save throws so the test reports it instead of
+  // probing a key that never landed.
+  const saveSecretIfPending = async (key) => {
+    const pending = (secretInputs[key] || '').trim()
+    if (!pending) return
+    const data = await putJson('/api/settings', { secrets: { [key]: pending } })
+    setSecretsPresence(data.secrets)
+    setSecretInputs((prev) => { const next = { ...prev }; delete next[key]; return next })
+    await refresh(true)
+  }
+
   const handleSave = async () => {
     setSaving(true)
     try {
@@ -404,7 +421,8 @@ export default function SettingsPage() {
               {f.testTarget && <TestResult result={testResults[f.testTarget]} />}
             </div>
             {f.testTarget && (
-              <TestButton target={f.testTarget} onResult={(r) => recordTestResult(f.testTarget, r)} />
+              <TestButton target={f.testTarget} beforeTest={() => saveSecretIfPending(f.key)}
+                onResult={(r) => recordTestResult(f.testTarget, r)} />
             )}
             {secretsPresence[f.key] && (
               <button
