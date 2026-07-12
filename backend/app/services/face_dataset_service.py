@@ -1821,13 +1821,23 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                              args=(app, [(img.id, prompt, aspect)], ref_bytes, engine),
                              daemon=True).start()
             return engine
+        gen_kwargs = {'aspect_ratio': aspect}
+        if engine == 'chatgpt':
+            from .chatgpt_image import _use_subscription
+            gen_kwargs['force_lane'] = 'subscription' if _use_subscription() else 'api'
         try:
             out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=len(ref_bytes)),
-                               aspect_ratio=aspect)
+                               **gen_kwargs)
         except SubscriptionQuotaExceeded:
             out = None
             img.status = 'failed'
             img.fail_reason = _QUOTA_MSG
+            db.session.commit()
+            return engine
+        except SubscriptionUnavailable as e:
+            out = None
+            img.status = 'failed'
+            img.fail_reason = f'chatgpt: {e}'
             db.session.commit()
             return engine
         if out:
@@ -1871,10 +1881,12 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
 API_ENGINES = ('nanobanana', 'chatgpt')
 _ENGINE_FILE_TAG = {'nanobanana': 'NBFace', 'chatgpt': 'GPTFace'}
 
-from .chatgpt_image import SubscriptionQuotaExceeded
+from .chatgpt_image import SubscriptionQuotaExceeded, SubscriptionUnavailable
 
 _QUOTA_MSG = ('chatgpt: subscription image quota reached — remaining rows were '
               'stopped; rerun in API-key mode or wait for your plan quota to reset')
+_LOST_MSG = ('chatgpt: subscription connection lost — remaining rows stopped; '
+             'reconnect in Settings, then regenerate')
 
 
 def _api_generate_fn(engine):
@@ -1895,9 +1907,21 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
     # Guard d'identité adapté au nombre de références (multi = « use EVERY ref »).
     n_refs = len(ref_bytes) if isinstance(ref_bytes, (list, tuple)) else 1
     tag = _ENGINE_FILE_TAG.get(engine, 'NBFace')
-    # Set the moment ANY row hits the plan quota — every later row would 429
-    # too, so the rest of the batch fails fast instead of burning one call each.
+    # Pin the ChatGPT auth lane ONCE for the whole batch. Without this, a
+    # mid-batch token refresh failure (auth.openai.com non-200 -> logout())
+    # would make every later row's OWN _use_subscription() call see
+    # connected=False and silently reroute onto the paid API key — breaking
+    # the feature's headline invariant. Pinning + stopping the batch instead
+    # (via SubscriptionUnavailable below) closes that hole.
+    force_lane = None
+    if engine == 'chatgpt':
+        from .chatgpt_image import _use_subscription
+        force_lane = 'subscription' if _use_subscription() else 'api'
+    # Set the moment ANY row hits the plan quota (or the pinned subscription
+    # lane loses its token) — every later row would fail too, so the rest of
+    # the batch fails fast instead of burning one call each.
     quota_exhausted = threading.Event()
+    stop_msg = {'text': _QUOTA_MSG}   # set to the actual stop reason when it fires
 
     def _one(item):
         # item = (image_id, prompt, aspect) ; aspect optionnel (rétro-compat → '1:1').
@@ -1921,22 +1945,29 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
                 img = db.session.get(FaceDatasetImage, image_id)
                 if img is not None:
                     img.status = 'failed'
-                    img.fail_reason = _QUOTA_MSG
+                    img.fail_reason = stop_msg['text']
                     db.session.commit()
             return
         out = None
         fail_reason = None
+        gen_kwargs = {'aspect_ratio': aspect}
+        if engine == 'chatgpt':
+            gen_kwargs['force_lane'] = force_lane
         try:
             out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=n_refs),
-                               aspect_ratio=aspect)
+                               **gen_kwargs)
             if not out:
                 # api_generate signale certains refus/vides par un retour falsy
                 # sans lever — sans raison, la tuile "failed" resterait muette.
                 fail_reason = f'{engine}: empty response (often a content-policy refusal or a transient API error - retry usually works)'
         except SubscriptionQuotaExceeded as e:
-            quota_exhausted.set()
+            quota_exhausted.set(); stop_msg['text'] = _QUOTA_MSG
             logger.warning(f"{engine} batch: quota exhausted at row {image_id}: {e}")
             fail_reason = _QUOTA_MSG
+        except SubscriptionUnavailable as e:
+            quota_exhausted.set(); stop_msg['text'] = _LOST_MSG
+            logger.warning(f"{engine} batch: subscription lost at row {image_id}: {e}")
+            fail_reason = _LOST_MSG
         except Exception as e:
             logger.warning(f"{engine} batch: generation error for row {image_id}: {e}")
             fail_reason = f'{engine}: {str(e)[:400]}'

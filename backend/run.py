@@ -1,4 +1,45 @@
 import sys, os
+
+
+def _reexec_into_venv():
+    """Run on the project's pinned interpreter, not whatever Python launched us.
+
+    If a project .venv exists and we are not already its interpreter, re-exec
+    into it before anything else imports. This makes every launch method — the
+    start.bat/start.sh flow, a bare `python backend/run.py`, a double-click, an
+    IDE, a shell with a newer Python first on PATH — converge on the SAME
+    interpreter. That is what lets the optional ML extras (insightface / numpy<2
+    / onnxruntime, which only publish wheels for CPython 3.10-3.12) install into
+    a supported Python: the in-app installer and the capability probes both key
+    off sys.executable, so if run.py runs on e.g. the machine's default 3.14 the
+    extras can never install. Skipped for the frozen/portable build (it bundles
+    its own Python) and once we are already the venv's python. Set
+    LDS_NO_REEXEC=1 to opt out."""
+    if getattr(sys, 'frozen', False) \
+            or os.environ.get('LDS_REEXEC') == '1' \
+            or os.environ.get('LDS_NO_REEXEC') == '1':
+        return
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for rel in (('.venv', 'Scripts', 'python.exe'), ('.venv', 'bin', 'python')):
+        venv_py = os.path.join(repo_root, *rel)
+        if os.path.exists(venv_py):
+            break
+    else:
+        return                                   # no venv -> nothing to switch to
+    try:
+        if os.path.samefile(venv_py, sys.executable):
+            return                               # already the venv interpreter
+    except OSError:
+        if os.path.normcase(os.path.realpath(venv_py)) \
+                == os.path.normcase(os.path.realpath(sys.executable)):
+            return
+    os.environ['LDS_REEXEC'] = '1'               # loop guard for the re-exec'd child
+    print(f"[LDS] re-launching under the project venv: {venv_py}", flush=True)
+    os.execv(venv_py, [venv_py, os.path.abspath(__file__), *sys.argv[1:]])
+
+
+_reexec_into_venv()
+
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from app import create_app
 

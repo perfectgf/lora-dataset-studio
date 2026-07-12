@@ -173,3 +173,32 @@ def test_login_poll_expires_after_ttl(app, monkeypatch):
     real_now = time.time()
     monkeypatch.setattr(oauth.time, 'time', lambda: real_now + 1000)
     assert oauth.login_poll()['status'] == 'error'
+
+
+def test_login_start_non_json_200_returns_failure_dict(app):
+    """A proxy/captive-portal HTML 200 must not 500 the route: r.json() raising
+    ValueError is caught and turned into the normal failure dict."""
+    from app.services import chatgpt_oauth as oauth
+    uc = MagicMock(status_code=200)
+    uc.json.side_effect = ValueError('not json')
+    with patch('app.services.chatgpt_oauth.requests.post',
+               side_effect=_post_router({'/deviceauth/usercode': uc})):
+        out = oauth.login_start()
+    assert out == {'ok': False, 'detail': 'unexpected response from device login'}
+
+
+def test_login_poll_non_json_200_returns_failure_dict(app):
+    """Same guard on the poll route: a non-JSON 200 from the device-token
+    endpoint must not raise, it must surface as a normal 'error' status."""
+    from app.services import chatgpt_oauth as oauth
+    uc = MagicMock(status_code=200)
+    uc.json.return_value = {'device_auth_id': 'dev-1', 'user_code': 'ABCD-1234',
+                            'interval': '5'}
+    bad = MagicMock(status_code=200)
+    bad.json.side_effect = ValueError('not json')
+    with patch('app.services.chatgpt_oauth.requests.post',
+               side_effect=_post_router({'/deviceauth/usercode': uc,
+                                         '/deviceauth/token': bad})):
+        oauth.login_start()
+        out = oauth.login_poll()
+    assert out == {'status': 'error', 'detail': 'unexpected response from device login'}
