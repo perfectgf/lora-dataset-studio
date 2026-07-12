@@ -152,16 +152,30 @@ def _provision(run):
             f'no vast.ai offer matches (>= {min_vram} GB VRAM, '
             f'<= ${c.get("max_price_per_hour", 0.80)}/h) — raise the price cap in Settings')
     offer = offers[0]
-    token = pysecrets.token_urlsafe(24)
-    port = int(c.get('ui_port') or 8675)
-    env = {'AI_TOOLKIT_AUTH': token, f'-p {port}:{port}': '1'}
-    hf = cfg.secret('HF_TOKEN')
-    if hf:
-        env['HF_TOKEN'] = hf
-    instance_id = vast_client.create_instance(
-        offer['offer_id'], image=c.get('image'), env=env,
-        disk_gb=int(c.get('disk_gb') or 60), label=run.vast_label,
-        onstart=(c.get('onstart') or None))
+    template_hash = (c.get('template_hash') or '').strip()
+    if template_hash:
+        # Preferred path (smoke-validated 2026-07-12): the official template
+        # publishes the UI behind the pod's Caddy proxy on ui_port and vast
+        # generates the per-instance auth token (picked up from the instance
+        # record during boot-wait). HF_TOKEN reaches the pod later via
+        # ensure_settings(), not env.
+        token = ''
+        instance_id = vast_client.create_instance(
+            offer['offer_id'], disk_gb=int(c.get('disk_gb') or 60),
+            label=run.vast_label, template_hash=template_hash)
+    else:
+        # Raw-image fallback (config escape hatch): direct port publish +
+        # our own bearer token on the UI itself.
+        token = pysecrets.token_urlsafe(24)
+        port = int(c.get('ui_port') or 18675)
+        env = {'AI_TOOLKIT_AUTH': token, f'-p {port}:{port}': '1'}
+        hf = cfg.secret('HF_TOKEN')
+        if hf:
+            env['HF_TOKEN'] = hf
+        instance_id = vast_client.create_instance(
+            offer['offer_id'], disk_gb=int(c.get('disk_gb') or 60),
+            label=run.vast_label, image=c.get('image'), env=env,
+            onstart=(c.get('onstart') or None))
     try:
         _register_instance(run, instance_id, offer, token)
     except Exception:
@@ -370,7 +384,7 @@ def _monitor(app, run_id):
             # strides per call must not misfire this boot-timeout on a pod
             # that was, in fact, instantly ready.
             _set(run, phase_detail='Waiting for the pod to boot')
-            port = int(c.get('ui_port') or 8675)
+            port = int(c.get('ui_port') or 18675)
             while True:
                 # A transient vast API hiccup is just "not ready yet" -- only
                 # READY_TIMEOUT_SECONDS may fail the boot wait, never a single
@@ -380,6 +394,11 @@ def _monitor(app, run_id):
                 except vast_client.VastError as e:
                     logger.warning('boot-wait: vast API hiccup (%s) — retrying', e)
                     inst = None
+                # Template launches authenticate with the vast-generated
+                # per-instance token (the pod's Caddy proxy accepts it as a
+                # Bearer header) — pick it up as soon as the record shows it.
+                if inst and not run.auth_token and inst.get('jupyter_token'):
+                    _set(run, auth_token=inst['jupyter_token'])
                 base = vast_client.derive_base_url(inst, port) if inst else None
                 if base:
                     if run.base_url != base:

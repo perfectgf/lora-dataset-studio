@@ -40,8 +40,8 @@
   },
   "cloud": {
     "image": "vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9",
-    "ui_port": 8675,
-    "max_price_per_hour": 0.80,
+    "ui_port": 18675,
+    "max_price_per_hour": 0.8,
     "max_runtime_minutes": 240,
     "disk_gb": 60,
     "min_vram_gb": {
@@ -49,7 +49,8 @@
       "sdxl": 16,
       "krea": 24
     },
-    "onstart": ""
+    "onstart": "",
+    "template_hash": "471ed5903d8cdb8e63b0d0e50f6cd519"
   },
   "face_scoring": {
     "python": "",

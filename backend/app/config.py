@@ -36,13 +36,18 @@ DEFAULTS = {
     # required user input is the VAST_API_KEY secret. Values here are knobs
     # for power users / for adjusting after the real-world smoke test.
     'cloud': {
-        'image': 'vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9',
-        'ui_port': 8675,               # port the ai-toolkit UI listens on in the image
+        # Official vast.ai "Ostris AI Toolkit" template (smoke-validated
+        # 2026-07-12): publishes the UI behind the pod's Caddy proxy on 18675
+        # and generates the per-instance auth token. Clearing this falls back
+        # to a raw-image launch using `image`/`onstart` below.
+        'template_hash': '471ed5903d8cdb8e63b0d0e50f6cd519',
+        'ui_port': 18675,              # container port the UI is reachable on (Caddy proxy)
+        'image': 'vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9',  # raw-image fallback only
         'max_price_per_hour': 0.80,    # offer search cap, $/h
         'max_runtime_minutes': 240,    # hard kill-switch: stop + terminate past this
         'disk_gb': 60,                 # instance disk (base model + dataset + checkpoints)
         'min_vram_gb': {'zimage': 24, 'sdxl': 16, 'krea': 24},
-        'onstart': '',                 # optional startup command override (usually empty)
+        'onstart': '',                 # raw-image fallback: optional startup command
     },
     'face_scoring': {'python': '', 'models_root': '', 'green': 0.50, 'orange': 0.45},
     'masks': {'python': ''},

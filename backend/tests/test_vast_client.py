@@ -64,6 +64,56 @@ def test_create_instance_returns_contract_id(vc, monkeypatch):
     assert seen['json']['env']['-p 8675:8675'] == '1'
 
 
+def test_create_instance_via_template(vc, monkeypatch):
+    """Template launch (the smoke-validated path): the body carries ONLY
+    template_hash_id + label + disk — env/ports/entrypoint come from the
+    template server-side (an env override is rejected with 400 by vast)."""
+    seen = {}
+
+    def fake_request(method, url, **kw):
+        seen['method'], seen['url'], seen['json'] = method, url, kw.get('json')
+        return FakeResp(200, {'success': True, 'new_contract': 777})
+
+    monkeypatch.setattr(vc.requests, 'request', fake_request)
+    iid = vc.create_instance(99, disk_gb=48, label='lds-7',
+                             template_hash='471ed5903d8cdb8e63b0d0e50f6cd519')
+    assert iid == '777'
+    assert seen['json'] == {'template_hash_id': '471ed5903d8cdb8e63b0d0e50f6cd519',
+                            'label': 'lds-7', 'disk': 48}
+
+
+def test_list_instances_uses_v1_endpoint(vc, monkeypatch):
+    """v0 /instances/ answers 410 deprecated_endpoint since 2026-07-12."""
+    seen = {}
+
+    def fake_request(method, url, **kw):
+        seen['url'] = url
+        return FakeResp(200, {'instances': []})
+
+    monkeypatch.setattr(vc.requests, 'request', fake_request)
+    assert vc.list_instances() == []
+    assert '/api/v1/instances/' in seen['url']
+
+
+def test_get_instance_exposes_jupyter_token(vc, monkeypatch):
+    payload = {'instances': {'id': 777, 'actual_status': 'running',
+                             'public_ipaddr': '5.6.7.8', 'label': 'lds-9',
+                             'jupyter_token': 'jtok-abc',
+                             'ports': {'18675/tcp': [{'HostPort': '29739'}]}}}
+    monkeypatch.setattr(vc.requests, 'request', lambda m, u, **kw: FakeResp(200, payload))
+    inst = vc.get_instance('777')
+    assert inst['jupyter_token'] == 'jtok-abc'
+    assert vc.derive_base_url(inst, 18675) == 'http://5.6.7.8:29739'
+
+
+def test_get_instance_gone_returns_none(vc, monkeypatch):
+    """vast answers 200 + {'instances': null} for a destroyed instance
+    (observed live on 2026-07-12)."""
+    monkeypatch.setattr(vc.requests, 'request',
+                        lambda m, u, **kw: FakeResp(200, {'instances': None}))
+    assert vc.get_instance('44625910') is None
+
+
 def test_create_instance_failure_raises(vc, monkeypatch):
     monkeypatch.setattr(vc.requests, 'request',
                         lambda m, u, **kw: FakeResp(200, {'success': False, 'error': 'no capacity'}))

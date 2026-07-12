@@ -95,7 +95,9 @@ def test_provision_registers_instance(ct, app, seeded_dataset, monkeypatch):
         assert run.vast_instance_id == '777'
         assert run.price_per_hour == 0.4
         assert run.status == 'provisioning'
-        assert run.auth_token and len(run.auth_token) >= 24
+        # template mode: the auth token is vast's per-instance jupyter_token,
+        # picked up during boot-wait -- empty right after provisioning
+        assert run.auth_token == ''
 
 
 def test_provision_no_offer_fails_cleanly(ct, app, seeded_dataset, monkeypatch):

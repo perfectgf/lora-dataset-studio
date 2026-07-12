@@ -110,7 +110,8 @@ def _launch(ct, app, client, monkeypatch, remote, destroy_log):
     monkeypatch.setattr(ct.vast_client, 'create_instance', lambda *a, **kw: '777')
     monkeypatch.setattr(ct.vast_client, 'get_instance', lambda iid: {
         'instance_id': iid, 'actual_status': 'running', 'public_ipaddr': '1.2.3.4',
-        'ports': {'8675/tcp': [{'HostPort': '40123'}]}, 'label': 'lds-x'})
+        'ports': {'18675/tcp': [{'HostPort': '40123'}]}, 'label': 'lds-x',
+        'jupyter_token': 'jtok-vast'})
     monkeypatch.setattr(ct.vast_client, 'destroy_instance',
                         lambda iid: destroy_log.append(iid) or True)
     monkeypatch.setattr(ct, '_make_remote', lambda run: remote)
@@ -138,6 +139,9 @@ def test_happy_path_completes_and_terminates(ct, app, client, monkeypatch):
         assert proc['datasets'][0]['folder_path'] == f'/pod/ds/{run.job_name}'
         # checkpoint downloaded into staging then imported
         assert run.checkpoint_local_path and run.checkpoint_local_path.endswith('.safetensors')
+        # template mode: the vast-generated per-instance token was picked up
+        # from the instance record during boot-wait
+        assert run.auth_token == 'jtok-vast'
         assert os.path.exists(run.checkpoint_local_path)
 
 
@@ -243,7 +247,8 @@ def test_boot_wait_tolerates_transient_vast_errors(ct, app, client, monkeypatch)
     calls = {'n': 0}
     good = {'instance_id': '777', 'actual_status': 'running',
             'public_ipaddr': '1.2.3.4',
-            'ports': {'8675/tcp': [{'HostPort': '40123'}]}, 'label': 'lds-x'}
+            'ports': {'18675/tcp': [{'HostPort': '40123'}]}, 'label': 'lds-x',
+            'jupyter_token': 'jtok-vast'}
 
     def flaky(iid):
         calls['n'] += 1
