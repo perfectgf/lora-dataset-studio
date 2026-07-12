@@ -1,5 +1,7 @@
 # LoRA Dataset Studio
 
+[![Join our Discord](https://img.shields.io/discord/1525908170331914411?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/j6hnJBFtXE)
+
 **Turn one reference photo into a trained, ranked LoRA — curation, captioning, face-scoring and training behind a single browser tab, on your own machine.**
 
 The useful part of LoRA training isn't the training — it's building a clean, balanced, well-captioned image set. That job is normally scattered across a scraper, an image editor, a captioning script, and a training config someone hand-tunes per run. LoRA Dataset Studio puts the whole pipeline behind one UI: generate variations from a reference photo, curate them against a live composition meter, caption them automatically, score them for face fidelity, train the LoRA, and rank the resulting checkpoints — without leaving the page.
