@@ -28,14 +28,18 @@ def _ollama_url() -> str:
 
 def get_vision_model() -> str:
     """Resolve the Ollama vision model: env ``VISION_OLLAMA_MODEL`` > config
-    ``ollama.vision_model`` (defaults to 'huihui_ai/qwen3-vl-abliterated:8b', see
+    ``ollama.vision_model`` (defaults to 'huihui_ai/qwen3-vl-abliterated:8b-instruct', see
     config.DEFAULTS — the ABLITERATED/uncensored Qwen3-VL, needed because the vanilla
     'qwen3-vl:8b' refuses to describe the NSFW concept datasets this app captions).
-    Lets the describe quality be upgraded (e.g. to the 30B variant) without code changes."""
+    CRITICAL: use the '-instruct' tag, NOT plain ':8b' (which resolves to the THINKING
+    variant). The Thinking model reasons out loud in the response on caption/omission tasks
+    ("So the shot type is... Wait, is that the shared element?") - benchmarked 2/8 usable vs
+    8/8 for -instruct, and ~8x slower (13s vs 1.6s/image). The 30b-a3b-instruct ties -instruct
+    on quality at 3x the VRAM, so -instruct is the default; upgrade via config without code."""
     env = (_os.environ.get('VISION_OLLAMA_MODEL') or '').strip()
     if env:
         return env
-    return cfg.get('ollama.vision_model') or 'huihui_ai/qwen3-vl-abliterated:8b'
+    return cfg.get('ollama.vision_model') or 'huihui_ai/qwen3-vl-abliterated:8b-instruct'
 
 
 def describe_image_ollama(image_bytes: bytes, prompt: str, *,
