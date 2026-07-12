@@ -26,7 +26,10 @@ DEFAULTS = {
                 'output_dir': '', 'input_dir': '', 'models_dir': '', 'loras_dir': ''},
     'ollama': {'url': 'http://127.0.0.1:11434', 'vision_model': 'huihui_ai/qwen3-vl-abliterated:8b-instruct'},  # -instruct, NOT ':8b' (=thinking): see get_vision_model()
     'aitoolkit': {'dir': '', 'datasets_dir': '', 'output_dir': '', 'hf_home': ''},
-    'engines': {'default': 'chatgpt', 'enabled': ['nanobanana', 'chatgpt', 'klein']},
+    'engines': {'default': 'chatgpt', 'enabled': ['nanobanana', 'chatgpt', 'klein'],
+                # chatgpt_auth: 'auto' = subscription when connected, else API key.
+                'chatgpt_auth': 'auto',            # auto|api|subscription
+                'chatgpt_subscription_model': 'gpt-5.4-mini'},   # Codex router model (image model is gpt-image-2 regardless)
     'captioning': {'backend': 'auto'},                         # auto|joycaption|ollama|none
     'training': {'default_family': 'zimage'},
     'face_scoring': {'python': '', 'models_root': '', 'green': 0.50, 'orange': 0.45},
