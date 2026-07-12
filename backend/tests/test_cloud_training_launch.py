@@ -144,3 +144,28 @@ def test_reconcile_without_key_is_noop(app, monkeypatch):
     monkeypatch.delenv('VAST_API_KEY', raising=False)
     from app.services import cloud_training as ct
     assert ct.reconcile_orphans(app) == 0
+
+
+def test_reconcile_never_raises(ct, app, monkeypatch):
+    """Boot must never be blocked: even an unexpected failure OUTSIDE the
+    vast_client calls (db not ready, config error...) is swallowed and logged."""
+    monkeypatch.setattr(ct, 'get_active_run',
+                        lambda: (_ for _ in ()).throw(RuntimeError('db not ready')))
+    monkeypatch.setattr(ct.vast_client, 'list_instances', lambda: [])
+    assert ct.reconcile_orphans(app) == 0      # swallowed, boot not blocked
+
+
+def test_launch_failure_frees_the_active_slot(ct, app, seeded_dataset, monkeypatch):
+    """A mid-launch failure (after the row is created) must not strand a
+    'preparing' row forever -- the run flips to 'error' so the single active
+    slot is freed for the next launch."""
+    monkeypatch.setattr(ct.lt, 'assert_trainable', lambda *a, **kw: None)
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 100)
+    monkeypatch.setattr(ct.lt, 'export_dataset_to_aitoolkit',
+                        lambda *a, **kw: (_ for _ in ()).throw(OSError('disk full')))
+    with app.app_context():
+        with pytest.raises(OSError):
+            ct.launch_cloud_training('local', seeded_dataset)
+        assert ct.get_active_run() is None        # slot freed
+        run = ct.CloudTrainingRun.query.first()
+        assert run.status == 'error' and 'disk full' in run.error

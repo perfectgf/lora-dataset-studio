@@ -85,20 +85,28 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                            run_name=lt._run_name(ds, family=fam))
     db.session.add(run)
     db.session.commit()
-    _set(run, vast_label=f'lds-{run.id}',
-         job_name=f'lds{run.id}_{lt._run_name(ds, family=fam)}')
+    try:
+        # Anything failing past this point (export, staging, thread start) must
+        # not strand the 'preparing' row forever — that would deadlock the
+        # single-active-run guard above. Flip it to 'error' and re-raise.
+        _set(run, vast_label=f'lds-{run.id}',
+             job_name=f'lds{run.id}_{lt._run_name(ds, family=fam)}')
 
-    staging = _staging_root() / f'run_{run.id}'
-    dataset_dir = staging / 'dataset'
-    (staging / 'samples').mkdir(parents=True, exist_ok=True)
-    lt.export_dataset_to_aitoolkit(user_id, dataset_id, masked=masked,
-                                   dest_dir=str(dataset_dir))
-    n_steps = int(steps) if steps else lt.default_steps(ds)
-    _set(run, staging_dir=str(staging),
-         train_params=json.dumps({'steps': n_steps, 'variant': variant,
-                                  'train_type': fam, 'masked': bool(masked)}))
-    _stop_event.clear()
-    _start_monitor(run.id)
+        staging = _staging_root() / f'run_{run.id}'
+        dataset_dir = staging / 'dataset'
+        (staging / 'samples').mkdir(parents=True, exist_ok=True)
+        lt.export_dataset_to_aitoolkit(user_id, dataset_id, masked=masked,
+                                       dest_dir=str(dataset_dir))
+        n_steps = int(steps) if steps else lt.default_steps(ds)
+        _set(run, staging_dir=str(staging),
+             train_params=json.dumps({'steps': n_steps, 'variant': variant,
+                                      'train_type': fam, 'masked': bool(masked)}))
+        _stop_event.clear()
+        _start_monitor(run.id)
+    except Exception as e:
+        _set(run, status='error', error=f'launch failed: {e}',
+             finished_at=datetime.utcnow())
+        raise
     return {'run_id': run.id, 'status': run.status,
             'job_name': run.job_name, 'steps': n_steps}
 
@@ -137,11 +145,14 @@ def _provision(run):
     try:
         _register_instance(run, instance_id, offer, token)
     except Exception:
-        # the pod exists but we failed to remember it -> kill it NOW
+        # the pod exists but we failed to remember it -> kill it NOW, and make
+        # the outcome observable (destroy_instance returns False on failure)
         try:
-            vast_client.destroy_instance(instance_id)
-        finally:
-            pass
+            if not vast_client.destroy_instance(instance_id):
+                logger.warning('leak-safe destroy of %s FAILED — instance may still '
+                               'be running; boot reconciliation will retry', instance_id)
+        except Exception:
+            logger.exception('leak-safe destroy of %s raised', instance_id)
         raise
 
 
@@ -155,32 +166,38 @@ def request_stop() -> bool:
 
 def reconcile_orphans(app) -> int:
     """Boot-time safety net: destroy every 'lds-*' vast instance that no
-    active run owns. Never raises (boot must not be blocked)."""
+    active run owns. GENUINELY never raises (boot must not be blocked): the
+    whole body — app_context included — sits under a blanket except, so an
+    unexpected failure outside the vast_client calls (db not ready, config
+    error...) is logged and returns the count destroyed so far."""
     destroyed = 0
-    with app.app_context():
-        if not cfg.secret('VAST_API_KEY'):
-            return 0
-        try:
-            instances = vast_client.list_instances()
-        except Exception as e:
-            logger.warning('reconcile: cannot list vast instances: %s', e)
-            return 0
-        active = get_active_run()
-        keep = str(active.vast_instance_id) if active and active.vast_instance_id else None
-        for inst in instances:
-            label = inst.get('label') or ''
-            if not label.startswith('lds-'):
-                continue
-            if keep and inst['instance_id'] == keep:
-                continue
+    try:
+        with app.app_context():
+            if not cfg.secret('VAST_API_KEY'):
+                return 0
             try:
-                if vast_client.destroy_instance(inst['instance_id']):
-                    destroyed += 1
-                    logger.warning('reconcile: destroyed orphan pod %s (%s)',
-                                   inst['instance_id'], label)
+                instances = vast_client.list_instances()
             except Exception as e:
-                logger.warning('reconcile: destroy %s failed: %s',
-                               inst['instance_id'], e)
+                logger.warning('reconcile: cannot list vast instances: %s', e)
+                return 0
+            active = get_active_run()
+            keep = str(active.vast_instance_id) if active and active.vast_instance_id else None
+            for inst in instances:
+                label = inst.get('label') or ''
+                if not label.startswith('lds-'):
+                    continue
+                if keep and inst['instance_id'] == keep:
+                    continue
+                try:
+                    if vast_client.destroy_instance(inst['instance_id']):
+                        destroyed += 1
+                        logger.warning('reconcile: destroyed orphan pod %s (%s)',
+                                       inst['instance_id'], label)
+                except Exception as e:
+                    logger.warning('reconcile: destroy %s failed: %s',
+                                   inst['instance_id'], e)
+    except Exception:
+        logger.exception('reconcile failed')
     return destroyed
 
 
