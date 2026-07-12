@@ -419,6 +419,28 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const cloudActiveHere = actives.find((a) => a.dataset_id === ds.currentId
     && (!a.train_type || a.train_type === trainType));
 
+  // Launch-time GPU speed picker: the ☁️ button opens a dialog that lists live
+  // vast.ai offers by speed (price/h + approx time + cost); the chosen class is
+  // forwarded as gpu_name. launchCloud carries the POST + the MISMATCH_CAPTION
+  // retry that used to live inline in the button handler.
+  const [cloudDialog, setCloudDialog] = useState(false);
+  const launchCloud = async (gpuName) => {
+    const body = { variant, train_type: trainType, masked,
+      ...(stepsN ? { steps: stepsN } : {}), ...(gpuName ? { gpu_name: gpuName } : {}) };
+    const d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`, body);
+    if (d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
+      if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nTrain anyway (force)?')) {
+        const d2 = await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
+          { ...body, allow_caption_mismatch: true });
+        if (d2.ok === false) toastTrainError(d2, 'Cloud training failed');
+      }
+      // Declined confirm = the answer; no error toast (matches local train).
+    } else if (d.ok === false) {
+      toastTrainError(d, 'Cloud training failed');
+    }
+    // Success needs no toast — the 5s cloud-status poll picks it up.
+  };
+
   if (!caps.training_visible) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-border bg-surface p-3 text-content-muted text-sm">
@@ -541,38 +563,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               : actives.length >= (cloudStatus.limit || 1)
                 ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — raise it in Settings`
               : `Rents a vast.ai GPU for this run (~$1-2), auto-terminated`}
-            onClick={async () => {
-              // Worst-case cost confirm — a money decision, so sober text (no
-              // emoji). One confirm at the top covers the initial POST and the
-              // MISMATCH retry below (both live in this handler).
-              const rate = 0.15;   // $/h fallback when the real offer price is unknown
-              const capH = (cloudStatus.max_runtime_minutes || 480) / 60;
-              const spent = cloudStatus.month_spend;
-              const budget = cloudStatus.monthly_budget;
-              const msg = `Rent a cloud GPU for this run?\n\n` +
-                `Typical rate: ~$0.10-0.15/h - worst case ~$${(rate * capH).toFixed(2)} (${capH} h cap).` +
-                (budget > 0 ? `\nThis month: $${(spent || 0).toFixed(2)} of $${budget.toFixed(2)} budget.` : '');
-              if (!window.confirm(msg)) return;
-              const d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
-                { variant, train_type: trainType, masked,
-                  ...(stepsN ? { steps: stepsN } : {}) });
-              if (d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
-                if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nTrain anyway (force)?')) {
-                  const d2 = await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
-                    { variant, train_type: trainType, masked, allow_caption_mismatch: true,
-                      ...(stepsN ? { steps: stepsN } : {}) });
-                  // The forced retry can still be refused (gate flipped, another
-                  // run started meanwhile…) — surface it like local actions do.
-                  if (d2.ok === false) toastTrainError(d2, 'Cloud training failed');
-                }
-                // Declined confirm = the answer; no error toast (matches local train).
-              } else if (d.ok === false) {
-                // Any non-mismatch refusal (409 not-configured, 400 SDXL/custom
-                // base, active-run conflict…) must not vanish silently.
-                toastTrainError(d, 'Cloud training failed');
-              }
-              // Success needs no toast — the 5s cloud-status poll picks it up.
-            }}
+            onClick={() => setCloudDialog(true)}
             className="px-3 py-1.5 rounded-lg border border-sky-500/50 bg-sky-500/10 text-sky-200 text-sm font-semibold disabled:opacity-40">
             <span aria-hidden>☁️</span> Train in cloud
           </button>
@@ -1034,6 +1025,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           onResolve={resolvePreflight} />
       )}
 
+      {cloudDialog && (
+        <CloudLaunchDialog
+          datasetId={ds.currentId} trainType={trainType} steps={stepsN}
+          keptCount={keptCount} cloudStatus={cloudStatus}
+          onClose={() => setCloudDialog(false)} onLaunch={launchCloud} />
+      )}
+
       {/* Resume ou Fresh : un run existe déjà pour ce (trigger, base). ai-toolkit
           reprendrait silencieusement son dernier checkpoint — on demande. */}
       {resumeAsk && (
@@ -1068,6 +1066,134 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const _FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL' };
+
+function _fmtDuration(min) {
+  if (min == null) return '—';
+  if (min < 90) return `~${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `~${h} h ${m} min` : `~${h} h`;
+}
+
+/* Launch-time GPU speed picker. Fetches live vast.ai offers grouped by GPU
+   class (slowest→fastest), each with price/h and an APPROXIMATE training time
+   and total run cost for this dataset+family. Picking a tier rents the cheapest
+   live offer of that class; the price cap in Settings still bounds what's shown. */
+function CloudLaunchDialog({ datasetId, trainType, steps, keptCount, cloudStatus, onClose, onLaunch }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [data, setData] = useState(null);     // {tiers, steps, family, max_price_per_hour}
+  const [selected, setSelected] = useState(null);
+  const [launching, setLaunching] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const qs = new URLSearchParams({ train_type: trainType });
+        if (steps) qs.set('steps', String(steps));
+        const r = await fetch(`/api/dataset/${datasetId}/train/cloud/offers?${qs.toString()}`,
+          { credentials: 'include' });
+        const body = await r.json().catch(() => ({}));
+        if (!alive) return;
+        if (!r.ok || body.ok === false) {
+          setError(body.error || body.hint || `Could not load offers (HTTP ${r.status})`);
+        } else {
+          setData(body);
+          if (body.tiers && body.tiers.length) setSelected(body.tiers[0].gpu_name);
+        }
+      } catch {
+        if (alive) setError('Network error while loading GPU offers');
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [datasetId, trainType, steps]);
+
+  const go = async () => {
+    if (!selected) return;
+    setLaunching(true);
+    try {
+      await onLaunch(selected);      // owns its own error toasts
+      onClose();
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const tiers = data?.tiers || [];
+  const budget = cloudStatus?.monthly_budget || 0;
+  const spent = cloudStatus?.month_spend || 0;
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Choose cloud GPU speed"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-surface-overlay p-4 flex flex-col gap-3">
+        <h3 className="m-0 text-content font-bold text-sm">
+          <span aria-hidden>☁️</span> Choose GPU speed for this run
+        </h3>
+
+        {loading && <p className="m-0 text-content-muted text-sm">Loading live GPU offers…</p>}
+        {error && <p className="m-0 text-red-300 text-sm">⚠ {error}</p>}
+        {!loading && !error && tiers.length === 0 && (
+          <p className="m-0 text-content-muted text-sm">
+            No GPU available under ${data?.max_price_per_hour}/h right now — raise the
+            price cap in Settings, or try again shortly.
+          </p>
+        )}
+
+        {tiers.length > 0 && (
+          <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto">
+            {tiers.map((t) => (
+              <label key={t.gpu_name}
+                className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                  selected === t.gpu_name
+                    ? 'border-sky-400/70 bg-sky-500/10'
+                    : 'border-border bg-surface hover:bg-surface-raised'}`}>
+                <input type="radio" name="gpu-tier" className="accent-sky-400"
+                  checked={selected === t.gpu_name}
+                  onChange={() => setSelected(t.gpu_name)} />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-content text-sm font-semibold truncate">
+                    {t.gpu_name}
+                    {t.gpu_ram_gb ? <span className="text-content-subtle font-normal"> · {t.gpu_ram_gb} GB</span> : null}
+                  </span>
+                  <span className="block text-content-subtle text-[0.75rem] tabular-nums">
+                    {t.dph_total != null ? `$${t.dph_total}/h` : 'price n/a'}
+                    {' · '}{_fmtDuration(t.est_minutes)}
+                    {t.est_cost != null ? ` · ≈ $${t.est_cost} total` : ''}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        <p className="m-0 text-content-subtle text-[0.6875rem]">
+          {(data?.steps ?? steps ?? '—')} steps · {_FAMILY_LABEL[data?.family || trainType] || (data?.family || trainType)}
+          {keptCount != null ? ` · ${keptCount} img` : ''}
+          {budget > 0 ? ` · this month: $${spent.toFixed(2)} of $${budget.toFixed(2)}` : ''}
+          {'. '}Time & cost are approximate; the pod is auto-terminated when done.
+        </p>
+
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={go} disabled={!selected || launching}
+            className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+            {launching ? 'Launching…' : '☁️ Rent & train'}
+          </button>
+          <button type="button" onClick={onClose} disabled={launching}
+            className="ml-auto px-3 py-1.5 rounded-lg text-content-muted hover:text-content text-sm disabled:opacity-40">
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -817,6 +817,15 @@ function UpdatesCard() {
             </span>
           </span>
         )}
+        {/* Read WHAT the update contains before pulling: the compare view lists
+            exactly the incoming commits; otherwise the branch history. Only
+            present after a git-aware "Check for updates" (force). */}
+        {s && (s.compare_url || s.commits_url) && (
+          <a href={s.compare_url || s.commits_url} target="_blank" rel="noreferrer"
+            className="text-xs font-medium text-sky-300 underline hover:text-sky-200">
+            {s.compare_url ? 'See what’s in this update ↗' : 'Browse recent commits ↗'}
+          </a>
+        )}
       </div>
 
       {applying && (
