@@ -70,6 +70,16 @@ def put_settings():
     return jsonify(_settings_payload())
 
 
+@bp.delete('/settings/secret/<name>')
+def delete_secret(name):
+    """Clear a saved API key. Explicit deletion — set_secrets ignores blanks so a
+    key can never be wiped by just emptying its (write-only) field."""
+    if name not in cfg.SECRET_KEYS:
+        return jsonify({'error': 'unknown secret'}), 400
+    cfg.delete_secrets([name])
+    return jsonify(_settings_payload())
+
+
 @bp.get('/capabilities')
 def get_capabilities():
     force = bool(request.args.get('force'))

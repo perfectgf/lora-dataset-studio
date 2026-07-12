@@ -187,7 +187,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
            Les actions secondaires (backup, import-fusion, fidélité, purge)
            vivent dans le menu discret « ⋯ More » — un clic pour les atteindre,
            hors du chemin d'un premier utilisateur. ---- */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* relative z-30 : le header est un flex item ; sans stacking-context propre,
+          le z-20 du menu « ⋯ More » reste piégé dans le header (peint atomiquement
+          comme un inline-block) et passe SOUS le bouton « Go to training » du
+          workspace, frère plus bas dans le DOM. z-30 hisse tout le header au-dessus. */}
+      <div className="relative z-30 flex items-center gap-2 flex-wrap">
         <button type="button" onClick={onBack}
           className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm transition-colors">
           ← Datasets

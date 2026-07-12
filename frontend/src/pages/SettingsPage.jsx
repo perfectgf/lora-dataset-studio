@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { apiFetch, putJson, postJson } from '../api/fetchClient'
+import { apiFetch, putJson, postJson, del } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
 
@@ -273,6 +273,22 @@ export default function SettingsPage() {
     })
   }
 
+  // Clear a saved API key. Explicit action — the write-only field can't wipe a key
+  // by going blank — so confirm, delete server-side, then refresh presence + caps
+  // so any engine that depended on it flips to unavailable right away.
+  const handleDeleteSecret = async (key, label) => {
+    if (!window.confirm(`Remove the saved ${label}? Any engine that uses it stops working until you add a new key.`)) return
+    try {
+      const data = await del(`/api/settings/secret/${key}`)
+      setSecretsPresence(data.secrets)
+      setSecretInputs((prev) => { const next = { ...prev }; delete next[key]; return next })
+      await refresh(true)
+      toast.success(`${label} removed.`)
+    } catch (e) {
+      toast.error(`Remove failed: ${e.message}`)
+    }
+  }
+
   const handleSave = async () => {
     setSaving(true)
     try {
@@ -352,6 +368,16 @@ export default function SettingsPage() {
             </div>
             {f.testTarget && (
               <TestButton target={f.testTarget} onResult={(r) => recordTestResult(f.testTarget, r)} />
+            )}
+            {secretsPresence[f.key] && (
+              <button
+                type="button"
+                onClick={() => handleDeleteSecret(f.key, f.label)}
+                title={`Remove the saved ${f.label}`}
+                className="shrink-0 rounded-md border border-rose-500/40 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/10"
+              >
+                Remove
+              </button>
             )}
           </div>
         ))}

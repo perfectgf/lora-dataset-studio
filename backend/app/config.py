@@ -127,6 +127,20 @@ def set_secrets(d: dict) -> None:
     ENV_PATH.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     load_dotenv(ENV_PATH, override=True)
 
+def delete_secrets(names) -> None:
+    """Remove saved secrets outright (clear a key). Separate from set_secrets,
+    which SKIPS empty values on purpose so a blank field can't wipe a key by
+    accident — deletion has to be an explicit action."""
+    names = [n for n in (names or []) if n in SECRET_KEYS]
+    if not names:
+        return
+    lines = ENV_PATH.read_text(encoding='utf-8').splitlines() if ENV_PATH.exists() else []
+    for name in names:
+        lines = [l for l in lines if not l.startswith(f'{name}=')]
+        os.environ.pop(name, None)   # load_dotenv won't unset a removed line, so drop it here
+    ENV_PATH.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    load_dotenv(ENV_PATH, override=True)
+
 _COMFY_DERIVED = {'output': ('output_dir', 'output'), 'input': ('input_dir', 'input'),
                   'models': ('models_dir', 'models'), 'loras': ('loras_dir', 'models/loras')}
 
