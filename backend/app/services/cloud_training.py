@@ -411,11 +411,26 @@ def _monitor(app, run_id):
                 if inst and not run.auth_token and inst.get('jupyter_token'):
                     _set(run, auth_token=inst['jupyter_token'])
                 base = vast_client.derive_base_url(inst, port) if inst else None
+                ready = False
                 if base:
                     if run.base_url != base:
                         _set(run, base_url=base)
-                    if _make_remote(run).is_ready():
+                    ready = _make_remote(run).is_ready()
+                    if ready:
                         break
+                # Live telemetry: surface WHERE the boot is stuck (image pull,
+                # port publication, UI warm-up) in the UI phase line and the
+                # log — runs #3/#4 died blind on 'Waiting for the pod to boot'.
+                st = (inst or {}).get('actual_status') or 'not listed yet'
+                has_ports = bool(((inst or {}).get('ports') or {}).get(f'{port}/tcp'))
+                stage = (f'pod {st}' if not has_ports
+                         else 'pod up — waiting for the UI to answer')
+                detail = f'Waiting for the pod to boot — {stage}'
+                if run.phase_detail != detail:
+                    logger.info('boot-wait run %s: status=%s port_%s_published=%s '
+                                'base=%s ready=%s', run.id, st, port, has_ports,
+                                base or '-', ready)
+                    _set(run, phase_detail=detail)
                 if _now() - boot_started > ready_timeout:
                     raise RuntimeError('pod did not become ready in time')
                 _sleep(POLL_SECONDS)
