@@ -77,24 +77,36 @@ export default function TrainingProgress({ datasetId, base, trainType, cloud = f
     return () => { alive = false; clearTimeout(timer.current); };
   }, [datasetId, base, trainType, cloud]);
 
+  // The export downgraded a requested masked run to UNMASKED (rembg missing or the
+  // mask pass crashed). Warn loudly — a multi-hour run training the wrong way is
+  // exactly the kind of silent failure worth surfacing.
+  const masksWarn = prog?.masks_skipped ? (
+    <p className="m-0 rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-amber-200 text-[0.625rem]">
+      ⚠️ Training <b>UNMASKED</b> — masks were requested but couldn&apos;t be generated (rembg missing or the mask pass failed), so the background isn&apos;t down-weighted for this run. Install the ML extras from the Setup tab, then re-run to train masked.
+    </p>
+  ) : null;
+
   if (!prog || (!prog.log_exists && !(prog.samples || []).length)) {
-    if (cloud && prog?.phase) {
-      return (
-        <p className="m-0 text-sky-300 text-[0.625rem]">
-          ☁ {prog.phase}{prog.phase_detail ? ` — ${prog.phase_detail}` : ''}
-        </p>
-      );
-    }
     return (
-      <p className="m-0 text-content-subtle text-[0.625rem]">
-        Starting up… (the log appears once ai-toolkit begins writing)
-      </p>
+      <div className="flex flex-col gap-1">
+        {masksWarn}
+        {cloud && prog?.phase ? (
+          <p className="m-0 text-sky-300 text-[0.625rem]">
+            ☁ {prog.phase}{prog.phase_detail ? ` — ${prog.phase_detail}` : ''}
+          </p>
+        ) : (
+          <p className="m-0 text-content-subtle text-[0.625rem]">
+            Starting up… (the log appears once ai-toolkit begins writing)
+          </p>
+        )}
+      </div>
     );
   }
   const pct = prog.step && prog.total ? Math.min(100, Math.round((prog.step / prog.total) * 100)) : null;
   const samples = prog.samples || [];
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+      {masksWarn}
       {cloud && prog.phase && (
         <p className="m-0 text-sky-300 text-[0.625rem]">{prog.phase}{prog.phase_detail ? ` — ${prog.phase_detail}` : ''}</p>
       )}

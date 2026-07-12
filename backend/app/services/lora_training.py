@@ -618,6 +618,7 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_d
         n += 1
     if n == 0:
         raise ValueError('no valid image file found on disk')
+    masked_ok = False
     if masked:
         # generate_person_masks returns a DICT ({"ok", "written", "results"}, or {}
         # on any failure/unavailability) -- a non-empty dict is always truthy, so a
@@ -626,11 +627,19 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_d
         res = generate_person_masks(exported, masks_out)
         wrote = int(res.get('written') or 0) if isinstance(res, dict) else 0
         if wrote:
+            masked_ok = True
             logger.info(f'export dataset {dataset_id}: {wrote}/{n} masque(s) personne -> {masks_out}')
         else:
             logger.warning(f'export dataset {dataset_id}: masques indisponibles - training SANS masked loss')
             if os.path.isdir(masks_out):
                 shutil.rmtree(masks_out, ignore_errors=True)
+    # A REQUESTED masked run that produced no masks (rembg missing, or generation
+    # crashed at runtime) silently trains UNMASKED. Record it per-run so the live
+    # progress view can warn — instead of the fallback being invisible. `masked` is
+    # the FINAL intent: concept/style were already forced OFF above (by design), so
+    # they never set this flag.
+    queue_manager._set_system_state('training_masks_skipped', bool(masked and not masked_ok),
+                                    ttl_seconds=_TRAIN_STATE_TTL)
     logger.info(f'export dataset {dataset_id} -> {out} ({n} paires)')
     return out
 
@@ -1932,6 +1941,7 @@ def training_progress(user_id, dataset_id, base_model=_PERSISTED, family=None) -
         except OSError:
             log_exists = False
     return {'active': active, 'log_exists': log_exists, **parsed,
+            'masks_skipped': bool(active and queue_manager._get_system_state('training_masks_skipped', False)),
             'samples': list_training_samples(user_id, dataset_id, base_model, family)}
 
 
