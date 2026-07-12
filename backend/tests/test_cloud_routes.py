@@ -68,8 +68,28 @@ def test_cloud_progress_and_stop(client, monkeypatch):
                                           'step': 5, 'total': 100, 'samples': []})
     r = client.get(f'/api/dataset/{ds}/train/cloud/progress')
     assert r.status_code == 200 and r.get_json()['phase'] == 'training'
-    monkeypatch.setattr('app.services.cloud_training.request_stop', lambda: True)
+    monkeypatch.setattr('app.services.cloud_training.request_stop', lambda run_id=None: True)
     assert client.post('/api/dataset/train/cloud/stop').get_json()['ok'] is True
+
+
+def test_cloud_stop_forwards_run_id(client, monkeypatch):
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    seen = {}
+
+    def fake_request_stop(run_id=None):
+        seen['run_id'] = run_id
+        return True
+
+    monkeypatch.setattr('app.services.cloud_training.request_stop', fake_request_stop)
+    r = client.post('/api/dataset/train/cloud/stop', json={'run_id': 42})
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+    assert seen['run_id'] == 42
+    # no body / no run_id -> still forwards (as None), compat with the old
+    # "stop whatever is active" behavior
+    seen.clear()
+    r = client.post('/api/dataset/train/cloud/stop')
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+    assert seen['run_id'] is None
 
 
 def test_cloud_sample_served_from_staging(client, app, monkeypatch, tmp_path):

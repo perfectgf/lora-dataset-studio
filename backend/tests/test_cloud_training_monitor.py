@@ -149,7 +149,7 @@ def test_stop_requested_stops_job_and_terminates(ct, app, client, monkeypatch):
     destroyed = []
     remote = FakeRemote(polls_to_complete=50)
     ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
-    ct._stop_event.set()
+    ct._stop_event_for(run_id).set()
     with app.app_context():
         ct._monitor(app, run_id)
         run = ct.CloudTrainingRun.query.get(run_id)

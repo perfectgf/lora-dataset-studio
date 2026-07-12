@@ -7,6 +7,7 @@ def test_cloud_defaults_present(app):
     assert cfg.get('cloud.ui_port') == 18675
     assert cfg.get('cloud.template_hash') == '471ed5903d8cdb8e63b0d0e50f6cd519'
     assert cfg.get('cloud.max_price_per_hour') == 0.80
+    assert cfg.get('cloud.max_concurrent_runs') == 1
     assert cfg.get('cloud.min_inet_down_mbps') == 400
     assert cfg.get('cloud.ready_timeout_minutes') == 25
     assert cfg.get('cloud.max_runtime_minutes') == 240

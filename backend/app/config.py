@@ -44,6 +44,7 @@ DEFAULTS = {
         'ui_port': 18675,              # container port the UI is reachable on (Caddy proxy)
         'image': 'vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9',  # raw-image fallback only
         'max_price_per_hour': 0.80,    # offer search cap, $/h
+        'max_concurrent_runs': 1,      # simultaneous cloud pods; raise in Settings
         'min_inet_down_mbps': 400,     # skip hosts too slow to pull the 7 GB image
         'ready_timeout_minutes': 25,   # boot budget: image pull + services up
         'max_runtime_minutes': 240,    # hard kill-switch: stop + terminate past this

@@ -490,7 +490,8 @@ def dataset_train_cloud_progress(dataset_id):
 
 @bp.post('/dataset/train/cloud/stop')
 def dataset_train_cloud_stop():
-    return jsonify({'ok': ct.request_stop()})
+    d = request.get_json(silent=True) or {}
+    return jsonify({'ok': ct.request_stop(d.get('run_id'))})
 
 
 @bp.get('/dataset/<int:dataset_id>/train/cloud/sample/<path:filename>')

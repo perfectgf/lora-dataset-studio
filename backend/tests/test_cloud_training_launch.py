@@ -275,6 +275,78 @@ def test_reconcile_keeps_active_and_spares_error_pod_kept_together(ct, app, monk
         assert n == 1
 
 
+def test_launch_respects_higher_concurrent_limit(ct, app, client, monkeypatch):
+    """cloud.max_concurrent_runs=2 + 2 different datasets -> both launches
+    succeed; a 3rd dataset trips the limit guard."""
+    _fake_export(monkeypatch, ct)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
+    ds1 = client.post('/api/dataset/create',
+                      json={'name': 'A', 'trigger_word': 'a'}).get_json()['id']
+    ds2 = client.post('/api/dataset/create',
+                      json={'name': 'B', 'trigger_word': 'b'}).get_json()['id']
+    ds3 = client.post('/api/dataset/create',
+                      json={'name': 'C', 'trigger_word': 'c'}).get_json()['id']
+    with app.app_context():
+        ct.launch_cloud_training('local', ds1)
+        ct.launch_cloud_training('local', ds2)
+        with pytest.raises(RuntimeError, match='limit reached'):
+            ct.launch_cloud_training('local', ds3)
+
+
+def test_launch_refuses_same_dataset_twice_even_with_higher_limit(ct, app, client, monkeypatch):
+    """The per-dataset uniqueness guard is independent of the concurrency cap:
+    even with room under the limit, the SAME dataset cannot get a 2nd run."""
+    _fake_export(monkeypatch, ct)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
+    ds1 = client.post('/api/dataset/create',
+                      json={'name': 'A', 'trigger_word': 'a'}).get_json()['id']
+    with app.app_context():
+        ct.launch_cloud_training('local', ds1)
+        with pytest.raises(RuntimeError, match='already has an active cloud run'):
+            ct.launch_cloud_training('local', ds1)
+
+
+def test_request_stop_targets_only_the_given_run(ct, app, client, monkeypatch):
+    _fake_export(monkeypatch, ct)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
+    ds1 = client.post('/api/dataset/create',
+                      json={'name': 'A', 'trigger_word': 'a'}).get_json()['id']
+    ds2 = client.post('/api/dataset/create',
+                      json={'name': 'B', 'trigger_word': 'b'}).get_json()['id']
+    with app.app_context():
+        r1 = ct.launch_cloud_training('local', ds1)
+        r2 = ct.launch_cloud_training('local', ds2)
+        assert ct.request_stop(r1['run_id']) is True
+        assert ct._stop_event_for(r1['run_id']).is_set() is True
+        assert ct._stop_event_for(r2['run_id']).is_set() is False
+
+
+def test_reconcile_keeps_multiple_actives_destroys_orphan(ct, app, monkeypatch):
+    """Multi-run keep-set: TWO genuinely active runs (different datasets, both
+    with a pod) must both be spared; only the true orphan is destroyed."""
+    destroyed = []
+    with app.app_context():
+        active1 = ct.CloudTrainingRun(dataset_id=1, status='training',
+                                      vast_instance_id='111', vast_label='lds-1',
+                                      job_name='j1')
+        active2 = ct.CloudTrainingRun(dataset_id=2, status='uploading',
+                                      vast_instance_id='222', vast_label='lds-2',
+                                      job_name='j2')
+        ct.db.session.add_all([active1, active2])
+        ct.db.session.commit()
+        a1_id, a2_id = active1.id, active2.id
+        monkeypatch.setattr(ct.vast_client, 'list_instances', lambda: [
+            {'instance_id': '111', 'label': f'lds-{a1_id}'},   # active -> keep
+            {'instance_id': '222', 'label': f'lds-{a2_id}'},   # active -> keep
+            {'instance_id': '333', 'label': 'lds-99'},         # orphan -> destroy
+        ])
+        monkeypatch.setattr(ct.vast_client, 'destroy_instance',
+                            lambda iid: destroyed.append(iid) or True)
+        n = ct.reconcile_orphans(app)
+        assert destroyed == ['333']
+        assert n == 1
+
+
 def test_launch_failure_frees_the_active_slot(ct, app, seeded_dataset, monkeypatch):
     """A mid-launch failure (after the row is created) must not strand a
     'preparing' row forever -- the run flips to 'error' so the single active

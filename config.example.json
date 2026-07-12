@@ -42,6 +42,7 @@
     "image": "vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9",
     "ui_port": 18675,
     "max_price_per_hour": 0.8,
+    "max_concurrent_runs": 1,
     "max_runtime_minutes": 240,
     "disk_gb": 60,
     "min_vram_gb": {

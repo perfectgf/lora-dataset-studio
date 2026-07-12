@@ -31,8 +31,12 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATES = ('preparing', 'provisioning', 'uploading', 'training',
                  'downloading', 'terminating')
 
-_stop_event = threading.Event()
-_monitor_thread = None
+_stop_events = {}        # run_id -> threading.Event
+_monitor_threads = {}    # run_id -> threading.Thread
+
+
+def _stop_event_for(run_id):
+    return _stop_events.setdefault(int(run_id), threading.Event())
 
 
 def _staging_root() -> Path:
@@ -45,10 +49,17 @@ def _staging_root() -> Path:
     return root
 
 
-def get_active_run():
+def get_active_runs():
     return (CloudTrainingRun.query
             .filter(CloudTrainingRun.status.in_(ACTIVE_STATES))
-            .order_by(CloudTrainingRun.id.desc()).first())
+            .order_by(CloudTrainingRun.id.asc()).all())
+
+
+def get_active_run():
+    """Compat alias for single-run callers/tests: the first of the active
+    runs (or None). Multi-run-aware code uses get_active_runs()."""
+    actives = get_active_runs()
+    return actives[0] if actives else None
 
 
 def _set(run, **fields):
@@ -90,8 +101,14 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
     if fam == 'sdxl':
         raise ValueError('SDXL training needs a local base checkpoint — '
                          'cloud training supports Z-Image and Krea for now')
-    if get_active_run():
-        raise RuntimeError('a cloud training run is already active')
+    actives = get_active_runs()
+    limit = max(1, int((cfg.get('cloud.max_concurrent_runs') or 1)))
+    if any(r.dataset_id == dataset_id for r in actives):
+        raise RuntimeError('this dataset already has an active cloud run')
+    if len(actives) >= limit:
+        raise RuntimeError(
+            f'cloud run limit reached ({len(actives)}/{limit} active) — '
+            'raise cloud.max_concurrent_runs in Settings')
 
     # Same caption-mismatch preflight as launch_training (MISMATCH_CAPTION
     # contract): assert_trainable is ALREADY a standalone helper in
@@ -121,7 +138,7 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         _set(run, staging_dir=str(staging),
              train_params=json.dumps({'steps': n_steps, 'variant': variant,
                                       'train_type': fam, 'masked': bool(masked)}))
-        _stop_event.clear()
+        _stop_event_for(run.id).clear()
         _start_monitor(run.id)
     except Exception as e:
         _set(run, status='error', error=f'launch failed: {e}',
@@ -192,12 +209,17 @@ def _provision(run):
         raise
 
 
-def request_stop() -> bool:
-    run = get_active_run()
-    if not run:
-        return False
-    _stop_event.set()
-    return True
+def request_stop(run_id=None) -> bool:
+    if run_id is not None:
+        run = CloudTrainingRun.query.get(int(run_id))
+        if not run or run.status not in ACTIVE_STATES:
+            return False
+        _stop_event_for(run.id).set()
+        return True
+    actives = get_active_runs()
+    for run in actives:
+        _stop_event_for(run.id).set()
+    return bool(actives)
 
 
 def reconcile_orphans(app) -> int:
@@ -224,8 +246,7 @@ def reconcile_orphans(app) -> int:
             except Exception as e:
                 logger.warning('reconcile: cannot list vast instances: %s', e)
                 return 0
-            active = get_active_run()
-            keep = str(active.vast_instance_id) if active and active.vast_instance_id else None
+            keep = {str(r.vast_instance_id) for r in get_active_runs() if r.vast_instance_id}
             c = cfg.get('cloud') or {}
             max_seconds = int(c.get('max_runtime_minutes') or 240) * 60
             now = datetime.utcnow()
@@ -238,7 +259,7 @@ def reconcile_orphans(app) -> int:
                 if not label.startswith('lds-'):
                     continue
                 iid = str(inst['instance_id'])
-                if keep and iid == keep:
+                if iid in keep:
                     continue
                 kept_run = kept_by_instance.get(iid)
                 if kept_run is not None:
@@ -274,10 +295,10 @@ def reconcile_orphans(app) -> int:
 
 def _start_monitor_for_app(app, run_id):
     """Like _start_monitor but usable outside a request context (boot)."""
-    global _monitor_thread
-    _monitor_thread = threading.Thread(
+    t = threading.Thread(
         target=_monitor, args=(app, run_id), daemon=True, name=f'cloud-train-{run_id}')
-    _monitor_thread.start()
+    _monitor_threads[int(run_id)] = t
+    t.start()
 
 
 def _start_monitor(run_id):
@@ -292,22 +313,21 @@ def boot_recover(app):
     the app last closed and its pod was already created, resume monitoring
     it (the pod kept training/uploading in our absence); (3) if it never got
     a pod (crashed during 'preparing'), there is nothing to resume -> flip
-    it to 'error' so the single-active-run slot is freed."""
+    it to 'error' so its slot is freed. Iterates every active run (not just
+    one) so a restart with several concurrent runs resumes all of them."""
     try:
         reconcile_orphans(app)
         with app.app_context():
             if not cfg.secret('VAST_API_KEY'):
                 return
-            run = get_active_run()
-            if not run:
-                return
-            if run.vast_instance_id:
-                logger.info('resuming cloud run %s (pod %s kept training)',
-                            run.id, run.vast_instance_id)
-                _start_monitor_for_app(app, run.id)
-            else:
-                _set(run, status='error', finished_at=datetime.utcnow(),
-                     error='app restarted before the pod was created')
+            for run in get_active_runs():
+                if run.vast_instance_id:
+                    logger.info('resuming cloud run %s (pod %s kept training)',
+                                run.id, run.vast_instance_id)
+                    _start_monitor_for_app(app, run.id)
+                else:
+                    _set(run, status='error', finished_at=datetime.utcnow(),
+                         error='app restarted before the pod was created')
     except Exception:
         logger.exception('cloud boot recovery failed')
 
@@ -363,7 +383,10 @@ def _monitor(app, run_id):
     with app.app_context():
         run = CloudTrainingRun.query.get(run_id)
         if not run:
+            _stop_events.pop(int(run_id), None)
+            _monitor_threads.pop(int(run_id), None)
             return
+        stop_event = _stop_event_for(run_id)
         c = cfg.get('cloud') or {}
         max_seconds = int(c.get('max_runtime_minutes') or 240) * 60
         # The runtime cap must survive restarts: anchor it to the run's durable
@@ -481,8 +504,8 @@ def _monitor(app, run_id):
                             detail='Max runtime reached — pod terminated',
                             error='max runtime cap hit')
                     return
-                if _stop_event.is_set():
-                    _stop_event.clear()
+                if stop_event.is_set():
+                    stop_event.clear()
                     _set(run, phase_detail='Stopping on user request')
                     try:
                         remote.stop_job(job_id)
@@ -527,6 +550,12 @@ def _monitor(app, run_id):
         except Exception as e:
             logger.exception('cloud run %s failed', run_id)
             _finish(run, 'error', detail='Run failed', error=str(e)[:500])
+        finally:
+            # This run's slot in both maps is done with — drop it so they
+            # cannot grow unbounded across the app's lifetime with many
+            # concurrent runs coming and going.
+            _stop_events.pop(int(run_id), None)
+            _monitor_threads.pop(int(run_id), None)
 
 
 def _pull_log_and_samples(run, remote, job_id):
@@ -606,11 +635,15 @@ def _run_payload(run) -> dict:
 
 
 def cloud_status() -> dict:
-    active = get_active_run()
+    actives = get_active_runs()
+    limit = max(1, int((cfg.get('cloud.max_concurrent_runs') or 1)))
     last = (CloudTrainingRun.query
             .order_by(CloudTrainingRun.id.desc()).first())
-    return {'configured': bool(cfg.secret('VAST_API_KEY')),
-            'active': _run_payload(active) if active else None,
+    return {'configured': bool(cfg.secret('VAST_API_KEY')), 'limit': limit,
+            'actives': [_run_payload(r) for r in actives],
+            # compat: single 'active' field for old frontend/tests, first of actives
+            'active': _run_payload(actives[0]) if actives else None,
+            'total_price_per_hour': round(sum(r.price_per_hour or 0 for r in actives), 4),
             'last': _run_payload(last) if last else None}
 
 
