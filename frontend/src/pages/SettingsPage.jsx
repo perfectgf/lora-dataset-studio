@@ -82,6 +82,42 @@ function TestButton({ target, onResult }) {
   )
 }
 
+/* First-time walkthrough for renting cloud GPUs — collapsed by default so the
+   API-keys card stays compact for users who already have a key. */
+function VastKeyGuide() {
+  const link = 'font-medium text-sky-300 underline hover:text-sky-200'
+  return (
+    <details className="mb-2 rounded-lg border border-border bg-surface-raised/60 px-3 py-2">
+      <summary className="cursor-pointer select-none text-xs font-medium text-content">
+        <span aria-hidden>📖</span> How to get a vast.ai API key (≈2 minutes)
+      </summary>
+      <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs text-content-muted">
+        <li>
+          Create a free account at{' '}
+          <a href="https://cloud.vast.ai/" target="_blank" rel="noreferrer" className={link}>cloud.vast.ai</a>
+          {' '}(email or Google sign-in).
+        </li>
+        <li>
+          Add credit: open{' '}
+          <a href="https://cloud.vast.ai/billing/" target="_blank" rel="noreferrer" className={link}>Billing</a>
+          {' '}in the left sidebar and click <strong>Add Credit</strong> — $5 is plenty to
+          start (a typical training run costs ~$1–2, billed by vast.ai, not by this app).
+        </li>
+        <li>
+          Open{' '}
+          <a href="https://cloud.vast.ai/manage-keys/" target="_blank" rel="noreferrer" className={link}>Keys</a>
+          {' '}(left sidebar, under Account) and copy your API key — create one first if
+          the list is empty.
+        </li>
+        <li>
+          Paste the key in the field below, hit <strong>Save changes</strong>, then{' '}
+          <strong>Test</strong> — it should answer “connected as &lt;your account&gt;”.
+        </li>
+      </ol>
+    </details>
+  )
+}
+
 function Card({ title, help, children }) {
   return (
     <section className="rounded-xl border border-border bg-surface p-5">
@@ -355,6 +391,7 @@ export default function SettingsPage() {
                 <StatusBadge ok={!!secretsPresence[f.key]} />
               </div>
               <p className="mb-1 text-xs text-content-muted">{f.help}</p>
+              {f.key === 'VAST_API_KEY' && <VastKeyGuide />}
               <input
                 id={f.key}
                 type="password"
