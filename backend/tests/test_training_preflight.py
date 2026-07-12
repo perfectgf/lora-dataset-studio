@@ -93,6 +93,32 @@ def test_preflight_concept_skips_identity_leak(app):
     assert not any('describe the identity' in w for w in r['warnings'])  # no false warning
 
 
+def test_preflight_concept_skips_composition_balance(app):
+    """The face/bust/body/back balance is a CHARACTER heuristic (render a face at every
+    distance). A concept LoRA learns on whatever framings it has — and its images are often
+    left unclassified (framing=None) — so the composition dimension is skipped for concept,
+    else it trips a false 'every kept image is a face shot' before every training run."""
+    from app.services import face_dataset_service as svc
+    from app.services import lora_training as lt
+    from app.models import FaceDatasetImage
+    with app.app_context():
+        # character, all face shots -> composition WARNS (baseline sanity)
+        char = _mk(app, n_keep=20, framing='face')
+        rc = lt.training_preflight(LOCAL_USER, char.id)
+        assert any('face shot' in w for w in rc['warnings'])
+        # concept, SAME all-face framing -> no composition warning / check row
+        con = svc.create_dataset(LOCAL_USER, 'C2', 'c2_trig', kind='concept',
+                                 concept_desc='a candid mirror selfie')
+        for i in range(20):
+            svc.db.session.add(FaceDatasetImage(
+                dataset_id=con.id, filename=f'x{i}.webp', status='keep', framing='face',
+                caption=f'a full-body scene described with a fair number of words #{i}'))
+        svc.db.session.commit()
+        r = lt.training_preflight(LOCAL_USER, con.id)
+    assert not any('face shot' in w for w in r['warnings'])
+    assert not any(c.get('id') == 'composition' for c in r['checks'])
+
+
 def _grad_png(path, reverse=False):
     """64px horizontal grayscale gradient — a stable, non-uniform dHash. reverse
     flips it so its dHash is the bitwise opposite (max hamming distance)."""

@@ -1157,6 +1157,10 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     rows = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).all()
     kept = [r for r in rows if r.status == 'keep' and r.filename]
     n = len(kept)
+    # CONCEPT : plusieurs dimensions ci-dessous (équilibre de composition, fuite
+    # d'identité) sont des heuristiques de LoRA PERSONNAGE sans objet pour un concept —
+    # on les saute pour ne pas générer de faux avertissements.
+    concept = fds.is_concept(ds)
 
     # 1) minimum d'images par famille
     floor, reco = TRAIN_MIN_IMAGES.get(ttype, (12, 20))
@@ -1172,8 +1176,11 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     else:
         _check('images', 'Enough images', 'ok', f'{n} kept ({reco}+ recommended)')
 
-    # 2) équilibre de composition
-    if n:
+    # 2) équilibre de composition — heuristique PERSONNAGE (viser un mix face/bust/body/
+    # back pour rendre un visage à toutes les distances). Sans objet pour un CONCEPT (il
+    # s'apprend sur les cadrages tels quels), et un dataset non classé (framing=None) y
+    # déclencherait un faux « tout en gros plan visage » → on saute pour les concepts.
+    if n and not concept:
         comp = {'face': 0, 'bust': 0, 'body': 0, 'back': 0}
         for r in kept:
             if r.framing in comp:
@@ -1234,7 +1241,6 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     # pas le visage, qui se lie au trigger → la « fuite d'identité » n'a aucun sens ici.
     # On saute entièrement cette dimension (comme le badge caption_leak du payload), sinon
     # CHAQUE caption concept déclenche un faux avertissement au preflight.
-    concept = fds.is_concept(ds)
     body = fds.is_body_fidelity(ds)
     leak_images = [] if concept else [
         {'id': r.id, 'filename': r.filename, 'caption': (r.caption or '').strip()}
