@@ -242,6 +242,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     if (concept) setMaskedS(false);
     else { try { setMaskedS(localStorage.getItem('trainMasked_v1') !== '0'); } catch { setMaskedS(true); } }
   }, [ds.currentId, concept]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Masked ON but rembg (person-mask backend) unavailable → the export silently
+  // drops the masks and trains UNMASKED. Surface that instead of lying about it.
+  // `=== false` (not `!caps.masks`) so we don't warn before caps have loaded.
+  const maskedRembgMissing = masked && !concept && caps.masks === false;
   // Plafond de steps CHOISI (vide → adaptatif). NON persisté à dessein : un cap
   // oublié (ex. 2000) ne doit pas s'appliquer en douce au prochain dataset.
   const [stepsOverride, setStepsOverride] = useState('');
@@ -564,7 +568,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             réglages eux-mêmes vivent dans « Advanced options ». */}
         <span className="ml-auto text-content-subtle text-[0.625rem]"
           title="The configuration the next run will use — change it in Advanced options below">
-          base « {baseLabel} » · {masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : 'adaptive steps'}
+          base « {baseLabel} » · {maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : 'adaptive steps'}
         </span>
       </div>
 
@@ -765,9 +769,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             <input type="checkbox" checked={masked} onChange={(e) => setMasked(e.target.checked)}
               aria-label="Masked training (background at 10%)"
               className="accent-primary w-3.5 h-3.5" />
-            <span className={masked ? 'text-emerald-300' : ''}>🎭 Masked (bg 10%)</span>
+            <span className={masked && !maskedRembgMissing ? 'text-emerald-300' : ''}>🎭 Masked (bg 10%)</span>
             {concept && masked && (
               <span className="text-amber-300" title="A person mask would erase the concept.">⚠️ off recommended for concepts</span>
+            )}
+            {maskedRembgMissing && (
+              <span className="text-amber-300"
+                title="rembg isn't installed, so no person masks can be generated — this run will train UNMASKED (background at full weight), not masked. Install the ML extras from the Setup tab (requirements-ml.txt, Python 3.10–3.12) to enable masked training.">
+                ⚠️ rembg missing — will train unmasked
+              </span>
             )}
           </label>
 
