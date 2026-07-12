@@ -420,8 +420,118 @@ export default function SettingsPage() {
         </button>
       </div>
 
+      <UpdatesCard />
+
       <LogViewer />
     </div>
+  )
+}
+
+/* In-app updater: "Check for updates" hits the git-aware check (commits-behind for a
+   clone, release tag for a packaged build). "Update & restart" pulls + restarts the
+   server; we then poll /api/health until the relaunched process answers and hard-reload
+   the SPA so the new frontend/dist loads. */
+function UpdatesCard() {
+  const [status, setStatus] = useState(null)
+  const [checking, setChecking] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [phase, setPhase] = useState('')     // '' | 'pulling' | 'restarting'
+
+  const check = async () => {
+    setChecking(true)
+    try {
+      setStatus(await apiFetch('/api/update/check?force=1'))
+    } catch (e) {
+      setStatus({ ok: false, reason: e.message || 'Check failed' })
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const waitForHealthAndReload = async () => {
+    // The server is re-execing: /api/health refuses connections for a few seconds,
+    // then answers again on the same port. Poll, then hard-reload to pull new dist.
+    for (let i = 0; i < 120; i += 1) {
+      await new Promise((r) => setTimeout(r, 1000))
+      try {
+        const res = await fetch('/api/health', { cache: 'no-store' })
+        if (res.ok) { window.location.reload(); return }
+      } catch { /* still down — keep waiting */ }
+    }
+    setApplying(false); setPhase('')          // gave up after ~2 min
+  }
+
+  const apply = async () => {
+    setApplying(true); setPhase('pulling')
+    try {
+      const res = await postJson('/api/update/apply', {})
+      if (res.restarting) {
+        setPhase('restarting')
+        waitForHealthAndReload()              // not awaited: UI shows "restarting…"
+      } else {
+        setStatus(res.ok ? { ...res, up_to_date: true } : res)
+        setApplying(false); setPhase('')
+      }
+    } catch (e) {
+      setStatus({ ok: false, reason: e.message || 'Update failed' })
+      setApplying(false); setPhase('')
+    }
+  }
+
+  const s = status
+  const canPull = s && s.update_available && s.is_git
+  return (
+    <Card title="Updates" help="Pull the latest version from GitHub and restart — without leaving the app.">
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" onClick={check} disabled={checking || applying}
+          className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-content hover:bg-surface-raised disabled:opacity-50">
+          {checking ? 'Checking…' : 'Check for updates'}
+        </button>
+        {s?.current && (
+          <span className="text-xs text-content-subtle">
+            Current: v{s.current}{s.current_sha ? ` · ${s.current_sha}` : ''}
+          </span>
+        )}
+      </div>
+
+      {applying && (
+        <p className="text-sm text-content-muted" role="status">
+          {phase === 'restarting'
+            ? '↻ Updated — the app is restarting. This page reloads automatically when it’s back…'
+            : '⬇ Pulling the latest version…'}
+        </p>
+      )}
+
+      {!applying && s && (
+        <div className="text-sm">
+          {canPull ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-content">
+                <span aria-hidden>⬆</span>{' '}
+                {typeof s.behind === 'number'
+                  ? `${s.behind} commit${s.behind === 1 ? '' : 's'} behind${s.current_sha && s.remote_sha ? ` (${s.current_sha} → ${s.remote_sha})` : ''}.`
+                  : `Update available${s.latest ? ` — v${s.latest}` : ''}.`}
+              </span>
+              <button type="button" onClick={apply}
+                className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">
+                Update &amp; restart
+              </button>
+            </div>
+          ) : s.update_available ? (
+            <p className="text-content">
+              Update available{s.latest ? ` — v${s.latest}` : ''} —{' '}
+              <a href={s.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-300 underline">
+                download the latest release
+              </a>{' '}and replace the folder.
+            </p>
+          ) : s.ok ? (
+            <p className="text-emerald-400"><span aria-hidden>✓</span> You’re up to date.</p>
+          ) : (
+            <p className="text-content-muted"><span aria-hidden>⚠</span> {s.reason || 'Could not check for updates.'}</p>
+          )}
+        </div>
+      )}
+    </Card>
   )
 }
 

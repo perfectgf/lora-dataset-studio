@@ -96,9 +96,19 @@ def update_check():
     import time
     import requests
     from ..version import APP_VERSION
+    from ..services import updater
+    force = bool(request.args.get('force'))
+    # A git checkout: the meaningful signal is commits-behind-origin (the user pushes
+    # commits to a branch, not tagged releases — a release-only check reads "up to date"
+    # while the tree is many commits behind). Only fetch on an explicit check (force),
+    # never from the passive startup banner, which must not hit the network every load.
+    if force and updater.is_git_checkout():
+        gs = updater.git_update_status()
+        if gs is not None:
+            return jsonify(gs)
     now = time.time()
     if (_update_cache['data'] is not None and (now - _update_cache['ts']) < _UPDATE_TTL
-            and not request.args.get('force')):
+            and not force):
         return jsonify(_update_cache['data'])
     repo = cfg.get('updates.repo') or 'perfectgf/lora-dataset-studio'
     out = {'ok': True, 'current': APP_VERSION, 'latest': None,
@@ -120,6 +130,22 @@ def update_check():
         out['reason'] = 'offline or GitHub unreachable'
     _update_cache.update(ts=now, data=out)
     return jsonify(out)
+
+
+@bp.post('/update/apply')
+def update_apply():
+    """Pull the latest commits (git checkout only) and, if anything changed, restart the
+    server. Returns immediately with {ok, changed, from, to, restarting, log, ...}; the
+    actual re-launch happens ~1 s after this response flushes, so the client can start
+    polling /api/health. A packaged build (no git) gets {manual:true, url} instead."""
+    from ..services import updater
+    res = updater.apply_update()
+    res['restarting'] = bool(res.get('ok') and res.get('changed'))
+    if res['restarting']:
+        # invalidate the cached release check so the banner re-evaluates post-update
+        _update_cache.update(ts=0.0, data=None)
+        updater.schedule_restart()
+    return jsonify(res)
 
 
 @bp.get('/logs/tail')
