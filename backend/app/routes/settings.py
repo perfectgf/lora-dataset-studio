@@ -174,3 +174,34 @@ def logs_tail():
             except OSError:
                 continue
     return jsonify({'ok': True, 'file': None, 'lines': []})
+
+
+# --- ChatGPT subscription (Codex OAuth) --------------------------------------
+# Device-code login for the ChatGPT engine's subscription lane. One upstream
+# check per poll call — the SPA polls every few seconds, no server thread.
+
+@bp.post('/settings/chatgpt-oauth/start')
+def chatgpt_oauth_start():
+    from ..services import chatgpt_oauth
+    out = chatgpt_oauth.login_start()
+    return jsonify(out), (200 if out.get('ok') else 502)
+
+
+@bp.get('/settings/chatgpt-oauth/poll')
+def chatgpt_oauth_poll():
+    from ..services import chatgpt_oauth
+    return jsonify(chatgpt_oauth.login_poll())
+
+
+@bp.post('/settings/chatgpt-oauth/import-codex')
+def chatgpt_oauth_import_codex():
+    from ..services import chatgpt_oauth
+    out = chatgpt_oauth.import_codex_cli()
+    return jsonify(out), (200 if out.get('ok') else 404)
+
+
+@bp.post('/settings/chatgpt-oauth/logout')
+def chatgpt_oauth_logout():
+    from ..services import chatgpt_oauth
+    chatgpt_oauth.logout()
+    return jsonify({'ok': True})

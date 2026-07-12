@@ -154,3 +154,34 @@ def test_logs_tail_reads_app_log(client, tmp_path, monkeypatch):
 def test_logs_tail_empty_when_no_log(client):
     d = client.get('/api/logs/tail').get_json()
     assert d == {'ok': True, 'file': None, 'lines': []}
+
+
+def test_chatgpt_oauth_routes(client, monkeypatch):
+    from unittest.mock import patch
+    from app.services import chatgpt_oauth
+    with patch.object(chatgpt_oauth, 'login_start',
+                      return_value={'ok': True, 'verification_url': 'https://x/device',
+                                    'user_code': 'AB-12'}):
+        r = client.post('/api/settings/chatgpt-oauth/start')
+        assert r.status_code == 200 and r.get_json()['user_code'] == 'AB-12'
+    with patch.object(chatgpt_oauth, 'login_start',
+                      return_value={'ok': False, 'detail': 'network error'}):
+        assert client.post('/api/settings/chatgpt-oauth/start').status_code == 502
+    with patch.object(chatgpt_oauth, 'login_poll', return_value={'status': 'pending',
+                                                                 'detail': None}):
+        r = client.get('/api/settings/chatgpt-oauth/poll')
+        assert r.status_code == 200 and r.get_json()['status'] == 'pending'
+    with patch.object(chatgpt_oauth, 'import_codex_cli',
+                      return_value={'ok': False, 'detail': 'no session'}):
+        assert client.post('/api/settings/chatgpt-oauth/import-codex').status_code == 404
+    with patch.object(chatgpt_oauth, 'import_codex_cli',
+                      return_value={'ok': True, 'detail': 'imported'}):
+        assert client.post('/api/settings/chatgpt-oauth/import-codex').status_code == 200
+    r = client.post('/api/settings/chatgpt-oauth/logout')
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+
+
+def test_put_settings_saves_chatgpt_auth_mode(client):
+    r = client.put('/api/settings', json={'config': {'engines': {'chatgpt_auth': 'subscription'}}})
+    assert r.status_code == 200
+    assert r.get_json()['config']['engines']['chatgpt_auth'] == 'subscription'
