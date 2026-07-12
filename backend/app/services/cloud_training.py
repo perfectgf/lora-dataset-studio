@@ -15,7 +15,7 @@ import os
 import secrets as pysecrets
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .. import config as cfg
@@ -58,11 +58,28 @@ def _set(run, **fields):
     db.session.commit()
 
 
+def _reconcile_before_launch(app):
+    """Seam around the launch-time reconcile_orphans() call (defined below).
+    A thin indirection rather than calling reconcile_orphans directly so
+    tests can no-op launch's reconcile call without also neutering tests
+    that exercise reconcile_orphans() itself -- both are the same module-level
+    name, so patching that name would silence both call sites at once."""
+    reconcile_orphans(app)
+
+
 def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                           variant='turbo', train_type=None, masked=True,
                           allow_caption_mismatch=False) -> dict:
     if not cfg.secret('VAST_API_KEY'):
         raise RuntimeError('vast.ai API key is not configured — add it in Settings')
+    # A user launching after days away is exactly when an expired
+    # error_pod_kept pod (past its recovery window) should be reaped, not
+    # just at boot. reconcile_orphans() never raises, so this is safe; routed
+    # through the _reconcile_before_launch seam (rather than calling
+    # reconcile_orphans directly) so tests can no-op *this* call site without
+    # also neutering tests that exercise reconcile_orphans() itself.
+    from flask import current_app
+    _reconcile_before_launch(current_app._get_current_object())
     if base_model:
         raise ValueError('Custom base models are local-only — cloud training '
                          'uses the official Hugging Face bases')
@@ -172,7 +189,15 @@ def reconcile_orphans(app) -> int:
     active run owns. GENUINELY never raises (boot must not be blocked): the
     whole body — app_context included — sits under a blanket except, so an
     unexpected failure outside the vast_client calls (db not ready, config
-    error...) is logged and returns the count destroyed so far."""
+    error...) is logged and returns the count destroyed so far.
+
+    error_pod_kept policy: a run in that status deliberately kept its pod
+    alive (checkpoint download failed at run completion) so the user can
+    recover the checkpoint manually. That pod must NOT be destroyed like a
+    plain orphan -- it is spared while `run.finished_at` is within
+    cloud.max_runtime_minutes of now, and only reaped past that window (with
+    the run annotated, status left untouched -- terminal states stay
+    terminal)."""
     destroyed = 0
     try:
         with app.app_context():
@@ -185,11 +210,35 @@ def reconcile_orphans(app) -> int:
                 return 0
             active = get_active_run()
             keep = str(active.vast_instance_id) if active and active.vast_instance_id else None
+            c = cfg.get('cloud') or {}
+            max_seconds = int(c.get('max_runtime_minutes') or 240) * 60
+            now = datetime.utcnow()
+            kept_by_instance = {
+                str(r.vast_instance_id): r
+                for r in CloudTrainingRun.query.filter_by(status='error_pod_kept').all()
+                if r.vast_instance_id}
             for inst in instances:
                 label = inst.get('label') or ''
                 if not label.startswith('lds-'):
                     continue
-                if keep and inst['instance_id'] == keep:
+                iid = str(inst['instance_id'])
+                if keep and iid == keep:
+                    continue
+                kept_run = kept_by_instance.get(iid)
+                if kept_run is not None:
+                    age = (now - kept_run.finished_at) if kept_run.finished_at else timedelta(0)
+                    if age.total_seconds() <= max_seconds:
+                        continue    # still within the manual-recovery window -> spare
+                    try:
+                        if vast_client.destroy_instance(inst['instance_id']):
+                            destroyed += 1
+                            logger.warning('reconcile: reaped expired error_pod_kept '
+                                           'pod %s (%s)', inst['instance_id'], label)
+                            _set(kept_run, error=(kept_run.error or '') +
+                                 ' — pod reaped after the recovery window')
+                    except Exception as e:
+                        logger.warning('reconcile: destroy %s failed: %s',
+                                       inst['instance_id'], e)
                     continue
                 try:
                     if vast_client.destroy_instance(inst['instance_id']):
@@ -204,13 +253,44 @@ def reconcile_orphans(app) -> int:
     return destroyed
 
 
-def _start_monitor(run_id):
+def _start_monitor_for_app(app, run_id):
+    """Like _start_monitor but usable outside a request context (boot)."""
     global _monitor_thread
-    from flask import current_app
-    app = current_app._get_current_object()
     _monitor_thread = threading.Thread(
         target=_monitor, args=(app, run_id), daemon=True, name=f'cloud-train-{run_id}')
     _monitor_thread.start()
+
+
+def _start_monitor(run_id):
+    from flask import current_app
+    _start_monitor_for_app(current_app._get_current_object(), run_id)
+
+
+def boot_recover(app):
+    """Called once at startup (daemon thread). Never raises: a boot recovery
+    bug must not prevent the app from serving requests. (1) reconcile any
+    'lds-*' pod the DB no longer accounts for; (2) if a run was active when
+    the app last closed and its pod was already created, resume monitoring
+    it (the pod kept training/uploading in our absence); (3) if it never got
+    a pod (crashed during 'preparing'), there is nothing to resume -> flip
+    it to 'error' so the single-active-run slot is freed."""
+    try:
+        reconcile_orphans(app)
+        with app.app_context():
+            if not cfg.secret('VAST_API_KEY'):
+                return
+            run = get_active_run()
+            if not run:
+                return
+            if run.vast_instance_id:
+                logger.info('resuming cloud run %s (pod %s kept training)',
+                            run.id, run.vast_instance_id)
+                _start_monitor_for_app(app, run.id)
+            else:
+                _set(run, status='error',
+                     error='app restarted before the pod was created')
+    except Exception:
+        logger.exception('cloud boot recovery failed')
 
 
 POLL_SECONDS = 10

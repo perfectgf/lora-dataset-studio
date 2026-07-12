@@ -15,6 +15,10 @@ def ct(app, monkeypatch):
     from app.services import cloud_training
     monkeypatch.setattr(cloud_training, '_sleep', lambda s: None)
     monkeypatch.setattr(cloud_training, '_start_monitor', lambda *a, **k: None)
+    # launch_cloud_training now reconciles orphans on every call (Task 7) --
+    # no-op that seam so these monitor tests, which never mock vast_client
+    # .list_instances, stay offline.
+    monkeypatch.setattr(cloud_training, '_reconcile_before_launch', lambda a: None)
     return cloud_training
 
 

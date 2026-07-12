@@ -1,6 +1,8 @@
 """Launch validation, LEAK-SAFE provisioning (the property that matters),
 stop request, and boot reconciliation. vast_client and the monitor thread are
 always mocked -- no network, no thread started for real."""
+from datetime import datetime, timedelta
+
 import pytest
 
 
@@ -10,6 +12,13 @@ def ct(app, monkeypatch):
     from app.services import cloud_training
     # never start the real monitor thread in launch tests
     monkeypatch.setattr(cloud_training, '_start_monitor', lambda *a, **k: None)
+    # launch_cloud_training now reconciles orphans on every call (so a user
+    # coming back days later to a launch reaps an expired error_pod_kept pod
+    # too, not just at boot) -- no-op that call site here so plain
+    # launch/provision tests stay offline. Patching the seam (not
+    # reconcile_orphans itself) leaves the reconcile-policy tests below,
+    # which call reconcile_orphans() directly, exercising the real thing.
+    monkeypatch.setattr(cloud_training, '_reconcile_before_launch', lambda a: None)
     return cloud_training
 
 
@@ -153,6 +162,65 @@ def test_reconcile_never_raises(ct, app, monkeypatch):
                         lambda: (_ for _ in ()).throw(RuntimeError('db not ready')))
     monkeypatch.setattr(ct.vast_client, 'list_instances', lambda: [])
     assert ct.reconcile_orphans(app) == 0      # swallowed, boot not blocked
+
+
+def test_reconcile_spares_recent_error_pod_kept(ct, app, monkeypatch):
+    """A run left in 'error_pod_kept' deliberately keeps its pod alive so the
+    user can recover the checkpoint by hand. Within cloud.max_runtime_minutes
+    of run.finished_at, reconciliation must NOT destroy that pod -- otherwise
+    the manual-recovery window would never actually exist."""
+    destroyed = []
+    with app.app_context():
+        run = ct.CloudTrainingRun(dataset_id=1, status='error_pod_kept',
+                                  vast_instance_id='555', vast_label='lds-1',
+                                  job_name='j', error='checkpoint download failed',
+                                  finished_at=datetime.utcnow() - timedelta(minutes=10))
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        monkeypatch.setattr(ct.vast_client, 'list_instances',
+                            lambda: [{'instance_id': '555', 'label': f'lds-{run.id}'}])
+        monkeypatch.setattr(ct.vast_client, 'destroy_instance',
+                            lambda iid: destroyed.append(iid) or True)
+        n = ct.reconcile_orphans(app)
+        assert destroyed == []
+        assert n == 0
+        # reconcile_orphans() ran its own nested app_context/session; the
+        # mock's list_instances lambda (referencing run.id) forced an
+        # implicit refresh -- and therefore a pinned read snapshot -- on
+        # THIS (outer) session mid-call. expire_all() drops that pinned
+        # snapshot so the assertions below see what was actually committed,
+        # not a transaction-start-time view.
+        ct.db.session.expire_all()
+        kept = ct.CloudTrainingRun.query.get(run.id)
+        assert kept.status == 'error_pod_kept'
+        assert kept.error == 'checkpoint download failed'   # untouched
+
+
+def test_reconcile_reaps_expired_error_pod_kept(ct, app, monkeypatch):
+    """Past the recovery window, the kept pod IS destroyed like any other
+    orphan, and the run is annotated -- but its terminal status must stay
+    'error_pod_kept' (not flipped to something else)."""
+    destroyed = []
+    with app.app_context():
+        run = ct.CloudTrainingRun(dataset_id=1, status='error_pod_kept',
+                                  vast_instance_id='555', vast_label='lds-1',
+                                  job_name='j', error='checkpoint download failed',
+                                  finished_at=datetime.utcnow() - timedelta(minutes=500))
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        monkeypatch.setattr(ct.vast_client, 'list_instances',
+                            lambda: [{'instance_id': '555', 'label': f'lds-{run.id}'}])
+        monkeypatch.setattr(ct.vast_client, 'destroy_instance',
+                            lambda iid: destroyed.append(iid) or True)
+        n = ct.reconcile_orphans(app)
+        assert destroyed == ['555']
+        assert n == 1
+        # see the sibling test above for why expire_all() is needed here
+        ct.db.session.expire_all()
+        kept = ct.CloudTrainingRun.query.get(run.id)
+        assert kept.status == 'error_pod_kept'               # terminal stays terminal
+        assert kept.error.startswith('checkpoint download failed')
+        assert kept.error.endswith('pod reaped after the recovery window')
 
 
 def test_launch_failure_frees_the_active_slot(ct, app, seeded_dataset, monkeypatch):

@@ -126,3 +126,8 @@ def _start_workers(app):
         start_training_scheduler(app)
     except ImportError:
         pass  # phase(<3): training service not lifted yet
+
+    import threading
+    from .services import cloud_training
+    threading.Thread(target=cloud_training.boot_recover, args=(app,),
+                     daemon=True, name='cloud-boot-recover').start()
