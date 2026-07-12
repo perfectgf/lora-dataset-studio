@@ -64,8 +64,9 @@ def test_cloud_progress_and_stop(client, monkeypatch):
     monkeypatch.setenv('VAST_API_KEY', 'k-test')
     ds = _mkds(client)
     monkeypatch.setattr('app.services.cloud_training.cloud_progress',
-                        lambda uid, did: {'active': True, 'phase': 'training',
-                                          'step': 5, 'total': 100, 'samples': []})
+                        lambda uid, did, train_type=None: {
+                            'active': True, 'phase': 'training',
+                            'step': 5, 'total': 100, 'samples': []})
     r = client.get(f'/api/dataset/{ds}/train/cloud/progress')
     assert r.status_code == 200 and r.get_json()['phase'] == 'training'
     monkeypatch.setattr('app.services.cloud_training.request_stop', lambda run_id=None: True)
@@ -130,3 +131,64 @@ def test_cloud_checkpoint_download(client, app, monkeypatch, tmp_path):
     r = client.get(f'/api/dataset/{ds}/train/cloud/checkpoint')
     assert r.status_code == 200
     assert r.data == b'CKPT'
+
+
+# --- ?train_type= on progress/sample/checkpoint: resolve THAT family's run --
+
+def _seed_family_runs(app, ds, tmp_path):
+    """Two runs on the same dataset: zimage (step 30) then krea (step 60,
+    NEWEST) — each with its own staging log, sample and checkpoint."""
+    import json as _json
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    with app.app_context():
+        for fam, step, name in (('zimage', 30, 'zi'), ('krea', 60, 'kr')):
+            staging = tmp_path / f'run_{name}'
+            (staging / 'samples').mkdir(parents=True)
+            (staging / 'training.log').write_text(
+                f'{step}%|##        | {step}/100 loss: 0.02', encoding='utf-8')
+            (staging / 'samples' / f'{name}__50_0.jpg').write_bytes(fam.encode())
+            ckpt = staging / f'{name}.safetensors'
+            ckpt.write_bytes(f'CKPT-{fam}'.encode())
+            run = CloudTrainingRun(dataset_id=ds, status='done', job_name=f'j{name}',
+                                   vast_label=f'lds-{name}', staging_dir=str(staging),
+                                   checkpoint_local_path=str(ckpt),
+                                   train_params=_json.dumps({'train_type': fam}))
+            db.session.add(run)
+            db.session.commit()
+
+
+def test_cloud_progress_route_honors_train_type(client, app, monkeypatch, tmp_path):
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    ds = _mkds(client)
+    _seed_family_runs(app, ds, tmp_path)
+    assert client.get(
+        f'/api/dataset/{ds}/train/cloud/progress?train_type=zimage').get_json()['step'] == 30
+    assert client.get(
+        f'/api/dataset/{ds}/train/cloud/progress?train_type=krea').get_json()['step'] == 60
+    # no filter -> newest run, behavior unchanged
+    assert client.get(f'/api/dataset/{ds}/train/cloud/progress').get_json()['step'] == 60
+
+
+def test_cloud_sample_route_honors_train_type(client, app, monkeypatch, tmp_path):
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    ds = _mkds(client)
+    _seed_family_runs(app, ds, tmp_path)
+    r = client.get(f'/api/dataset/{ds}/train/cloud/sample/zi__50_0.jpg?train_type=zimage')
+    assert r.status_code == 200 and r.data == b'zimage'
+    r = client.get(f'/api/dataset/{ds}/train/cloud/sample/kr__50_0.jpg?train_type=krea')
+    assert r.status_code == 200 and r.data == b'krea'
+    # without the filter the NEWEST (krea) run's staging is used -> zi 404s
+    assert client.get(f'/api/dataset/{ds}/train/cloud/sample/zi__50_0.jpg').status_code == 404
+
+
+def test_cloud_checkpoint_route_honors_train_type(client, app, monkeypatch, tmp_path):
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    ds = _mkds(client)
+    _seed_family_runs(app, ds, tmp_path)
+    r = client.get(f'/api/dataset/{ds}/train/cloud/checkpoint?train_type=zimage')
+    assert r.status_code == 200 and r.data == b'CKPT-zimage'
+    r = client.get(f'/api/dataset/{ds}/train/cloud/checkpoint?train_type=krea')
+    assert r.status_code == 200 and r.data == b'CKPT-krea'
+    # without the filter the newest run's checkpoint is served (unchanged)
+    assert client.get(f'/api/dataset/{ds}/train/cloud/checkpoint').data == b'CKPT-krea'

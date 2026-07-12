@@ -1,6 +1,7 @@
 """Launch validation, LEAK-SAFE provisioning (the property that matters),
 stop request, and boot reconciliation. vast_client and the monitor thread are
 always mocked -- no network, no thread started for real."""
+import json
 from datetime import datetime, timedelta
 
 import pytest
@@ -294,15 +295,16 @@ def test_launch_respects_higher_concurrent_limit(ct, app, client, monkeypatch):
 
 
 def test_launch_refuses_same_dataset_twice_even_with_higher_limit(ct, app, client, monkeypatch):
-    """The per-dataset uniqueness guard is independent of the concurrency cap:
-    even with room under the limit, the SAME dataset cannot get a 2nd run."""
+    """The per-(dataset, family) uniqueness guard is independent of the
+    concurrency cap: even with room under the limit, the SAME dataset cannot
+    get a 2nd run of the SAME family (both launches default to zimage here)."""
     _fake_export(monkeypatch, ct)
     ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
     ds1 = client.post('/api/dataset/create',
                       json={'name': 'A', 'trigger_word': 'a'}).get_json()['id']
     with app.app_context():
         ct.launch_cloud_training('local', ds1)
-        with pytest.raises(RuntimeError, match='already has an active cloud run'):
+        with pytest.raises(RuntimeError, match='already has an active .*cloud run'):
             ct.launch_cloud_training('local', ds1)
 
 
@@ -428,3 +430,79 @@ def test_cloud_status_reports_month_spend_budget_and_cap(ct, app, monkeypatch):
         assert s['monthly_budget'] == 20
         assert s['month_spend'] == 2.0
         assert s['max_runtime_minutes'] == 480
+
+
+# --- Per-(dataset, family) uniqueness: a zimage run and a krea run may share
+# --- one dataset; two runs of the SAME family on one dataset may not. -------
+
+def test_launch_allows_two_families_on_same_dataset(ct, app, seeded_dataset, monkeypatch):
+    _fake_export(monkeypatch, ct)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
+    with app.app_context():
+        r1 = ct.launch_cloud_training('local', seeded_dataset, train_type='zimage')
+        r2 = ct.launch_cloud_training('local', seeded_dataset, train_type='krea')
+        assert r1['run_id'] != r2['run_id']
+        assert len(ct.get_active_runs()) == 2
+
+
+def test_launch_refuses_same_family_on_same_dataset(ct, app, seeded_dataset, monkeypatch):
+    _fake_export(monkeypatch, ct)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
+    with app.app_context():
+        ct.launch_cloud_training('local', seeded_dataset, train_type='krea')
+        with pytest.raises(RuntimeError, match='already has an active krea cloud run'):
+            ct.launch_cloud_training('local', seeded_dataset, train_type='krea')
+
+
+def test_launch_family_unknown_active_run_blocks_every_family(ct, app, seeded_dataset, monkeypatch):
+    """An active run with no train_params (pre-feature row, or the 'preparing'
+    window before the params are stamped) has an unknown family — out of
+    caution it must block launches of ANY family on that dataset."""
+    _fake_export(monkeypatch, ct)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 3}})
+    with app.app_context():
+        run = ct.CloudTrainingRun(dataset_id=seeded_dataset, status='training',
+                                  vast_label='lds-1', job_name='j')   # train_params NULL
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        for fam in ('zimage', 'krea'):
+            with pytest.raises(RuntimeError, match='already has an active'):
+                ct.launch_cloud_training('local', seeded_dataset, train_type=fam)
+
+
+def test_run_payload_carries_train_type(ct, app):
+    with app.app_context():
+        run = ct.CloudTrainingRun(
+            dataset_id=1, status='training', job_name='j', vast_label='lds-1',
+            train_params=json.dumps({'train_type': 'krea', 'steps': 100}))
+        ct.db.session.add(run)
+        # defensive: corrupted params -> None, never a crash
+        bad = ct.CloudTrainingRun(dataset_id=2, status='training', job_name='j2',
+                                  vast_label='lds-2', train_params='{not json')
+        ct.db.session.add(bad)
+        ct.db.session.commit()
+        assert ct._run_payload(run)['train_type'] == 'krea'
+        assert ct._run_payload(bad)['train_type'] is None
+
+
+def test_cloud_progress_selects_run_by_family(ct, app, seeded_dataset, tmp_path):
+    with app.app_context():
+        def seed(fam, step, sub):
+            staging = tmp_path / sub
+            staging.mkdir()
+            (staging / 'training.log').write_text(
+                f'{step}%|##        | {step}/100 loss: 0.02', encoding='utf-8')
+            run = ct.CloudTrainingRun(
+                dataset_id=seeded_dataset, status='training', job_name=f'j-{fam}',
+                vast_label='lds-x', staging_dir=str(staging),
+                train_params=json.dumps({'train_type': fam, 'steps': 100}))
+            ct.db.session.add(run)
+            ct.db.session.commit()
+        seed('zimage', 30, 'run_z')
+        seed('krea', 60, 'run_k')                        # newest
+        assert ct.cloud_progress('local', seeded_dataset, train_type='zimage')['step'] == 30
+        assert ct.cloud_progress('local', seeded_dataset, train_type='krea')['step'] == 60
+        # no filter -> newest run (behavior unchanged)
+        assert ct.cloud_progress('local', seeded_dataset)['step'] == 60
+        # family with no matching run -> fall back to the newest run
+        assert ct.cloud_progress('local', seeded_dataset, train_type='sdxl')['step'] == 60

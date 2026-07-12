@@ -483,7 +483,8 @@ def dataset_train_cloud_status():
 @bp.get('/dataset/<int:dataset_id>/train/cloud/progress')
 def dataset_train_cloud_progress(dataset_id):
     try:
-        return jsonify(ct.cloud_progress(LOCAL_USER, dataset_id))
+        return jsonify(ct.cloud_progress(LOCAL_USER, dataset_id,
+                                         train_type=request.args.get('train_type')))
     except Exception as e:
         return _map_error(e)
 
@@ -497,9 +498,9 @@ def dataset_train_cloud_stop():
 @bp.get('/dataset/<int:dataset_id>/train/cloud/sample/<path:filename>')
 def dataset_train_cloud_sample(dataset_id, filename):
     from flask import send_from_directory, abort
-    from ..models import CloudTrainingRun
-    run = (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
-           .order_by(CloudTrainingRun.id.desc()).first())
+    # ?train_type= resolves THAT family's newest run (several families may
+    # train the same dataset in parallel); absent -> plain newest, unchanged.
+    run = ct.latest_run_for(dataset_id, request.args.get('train_type'))
     if not run or not run.staging_dir:
         abort(404)
     # send_from_directory refuses path traversal by construction
@@ -509,9 +510,7 @@ def dataset_train_cloud_sample(dataset_id, filename):
 @bp.get('/dataset/<int:dataset_id>/train/cloud/checkpoint')
 def dataset_train_cloud_checkpoint(dataset_id):
     from flask import send_file, abort
-    from ..models import CloudTrainingRun
-    run = (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
-           .order_by(CloudTrainingRun.id.desc()).first())
+    run = ct.latest_run_for(dataset_id, request.args.get('train_type'))
     if not run or not run.checkpoint_local_path \
             or not os.path.isfile(run.checkpoint_local_path):
         abort(404)

@@ -62,6 +62,32 @@ def get_active_run():
     return actives[0] if actives else None
 
 
+def _run_family(run):
+    """Family ('zimage'/'krea'/...) stamped in the run's train_params.
+    None when the params are absent or corrupted — a pre-feature row, or the
+    'preparing' window before launch stamps them."""
+    try:
+        return (json.loads(run.train_params or '{}') or {}).get('train_type')
+    except (ValueError, TypeError):
+        return None
+
+
+def latest_run_for(dataset_id, train_type=None):
+    """Newest run of the dataset; with train_type, the newest run OF THAT
+    FAMILY. Falls back to the plain newest when none matches (or the filter
+    is absent) so rows without a stamped family stay reachable."""
+    q = (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
+         .order_by(CloudTrainingRun.id.desc()))
+    newest = q.first()
+    if not train_type:
+        return newest
+    fam = fds.normalize_train_type(train_type)
+    for r in q.all():
+        if _run_family(r) == fam:
+            return r
+    return newest
+
+
 def _set(run, **fields):
     for k, v in fields.items():
         setattr(run, k, v)
@@ -103,8 +129,13 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                          'cloud training supports Z-Image and Krea for now')
     actives = get_active_runs()
     limit = max(1, int((cfg.get('cloud.max_concurrent_runs') or 1)))
-    if any(r.dataset_id == dataset_id for r in actives):
-        raise RuntimeError('this dataset already has an active cloud run')
+    # Uniqueness is per (dataset, family): a zimage run and a krea run may
+    # train the same dataset in parallel. An active run whose family is
+    # unknown (pre-feature row, or the 'preparing' window before the params
+    # are stamped) blocks every family of its dataset, out of caution.
+    if any(r.dataset_id == dataset_id and (_run_family(r) or fam) == fam
+           for r in actives):
+        raise RuntimeError(f'this dataset already has an active {fam} cloud run')
     if len(actives) >= limit:
         raise RuntimeError(
             f'cloud run limit reached ({len(actives)}/{limit} active) — '
@@ -682,6 +713,7 @@ def _run_payload(run) -> dict:
             'price_per_hour': run.price_per_hour,
             'cost_estimate': _cost_estimate(run), 'error': run.error,
             'checkpoint_ready': bool(run.checkpoint_local_path),
+            'train_type': _run_family(run),
             'created_at': run.created_at.isoformat() if run.created_at else None}
 
 
@@ -705,11 +737,12 @@ def cloud_status() -> dict:
             'last': _run_payload(last) if last else None}
 
 
-def cloud_progress(user_id, dataset_id) -> dict:
+def cloud_progress(user_id, dataset_id, train_type=None) -> dict:
     """Same shape as lt.training_progress + cloud phase/cost fields, built
-    from the staging mirror (log + samples) written by the monitor."""
-    run = (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
-           .order_by(CloudTrainingRun.id.desc()).first())
+    from the staging mirror (log + samples) written by the monitor. With
+    train_type, reads THAT family's newest run (several families may train
+    the same dataset in parallel)."""
+    run = latest_run_for(dataset_id, train_type)
     empty = {'step': None, 'total': None, 'loss': None, 'speed': None,
              'eta': None, 'loss_curve': []}
     if not run:
