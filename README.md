@@ -1,6 +1,6 @@
 # LoRA Dataset Studio
 
-A single-user, self-hosted workbench for building the dataset that goes into a face/character **or concept** LoRA — from a single reference photo (or a pile of scraped images) to a trained, ranked checkpoint — without hand-editing captions or juggling three separate tools.
+A single-user, self-hosted workbench for building the dataset that goes into a face/character, **concept** or **style** LoRA — from a single reference photo (or a pile of scraped images) to a trained, ranked checkpoint — without hand-editing captions or juggling three separate tools.
 
 It exists because the useful part of LoRA training (curating a clean, balanced, well-captioned image set) is normally scattered across a scraper, an image editor, a captioning script, and a training config someone hand-tunes per run. This app puts that whole pipeline behind one UI: generate variations from a reference photo, curate them with a live composition meter, caption them automatically, score them for face fidelity, train a LoRA, and rank the resulting checkpoints — all from a browser tab, on your own machine.
 
@@ -8,9 +8,10 @@ It exists because the useful part of LoRA training (curating a clean, balanced, 
 
 The parts of LoRA-making that usually mean four separate tools, bundled behind one UI:
 
-- **Two dataset types.**
+- **Three dataset types**, one shared rule — *what you caption stays promptable, what you omit gets absorbed*:
   - **Character** — pin an identity from one reference photo. The app fans out a **45-shot variation catalog** (expression / angle / lighting / framing / outfit / background) so the set spans close-up to full-body without you writing a single prompt.
-  - **Concept** — train a *style, object, or action* instead of a person. Captioning **inverts**: it describes everything *except* the concept (with an identity-leak check), so the concept is what binds to the trigger — and masked training turns itself off so it doesn't erase what you're teaching.
+  - **Concept** — train an *object or action* instead of a person. Captioning **inverts**: it describes everything *except* the concept (with an identity-leak check), so the concept is what binds to the trigger — and masked training turns itself off so it doesn't erase what you're teaching.
+  - **Style** — train a *global aesthetic* that tints every image once the LoRA is loaded. Captions describe **content only** (never the rendering), there is **no trigger word** in the training config, caption dropout rises to 30%, and the adaptive step count switches to a **sublinear √n scale** built for the large (hundreds of images) sets style LoRAs want. Captions are optional.
 - **Three ways to source images** — **generate** them (Nano Banana Pro / ChatGPT / local Klein), **import** your own, or **scrape** them. The built-in scraper turns a **Reddit keyword search** (or an image-gallery URL) into a pick-and-import grid that downloads straight into a concept dataset — SSRF-hardened, perceptually de-duplicated, and quality-filtered (min side, aspect ratio) on the way in.
 - **Face-detection suite** — **InsightFace** identity scoring drops off-identity shots *before* they poison training, **auto head-crop** frames imports on the face, and a vision model **auto-classifies framing** (face / bust / body / back) to feed a live composition meter aiming at a balanced 12 / 6 / 6 / 1 set.
 - **Auto-prompting in both modes** — the 45-shot character catalog above, plus concept captioning that's leak-aware — so you rarely hand-write a prompt *or* a caption.
@@ -208,6 +209,10 @@ Secrets (`GEMINI_API_KEY`, `OPENAI_API_KEY`) live in `.env`, not `config.json` �
 
 A few environment variables override paths for advanced/containerized setups: `LDS_DATA_DIR` (runtime data directory), `LDS_CONFIG` (path to `config.json`), `LDS_ENV` (path to `.env`), `LDS_HOST` (bind host, takes priority over `server.host`), `FLASK_DEBUG` (`1` to enable Flask debug mode).
 
+### Exposing the app beyond localhost
+
+The app has **no user accounts** — on `127.0.0.1` (the default) that's fine, but any other bind (e.g. `0.0.0.0` to reach the app from your phone) would hand the whole network your API keys, GPU and datasets. So when the bind is non-loopback, remote clients must present an **access token**: `run.py` generates one at boot (printed to the console with a ready-to-open URL) unless you set `LDS_ACCESS_TOKEN` yourself. Open `http://<machine>:<port>/?token=<token>` once from the remote device — a signed session cookie takes over from there. Requests from localhost never need the token. If your network is already locked down (VPN, authenticated reverse proxy), `LDS_ALLOW_UNAUTHENTICATED=1` disables the guard explicitly.
+
 ## Known limitations
 
 - Krea 2's img2img workflow (`backend/workflows/krea2_turbo_img2img.json`) ships in the repo but isn't wired into a Test Studio mode yet — only the text-to-image Krea 2 workflow is currently reachable from the UI.
@@ -230,6 +235,10 @@ macOS reserves port 5000 for AirPlay Receiver by default. Change `server.port` i
 
 **Windows console shows garbled characters (mojibake) from `start.bat`**
 Cosmetic only — some UTF-8 text (em dashes, accents) renders incorrectly on the legacy Windows console codepage. It doesn't affect functionality.
+
+## Intended use
+
+This tool automates dataset building for LoRA training — including from a single photo and from scraped web images. Use it only with imagery you have the right to use: **yourself, synthetic/AI-generated people, or people who gave you explicit consent**. Training a look-alike LoRA of a real person without their consent can be illegal where you live (likeness/publicity rights, deep-fake statutes) and is against this project's intent. The scraper is a convenience for collecting material you're entitled to train on — respect each site's terms and copyright. You are responsible for what you train and generate.
 
 ## Screenshots
 
