@@ -77,10 +77,12 @@ def test_create_instance_via_template(vc, monkeypatch):
 
     monkeypatch.setattr(vc.requests, 'request', fake_request)
     iid = vc.create_instance(99, disk_gb=48, label='lds-7',
-                             template_hash='471ed5903d8cdb8e63b0d0e50f6cd519')
+                             template_hash='471ed5903d8cdb8e63b0d0e50f6cd519',
+                             image='vastai/ostris-ai-toolkit:new-tag')
     assert iid == '777'
     assert seen['json'] == {'template_hash_id': '471ed5903d8cdb8e63b0d0e50f6cd519',
-                            'label': 'lds-7', 'disk': 48}
+                            'label': 'lds-7', 'disk': 48,
+                            'image': 'vastai/ostris-ai-toolkit:new-tag'}
 
 
 def test_list_instances_uses_v1_endpoint(vc, monkeypatch):

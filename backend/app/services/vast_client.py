@@ -74,6 +74,12 @@ def create_instance(offer_id, disk_gb: int, label: str, template_hash: str | Non
     config-escape-hatch fallback when no template hash is set."""
     if template_hash:
         body = {'template_hash_id': template_hash, 'label': label, 'disk': int(disk_gb)}
+        # The official template pins an OLD image tag (2026-05-20 — predates the
+        # krea2 arch: run #5 died on 'StableDiffusionPipeline expected [...]').
+        # vast merges body params over template defaults, so overriding just the
+        # image keeps the template's env/ports/entrypoint with current code.
+        if image:
+            body['image'] = image
     else:
         body = {'image': image, 'label': label, 'disk': int(disk_gb),
                 'runtype': 'args', 'env': dict(env or {})}

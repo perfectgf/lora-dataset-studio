@@ -163,7 +163,8 @@ def _provision(run):
         token = ''
         instance_id = vast_client.create_instance(
             offer['offer_id'], disk_gb=int(c.get('disk_gb') or 60),
-            label=run.vast_label, template_hash=template_hash)
+            label=run.vast_label, template_hash=template_hash,
+            image=(c.get('image') or None))
     else:
         # Raw-image fallback (config escape hatch): direct port publish +
         # our own bearer token on the UI itself.
