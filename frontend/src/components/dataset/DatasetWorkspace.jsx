@@ -95,6 +95,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Changer de dataset repart d'un repli « propre » (les overrides visent des ids
   // partagés entre datasets, sinon ils fuiteraient d'un dataset à l'autre).
   useEffect(() => { setOpenMap({}); }, [d?.id]);
+  // Pendant une passe de captioning, épingle la section images ouverte : sinon,
+  // dès que la DERNIÈRE caption tombe, stepDone['gf-images'] bascule à true et la
+  // carte se replie toute seule (sectionOpen retombe sur !stepDone) — la grille
+  // « Dataset images » disparaît au lieu de se remplir en place. On respecte un
+  // override explicite déjà posé (l'utilisateur l'avait replié → on ne force pas).
+  useEffect(() => {
+    if (ds.captioning) setOpenMap((m) => ('gf-images' in m ? m : { ...m, 'gf-images': true }));
+  }, [ds.captioning]);
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
   const images = d.images || [];
