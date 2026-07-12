@@ -28,6 +28,7 @@ The useful part of LoRA training isn't the training — it's building a clean, b
 - [Why this instead of driving ai-toolkit directly?](#why-this-instead-of-driving-ai-toolkit-directly)
 - [Feature matrix by backend](#feature-matrix-by-backend)
 - [Two run modes](#two-run-modes)
+- [Cloud training (vast.ai)](#cloud-training-vastai--experimental)
 - [Setup & install](#setup--install)
 - [Minimum requirements](#minimum-requirements)
 - [Configuration reference](#configuration-reference)
