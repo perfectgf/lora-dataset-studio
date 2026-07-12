@@ -92,7 +92,8 @@ def test_training_progress_no_log_yet(app, tmp_path, monkeypatch):
         ds = svc.create_dataset(LOCAL_USER, 'NoLog', 'nolog')
         p = lt.training_progress(LOCAL_USER, ds.id)
     assert p == {'active': False, 'log_exists': False, 'step': None, 'total': None,
-                 'loss': None, 'speed': None, 'eta': None, 'loss_curve': [], 'samples': []}
+                 'loss': None, 'speed': None, 'eta': None, 'loss_curve': [], 'samples': [],
+                 'masks_skipped': False}
 
 
 # --- Disk-space guard ----------------------------------------------------------
