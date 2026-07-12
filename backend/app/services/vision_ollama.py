@@ -59,16 +59,15 @@ def describe_image_ollama(image_bytes: bytes, prompt: str, *,
     is unreachable so a caller never hangs, but allow a long read (120s) for a
     cold model load + inference. Pass a single float to use it for both phases.
 
-    Qwen3-VL (abliterated) ALWAYS emits a `thinking` trace and cannot be made to
-    skip it (think:false / `/no_think` are ignored by this checkpoint). The trace
-    alone is ~900-1400 tokens, so `num_predict` must be large enough to cover the
-    thinking AND the actual answer or the response comes back empty with
-    `done_reason=length`. Callers that need a clean, complete answer (e.g. an SDXL
-    tag line or a scene-exhaustive prose prompt) should pass a large budget
-    (num_predict>=5000) so the rich answer survives AFTER the trace. We still fall
-    back to the tail of `thinking` when `response` is empty. `num_ctx` defaults to
-    8192 so the longer answer plus the thinking trace fit in context (the model
-    card supports large contexts).
+    Model variant matters: the default is now the `-instruct` tag (NON-thinking) — it
+    answers directly, no reasoning trace, so a modest `num_predict` suffices. The
+    `-thinking` / plain `:8b` variant instead ALWAYS emits a `thinking` trace (~900-1400
+    tokens) that can't be skipped (think:false / `/no_think` are ignored by that
+    checkpoint); with it, `num_predict` must be large enough to cover the thinking AND the
+    answer (>=5000) or the response comes back empty with `done_reason=length`. We still
+    fall back to the tail of `thinking` when `response` is empty (harmless with instruct —
+    that field is empty — and correct for the thinking variant). `num_ctx` defaults to 8192
+    so a long answer (plus any thinking trace) fits in context.
 
     `keep_alive` (défaut 0) : 0 décharge le modèle après CET appel (VRAM-safe,
     bon pour les appels isolés) ; un batch (caption/classify de N images) doit

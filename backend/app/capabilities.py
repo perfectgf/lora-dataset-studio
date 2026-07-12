@@ -288,7 +288,13 @@ def _detect_ollama() -> dict:
         return {}
     out = {'url': _OLLAMA_DEFAULT_URL}
     names = _ollama_tags(_OLLAMA_DEFAULT_URL)
-    vl = next((n for n in names if 'vl' in (n or '').lower() or 'vision' in (n or '').lower()), '')
+    vls = [n for n in names if 'vl' in (n or '').lower() or 'vision' in (n or '').lower()]
+    # Prefer an -instruct tag over the Thinking variant: on a caption/omission task the
+    # Thinking model reasons out loud instead of captioning (see get_vision_model), so if
+    # both are installed, pick instruct; failing that, anything that isn't 'thinking'.
+    vl = (next((n for n in vls if 'instruct' in (n or '').lower()), '')
+          or next((n for n in vls if 'thinking' not in (n or '').lower()), '')
+          or (vls[0] if vls else ''))
     if vl:
         out['vision_model'] = vl
     return out
