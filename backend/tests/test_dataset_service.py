@@ -686,3 +686,35 @@ def test_import_zip_route(client, app):
     body = resp.get_json()
     assert body['imported'] == 1 and body['captions'] == 1
     assert client.post(f'/api/dataset/{did}/import-zip').status_code == 400  # no file
+
+
+def test_subscription_quota_fails_remaining_rows_fast(app, monkeypatch):
+    """Quota-429 mid-batch: the current row AND all remaining rows fail with a
+    clear quota message, without burning more API calls. Never a silent switch
+    to the paid API key."""
+    import concurrent.futures
+    from app.services import face_dataset_service as svc
+    from app.services.chatgpt_image import SubscriptionQuotaExceeded
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    monkeypatch.setattr(concurrent.futures, 'ThreadPoolExecutor', _SerialPool)
+    calls = []
+    def boom(*a, **k):
+        calls.append(1)
+        raise SubscriptionQuotaExceeded('quota reached')
+    monkeypatch.setattr(svc, '_api_generate_fn', lambda engine: boom)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Q', 'q')
+        import os
+        os.makedirs(svc._dataset_dir(ds.id), exist_ok=True)
+        rows = [FaceDatasetImage(dataset_id=ds.id, status='pending', klein_model='chatgpt')
+                for _ in range(3)]
+        svc.db.session.add_all(rows); svc.db.session.commit()
+        items = [(r.id, 'p', '1:1') for r in rows]
+        svc._run_nanobanana_batch(app, items, [_png()], engine='chatgpt')
+        assert len(calls) == 1                      # rows 2-3 never hit the API
+        svc.db.session.expire_all()
+        for r in rows:
+            row = svc.db.session.get(FaceDatasetImage, r.id)
+            assert row.status == 'failed'
+            assert 'quota' in row.fail_reason

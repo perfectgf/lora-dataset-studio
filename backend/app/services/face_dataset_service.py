@@ -1821,8 +1821,15 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                              args=(app, [(img.id, prompt, aspect)], ref_bytes, engine),
                              daemon=True).start()
             return engine
-        out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=len(ref_bytes)),
-                           aspect_ratio=aspect)
+        try:
+            out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=len(ref_bytes)),
+                               aspect_ratio=aspect)
+        except SubscriptionQuotaExceeded:
+            out = None
+            img.status = 'failed'
+            img.fail_reason = _QUOTA_MSG
+            db.session.commit()
+            return engine
         if out:
             fn = f"{user_id}_{_ENGINE_FILE_TAG[engine]}_{uuid.uuid4().hex[:8]}.webp"
             with open(os.path.join(_dataset_dir(img.dataset_id), fn), 'wb') as fh:
@@ -1864,6 +1871,11 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
 API_ENGINES = ('nanobanana', 'chatgpt')
 _ENGINE_FILE_TAG = {'nanobanana': 'NBFace', 'chatgpt': 'GPTFace'}
 
+from .chatgpt_image import SubscriptionQuotaExceeded
+
+_QUOTA_MSG = ('chatgpt: subscription image quota reached — remaining rows were '
+              'stopped; rerun in API-key mode or wait for your plan quota to reset')
+
 
 def _api_generate_fn(engine):
     if engine == 'chatgpt':
@@ -1883,6 +1895,9 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
     # Guard d'identité adapté au nombre de références (multi = « use EVERY ref »).
     n_refs = len(ref_bytes) if isinstance(ref_bytes, (list, tuple)) else 1
     tag = _ENGINE_FILE_TAG.get(engine, 'NBFace')
+    # Set the moment ANY row hits the plan quota — every later row would 429
+    # too, so the rest of the batch fails fast instead of burning one call each.
+    quota_exhausted = threading.Event()
 
     def _one(item):
         # item = (image_id, prompt, aspect) ; aspect optionnel (rétro-compat → '1:1').
@@ -1896,6 +1911,15 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
             if row is None or row.status != 'pending':
                 logger.info(f"{engine} batch: row {image_id} cancelled - API call skipped")
                 return
+        if quota_exhausted.is_set():
+            # A previous row hit the plan quota: every later call would 429 too.
+            with app.app_context():
+                img = db.session.get(FaceDatasetImage, image_id)
+                if img is not None:
+                    img.status = 'failed'
+                    img.fail_reason = _QUOTA_MSG
+                    db.session.commit()
+            return
         out = None
         fail_reason = None
         try:
@@ -1905,6 +1929,10 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
                 # api_generate signale certains refus/vides par un retour falsy
                 # sans lever — sans raison, la tuile "failed" resterait muette.
                 fail_reason = f'{engine}: empty response (often a content-policy refusal or a transient API error - retry usually works)'
+        except SubscriptionQuotaExceeded as e:
+            quota_exhausted.set()
+            logger.warning(f"{engine} batch: quota exhausted at row {image_id}: {e}")
+            fail_reason = _QUOTA_MSG
         except Exception as e:
             logger.warning(f"{engine} batch: generation error for row {image_id}: {e}")
             fail_reason = f'{engine}: {str(e)[:400]}'
