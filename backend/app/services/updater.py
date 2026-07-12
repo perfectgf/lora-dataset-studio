@@ -16,7 +16,7 @@ import subprocess
 import sys
 import threading
 
-from ..config import REPO_ROOT
+from ..config import REPO_ROOT, get as _cfg_get
 
 _GIT_TIMEOUT = 120
 
@@ -133,9 +133,13 @@ def schedule_restart(delay: float = 1.2) -> None:
     py = sys.executable
     run_py = os.path.abspath(sys.argv[0])
     workdir = os.path.dirname(run_py) or None
-    port = int(os.environ.get('LDS_PORT') or 5000)
+    # Wait on the port we actually serve on: LDS_PORT wins, else the configured
+    # server.port — NOT a hardcoded 5000. On a machine where 5000 belongs to
+    # another app, the helper stalled its whole 60 s retry budget against a
+    # port that would never free before relaunching (observed live 2026-07-12).
+    port = int(os.environ.get('LDS_PORT') or _cfg_get('server.port') or 5000)
     helper = (
-        'import socket,time,subprocess\n'
+        'import os,socket,time,subprocess\n'
         f'port={port!r}\n'
         'for _ in range(120):\n'
         '    s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)\n'
@@ -143,7 +147,11 @@ def schedule_restart(delay: float = 1.2) -> None:
         '        s.bind(("127.0.0.1",int(port))); s.close(); break\n'
         '    except OSError:\n'
         '        s.close(); time.sleep(0.5)\n'
-        f'subprocess.Popen([{py!r},{run_py!r}], cwd={workdir!r})\n'
+        # New visible console for the relaunched server: the helper itself is
+        # DETACHED, so a default spawn would leave the server console-less and
+        # the old launcher window frozen on stale output.
+        'flags=0x00000010 if os.name=="nt" else 0\n'
+        f'subprocess.Popen([{py!r},{run_py!r}], cwd={workdir!r}, creationflags=flags)\n'
     )
 
     def _spawn_then_exit():
