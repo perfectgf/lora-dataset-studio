@@ -350,7 +350,13 @@ def _monitor(app, run_id):
             return
         c = cfg.get('cloud') or {}
         max_seconds = int(c.get('max_runtime_minutes') or 240) * 60
-        started = _now()
+        # The runtime cap must survive restarts: anchor it to the run's durable
+        # created_at (backdate the local clock by the run's age), not to this
+        # thread's start. The boot-wait timeout keeps its own fresh anchor —
+        # a resumed monitor legitimately gets a new 15-min readiness window.
+        run_age = max(0.0, (datetime.utcnow() - (run.created_at or datetime.utcnow())).total_seconds())
+        cap_anchor = _now() - run_age
+        boot_started = _now()
         try:
             # -- provision (if resuming, the instance may already exist) ----
             if not run.vast_instance_id:
@@ -380,7 +386,7 @@ def _monitor(app, run_id):
                         _set(run, base_url=base)
                     if _make_remote(run).is_ready():
                         break
-                if _now() - started > READY_TIMEOUT_SECONDS:
+                if _now() - boot_started > READY_TIMEOUT_SECONDS:
                     raise RuntimeError('pod did not become ready in time')
                 _sleep(POLL_SECONDS)
 
@@ -419,7 +425,7 @@ def _monitor(app, run_id):
             # -- poll until terminal ------------------------------------------
             last_ok = _now()
             while True:
-                if _now() - started > max_seconds:
+                if _now() - cap_anchor > max_seconds:
                     try:
                         remote.stop_job(job_id)
                     except Exception:

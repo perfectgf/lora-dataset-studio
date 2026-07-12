@@ -173,6 +173,25 @@ def test_max_runtime_cap_kills_pod(ct, app, client, monkeypatch):
         assert destroyed == ['777']
 
 
+def test_max_runtime_cap_counts_pre_restart_time(ct, app, client, monkeypatch):
+    """A resumed run whose total age already exceeds the cap is stopped
+    immediately — restarting the app must not grant a fresh window."""
+    from datetime import datetime, timedelta
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=10_000)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    with app.app_context():
+        run = ct.CloudTrainingRun.query.get(run_id)
+        ct._set(run, vast_instance_id='777', remote_job_id='j-1', status='training',
+                base_url='http://1.2.3.4:40123', auth_token='tok',
+                created_at=datetime.utcnow() - timedelta(minutes=500))  # > 240 min cap
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status in ('stopped', 'error')
+        assert 'runtime' in ((run.error or '') + (run.phase_detail or '')).lower()
+        assert destroyed == ['777']
+
+
 def test_download_failure_keeps_pod(ct, app, client, monkeypatch):
     destroyed = []
     remote = FakeRemote(polls_to_complete=2, fail_downloads=True)
