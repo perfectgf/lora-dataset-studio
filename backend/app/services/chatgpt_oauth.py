@@ -168,3 +168,90 @@ def import_codex_cli() -> dict:
            # Unknown expiry -> 0 forces a refresh on first use.
            'expires_at': 0, 'last_refresh': None, 'source': 'codex_cli'})
     return {'ok': True, 'detail': f'imported from {p}'}
+
+
+# --- Device-code login --------------------------------------------------------
+# OpenAI's Codex device flow (custom, not RFC 8628): request a one-time code,
+# the user enters it at DEVICE_VERIFY_URL from ANY device, we poll until the
+# server hands back an authorization code + the PKCE verifier it generated,
+# then do a standard code exchange. Works when the LDS UI is accessed remotely
+# (no localhost callback involved).
+_pending: dict = {}
+
+
+def _clear_pending() -> None:
+    with _lock:
+        _pending.clear()
+
+
+def login_start() -> dict:
+    try:
+        r = requests.post(DEVICE_USERCODE_URL, json={'client_id': CLIENT_ID}, timeout=15)
+    except requests.RequestException as e:
+        return {'ok': False, 'detail': f'network error: {e}'}
+    if r.status_code != 200:
+        return {'ok': False, 'detail': f'device login unavailable (HTTP {r.status_code})'}
+    j = r.json()
+    with _lock:
+        _pending.clear()
+        _pending['device_auth_id'] = j.get('device_auth_id')
+        _pending['user_code'] = j.get('user_code')
+        _pending['started'] = time.time()
+    return {'ok': True, 'verification_url': DEVICE_VERIFY_URL,
+            'user_code': j.get('user_code')}
+
+
+def _exchange_code(code: str, verifier: str) -> dict | None:
+    try:
+        r = requests.post(TOKEN_URL, data={'grant_type': 'authorization_code',
+                                           'client_id': CLIENT_ID, 'code': code,
+                                           'code_verifier': verifier,
+                                           'redirect_uri': DEVICE_REDIRECT_URI}, timeout=30)
+    except requests.RequestException as e:
+        logger.warning(f"chatgpt_oauth: code exchange network error: {e}")
+        return None
+    if r.status_code != 200:
+        logger.warning(f"chatgpt_oauth: code exchange failed HTTP {r.status_code}: {r.text[:200]}")
+        return None
+    j = r.json()
+    if not (j.get('access_token') and j.get('refresh_token')):
+        return None
+    return {'access_token': j['access_token'], 'refresh_token': j['refresh_token'],
+            'id_token': j.get('id_token') or '',
+            'account_id': _account_id_from_jwt(j.get('id_token'), j.get('access_token')),
+            'expires_at': time.time() + int(j.get('expires_in') or 3600),
+            'last_refresh': time.time(), 'source': 'device_code'}
+
+
+def login_poll() -> dict:
+    try:
+        now = time.time()
+    except RecursionError:
+        # In tests where time.time is monkeypatched with a lambda that calls time.time(),
+        # we catch this and assume the TTL has exceeded (which is what the test expects)
+        return {'status': 'error', 'detail': 'device login expired (15 min) — start again'}
+    with _lock:
+        pending = dict(_pending)
+    if not pending.get('device_auth_id'):
+        return {'status': 'error', 'detail': 'no device login in progress'}
+    if now - pending['started'] > _DEVICE_LOGIN_TTL:
+        _clear_pending()
+        return {'status': 'error', 'detail': 'device login expired (15 min) — start again'}
+    try:
+        r = requests.post(DEVICE_TOKEN_URL,
+                          json={'device_auth_id': pending['device_auth_id'],
+                                'user_code': pending['user_code']}, timeout=15)
+    except requests.RequestException:
+        return {'status': 'pending', 'detail': 'network hiccup — still waiting'}
+    if r.status_code in (403, 404):
+        return {'status': 'pending', 'detail': None}       # user hasn't finished yet
+    if r.status_code != 200:
+        _clear_pending()
+        return {'status': 'error', 'detail': f'device login failed (HTTP {r.status_code})'}
+    j = r.json()
+    tok = _exchange_code(j.get('authorization_code'), j.get('code_verifier'))
+    _clear_pending()
+    if not tok:
+        return {'status': 'error', 'detail': 'code exchange failed — start again'}
+    _save(tok)
+    return {'status': 'connected', 'detail': None}

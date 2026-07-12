@@ -99,3 +99,77 @@ def test_import_codex_cli_missing_or_malformed(app, tmp_path, monkeypatch):
     (codex / 'auth.json').write_text(json.dumps({'OPENAI_API_KEY': 'sk-x'}), encoding='utf-8')
     out = oauth.import_codex_cli()
     assert out['ok'] is False            # API-key-only login: no ChatGPT tokens
+
+
+def _post_router(routes):
+    """Route mocked requests.post by URL substring -> MagicMock response."""
+    def _post(url, **kwargs):
+        from unittest.mock import Mock
+        for frag, resp in routes.items():
+            if frag in url:
+                # Return Mock objects as-is; only call if it's a real function
+                if isinstance(resp, Mock):
+                    return resp
+                return resp if not callable(resp) else resp(url, **kwargs)
+        raise AssertionError(f'unexpected POST {url}')
+    return _post
+
+
+def test_login_start_returns_code(app):
+    from app.services import chatgpt_oauth as oauth
+    uc = MagicMock(status_code=200)
+    uc.json.return_value = {'device_auth_id': 'dev-1', 'user_code': 'ABCD-1234',
+                            'interval': '5'}
+    with patch('app.services.chatgpt_oauth.requests.post',
+               side_effect=_post_router({'/deviceauth/usercode': uc})):
+        out = oauth.login_start()
+    assert out['ok'] is True
+    assert out['user_code'] == 'ABCD-1234'
+    assert out['verification_url'] == oauth.DEVICE_VERIFY_URL
+
+
+def test_login_poll_pending_then_connected(app):
+    from app.services import chatgpt_oauth as oauth
+    uc = MagicMock(status_code=200)
+    uc.json.return_value = {'device_auth_id': 'dev-1', 'user_code': 'ABCD-1234',
+                            'interval': '5'}
+    pending = MagicMock(status_code=403)
+    with patch('app.services.chatgpt_oauth.requests.post',
+               side_effect=_post_router({'/deviceauth/usercode': uc,
+                                         '/deviceauth/token': pending})):
+        oauth.login_start()
+        assert oauth.login_poll()['status'] == 'pending'
+    done = MagicMock(status_code=200)
+    done.json.return_value = {'authorization_code': 'code-1',
+                              'code_challenge': 'ch', 'code_verifier': 'ver-1'}
+    exch = MagicMock(status_code=200)
+    exch.json.return_value = {'access_token': 'at-9', 'refresh_token': 'rt-9',
+                              'id_token': '', 'expires_in': 3600}
+    with patch('app.services.chatgpt_oauth.requests.post',
+               side_effect=_post_router({'/deviceauth/token': done,
+                                         '/oauth/token': exch})) as post:
+        assert oauth.login_poll()['status'] == 'connected'
+    assert oauth.access_token() == 'at-9'
+    exch_body = post.call_args.kwargs['data']            # last call = the code exchange
+    assert exch_body['grant_type'] == 'authorization_code'
+    assert exch_body['code'] == 'code-1'
+    assert exch_body['code_verifier'] == 'ver-1'
+    assert exch_body['redirect_uri'] == oauth.DEVICE_REDIRECT_URI
+
+
+def test_login_poll_without_start_errors(app):
+    from app.services import chatgpt_oauth as oauth
+    oauth._clear_pending()
+    assert oauth.login_poll()['status'] == 'error'
+
+
+def test_login_poll_expires_after_ttl(app, monkeypatch):
+    from app.services import chatgpt_oauth as oauth
+    uc = MagicMock(status_code=200)
+    uc.json.return_value = {'device_auth_id': 'dev-1', 'user_code': 'ABCD-1234',
+                            'interval': '5'}
+    with patch('app.services.chatgpt_oauth.requests.post',
+               side_effect=_post_router({'/deviceauth/usercode': uc})):
+        oauth.login_start()
+    monkeypatch.setattr(oauth.time, 'time', lambda: time.time() + 1000)
+    assert oauth.login_poll()['status'] == 'error'
