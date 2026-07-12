@@ -86,6 +86,16 @@ One shared rule runs through all three — *what you caption stays promptable, w
 - **Import** — drag in your own photos; each one is auto-cropped to the face on the way in (or centered-cropped if no vision model is available).
 - **Scrape** — collect real images from the web straight into a concept dataset. This is its own panel, covered next.
 
+#### Using a ChatGPT subscription instead of an API key (experimental)
+
+If you have a ChatGPT Plus/Pro subscription you can run the ChatGPT engine on your plan's image quota instead of a pay-per-use API key: **Settings → ChatGPT subscription → Connect with ChatGPT** (or **Import from Codex CLI** if you already use `codex login`).
+
+Good to know:
+
+- **Experimental.** This uses the same subscription lane as OpenAI's Codex sign-in. It is not a documented API and may stop working at any time; you connect your own account at your own risk. The API-key mode is unaffected.
+- **Limits vs API mode:** up to 5 reference images per generation (instead of 16), and your plan's image cap applies. When the quota runs out mid-batch, the remaining rows fail with a clear message — the app never silently switches to your paid API key.
+- Auth mode is configurable (**Settings → ChatGPT engine auth**): Auto (subscription when connected, otherwise API key), API key only, or Subscription only.
+
 #### Built-in web scraper
 
 Concept and style LoRAs learn from *real* images, so those datasets swap the face tooling for a scraper. Paste an **image-gallery / album URL**, or run a **Reddit keyword search** — with an optional community (subreddit) scope for cleaner, on-topic results — and the app turns the results into a pick-and-import grid. Tick the frames you want and they download **directly into this dataset**; nothing touches a shared pool.
