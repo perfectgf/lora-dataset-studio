@@ -69,6 +69,31 @@ def test_ensure_settings_round_trips_folders(remote, monkeypatch):
                              'DATASETS_FOLDER': '/root/aitk/datasets'}
 
 
+def test_ensure_settings_without_token_never_posts(remote, monkeypatch):
+    calls = []
+
+    def fake(method, url, **kw):
+        calls.append(method)
+        return FakeResp(200, {'TRAINING_FOLDER': '/root/aitk/out',
+                              'DATASETS_FOLDER': '/root/aitk/datasets'})
+
+    monkeypatch.setattr('app.services.aitoolkit_remote.requests.request', fake)
+    st = remote.ensure_settings(hf_token=None)
+    assert calls == ['GET']                      # no POST: nothing to change
+    assert st['TRAINING_FOLDER'] == '/root/aitk/out'
+
+
+def test_ensure_settings_returns_applied_token(remote, monkeypatch):
+    def fake(method, url, **kw):
+        if method == 'GET':
+            return FakeResp(200, {'TRAINING_FOLDER': '/o', 'DATASETS_FOLDER': '/d'})
+        return FakeResp(200, {'success': True})
+
+    monkeypatch.setattr('app.services.aitoolkit_remote.requests.request', fake)
+    st = remote.ensure_settings(hf_token='hf_new')
+    assert st['HF_TOKEN'] == 'hf_new'
+
+
 def test_upload_dataset_batches_and_counts(remote, monkeypatch, tmp_path):
     folder = tmp_path / 'ds'
     folder.mkdir()

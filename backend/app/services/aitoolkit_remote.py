@@ -50,13 +50,17 @@ class RemoteAiToolkit:
 
     def ensure_settings(self, hf_token=None) -> dict:
         """POST /api/settings requires all three keys — echo back the folders
-        read from GET so only HF_TOKEN actually changes."""
+        read from GET so only HF_TOKEN actually changes. Only POSTs when a
+        token is provided: a None hf_token must never clear a token already
+        set on the pod (GET may omit secrets). Returns the applied state."""
         st = self.get_settings()
-        self._json('POST', '/api/settings', json={
-            'HF_TOKEN': hf_token or st.get('HF_TOKEN') or '',
-            'TRAINING_FOLDER': st.get('TRAINING_FOLDER') or '',
-            'DATASETS_FOLDER': st.get('DATASETS_FOLDER') or '',
-        })
+        if hf_token:
+            self._json('POST', '/api/settings', json={
+                'HF_TOKEN': hf_token,
+                'TRAINING_FOLDER': st.get('TRAINING_FOLDER') or '',
+                'DATASETS_FOLDER': st.get('DATASETS_FOLDER') or '',
+            })
+            st = {**st, 'HF_TOKEN': hf_token}
         return st
 
     # -- dataset upload -----------------------------------------------------
