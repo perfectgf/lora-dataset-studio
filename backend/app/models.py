@@ -269,3 +269,30 @@ class SystemState(db.Model):
     key = db.Column(db.String(64), primary_key=True)
     value = db.Column(db.Text)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CloudTrainingRun(db.Model):
+    """One cloud training run = one ephemeral vast.ai pod. Durable on purpose:
+    boot-time reconciliation matches live vast instances (label 'lds-<id>')
+    against these rows to kill orphaned pods — the expensive failure mode."""
+    __tablename__ = 'cloud_training_run'
+    id = db.Column(db.Integer, primary_key=True)
+    dataset_id = db.Column(db.Integer, nullable=False)
+    run_name = db.Column(db.String(255))          # local run identity (lt._run_name)
+    job_name = db.Column(db.String(255))          # unique remote job/dataset name
+    status = db.Column(db.String(32), default='preparing')
+    phase_detail = db.Column(db.Text, default='')
+    vast_instance_id = db.Column(db.String(32))
+    vast_label = db.Column(db.String(64))
+    gpu_name = db.Column(db.String(64))
+    price_per_hour = db.Column(db.Float)
+    remote_job_id = db.Column(db.String(64))
+    base_url = db.Column(db.String(255))
+    auth_token = db.Column(db.String(128))
+    staging_dir = db.Column(db.Text)
+    checkpoint_local_path = db.Column(db.Text)
+    train_params = db.Column(db.Text)             # JSON: steps/variant/train_type/masked
+    error = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    finished_at = db.Column(db.DateTime)

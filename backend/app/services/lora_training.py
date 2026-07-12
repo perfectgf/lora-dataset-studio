@@ -564,7 +564,7 @@ def _mask_fields(dataset_folder: str) -> dict:
     return {}
 
 
-def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str:
+def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_dir=None) -> str:
     """Écrit les images `keep` en paires .png/.txt dans
     DATASETS_DIR/<trigger>. Le caption = caption éditée + trigger (le trigger
     est toujours présent même si la caption est vide). Retourne le dossier.
@@ -572,7 +572,11 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
     `masked` (défaut ON) : génère aussi un masque « personne » par image (rembg
     u2net, subprocess CPU - cf app/services/person_mask) dans `<dossier>_masks` →
     la job-config passe en MASKED TRAINING (fond à 10 %). Échec des masques =
-    jamais bloquant : l'entraînement part simplement sans masques (loggé)."""
+    jamais bloquant : l'entraînement part simplement sans masques (loggé).
+
+    `dest_dir` (cloud seam) : exporte LÀ au lieu de DATASETS_DIR/<run_name> - ne
+    requiert PAS ai-toolkit configuré localement (pas d'appel à _datasets_dir()).
+    Défaut (None) = comportement historique inchangé."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
@@ -585,7 +589,7 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
                     dataset_id, ds.kind)
         masked = False
     trigger = _safe_trigger(ds)
-    out = str(_datasets_dir() / _run_name(ds))
+    out = str(dest_dir) if dest_dir else str(_datasets_dir() / _run_name(ds))
     if os.path.isdir(out):
         shutil.rmtree(out)  # ré-export propre
     masks_out = _masks_dir(out)
@@ -655,7 +659,7 @@ def _apply_style_overrides(ds, process: dict) -> dict:
     return process
 
 
-def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
+def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder=None) -> dict:
     """Job-config ai-toolkit pour le preset officiel `zimage:turbo`
     (« Z-Image Turbo w/ Training Adapter »). Clés alignées sur ce que génère
     l'UI ai-toolkit (ui/src/app/jobs/new/options.ts) + structure LoRA 24 Go de
@@ -665,13 +669,17 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
     quantize qfloat8 + low_vram pour tenir sur 24 Go.
 
     SDXL (train_type='sdxl') part dans une branche dédiée (_build_job_config_sdxl) -
-    le chemin zimage ci-dessous reste strictement inchangé."""
+    le chemin zimage ci-dessous reste strictement inchangé.
+
+    `training_folder` (cloud seam) : utilisé TEL QUEL comme process.training_folder
+    dans les 3 familles - aucun appel à _output_dir() (pas d'ai-toolkit local requis).
+    Défaut (None) = comportement historique inchangé (_output_dir() / _run_name(ds))."""
     if _train_type(ds) == 'sdxl':
-        cfg_ = _build_job_config_sdxl(ds, dataset_folder, steps)
+        cfg_ = _build_job_config_sdxl(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0])
         return cfg_
     if _train_type(ds) == 'krea':
-        cfg_ = _build_job_config_krea(ds, dataset_folder, steps)
+        cfg_ = _build_job_config_krea(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0])
         return cfg_
     trigger = _safe_trigger(ds)
@@ -702,7 +710,8 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
             'name': f'lora_{trigger}',
             'process': [{
                 'type': 'sd_trainer',
-                'training_folder': str(_output_dir() / _run_name(ds)),
+                'training_folder': (training_folder if training_folder
+                                    else str(_output_dir() / _run_name(ds))),
                 'device': 'cuda:0',
                 'trigger_word': trigger,
                 'network': {'type': 'lora', 'linear': _zrank, 'linear_alpha': _lora_alpha(_zrank, 'zimage')},
@@ -749,7 +758,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
     return cfg_
 
 
-def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
+def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=None) -> dict:
     """Job-config ai-toolkit pour Krea 2. Deux bases selon `train_variant` (cf.
     _krea_is_raw), toutes deux arch='krea2', alignées sur l'UI ai-toolkit
     (ui/src/app/jobs/new/options.ts) :
@@ -784,7 +793,8 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
             'name': f'lora_{trigger}',
             'process': [{
                 'type': 'sd_trainer',
-                'training_folder': str(_output_dir() / _run_name(ds)),
+                'training_folder': (training_folder if training_folder
+                                    else str(_output_dir() / _run_name(ds))),
                 'device': 'cuda:0',
                 'trigger_word': trigger,
                 'network': {'type': 'lora', 'linear': _krank, 'linear_alpha': _lora_alpha(_krank, 'krea')},
@@ -830,7 +840,7 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
     }
 
 
-def _build_job_config_sdxl(ds, dataset_folder: str, steps: int) -> dict:
+def _build_job_config_sdxl(ds, dataset_folder: str, steps: int, training_folder=None) -> dict:
     """Job-config ai-toolkit arch='sdxl' - valeurs VÉRIFIÉES dans ai-toolkit
     ui/.../options.ts (entrée 'sdxl', 2026-06-14) : quantize/quantize_te False,
     noise_scheduler/sampler 'ddpm', timestep_type DÉSACTIVÉ, guidance 6. Base =
@@ -848,7 +858,8 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int) -> dict:
             'name': f'lora_{trigger}',
             'process': [{
                 'type': 'sd_trainer',
-                'training_folder': str(_output_dir() / _run_name(ds)),
+                'training_folder': (training_folder if training_folder
+                                    else str(_output_dir() / _run_name(ds))),
                 'device': 'cuda:0',
                 'trigger_word': trigger,
                 'network': {'type': 'lora', 'linear': _srank, 'linear_alpha': _lora_alpha(_srank, 'sdxl')},
@@ -959,7 +970,8 @@ def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None) ->
     return out
 
 
-def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, family=None) -> str:
+def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, family=None,
+                      src_dir=None) -> str:
     """Copie le checkpoint choisi vers le dossier loras de ComfyUI : loras/z image/
     pour Z-Image, loras/sdxl/ pour SDXL, loras/krea/ pour Krea (routage par famille,
     pour ne pas polluer le Test Studio Z-Image). Anti path-traversal :
@@ -977,12 +989,26 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
 
     `base_model`/`family` ciblent le run d'une base+famille précises (sélection UI) ;
     absents → persistés. Run dir, whitelist, dossier ET suffixe de destination
-    utilisent la MÊME base+famille → cohérent (un LoRA Krea part bien en loras/krea)."""
+    utilisent la MÊME base+famille → cohérent (un LoRA Krea part bien en loras/krea).
+
+    `src_dir` (cloud seam) : le checkpoint est lu LÀ (dossier de staging où le pod a
+    déposé le résultat téléchargé) au lieu du run ai-toolkit local - aucun besoin
+    d'ai-toolkit configuré (ni _run_dir(), ni list_checkpoints(), qui appellent tous
+    deux _output_dir()). La whitelist anti-traversal reste appliquée : le filename
+    doit exister dans src_dir ET matcher le motif de checkpoint ai-toolkit (_CK_RE).
+    Défaut (None) = comportement historique inchangé."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
-    run = _run_dir(user_id, dataset_id, base_model, family)
-    allowed = {c['filename'] for c in list_checkpoints(user_id, dataset_id, base_model, family)}
+    if src_dir:
+        run_dir = str(src_dir)
+        try:
+            allowed = {f for f in os.listdir(run_dir) if _CK_RE.search(f)}
+        except OSError:
+            allowed = set()
+    else:
+        run_dir = _run_dir(user_id, dataset_id, base_model, family)
+        allowed = {c['filename'] for c in list_checkpoints(user_id, dataset_id, base_model, family)}
     if filename not in allowed:
         raise ValueError('unknown checkpoint')
     # Déploiement routé par famille : sdxl → loras/sdxl, krea → loras/krea, sinon
@@ -997,7 +1023,7 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
     else:
         dest_name = filename
     dest = os.path.join(dest_dir, dest_name)
-    shutil.copy2(os.path.join(run, filename), dest)
+    shutil.copy2(os.path.join(run_dir, filename), dest)
     logger.info(f'import checkpoint {filename} -> {dest}')
     return dest
 
@@ -1181,6 +1207,14 @@ def recommended_steps(dataset_id) -> int:
         return max(2000, min(12000, target))
     target = int(round(n * 120, -2))  # ~120 steps/image, arrondi à la centaine
     return max(1500, min(3500, target))
+
+
+def default_steps(ds) -> int:
+    """Adaptive step count for a dataset — single source of truth shared by
+    local launch_training and cloud training (parity guarantee). Thin ds-based
+    wrapper over recommended_steps(dataset_id) (the calc used by launch_training
+    when steps=None) so callers holding the ds object don't need the id."""
+    return recommended_steps(ds.id)
 
 
 def recommended_steps_info(dataset_id) -> dict:
@@ -1575,7 +1609,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # (_run_name lit les valeurs persistées → on archive bien LE run qui serait repris).
     archived = archive_previous_run(ds) if fresh else None
     # Steps adaptatifs si non imposés ; sinon override borné (jamais < 500).
-    steps = recommended_steps(dataset_id) if steps is None else max(500, int(steps))
+    steps = default_steps(ds) if steps is None else max(500, int(steps))
     # masked (défaut ON) : masques personne exportés à côté du dataset → la
     # job-config passe en masked training (fond 10 %). OFF ou indispo = historique.
     dataset_folder = export_dataset_to_aitoolkit(user_id, dataset_id, masked=masked)
