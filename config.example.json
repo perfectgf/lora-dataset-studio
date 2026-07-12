@@ -50,7 +50,9 @@
       "krea": 24
     },
     "onstart": "",
-    "template_hash": "471ed5903d8cdb8e63b0d0e50f6cd519"
+    "template_hash": "471ed5903d8cdb8e63b0d0e50f6cd519",
+    "min_inet_down_mbps": 400,
+    "ready_timeout_minutes": 25
   },
   "face_scoring": {
     "python": "",

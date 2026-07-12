@@ -145,8 +145,9 @@ def _provision(run):
     params = json.loads(run.train_params or '{}')
     fam = params.get('train_type') or 'zimage'
     min_vram = (c.get('min_vram_gb') or {}).get(fam, 24)
-    offers = vast_client.search_offers(min_vram_gb=min_vram,
-                                       max_dph=c.get('max_price_per_hour', 0.80))
+    offers = vast_client.search_offers(
+        min_vram_gb=min_vram, max_dph=c.get('max_price_per_hour', 0.80),
+        min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0))
     if not offers:
         raise RuntimeError(
             f'no vast.ai offer matches (>= {min_vram} GB VRAM, '
@@ -383,6 +384,8 @@ def _monitor(app, run_id):
             # ever touching _now() -- a test clock that jumps in large
             # strides per call must not misfire this boot-timeout on a pod
             # that was, in fact, instantly ready.
+            ready_timeout = (int(c.get('ready_timeout_minutes') or 0) * 60
+                             or READY_TIMEOUT_SECONDS)
             _set(run, phase_detail='Waiting for the pod to boot')
             port = int(c.get('ui_port') or 18675)
             while True:
@@ -405,7 +408,7 @@ def _monitor(app, run_id):
                         _set(run, base_url=base)
                     if _make_remote(run).is_ready():
                         break
-                if _now() - boot_started > READY_TIMEOUT_SECONDS:
+                if _now() - boot_started > ready_timeout:
                     raise RuntimeError('pod did not become ready in time')
                 _sleep(POLL_SECONDS)
 

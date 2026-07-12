@@ -31,7 +31,7 @@ def test_search_offers_filters_and_sorts(vc, monkeypatch):
         ]})
 
     monkeypatch.setattr(vc.requests, 'request', fake_request)
-    offers = vc.search_offers(min_vram_gb=24, max_dph=0.8)
+    offers = vc.search_offers(min_vram_gb=24, max_dph=0.8, min_inet_down_mbps=400)
     assert seen['method'] == 'POST' and seen['url'].endswith('/bundles/')
     assert seen['auth'] == 'Bearer k-test'
     body = seen['json']
@@ -41,6 +41,7 @@ def test_search_offers_filters_and_sorts(vc, monkeypatch):
     assert body['rentable'] == {'eq': True}
     assert body['reliability'] == {'gte': 0.95}
     assert body['type'] == 'ondemand'
+    assert body['inet_down'] == {'gte': 400}
     assert [o['offer_id'] for o in offers] == [1, 2]          # cheapest first
     assert offers[0]['gpu_ram_gb'] == 24.0
 

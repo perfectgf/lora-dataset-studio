@@ -33,9 +33,12 @@ def _request(method, path, *, base=API_BASE, **kwargs):
         raise VastError(f'vast.ai request failed: {e}') from e
 
 
-def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20) -> list:
+def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20,
+                  min_inet_down_mbps: int = 0) -> list:
     """Verified-datacenter offers with enough VRAM under the price cap,
-    cheapest first. gpu_ram is expressed in MB on the vast side."""
+    cheapest first. gpu_ram is expressed in MB on the vast side. inet_down
+    (Mbps) filters out hosts whose registry pull of the ~7 GB image would eat
+    the whole boot budget (observed live: a retry-looping host on 2026-07-12)."""
     body = {
         'gpu_ram': {'gte': int(min_vram_gb) * 1024},
         'reliability': {'gte': 0.95},
@@ -46,6 +49,8 @@ def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20) -> list:
         'type': 'ondemand',
         'limit': int(limit),
     }
+    if min_inet_down_mbps:
+        body['inet_down'] = {'gte': int(min_inet_down_mbps)}
     r = _request('POST', '/bundles/', json=body)
     if r.status_code != 200:
         raise VastError(f'offer search failed: HTTP {r.status_code}')
