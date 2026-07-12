@@ -188,10 +188,12 @@ def _generate_via_subscription(refs: list, prompt: str, aspect_ratio: str) -> by
         'tools': [{'type': 'image_generation', 'size': size_for_aspect(aspect_ratio),
                    'quality': CHATGPT_IMAGE_QUALITY, 'moderation': 'auto'}],
         'tool_choice': 'required',
-        # The Codex responses backend refuses to persist responses: without this
-        # it 400s with {"detail":"Store must be set to false"}.
+        # The Codex responses backend has two hard requirements or it 400s:
+        # store:false ({"detail":"Store must be set to false"}) and stream:true
+        # ({"detail":"Stream must be set to true"}). The reply is then an SSE
+        # event stream, parsed by _parse_sse_for_image below.
         'store': False,
-        'stream': False,
+        'stream': True,
     }
     for attempt in (0, 1):                           # attempt 1 = after a forced refresh
         token = chatgpt_oauth.access_token(force_refresh=bool(attempt))
