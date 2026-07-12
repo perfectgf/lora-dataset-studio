@@ -403,3 +403,48 @@ def test_probe_ollama_model_uses_passed_reachability(app, monkeypatch):
     assert ready['ok'] is True
     assert http_calls == []          # reachability supplied, not re-fetched
     assert down['ok'] is False       # short-circuited without fetching tags
+
+
+# --- Task 5: probe_openai() matrix + chatgpt_subscription payload ---------
+
+def _sub(connected, email=None):
+    return {'connected': connected, 'email': email, 'plan': 'plus' if connected else None}
+
+
+def test_probe_openai_matrix(app, monkeypatch):
+    from unittest.mock import patch
+    from app import capabilities
+    from app.services import chatgpt_oauth
+    # neither
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    with patch.object(chatgpt_oauth, 'status', return_value=_sub(False)):
+        r = capabilities.probe_openai()
+        assert r['ok'] is False and r['detail'] == 'key missing'
+    # key only
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-x')
+    with patch.object(chatgpt_oauth, 'status', return_value=_sub(False)):
+        r = capabilities.probe_openai()
+        assert r['ok'] is True and r['detail'] == 'key set'
+    # subscription only
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    with patch.object(chatgpt_oauth, 'status', return_value=_sub(True, 'u@x.io')):
+        r = capabilities.probe_openai()
+        assert r['ok'] is True and r['detail'] == 'subscription connected'
+    # both
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-x')
+    with patch.object(chatgpt_oauth, 'status', return_value=_sub(True, 'u@x.io')):
+        r = capabilities.probe_openai()
+        assert r['ok'] is True and r['detail'] == 'key set + subscription connected'
+
+
+def test_probe_exposes_chatgpt_subscription_block(app, monkeypatch):
+    from unittest.mock import patch
+    from app import capabilities
+    from app.services import chatgpt_oauth
+    with patch.object(chatgpt_oauth, 'status', return_value=_sub(True, 'u@x.io')):
+        caps = capabilities.probe(force=True)
+    sub = caps['chatgpt_subscription']
+    assert sub['connected'] is True
+    assert sub['email'] == 'u@x.io'
+    assert isinstance(sub['codex_cli_detected'], bool)
+    assert caps['engines']['chatgpt'] is True     # subscription alone enables the engine

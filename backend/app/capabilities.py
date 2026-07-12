@@ -71,8 +71,13 @@ def probe_gemini() -> dict:
 
 
 def probe_openai() -> dict:
-    ok = bool(cfg.secret('OPENAI_API_KEY'))
-    return {'ok': ok, 'detail': 'key set' if ok else 'key missing'}
+    """ChatGPT engine readiness: a pay-per-use API key OR a connected ChatGPT
+    subscription (Codex OAuth) both light the engine up."""
+    from .services import chatgpt_oauth
+    key = bool(cfg.secret('OPENAI_API_KEY'))
+    sub = chatgpt_oauth.status()['connected']
+    parts = (['key set'] if key else []) + (['subscription connected'] if sub else [])
+    return {'ok': key or sub, 'detail': ' + '.join(parts) if parts else 'key missing'}
 
 
 def probe_comfyui() -> dict:
@@ -407,12 +412,21 @@ def probe(force=False) -> dict:
     base_dir = cfg.get('comfyui.base_dir') or ''
     comfy_dir = resolve_comfyui_base(base_dir)
 
+    from .services import chatgpt_oauth
+    sub_status = chatgpt_oauth.status()
+
     caps = {
         'configured': cfg.is_configured(),
         'engines': {
             'nanobanana': gemini['ok'],
             'chatgpt': openai_['ok'],
             'klein': comfy['ok'] and bool(models['klein']),
+        },
+        'chatgpt_subscription': {
+            'connected': sub_status['connected'],
+            'email': sub_status['email'],
+            'plan': sub_status['plan'],
+            'codex_cli_detected': chatgpt_oauth.codex_auth_path().is_file(),
         },
         'comfyui': {
             'reachable': comfy['ok'],
