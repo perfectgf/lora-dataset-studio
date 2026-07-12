@@ -109,6 +109,39 @@ Rules of thumb:
   (Krea 2 especially — 1024 saturates a 24 GB card). You trade some fine detail
   for a run that actually fits and trains far faster.
 
+### Steps — how many, and where "good results" start
+
+The app sets the step count **automatically** for a character LoRA:
+**≈ 120 × kept images, clamped to 1500–3500.** The *target is the same* for
+Z-Image, SDXL and Krea 2 — the model family changes how *fast* that target
+converges, not the number. (Concept/style datasets scale differently:
+**475 · √n, clamped 2000–12000**, because they train on hundreds of images.)
+
+So the character step count just follows your dataset size:
+
+| Kept images | Auto steps |
+|---|---|
+| 12–15 | 1500 – 1800 |
+| 20 | 2400 |
+| 25 | 3000 |
+| 30 and up | 3500 (capped) |
+
+**"Good results" is a checkpoint you pick, not the finish line.** A snapshot is
+saved every 250 steps, and the best one is almost never the last — later
+checkpoints know the face better but obey prompts worse. *Where* the first
+usable checkpoint appears depends on how fast the model converges:
+
+| Model | Converges | Where the sweet spot tends to land |
+|---|---|---|
+| **Z-Image** | Fast (distilled) | Around the **middle** of the run; watch for overfit in the last ~20% (waxy skin, frozen expression) |
+| **Krea 2 – Turbo** | Fast (distilled) | Like Z-Image — check early-to-middle checkpoints first |
+| **SDXL** | Medium (base-dependent) | Middle of the run; booru-native checkpoints lock an identity quickly |
+| **Krea 2 – Raw** | Slow (12B, non-distilled) | The **last third** — the run is long by design, let it finish the full count rather than stopping early |
+
+**Takeaway:** don't hand-tune the step number. Train the auto count, then use the
+**Test Studio** to pick the *earliest* checkpoint that nails the identity — that's
+the one with the most prompt flexibility left.
+
 ---
 
 ## 5. Pre-flight checklist
