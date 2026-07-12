@@ -20,6 +20,41 @@ const navItemClass = ({ isActive }) =>
     isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:text-content hover:bg-surface-raised'
   }`
 
+/** Nav action (right of Settings): force an update check and give immediate
+ * feedback — a toast when up to date, and the actionable UpdateBanner (with the
+ * one-click "Update & restart") when there is an update. */
+function CheckUpdatesButton() {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const check = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const d = await apiFetch('/api/update/check?force=1')
+      if (d?.update_available) {
+        sessionStorage.removeItem('updateBannerDismissed')     // re-show even if dismissed
+        window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
+        toast.success(`Update available — v${d.latest || d.remote_sha || 'new'}`)
+      } else if (d?.ok) {
+        toast.info(`You're up to date — v${d.current}`)
+      } else {
+        toast.error(d?.reason || 'Could not check for updates.')
+      }
+    } catch (e) {
+      toast.error(e?.message || 'Update check failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button type="button" onClick={check} disabled={busy} title="Check for updates"
+      className={`${NAV_ITEM_BASE} text-content-muted hover:text-content hover:bg-surface-raised disabled:opacity-50`}>
+      <span aria-hidden>{busy ? '⏳' : '⬆'}</span>
+      <span className="sr-only">Check for updates</span>
+    </button>
+  )
+}
+
 function NavBar() {
   const { caps } = useCapabilities()
   return (
@@ -48,6 +83,7 @@ function NavBar() {
             <NavLink to="/studio" className={navItemClass}>Test Studio</NavLink>
           )}
           <NavLink to="/settings" className={navItemClass}>Settings</NavLink>
+          <CheckUpdatesButton />
         </nav>
       </div>
     </header>
@@ -67,6 +103,13 @@ function UpdateBanner() {
     apiFetch('/api/update/check')
       .then((d) => { if (d && d.update_available) setInfo(d) })
       .catch(() => { /* best-effort */ })
+  }, [])
+  // A manual "Check for updates" (nav button) surfaces the banner even after it
+  // was dismissed this session, or when the passive mount check found nothing yet.
+  useEffect(() => {
+    const onFound = (e) => { if (e.detail) setInfo(e.detail) }
+    window.addEventListener('lds:update-available', onFound)
+    return () => window.removeEventListener('lds:update-available', onFound)
   }, [])
 
   // Poll /api/health until the re-execed server answers, then hard-reload so the
