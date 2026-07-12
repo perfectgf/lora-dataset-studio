@@ -11,6 +11,7 @@ import StudioPage from './pages/StudioPage'
 import SettingsPage from './pages/SettingsPage'
 import SetupPage from './pages/SetupPage'
 import GuidePage from './pages/GuidePage'
+import CloudRunsPage from './pages/CloudRunsPage'
 import { recommendedMet } from './hooks/useSetupSteps'
 
 const NAV_ITEM_BASE =
@@ -81,6 +82,11 @@ function NavBar() {
           </NavLink>
           {caps.studio_visible && (
             <NavLink to="/studio" className={navItemClass}>Test Studio</NavLink>
+          )}
+          {caps.cloud_training && (
+            <NavLink to="/cloud" className={navItemClass}>
+              <span className="inline-flex items-center gap-1"><span aria-hidden>☁️</span> Cloud</span>
+            </NavLink>
           )}
           <NavLink to="/settings" className={navItemClass}>Settings</NavLink>
           <CheckUpdatesButton />
@@ -232,6 +238,7 @@ function AppInner() {
             <Route path="/guide" element={<GuidePage />} />
             <Route path="/studio" element={<StudioPage />} />
             <Route path="/dataset/studio/:id" element={<StudioPage />} />
+            <Route path="/cloud" element={<CloudRunsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/setup" element={<SetupPage />} />
             <Route path="*" element={<Navigate to="/datasets" replace />} />
