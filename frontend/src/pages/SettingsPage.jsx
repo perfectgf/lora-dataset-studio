@@ -150,6 +150,7 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
     setBusy(true); setError(null)
     try {
       await postJson('/api/settings/chatgpt-oauth/import-codex', {})
+      setDevice(null)
       toast.success('Codex CLI session imported.')
       await refreshCaps(true)
     } catch (e) {
@@ -163,6 +164,7 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
     setBusy(true); setError(null)
     try {
       await postJson('/api/settings/chatgpt-oauth/logout', {})
+      toast.success('ChatGPT subscription disconnected.')
       await refreshCaps(true)
     } catch (e) {
       setError(e.message || 'Disconnect failed.')
@@ -188,7 +190,7 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
             </button>
           )}
           {!sub.connected && sub.codex_cli_detected && (
-            <button type="button" onClick={importCodex} disabled={busy} className={btn}>
+            <button type="button" onClick={importCodex} disabled={busy || !!device} className={btn}>
               Import from Codex CLI
             </button>
           )}
