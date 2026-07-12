@@ -17,7 +17,7 @@ def _config_path() -> Path:
 ENV_PATH = Path(os.environ.get('LDS_ENV', str(REPO_ROOT / '.env')))
 load_dotenv(ENV_PATH)
 
-SECRET_KEYS = ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'HF_TOKEN')
+SECRET_KEYS = ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'HF_TOKEN', 'VAST_API_KEY')
 
 DEFAULTS = {
     'server': {'host': '127.0.0.1', 'port': 5000},
@@ -32,6 +32,18 @@ DEFAULTS = {
                 'chatgpt_subscription_model': 'gpt-5.4-mini'},   # Codex router model (image model is gpt-image-2 regardless)
     'captioning': {'backend': 'auto'},                         # auto|joycaption|ollama|none
     'training': {'default_family': 'zimage'},
+    # Cloud GPU training (vast.ai). Everything has a sane default: the only
+    # required user input is the VAST_API_KEY secret. Values here are knobs
+    # for power users / for adjusting after the real-world smoke test.
+    'cloud': {
+        'image': 'vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9',
+        'ui_port': 8675,               # port the ai-toolkit UI listens on in the image
+        'max_price_per_hour': 0.80,    # offer search cap, $/h
+        'max_runtime_minutes': 240,    # hard kill-switch: stop + terminate past this
+        'disk_gb': 60,                 # instance disk (base model + dataset + checkpoints)
+        'min_vram_gb': {'zimage': 24, 'sdxl': 16, 'krea': 24},
+        'onstart': '',                 # optional startup command override (usually empty)
+    },
     'face_scoring': {'python': '', 'models_root': '', 'green': 0.50, 'orange': 0.45},
     'masks': {'python': ''},
     # consistency_strength: the dx8152 LoRA anchors STRUCTURE (composition/

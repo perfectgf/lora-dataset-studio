@@ -38,6 +38,19 @@
   "training": {
     "default_family": "zimage"
   },
+  "cloud": {
+    "image": "vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9",
+    "ui_port": 8675,
+    "max_price_per_hour": 0.80,
+    "max_runtime_minutes": 240,
+    "disk_gb": 60,
+    "min_vram_gb": {
+      "zimage": 24,
+      "sdxl": 16,
+      "krea": 24
+    },
+    "onstart": ""
+  },
   "face_scoring": {
     "python": "",
     "models_root": "",

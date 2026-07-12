@@ -14,6 +14,7 @@ _TEST_TARGETS = {
     'aitoolkit': capabilities.probe_aitoolkit,
     'face_scoring': capabilities.probe_face_scoring,
     'masks': capabilities.probe_masks,
+    'vast': capabilities.probe_vast,
 }
 
 
