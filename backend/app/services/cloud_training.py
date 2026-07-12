@@ -67,7 +67,10 @@ def _run_family(run):
     None when the params are absent or corrupted — a pre-feature row, or the
     'preparing' window before launch stamps them."""
     try:
-        return (json.loads(run.train_params or '{}') or {}).get('train_type')
+        parsed = json.loads(run.train_params or '{}')
+        # Valid-but-non-dict JSON ('"x"', '[1]', '3') must degrade to None too,
+        # not AttributeError — one corrupt row would 500 cloud_status for all.
+        return parsed.get('train_type') if isinstance(parsed, dict) else None
     except (ValueError, TypeError):
         return None
 

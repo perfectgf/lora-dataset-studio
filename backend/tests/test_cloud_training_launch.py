@@ -458,6 +458,18 @@ def test_launch_refuses_same_family_on_same_dataset(ct, app, seeded_dataset, mon
             ct.launch_cloud_training('local', seeded_dataset, train_type='krea')
 
 
+def test_run_family_non_dict_json_degrades_to_none(ct, app, seeded_dataset):
+    """train_params containing valid-but-non-dict JSON must yield None, never
+    raise — one corrupt row would 500 cloud_status platform-wide."""
+    from app.models import CloudTrainingRun
+    with app.app_context():
+        for bad in ('"x"', '[1]', '3'):
+            run = CloudTrainingRun(dataset_id=seeded_dataset, status='error',
+                                   vast_label='lds-x', train_params=bad)
+            assert ct._run_family(run) is None
+            assert ct._run_payload(run)['train_type'] is None
+
+
 def test_launch_family_unknown_active_run_blocks_every_family(ct, app, seeded_dataset, monkeypatch):
     """An active run with no train_params (pre-feature row, or the 'preparing'
     window before the params are stamped) has an unknown family — out of
