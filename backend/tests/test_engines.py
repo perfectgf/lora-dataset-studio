@@ -64,7 +64,10 @@ def _sub_connected(monkeypatch):
 
 
 def _codex_ok_response():
+    # Simulates the non-streaming JSON path (a plain JSON body, no `data:` prefix)
+    # so the lane routes to r.json() rather than the SSE sniffer.
     resp = MagicMock(status_code=200, headers={'content-type': 'application/json'})
+    resp.text = '{"output": [...]}'
     resp.json.return_value = {'output': [
         {'type': 'reasoning'},
         {'type': 'image_generation_call', 'result': base64.b64encode(b'img').decode()},
@@ -150,13 +153,19 @@ def test_subscription_401_refreshes_and_retries_once(app, monkeypatch):
     assert calls == [False, True]                 # second attempt forces a refresh
 
 
-def test_subscription_parses_sse_fallback(app, monkeypatch):
+def test_subscription_parses_sse_without_content_type(app, monkeypatch):
+    """Real Codex responses stream the image but send NO content-type header,
+    so the lane must sniff the body (a `data:` prefix) rather than trust the
+    header. The image rides in a response.output_item.done event; the terminal
+    response.completed ships an empty output (store:false), so that per-item
+    event is the only place the base64 result appears."""
     _sub_connected(monkeypatch)
     from app.services import chatgpt_image
     b64 = base64.b64encode(b'sse-img').decode()
-    resp = MagicMock(status_code=200, headers={'content-type': 'text/event-stream'})
+    resp = MagicMock(status_code=200, headers={})          # Codex sends no content-type
     resp.text = ('data: {"type":"response.output_item.done","item":'
                  '{"type":"image_generation_call","result":"' + b64 + '"}}\n\n'
+                 'data: {"type":"response.completed","response":{"output":[]}}\n\n'
                  'data: [DONE]\n')
     with patch('app.services.chatgpt_image.requests.post', return_value=resp):
         assert chatgpt_image.generate_variation(b'r', 'p') == b'sse-img'

@@ -157,8 +157,11 @@ def _image_from_output(output) -> bytes | None:
 
 
 def _parse_sse_for_image(text: str) -> bytes | None:
-    """Minimal SSE walk for the terminal image event — used when the backend
-    answers text/event-stream despite stream:false."""
+    """Minimal SSE walk for the terminal image event. With stream:true (Codex
+    requires it) the image arrives in a `response.output_item.done` event whose
+    item is an `image_generation_call` carrying the base64 `result`; the final
+    `response.completed` event ships an empty `output` (store:false), so that
+    per-item event is the only place the image appears."""
     for line in text.splitlines():
         if not line.startswith('data:'):
             continue
@@ -222,8 +225,15 @@ def _generate_via_subscription(refs: list, prompt: str, aspect_ratio: str) -> by
             # Content-policy refusals land here too — the row fails, same as the API lane.
             logger.warning(f"chatgpt_image: subscription HTTP {r.status_code}: {r.text[:300]}")
             return None
-        if 'text/event-stream' in (r.headers.get('content-type') or ''):
-            img = _parse_sse_for_image(r.text)
+        # The Codex backend streams the reply (stream:true is mandatory) but
+        # frequently sends NO content-type header, so we cannot trust it: sniff
+        # the body head instead. An SSE stream opens with `data:`/`event:` lines;
+        # anything else we treat as a plain JSON response.
+        body = r.text
+        head = body[:64].lstrip()
+        if 'text/event-stream' in (r.headers.get('content-type') or '') \
+                or head.startswith(('data:', 'event:')):
+            img = _parse_sse_for_image(body)
         else:
             try:
                 img = _image_from_output((r.json() or {}).get('output'))
