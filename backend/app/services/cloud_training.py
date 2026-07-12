@@ -384,10 +384,18 @@ def _monitor(app, run_id):
             # ever touching _now() -- a test clock that jumps in large
             # strides per call must not misfire this boot-timeout on a pod
             # that was, in fact, instantly ready.
+            template_mode = bool((c.get('template_hash') or '').strip())
             ready_timeout = (int(c.get('ready_timeout_minutes') or 0) * 60
                              or READY_TIMEOUT_SECONDS)
             _set(run, phase_detail='Waiting for the pod to boot')
             port = int(c.get('ui_port') or 18675)
+            if template_mode and port == 8675:
+                # 8675 is the pre-template default that Settings saves may have
+                # baked into config.json; the official template only publishes
+                # the UI behind the pod proxy on 18675 — a stale 8675 makes the
+                # boot-wait spin for its whole budget (observed live 2026-07-12).
+                logger.warning('cloud.ui_port=8675 is stale for template mode — using 18675')
+                port = 18675
             while True:
                 # A transient vast API hiccup is just "not ready yet" -- only
                 # READY_TIMEOUT_SECONDS may fail the boot wait, never a single

@@ -237,6 +237,21 @@ def test_cloud_progress_shape_matches_local(ct, app, client, monkeypatch):
         assert isinstance(prog['samples'], list)
 
 
+def test_stale_ui_port_8675_coerced_in_template_mode(ct, app, client, monkeypatch):
+    """A pre-template config.json baked ui_port=8675; the template only
+    publishes 18675 — the monitor must coerce or the boot-wait always
+    times out (run #3, 2026-07-12)."""
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=2)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    monkeypatch.setattr(ct.cfg, 'get', (lambda orig: (lambda k, d=None:
+        8675 if k == 'cloud.ui_port'
+        else ({**(orig('cloud') or {}), 'ui_port': 8675} if k == 'cloud' else orig(k, d))))(ct.cfg.get))
+    with app.app_context():
+        ct._monitor(app, run_id)
+        assert ct.CloudTrainingRun.query.get(run_id).status == 'done'
+
+
 def test_boot_wait_tolerates_transient_vast_errors(ct, app, client, monkeypatch):
     """A VastError during boot-wait must NOT kill the run — retry until ready.
     READY_TIMEOUT_SECONDS already bounds the wait, so a transient vast.ai API
