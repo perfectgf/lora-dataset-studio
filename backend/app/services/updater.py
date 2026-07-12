@@ -73,6 +73,15 @@ def git_update_status(root=None) -> dict | None:
             n = 0
         base['behind'] = n
         base['update_available'] = n > 0
+        # Links so the user can read WHAT the pending update contains before
+        # pulling: a compare view of exactly the incoming commits when behind,
+        # else the branch history. Short SHAs work fine in GitHub URLs.
+        repo = _cfg_get('updates.repo') or 'perfectgf/lora-dataset-studio'
+        base['repo'] = repo
+        base['commits_url'] = f'https://github.com/{repo}/commits/{branch}'
+        if n > 0 and base['current_sha'] and base['remote_sha']:
+            base['compare_url'] = (f'https://github.com/{repo}/compare/'
+                                   f"{base['current_sha']}...{base['remote_sha']}")
     except FileNotFoundError:
         base['git_missing'] = True
         base['reason'] = 'git is not installed / not on PATH — install Git to enable in-app updates.'

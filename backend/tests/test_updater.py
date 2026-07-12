@@ -35,6 +35,25 @@ def test_status_reports_commits_behind(monkeypatch):
     s = updater.git_update_status()
     assert s['is_git'] and s['behind'] == 3 and s['update_available'] is True
     assert s['current_sha'] == 'aaaaaaa' and s['remote_sha'] == 'bbbbbbb'
+    # commit links so the user can read what the pending update contains
+    assert s['repo'] and s['repo'] in s['commits_url']
+    assert s['compare_url'].endswith('/compare/aaaaaaa...bbbbbbb')
+
+
+def test_status_no_compare_url_when_up_to_date(monkeypatch):
+    def resp(a):
+        if a[:2] == ('rev-parse', '--abbrev-ref'):
+            return _R('main\n')
+        if a[0] == 'fetch':
+            return _R()
+        if a[0] == 'rev-list':
+            return _R('0\n')
+        return _R('sha\n')
+    _patch_git(monkeypatch, resp)
+    s = updater.git_update_status()
+    # up to date -> no incoming range to compare, but the history link stays
+    assert 'compare_url' not in s
+    assert s['commits_url'].endswith('/commits/main')
 
 
 def test_status_up_to_date(monkeypatch):
