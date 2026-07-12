@@ -551,7 +551,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               const budget = cloudStatus.monthly_budget;
               const msg = `Rent a cloud GPU for this run?\n\n` +
                 `Typical rate: ~$0.10-0.15/h - worst case ~$${(rate * capH).toFixed(2)} (${capH} h cap).` +
-                (budget > 0 ? `\nThis month: $${spent} of $${budget} budget.` : '');
+                (budget > 0 ? `\nThis month: $${(spent || 0).toFixed(2)} of $${budget.toFixed(2)} budget.` : '');
               if (!window.confirm(msg)) return;
               const d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
                 { variant, train_type: trainType, masked,

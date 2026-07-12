@@ -367,14 +367,19 @@ def test_launch_failure_frees_the_active_slot(ct, app, seeded_dataset, monkeypat
 
 # --- Monthly budget guard: block LAUNCHES only, never kill a running pod ----
 
-def _seed_finished_run(ct, price, created_ago_h, finished_ago_h, dataset_id=999):
-    """A terminal run this month: cost = price x (created_ago - finished_ago) h."""
+def _seed_finished_run(ct, price, start_h, end_h, dataset_id=999):
+    """A terminal run UNAMBIGUOUSLY inside the current month: timestamps are
+    anchored to the month start (created = month_start + start_h, finished =
+    month_start + end_h), never to `now` — a now-relative seed run during the
+    first UTC hours of the 1st would land in the PREVIOUS month and genuinely
+    fail the spend assertions. cost = price x (end_h - start_h)."""
     now = datetime.utcnow()
+    month_start = datetime(now.year, now.month, 1)
     run = ct.CloudTrainingRun(
         dataset_id=dataset_id, status='done', job_name='j', vast_label='lds-9',
         price_per_hour=price,
-        created_at=now - timedelta(hours=created_ago_h),
-        finished_at=now - timedelta(hours=finished_ago_h))
+        created_at=month_start + timedelta(hours=start_h),
+        finished_at=month_start + timedelta(hours=end_h))
     ct.db.session.add(run)
     ct.db.session.commit()
     return run
@@ -385,7 +390,7 @@ def test_budget_zero_never_blocks_launch(ct, app, seeded_dataset, monkeypatch):
     month must not block anything."""
     _fake_export(monkeypatch, ct)
     with app.app_context():
-        _seed_finished_run(ct, price=2.0, created_ago_h=20, finished_ago_h=1)  # $38
+        _seed_finished_run(ct, price=2.0, start_h=0, end_h=19)   # 19 h x $2 = $38
         res = ct.launch_cloud_training('local', seeded_dataset)
         assert res['status'] == 'preparing'
 
@@ -395,7 +400,7 @@ def test_budget_reached_blocks_launch(ct, app, seeded_dataset, monkeypatch):
     ct.cfg.save_config({'cloud': {'monthly_budget_usd': 3}})
     with app.app_context():
         # 0.5 $/h x 8 h = $4 spent >= $3 budget
-        _seed_finished_run(ct, price=0.5, created_ago_h=10, finished_ago_h=2)
+        _seed_finished_run(ct, price=0.5, start_h=0, end_h=8)
         with pytest.raises(RuntimeError, match='budget'):
             ct.launch_cloud_training('local', seeded_dataset)
 
@@ -422,10 +427,9 @@ def test_cloud_status_reports_month_spend_budget_and_cap(ct, app, monkeypatch):
     ct.cfg.save_config({'cloud': {'monthly_budget_usd': 20}})
     with app.app_context():
         # 0.5 $/h x 4 h = $2.00
-        _seed_finished_run(ct, price=0.5, created_ago_h=8, finished_ago_h=4)
+        _seed_finished_run(ct, price=0.5, start_h=0, end_h=4)
         # a priced-less run (crashed before provisioning) must count for $0
-        _seed_finished_run(ct, price=None, created_ago_h=6, finished_ago_h=5,
-                           dataset_id=998)
+        _seed_finished_run(ct, price=None, start_h=0, end_h=1, dataset_id=998)
         s = ct.cloud_status()
         assert s['monthly_budget'] == 20
         assert s['month_spend'] == 2.0

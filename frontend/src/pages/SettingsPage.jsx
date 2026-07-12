@@ -651,8 +651,11 @@ function CloudTrainingCard({ config, setField }) {
   const [spend, setSpend] = useState(null)
   useEffect(() => {
     let alive = true
-    apiFetch('/api/dataset/train/cloud/status')
-      .then((d) => { if (alive && typeof d.month_spend === 'number') setSpend(d.month_spend) })
+    // Raw fetch (not apiFetch): this info line is best-effort — a transient
+    // 500 must not fire the global error toast over a cosmetic detail.
+    fetch('/api/dataset/train/cloud/status', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d && typeof d.month_spend === 'number') setSpend(d.month_spend) })
       .catch(() => { /* info line is best-effort */ })
     return () => { alive = false }
   }, [])
@@ -720,7 +723,7 @@ function CloudTrainingCard({ config, setField }) {
         </div>
       </div>
       {spend != null && (
-        <p className="text-xs text-content-muted">Spent this month: ${spend}</p>
+        <p className="text-xs text-content-muted">Spent this month: ${spend.toFixed(2)}</p>
       )}
     </Card>
   )
