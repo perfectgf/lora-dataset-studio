@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { apiFetch } from './api/fetchClient'
+import { apiFetch, postJson } from './api/fetchClient'
 import { JobsProvider } from './context/JobsContext'
 import { ToastProvider, useToast } from './components/common/Toast'
 import { CapabilitiesProvider, useCapabilities } from './context/CapabilitiesContext'
@@ -59,29 +59,83 @@ function NavBar() {
  * feed is unreachable (offline / no public release yet). */
 function UpdateBanner() {
   const [info, setInfo] = useState(null)
+  const [applying, setApplying] = useState(false)
+  const [phase, setPhase] = useState('')     // '' | 'pulling' | 'restarting'
+  const [error, setError] = useState(null)
   useEffect(() => {
     if (sessionStorage.getItem('updateBannerDismissed') === '1') return
     apiFetch('/api/update/check')
       .then((d) => { if (d && d.update_available) setInfo(d) })
       .catch(() => { /* best-effort */ })
   }, [])
+
+  // Poll /api/health until the re-execed server answers, then hard-reload so the
+  // new frontend/dist loads. Mirrors the Settings "Updates" card.
+  const waitForHealthAndReload = async () => {
+    for (let i = 0; i < 120; i += 1) {
+      await new Promise((r) => setTimeout(r, 1000))
+      try {
+        const res = await fetch('/api/health', { cache: 'no-store' })
+        if (res.ok) { window.location.reload(); return }
+      } catch { /* still restarting — keep waiting */ }
+    }
+    setApplying(false); setPhase('')          // gave up after ~2 min
+  }
+
+  // One-click pull + restart, same backend action as the Settings card. A packaged
+  // build (no git) comes back {manual:true} → fall back to the download page.
+  const apply = async () => {
+    setApplying(true); setPhase('pulling'); setError(null)
+    try {
+      const res = await postJson('/api/update/apply', {})
+      if (res.restarting) {
+        setPhase('restarting')
+        waitForHealthAndReload()              // not awaited: the banner shows "restarting…"
+      } else if (res.manual) {
+        window.open(res.url || info.url, '_blank', 'noreferrer')
+        setApplying(false); setPhase('')
+      } else {
+        setApplying(false); setPhase('')
+        setError(res.reason || (res.ok ? null : 'Update failed'))
+      }
+    } catch (e) {
+      setApplying(false); setPhase('')
+      setError(e.message || 'Update failed')
+    }
+  }
+
   if (!info) return null
   return (
     <div className="mx-auto max-w-5xl px-4 pt-3">
       <div role="status"
-        className="flex items-center gap-2 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm">
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm">
         <span aria-hidden>⬆</span>
-        <span className="text-content">
-          Update available — <span className="font-semibold">v{info.latest}</span> (you run v{info.current}).
-        </span>
-        <a href={info.url} target="_blank" rel="noreferrer"
-          className="font-semibold text-emerald-300 underline">
-          Download
-        </a>
-        <button type="button"
-          onClick={() => { setInfo(null); sessionStorage.setItem('updateBannerDismissed', '1') }}
-          aria-label="Dismiss update notice"
-          className="ml-auto px-1.5 text-content-subtle hover:text-content">✕</button>
+        {applying ? (
+          <span className="text-content">
+            {phase === 'restarting'
+              ? '↻ Updated — the app is restarting. This page reloads automatically when it’s back…'
+              : '⬇ Pulling the latest version…'}
+          </span>
+        ) : (
+          <>
+            <span className="text-content">
+              Update available — <span className="font-semibold">v{info.latest}</span> (you run v{info.current}).
+            </span>
+            <button type="button" onClick={apply}
+              className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white transition-transform hover:-translate-y-px">
+              Update &amp; restart
+            </button>
+            <a href={info.url} target="_blank" rel="noreferrer"
+              className="text-emerald-300 underline">
+              Download
+            </a>
+            {error && <span className="text-rose-300">{error}</span>}
+            <button type="button"
+              onClick={() => { setInfo(null); sessionStorage.setItem('updateBannerDismissed', '1') }}
+              aria-label="Dismiss update notice"
+              className="ml-auto px-1.5 text-content-subtle hover:text-content">✕</button>
+          </>
+        )}
       </div>
     </div>
   )
