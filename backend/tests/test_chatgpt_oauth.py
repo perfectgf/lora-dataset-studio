@@ -1,7 +1,7 @@
 """chatgpt_oauth: token store, refresh, Codex CLI import. No real network."""
 import json
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, Mock
 
 
 def _tok(expires_in=3600, **over):
@@ -104,7 +104,6 @@ def test_import_codex_cli_missing_or_malformed(app, tmp_path, monkeypatch):
 def _post_router(routes):
     """Route mocked requests.post by URL substring -> MagicMock response."""
     def _post(url, **kwargs):
-        from unittest.mock import Mock
         for frag, resp in routes.items():
             if frag in url:
                 # Return Mock objects as-is; only call if it's a real function
@@ -171,5 +170,6 @@ def test_login_poll_expires_after_ttl(app, monkeypatch):
     with patch('app.services.chatgpt_oauth.requests.post',
                side_effect=_post_router({'/deviceauth/usercode': uc})):
         oauth.login_start()
-    monkeypatch.setattr(oauth.time, 'time', lambda: time.time() + 1000)
+    real_now = time.time()
+    monkeypatch.setattr(oauth.time, 'time', lambda: real_now + 1000)
     assert oauth.login_poll()['status'] == 'error'

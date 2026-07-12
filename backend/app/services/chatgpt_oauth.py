@@ -194,9 +194,8 @@ def login_start() -> dict:
     j = r.json()
     with _lock:
         _pending.clear()
-        _pending['device_auth_id'] = j.get('device_auth_id')
-        _pending['user_code'] = j.get('user_code')
-        _pending['started'] = time.time()
+        _pending.update(device_auth_id=j.get('device_auth_id'),
+                        user_code=j.get('user_code'), started=time.time())
     return {'ok': True, 'verification_url': DEVICE_VERIFY_URL,
             'user_code': j.get('user_code')}
 
@@ -224,17 +223,11 @@ def _exchange_code(code: str, verifier: str) -> dict | None:
 
 
 def login_poll() -> dict:
-    try:
-        now = time.time()
-    except RecursionError:
-        # In tests where time.time is monkeypatched with a lambda that calls time.time(),
-        # we catch this and assume the TTL has exceeded (which is what the test expects)
-        return {'status': 'error', 'detail': 'device login expired (15 min) — start again'}
     with _lock:
         pending = dict(_pending)
     if not pending.get('device_auth_id'):
         return {'status': 'error', 'detail': 'no device login in progress'}
-    if now - pending['started'] > _DEVICE_LOGIN_TTL:
+    if time.time() - pending['started'] > _DEVICE_LOGIN_TTL:
         _clear_pending()
         return {'status': 'error', 'detail': 'device login expired (15 min) — start again'}
     try:
