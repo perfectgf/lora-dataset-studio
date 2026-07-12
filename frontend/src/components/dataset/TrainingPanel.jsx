@@ -526,11 +526,20 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   ...(stepsN ? { steps: stepsN } : {}) });
               if (d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
                 if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nTrain anyway (force)?')) {
-                  await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
+                  const d2 = await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
                     { variant, train_type: trainType, masked, allow_caption_mismatch: true,
                       ...(stepsN ? { steps: stepsN } : {}) });
+                  // The forced retry can still be refused (gate flipped, another
+                  // run started meanwhile…) — surface it like local actions do.
+                  if (d2.ok === false) toastTrainError(d2, 'Cloud training failed');
                 }
+                // Declined confirm = the answer; no error toast (matches local train).
+              } else if (d.ok === false) {
+                // Any non-mismatch refusal (409 not-configured, 400 SDXL/custom
+                // base, active-run conflict…) must not vanish silently.
+                toastTrainError(d, 'Cloud training failed');
               }
+              // Success needs no toast — the 5s cloud-status poll picks it up.
             }}
             className="px-3 py-1.5 rounded-lg border border-sky-500/50 bg-sky-500/10 text-sky-200 text-sm font-semibold disabled:opacity-40">
             <span aria-hidden>☁️</span> Train in cloud
