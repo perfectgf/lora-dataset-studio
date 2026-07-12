@@ -533,6 +533,17 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — raise it in Settings`
               : `Rents a vast.ai GPU for this run (~$1-2), auto-terminated`}
             onClick={async () => {
+              // Worst-case cost confirm — a money decision, so sober text (no
+              // emoji). One confirm at the top covers the initial POST and the
+              // MISMATCH retry below (both live in this handler).
+              const rate = 0.15;   // $/h fallback when the real offer price is unknown
+              const capH = (cloudStatus.max_runtime_minutes || 480) / 60;
+              const spent = cloudStatus.month_spend;
+              const budget = cloudStatus.monthly_budget;
+              const msg = `Rent a cloud GPU for this run?\n\n` +
+                `Typical rate: ~$0.10-0.15/h - worst case ~$${(rate * capH).toFixed(2)} (${capH} h cap).` +
+                (budget > 0 ? `\nThis month: $${spent} of $${budget} budget.` : '');
+              if (!window.confirm(msg)) return;
               const d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
                 { variant, train_type: trainType, masked,
                   ...(stepsN ? { steps: stepsN } : {}) });

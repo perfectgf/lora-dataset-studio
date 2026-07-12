@@ -626,40 +626,7 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      <Card title="Cloud training" help="vast.ai GPU rental limits — how many training pods may run at once, and the price ceiling used when searching for an offer.">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="cloud-max-concurrent-runs" className="block text-sm font-medium text-content">
-              Max simultaneous cloud runs
-            </label>
-            <input
-              id="cloud-max-concurrent-runs"
-              type="number"
-              min="1"
-              max="10"
-              step="1"
-              value={config.cloud?.max_concurrent_runs ?? 1}
-              onChange={(e) => setField('cloud', 'max_concurrent_runs', parseInt(e.target.value) || 1)}
-              className={INPUT_CLASS}
-            />
-          </div>
-          <div>
-            <label htmlFor="cloud-max-price-per-hour" className="block text-sm font-medium text-content">
-              Max price per hour ($)
-            </label>
-            <input
-              id="cloud-max-price-per-hour"
-              type="number"
-              min="0.1"
-              max="5"
-              step="0.05"
-              value={config.cloud?.max_price_per_hour ?? 0.8}
-              onChange={(e) => setField('cloud', 'max_price_per_hour', parseFloat(e.target.value) || 0)}
-              className={INPUT_CLASS}
-            />
-          </div>
-        </div>
-      </Card>
+      <CloudTrainingCard config={config} setField={setField} />
 
       <div className="flex justify-end">
         <button
@@ -674,6 +641,88 @@ export default function SettingsPage() {
 
       <LogViewer />
     </div>
+  )
+}
+
+/* Cloud training limits: concurrency cap, offer price ceiling, monthly budget
+   and the stall watchdog timeout. Fetches the cloud status ONCE on mount for
+   the "Spent this month" info line — no poll, this page is not a dashboard. */
+function CloudTrainingCard({ config, setField }) {
+  const [spend, setSpend] = useState(null)
+  useEffect(() => {
+    let alive = true
+    apiFetch('/api/dataset/train/cloud/status')
+      .then((d) => { if (alive && typeof d.month_spend === 'number') setSpend(d.month_spend) })
+      .catch(() => { /* info line is best-effort */ })
+    return () => { alive = false }
+  }, [])
+  return (
+    <Card title="Cloud training" help="vast.ai GPU rental guardrails — how many training pods may run at once, the offer price ceiling, your monthly spend limit, and how long a run may go without step progress before it is rescued and killed.">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label htmlFor="cloud-max-concurrent-runs" className="block text-sm font-medium text-content">
+            Max simultaneous cloud runs
+          </label>
+          <input
+            id="cloud-max-concurrent-runs"
+            type="number"
+            min="1"
+            max="10"
+            step="1"
+            value={config.cloud?.max_concurrent_runs ?? 1}
+            onChange={(e) => setField('cloud', 'max_concurrent_runs', parseInt(e.target.value) || 1)}
+            className={INPUT_CLASS}
+          />
+        </div>
+        <div>
+          <label htmlFor="cloud-max-price-per-hour" className="block text-sm font-medium text-content">
+            Max price per hour ($)
+          </label>
+          <input
+            id="cloud-max-price-per-hour"
+            type="number"
+            min="0.1"
+            max="5"
+            step="0.05"
+            value={config.cloud?.max_price_per_hour ?? 0.8}
+            onChange={(e) => setField('cloud', 'max_price_per_hour', Math.max(0.1, parseFloat(e.target.value) || 0.1))}
+            className={INPUT_CLASS}
+          />
+        </div>
+        <div>
+          <label htmlFor="cloud-monthly-budget" className="block text-sm font-medium text-content">
+            Monthly budget ($, 0 = unlimited)
+          </label>
+          <input
+            id="cloud-monthly-budget"
+            type="number"
+            min="0"
+            step="1"
+            value={config.cloud?.monthly_budget_usd ?? 0}
+            onChange={(e) => setField('cloud', 'monthly_budget_usd', parseFloat(e.target.value) || 0)}
+            className={INPUT_CLASS}
+          />
+        </div>
+        <div>
+          <label htmlFor="cloud-stall-timeout" className="block text-sm font-medium text-content">
+            Stall timeout (minutes)
+          </label>
+          <input
+            id="cloud-stall-timeout"
+            type="number"
+            min="5"
+            max="240"
+            step="1"
+            value={config.cloud?.stall_timeout_minutes ?? 30}
+            onChange={(e) => setField('cloud', 'stall_timeout_minutes', parseInt(e.target.value) || 30)}
+            className={INPUT_CLASS}
+          />
+        </div>
+      </div>
+      {spend != null && (
+        <p className="text-xs text-content-muted">Spent this month: ${spend}</p>
+      )}
+    </Card>
   )
 }
 
