@@ -92,7 +92,7 @@ def dataset_list():
     dss = svc.list_datasets(LOCAL_USER)
     return jsonify({'datasets': [
         {'id': d.id, 'name': d.name, 'trigger_word': d.trigger_word, 'ref_filename': d.ref_filename,
-         'kind': 'concept' if (d.kind or '').lower() == 'concept' else 'character',
+         'kind': ((d.kind or '').lower() or 'character'),
          'train_type': (d.train_type or 'zimage')}
         for d in dss]})
 
@@ -341,11 +341,12 @@ def dataset_import(dataset_id):
         return jsonify({'error': 'max 20 images per import'}), 400
     # Head-crop OPTIONNEL (form field crop='0' → OFF) : un plan buste/corps importé
     # doit pouvoir rester tel quel — le crop tête carré systématique transformait
-    # tout import en gros plan. Dataset CONCEPT : jamais de head-crop.
+    # tout import en gros plan. Dataset CONCEPT ou STYLE : jamais de head-crop
+    # (l'invariant n'est pas un visage ; un style vit autant dans les décors).
     # Sans crop → import BRUT (ratio préservé) → aucune passe vision → PAS de
     # fenêtre GPU exclusive (on ne stoppe pas ComfyUI pour rien).
     stats = {}
-    want_crop = (not svc.is_concept(ds)) and request.form.get('crop', '1') != '0'
+    want_crop = (not svc.is_conceptual(ds)) and request.form.get('crop', '1') != '0'
     if not want_crop:
         ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=False,
                                         dedupe=True, stats=stats)

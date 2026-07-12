@@ -201,6 +201,7 @@ def dataset_train_checkpoints(dataset_id):
         kw['family'] = fam
     return jsonify({'checkpoints': lt.list_checkpoints(LOCAL_USER, dataset_id, **kw),
                     'recommended_steps': lt.recommended_steps(dataset_id),
+                    'recommended_steps_info': lt.recommended_steps_info(dataset_id),
                     'imported': lt.list_imported_checkpoints(LOCAL_USER, dataset_id, family=fam)})
 
 

@@ -388,6 +388,40 @@ CAPTION_PROMPT = (
 JOYCAPTION_PROMPT = CAPTION_PROMPT
 
 
+# Dataset STYLE : l'invariant du set est le RENDU (esthétique, médium, palette, trait…),
+# qui doit être absorbé par le LoRA — donc jamais décrit. Règle miroir du concept :
+# ce qui est captionné reste contrôlable par le prompt, ce qui est tu est absorbé.
+# On décrit donc le CONTENU librement (sujets, scène, composition — l'identité est
+# conservée, les sujets varient) et on tait tout vocabulaire de style/rendu.
+CAPTION_PROMPT_STYLE = (
+    "Caption Type: Straightforward.\n\n"
+    "This is one image from a STYLE training set: every image shares the same artistic "
+    "style, and that style must NEVER be described - no words about the medium, technique, "
+    "rendering, color palette, line work, brushwork, film grain, aesthetic or art movement. "
+    "Caption only the CONTENT, as if the image were a plain photograph of the scene.\n\n"
+    "Describe freely: the subjects present and their appearance, pose and expression, "
+    "clothing, the setting and objects, the composition and framing, the time of day. "
+    "One compact paragraph of plain prose. No preamble, no quotes, no lists."
+)
+
+CAPTION_PROMPT_STYLE_BOORU = (
+    "Caption Type: Booru tag list.\n\n"
+    "This is one image from a STYLE training set: every image shares the same artistic "
+    "style, and that style must NEVER be tagged - no medium, technique, rendering, "
+    "palette, aesthetic or art-movement tags (no 'oil painting', 'anime style', "
+    "'watercolor', 'monochrome', 'sketch', etc.). Tag only the CONTENT.\n\n"
+    "Output a single line of comma-separated booru tags covering: subject count and "
+    "type, appearance, pose, expression, clothing, objects, setting, framing. "
+    "Lowercase, underscores for spaces, no preamble."
+)
+
+
+def caption_prompt_for_style(mode) -> str:
+    """The caption prompt for a STYLE dataset: content-only (the style is absorbed
+    by omission), prose vs booru by model family."""
+    return CAPTION_PROMPT_STYLE_BOORU if mode == 'booru' else CAPTION_PROMPT_STYLE
+
+
 # Dataset CONCEPT (logique INVERSÉE) : l'invariant du set n'est plus l'identité mais
 # l'acte/effet récurrent qu'on OMET pour qu'il se lie au trigger. On décrit donc tout —
 # personnes, pose, cadrage, lumière, décor — SAUF l'acte central répété. Le captioneur

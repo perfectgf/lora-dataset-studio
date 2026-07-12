@@ -14,12 +14,15 @@ const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20] };
  * affiche l'état, liste les checkpoints et importe celui choisi.
  * Poll régulier : c'est ce poll qui fait avancer la file (fin du courant → suivant). */
 export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange }) {
-  const concept = kind === 'concept';
+  const concept = kind === 'concept' || kind === 'style';  // style: même chemin UI
   const { caps } = useCapabilities();
   const toast = useToast();
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
   const [checkpoints, setCheckpoints] = useState([]);
   const [ckLoaded, setCkLoaded] = useState(false);
+  // {steps, kind, n_images, rationale} renvoyé par /train/checkpoints — le POURQUOI
+  // du barème adaptatif, affiché avec le champ Steps (pédagogie, pas boîte noire).
+  const [stepsInfo, setStepsInfo] = useState(null);
   const [imported, setImported] = useState([]);
   const [enqErr, setEnqErr] = useState(null);
   // Base d'entraînement (officielle ou merge custom) + variante + conversion.
@@ -311,6 +314,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     const data = await ds.listCheckpoints(b, trainType);
     setCheckpoints(data.checkpoints || []);
     setImported(data.imported || []);
+    // Rationale du barème adaptatif (backend = source de vérité) : affiché en tooltip
+    // du champ Steps pour que l'app EXPLIQUE le nombre au lieu de le décréter.
+    setStepsInfo(data.recommended_steps_info || null);
     setCkLoaded(true);
     onCheckpointsChange?.(Array.isArray(data.checkpoints) ? data.checkpoints.length : 0);
   };
@@ -360,9 +366,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     }
   };
 
-  // Estimation des steps adaptatifs (~120/image, bornés [1500,3500]) — purement
-  // indicative ; le backend recalcule la valeur autoritaire au lancement.
-  const recoSteps = Math.max(1500, Math.min(3500, Math.round((keptCount * 120) / 100) * 100));
+  // Estimation des steps adaptatifs — purement indicative ; le backend recalcule la
+  // valeur autoritaire au lancement (même barème). Character : ~120/image, bornés
+  // [1500,3500]. Concept/style : SOUS-LINÉAIRE 475·√n, bornés [2000,12000] — un gros
+  // set doit généraliser, pas mémoriser (à 400 img : ~9500 steps, pas 3500).
+  const recoSteps = concept
+    ? Math.max(2000, Math.min(12000, Math.round((475 * Math.sqrt(Math.max(keptCount, 1))) / 100) * 100))
+    : Math.max(1500, Math.min(3500, Math.round((keptCount * 120) / 100) * 100));
   // Libellé lisible de la base sélectionnée (pour étiqueter les checkpoints de CE run).
   const baseLabel = currentBases.find((b) => b.value === base)?.label || (base || 'Official');
   const typeLabel = trainType === 'sdxl' ? 'SDXL' : trainType === 'krea' ? 'Krea 2' : 'Z-Image';
@@ -670,12 +680,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
           {!status.in_progress && keptCount >= 10 && (
             <label className="flex items-center gap-1.5 text-content-subtle text-[0.6875rem]"
-              title="Target training steps. Leave empty for the adaptive value (~120/image, capped 1500–3500). Set a lower cap (e.g. 2000) to stop earlier — it trains faster and lighter; then pick the best checkpoint in the Test Studio. Applies to Train, Add to queue and Schedule.">
+              title={stepsInfo?.rationale
+                ? `${stepsInfo.rationale} Leave empty to use it; applies to Train, Add to queue and Schedule.`
+                : concept
+                  ? 'Target training steps. Leave empty for the adaptive value (sublinear 475·√images, capped 2000–12000): the bigger the set, the fewer views per image, so the LoRA generalizes instead of memorizing shots. Applies to Train, Add to queue and Schedule.'
+                  : 'Target training steps. Leave empty for the adaptive value (~120/image, capped 1500–3500). Set a lower cap (e.g. 2000) to stop earlier — it trains faster and lighter; then pick the best checkpoint in the Test Studio. Applies to Train, Add to queue and Schedule.'}>
               <span className="uppercase text-content-muted text-[0.625rem]">Steps</span>
               <input type="number" min={500} step={100}
                 value={stepsOverride}
                 onChange={(e) => setStepsOverride(e.target.value)}
-                placeholder={String(recoSteps)}
+                placeholder={String(stepsInfo?.steps ?? recoSteps)}
                 aria-label="Target training steps (leave empty for adaptive)"
                 className="w-[4.5rem] rounded border border-border bg-app/60 px-1.5 py-0.5 text-content tabular-nums text-[0.75rem]" />
               <span>{stepsOverride.trim() ? 'target' : `≈ adaptive (${keptCount} img)`}</span>

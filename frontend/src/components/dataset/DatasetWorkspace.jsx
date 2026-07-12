@@ -101,7 +101,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Dataset CONCEPT : on masque tout ce qui est identité/visage (référence, générateur
   // de variations, analyse faciale, badge de fuite, composition, flux guidé) — il ne
   // reste que import brut → curation → caption (inversée) → entraînement.
-  const concept = d.kind === 'concept';
+  // 'style' suit le même chemin UI que concept : pas de référence/visage/composition,
+  // juste import brut → curation → caption (contenu pur, optionnelle) → entraînement.
+  const concept = d.kind === 'concept' || d.kind === 'style';
   // Fidélité corps : captions bannissent aussi les marques corporelles, composition
   // cible plus de bustes/corps, import plein cadre par défaut.
   const bodyFid = d.fidelity === 'body';

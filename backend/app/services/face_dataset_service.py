@@ -30,6 +30,7 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CAPTION_PROM
                               EXPAND_CONCEPT_TERMS_PROMPT,
                               CLASSIFY_PROMPT, HEAD_BBOX_PROMPT,
                               JOYCAPTION_PROMPT, aspect_for_label, caption_prompt_for,
+                              caption_prompt_for_style,
                               caption_has_identity_leak, drop_identity_sentences, drop_identity_tags,
                               is_nsfw_label, prompt_by_label, wrap_variation,
                               wrap_variation_klein)
@@ -141,13 +142,16 @@ def remove_extra_ref(user_id, dataset_id, filename) -> bool:
 
 # --- CRUD ------------------------------------------------------------------
 # Natures de dataset. 'concept' inverse la logique personnage (cf import_images /
-# caption_images). Tout le reste (dont NULL) = 'character' (défaut historique).
-DATASET_KINDS = ('character', 'concept')
+# caption_images). 'style' = esthétique globale : captions de CONTENU pur (le style
+# n'est jamais décrit → il est absorbé par le LoRA), pas de trigger dans la config,
+# dropout de caption élevé. Tout le reste (dont NULL) = 'character' (défaut historique).
+DATASET_KINDS = ('character', 'concept', 'style')
 
 
 def normalize_kind(kind) -> str | None:
-    """'concept' -> 'concept' ; tout le reste -> None (character, stocké NULL)."""
-    return 'concept' if (kind or '').strip().lower() == 'concept' else None
+    """'concept'/'style' -> tels quels ; tout le reste -> None (character, stocké NULL)."""
+    k = (kind or '').strip().lower()
+    return k if k in ('concept', 'style') else None
 
 
 def _safe_json(text):
@@ -162,6 +166,18 @@ def _safe_json(text):
 
 def is_concept(ds) -> bool:
     return bool(ds) and (getattr(ds, 'kind', None) or '').lower() == 'concept'
+
+
+def is_style(ds) -> bool:
+    return bool(ds) and (getattr(ds, 'kind', None) or '').lower() == 'style'
+
+
+def is_conceptual(ds) -> bool:
+    """Concept OU style : les kinds où l'invariant du set n'est PAS une identité.
+    Regroupe les comportements communs : heuristiques personnage (équilibre de
+    composition, fuite d'identité) sans objet, masques personne interdits (ils
+    effaceraient ce qu'on apprend), barème de steps sous-linéaire (√n)."""
+    return is_concept(ds) or is_style(ds)
 
 
 # Cibles de fidélité (datasets personnage). 'body' = le LoRA reproduit AUSSI la
@@ -213,13 +229,23 @@ def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, tr
         raise ValueError('concept_desc required for a concept dataset')
     ds = FaceDataset(user_id=str(user_id), name=(name or '').strip()[:100],
                      trigger_word=(trigger_word or '').strip()[:60] or 'zchar',
+                     # concept_desc n'a de sens que pour un concept ; un STYLE n'a rien
+                     # à omettre nommément (les captions décrivent le contenu, jamais le
+                     # rendu — c'est le prompt de caption qui porte cette règle).
                      kind=k, concept_desc=(desc[:500] if k == 'concept' else None),
                      train_type=normalize_train_type(train_type),
-                     # fidelity ne concerne que les personnages (un concept décrit
-                     # librement les corps — c'est l'acte qui est omis).
-                     fidelity=(normalize_fidelity(fidelity) if k != 'concept' else None))
+                     # fidelity ne concerne que les personnages (concept : l'acte est
+                     # omis ; style : les sujets varient, aucune identité à protéger).
+                     fidelity=(normalize_fidelity(fidelity) if k is None else None))
     db.session.add(ds)
     db.session.commit()
+    if k == 'style' and not (trigger_word or '').strip():
+        # Un style n'exige pas de trigger (l'UI le présente comme facultatif), mais
+        # `_run_name`/`lora_{trigger}` nomment le run d'entraînement avec : deux styles
+        # créés sans trigger retomberaient tous deux sur 'zchar' → le garde anti-
+        # collision bloquerait le 2e entraînement. On sale le défaut avec l'id.
+        ds.trigger_word = f'zsty_{ds.id}'
+        db.session.commit()
     return ds
 
 
@@ -707,12 +733,15 @@ def dataset_payload(user_id, dataset_id):
         # contribute to the training-target tally the UI tracks deficits against.
         if i.framing in comp and i.status not in ('reject', 'failed'):
             comp[i.framing] += 1
-    concept = is_concept(ds)
+    # concept OU style : la fuite d'identité est une heuristique de LoRA PERSONNAGE —
+    # un style décrit librement ses sujets, un concept son contexte. Sans ce
+    # regroupement, chaque caption de style lèverait un faux badge « leak ».
+    concept = is_conceptual(ds)
     body = is_body_fidelity(ds)
     return {
         'id': ds.id, 'name': ds.name, 'trigger_word': ds.trigger_word,
         'train_type': (ds.train_type or 'zimage'),
-        'kind': 'concept' if concept else 'character',
+        'kind': (ds.kind or 'character'),
         'fidelity': (ds.fidelity or 'face') if not concept else 'face',
         'concept_desc': (ds.concept_desc or '') if concept else '',
         'ref_filename': ds.ref_filename,
@@ -1538,14 +1567,23 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     # Défaut AUTO selon le type entraîné ; un mode explicite (UI) l'emporte.
     ttype = (getattr(ds, 'train_type', None) or 'zimage').lower()
     mode = (mode or ('booru' if ttype == 'sdxl' else 'prose')).lower()
-    # Fidélité corps : le prompt bannit EN PLUS les marques corporelles permanentes
-    # (tatouages/cicatrices/piercings…) et le post-filtre les retire — elles doivent
-    # se lier au trigger, pas aux mots (même principe que le visage).
-    body = is_body_fidelity(ds)
-    cap_prompt = caption_prompt_for(mode, body=body)
-    base_cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
-    def cleaner(text):
-        return base_cleaner(text, body=body)
+    style = is_style(ds)
+    if style:
+        # Dataset STYLE : captions de CONTENU pur — le rendu n'est jamais décrit (le
+        # prompt porte la règle) pour qu'il soit absorbé par le LoRA. AUCUN nettoyage
+        # d'identité : les sujets varient, leur description EST le contenu contrôlable.
+        cap_prompt = caption_prompt_for_style(mode)
+        def cleaner(text):
+            return text
+    else:
+        # Fidélité corps : le prompt bannit EN PLUS les marques corporelles permanentes
+        # (tatouages/cicatrices/piercings…) et le post-filtre les retire — elles doivent
+        # se lier au trigger, pas aux mots (même principe que le visage).
+        body = is_body_fidelity(ds)
+        cap_prompt = caption_prompt_for(mode, body=body)
+        base_cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
+        def cleaner(text):
+            return base_cleaner(text, body=body)
     q = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
     if not force:
         q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))

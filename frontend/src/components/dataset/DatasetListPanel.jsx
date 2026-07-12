@@ -117,6 +117,11 @@ function DatasetCard({ d, onOpen, onDelete }) {
                 💡 Concept
               </span>
             )}
+            {d.kind === 'style' && (
+              <span className="shrink-0 px-1.5 py-px rounded border border-cyan-400/40 bg-cyan-500/10 text-cyan-300 text-[0.5625rem] font-semibold uppercase">
+                🎨 Style
+              </span>
+            )}
             {(d.trained_families || []).map((f) => {
               const [lbl, cls] = FAMILY_BADGE[f] || [f, 'border-border bg-white/5 text-content-muted'];
               return (
@@ -165,6 +170,10 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
   // corporelles sont bannies des captions et la composition cible plus de corps).
   const [fidelity, setFidelity] = useState('face');
   const concept = kind === 'concept';
+  // Style : esthétique globale absorbée par le LoRA — captions de contenu pur,
+  // PAS de trigger dans la config d'entraînement (champ facultatif ici, il ne sert
+  // qu'à nommer le run), pas de description à omettre, pas de fidélité visage.
+  const style = kind === 'style';
   const canCreate = name.trim() && (!concept || conceptDesc.trim());
   return (
     <div className="flex flex-col gap-4">
@@ -187,7 +196,8 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
             photo de référence ni de générateur de variations. */}
         <div className="flex gap-1.5">
           {[['character', '🧑 Character', 'A person/face — identity binds to the trigger'],
-            ['concept', '💡 Concept', 'A recurring act/effect — the concept binds to the trigger']].map(
+            ['concept', '💡 Concept', 'A recurring act/effect — the concept binds to the trigger'],
+            ['style', '🎨 Style', 'A global aesthetic — no trigger: the LoRA tints every image it is loaded on']].map(
             ([val, label, hint]) => (
               <button key={val} type="button" onClick={() => setKind(val)} title={hint}
                 className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
@@ -200,15 +210,15 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
-            {concept ? 'Concept name' : 'Character name'}
+            {concept ? 'Concept name' : style ? 'Style name' : 'Character name'}
             <input value={name} onChange={(e) => setName(e.target.value)}
-              placeholder={concept ? 'e.g. cim' : 'e.g. Emma'}
+              placeholder={concept ? 'e.g. cim' : style ? 'e.g. ink-wash' : 'e.g. Emma'}
               className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
           </label>
           <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
-            Trigger word
+            Trigger word{style ? ' (names the run — a style LoRA has no trigger)' : ''}
             <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
-              placeholder={concept ? 'e.g. cim_act' : 'e.g. zchar_emma'}
+              placeholder={concept ? 'e.g. cim_act' : style ? 'e.g. zsty_inkwash' : 'e.g. zchar_emma'}
               className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
             {/* Guard-rail: a plain short word ("emma", "girl") collides with the base
                 model's existing vocabulary — the identity bleeds into that word
@@ -235,7 +245,7 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
         {/* Fidélité (personnage) : visage seul (défaut) vs visage + corps. En mode corps,
             les marques corporelles permanentes sont bannies des captions (elles se lient
             au trigger) et la composition cible plus de bustes/corps. */}
-        {!concept && (
+        {!concept && !style && (
           <div className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
             <span>Fidelity <span className="text-content-subtle normal-case">— what the LoRA must reproduce (changeable later)</span></span>
             <div className="flex gap-1.5">
@@ -267,11 +277,13 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
           <p className="text-content-subtle text-[0.6875rem]">
             {concept
               ? 'The trigger word is the token you type to summon this concept. Import raw images of it, then caption and train.'
-              : 'The trigger word is the unique token you will type in prompts to summon this character.'}
+              : style
+                ? 'A style LoRA applies to every image once loaded — no trigger needed. Import varied images sharing the style, then train (captions optional).'
+                : 'The trigger word is the unique token you will type in prompts to summon this character.'}
           </p>
           <button type="button"
             onClick={() => canCreate && onCreate(name.trim(), trigger.trim(), kind, conceptDesc.trim(), trainType,
-              concept ? undefined : fidelity)}
+              (concept || style) ? undefined : fidelity)}
             disabled={!canCreate}
             className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             Create

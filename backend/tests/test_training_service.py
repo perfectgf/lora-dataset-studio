@@ -215,6 +215,106 @@ def test_recommended_steps_clamps(app):
         assert lt.recommended_steps(ds.id) == 3500        # 40*120=4800 -> clamp
 
 
+def test_recommended_steps_concept_scales_sublinearly(app):
+    """Concept datasets: √n scaling, not 120/img — a 400-image concept set must
+    land near ~9500 steps (~24 views/img), not be clamped to the character 3500."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'C', 'c')
+        ds.kind = 'concept'
+        for _ in range(9):
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep', filename='x.webp'))
+        svc.db.session.commit()
+        assert lt.recommended_steps(ds.id) == 2000        # 475*3=1425 -> clamp bas
+        for _ in range(391):                               # -> 400 images
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep', filename='y.webp'))
+        svc.db.session.commit()
+        assert lt.recommended_steps(ds.id) == 9500        # 475*20=9500, dans [2000,12000]
+        info = lt.recommended_steps_info(ds.id)
+        assert info['kind'] == 'concept' and info['steps'] == 9500 and info['n_images'] == 400
+        assert 'generalizes' in info['rationale']
+
+
+def test_style_dataset_job_config_and_steps(app, tmp_path):
+    """Style kind: √n steps like concept, NO trigger_word in the job config,
+    caption dropout raised to 0.30, subject-LoRA timestep override removed,
+    sample prompts without the trigger."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        ds = svc.create_dataset(LOCAL_USER, 'S', 'zsty', kind='style')
+        assert svc.is_style(ds) and svc.is_conceptual(ds) and not svc.is_concept(ds)
+        assert ds.fidelity is None            # fidelity = personnage uniquement
+        for _ in range(100):
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep', filename='x.webp'))
+        svc.db.session.commit()
+        assert lt.recommended_steps(ds.id) == 4800        # 475*10=4750 -> arrondi centaine
+        assert lt.recommended_steps_info(ds.id)['kind'] == 'style'
+        cfg_ = lt.build_job_config(ds, str(tmp_path), steps=4800)
+        proc = cfg_['config']['process'][0]
+        assert 'trigger_word' not in proc                  # style = pas de trigger
+        assert proc['datasets'][0]['caption_dropout_rate'] == 0.30
+        assert 'timestep_type' not in proc['train']        # sigmoid = reco sujet, retirée
+        assert all('zsty' not in p for p in proc['sample']['prompts'])
+
+
+def test_style_dataset_captions_optional(app):
+    """assert_trainable must NOT block a style dataset on missing captions."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'S2', 'zsty2', kind='style')
+        for _ in range(12):
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep', filename='x.webp'))
+        svc.db.session.commit()
+        lt.assert_trainable(ds.id)   # aucune caption -> ne lève pas
+
+
+def test_style_captioned_still_checks_prose_booru_mismatch(app):
+    """Audit fix: the style skip covers ONLY missing captions — when captions DO
+    exist, a prose-captioned style dataset trained as SDXL must still raise the
+    MISMATCH_CAPTION guard (same failure mode as a character dataset)."""
+    import pytest
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'S3', 'zsty3', kind='style', train_type='sdxl')
+        prose = 'A woman reading a book in a sunlit cafe, sitting by the window.'
+        for _ in range(12):
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep',
+                                                filename='x.webp', caption=prose))
+        svc.db.session.commit()
+        with pytest.raises(ValueError, match='MISMATCH_CAPTION'):
+            lt.assert_trainable(ds.id, train_type='sdxl')
+        lt.assert_trainable(ds.id, train_type='sdxl', allow_caption_mismatch=True)
+
+
+def test_style_default_trigger_salted_no_collision(app):
+    """Audit fix: two styles created WITHOUT a trigger must not both land on the
+    'zchar' default (the anti-collision guard would block the 2nd training run)."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        a = svc.create_dataset(LOCAL_USER, 'SA', '', kind='style')
+        b = svc.create_dataset(LOCAL_USER, 'SB', '', kind='style')
+        assert a.trigger_word == f'zsty_{a.id}'
+        assert b.trigger_word == f'zsty_{b.id}'
+        assert a.trigger_word != b.trigger_word
+        c = svc.create_dataset(LOCAL_USER, 'SC', 'zsty_ink', kind='style')
+        assert c.trigger_word == 'zsty_ink'   # un trigger explicite est respecté
+
+
 def test_job_config_masked_fields_only_when_masks_exist(app, tmp_path):
     from app.services import lora_training as lt
     folder = tmp_path / 'ds'

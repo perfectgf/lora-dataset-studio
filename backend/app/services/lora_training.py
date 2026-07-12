@@ -17,6 +17,7 @@ dropped - single local user, cf. plan's Global Constraints.
 from __future__ import annotations
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -340,7 +341,20 @@ _DEFAULT_SAMPLE_PROMPTS_CONCEPT = [
 ]
 
 
+# Un style n'a PAS de trigger : le LoRA teinte toute image dès qu'il est chargé.
+# Les previews sont donc des scènes génériques variées — si le style s'y voit,
+# l'entraînement prend ; le vocabulaire portrait/headshot tirerait hors sujet.
+_DEFAULT_SAMPLE_PROMPTS_STYLE = [
+    'a woman reading in a sunlit cafe',
+    'a city street at night, rain',
+    'a mountain landscape, wide shot',
+    'a still life of fruit on a wooden table',
+]
+
+
 def _default_sample_prompts(ds) -> list:
+    if fds.is_style(ds):
+        return list(_DEFAULT_SAMPLE_PROMPTS_STYLE)
     return list(_DEFAULT_SAMPLE_PROMPTS_CONCEPT if fds.is_concept(ds)
                 else _DEFAULT_SAMPLE_PROMPTS_CHARACTER)
 
@@ -359,6 +373,8 @@ def _inject_trigger(prompt: str, trigger: str) -> str:
 
 def _resolved_default_sample_prompts(ds, trigger) -> list:
     """Défauts (selon le kind) avec `{trigger}` substitué — pour l'aperçu UI."""
+    if fds.is_style(ds):   # style : pas de trigger, jamais injecté
+        return list(_default_sample_prompts(ds))
     return [_inject_trigger(l.replace('{trigger}', trigger), trigger)
             for l in _default_sample_prompts(ds)]
 
@@ -372,15 +388,20 @@ def _sample_prompts(ds, trigger) -> list:
     tmpl = raw if (isinstance(raw, list)
                    and any(isinstance(x, str) and x.strip() for x in raw)) \
         else _default_sample_prompts(ds)
+    # STYLE : aucun trigger — le LoRA teinte tout, une preview générique le
+    # sollicite déjà. Injecter le trigger polluerait le prompt d'un token inconnu.
+    style = fds.is_style(ds)
     out = []
     for line in tmpl:
         if not isinstance(line, str) or not line.strip():
             continue
-        resolved = line.replace('{trigger}', trigger) if '{trigger}' in line else line
-        out.append(_inject_trigger(resolved, trigger))
+        resolved = line.replace('{trigger}', '' if style else trigger).strip(', ') or line
+        out.append(resolved if style else _inject_trigger(resolved, trigger))
         if len(out) >= _MAX_SAMPLE_PROMPTS:
             break
-    return out or [_inject_trigger('', trigger)]
+    if out:
+        return out
+    return [_default_sample_prompts(ds)[0]] if style else [_inject_trigger('', trigger)]
 
 
 def _sample_every(ds) -> int:
@@ -555,11 +576,13 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
-    if masked and fds.is_concept(ds):
-        # A person-mask would erase the very concept we want the LoRA to learn
-        # (the recurring act, not a face). Force masked training OFF for concept
-        # datasets even if the caller/UI asked for it -- server-side guard.
-        logger.info('dataset %s concept -> masked training forced OFF (server guard)', dataset_id)
+    if masked and fds.is_conceptual(ds):
+        # A person-mask would erase the very thing we want the LoRA to learn (the
+        # recurring act for a concept; the whole-image rendering for a style - which
+        # lives as much in backgrounds as in people). Force masked training OFF for
+        # concept AND style datasets even if the caller/UI asked for it -- server guard.
+        logger.info('dataset %s %s -> masked training forced OFF (server guard)',
+                    dataset_id, ds.kind)
         masked = False
     trigger = _safe_trigger(ds)
     out = str(_datasets_dir() / _run_name(ds))
@@ -608,6 +631,30 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True) -> str
     return out
 
 
+# --- Overrides STYLE (communs aux 3 familles) -----------------------------------
+# Un LoRA de style n'a PAS de trigger (il teinte toute image dès qu'il est chargé) :
+# on retire trigger_word de la config pour qu'ai-toolkit n'injecte rien dans les
+# captions. Et on monte le caption dropout à 30 % : le modèle voit régulièrement
+# l'image SANS caption, ce qui lie le rendu au LoRA lui-même plutôt qu'aux mots —
+# la reco usuelle des styles sans trigger (le 5 % character sert l'association
+# trigger→identité, sans objet ici).
+_STYLE_CAPTION_DROPOUT = 0.30
+
+
+def _apply_style_overrides(ds, process: dict) -> dict:
+    """Mute la config d'UN process ai-toolkit pour un dataset style. No-op sinon."""
+    if not fds.is_style(ds):
+        return process
+    process.pop('trigger_word', None)
+    for d in process.get('datasets', ()):
+        d['caption_dropout_rate'] = _STYLE_CAPTION_DROPOUT
+    # timestep_type 'sigmoid' est la reco LoRA de SUJET (cf commentaire zimage) ;
+    # pour un style on retombe sur le défaut ai-toolkit de la famille.
+    if process.get('train', {}).get('timestep_type') == 'sigmoid':
+        process['train'].pop('timestep_type')
+    return process
+
+
 def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
     """Job-config ai-toolkit pour le preset officiel `zimage:turbo`
     (« Z-Image Turbo w/ Training Adapter »). Clés alignées sur ce que génère
@@ -620,9 +667,13 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
     SDXL (train_type='sdxl') part dans une branche dédiée (_build_job_config_sdxl) -
     le chemin zimage ci-dessous reste strictement inchangé."""
     if _train_type(ds) == 'sdxl':
-        return _build_job_config_sdxl(ds, dataset_folder, steps)
+        cfg_ = _build_job_config_sdxl(ds, dataset_folder, steps)
+        _apply_style_overrides(ds, cfg_['config']['process'][0])
+        return cfg_
     if _train_type(ds) == 'krea':
-        return _build_job_config_krea(ds, dataset_folder, steps)
+        cfg_ = _build_job_config_krea(ds, dataset_folder, steps)
+        _apply_style_overrides(ds, cfg_['config']['process'][0])
+        return cfg_
     trigger = _safe_trigger(ds)
     base_model = getattr(ds, 'train_base_model', None)
     variant = (getattr(ds, 'train_variant', None) or 'turbo').lower()
@@ -645,7 +696,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
     sample_steps, guidance = (8, 1) if variant == 'turbo' else (25, 4)
     _zrank = _lora_rank(ds, 'zimage')   # défaut 16 (choix user) ; éditable via train_settings
 
-    return {
+    cfg_ = {
         'job': 'extension',
         'config': {
             'name': f'lora_{trigger}',
@@ -694,6 +745,8 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000) -> dict:
             }],
         },
     }
+    _apply_style_overrides(ds, cfg_['config']['process'][0])
+    return cfg_
 
 
 def _build_job_config_krea(ds, dataset_folder: str, steps: int) -> dict:
@@ -1106,14 +1159,50 @@ def write_job_config(ds, dataset_folder: str, steps: int = 3000) -> str:
 
 
 def recommended_steps(dataset_id) -> int:
-    """Steps cibles ≈ proportionnels au nombre d'images gardées (~120/image),
-    bornés [1500, 3500]. Un 3000 fixe surentraînait les petits datasets (le
-    minimum = 10 images → 300 steps/image, bien au-dessus des ~100-150/image
-    recommandés pour un LoRA de sujet) ; il sous-entraînait les gros (50 images).
-    À 25 images (preset équilibré) ça redonne 3000 - continuité avec l'ancien défaut."""
+    """Steps cibles selon le *type* de dataset — la recette suit le dataset, pas l'inverse.
+
+    Character (défaut) : ~120 steps/image, bornés [1500, 3500]. On verrouille une
+    identité sur un petit set curé (~100-150 vues/image, consensus des guides
+    ai-toolkit/Z-Image) ; un 3000 fixe surentraînait les petits datasets et
+    sous-entraînait les gros. À 25 images (preset équilibré) ça redonne 3000.
+
+    Concept / style : échelle SOUS-LINÉAIRE (√n), bornée [2000, 12000]. Un concept
+    doit généraliser, pas mémoriser : plus le set grossit, moins chaque image doit
+    être vue. Appliquer le taux « character » (120/img) à 400 images donnerait
+    48 000 steps (overfit garanti) ; le clamp à 3500 donnait l'inverse (sous-
+    entraîné). 475·√n colle aux deux points d'ancrage du consensus : ~30-40 images
+    de style → ~3000 steps (guides Z-Image/SDXL), ~400 images → ~9500 steps
+    (~24 vues/image, retours communautaires sur les gros sets concept/style).
+    """
+    ds = FaceDataset.query.get(dataset_id)
     n = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
+    if ds is not None and (ds.kind or 'character') in ('concept', 'style'):
+        target = int(round(475 * math.sqrt(max(n, 1)), -2))
+        return max(2000, min(12000, target))
     target = int(round(n * 120, -2))  # ~120 steps/image, arrondi à la centaine
     return max(1500, min(3500, target))
+
+
+def recommended_steps_info(dataset_id) -> dict:
+    """Version « transparente » de recommended_steps pour l'UI : le nombre + le
+    pourquoi, afin que l'app apprenne au débutant au lieu de décider en boîte
+    noire. Ne mute rien."""
+    ds = FaceDataset.query.get(dataset_id)
+    n = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
+    kind = (ds.kind or 'character') if ds is not None else 'character'
+    steps = recommended_steps(dataset_id)
+    if kind in ('concept', 'style'):
+        views = round(steps / n, 1) if n else 0
+        what = 'style' if kind == 'style' else 'concept'
+        rationale = (f"{what.capitalize()} — {n} images kept. Sublinear scaling (475·√n, "
+                     f"clamped 2000–12000): the bigger the set, the fewer views per "
+                     f"image (~{views}/img here), so the LoRA generalizes the {what} "
+                     f"instead of memorizing shots. Variety matters more than count.")
+    else:
+        rationale = (f"Character — {n} images kept. ~120 steps/image (clamped "
+                     f"1500–3500): a small curated set seen many times locks the "
+                     f"identity without drifting.")
+    return {'steps': steps, 'kind': kind, 'n_images': n, 'rationale': rationale}
 
 
 # --- Preflight d'entraînement (garde-fous, lecture seule) -----------------------
@@ -1157,10 +1246,11 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     rows = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).all()
     kept = [r for r in rows if r.status == 'keep' and r.filename]
     n = len(kept)
-    # CONCEPT : plusieurs dimensions ci-dessous (équilibre de composition, fuite
-    # d'identité) sont des heuristiques de LoRA PERSONNAGE sans objet pour un concept —
-    # on les saute pour ne pas générer de faux avertissements.
-    concept = fds.is_concept(ds)
+    # CONCEPT / STYLE : plusieurs dimensions ci-dessous (équilibre de composition,
+    # fuite d'identité) sont des heuristiques de LoRA PERSONNAGE sans objet quand
+    # l'invariant du set n'est pas une identité — on les saute pour ne pas générer
+    # de faux avertissements.
+    concept = fds.is_conceptual(ds)
 
     # 1) minimum d'images par famille
     floor, reco = TRAIN_MIN_IMAGES.get(ttype, (12, 20))
@@ -1606,8 +1696,14 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False) 
     kept = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     if kept < 10:
         raise ValueError(f"not enough kept images ({kept}/10)")
+    ds_ = FaceDataset.query.get(dataset_id)
+    # STYLE : les captions sont OPTIONNELLES (le rendu se lie au LoRA, pas aux mots ;
+    # dropout à 30 % de toute façon) → on ne bloque PAS sur les captions manquantes.
+    # Mais si des captions EXISTENT, le garde prose↔booru plus bas reste pertinent
+    # (un style SDXL captionné en prose = même mismatch qu'un character).
+    style = fds.is_style(ds_)
     missing = kept_uncaptioned_count(dataset_id)
-    if missing:
+    if missing and not style:
         raise ValueError(f"{missing} kept image(s) without caption - add captions first")
     if allow_caption_mismatch:
         return
