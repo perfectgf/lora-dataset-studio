@@ -413,7 +413,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Compat: older servers (or a stale poll) may still answer with only the
   // single `active` field — fall back to a 1-element list built from it.
   const actives = cloudStatus.actives || (cloudStatus.active ? [cloudStatus.active] : []);
-  const cloudActiveHere = actives.find((a) => a.dataset_id === ds.currentId);
+  // Per-(dataset, family): switching the LoRA-type selector shows THAT
+  // family's run. A run without train_type (older server payload) matches
+  // any family, preserving the previous behavior.
+  const cloudActiveHere = actives.find((a) => a.dataset_id === ds.currentId
+    && (!a.train_type || a.train_type === trainType));
 
   if (!caps.training_visible) {
     return (
@@ -473,10 +477,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <TrainingProgress datasetId={ds.currentId} base={base} trainType={trainType} cloud />
         </div>
       )}
+      {/* Download link only when the LAST run matches the selected family
+          (a legacy payload without train_type matches any family). Keeping it
+          keyed on cloudStatus.last stays simple — per-family history is
+          served by ?train_type= on the checkpoint route itself. */}
       {caps.cloud_training && !cloudActiveHere && cloudStatus.last
         && cloudStatus.last.dataset_id === ds.currentId
+        && (!cloudStatus.last.train_type || cloudStatus.last.train_type === trainType)
         && cloudStatus.last.checkpoint_ready && cloudStatus.last.status === 'done' && (
-        <a href={`/api/dataset/${ds.currentId}/train/cloud/checkpoint`}
+        <a href={`/api/dataset/${ds.currentId}/train/cloud/checkpoint?train_type=${encodeURIComponent(trainType)}`}
           className="text-sky-300 text-[0.6875rem] underline w-fit">
           ⬇ Download the cloud-trained LoRA (.safetensors)
         </a>
