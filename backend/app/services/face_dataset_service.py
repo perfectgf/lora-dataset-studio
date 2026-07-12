@@ -1912,7 +1912,11 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
                 logger.info(f"{engine} batch: row {image_id} cancelled - API call skipped")
                 return
         if quota_exhausted.is_set():
-            # A previous row hit the plan quota: every later call would 429 too.
+            # A previous row hit the plan quota: skip the API for every row not
+            # yet started (later calls would 429 too). Up to max_workers rows may
+            # already be in flight past this check when the event trips — each is
+            # still failed via the dedicated except below, so the batch wastes at
+            # most ~max_workers calls, not all.
             with app.app_context():
                 img = db.session.get(FaceDatasetImage, image_id)
                 if img is not None:
