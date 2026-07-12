@@ -994,16 +994,19 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
     `src_dir` (cloud seam) : le checkpoint est lu LÀ (dossier de staging où le pod a
     déposé le résultat téléchargé) au lieu du run ai-toolkit local - aucun besoin
     d'ai-toolkit configuré (ni _run_dir(), ni list_checkpoints(), qui appellent tous
-    deux _output_dir()). La whitelist anti-traversal reste appliquée : le filename
-    doit exister dans src_dir ET matcher le motif de checkpoint ai-toolkit (_CK_RE).
-    Défaut (None) = comportement historique inchangé."""
+    deux _output_dir()). La whitelist ici est PUREMENT anti-traversal : tout
+    .safetensors réellement présent dans src_dir est autorisé (pas de filtre de
+    forme _CK_RE — le checkpoint FINAL d'un run abouti, `lora_<trigger>.safetensors`,
+    n'a pas de suffixe de step et doit passer). Défaut (None) = comportement
+    historique inchangé."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
     if src_dir:
         run_dir = str(src_dir)
         try:
-            allowed = {f for f in os.listdir(run_dir) if _CK_RE.search(f)}
+            allowed = {f for f in os.listdir(run_dir)
+                       if f.lower().endswith('.safetensors')}
         except OSError:
             allowed = set()
     else:

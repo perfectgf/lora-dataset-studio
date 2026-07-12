@@ -103,6 +103,23 @@ def test_import_checkpoint_from_src_dir(app, client, tmp_path, monkeypatch):
         assert dest.startswith(str(loras))
 
 
+def test_import_checkpoint_final_name_from_src_dir(app, client, tmp_path, monkeypatch):
+    """The run's FINAL artifact (lora_<trigger>.safetensors, no step suffix)
+    must be importable through src_dir — ai-toolkit produces it on completion."""
+    ds_id = _mkds(client)
+    from app.services import lora_training as lt
+    src = tmp_path / 'staging'
+    src.mkdir()
+    (src / 'lora_lola.safetensors').write_bytes(b'ckpt')
+    loras = tmp_path / 'loras'
+    monkeypatch.setattr(lt, '_lora_dest_dir', lambda ds, family=None: str(loras))
+    with app.app_context():
+        dest = lt.import_checkpoint('local', ds_id, 'lora_lola.safetensors',
+                                    src_dir=str(src))
+        assert os.path.exists(dest)
+        assert dest.startswith(str(loras))
+
+
 def test_default_steps_matches_launch_training_logic(app, client):
     from app.services import face_dataset_service as fds
     from app.services import lora_training as lt
