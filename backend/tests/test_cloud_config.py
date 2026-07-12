@@ -10,7 +10,11 @@ def test_cloud_defaults_present(app):
     assert cfg.get('cloud.max_concurrent_runs') == 1
     assert cfg.get('cloud.min_inet_down_mbps') == 400
     assert cfg.get('cloud.ready_timeout_minutes') == 25
-    assert cfg.get('cloud.max_runtime_minutes') == 240
+    # 480 (not 240): the stall watchdog is the first line of defense now,
+    # the runtime cap is only the safety net behind it.
+    assert cfg.get('cloud.max_runtime_minutes') == 480
+    assert cfg.get('cloud.stall_timeout_minutes') == 30
+    assert cfg.get('cloud.monthly_budget_usd') == 0
     assert cfg.get('cloud.disk_gb') == 60
     assert cfg.get('cloud.min_vram_gb') == {'zimage': 24, 'sdxl': 16, 'krea': 24}
 

@@ -43,7 +43,9 @@
     "ui_port": 18675,
     "max_price_per_hour": 0.8,
     "max_concurrent_runs": 1,
-    "max_runtime_minutes": 240,
+    "max_runtime_minutes": 480,
+    "stall_timeout_minutes": 30,
+    "monthly_budget_usd": 0,
     "disk_gb": 60,
     "min_vram_gb": {
       "zimage": 24,

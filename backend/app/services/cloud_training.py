@@ -109,6 +109,15 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         raise RuntimeError(
             f'cloud run limit reached ({len(actives)}/{limit} active) — '
             'raise cloud.max_concurrent_runs in Settings')
+    # Monthly budget: block LAUNCHES only — a running pod is NEVER killed
+    # over budget (that would waste the money already spent on its training).
+    budget = float(cfg.get('cloud.monthly_budget_usd') or 0)
+    if budget > 0:
+        spent = month_spend_usd()
+        if spent >= budget:
+            raise RuntimeError(
+                f'monthly cloud budget reached (${spent:.2f} of ${budget:.2f}) — '
+                'raise cloud.monthly_budget_usd in Settings')
 
     # Same caption-mismatch preflight as launch_training (MISMATCH_CAPTION
     # contract): assert_trainable is ALREADY a standalone helper in
@@ -248,7 +257,7 @@ def reconcile_orphans(app) -> int:
                 return 0
             keep = {str(r.vast_instance_id) for r in get_active_runs() if r.vast_instance_id}
             c = cfg.get('cloud') or {}
-            max_seconds = int(c.get('max_runtime_minutes') or 240) * 60
+            max_seconds = int(c.get('max_runtime_minutes') or 480) * 60
             now = datetime.utcnow()
             kept_by_instance = {
                 str(r.vast_instance_id): r
@@ -388,7 +397,7 @@ def _monitor(app, run_id):
             return
         stop_event = _stop_event_for(run_id)
         c = cfg.get('cloud') or {}
-        max_seconds = int(c.get('max_runtime_minutes') or 240) * 60
+        max_seconds = int(c.get('max_runtime_minutes') or 480) * 60
         # The runtime cap must survive restarts: anchor it to the run's durable
         # created_at (backdate the local clock by the run's age), not to this
         # thread's start. The boot-wait timeout keeps its own fresh anchor —
@@ -492,6 +501,13 @@ def _monitor(app, run_id):
                 _set(run, phase_detail='Resuming — reattaching to running job')
 
             # -- poll until terminal ------------------------------------------
+            # Stall watchdog state: armed only once training has produced its
+            # first step (before that — base download, quantization, latent
+            # caching — the watchdog stays INACTIVE; those phases are covered
+            # by ready_timeout + max_runtime).
+            stall_seconds = int(c.get('stall_timeout_minutes') or 30) * 60
+            last_step = -1
+            last_progress_ts = _now()
             last_ok = _now()
             while True:
                 if _now() - cap_anchor > max_seconds:
@@ -545,6 +561,25 @@ def _monitor(app, run_id):
                     _try_download_checkpoint(run, remote)
                     _finish(run, 'error' if status == 'error' else 'stopped',
                             detail=f'Remote job {status}', error=info or status)
+                    return
+                # -- stall watchdog: guiding rule — NEVER kill a run that
+                # progresses. The elif keeps a progressing poll from ever
+                # evaluating the stall clock (a coarse test clock jumping in
+                # large strides per call must not misfire on a healthy run).
+                step = job.get('step') or 0
+                if step > last_step:
+                    last_step = step
+                    last_progress_ts = _now()
+                elif last_step > 0 and (_now() - last_progress_ts) > stall_seconds:
+                    try:
+                        remote.stop_job(job_id)
+                    except Exception:
+                        pass
+                    _try_download_checkpoint(run, remote)
+                    _finish(run, 'error',
+                            detail='Stalled — no step progress for '
+                                   f'{stall_seconds // 60} min; pod terminated',
+                            error='stall watchdog')
                     return
                 _sleep(POLL_SECONDS)
         except Exception as e:
@@ -625,6 +660,22 @@ def _cost_estimate(run) -> float:
     return round(run.price_per_hour * hours, 2)
 
 
+def month_spend_usd() -> float:
+    """Total cost of the runs STARTED since the 1st of the current month
+    (UTC). A run's cost = price_per_hour x (finished_at or now - created_at);
+    runs that never got a priced pod (price_per_hour NULL) count for $0."""
+    now = datetime.utcnow()
+    month_start = datetime(now.year, now.month, 1)
+    total = 0.0
+    for r in (CloudTrainingRun.query
+              .filter(CloudTrainingRun.created_at >= month_start).all()):
+        if not r.price_per_hour or not r.created_at:
+            continue
+        end = r.finished_at or now
+        total += r.price_per_hour * max(0.0, (end - r.created_at).total_seconds() / 3600.0)
+    return total
+
+
 def _run_payload(run) -> dict:
     return {'run_id': run.id, 'dataset_id': run.dataset_id, 'status': run.status,
             'phase_detail': run.phase_detail, 'gpu': run.gpu_name,
@@ -636,7 +687,8 @@ def _run_payload(run) -> dict:
 
 def cloud_status() -> dict:
     actives = get_active_runs()
-    limit = max(1, int((cfg.get('cloud.max_concurrent_runs') or 1)))
+    c = cfg.get('cloud') or {}
+    limit = max(1, int((c.get('max_concurrent_runs') or 1)))
     last = (CloudTrainingRun.query
             .order_by(CloudTrainingRun.id.desc()).first())
     return {'configured': bool(cfg.secret('VAST_API_KEY')), 'limit': limit,
@@ -644,6 +696,12 @@ def cloud_status() -> dict:
             # compat: single 'active' field for old frontend/tests, first of actives
             'active': _run_payload(actives[0]) if actives else None,
             'total_price_per_hour': round(sum(r.price_per_hour or 0 for r in actives), 4),
+            # budget guardrails: what this month already cost, the configured
+            # ceiling (0 = unlimited), and the runtime cap the frontend uses
+            # for its worst-case cost estimate.
+            'month_spend': round(month_spend_usd(), 2),
+            'monthly_budget': float(c.get('monthly_budget_usd') or 0),
+            'max_runtime_minutes': int(c.get('max_runtime_minutes') or 480),
             'last': _run_payload(last) if last else None}
 
 

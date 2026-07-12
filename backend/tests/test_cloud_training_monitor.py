@@ -188,7 +188,7 @@ def test_max_runtime_cap_counts_pre_restart_time(ct, app, client, monkeypatch):
         run = ct.CloudTrainingRun.query.get(run_id)
         ct._set(run, vast_instance_id='777', remote_job_id='j-1', status='training',
                 base_url='http://1.2.3.4:40123', auth_token='tok',
-                created_at=datetime.utcnow() - timedelta(minutes=500))  # > 240 min cap
+                created_at=datetime.utcnow() - timedelta(minutes=500))  # > 480 min cap
         ct._monitor(app, run_id)
         run = ct.CloudTrainingRun.query.get(run_id)
         assert run.status in ('stopped', 'error')
@@ -305,3 +305,53 @@ def test_monitor_resume_skips_upload_and_submit(ct, app, client, monkeypatch):
         assert remote.uploaded == {}                 # upload_dataset never called
         assert remote.job_config is None              # create_job never called
         assert destroyed == ['777']
+
+
+class FrozenRemote(FakeRemote):
+    """Pod whose step counter progresses a few polls then freezes at 50 while
+    the job status stays 'running' forever (wedged trainer, silent OOM loop)."""
+
+    def get_job(self, job_id):
+        self.polls += 1
+        return {'status': 'running', 'step': min(self.polls * 10, 50),
+                'total_steps': 100, 'info': 'Training', 'speed_string': '1 it/s'}
+
+
+def test_stall_watchdog_kills_frozen_run(ct, app, client, monkeypatch):
+    """A run whose step counter stops moving past stall_timeout_minutes is
+    rescued (checkpoint attempted) and killed: status 'error', pod destroyed.
+    Fake clock: 600 s per _now() call — several no-progress poll iterations
+    blow through the 30-min stall budget long before the 480-min runtime cap."""
+    destroyed = []
+    remote = FrozenRemote(polls_to_complete=10_000)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    clock = {'t': 0.0}
+    monkeypatch.setattr(ct, '_now',
+                        lambda: clock.__setitem__('t', clock['t'] + 600.0) or clock['t'])
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'error'
+        assert 'stall' in ((run.error or '') + (run.phase_detail or '')).lower()
+        assert destroyed == ['777']
+        # rescue-before-kill: the checkpoint download was attempted (and, with
+        # this FakeRemote, succeeded into staging)
+        assert run.checkpoint_local_path
+        assert run.checkpoint_local_path.endswith('.safetensors')
+
+
+def test_progressing_run_never_trips_stall_watchdog(ct, app, client, monkeypatch):
+    """Guiding principle: NEVER kill a run that makes progress. Same coarse
+    fake clock as the stall test — a run whose step advances at every poll
+    must ride through to completion untouched by the watchdog."""
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=8)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    clock = {'t': 0.0}
+    monkeypatch.setattr(ct, '_now',
+                        lambda: clock.__setitem__('t', clock['t'] + 600.0) or clock['t'])
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'done'                  # not 'error'/'stall'
+        assert destroyed == ['777']                  # normal terminate at completion

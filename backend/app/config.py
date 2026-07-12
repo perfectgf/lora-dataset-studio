@@ -47,7 +47,9 @@ DEFAULTS = {
         'max_concurrent_runs': 1,      # simultaneous cloud pods; raise in Settings
         'min_inet_down_mbps': 400,     # skip hosts too slow to pull the 7 GB image
         'ready_timeout_minutes': 25,   # boot budget: image pull + services up
-        'max_runtime_minutes': 240,    # hard kill-switch: stop + terminate past this
+        'max_runtime_minutes': 480,    # safety net (stall watchdog is the first line): hard stop past this
+        'stall_timeout_minutes': 30,   # no step progress past this -> rescue + kill
+        'monthly_budget_usd': 0,       # 0 = unlimited; launches blocked past this
         'disk_gb': 60,                 # instance disk (base model + dataset + checkpoints)
         'min_vram_gb': {'zimage': 24, 'sdxl': 16, 'krea': 24},
         'onstart': '',                 # raw-image fallback: optional startup command
