@@ -55,7 +55,7 @@ function LossSparkline({ curve }) {
   );
 }
 
-export default function TrainingProgress({ datasetId, base, trainType }) {
+export default function TrainingProgress({ datasetId, base, trainType, cloud = false }) {
   const [prog, setProg] = useState(null);
   const timer = useRef(null);
   useEffect(() => {
@@ -65,7 +65,7 @@ export default function TrainingProgress({ datasetId, base, trainType }) {
         const qs = new URLSearchParams();
         if (base != null) qs.set('base_model', base);
         if (trainType) qs.set('train_type', trainType);
-        const r = await fetch(`/api/dataset/${datasetId}/train/progress?${qs}`, { credentials: 'include' });
+        const r = await fetch(`/api/dataset/${datasetId}/train/${cloud ? 'cloud/' : ''}progress?${qs}`, { credentials: 'include' });
         if (r.ok) {
           const d = await r.json();
           if (alive) setProg(d);
@@ -75,7 +75,7 @@ export default function TrainingProgress({ datasetId, base, trainType }) {
     };
     poll();
     return () => { alive = false; clearTimeout(timer.current); };
-  }, [datasetId, base, trainType]);
+  }, [datasetId, base, trainType, cloud]);
 
   if (!prog || (!prog.log_exists && !(prog.samples || []).length)) {
     return (
@@ -88,6 +88,9 @@ export default function TrainingProgress({ datasetId, base, trainType }) {
   const samples = prog.samples || [];
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+      {cloud && prog.phase && (
+        <p className="m-0 text-sky-300 text-[0.625rem]">{prog.phase}{prog.phase_detail ? ` — ${prog.phase_detail}` : ''}</p>
+      )}
       {pct != null && (
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2 text-[0.6875rem] text-content-muted flex-wrap">
@@ -114,7 +117,7 @@ export default function TrainingProgress({ datasetId, base, trainType }) {
               const qs = new URLSearchParams();
               if (base != null) qs.set('base_model', base);
               if (trainType) qs.set('train_type', trainType);
-              const url = `/api/dataset/${datasetId}/train/sample/${encodeURIComponent(s.filename)}?${qs}`;
+              const url = `/api/dataset/${datasetId}/train/${cloud ? 'cloud/' : ''}sample/${encodeURIComponent(s.filename)}?${qs}`;
               return (
                 <a key={s.filename} href={url} target="_blank" rel="noreferrer"
                   title={`Step ${s.step} — prompt ${s.prompt_idx + 1} (open full size)`}

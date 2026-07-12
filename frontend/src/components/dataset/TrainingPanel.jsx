@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
+import { postJson } from '../../hooks/useDataset';
 import { useToast } from '../common/Toast';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
@@ -384,11 +385,32 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     if (!caps.training_visible) onCheckpointsChange?.(0);
   }, [caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cloud run status (global — one cloud run active at a time, across all
+  // datasets). Polled independently of the local `status` poll above, and
+  // only while a vast.ai key is actually configured.
+  const [cloudStatus, setCloudStatus] = useState({ configured: false, active: null, last: null });
+  useEffect(() => {
+    if (!caps.cloud_training) return undefined;
+    let alive = true;
+    let t;
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/dataset/train/cloud/status', { credentials: 'include' });
+        if (r.ok && alive) setCloudStatus(await r.json());
+      } catch { /* transient */ }
+      if (alive) t = setTimeout(tick, 5000);
+    };
+    t = setTimeout(tick, 0);
+    return () => { alive = false; clearTimeout(t); };
+  }, [caps.cloud_training]);
+  const cloudActive = cloudStatus.active;
+  const cloudActiveHere = cloudActive && cloudActive.dataset_id === ds.currentId;
+
   if (!caps.training_visible) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-border bg-surface p-3 text-content-muted text-sm">
         <span aria-hidden>🎓</span>
-        Training requires ai-toolkit — set its folder in Settings.
+        Training needs ai-toolkit (local GPU) or a vast.ai API key (cloud) — set either in Settings.
       </div>
     );
   }
@@ -407,10 +429,48 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           : <span aria-live="polite" className="ml-auto text-content-subtle text-[0.6875rem]">{keptCount} image(s) kept</span>}
       </div>
 
+      {/* A cloud run left its pod alive for manual recovery (any dataset) — it
+          keeps billing until reaped, so this must stay visible regardless of
+          which dataset's panel happens to be open. No action button: the
+          recovery is manual (outside the app) and expiry-reaping is automatic. */}
+      {cloudStatus.last?.status === 'error_pod_kept' && (
+        <p className="m-0 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-amber-300 text-[0.6875rem]">
+          ⚠ A previous cloud run kept its pod for manual recovery — it is still billing until reaped. {cloudStatus.last.error}
+        </p>
+      )}
+
       {/* Live progress of THIS dataset's run: bar + loss sparkline + sample
           previews. Only while it is the one training (queued/other runs: no poll). */}
       {status.in_progress && status.current?.dataset_id === ds.currentId && (
         <TrainingProgress datasetId={ds.currentId} base={base} trainType={trainType} />
+      )}
+
+      {/* Cloud run progress + stop (this dataset only) — separate from the local
+          poll above; runs entirely on the vast.ai pod. */}
+      {cloudActiveHere && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2 text-[0.6875rem] text-sky-200 flex-wrap">
+            <span aria-hidden>☁️</span>
+            <span className="font-semibold">Cloud run — {cloudActive.status}</span>
+            {cloudActive.gpu && <span>{cloudActive.gpu}</span>}
+            {cloudActive.price_per_hour != null && (
+              <span className="tabular-nums">${cloudActive.price_per_hour}/h · ~${cloudActive.cost_estimate} so far</span>
+            )}
+            <button type="button" className="ml-auto px-2 py-0.5 rounded bg-red-600/80 text-white text-[0.6875rem] font-semibold"
+              onClick={async () => { await postJson('/api/dataset/train/cloud/stop', {}); }}>
+              Stop cloud run
+            </button>
+          </div>
+          <TrainingProgress datasetId={ds.currentId} base={base} trainType={trainType} cloud />
+        </div>
+      )}
+      {caps.cloud_training && !cloudActive && cloudStatus.last
+        && cloudStatus.last.dataset_id === ds.currentId
+        && cloudStatus.last.checkpoint_ready && cloudStatus.last.status === 'done' && (
+        <a href={`/api/dataset/${ds.currentId}/train/cloud/checkpoint`}
+          className="text-sky-300 text-[0.6875rem] underline w-fit">
+          ⬇ Download the cloud-trained LoRA (.safetensors)
+        </a>
       )}
 
       {/* --- Chemin essentiel : choisir le type de LoRA et lancer. Le reste
@@ -452,6 +512,30 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
           <span aria-hidden>🚀</span> Train the LoRA
         </button>
+        {caps.cloud_training && (
+          <button type="button"
+            disabled={trainType === 'sdxl' || !!cloudActive
+              || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12)}
+            title={trainType === 'sdxl'
+              ? 'SDXL needs a local base checkpoint — cloud supports Z-Image and Krea'
+              : cloudActive ? 'A cloud run is already active'
+              : `Rents a vast.ai GPU for this run (~$1-2), auto-terminated`}
+            onClick={async () => {
+              const d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
+                { variant, train_type: trainType, masked,
+                  ...(stepsN ? { steps: stepsN } : {}) });
+              if (d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
+                if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nTrain anyway (force)?')) {
+                  await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
+                    { variant, train_type: trainType, masked, allow_caption_mismatch: true,
+                      ...(stepsN ? { steps: stepsN } : {}) });
+                }
+              }
+            }}
+            className="px-3 py-1.5 rounded-lg border border-sky-500/50 bg-sky-500/10 text-sky-200 text-sm font-semibold disabled:opacity-40">
+            <span aria-hidden>☁️</span> Train in cloud
+          </button>
+        )}
         {status.in_progress && (
           <button type="button" onClick={async () => { await ds.stopTraining(); refreshStatus(); }}
             className="px-3 py-1.5 rounded-lg bg-red-600/80 text-white text-sm font-semibold">

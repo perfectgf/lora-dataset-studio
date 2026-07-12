@@ -9,6 +9,8 @@ const SECRET_FIELDS = [
     help: 'Powers the ChatGPT (gpt-image-2) engine. Optional if you connect a ChatGPT subscription below.' },
   { key: 'HF_TOKEN', label: 'Hugging Face token', testTarget: null,
     help: 'Only needed to auto-download license-gated models (the Klein fp8 model). Read token from hf.co/settings/tokens, after accepting the model license.' },
+  { key: 'VAST_API_KEY', label: 'vast.ai API key', testTarget: 'vast',
+    help: 'Enables cloud GPU training: the app rents a GPU for the run and shuts it down when done (typical run: $1-2). Get a key at cloud.vast.ai → Keys.' },
 ]
 
 const ENGINE_OPTIONS = [
