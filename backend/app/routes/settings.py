@@ -114,6 +114,9 @@ def update_check():
     repo = cfg.get('updates.repo') or 'perfectgf/lora-dataset-studio'
     out = {'ok': True, 'current': APP_VERSION, 'latest': None,
            'update_available': False, 'url': f'https://github.com/{repo}/releases'}
+    sha = updater.current_sha()
+    if sha:
+        out['current_sha'] = sha
     try:
         r = requests.get(f'https://api.github.com/repos/{repo}/releases/latest',
                          timeout=6, headers={'Accept': 'application/vnd.github+json'})

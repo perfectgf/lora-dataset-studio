@@ -326,6 +326,8 @@ export default function SettingsPage() {
         </div>
       )}
 
+      <UpdatesCard />
+
       <Card title="API keys" help="Keys are write-only — fields stay blank even when a key is already saved.">
         {SECRET_FIELDS.map((f) => (
           <div key={f.key} className="flex items-end gap-3">
@@ -552,8 +554,6 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      <UpdatesCard />
-
       <LogViewer />
     </div>
   )
@@ -568,6 +568,16 @@ function UpdatesCard() {
   const [checking, setChecking] = useState(false)
   const [applying, setApplying] = useState(false)
   const [phase, setPhase] = useState('')     // '' | 'pulling' | 'restarting'
+
+  // Passive check on mount (cached server-side, no git fetch): the card shows
+  // the current build immediately instead of waiting for a manual check.
+  useEffect(() => {
+    let alive = true
+    apiFetch('/api/update/check')
+      .then((d) => { if (alive) setStatus((prev) => prev || d) })
+      .catch(() => { /* best-effort — the manual button stays available */ })
+    return () => { alive = false }
+  }, [])
 
   const check = async () => {
     setChecking(true)
@@ -621,7 +631,20 @@ function UpdatesCard() {
         </button>
         {s?.current && (
           <span className="text-xs text-content-subtle">
-            Current: v{s.current}{s.current_sha ? ` · ${s.current_sha}` : ''}
+            Current build:{' '}
+            <span className="font-medium text-content">v{s.current}{s.current_sha ? ` (${s.current_sha})` : ''}</span>
+          </span>
+        )}
+        {s && (
+          <span className="text-xs text-content-subtle">
+            Latest build:{' '}
+            <span className="font-medium text-content">
+              {s.remote_sha
+                ? `${s.remote_sha}${typeof s.behind === 'number' && s.behind > 0 ? ` (+${s.behind} commit${s.behind === 1 ? '' : 's'})` : ''}`
+                : s.latest ? `v${s.latest}`
+                : s.update_available ? 'update available'
+                : '— press “Check for updates”'}
+            </span>
           </span>
         )}
       </div>

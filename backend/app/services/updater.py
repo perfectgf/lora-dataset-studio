@@ -35,6 +35,19 @@ def _git(root, *args, timeout=_GIT_TIMEOUT):
                           capture_output=True, text=True, timeout=timeout)
 
 
+def current_sha(root=None):
+    """Short SHA of the local checkout — local-only (no fetch), None outside a
+    git checkout or when git is unavailable. Lets the passive update check show
+    the current build without touching the network."""
+    root = root or REPO_ROOT
+    if not is_git_checkout(root):
+        return None
+    try:
+        return (_git(root, 'rev-parse', '--short', 'HEAD').stdout or '').strip() or None
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+
+
 def git_update_status(root=None) -> dict | None:
     """`git fetch` + how many commits behind the upstream branch we are. None when this
     isn't a git checkout (caller then uses the release-tag check). Network/git failures
