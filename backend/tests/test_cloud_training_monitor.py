@@ -210,6 +210,32 @@ def test_cloud_progress_shape_matches_local(ct, app, client, monkeypatch):
         assert isinstance(prog['samples'], list)
 
 
+def test_boot_wait_tolerates_transient_vast_errors(ct, app, client, monkeypatch):
+    """A VastError during boot-wait must NOT kill the run — retry until ready.
+    READY_TIMEOUT_SECONDS already bounds the wait, so a transient vast.ai API
+    hiccup is just 'not ready yet', never a destroyed pod."""
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=2)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    calls = {'n': 0}
+    good = {'instance_id': '777', 'actual_status': 'running',
+            'public_ipaddr': '1.2.3.4',
+            'ports': {'8675/tcp': [{'HostPort': '40123'}]}, 'label': 'lds-x'}
+
+    def flaky(iid):
+        calls['n'] += 1
+        if calls['n'] <= 2:
+            raise ct.vast_client.VastError('bundles endpoint 502')
+        return good
+
+    monkeypatch.setattr(ct.vast_client, 'get_instance', flaky)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'done'          # survived the hiccup
+        assert destroyed == ['777']          # normal terminate at completion
+
+
 def test_monitor_resume_skips_upload_and_submit(ct, app, client, monkeypatch):
     """Resume contract (needed by Task 7): if the run already has a
     vast_instance_id + remote_job_id (e.g. the app restarted mid-run), the

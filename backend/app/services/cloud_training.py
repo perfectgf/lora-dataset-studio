@@ -283,7 +283,14 @@ def _monitor(app, run_id):
             _set(run, phase_detail='Waiting for the pod to boot')
             port = int(c.get('ui_port') or 8675)
             while True:
-                inst = vast_client.get_instance(run.vast_instance_id)
+                # A transient vast API hiccup is just "not ready yet" -- only
+                # READY_TIMEOUT_SECONDS may fail the boot wait, never a single
+                # 502 that would destroy a pod about to come up fine.
+                try:
+                    inst = vast_client.get_instance(run.vast_instance_id)
+                except vast_client.VastError as e:
+                    logger.warning('boot-wait: vast API hiccup (%s) — retrying', e)
+                    inst = None
                 base = vast_client.derive_base_url(inst, port) if inst else None
                 if base:
                     if run.base_url != base:
@@ -395,8 +402,8 @@ def _pull_log_and_samples(run, remote, job_id):
         with open(os.path.join(run.staging_dir, 'training.log'), 'w',
                   encoding='utf-8', errors='replace') as fh:
             fh.write(text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug('log mirror failed: %s', e)
     try:
         samples_dir = os.path.join(run.staging_dir, 'samples')
         have = set(os.listdir(samples_dir))
@@ -405,8 +412,8 @@ def _pull_log_and_samples(run, remote, job_id):
             if name and name not in have:
                 remote.download_sample(remote_path,
                                        os.path.join(samples_dir, name))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug('sample mirror failed: %s', e)
 
 
 def _try_download_checkpoint(run, remote) -> bool:
