@@ -15,6 +15,7 @@ from flask import Blueprint, current_app, request, jsonify
 from .. import capabilities
 from .. import config as cfg
 from ..config import LOCAL_USER
+from ..services import cloud_training as ct
 from ..services import face_dataset_service as svc
 from ..services import lora_training as lt
 from ..services import zimage_convert as zc
@@ -29,6 +30,14 @@ def _require_aitoolkit():
     if not capabilities.probe()['aitoolkit']['valid']:
         return jsonify({'error': 'ai-toolkit is not configured',
                         'hint': 'Set its folder in Settings'}), 409
+    return None
+
+
+def _require_cloud():
+    """None if cloud training is configured, else the (body, status) 409 to return."""
+    if not capabilities.probe().get('cloud_training'):
+        return jsonify({'error': 'Cloud training is not configured',
+                        'hint': 'Add your vast.ai API key in Settings'}), 409
     return None
 
 
@@ -445,3 +454,64 @@ def dataset_train_import(dataset_id):
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, 'dest': os.path.basename(dest)})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/cloud')
+def dataset_train_cloud(dataset_id):
+    gate = _require_cloud()
+    if gate:
+        return gate
+    d = request.get_json(silent=True) or {}
+    try:
+        res = ct.launch_cloud_training(
+            LOCAL_USER, dataset_id,
+            steps=d.get('steps'),
+            variant=d.get('variant', 'turbo'),
+            train_type=d.get('train_type'),
+            masked=d.get('masked', True),
+            allow_caption_mismatch=bool(d.get('allow_caption_mismatch')))
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
+@bp.get('/dataset/train/cloud/status')
+def dataset_train_cloud_status():
+    return jsonify(ct.cloud_status())
+
+
+@bp.get('/dataset/<int:dataset_id>/train/cloud/progress')
+def dataset_train_cloud_progress(dataset_id):
+    try:
+        return jsonify(ct.cloud_progress(LOCAL_USER, dataset_id))
+    except Exception as e:
+        return _map_error(e)
+
+
+@bp.post('/dataset/train/cloud/stop')
+def dataset_train_cloud_stop():
+    return jsonify({'ok': ct.request_stop()})
+
+
+@bp.get('/dataset/<int:dataset_id>/train/cloud/sample/<path:filename>')
+def dataset_train_cloud_sample(dataset_id, filename):
+    from flask import send_from_directory, abort
+    from ..models import CloudTrainingRun
+    run = (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
+           .order_by(CloudTrainingRun.id.desc()).first())
+    if not run or not run.staging_dir:
+        abort(404)
+    # send_from_directory refuses path traversal by construction
+    return send_from_directory(os.path.join(run.staging_dir, 'samples'), filename)
+
+
+@bp.get('/dataset/<int:dataset_id>/train/cloud/checkpoint')
+def dataset_train_cloud_checkpoint(dataset_id):
+    from flask import send_file, abort
+    from ..models import CloudTrainingRun
+    run = (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
+           .order_by(CloudTrainingRun.id.desc()).first())
+    if not run or not run.checkpoint_local_path \
+            or not os.path.isfile(run.checkpoint_local_path):
+        abort(404)
+    return send_file(run.checkpoint_local_path, as_attachment=True)
