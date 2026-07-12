@@ -72,6 +72,27 @@ def test_preflight_warns_identical_and_leaking_captions(app):
     assert set(li) == {'id', 'filename', 'caption'} and 'hair' in li['caption']
 
 
+def test_preflight_concept_skips_identity_leak(app):
+    """A concept dataset DESCRIBES identity on purpose (the concept, not the face, binds to
+    the trigger). The identity-leak dimension must be skipped entirely — otherwise the SAME
+    hair/face captions that legitimately warn for a character trip a false warning on every
+    concept training run (the '...identité leak' messages reported in concept mode)."""
+    from app.services import face_dataset_service as svc
+    from app.services import lora_training as lt
+    from app.models import FaceDatasetImage
+    with app.app_context():
+        c = svc.create_dataset(LOCAL_USER, 'C', 'c_trig', kind='concept',
+                               concept_desc='a candid mirror selfie')
+        for i in range(20):
+            svc.db.session.add(FaceDatasetImage(       # SAME hair "leak" as the character test
+                dataset_id=c.id, filename=f'c{i}.webp', status='keep', framing='body',
+                caption=f'her long blonde hair falls over the shoulders #{i}'))
+        svc.db.session.commit()
+        r = lt.training_preflight(LOCAL_USER, c.id)
+    assert r['leak_images'] == []                                        # no drill-down list
+    assert not any('describe the identity' in w for w in r['warnings'])  # no false warning
+
+
 def _grad_png(path, reverse=False):
     """64px horizontal grayscale gradient — a stable, non-uniform dHash. reverse
     flips it so its dHash is the bitwise opposite (max hamming distance)."""

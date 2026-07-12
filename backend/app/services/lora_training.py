@@ -1230,11 +1230,17 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
 
     # 4) fuite d'identité — on RETIENT les images fautives (pas juste le compte) pour
     # que l'UI liste lesquelles au moment du preflight, éditables sur place.
+    # CONCEPT : décrire l'identité (visage/cheveux/corps) est VOULU — c'est le concept,
+    # pas le visage, qui se lie au trigger → la « fuite d'identité » n'a aucun sens ici.
+    # On saute entièrement cette dimension (comme le badge caption_leak du payload), sinon
+    # CHAQUE caption concept déclenche un faux avertissement au preflight.
+    concept = fds.is_concept(ds)
     body = fds.is_body_fidelity(ds)
-    leak_images = [{'id': r.id, 'filename': r.filename, 'caption': (r.caption or '').strip()}
-                   for r in kept
-                   if (r.caption or '').strip()
-                   and caption_has_identity_leak((r.caption or '').strip(), body=body)]
+    leak_images = [] if concept else [
+        {'id': r.id, 'filename': r.filename, 'caption': (r.caption or '').strip()}
+        for r in kept
+        if (r.caption or '').strip()
+        and caption_has_identity_leak((r.caption or '').strip(), body=body)]
     if leak_images:
         warnings.append(f'{len(leak_images)} caption(s) still describe the identity (face/hair'
                         f'{"/body marks" if body else ""}) — it will bind to those words '
@@ -1242,7 +1248,7 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
         _check('leaks', 'No identity leaks', 'warn',
                f'{len(leak_images)} caption(s) describe hair/face/skin — identity will bind '
                'to those words, not the trigger', 'gf-images')
-    elif caps:
+    elif caps and not concept:
         _check('leaks', 'No identity leaks', 'ok', '0 leaking caption')
 
     # 5) quasi-doublons parmi les kept (dHash pairwise, n<=~60 -> négligeable). On
