@@ -78,6 +78,13 @@ export default function TrainingProgress({ datasetId, base, trainType, cloud = f
   }, [datasetId, base, trainType, cloud]);
 
   if (!prog || (!prog.log_exists && !(prog.samples || []).length)) {
+    if (cloud && prog?.phase) {
+      return (
+        <p className="m-0 text-sky-300 text-[0.625rem]">
+          ☁ {prog.phase}{prog.phase_detail ? ` — ${prog.phase_detail}` : ''}
+        </p>
+      );
+    }
     return (
       <p className="m-0 text-content-subtle text-[0.625rem]">
         Starting up… (the log appears once ai-toolkit begins writing)
