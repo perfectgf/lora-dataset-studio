@@ -718,3 +718,43 @@ def test_subscription_quota_fails_remaining_rows_fast(app, monkeypatch):
             row = svc.db.session.get(FaceDatasetImage, r.id)
             assert row.status == 'failed'
             assert 'quota' in row.fail_reason
+
+
+def test_subscription_disconnect_never_falls_back_to_api_key(app, monkeypatch):
+    """INVARIANT: a mid-batch disconnect on the pinned subscription lane must
+    stop the batch, never reroute the remaining rows onto the paid API key.
+    The lane is pinned ONCE before the loop (force_lane='subscription'), so
+    even though _use_subscription() would report False after a disconnect
+    (token gone), rows 2-3 must still fail with the 'connection lost' message
+    instead of silently calling the API-key path."""
+    import concurrent.futures
+    from app.services import face_dataset_service as svc
+    from app.services import chatgpt_image
+    from app.services.chatgpt_image import SubscriptionUnavailable
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    monkeypatch.setattr(concurrent.futures, 'ThreadPoolExecutor', _SerialPool)
+    # Pin decides 'subscription' at batch start.
+    monkeypatch.setattr(chatgpt_image, '_use_subscription', lambda: True)
+    calls = []
+    def boom(*a, **k):
+        calls.append(1)
+        raise SubscriptionUnavailable('ChatGPT connection lost — reconnect in Settings')
+    monkeypatch.setattr(svc, '_api_generate_fn', lambda engine: boom)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'L', 'l')
+        import os
+        os.makedirs(svc._dataset_dir(ds.id), exist_ok=True)
+        rows = [FaceDatasetImage(dataset_id=ds.id, status='pending', klein_model='chatgpt')
+                for _ in range(3)]
+        svc.db.session.add_all(rows); svc.db.session.commit()
+        items = [(r.id, 'p', '1:1') for r in rows]
+        svc._run_nanobanana_batch(app, items, [_png()], engine='chatgpt')
+        # Exactly 1 call: the FIRST row hits the disconnected subscription lane,
+        # rows 2-3 are stopped BEFORE any call — never routed to the API key.
+        assert len(calls) == 1
+        svc.db.session.expire_all()
+        for r in rows:
+            row = svc.db.session.get(FaceDatasetImage, r.id)
+            assert row.status == 'failed'
+            assert 'connection lost' in row.fail_reason

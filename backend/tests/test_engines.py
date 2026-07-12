@@ -161,10 +161,40 @@ def test_subscription_parses_sse_fallback(app, monkeypatch):
 
 
 def test_subscription_mode_without_connection_returns_none(app, monkeypatch):
+    import pytest
     import app.config as cfg
     cfg.save_config({'engines': {'chatgpt_auth': 'subscription'}})
     from app.services import chatgpt_oauth, chatgpt_image
     monkeypatch.setattr(chatgpt_oauth, 'access_token', lambda force_refresh=False: None)
     with patch('app.services.chatgpt_image.requests.post') as post:
-        assert chatgpt_image.generate_variation(b'r', 'p') is None
+        with pytest.raises(chatgpt_image.SubscriptionUnavailable):
+            chatgpt_image.generate_variation(b'r', 'p')
     post.assert_not_called()
+
+
+def test_force_lane_api_ignores_connected_subscription(app, monkeypatch):
+    """force_lane='api' pins the API-key lane even when a subscription is
+    connected (batch callers pin once so a mid-batch disconnect can't reroute
+    later rows)."""
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-x')
+    _sub_connected(monkeypatch)
+    from app.services import chatgpt_image
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {'data': [{'b64_json': base64.b64encode(b'png').decode()}]}
+    with patch('app.services.chatgpt_image.requests.post', return_value=resp) as post:
+        out = chatgpt_image.generate_variation(b'ref', 'p', force_lane='api')
+    assert out == b'png'
+    assert '/images/edits' in post.call_args.args[0]
+
+
+def test_force_lane_subscription_used_even_without_auto_detect(app, monkeypatch):
+    """force_lane='subscription' pins the subscription lane and hits the codex
+    endpoint when the connection is present."""
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    _sub_connected(monkeypatch)
+    from app.services import chatgpt_image
+    with patch('app.services.chatgpt_image.requests.post',
+               return_value=_codex_ok_response()) as post:
+        out = chatgpt_image.generate_variation(b'ref', 'p', force_lane='subscription')
+    assert out == b'img'
+    assert 'chatgpt.com/backend-api/codex/responses' in post.call_args.args[0]

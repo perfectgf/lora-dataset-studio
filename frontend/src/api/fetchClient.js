@@ -27,7 +27,7 @@ export async function apiFetch(url, options = {}) {
     let msg = `HTTP ${res.status}`;
     try {
       const b = await res.json();
-      msg = b.error || b.message || msg;
+      msg = b.error || b.detail || b.message || msg;
     } catch {}
 
     if (res.status === 401) {

@@ -42,6 +42,13 @@ class SubscriptionQuotaExceeded(RuntimeError):
     None (row-level failure) and this (batch-level stop) are different channels."""
 
 
+class SubscriptionUnavailable(RuntimeError):
+    """The subscription lane was selected but the ChatGPT connection is gone
+    (token expired and refresh failed mid-batch). Stop the batch — never fall
+    back to the paid API key. Distinct from SubscriptionQuotaExceeded so the
+    batch can show the right message."""
+
+
 def _api_key():
     return cfg.secret('OPENAI_API_KEY')
 
@@ -121,12 +128,19 @@ def _use_subscription() -> bool:
 
 
 def generate_variation(ref_bytes: bytes | list[bytes], prompt: str, model: str | None = None,
-                       aspect_ratio: str = '1:1') -> bytes | None:
+                       aspect_ratio: str = '1:1', force_lane: str | None = None) -> bytes | None:
     """Reference photo(s) + variation prompt -> generated image bytes, or None.
     Routes on engines.chatgpt_auth: API key (default lane) or ChatGPT
     subscription (Codex OAuth). Raises SubscriptionQuotaExceeded on a
-    subscription-quota 429 so batch callers can stop instead of burning rows."""
-    if _use_subscription():
+    subscription-quota 429, and SubscriptionUnavailable if the subscription
+    lane loses its token mid-call, so batch callers can stop instead of
+    burning rows / silently falling back to the paid API key.
+
+    `force_lane`: None -> decide from engines.chatgpt_auth (single-call
+    callers); 'subscription' | 'api' -> pinned lane (batch callers pin once so
+    a mid-batch disconnect can't reroute later rows onto the paid API key)."""
+    use_sub = (force_lane == 'subscription') or (force_lane is None and _use_subscription())
+    if use_sub:
         refs = list(ref_bytes) if isinstance(ref_bytes, (list, tuple)) else [ref_bytes]
         return _generate_via_subscription(refs, prompt, aspect_ratio)
     return _generate_via_api(ref_bytes, prompt, model, aspect_ratio)
@@ -179,8 +193,8 @@ def _generate_via_subscription(refs: list, prompt: str, aspect_ratio: str) -> by
     for attempt in (0, 1):                           # attempt 1 = after a forced refresh
         token = chatgpt_oauth.access_token(force_refresh=bool(attempt))
         if not token:
-            logger.warning("chatgpt_image: subscription mode but no ChatGPT connection")
-            return None
+            raise SubscriptionUnavailable(
+                'ChatGPT connection lost — reconnect in Settings')
         headers = {'Authorization': f'Bearer {token}',
                    'chatgpt-account-id': chatgpt_oauth.account_id() or '',
                    'OpenAI-Beta': 'responses=experimental',

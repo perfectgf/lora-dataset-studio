@@ -58,6 +58,13 @@ def _save(tok: dict) -> None:
     tmp = p.with_suffix('.json.tmp')
     tmp.write_text(json.dumps(tok, indent=2), encoding='utf-8')
     tmp.replace(p)
+    # Best-effort restrict the file (holds a long-lived refresh token).
+    # POSIX-only; never raise on failure (Windows/other FS).
+    try:
+        import os as _os
+        _os.chmod(p, 0o600)
+    except OSError:
+        pass
 
 
 def logout() -> None:
@@ -191,7 +198,10 @@ def login_start() -> dict:
         return {'ok': False, 'detail': f'network error: {e}'}
     if r.status_code != 200:
         return {'ok': False, 'detail': f'device login unavailable (HTTP {r.status_code})'}
-    j = r.json()
+    try:
+        j = r.json()
+    except ValueError:
+        return {'ok': False, 'detail': 'unexpected response from device login'}
     with _lock:
         _pending.clear()
         _pending.update(device_auth_id=j.get('device_auth_id'),
@@ -241,7 +251,11 @@ def login_poll() -> dict:
     if r.status_code != 200:
         _clear_pending()
         return {'status': 'error', 'detail': f'device login failed (HTTP {r.status_code})'}
-    j = r.json()
+    try:
+        j = r.json()
+    except ValueError:
+        _clear_pending()
+        return {'status': 'error', 'detail': 'unexpected response from device login'}
     tok = _exchange_code(j.get('authorization_code'), j.get('code_verifier'))
     _clear_pending()
     if not tok:
