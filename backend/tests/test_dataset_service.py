@@ -443,6 +443,99 @@ def test_api_batch_failure_stores_reason(app, monkeypatch):
         assert payload['images'][0]['fail_reason'] == row.fail_reason
 
 
+def _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER, engine='nanobanana'):
+    """A dataset with a reference file on disk + one finished generated tile
+    (engine-tagged so regenerate_image re-dispatches through the API path)."""
+    import os
+    ds = svc.create_dataset(LOCAL_USER, 'R', 'r')
+    d = svc._dataset_dir(ds.id)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, 'ref.webp'), 'wb') as fh:
+        fh.write(_png())
+    ds.ref_filename = 'ref.webp'
+    img = FaceDatasetImage(dataset_id=ds.id, status='keep', source='generated',
+                           filename=None, klein_model=engine,
+                           variation_label='face_front_neutral',
+                           variation_prompt='old prompt')
+    svc.db.session.add(img)
+    svc.db.session.commit()
+    return ds, img
+
+
+def test_regenerate_with_edited_prompt_persists_and_reaches_engine(app, monkeypatch):
+    """✏️ edit-prompt regenerate: the edited core prompt is persisted into
+    variation_prompt AND reaches the API engine wrapped by the identity guard
+    (the face lock stays applied on top of the user's creative edit)."""
+    from app.services import face_dataset_service as svc
+    from app.services.face_variations import IDENTITY_GUARD
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    seen = {}
+    def fake_generate(refs, prompt, aspect_ratio=None):
+        seen['prompt'] = prompt
+        return _png()
+    monkeypatch.setattr(svc, '_api_generate_fn', lambda engine: fake_generate)
+    with app.app_context():
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER)
+        svc.regenerate_image(LOCAL_USER, img.id, prompt='a candid mirror selfie')  # app=None -> sync
+        svc.db.session.expire_all()
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.variation_prompt == 'a candid mirror selfie'   # edit persisted
+        assert 'a candid mirror selfie' in seen['prompt']         # reached the engine
+        assert IDENTITY_GUARD in seen['prompt']                   # face lock still applied
+        assert row.filename                                        # a new file was written
+
+
+def test_regenerate_without_prompt_keeps_existing(app, monkeypatch):
+    """Empty/omitted prompt = current behaviour: variation_prompt is unchanged
+    and the stored prompt is what feeds the engine (plain 🔄 / reject path)."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    seen = {}
+    monkeypatch.setattr(svc, '_api_generate_fn',
+                        lambda engine: (lambda refs, prompt, aspect_ratio=None: (seen.update(prompt=prompt) or _png())))
+    with app.app_context():
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER)
+        svc.regenerate_image(LOCAL_USER, img.id)              # no prompt
+        svc.db.session.expire_all()
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.variation_prompt == 'old prompt'           # unchanged
+        assert 'old prompt' in seen['prompt']
+        svc.regenerate_image(LOCAL_USER, img.id, prompt='   ')  # whitespace-only = no edit
+        svc.db.session.expire_all()
+        assert svc.db.session.get(FaceDatasetImage, img.id).variation_prompt == 'old prompt'
+
+
+def test_regenerate_prompt_truncated_to_column_limit(app, monkeypatch):
+    """A very long edited prompt is truncated to the variation_prompt column (500)."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    monkeypatch.setattr(svc, '_api_generate_fn',
+                        lambda engine: (lambda refs, prompt, aspect_ratio=None: _png()))
+    with app.app_context():
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER)
+        svc.regenerate_image(LOCAL_USER, img.id, prompt='x' * 800)
+        svc.db.session.expire_all()
+        assert len(svc.db.session.get(FaceDatasetImage, img.id).variation_prompt) == 500
+
+
+def test_regenerate_edited_prompt_exposed_in_payload(app, monkeypatch):
+    """After an edit, dataset_payload carries variation_prompt so the ✏️ bubble
+    reopens seeded with the current prompt (not blank)."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    monkeypatch.setattr(svc, '_api_generate_fn',
+                        lambda engine: (lambda refs, prompt, aspect_ratio=None: _png()))
+    with app.app_context():
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER)
+        svc.regenerate_image(LOCAL_USER, img.id, prompt='new scene, golden hour')
+        payload = svc.dataset_payload(LOCAL_USER, ds.id)
+        assert payload['images'][0]['variation_prompt'] == 'new scene, golden hour'
+
+
 def test_delete_dataset_without_lora_training_module(app):
     """lora_training (Task 19) doesn't exist yet in phase 1 -> delete_dataset must
     still succeed (purge step is best-effort and silently skipped)."""

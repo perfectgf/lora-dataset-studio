@@ -392,10 +392,12 @@ export function useDataset() {
   }, [currentId, refresh, toast]);
 
   // Re-roll one generated variation with a fresh seed (F2). Works on finished
-  // AND failed tiles — it is the recovery path for failures.
-  const regenerate = useCallback(async (imageId, loraStrength) => {
+  // AND failed tiles — it is the recovery path for failures. `prompt` (optional)
+  // is the user-edited core prompt from the tile's ✏️ bubble; omitted → the
+  // server reuses the row's / label's prompt (plain 🔄 and reject→regenerate).
+  const regenerate = useCallback(async (imageId, loraStrength, prompt) => {
     const d = await postJson(`/api/dataset/image/${imageId}/regenerate`,
-      { lora_strength: loraStrength });
+      { lora_strength: loraStrength, ...(prompt ? { prompt } : {}) });
     if (d.ok) { toast.success('Regeneration started'); await refresh(); }
     else toast.error(d.error || 'Unexpected error');
   }, [refresh, toast]);

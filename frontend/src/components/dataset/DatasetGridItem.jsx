@@ -1,6 +1,7 @@
 /** One curation tile: image + keep/reject + source/framing badges + caption + crop. */
 import { useEffect, useRef, useState } from 'react';
 import { displayLabel } from '../../utils/labels';
+import PromptEditPopover from './PromptEditPopover';
 
 const STATUS_CLS = {
   keep: 'border-green-500',
@@ -37,6 +38,8 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
                                           onRegenerate, onView, nonce = 0, faceThresholds,
                                           selected = false, onToggleSelect }) {
   const [cap, setCap] = useState(img.caption || '');
+  // ✏️ edit-prompt bubble open state (regenerate this tile with an edited prompt).
+  const [editingPrompt, setEditingPrompt] = useState(false);
   // While the textarea has focus, a poll-driven refresh must never overwrite
   // the draft (C1) — the server value only syncs in when nobody is typing.
   const editingRef = useRef(false);
@@ -110,6 +113,13 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               aria-label="Regenerate this variation (new seed)"
               className="px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px]">🔄</button>
           )}
+          {canRegenerate && (
+            <button type="button"
+              onClick={(e) => { e.stopPropagation(); setEditingPrompt(true); }}
+              title="Edit the prompt, then regenerate this variation"
+              aria-label="Edit the prompt, then regenerate this variation"
+              className="px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px]">✏️</button>
+          )}
           {url && (
             <button type="button" onClick={(e) => { e.stopPropagation(); onCrop(img); }}
               title="Crop" aria-label="Crop"
@@ -120,6 +130,12 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
             title="Delete permanently" aria-label="Delete permanently"
             className="px-1.5 py-0.5 rounded bg-red-700/80 text-white text-[10px]">🗑</button>
         </div>
+        {editingPrompt && (
+          <PromptEditPopover
+            initialPrompt={img.variation_prompt || ''}
+            onSubmit={(prompt) => onRegenerate?.(img.id, undefined, prompt)}
+            onClose={() => setEditingPrompt(false)} />
+        )}
       </div>
       <div className="flex gap-1 p-1.5">
         <button type="button" onClick={() => onStatus(img.id, img.status === 'keep' ? 'pending' : 'keep')}

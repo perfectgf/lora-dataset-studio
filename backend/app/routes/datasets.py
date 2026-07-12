@@ -458,10 +458,15 @@ def dataset_image_delete(image_id):
 @bp.post('/dataset/image/<int:image_id>/regenerate')
 def dataset_image_regenerate(image_id):
     data = request.get_json(silent=True) or {}
+    # Optional edited core prompt from the tile's ✏️ bubble — None keeps the
+    # current behaviour (recover from the row / label); the identity guard is
+    # re-applied on top either way (see regenerate_image).
+    edited_prompt = (data.get('prompt') or '').strip() or None
     try:
         from flask import current_app
         job_id = svc.regenerate_image(LOCAL_USER, image_id,
                                       lora_strength=data.get('lora_strength'),
+                                      prompt=edited_prompt,
                                       app=current_app._get_current_object())
     except Exception as e:
         from ..services.klein_edit_helper import KleinModelsMissing

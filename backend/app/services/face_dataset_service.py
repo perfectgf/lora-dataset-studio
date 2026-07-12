@@ -756,6 +756,9 @@ def dataset_payload(user_id, dataset_id):
                     'framing': i.framing, 'variation_label': i.variation_label,
                     'status': i.status, 'caption': i.caption,
                     'fail_reason': i.fail_reason,
+                    # Core creative prompt (generated tiles) → seeds the ✏️ edit
+                    # bubble so the user edits the real prompt, not a blank box.
+                    'variation_prompt': i.variation_prompt,
                     # Per-image identity-leak flag: lets the UI LIST the offending
                     # captions for quick manual treatment (the aggregate badge
                     # alone forced a hunt through the grid).
@@ -1758,18 +1761,28 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
     return ids
 
 
-def regenerate_image(user_id, image_id, lora_strength=None, app=None):
+def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=None):
     """Re-enqueue a single generated variation IN PLACE (same row id): cancel any
     in-flight job, drop the old file, reset the row to pending with the new
     job_id. Returns the new job_id, or None if the image is not owned / not a
     generated variation. Raises ValueError if the dataset has no reference or
-    the variation prompt can't be recovered."""
+    the variation prompt can't be recovered.
+
+    `prompt` (optional) is the user-EDITED core creative prompt from the tile's
+    ✏️ bubble. When given it REPLACES and is PERSISTED into `variation_prompt`
+    (so a later plain regenerate / reject-regenerate reuses the edit), then feeds
+    the identity-guard wrapper like any catalog prompt — the face lock is still
+    applied on top, the user only steers the creative half. Empty/None = the
+    current behaviour (recover the prompt from the row or the label)."""
     img = _owned_image(user_id, image_id)
     if not img or img.source != 'generated':
         return None
     ds = db.session.get(FaceDataset, img.dataset_id)
     if not ds.ref_filename:
         raise ValueError('reference image required')
+    edited = (prompt or '').strip()
+    if edited:
+        img.variation_prompt = edited[:500]   # column is String(500); persist the edit
     prompt = img.variation_prompt or prompt_by_label(img.variation_label or '')
     if prompt is None:
         raise ValueError('variation prompt unknown')
