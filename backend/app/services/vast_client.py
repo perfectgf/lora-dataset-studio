@@ -23,8 +23,11 @@ def _request(method, path, **kwargs):
     if not key:
         raise VastError('VAST_API_KEY is not configured')
     headers = {'Authorization': f'Bearer {key}', 'Accept': 'application/json'}
-    return requests.request(method, f'{API_BASE}{path}', headers=headers,
-                            timeout=_TIMEOUT, **kwargs)
+    try:
+        return requests.request(method, f'{API_BASE}{path}', headers=headers,
+                                timeout=_TIMEOUT, **kwargs)
+    except requests.RequestException as e:
+        raise VastError(f'vast.ai request failed: {e}') from e
 
 
 def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20) -> list:
@@ -92,12 +95,11 @@ def get_instance(instance_id):
 
 
 def destroy_instance(instance_id) -> bool:
-    """Idempotent: a 404 means the instance is already gone — success."""
+    """Idempotent: a 404 means the instance is already gone — success.
+    Network failure -> False (callers log and retry via reconciliation)."""
     try:
         r = _request('DELETE', f'/instances/{instance_id}/')
-    except VastError:
-        raise
-    except Exception as e:                      # network blip: caller may retry
+    except VastError as e:
         logger.warning('destroy_instance %s: %s', instance_id, e)
         return False
     if r.status_code in (200, 404):

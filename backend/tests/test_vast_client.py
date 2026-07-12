@@ -106,3 +106,18 @@ def test_missing_key_raises(vc, monkeypatch):
     monkeypatch.delenv('VAST_API_KEY', raising=False)
     with pytest.raises(vc.VastError):
         vc.search_offers(min_vram_gb=24, max_dph=0.8)
+
+
+def test_network_error_raises_vast_error(vc, monkeypatch):
+    def boom(*a, **kw):
+        raise vc.requests.ConnectionError('refused')
+    monkeypatch.setattr(vc.requests, 'request', boom)
+    with pytest.raises(vc.VastError, match='request failed'):
+        vc.search_offers(min_vram_gb=24, max_dph=0.8)
+
+
+def test_destroy_network_error_returns_false(vc, monkeypatch):
+    def boom(*a, **kw):
+        raise vc.requests.ConnectionError('refused')
+    monkeypatch.setattr(vc.requests, 'request', boom)
+    assert vc.destroy_instance('12345') is False
