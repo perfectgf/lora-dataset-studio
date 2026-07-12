@@ -501,6 +501,52 @@ def test_run_payload_carries_train_type(ct, app):
         assert ct._run_payload(bad)['train_type'] is None
 
 
+def test_run_payload_carries_dataset_name_and_run_name(ct, app, client):
+    ds = client.post('/api/dataset/create',
+                     json={'name': 'Lola', 'trigger_word': 'lola'}).get_json()['id']
+    with app.app_context():
+        run = ct.CloudTrainingRun(dataset_id=ds, status='training', job_name='j',
+                                  vast_label='lds-1', run_name='lola_krea')
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        p = ct._run_payload(run)
+        assert p['dataset_name'] == 'Lola' and p['run_name'] == 'lola_krea'
+        # a since-deleted dataset degrades to None, never a crash
+        orphan = ct.CloudTrainingRun(dataset_id=999999, status='training',
+                                     job_name='j', vast_label='lds-2')
+        ct.db.session.add(orphan)
+        ct.db.session.commit()
+        assert ct._run_payload(orphan)['dataset_name'] is None
+
+
+def test_all_runs_splits_active_and_recent(ct, app):
+    with app.app_context():
+        active = ct.CloudTrainingRun(dataset_id=1, status='training',
+                                     job_name='j', vast_label='lds-1',
+                                     price_per_hour=0.4)
+        done1 = ct.CloudTrainingRun(dataset_id=2, status='done', job_name='j',
+                                    vast_label='lds-2')
+        done2 = ct.CloudTrainingRun(dataset_id=3, status='error', job_name='j',
+                                    vast_label='lds-3')
+        ct.db.session.add_all([active, done1, done2])
+        ct.db.session.commit()
+        out = ct.all_runs()
+        assert [r['status'] for r in out['actives']] == ['training']
+        # terminal runs, newest first
+        assert [r['run_id'] for r in out['recent']] == [done2.id, done1.id]
+        assert out['total_price_per_hour'] == 0.4
+        assert 'month_spend' in out and 'monthly_budget' in out
+
+
+def test_all_runs_respects_limit(ct, app):
+    with app.app_context():
+        for i in range(5):
+            ct.db.session.add(ct.CloudTrainingRun(
+                dataset_id=i, status='done', job_name='j', vast_label=f'lds-{i}'))
+        ct.db.session.commit()
+        assert len(ct.all_runs(limit=3)['recent']) == 3
+
+
 # --- Launch-time GPU speed picker: requested_gpu is a preference, not a lock ---
 
 def test_launch_stores_requested_gpu(ct, app, seeded_dataset, monkeypatch):

@@ -730,14 +730,27 @@ def month_spend_usd() -> float:
     return total
 
 
+def _dataset_name(dataset_id):
+    """Human-readable dataset name for the cloud-runs hub — the run only stores
+    dataset_id. Best-effort: a since-deleted dataset yields None, never a crash."""
+    try:
+        from ..models import FaceDataset
+        ds = FaceDataset.query.get(dataset_id)
+        return ds.name if ds is not None else None
+    except Exception:
+        return None
+
+
 def _run_payload(run) -> dict:
     return {'run_id': run.id, 'dataset_id': run.dataset_id, 'status': run.status,
+            'run_name': run.run_name, 'dataset_name': _dataset_name(run.dataset_id),
             'phase_detail': run.phase_detail, 'gpu': run.gpu_name,
             'price_per_hour': run.price_per_hour,
             'cost_estimate': _cost_estimate(run), 'error': run.error,
             'checkpoint_ready': bool(run.checkpoint_local_path),
             'train_type': _run_family(run),
-            'created_at': run.created_at.isoformat() if run.created_at else None}
+            'created_at': run.created_at.isoformat() if run.created_at else None,
+            'finished_at': run.finished_at.isoformat() if run.finished_at else None}
 
 
 def cloud_status() -> dict:
@@ -758,6 +771,27 @@ def cloud_status() -> dict:
             'monthly_budget': float(c.get('monthly_budget_usd') or 0),
             'max_runtime_minutes': int(c.get('max_runtime_minutes') or 480),
             'last': _run_payload(last) if last else None}
+
+
+def all_runs(limit: int = 20) -> dict:
+    """Everything the dedicated Cloud-runs hub needs in one call: the active
+    runs (manage/watch) plus the most recent TERMINAL runs (history: outcome +
+    checkpoint download), newest first, and the same budget summary as
+    cloud_status(). Kept separate from cloud_status() so the per-dataset panel
+    poll stays lean (it never needs the history)."""
+    actives = get_active_runs()
+    c = cfg.get('cloud') or {}
+    limit = max(1, min(int(limit or 20), 100))
+    recent = (CloudTrainingRun.query
+              .filter(CloudTrainingRun.status.notin_(ACTIVE_STATES))
+              .order_by(CloudTrainingRun.id.desc()).limit(limit).all())
+    return {'configured': bool(cfg.secret('VAST_API_KEY')),
+            'limit': max(1, int((c.get('max_concurrent_runs') or 1))),
+            'actives': [_run_payload(r) for r in actives],
+            'recent': [_run_payload(r) for r in recent],
+            'total_price_per_hour': round(sum(r.price_per_hour or 0 for r in actives), 4),
+            'month_spend': round(month_spend_usd(), 2),
+            'monthly_budget': float(c.get('monthly_budget_usd') or 0)}
 
 
 def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:

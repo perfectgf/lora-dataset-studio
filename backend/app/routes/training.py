@@ -497,6 +497,13 @@ def dataset_train_cloud_status():
     return jsonify(ct.cloud_status())
 
 
+@bp.get('/dataset/train/cloud/runs')
+def dataset_train_cloud_runs():
+    """Active + recent cloud runs for the dedicated Cloud-runs hub page.
+    Open like status (no gate): an unconfigured backend just returns empties."""
+    return jsonify(ct.all_runs(limit=request.args.get('limit', default=20, type=int)))
+
+
 @bp.get('/dataset/<int:dataset_id>/train/cloud/progress')
 def dataset_train_cloud_progress(dataset_id):
     try:

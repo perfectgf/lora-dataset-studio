@@ -101,6 +101,32 @@ def test_cloud_status_unconfigured_is_open(client):
     assert r.get_json()['configured'] is False
 
 
+def test_cloud_runs_hub_endpoint(client, app, monkeypatch):
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    ds = _mkds(client)
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    with app.app_context():
+        db.session.add_all([
+            CloudTrainingRun(dataset_id=ds, status='training', job_name='j',
+                             vast_label='lds-1', run_name='lola_krea'),
+            CloudTrainingRun(dataset_id=ds, status='done', job_name='j',
+                             vast_label='lds-2', run_name='lola_zimage'),
+        ])
+        db.session.commit()
+    body = client.get('/api/dataset/train/cloud/runs?limit=5').get_json()
+    assert body['configured'] is True
+    assert [r['status'] for r in body['actives']] == ['training']
+    assert body['recent'][0]['status'] == 'done'
+    assert body['actives'][0]['dataset_name'] == 'Lola'
+
+
+def test_cloud_runs_unconfigured_is_open_and_empty(client):
+    body = client.get('/api/dataset/train/cloud/runs').get_json()
+    assert body['configured'] is False
+    assert body['actives'] == [] and body['recent'] == []
+
+
 def test_cloud_progress_and_stop(client, monkeypatch):
     monkeypatch.setenv('VAST_API_KEY', 'k-test')
     ds = _mkds(client)
