@@ -139,10 +139,17 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   // Which engines the user actually enabled in Settings (config.engines.enabled),
   // on top of the live reachability probe in `caps.engines`.
   const [enabledEngines, setEnabledEngines] = useState(['nanobanana', 'chatgpt', 'klein']);
+  // ChatGPT auth lane (auto|api|subscription) — decides whether the card shows a
+  // per-image API price or "uses your ChatGPT subscription quota".
+  const [chatgptAuth, setChatgptAuth] = useState('auto');
   useEffect(() => {
     let cancelled = false;
     apiFetch('/api/settings')
-      .then((d) => { if (!cancelled) setEnabledEngines(d.config?.engines?.enabled || []); })
+      .then((d) => {
+        if (cancelled) return;
+        setEnabledEngines(d.config?.engines?.enabled || []);
+        setChatgptAuth(d.config?.engines?.chatgpt_auth || 'auto');
+      })
       .catch(() => { /* keep the permissive default on a transient failure */ });
     return () => { cancelled = true; };
   }, []);
@@ -150,6 +157,14 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   const gptAvailable = enabledEngines.includes('chatgpt') && caps.engines.chatgpt;
   const klAvailable = enabledEngines.includes('klein') && caps.engines.klein;
   const currentAvailable = isKlein ? klAvailable : isNB ? nbAvailable : gptAvailable;
+  // Effective ChatGPT lane: the subscription (ChatGPT Plus/Pro image quota) vs the
+  // pay-per-use API key. Mirrors the backend "auto = subscription when connected".
+  const gptSub = caps.chatgpt_subscription || {};
+  const gptViaSub = chatgptAuth === 'subscription'
+    || (chatgptAuth === 'auto' && !!gptSub.connected);
+  const gptPlanLabel = gptSub.plan && gptSub.plan !== 'free'
+    ? gptSub.plan.charAt(0).toUpperCase() + gptSub.plan.slice(1)
+    : 'Plus/Pro';
   // Klein unavailable has THREE distinct causes — the hint must name the right
   // one (a reachable ComfyUI with no Klein model used to show "Configure
   // ComfyUI", sending the user to re-check a step that was already green).
@@ -276,9 +291,10 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       }
     }
     if (!toGen.length) return;
-    // Guard-rail: API engines bill per image — above $5 estimated, confirm with
-    // the amount (silent for the free local Klein).
-    const rate = isNB ? 0.15 : isGPT ? 0.17 : 0;
+    // Guard-rail: pay-per-use API engines bill per image — above $5 estimated,
+    // confirm with the amount (silent for the free local Klein AND for the
+    // ChatGPT subscription lane, which spends plan quota, not dollars).
+    const rate = isNB ? 0.15 : (isGPT && !gptViaSub) ? 0.17 : 0;
     const cost = toGen.length * multiplier * rate;
     if (cost > 5 && !window.confirm(
       `This will launch ${toGen.length * multiplier} API generation(s) `
@@ -302,7 +318,7 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       <div className="flex items-center gap-2">
         <span className="text-content-muted text-[0.6875rem] uppercase">Engine</span>
         <span className="text-content-subtle text-[0.625rem]">
-          where the images are made — Klein runs free on your GPU, APIs bill per image
+          where the images are made — Klein runs free on your GPU · APIs bill per image (or use your ChatGPT subscription)
         </span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -363,19 +379,21 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
           <ChatGptIcon className={`w-9 h-9 shrink-0 ${isGPT ? 'text-emerald-300' : 'text-content-subtle'}`} />
           <span className="flex flex-col gap-1 min-w-0">
             <span className={`text-[0.8125rem] font-semibold ${isGPT ? 'text-emerald-200' : 'text-content-muted'}`}>
-              ChatGPT <span className="font-normal text-content-subtle">· API</span>
+              ChatGPT <span className="font-normal text-content-subtle">{gptViaSub ? '· subscription' : '· API'}</span>
             </span>
             <span className="flex flex-wrap gap-1">
               <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">No GPU</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">~$0.17/image</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{gptViaSub ? 'Plan quota' : '~$0.17/image'}</span>
               <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">SFW</span>
             </span>
             {gptAvailable ? (
               <span className={`text-[0.625rem] ${isGPT ? 'text-emerald-300' : 'text-content-subtle'}`}>
-                gpt-image-2 · estimated cost ≈ ${(selected.size * multiplier * 0.17).toFixed(2)}
+                {gptViaSub
+                  ? `gpt-image-2 · uses your ChatGPT ${gptPlanLabel} quota`
+                  : `gpt-image-2 · estimated cost ≈ $${(selected.size * multiplier * 0.17).toFixed(2)}`}
               </span>
             ) : (
-              <span className="text-amber-300 text-[0.625rem]">⚠ Add OPENAI_API_KEY in Settings</span>
+              <span className="text-amber-300 text-[0.625rem]">⚠ Add an API key or connect a subscription in Settings</span>
             )}
           </span>
         </button>
