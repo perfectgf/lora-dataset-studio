@@ -373,7 +373,8 @@ def _active_run_count(dataset_id=None) -> int:
 
 def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=None, steps2_list=None) -> list[tuple]:
     """Materialize the (checkpoint, strength, aspect) grid cells, validated:
-    non-empty checkpoint/strength axes, strengths in [0.05, 2.0] (deduped, order
+    non-empty checkpoint/strength axes, strengths in [0.0, 2.0] (0 = base model /
+    LoRA off, a valid control column) (deduped, order
     kept), aspects within the whitelist (deduped, défaut 9:16). PAS de plafond sur
     le nombre de cellules : la file est sérielle et l'utilisateur voit le compte +
     l'estimation de durée avant de lancer (choix assumé sur sa propre machine)."""
@@ -384,8 +385,8 @@ def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=Non
             v = round(float(s), 2)
         except (TypeError, ValueError):
             raise ValueError(f'invalid strength: {s!r}')
-        if not 0.05 <= v <= 2.0:
-            raise ValueError(f'strength out of range [0.05, 2.0]: {v}')
+        if not 0.0 <= v <= 2.0:
+            raise ValueError(f'strength out of range [0.0, 2.0]: {v}')
         if v not in sts:
             sts.append(v)
     asp = []

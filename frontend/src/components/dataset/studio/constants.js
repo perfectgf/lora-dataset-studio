@@ -1,5 +1,6 @@
 // Constantes partagées du Studio de test LoRA.
-export const STRENGTH_CHOICES = [0.6, 0.7, 0.8, 0.85, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0];
+// 0 = base model (LoRA off) — a useful control column; low values sweep down to it.
+export const STRENGTH_CHOICES = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0];
 export const DEFAULT_STRENGTHS = [0.7, 0.85, 1.0];
 // Handoff vers la page generate (lu par IndexPage au montage).
 export const PENDING_ZIMAGE_APPLY_KEY = 'pendingZImageApply';
