@@ -501,6 +501,100 @@ def test_run_payload_carries_train_type(ct, app):
         assert ct._run_payload(bad)['train_type'] is None
 
 
+# --- Launch-time GPU speed picker: requested_gpu is a preference, not a lock ---
+
+def test_launch_stores_requested_gpu(ct, app, seeded_dataset, monkeypatch):
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        ct.launch_cloud_training('local', seeded_dataset, gpu_name='RTX 5090')
+        run = ct.get_active_run()
+        assert json.loads(run.train_params)['requested_gpu'] == 'RTX 5090'
+
+
+def test_launch_without_gpu_name_omits_requested_gpu(ct, app, seeded_dataset, monkeypatch):
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        ct.launch_cloud_training('local', seeded_dataset)
+        run = ct.get_active_run()
+        assert 'requested_gpu' not in json.loads(run.train_params)
+
+
+def test_pick_offer_prefers_requested_class_cheapest():
+    from app.services import cloud_training as ct
+    offers = [                                    # already cheapest-first
+        {'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.12},
+        {'offer_id': 2, 'gpu_name': 'RTX 5090', 'dph_total': 0.60},
+        {'offer_id': 3, 'gpu_name': 'RTX 5090', 'dph_total': 0.55},
+    ]
+    assert ct._pick_offer(offers, 'RTX 5090')['offer_id'] == 3   # cheapest 5090
+    assert ct._pick_offer(offers, None)['offer_id'] == 1         # global cheapest
+
+
+def test_pick_offer_falls_back_when_class_sold_out():
+    from app.services import cloud_training as ct
+    offers = [{'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.12}]
+    # requested class no longer on the market -> cheapest overall
+    assert ct._pick_offer(offers, 'RTX 5090')['offer_id'] == 1
+
+
+def test_provision_honors_requested_gpu(ct, app, seeded_dataset, monkeypatch):
+    _fake_export(monkeypatch, ct)
+    monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: [
+        {'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.12, 'gpu_ram_gb': 24.0},
+        {'offer_id': 2, 'gpu_name': 'RTX 5090', 'dph_total': 0.60, 'gpu_ram_gb': 32.0},
+    ])
+    created = {}
+    monkeypatch.setattr(ct.vast_client, 'create_instance',
+                        lambda offer_id, **kw: created.setdefault('offer_id', offer_id) or '777')
+    with app.app_context():
+        ct.launch_cloud_training('local', seeded_dataset, gpu_name='RTX 5090')
+        run = ct.get_active_run()
+        ct._provision(run)
+        assert created['offer_id'] == 2          # the 5090, not the cheaper 3090
+        assert run.price_per_hour == 0.60
+
+
+def _offers_multi():
+    return [
+        {'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.13, 'gpu_ram_gb': 24.0},
+        {'offer_id': 2, 'gpu_name': 'RTX 3090', 'dph_total': 0.18, 'gpu_ram_gb': 24.0},
+        {'offer_id': 3, 'gpu_name': 'RTX 5090', 'dph_total': 0.69, 'gpu_ram_gb': 32.0},
+        {'offer_id': 4, 'gpu_name': 'RTX 4090', 'dph_total': 0.35, 'gpu_ram_gb': 24.0},
+    ]
+
+
+def test_gpu_tiers_groups_ranks_and_estimates(ct, app, seeded_dataset, monkeypatch):
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 3000)
+    monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: _offers_multi())
+    with app.app_context():
+        out = ct.gpu_tiers('local', seeded_dataset, train_type='krea')
+        tiers = out['tiers']
+        assert out['steps'] == 3000 and out['family'] == 'krea'
+        # one tier per GPU class, cheapest offer of each class kept
+        names = [t['gpu_name'] for t in tiers]
+        assert names == ['RTX 3090', 'RTX 4090', 'RTX 5090']    # slowest -> fastest
+        by_name = {t['gpu_name']: t for t in tiers}
+        assert by_name['RTX 3090']['dph_total'] == 0.13         # cheapest 3090, not 0.18
+        assert by_name['RTX 3090']['offer_id'] == 1
+        # faster GPU -> fewer estimated minutes; every tier priced & timed
+        assert by_name['RTX 5090']['est_minutes'] < by_name['RTX 3090']['est_minutes']
+        assert all(t['est_cost'] is not None and t['est_minutes'] > 0 for t in tiers)
+
+
+def test_gpu_tiers_requires_key(app, seeded_dataset, monkeypatch):
+    monkeypatch.delenv('VAST_API_KEY', raising=False)
+    from app.services import cloud_training as ct
+    with app.app_context():
+        with pytest.raises(RuntimeError, match='key'):
+            ct.gpu_tiers('local', seeded_dataset)
+
+
+def test_gpu_tiers_rejects_sdxl(ct, app, seeded_dataset):
+    with app.app_context():
+        with pytest.raises(ValueError, match='SDXL'):
+            ct.gpu_tiers('local', seeded_dataset, train_type='sdxl')
+
+
 def test_cloud_progress_selects_run_by_family(ct, app, seeded_dataset, tmp_path):
     with app.app_context():
         def seed(fam, step, sub):

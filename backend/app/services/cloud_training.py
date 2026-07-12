@@ -22,6 +22,7 @@ from .. import config as cfg
 from ..extensions import db
 from ..models import CloudTrainingRun
 from . import face_dataset_service as fds
+from . import gpu_speed
 from . import lora_training as lt
 from . import vast_client
 from .aitoolkit_remote import RemoteAiToolkit
@@ -109,7 +110,7 @@ def _reconcile_before_launch(app):
 
 def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                           variant='turbo', train_type=None, masked=True,
-                          allow_caption_mismatch=False) -> dict:
+                          allow_caption_mismatch=False, gpu_name=None) -> dict:
     if not cfg.secret('VAST_API_KEY'):
         raise RuntimeError('vast.ai API key is not configured — add it in Settings')
     # A user launching after days away is exactly when an expired
@@ -178,9 +179,15 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         lt.export_dataset_to_aitoolkit(user_id, dataset_id, masked=masked,
                                        dest_dir=str(dataset_dir))
         n_steps = int(steps) if steps else lt.default_steps(ds)
-        _set(run, staging_dir=str(staging),
-             train_params=json.dumps({'steps': n_steps, 'variant': variant,
-                                      'train_type': fam, 'masked': bool(masked)}))
+        # requested_gpu (from the launch-time speed picker) is a PREFERENCE, not
+        # a lock: _provision re-searches live offers and rents the cheapest one
+        # of this class, falling back to the cheapest overall if the class has
+        # since sold out (vast offers are ephemeral).
+        params = {'steps': n_steps, 'variant': variant,
+                  'train_type': fam, 'masked': bool(masked)}
+        if gpu_name:
+            params['requested_gpu'] = str(gpu_name)
+        _set(run, staging_dir=str(staging), train_params=json.dumps(params))
         _stop_event_for(run.id).clear()
         _start_monitor(run.id)
     except Exception as e:
@@ -198,8 +205,21 @@ def _register_instance(run, instance_id, offer, token):
          status='provisioning', phase_detail='Instance created — booting')
 
 
+def _pick_offer(offers, requested_gpu):
+    """Cheapest offer of the requested GPU class if the user picked a speed tier
+    and that class is still on the market; otherwise the cheapest offer overall.
+    `offers` is already cheapest-first, so offers[0] is the global cheapest."""
+    if requested_gpu:
+        matches = [o for o in offers if (o.get('gpu_name') or '') == requested_gpu]
+        if matches:
+            return min(matches, key=lambda o: o.get('dph_total')
+                       if o.get('dph_total') is not None else 9e9)
+    return offers[0]
+
+
 def _provision(run):
-    """Search the cheapest suitable offer and create the instance.
+    """Search offers and create the instance, honoring the launch-time GPU
+    choice when the picked class is still available.
     LEAK-SAFE: any failure after create_instance destroys the instance."""
     c = cfg.get('cloud') or {}
     params = json.loads(run.train_params or '{}')
@@ -212,7 +232,7 @@ def _provision(run):
         raise RuntimeError(
             f'no vast.ai offer matches (>= {min_vram} GB VRAM, '
             f'<= ${c.get("max_price_per_hour", 0.80)}/h) — raise the price cap in Settings')
-    offer = offers[0]
+    offer = _pick_offer(offers, params.get('requested_gpu'))
     template_hash = (c.get('template_hash') or '').strip()
     if template_hash:
         # Preferred path (smoke-validated 2026-07-12): the official template
@@ -738,6 +758,60 @@ def cloud_status() -> dict:
             'monthly_budget': float(c.get('monthly_budget_usd') or 0),
             'max_runtime_minutes': int(c.get('max_runtime_minutes') or 480),
             'last': _run_payload(last) if last else None}
+
+
+def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
+    """Live vast.ai offers for THIS dataset+family, grouped by GPU class
+    (cheapest offer per class), ranked slowest -> fastest, each annotated with
+    an approximate training time and total run cost. Read-only: rents nothing.
+    The launch then re-searches and rents the cheapest live offer of the chosen
+    class. Raises the same guards as launch (no key / dataset / SDXL)."""
+    if not cfg.secret('VAST_API_KEY'):
+        raise RuntimeError('vast.ai API key is not configured — add it in Settings')
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
+    if fam == 'sdxl':
+        raise ValueError('SDXL training needs a local base checkpoint — '
+                         'cloud training supports Z-Image and Krea for now')
+    n_steps = int(steps) if steps else lt.default_steps(ds)
+    c = cfg.get('cloud') or {}
+    min_vram = (c.get('min_vram_gb') or {}).get(fam, 24)
+    price_cap = c.get('max_price_per_hour', 0.80)
+    overhead_min = float(c.get('pod_overhead_minutes') or 0)
+    # A wider scan than the launch default so several GPU classes surface (the
+    # user is choosing between them, not taking the single cheapest).
+    offers = vast_client.search_offers(
+        min_vram_gb=min_vram, max_dph=price_cap,
+        limit=int(c.get('offer_scan_limit') or 100),
+        min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0))
+    cheapest_by_gpu = {}
+    for o in offers:
+        name = o.get('gpu_name') or 'GPU'
+        cur = cheapest_by_gpu.get(name)
+        dph = o.get('dph_total')
+        if cur is None or (dph is not None and (cur.get('dph_total') is None
+                           or dph < cur['dph_total'])):
+            cheapest_by_gpu[name] = o
+    tiers = []
+    for name, o in cheapest_by_gpu.items():
+        dph = o.get('dph_total')
+        est_min = gpu_speed.estimate_minutes(name, fam, n_steps)
+        # Cost bills the whole pod life: training + boot/download/quantize.
+        est_cost = (round(dph * (est_min + overhead_min) / 60.0, 2)
+                    if dph is not None else None)
+        tiers.append({
+            'gpu_name': name, 'offer_id': o.get('offer_id'),
+            'dph_total': dph, 'gpu_ram_gb': o.get('gpu_ram_gb'),
+            'speed': round(gpu_speed.speed_factor(name), 2),
+            'est_minutes': int(round(est_min)), 'est_cost': est_cost,
+        })
+    # slowest -> fastest (matches the launch dialog); ties broken by price.
+    tiers.sort(key=lambda t: (t['speed'], t['dph_total']
+                              if t['dph_total'] is not None else 9e9))
+    return {'tiers': tiers, 'steps': n_steps, 'family': fam,
+            'max_price_per_hour': price_cap}
 
 
 def cloud_progress(user_id, dataset_id, train_type=None) -> dict:

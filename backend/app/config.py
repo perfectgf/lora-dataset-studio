@@ -43,7 +43,9 @@ DEFAULTS = {
         'template_hash': '471ed5903d8cdb8e63b0d0e50f6cd519',
         'ui_port': 18675,              # container port the UI is reachable on (Caddy proxy)
         'image': 'vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9',  # raw-image fallback only
-        'max_price_per_hour': 0.80,    # offer search cap, $/h
+        'max_price_per_hour': 0.80,    # background safety cap on offer price, $/h
+        'offer_scan_limit': 100,       # offers fetched when listing GPU speed tiers
+        'pod_overhead_minutes': 10,    # boot+download+quantize, added to cost estimates
         'max_concurrent_runs': 1,      # simultaneous cloud pods; raise in Settings
         'min_inet_down_mbps': 400,     # skip hosts too slow to pull the 7 GB image
         'ready_timeout_minutes': 25,   # boot budget: image pull + services up

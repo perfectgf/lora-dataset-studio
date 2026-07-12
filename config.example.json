@@ -42,6 +42,8 @@
     "image": "vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9",
     "ui_port": 18675,
     "max_price_per_hour": 0.8,
+    "offer_scan_limit": 100,
+    "pod_overhead_minutes": 10,
     "max_concurrent_runs": 1,
     "max_runtime_minutes": 480,
     "stall_timeout_minutes": 30,

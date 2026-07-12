@@ -45,6 +45,47 @@ def test_cloud_train_forwards_kwargs(client, monkeypatch):
     assert seen['masked'] is False
 
 
+def test_cloud_train_forwards_gpu_name(client, monkeypatch):
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    ds = _mkds(client)
+    seen = {}
+
+    def fake_launch(user_id, dataset_id, **kw):
+        seen.update(kw)
+        return {'run_id': 1, 'status': 'preparing', 'job_name': 'j', 'steps': 1200}
+
+    monkeypatch.setattr('app.services.cloud_training.launch_cloud_training', fake_launch)
+    client.post(f'/api/dataset/{ds}/train/cloud',
+                json={'train_type': 'krea', 'gpu_name': 'RTX 5090'})
+    assert seen['gpu_name'] == 'RTX 5090'
+
+
+def test_cloud_offers_route_returns_tiers(client, monkeypatch):
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    ds = _mkds(client)
+    seen = {}
+
+    def fake_tiers(user_id, dataset_id, train_type=None, steps=None):
+        seen.update(train_type=train_type, steps=steps)
+        return {'tiers': [{'gpu_name': 'RTX 3090', 'dph_total': 0.13,
+                           'est_minutes': 48, 'est_cost': 0.11, 'speed': 1.0}],
+                'steps': 3000, 'family': 'krea', 'max_price_per_hour': 0.8}
+
+    monkeypatch.setattr('app.services.cloud_training.gpu_tiers', fake_tiers)
+    r = client.get(f'/api/dataset/{ds}/train/cloud/offers?train_type=krea&steps=3000')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['ok'] is True and body['tiers'][0]['gpu_name'] == 'RTX 3090'
+    assert seen['train_type'] == 'krea' and seen['steps'] == 3000
+
+
+def test_cloud_offers_route_gated_when_unconfigured(client):
+    ds = _mkds(client)
+    r = client.get(f'/api/dataset/{ds}/train/cloud/offers')
+    assert r.status_code == 409
+    assert r.get_json()['error'] == 'Cloud training is not configured'
+
+
 def test_cloud_train_value_error_maps_400(client, monkeypatch):
     monkeypatch.setenv('VAST_API_KEY', 'k-test')
     ds = _mkds(client)

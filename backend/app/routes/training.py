@@ -469,10 +469,27 @@ def dataset_train_cloud(dataset_id):
             variant=d.get('variant', 'turbo'),
             train_type=d.get('train_type'),
             masked=d.get('masked', True),
-            allow_caption_mismatch=bool(d.get('allow_caption_mismatch')))
+            allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),
+            gpu_name=d.get('gpu_name'))
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, **res})
+
+
+@bp.get('/dataset/<int:dataset_id>/train/cloud/offers')
+def dataset_train_cloud_offers(dataset_id):
+    """Live GPU speed tiers for the launch dialog (price/h + approx time+cost).
+    Read-only — rents nothing; the launch call rents the chosen class."""
+    gate = _require_cloud()
+    if gate:
+        return gate
+    try:
+        data = ct.gpu_tiers(LOCAL_USER, dataset_id,
+                            train_type=request.args.get('train_type'),
+                            steps=request.args.get('steps', type=int))
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **data})
 
 
 @bp.get('/dataset/train/cloud/status')
