@@ -84,6 +84,12 @@ def create_app(config_object=None):
     from .routes import register_blueprints
     register_blueprints(app, csrf)
 
+    # Non-loopback clients must present the access token (run.py generates one
+    # when the bind is opened) — without this, `server.host: 0.0.0.0` would hand
+    # the whole LAN the API keys, the GPU and the datasets. Loopback = untouched.
+    from .netguard import install_network_guard
+    install_network_guard(app)
+
     @app.get('/api/health')
     def health():
         return {'ok': True}
