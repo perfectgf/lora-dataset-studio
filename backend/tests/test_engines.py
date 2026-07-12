@@ -95,6 +95,7 @@ def test_chatgpt_auto_routes_to_subscription_when_connected(app, monkeypatch):
     assert tool['type'] == 'image_generation'
     assert tool['size'] == '1024x1536'
     assert body['tool_choice'] == 'required'
+    assert body['store'] is False                 # Codex backend 400s without it
 
 
 def test_chatgpt_auto_uses_api_key_when_not_connected(app, monkeypatch):

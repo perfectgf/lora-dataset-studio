@@ -188,6 +188,9 @@ def _generate_via_subscription(refs: list, prompt: str, aspect_ratio: str) -> by
         'tools': [{'type': 'image_generation', 'size': size_for_aspect(aspect_ratio),
                    'quality': CHATGPT_IMAGE_QUALITY, 'moderation': 'auto'}],
         'tool_choice': 'required',
+        # The Codex responses backend refuses to persist responses: without this
+        # it 400s with {"detail":"Store must be set to false"}.
+        'store': False,
         'stream': False,
     }
     for attempt in (0, 1):                           # attempt 1 = after a forced refresh
