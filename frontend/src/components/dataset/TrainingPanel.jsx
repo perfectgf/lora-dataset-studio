@@ -128,7 +128,17 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const advRankChoice = adv?.rank ?? 'auto';
   const advDefaultRank = trainType === 'zimage' ? 16 : 32;   // miroir de _DEFAULT_RANK
   const advEffRank = advRankChoice === 'auto' ? advDefaultRank : advRankChoice;
-  const advEffAlpha = trainType === 'sdxl' ? Math.max(1, Math.floor(advEffRank / 2)) : advEffRank;
+  // Expert levers (all default to current behaviour when absent):
+  const advAlphaChoice = adv?.alpha_setting ?? 'auto';
+  const advDefaultAlpha = adv?.default_alpha ?? (trainType === 'sdxl' ? Math.max(1, Math.floor(advEffRank / 2)) : advEffRank);
+  const advEffAlpha = advAlphaChoice !== 'auto' ? advAlphaChoice : advDefaultAlpha;
+  const advAlphaChoices = adv?.alpha_choices ?? [1, 2, 4, 8, 16, 24, 32, 48, 64];
+  const advDropout = adv?.dropout ?? 0;
+  const advDropoutChoices = adv?.dropout_choices ?? [0.05, 0.1, 0.15, 0.2, 0.3];
+  const advTimestep = adv?.timestep_type ?? 'auto';
+  const advTimestepDefault = adv?.default_timestep_type ?? (trainType === 'krea' ? 'linear' : trainType === 'zimage' ? 'sigmoid' : null);
+  const advTimestepSupported = adv ? adv.timestep_type_supported !== false : trainType !== 'sdxl';
+  const advTimestepChoices = adv?.timestep_type_choices ?? ['sigmoid', 'linear', 'weighted', 'shift'];
   const advRes = adv?.resolution ?? '768,1024';
   const advSave = adv?.save_every ?? 250;
   const advSampleEvery = adv?.sample_every ?? 250;
@@ -786,6 +796,75 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               </span>
             </div>
           </div>
+
+          {/* Expert — last-mile levers. Collapsed by default; every control defaults
+              to the current behaviour, so a newcomer who never opens this is unaffected. */}
+          <details className="rounded-lg border border-border bg-app/30">
+            <summary className="cursor-pointer select-none px-2.5 py-2 text-content-muted text-[0.625rem] uppercase tracking-wide">
+              🔬 Expert — last-mile levers{' '}
+              <span className="text-content-subtle normal-case">alpha · dropout{advTimestepSupported ? ' · timestep' : ''}</span>
+            </summary>
+            <div className="flex flex-col gap-3 px-2.5 pb-2.5">
+              {/* Decoupled alpha */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0">Alpha</span>
+                  <select value={String(advAlphaChoice)}
+                    onChange={(e) => saveAdv({ alpha: e.target.value === 'auto' ? 'auto' : Number(e.target.value) })}
+                    aria-label="LoRA alpha"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                    <option value="auto">Auto (= {advDefaultAlpha})</option>
+                    {advAlphaChoices.map((a) => <option key={a} value={String(a)}>{a}</option>)}
+                  </select>
+                  <span className="text-content-subtle text-[0.625rem] tabular-nums">→ scale {(advEffAlpha / Math.max(1, advEffRank)).toFixed(2)}×</span>
+                </div>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> alpha ÷ rank is the LoRA&apos;s effective strength while
+                  training — a soft learning-rate lever that isn&apos;t the LR. <b className="text-content-muted font-medium">How:</b> Auto
+                  ties alpha to rank (scale 1.0); a lower alpha (e.g. ½ rank) softens the fit — a clean way to stop a tiny
+                  (≤20-image) set from memorising without touching LR or rank.
+                </span>
+              </div>
+              {/* Network dropout */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0">Network dropout</span>
+                  <select value={String(advDropout)}
+                    onChange={(e) => saveAdv({ dropout: e.target.value === '0' ? 'off' : Number(e.target.value) })}
+                    aria-label="Network dropout"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                    <option value="0">Off</option>
+                    {advDropoutChoices.map((d) => <option key={d} value={String(d)}>{d}</option>)}
+                  </select>
+                </div>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> the anti-overfit regulariser for small sets — randomly
+                  drops LoRA weights so it generalises instead of memorising. <b className="text-content-muted font-medium">How:</b> Off
+                  by default; 0.05–0.1 is a gentle start for a tiny (≤20-image) dataset, higher = stronger regularisation.
+                </span>
+              </div>
+              {/* Timestep weighting — flowmatch families only (SDXL disables it) */}
+              {advTimestepSupported && (
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-content text-[0.75rem] w-28 shrink-0">Timestep weighting</span>
+                    <select value={advTimestep} onChange={(e) => saveAdv({ timestep_type: e.target.value })}
+                      aria-label="Timestep weighting"
+                      className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                      <option value="auto">Auto ({advTimestepDefault})</option>
+                      {advTimestepChoices.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                    <b className="text-content-muted font-medium">Why:</b> which noise levels the loss emphasises — the
+                    &quot;character&quot; knob for flow-matching models (Z-Image / Krea). <b className="text-content-muted font-medium">How:</b> Auto
+                    = the tuned default ({advTimestepDefault}); <i>sigmoid</i> favours the subject, <i>shift</i>/<i>weighted</i> shift
+                    the detail-vs-structure balance.
+                  </span>
+                </div>
+              )}
+            </div>
+          </details>
 
           <label className="flex items-center gap-1.5 text-[0.6875rem] text-content-muted cursor-pointer"
             title={concept

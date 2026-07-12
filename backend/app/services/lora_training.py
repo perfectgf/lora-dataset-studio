@@ -282,6 +282,12 @@ _RANK_CHOICES = (8, 16, 24, 32, 48, 64)
 # sature un 24 GB à ~180 s/it, 768 mesuré ~3,5 s/it — cf. commentaire de tête).
 _RES_CHOICES = {'768,1024': [768, 1024], '1024': [1024], '768': [768]}
 _SAVE_CHOICES = (250, 500, 1000)
+# --- Expert levers (train_settings, ALL default to current behaviour when absent,
+#     so a newcomer who never touches them gets the exact same config as before) ---
+_DROPOUT_CHOICES = (0.05, 0.1, 0.15, 0.2, 0.3)          # LoRA network dropout ; absent = off
+_ALPHA_CHOICES = (1, 2, 4, 8, 16, 24, 32, 48, 64)       # alpha découplé du rank ; absent = dérivé
+_TIMESTEP_TYPE_CHOICES = ('sigmoid', 'linear', 'weighted', 'shift')  # pondération flowmatch ; SDXL le désactive
+_DEFAULT_TIMESTEP = {'zimage': 'sigmoid', 'krea': 'linear'}          # ce que « Auto » résout (sdxl : aucun)
 
 
 def _train_settings(ds) -> dict:
@@ -305,6 +311,30 @@ def _lora_alpha(rank, family) -> int:
     """ai-toolkit : alpha = rank (échelle 1.0) pour zimage/krea. SDXL garde son
     choix délibéré alpha = rank/2 (« demi-force », validé par la recherche)."""
     return max(1, rank // 2) if family == 'sdxl' else rank
+
+
+def _lora_alpha_eff(ds, rank, family) -> int:
+    """Alpha EFFECTIF : un `alpha` explicite dans train_settings prime sur le dérivé.
+    Découpler alpha du rank = levier de LR « doux » (échelle effective = alpha/rank)."""
+    a = _train_settings(ds).get('alpha')
+    return a if a in _ALPHA_CHOICES else _lora_alpha(rank, family)
+
+
+def _network_block(ds, rank, family) -> dict:
+    """Bloc `network` LoRA partagé par les 3 job-configs : rank + alpha (override-aware)
+    + dropout optionnel (régularisateur anti-overfit, clé omise quand off)."""
+    net = {'type': 'lora', 'linear': rank, 'linear_alpha': _lora_alpha_eff(ds, rank, family)}
+    d = _train_settings(ds).get('dropout')
+    if isinstance(d, (int, float)) and d in _DROPOUT_CHOICES:
+        net['dropout'] = d
+    return net
+
+
+def _timestep_type_eff(ds, default: str) -> str:
+    """Pondération des timesteps : override la valeur family-default si l'utilisateur en
+    a choisi une valide (gardé à l'enum ai-toolkit ; inconnu → le défaut)."""
+    t = _train_settings(ds).get('timestep_type')
+    return t if t in _TIMESTEP_TYPE_CHOICES else default
 
 
 def _train_res(ds) -> list:
@@ -423,8 +453,18 @@ def effective_train_settings(ds, family=None) -> dict:
     stored_prompts = s.get('sample_prompts')
     return {'rank': stored_rank,                       # None → Auto (défaut family-aware)
             'effective_rank': eff_rank,                # ce qui part à ai-toolkit
-            'alpha': _lora_alpha(eff_rank, fam),
+            'alpha': _lora_alpha_eff(ds, eff_rank, fam),   # alpha EFFECTIF (override-aware) — libellé
             'default_rank': _DEFAULT_RANK.get(fam, 32),
+            # --- Expert levers (None/off = comportement actuel ; le select recoche « Auto ») ---
+            'alpha_setting': s.get('alpha') if s.get('alpha') in _ALPHA_CHOICES else None,
+            'default_alpha': _lora_alpha(eff_rank, fam),
+            'alpha_choices': list(_ALPHA_CHOICES),
+            'dropout': s.get('dropout') if s.get('dropout') in _DROPOUT_CHOICES else None,
+            'dropout_choices': list(_DROPOUT_CHOICES),
+            'timestep_type': s.get('timestep_type') if s.get('timestep_type') in _TIMESTEP_TYPE_CHOICES else None,
+            'timestep_type_choices': list(_TIMESTEP_TYPE_CHOICES),
+            'default_timestep_type': _DEFAULT_TIMESTEP.get(fam),   # None pour sdxl → contrôle masqué
+            'timestep_type_supported': fam != 'sdxl',
             'resolution': res if res in _RES_CHOICES else '768,1024',
             'save_every': _save_every(ds),
             'sample_every': _sample_every(ds),
@@ -485,6 +525,30 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
                 cur.pop('sample_prompts', None)
         else:
             raise ValueError('sample_prompts must be a list of strings (or empty to reset)')
+    if 'dropout' in patch:
+        v = patch['dropout']
+        if v in (None, 0, 0.0, 'off', ''):
+            cur.pop('dropout', None)                       # off → clé retirée
+        elif v in _DROPOUT_CHOICES:
+            cur['dropout'] = v
+        else:
+            raise ValueError(f'dropout must be one of {_DROPOUT_CHOICES} (or off)')
+    if 'alpha' in patch:
+        v = patch['alpha']
+        if v in (None, 'auto'):
+            cur.pop('alpha', None)                         # auto → alpha dérivé du rank
+        elif v in _ALPHA_CHOICES:
+            cur['alpha'] = v
+        else:
+            raise ValueError(f'alpha must be one of {_ALPHA_CHOICES} (or auto)')
+    if 'timestep_type' in patch:
+        v = patch['timestep_type']
+        if v in (None, 'auto', ''):
+            cur.pop('timestep_type', None)                 # auto → défaut family-aware
+        elif v in _TIMESTEP_TYPE_CHOICES:
+            cur['timestep_type'] = v
+        else:
+            raise ValueError(f'timestep_type must be one of {_TIMESTEP_TYPE_CHOICES} (or auto)')
     ds.train_settings = json.dumps(cur) if cur else None
     fds.db.session.commit()
     return effective_train_settings(ds)
@@ -723,7 +787,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
                                     else str(_output_dir() / _run_name(ds))),
                 'device': 'cuda:0',
                 'trigger_word': trigger,
-                'network': {'type': 'lora', 'linear': _zrank, 'linear_alpha': _lora_alpha(_zrank, 'zimage')},
+                'network': _network_block(ds, _zrank, 'zimage'),
                 'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
                 'datasets': [{
                     'folder_path': dataset_folder,
@@ -746,7 +810,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
                     'noise_scheduler': 'flowmatch',
                     # 'sigmoid' = reco runbook pour un LoRA de sujet (l'exemple
                     # ai-toolkit confirme : "for just subject, change to sigmoid").
-                    'timestep_type': 'sigmoid',
+                    'timestep_type': _timestep_type_eff(ds, 'sigmoid'),
                     'optimizer': 'adamw8bit',
                     'lr': 1e-4,
                     'dtype': 'bf16',
@@ -806,7 +870,7 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=
                                     else str(_output_dir() / _run_name(ds))),
                 'device': 'cuda:0',
                 'trigger_word': trigger,
-                'network': {'type': 'lora', 'linear': _krank, 'linear_alpha': _lora_alpha(_krank, 'krea')},
+                'network': _network_block(ds, _krank, 'krea'),
                 'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
                 'datasets': [{
                     'folder_path': dataset_folder,
@@ -829,7 +893,7 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=
                     'unload_text_encoder': True,  # décharge le Qwen3-VL après caching → VRAM pour le DiT 12B → 1024 rapide
                     'gradient_checkpointing': True,
                     'noise_scheduler': 'flowmatch',
-                    'timestep_type': 'linear',  # défaut canonique krea2 (options.ts)
+                    'timestep_type': _timestep_type_eff(ds, 'linear'),  # défaut canonique krea2 (options.ts)
                     'optimizer': 'adamw8bit',
                     'lr': 1e-4,
                     'dtype': 'bf16',
@@ -871,7 +935,7 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int, training_folder=
                                     else str(_output_dir() / _run_name(ds))),
                 'device': 'cuda:0',
                 'trigger_word': trigger,
-                'network': {'type': 'lora', 'linear': _srank, 'linear_alpha': _lora_alpha(_srank, 'sdxl')},
+                'network': _network_block(ds, _srank, 'sdxl'),
                 'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
                 'datasets': [{
                     'folder_path': dataset_folder,
