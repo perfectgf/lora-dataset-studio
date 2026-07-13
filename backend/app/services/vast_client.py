@@ -34,14 +34,17 @@ def _request(method, path, *, base=API_BASE, **kwargs):
 
 
 def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20,
-                  min_inet_down_mbps: int = 0) -> list:
+                  min_inet_down_mbps: int = 0, min_reliability: float = 0.95,
+                  min_disk_bw_mbps: int = 0) -> list:
     """Verified-datacenter offers with enough VRAM under the price cap,
     cheapest first. gpu_ram is expressed in MB on the vast side. inet_down
     (Mbps) filters out hosts whose registry pull of the ~7 GB image would eat
-    the whole boot budget (observed live: a retry-looping host on 2026-07-12)."""
+    the whole boot budget (observed live: a retry-looping host on 2026-07-12);
+    disk_bw (MB/s) filters out hosts too slow to EXTRACT it (a 5090 host froze
+    in 'loading' on 2026-07-13 with network fine — the disk was the bound)."""
     body = {
         'gpu_ram': {'gte': int(min_vram_gb) * 1024},
-        'reliability': {'gte': 0.95},
+        'reliability': {'gte': float(min_reliability)},
         'verified': {'eq': True},
         'rentable': {'eq': True},
         'dph_total': {'lte': float(max_dph)},
@@ -51,6 +54,8 @@ def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20,
     }
     if min_inet_down_mbps:
         body['inet_down'] = {'gte': int(min_inet_down_mbps)}
+    if min_disk_bw_mbps:
+        body['disk_bw'] = {'gte': int(min_disk_bw_mbps)}
     r = _request('POST', '/bundles/', json=body)
     if r.status_code != 200:
         raise VastError(f'offer search failed: HTTP {r.status_code}')
@@ -60,6 +65,10 @@ def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20,
         'gpu_name': o.get('gpu_name'),
         'dph_total': o.get('dph_total'),
         'gpu_ram_gb': round((o.get('gpu_ram') or 0) / 1024.0, 1),
+        # host identity + quality signals for the selection layer (blacklist
+        # of hosts that failed to boot, reliability preference within a class)
+        'machine_id': o.get('machine_id'),
+        'reliability': o.get('reliability2') or o.get('reliability'),
     } for o in offers if o.get('id') is not None]
     out.sort(key=lambda x: x['dph_total'] if x['dph_total'] is not None else 9e9)
     return out

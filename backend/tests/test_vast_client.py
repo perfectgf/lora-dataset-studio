@@ -46,6 +46,27 @@ def test_search_offers_filters_and_sorts(vc, monkeypatch):
     assert offers[0]['gpu_ram_gb'] == 24.0
 
 
+def test_search_offers_quality_filters_and_host_fields(vc, monkeypatch):
+    """Reliability floor + disk_bw filter reach the search body; offers expose
+    machine_id and reliability for the selection layer (blacklist, preference)."""
+    seen = {}
+
+    def fake_request(method, url, **kw):
+        seen['json'] = kw.get('json')
+        return FakeResp(200, {'offers': [
+            {'id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.30, 'gpu_ram': 24576,
+             'machine_id': 43503, 'reliability2': 0.997},
+        ]})
+
+    monkeypatch.setattr(vc.requests, 'request', fake_request)
+    offers = vc.search_offers(min_vram_gb=24, max_dph=0.8,
+                              min_reliability=0.98, min_disk_bw_mbps=500)
+    assert seen['json']['reliability'] == {'gte': 0.98}
+    assert seen['json']['disk_bw'] == {'gte': 500}
+    assert offers[0]['machine_id'] == 43503
+    assert offers[0]['reliability'] == 0.997
+
+
 def test_create_instance_returns_contract_id(vc, monkeypatch):
     seen = {}
 

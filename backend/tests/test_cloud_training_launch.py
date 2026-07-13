@@ -547,6 +547,83 @@ def test_all_runs_respects_limit(ct, app):
         assert len(ct.all_runs(limit=3)['recent']) == 3
 
 
+# --- Offer quality layer: blacklist, price-bait exclusion, reliability pref ---
+
+def test_filter_offers_drops_blacklisted_hosts(ct, app):
+    with app.app_context():
+        ct._blacklist_host(43503, 'never became ready')
+        offers = [
+            {'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.10, 'machine_id': 43503},
+            {'offer_id': 2, 'gpu_name': 'RTX 3090', 'dph_total': 0.15, 'machine_id': 99},
+        ]
+        kept = ct._filter_offers(offers)
+        assert [o['offer_id'] for o in kept] == [2]
+
+
+def test_blacklist_expires_after_ttl(ct, app, monkeypatch):
+    with app.app_context():
+        ct._blacklist_host(43503, 'never became ready')
+        assert '43503' in ct._load_bad_hosts()
+        # jump past the 3-day TTL
+        real_now = ct._now()
+        monkeypatch.setattr(ct, '_now', lambda: real_now + 4 * 86400)
+        assert ct._load_bad_hosts() == {}
+
+
+def test_filter_offers_drops_price_bait_in_large_class(ct, app):
+    with app.app_context():
+        offers = [   # median 0.30 -> floor 0.18; the 0.05 offer is bait
+            {'offer_id': 1, 'gpu_name': 'RTX 5090', 'dph_total': 0.05, 'machine_id': 1},
+            {'offer_id': 2, 'gpu_name': 'RTX 5090', 'dph_total': 0.30, 'machine_id': 2},
+            {'offer_id': 3, 'gpu_name': 'RTX 5090', 'dph_total': 0.35, 'machine_id': 3},
+        ]
+        kept = ct._filter_offers(offers)
+        assert [o['offer_id'] for o in kept] == [2, 3]
+
+
+def test_filter_offers_keeps_small_class_and_falls_back(ct, app):
+    with app.app_context():
+        # 2 offers only -> no reliable median -> both kept, even the cheap one
+        small = [
+            {'offer_id': 1, 'gpu_name': 'H100', 'dph_total': 0.50, 'machine_id': 1},
+            {'offer_id': 2, 'gpu_name': 'H100', 'dph_total': 2.00, 'machine_id': 2},
+        ]
+        assert len(ct._filter_offers(small)) == 2
+
+
+def test_best_of_prefers_reliability_within_price_window(ct, app):
+    with app.app_context():
+        group = [
+            {'offer_id': 1, 'dph_total': 0.100, 'reliability': 0.981},
+            {'offer_id': 2, 'dph_total': 0.108, 'reliability': 0.999},  # +8% -> in window
+            {'offer_id': 3, 'dph_total': 0.150, 'reliability': 1.0},    # +50% -> out
+        ]
+        assert ct._best_of(group)['offer_id'] == 2
+
+
+def test_pick_offer_applies_best_of_to_requested_class(ct, app):
+    with app.app_context():
+        offers = [
+            {'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.10, 'reliability': 0.99},
+            {'offer_id': 2, 'gpu_name': 'RTX 5090', 'dph_total': 0.60, 'reliability': 0.981},
+            {'offer_id': 3, 'gpu_name': 'RTX 5090', 'dph_total': 0.64, 'reliability': 0.998},
+        ]
+        assert ct._pick_offer(offers, 'RTX 5090')['offer_id'] == 3
+
+
+def test_provision_stamps_machine_id(ct, app, seeded_dataset, monkeypatch):
+    _fake_export(monkeypatch, ct)
+    monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: [
+        {'offer_id': 9, 'gpu_name': 'RTX 4090', 'dph_total': 0.4,
+         'gpu_ram_gb': 24.0, 'machine_id': 141481, 'reliability': 0.99}])
+    monkeypatch.setattr(ct.vast_client, 'create_instance', lambda *a, **kw: '777')
+    with app.app_context():
+        ct.launch_cloud_training('local', seeded_dataset)
+        run = ct.get_active_run()
+        ct._provision(run)
+        assert json.loads(run.train_params)['machine_id'] == 141481
+
+
 # --- Launch-time GPU speed picker: requested_gpu is a preference, not a lock ---
 
 def test_launch_stores_requested_gpu(ct, app, seeded_dataset, monkeypatch):

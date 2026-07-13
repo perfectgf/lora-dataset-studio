@@ -106,7 +106,8 @@ def _launch(ct, app, client, monkeypatch, remote, destroy_log):
                         lambda *a, **kw: str(kw.get('src_dir')) + '/imported')
     monkeypatch.setattr(ct.vast_client, 'search_offers',
                         lambda **kw: [{'offer_id': 9, 'gpu_name': 'RTX 4090',
-                                       'dph_total': 0.4, 'gpu_ram_gb': 24.0}])
+                                       'dph_total': 0.4, 'gpu_ram_gb': 24.0,
+                                       'machine_id': 43503, 'reliability': 0.99}])
     monkeypatch.setattr(ct.vast_client, 'create_instance', lambda *a, **kw: '777')
     monkeypatch.setattr(ct.vast_client, 'get_instance', lambda iid: {
         'instance_id': iid, 'actual_status': 'running', 'public_ipaddr': '1.2.3.4',
@@ -220,6 +221,9 @@ def test_pod_never_ready_fails_and_destroys(ct, app, client, monkeypatch):
         run = ct.CloudTrainingRun.query.get(run_id)
         assert run.status == 'error'
         assert destroyed == ['777']
+        # the host that burned the whole boot budget is blacklisted for the
+        # next launches (machine_id stamped by _provision from the offer)
+        assert '43503' in ct._load_bad_hosts()
 
 
 def test_stop_during_boot_wait_terminates_immediately(ct, app, client, monkeypatch):
@@ -239,6 +243,9 @@ def test_stop_during_boot_wait_terminates_immediately(ct, app, client, monkeypat
         assert run.status == 'stopped'
         assert 'boot' in (run.phase_detail or '')
         assert destroyed == ['777']
+        # an EARLY stop (frozen clock -> 0 min elapsed) says nothing about the
+        # host: it must NOT be blacklisted (only stops past 8 min are)
+        assert ct._load_bad_hosts() == {}
 
 
 def test_cloud_progress_shape_matches_local(ct, app, client, monkeypatch):

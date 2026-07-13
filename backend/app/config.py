@@ -48,6 +48,9 @@ DEFAULTS = {
         'pod_overhead_minutes': 10,    # boot+download+quantize, added to cost estimates
         'max_concurrent_runs': 1,      # simultaneous cloud pods; raise in Settings
         'min_inet_down_mbps': 400,     # skip hosts too slow to pull the 7 GB image
+        'min_disk_bw_mbps': 500,       # skip hosts too slow to EXTRACT it (frozen 'loading')
+        'min_reliability': 0.98,       # vast reliability floor (0.95 let a dead host through)
+        'host_blacklist_days': 3,      # skip hosts whose pod never became ready
         'ready_timeout_minutes': 25,   # boot budget: image pull + services up
         'max_runtime_minutes': 480,    # safety net (stall watchdog is the first line): hard stop past this
         'stall_timeout_minutes': 30,   # no step progress past this -> rescue + kill

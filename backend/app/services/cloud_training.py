@@ -205,16 +205,116 @@ def _register_instance(run, instance_id, offer, token):
          status='provisioning', phase_detail='Instance created — booting')
 
 
+# --- Offer quality layer (2026-07-13, after a dead-cheap 5090 host froze in
+# --- 'loading'): the absolute cheapest host of a class is adversely selected
+# --- more often than not. Bait prices are excluded, recently-failed hosts are
+# --- blacklisted, and at similar price the more RELIABLE host wins. ----------
+
+_PRICE_BAIT_RATIO = 0.60      # offers < 60% of their class median are suspect
+_SIMILAR_PRICE_WINDOW = 1.10  # within +10% of cheapest -> reliability decides
+
+
+def _bad_hosts_path() -> Path:
+    return _staging_root() / 'bad_hosts.json'
+
+
+def _run_machine_id(run):
+    """machine_id stamped by _provision into train_params. Defensive like
+    _run_family: absent/corrupt params -> None, never an exception (this is
+    called from stop/timeout paths that must not fail)."""
+    try:
+        parsed = json.loads(run.train_params or '{}')
+        return parsed.get('machine_id') if isinstance(parsed, dict) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _load_bad_hosts() -> dict:
+    """{machine_id(str): {'ts': epoch, 'reason': str}} — expired entries are
+    dropped on read (TTL cloud.host_blacklist_days). Corrupt file -> empty."""
+    try:
+        raw = json.loads(_bad_hosts_path().read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    ttl = float(cfg.get('cloud.host_blacklist_days') or 3) * 86400
+    now = _now()
+    live = {k: v for k, v in raw.items()
+            if isinstance(v, dict) and now - float(v.get('ts') or 0) <= ttl}
+    if len(live) != len(raw):
+        try:
+            _bad_hosts_path().write_text(json.dumps(live), encoding='utf-8')
+        except OSError:
+            pass
+    return live
+
+
+def _blacklist_host(machine_id, reason):
+    """Remember a host whose pod never became ready so the next launch (and the
+    tier list) skips it for a few days. Best-effort: never raises."""
+    if not machine_id:
+        return
+    try:
+        hosts = _load_bad_hosts()
+        hosts[str(machine_id)] = {'ts': _now(), 'reason': str(reason)[:200]}
+        _bad_hosts_path().write_text(json.dumps(hosts), encoding='utf-8')
+        logger.warning('blacklisted vast host machine_id=%s for %s day(s): %s',
+                       machine_id, cfg.get('cloud.host_blacklist_days') or 3, reason)
+    except Exception:
+        logger.exception('could not blacklist host %s', machine_id)
+
+
+def _filter_offers(offers) -> list:
+    """Drop blacklisted hosts and bait-priced offers (< 60% of their GPU
+    class's median price when the class has >= 3 offers — with fewer there is
+    no reliable median). Never returns [] when the input wasn't: if every
+    offer got filtered, fall back to the input minus blacklisted hosts only
+    (renting a suspect host beats failing the run outright)."""
+    bad = _load_bad_hosts()
+    not_blacklisted = [o for o in offers
+                       if str(o.get('machine_id') or '') not in bad]
+    by_class = {}
+    for o in not_blacklisted:
+        by_class.setdefault(o.get('gpu_name') or '', []).append(o)
+    kept = []
+    for name, group in by_class.items():
+        prices = sorted(o['dph_total'] for o in group
+                        if o.get('dph_total') is not None)
+        if len(prices) >= 3:
+            median = prices[len(prices) // 2]
+            floor = median * _PRICE_BAIT_RATIO
+            group = [o for o in group
+                     if o.get('dph_total') is None or o['dph_total'] >= floor]
+        kept.extend(group)
+    kept.sort(key=lambda o: o.get('dph_total')
+              if o.get('dph_total') is not None else 9e9)
+    return kept or not_blacklisted
+
+
+def _best_of(group):
+    """Most reliable offer among those within +10% of the group's cheapest —
+    a hair more money for a host that actually boots is the right trade."""
+    priced = [o for o in group if o.get('dph_total') is not None]
+    if not priced:
+        return group[0]
+    cheapest = min(o['dph_total'] for o in priced)
+    window = [o for o in priced if o['dph_total'] <= cheapest * _SIMILAR_PRICE_WINDOW]
+    # reliability first; at equal (or absent) reliability the CHEAPEST wins —
+    # offers without the field must not silently cost +10%.
+    return max(window, key=lambda o: ((o.get('reliability') or 0), -o['dph_total']))
+
+
 def _pick_offer(offers, requested_gpu):
-    """Cheapest offer of the requested GPU class if the user picked a speed tier
-    and that class is still on the market; otherwise the cheapest offer overall.
-    `offers` is already cheapest-first, so offers[0] is the global cheapest."""
+    """Best offer of the requested GPU class if the user picked a speed tier
+    and that class is still on the market; otherwise best overall. 'Best' =
+    most reliable within +10% of the cheapest (see _best_of), on offers
+    already stripped of blacklisted hosts and bait prices by _filter_offers."""
     if requested_gpu:
         matches = [o for o in offers if (o.get('gpu_name') or '') == requested_gpu]
         if matches:
-            return min(matches, key=lambda o: o.get('dph_total')
-                       if o.get('dph_total') is not None else 9e9)
-    return offers[0]
+            return _best_of(matches)
+    return _best_of(offers)
 
 
 def _provision(run):
@@ -227,12 +327,18 @@ def _provision(run):
     min_vram = (c.get('min_vram_gb') or {}).get(fam, 24)
     offers = vast_client.search_offers(
         min_vram_gb=min_vram, max_dph=c.get('max_price_per_hour', 0.80),
-        min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0))
+        min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0),
+        min_reliability=float(c.get('min_reliability') or 0.98),
+        min_disk_bw_mbps=int(c.get('min_disk_bw_mbps') or 0))
     if not offers:
         raise RuntimeError(
             f'no vast.ai offer matches (>= {min_vram} GB VRAM, '
             f'<= ${c.get("max_price_per_hour", 0.80)}/h) — raise the price cap in Settings')
-    offer = _pick_offer(offers, params.get('requested_gpu'))
+    offer = _pick_offer(_filter_offers(offers), params.get('requested_gpu'))
+    # Stamp the host identity so a boot failure can blacklist THIS machine.
+    if offer.get('machine_id') is not None:
+        params['machine_id'] = offer['machine_id']
+        _set(run, train_params=json.dumps(params))
     template_hash = (c.get('template_hash') or '').strip()
     if template_hash:
         # Preferred path (smoke-validated 2026-07-12): the official template
@@ -513,6 +619,12 @@ def _monitor(app, run_id):
                 # 5090 stuck in 'loading'). No job exists yet -> terminate.
                 if stop_event.is_set():
                     stop_event.clear()
+                    # A user killing a boot this late is almost always a stuck
+                    # host — blacklist it like a timeout would. An early stop
+                    # (changed their mind) says nothing about the host.
+                    if _now() - boot_started > 8 * 60:
+                        _blacklist_host(_run_machine_id(run),
+                                        'user stopped a boot stuck past 8 min')
                     _finish(run, 'stopped', detail='Stopped by user during boot')
                     return
                 # Live telemetry: surface WHERE the boot is stuck (image pull,
@@ -529,6 +641,10 @@ def _monitor(app, run_id):
                                 base or '-', ready)
                     _set(run, phase_detail=detail)
                 if _now() - boot_started > ready_timeout:
+                    # This host burned the whole boot budget — skip it for the
+                    # next few days so a relaunch can't land on it again.
+                    _blacklist_host(_run_machine_id(run),
+                                    'pod did not become ready in time')
                     raise RuntimeError('pod did not become ready in time')
                 _sleep(POLL_SECONDS)
 
@@ -825,11 +941,14 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
     price_cap = c.get('max_price_per_hour', 0.80)
     overhead_min = float(c.get('pod_overhead_minutes') or 0)
     # A wider scan than the launch default so several GPU classes surface (the
-    # user is choosing between them, not taking the single cheapest).
-    offers = vast_client.search_offers(
+    # user is choosing between them, not taking the single cheapest). Same
+    # quality filters as the launch so the shown tiers match what gets rented.
+    offers = _filter_offers(vast_client.search_offers(
         min_vram_gb=min_vram, max_dph=price_cap,
         limit=int(c.get('offer_scan_limit') or 100),
-        min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0))
+        min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0),
+        min_reliability=float(c.get('min_reliability') or 0.98),
+        min_disk_bw_mbps=int(c.get('min_disk_bw_mbps') or 0)))
     cheapest_by_gpu = {}
     for o in offers:
         name = o.get('gpu_name') or 'GPU'

@@ -57,6 +57,9 @@
     "onstart": "",
     "template_hash": "471ed5903d8cdb8e63b0d0e50f6cd519",
     "min_inet_down_mbps": 400,
+    "min_disk_bw_mbps": 500,
+    "min_reliability": 0.98,
+    "host_blacklist_days": 3,
     "ready_timeout_minutes": 25
   },
   "face_scoring": {
