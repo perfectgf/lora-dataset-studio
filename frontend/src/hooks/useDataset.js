@@ -258,16 +258,37 @@ export function useDataset() {
   }), [wrap, currentId, refresh, toast]);
 
   // Concept only : télécharge les images scannées SÉLECTIONNÉES ({url,title}[])
-  // directement dans le dataset (route /scrape-import). Retourne la réponse pour que
-  // le panneau vide sa sélection sur succès ; toast détaillé (imported + skipped).
+  // directement dans le dataset (route /scrape-import). Le serveur borne chaque
+  // requête (SCRAPE_IMPORT_MAX = 60, téléchargement synchrone) — on découpe donc la
+  // sélection en lots envoyés EN SÉQUENCE, avec un toast de progression par lot :
+  // « Select all » sur un gros scan s'importe en un clic au lieu d'un rejet 400.
+  // La dédup perceptuelle est côté dataset, donc les doublons inter-lots sont
+  // attrapés. Retourne {ok} pour que le panneau vide sa sélection sur succès.
   const scrapeImport = useCallback((items) => wrap(async () => {
-    const d = await postJson(`/api/dataset/${currentId}/scrape-import`, { items });
-    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return d; }
-    const s = d.skipped || {};
-    const skips = Object.entries(s).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
-    toast.success(`${d.imported} imported${skips ? ` · skipped ${skips}` : ''}`);
+    const BATCH = 60;                       // = svc.SCRAPE_IMPORT_MAX côté serveur
+    let imported = 0;
+    const skipped = {};
+    for (let i = 0; i < items.length; i += BATCH) {
+      if (items.length > BATCH) {
+        toast.info(`Importing ${i + 1}–${Math.min(i + BATCH, items.length)} of ${items.length}…`);
+      }
+      const d = await postJson(`/api/dataset/${currentId}/scrape-import`,
+        { items: items.slice(i, i + BATCH) });
+      if (!d.ok) {
+        toast.error(d.error || 'Unexpected error');
+        if (imported) {
+          toast.warning(`${imported} image(s) were imported before the failure.`);
+          await refresh();
+        }
+        return d;
+      }
+      imported += d.imported || 0;
+      for (const [k, v] of Object.entries(d.skipped || {})) skipped[k] = (skipped[k] || 0) + v;
+    }
+    const skips = Object.entries(skipped).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
+    toast.success(`${imported} imported${skips ? ` · skipped ${skips}` : ''}`);
     await refresh();
-    return d;
+    return { ok: true, imported, skipped };
   }), [wrap, currentId, refresh, toast]);
 
   const classify = useCallback(() => wrap(async () => {
