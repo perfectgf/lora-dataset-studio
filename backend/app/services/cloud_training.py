@@ -805,28 +805,40 @@ def _pull_log_and_samples(run, remote, job_id):
 
 
 def _newest_remote_checkpoint(remote, job_id):
-    """Remote path of the newest .safetensors, or None. ai-toolkit zero-pads
-    step numbers, so lexicographic order IS step order."""
+    """The newest .safetensors file entry ({'path', 'size'}), or None.
+    ai-toolkit zero-pads step numbers, so lexicographic order IS step order."""
     files = [f for f in remote.list_files(job_id)
              if f.get('path', '').endswith('.safetensors')]
     if not files:
         return None
-    return sorted(files, key=lambda f: f['path'])[-1]['path']
+    return sorted(files, key=lambda f: f['path'])[-1]
 
 
-def _fetch_checkpoint(run, remote, remote_path, timeout=None) -> str:
-    """Download remote_path into staging and return the local path. Skips the
-    transfer when this exact save is already local (the mid-run sync usually
-    got there first). Atomicity (a killed transfer must never leave a
-    truncated file at dest) is provided by RemoteAiToolkit._download's own
-    .part-then-rename — no second layer here (it produced transient
-    '.part.part' files, observed live 2026-07-13)."""
+def _fetch_checkpoint(run, remote, ckpt, timeout=None) -> str:
+    """Download the checkpoint entry ({'path','size'}) into staging and return
+    the local path. Skips the transfer when this exact save is already local
+    (the mid-run sync usually got there first). Two integrity layers:
+    - a KILLED transfer never lands at dest (RemoteAiToolkit._download's own
+      .part-then-rename; no second layer here — it produced '.part.part');
+    - a TRUNCATED transfer that ends with a clean EOF (observed live
+      2026-07-13: pods closing the stream after a few chunks while training)
+      is caught by comparing the byte size against list_files' size — a short
+      file is deleted and the fetch fails rather than registering garbage."""
+    remote_path = ckpt['path']
     name = os.path.basename(remote_path.replace('\\', '/'))
     dest = os.path.join(run.staging_dir, name)
     if run.checkpoint_local_path and os.path.isfile(dest) \
             and os.path.basename(run.checkpoint_local_path) == name:
         return dest
     remote.download_public_file(remote_path, dest, timeout=timeout)
+    want = int(ckpt.get('size') or 0)
+    got = os.path.getsize(dest)
+    if want and got != want:
+        try:
+            os.remove(dest)
+        except OSError:
+            pass
+        raise RuntimeError(f'truncated download of {name}: {got}/{want} bytes')
     return dest
 
 
@@ -848,16 +860,16 @@ def _sync_latest_checkpoint(run, remote):
     attempt is capped at _SYNC_DL_TIMEOUT so a trickling stream cannot hold
     the monitor loop — and with it the stop button — for minutes."""
     try:
-        remote_path = _newest_remote_checkpoint(remote, run.remote_job_id)
-        if not remote_path:
+        ckpt = _newest_remote_checkpoint(remote, run.remote_job_id)
+        if not ckpt:
             return
-        name = os.path.basename(remote_path.replace('\\', '/'))
+        name = os.path.basename(ckpt['path'].replace('\\', '/'))
         st = _sync_state.get(run.id)
         if st and st.get('name') == name and st.get('fails', 0) >= _SYNC_MAX_FAILS:
             return
         prev = run.checkpoint_local_path
         try:
-            dest = _fetch_checkpoint(run, remote, remote_path,
+            dest = _fetch_checkpoint(run, remote, ckpt,
                                      timeout=_SYNC_DL_TIMEOUT)
         except Exception as e:
             st = _sync_state.setdefault(run.id, {'name': name, 'fails': 0})
@@ -890,9 +902,9 @@ def _try_download_checkpoint(run, remote, allow_stale=False) -> bool:
     an older save there would silently discard the final training steps —
     error_pod_kept keeps the pod so the user can recover the real result."""
     try:
-        remote_path = _newest_remote_checkpoint(remote, run.remote_job_id)
-        if remote_path:
-            dest = _fetch_checkpoint(run, remote, remote_path)
+        ckpt = _newest_remote_checkpoint(remote, run.remote_job_id)
+        if ckpt:
+            dest = _fetch_checkpoint(run, remote, ckpt)
             _set(run, status='downloading', checkpoint_local_path=dest,
                  phase_detail=f'Downloaded {os.path.basename(dest)}')
             return True

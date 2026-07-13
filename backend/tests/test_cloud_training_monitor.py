@@ -288,6 +288,35 @@ class _BoomRemote:
         raise RuntimeError('pod gone')
 
 
+def test_truncated_download_is_rejected_not_registered(ct, app, tmp_path):
+    """A pod closing the stream early with a clean EOF (observed live
+    2026-07-13) yields a short file that LOOKS complete — the size check
+    against list_files must delete it and fail the fetch, never register
+    4 bytes of a 100-byte LoRA as the official checkpoint."""
+    class TruncatingRemote:
+        def list_files(self, job_id):
+            return [{'path': '/pod/out/j/j_000000100.safetensors', 'size': 100}]
+
+        def download_public_file(self, remote_path, dest, timeout=None):
+            with open(dest, 'wb') as f:
+                f.write(b'CKPT')                      # 4 of 100 bytes
+
+    with app.app_context():
+        run = ct.CloudTrainingRun(dataset_id=1, status='training', job_name='j',
+                                  vast_label='lds-1', staging_dir=str(tmp_path),
+                                  remote_job_id='j-1')
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        remote = TruncatingRemote()
+        ct._sync_latest_checkpoint(run, remote)
+        assert run.checkpoint_local_path is None      # nothing registered
+        assert not any(f.endswith('.safetensors')
+                       for f in os.listdir(tmp_path))  # garbage deleted
+        # the strict completion path refuses it too
+        assert ct._try_download_checkpoint(run, remote) is False
+        ct._sync_state.pop(run.id, None)
+
+
 def test_midrun_sync_gives_up_after_repeated_failures_resets_on_new_save(ct, app, tmp_path):
     """Some pods cannot serve big files WHILE training (live 2026-07-13:
     streams died after a few chunks on 2 of 3 pods). The sync must stop
