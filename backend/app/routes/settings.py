@@ -22,6 +22,24 @@ def _secret_presence() -> dict:
     return {name: bool(cfg.secret(name)) for name in cfg.SECRET_KEYS}
 
 
+def _lan_ip():
+    """This machine's primary LAN IPv4, or None. Uses the standard UDP-connect
+    trick: opening a datagram socket toward a public address makes the OS pick the
+    outbound interface — no packet is ever sent — and getsockname() then reveals
+    that interface's IPv4. Returns None on OSError (no route / offline) or when only
+    loopback is available, so callers can fall back to a placeholder."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('8.8.8.8', 80))       # selects the route; no traffic leaves the host
+        ip = s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+    return None if ip.startswith('127.') else ip
+
+
 def _settings_payload() -> dict:
     return {
         'config': cfg.load_config(), 'secrets': _secret_presence(),
@@ -30,7 +48,11 @@ def _settings_payload() -> dict:
         # WSGI launch) leaves them unset, so the Server card just hides the
         # "running vs saved" diff instead of showing a misleading n/a:n/a.
         'runtime': {'host': current_app.config.get('LDS_BOUND_HOST'),
-                    'port': current_app.config.get('LDS_BOUND_PORT')},
+                    'port': current_app.config.get('LDS_BOUND_PORT'),
+                    # LAN IPv4 so the Server card can show a real, copyable
+                    # http://<ip>:port/ URL instead of a <this-computer> placeholder;
+                    # None (offline / loopback-only) -> the UI keeps the placeholder.
+                    'lan_ip': _lan_ip()},
     }
 
 

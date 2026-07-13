@@ -14,8 +14,13 @@ export default function ServerSection({ config, setField, runtime, handleSave })
   const toast = useToast()
   const [restarting, setRestarting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copiedUrl, setCopiedUrl] = useState(false)
   const lan = !LOOPBACK_HOSTS.includes(config.server.host)
   const requireToken = !!config.server.require_token
+  // Real LAN IPv4 of this machine (backend socket probe), so the remote-access
+  // URL is copyable as-is instead of a <this-computer> placeholder. null when the
+  // backend couldn't determine it (offline / loopback-only) -> keep the placeholder.
+  const lanIp = runtime.lan_ip || null
   const knownRuntime = runtime.host != null && runtime.port != null
   const dirty = knownRuntime && (runtime.host !== config.server.host || runtime.port !== config.server.port)
 
@@ -57,6 +62,14 @@ export default function ServerSection({ config, setField, runtime, handleSave })
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch { /* clipboard unavailable (non-HTTPS remote origin) — token stays selectable */ }
+  }
+
+  const copyUrl = async (url) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedUrl(true)
+      setTimeout(() => setCopiedUrl(false), 1500)
+    } catch { /* clipboard unavailable (non-HTTPS remote origin) — URL stays selectable */ }
   }
 
   return (
@@ -134,16 +147,41 @@ export default function ServerSection({ config, setField, runtime, handleSave })
                 )}
               </div>
               {config.server.access_token && (
-                <p className="mt-1 break-all text-xs text-content-subtle">
-                  From another device: <code className="text-content">http://&lt;this-computer&gt;:{config.server.port}/?token={config.server.access_token}</code>
-                </p>
+                lanIp ? (
+                  <div className="mt-1 flex items-start gap-2">
+                    <p className="break-all text-xs text-content-subtle">
+                      From another device: <code className="text-content">http://{lanIp}:{config.server.port}/?token={config.server.access_token}</code>
+                    </p>
+                    <button type="button"
+                      onClick={() => copyUrl(`http://${lanIp}:${config.server.port}/?token=${config.server.access_token}`)}
+                      className="shrink-0 rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium text-content hover:bg-surface-raised">
+                      {copiedUrl ? 'Copied ✓' : 'Copy'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-1 break-all text-xs text-content-subtle">
+                    From another device: <code className="text-content">http://&lt;this-computer&gt;:{config.server.port}/?token={config.server.access_token}</code>
+                  </p>
+                )
               )}
             </div>
           ) : (
-            <p className="break-all text-xs text-content-subtle">
-              From another device: <code className="text-content">http://&lt;this-computer&gt;:{config.server.port}/</code>
-              <span className="text-content-muted"> — replace &lt;this-computer&gt; with this machine's LAN IP (e.g. 192.168.1.148).</span>
-            </p>
+            lanIp ? (
+              <div className="flex items-start gap-2">
+                <p className="break-all text-xs text-content-subtle">
+                  From another device: <code className="text-content">http://{lanIp}:{config.server.port}/</code>
+                </p>
+                <button type="button" onClick={() => copyUrl(`http://${lanIp}:${config.server.port}/`)}
+                  className="shrink-0 rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium text-content hover:bg-surface-raised">
+                  {copiedUrl ? 'Copied ✓' : 'Copy'}
+                </button>
+              </div>
+            ) : (
+              <p className="break-all text-xs text-content-subtle">
+                From another device: <code className="text-content">http://&lt;this-computer&gt;:{config.server.port}/</code>
+                <span className="text-content-muted"> — replace &lt;this-computer&gt; with this machine's LAN IP (e.g. 192.168.1.148).</span>
+              </p>
+            )
           )}
         </>
       )}
@@ -153,6 +191,9 @@ export default function ServerSection({ config, setField, runtime, handleSave })
           dirty ? 'border-amber-400/50 bg-amber-400/10' : 'border-border bg-surface-raised'}`}>
           <span className="text-content-muted">
             Running: <span className="font-medium text-content">{runtime.host}:{runtime.port}</span>
+            {runtime.host === '0.0.0.0' && lanIp && (
+              <span className="text-content-subtle"> — reachable at http://{lanIp}:{runtime.port}/</span>
+            )}
             {dirty && (
               <> · Saved: <span className="font-medium text-content">{config.server.host}:{config.server.port}</span></>
             )}

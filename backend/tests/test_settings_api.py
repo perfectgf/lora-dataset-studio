@@ -260,10 +260,12 @@ def test_runtime_reflects_what_run_py_stamped_on_boot(client, app):
     """Before run.py's __main__ block runs (dev/test boots go through create_app()
     directly), nothing has been bound yet -- the card must show that as 'unknown',
     never fabricate a value that looks like a real running bind."""
-    assert client.get('/api/settings').get_json()['runtime'] == {'host': None, 'port': None}
+    rt = client.get('/api/settings').get_json()['runtime']
+    assert (rt['host'], rt['port']) == (None, None)   # lan_ip is orthogonal (see its own test)
     app.config['LDS_BOUND_HOST'] = '0.0.0.0'
     app.config['LDS_BOUND_PORT'] = 5000
-    assert client.get('/api/settings').get_json()['runtime'] == {'host': '0.0.0.0', 'port': 5000}
+    rt = client.get('/api/settings').get_json()['runtime']
+    assert (rt['host'], rt['port']) == ('0.0.0.0', 5000)
 
 
 def test_runtime_can_differ_from_saved_config_until_restart(client, app):
@@ -274,7 +276,17 @@ def test_runtime_can_differ_from_saved_config_until_restart(client, app):
     client.put('/api/settings', json={'config': {'server': {'host': '0.0.0.0', 'port': 5001}}})
     data = client.get('/api/settings').get_json()
     assert data['config']['server']['port'] == 5001
-    assert data['runtime'] == {'host': '127.0.0.1', 'port': 5000}
+    assert (data['runtime']['host'], data['runtime']['port']) == ('127.0.0.1', 5000)
+
+
+def test_settings_runtime_includes_lan_ip(client):
+    """The Server card builds a real copyable http://<ip>:port/ URL from this;
+    it's the machine's primary LAN IPv4, or None (UI falls back to a placeholder)
+    when offline / loopback-only. It must never be a loopback address."""
+    runtime = client.get('/api/settings').get_json()['runtime']
+    assert 'lan_ip' in runtime
+    ip = runtime['lan_ip']
+    assert ip is None or (isinstance(ip, str) and not ip.startswith('127.'))
 
 
 def test_settings_restart_triggers_schedule_restart(client, monkeypatch):
