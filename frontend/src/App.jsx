@@ -71,8 +71,17 @@ function NavBar() {
           className="bg-gradient-primary bg-clip-text text-base font-bold text-transparent no-underline">
           LoRA Dataset Studio
         </NavLink>
+        {/* Workflow first (make → train in cloud → test), docs/config last. */}
         <nav className="flex gap-1" aria-label="Main navigation">
           <NavLink to="/datasets" className={navItemClass}>Datasets</NavLink>
+          {caps.cloud_training && (
+            <NavLink to="/cloud" className={navItemClass}>
+              <span className="inline-flex items-center gap-1"><span aria-hidden>☁️</span> Cloud</span>
+            </NavLink>
+          )}
+          {caps.studio_visible && (
+            <NavLink to="/studio" className={navItemClass}>Test Studio</NavLink>
+          )}
           <NavLink to="/guide" className={navItemClass}>Guide</NavLink>
           <NavLink to="/setup" className={navItemClass}>
             <span className="inline-flex items-center gap-1">
@@ -80,14 +89,6 @@ function NavBar() {
               {!recommendedMet(caps) && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-primary" />}
             </span>
           </NavLink>
-          {caps.studio_visible && (
-            <NavLink to="/studio" className={navItemClass}>Test Studio</NavLink>
-          )}
-          {caps.cloud_training && (
-            <NavLink to="/cloud" className={navItemClass}>
-              <span className="inline-flex items-center gap-1"><span aria-hidden>☁️</span> Cloud</span>
-            </NavLink>
-          )}
           <NavLink to="/settings" className={navItemClass}>Settings</NavLink>
           <CheckUpdatesButton />
         </nav>

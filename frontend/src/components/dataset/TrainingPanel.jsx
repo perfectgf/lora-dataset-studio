@@ -1319,10 +1319,15 @@ function CloudLaunchDialog({ datasetId, trainType, steps, keptCount, cloudStatus
                     {t.gpu_ram_gb ? <span className="text-content-subtle font-normal"> · {t.gpu_ram_gb} GB</span> : null}
                   </span>
                   <span className="block text-content-subtle text-[0.75rem] tabular-nums">
-                    {t.dph_total != null ? `$${t.dph_total}/h` : 'price n/a'}
+                    {t.dph_total != null ? `$${t.dph_total.toFixed(3)}/h` : 'price n/a'}
                     {' · '}{_fmtDuration(t.est_minutes)}
-                    {t.est_cost != null ? ` · ≈ $${t.est_cost} total` : ''}
+                    {t.est_cost != null ? ` · ≈ $${t.est_cost.toFixed(2)} total` : ''}
                   </span>
+                  {t.exceeds_cap && (
+                    <span className="block text-amber-300 text-[0.6875rem]">
+                      ⚠ Longer than the {Math.round((data?.max_runtime_minutes || 480) / 60)} h runtime cap — the run would be cut short (checkpoint rescued). Pick a faster GPU or raise the cap in Settings.
+                    </span>
+                  )}
                 </span>
               </label>
             ))}

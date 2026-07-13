@@ -721,6 +721,24 @@ function CloudTrainingCard({ config, setField }) {
             className={INPUT_CLASS}
           />
         </div>
+        <div>
+          <label htmlFor="cloud-min-reliability" className="block text-sm font-medium text-content">
+            Min host reliability
+          </label>
+          <input
+            id="cloud-min-reliability"
+            type="number"
+            min="0.9"
+            max="0.999"
+            step="0.005"
+            value={config.cloud?.min_reliability ?? 0.98}
+            onChange={(e) => setField('cloud', 'min_reliability', Math.min(0.999, Math.max(0.9, parseFloat(e.target.value) || 0.98)))}
+            className={INPUT_CLASS}
+          />
+          <p className="mt-1 text-[0.6875rem] text-content-subtle">
+            Lower it (e.g. 0.95) to surface cheaper hosts in the GPU picker — at a higher risk of a pod that never boots (≈ a few wasted cents, auto-cleaned).
+          </p>
+        </div>
       </div>
       {spend != null && (
         <p className="text-xs text-content-muted">Spent this month: ${spend.toFixed(2)}</p>
