@@ -13,8 +13,23 @@ The useful part of LoRA training isn't the training — it's building a clean, b
 
 ---
 
+## Everything it does, at a glance
+
+The whole pipeline, grouped by stage — every item links to the section that details it.
+
+| Stage | What you get |
+| :-- | :-- |
+| 🏗️ **Build** | 🎭 **[3 dataset types](#1-three-dataset-types-character--concept--style)** — character, concept or style; each rewires captioning, masking and step-scaling to match.<br>🖼️ **[3 image sources](#2-three-ways-to-source-images)** — generate from a reference photo, import your own, or scrape the web.<br>🧭 **[Guided workspace](#3-the-guided-workspace)** — a progress rail unlocks each step and shows what's blocking Train.<br>✏️ **[Edit & regenerate](#7-edit-the-prompt-regenerate-the-shot)** — tweak any tile's prompt in place and re-shoot it, identity preserved. |
+| 🎯 **Curate & caption** | 📐 **[Auto-framing + meter](#5-auto-framing-classification)** — auto-tags each shot face/bust/body and scores the set against a 12/6/6/1 target.<br>👤 **[Face scoring](#4-face-similarity-scoring)** — InsightFace flags off-identity shots before they poison training.<br>📝 **[Model-matched captions](#6-captioning-that-matches-the-model)** — prose or booru tags, picked for the model and written by JoyCaption or Ollama. |
+| 🎓 **Train** | 🎛️ **[No-hand-tune training](#8-training-you-dont-hand-tune)** — click Train: adaptive steps, a GPU queue and auto rembg masks, no config file.<br>🧬 **[5 model families](#8-training-you-dont-hand-tune)** — Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein, presets built in.<br>📑 **[Training presets](#8-training-you-dont-hand-tune)** — save named recipes (3 ship read-only), import/export as shareable JSON.<br>☁️ **[Cloud training](#cloud-training-vastai--experimental)** — no GPU? rent a vast.ai pod (~$1–2/run) with retry and continue.<br>🏋️ **[Runs hub](#8-training-you-dont-hand-tune)** — cloud and local runs in one tab: live progress, checkpoint trash and cap. |
+| 🚀 **Test & ship** | 🧪 **[Test Studio](#9-test-studio--pick-the-best-checkpoint)** — grid-test checkpoint × strength, vote, and rank epochs by face match.<br>📦 **[Export ZIP](#10-export)** — leave with image + `.txt` caption pairs that train in any ai-toolkit. |
+| 🌐 **Comfort & access** | 📱 **[Phone access](#exposing-the-app-beyond-localhost)** — scan a QR to open the app on your phone over LAN or Tailscale.<br>🧰 **[Setup wizard](#setup--install)** — scans your machine and installs only what's missing.<br>📖 **[Guide + diagnostics](#troubleshooting)** — a 5-chapter in-app manual and a one-click, paste-safe diagnostic report. |
+
+---
+
 ## Table of contents
 
+- [Everything it does, at a glance](#everything-it-does-at-a-glance)
 - [How it works, in one pass](#how-it-works-in-one-pass)
 - [Features, one at a time](#features-one-at-a-time)
   - [1. Three dataset types](#1-three-dataset-types-character--concept--style)
