@@ -85,6 +85,22 @@ export default function CloudRunsPage() {
     }
   };
 
+  // ↻ Retry of a failed run: fresh pod, exact same settings as the failed
+  // launch (steps/variant/family/masked/GPU class) — the two field failures
+  // (vanished vast offer, pod never ready) are transient by nature.
+  const [retrying, setRetrying] = useState({});      // run_id -> bool
+  const retry = async (run) => {
+    setRetrying((m) => ({ ...m, [run.run_id]: true }));
+    try {
+      const d = await postJson('/api/dataset/train/cloud/retry', { run_id: run.run_id });
+      if (d.ok === false) toast.error(d.error || 'Retry failed');
+      else toast.success('Run relaunched — provisioning a fresh pod…');
+      poll();
+    } finally {
+      setRetrying((m) => ({ ...m, [run.run_id]: false }));
+    }
+  };
+
   const configured = data?.configured;
   const actives = data?.actives || [];
   const recent = data?.recent || [];
@@ -263,6 +279,13 @@ export default function CloudRunsPage() {
                     className="px-2 py-1 rounded-lg border border-emerald-400/40 bg-emerald-500/10 text-emerald-200 text-xs font-semibold no-underline">
                     ⬇ LoRA
                   </a>
+                )}
+                {run.status === 'error' && (
+                  <button type="button" onClick={() => retry(run)} disabled={!!retrying[run.run_id]}
+                    title="Relaunch this run with the same settings on a fresh pod"
+                    className="px-2 py-1 rounded-lg border border-primary/40 bg-primary/15 text-white text-xs font-semibold disabled:opacity-50">
+                    {retrying[run.run_id] ? '↻ Retrying…' : '↻ Retry'}
+                  </button>
                 )}
               </div>
             ))}

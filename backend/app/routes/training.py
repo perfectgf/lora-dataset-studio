@@ -679,6 +679,21 @@ def dataset_train_cloud(dataset_id):
     return jsonify({'ok': True, **res})
 
 
+@bp.post('/dataset/train/cloud/retry')
+def dataset_train_cloud_retry():
+    """↻ Retry d'un run en erreur (page Cloud) : relance avec les paramètres
+    exacts du run raté — pod frais, mêmes garde-fous que tout launch."""
+    gate = _require_cloud()
+    if gate:
+        return gate
+    d = request.get_json(silent=True) or {}
+    try:
+        res = ct.retry_cloud_run(LOCAL_USER, int(d.get('run_id') or 0))
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
 @bp.get('/dataset/<int:dataset_id>/train/cloud/offers')
 def dataset_train_cloud_offers(dataset_id):
     """Live GPU speed tiers for the launch dialog (price/h + approx time+cost).

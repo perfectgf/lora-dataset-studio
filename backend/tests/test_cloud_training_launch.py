@@ -107,6 +107,45 @@ def test_launch_floors_explicit_steps(ct, app, seeded_dataset, monkeypatch):
         assert res['steps'] == 500
 
 
+def test_retry_relaunches_failed_run_with_same_params(ct, app, seeded_dataset, monkeypatch):
+    """↻ Retry = a REAL launch with the failed run's persisted params — and the
+    caption confirms don't re-block (the original launch already cleared them)."""
+    import json as _json
+    with app.app_context():
+        from app.extensions import db
+        from app.models import CloudTrainingRun
+        run = CloudTrainingRun(dataset_id=seeded_dataset, status='error', run_name='x',
+                               train_params=_json.dumps(
+                                   {'steps': 2000, 'variant': 'base', 'train_type': 'krea',
+                                    'masked': False, 'requested_gpu': 'RTX 5090'}))
+        db.session.add(run)
+        db.session.commit()
+        captured = {}
+        monkeypatch.setattr(ct, 'launch_cloud_training',
+                            lambda user_id, dataset_id, **kw:
+                            (captured.update(dataset_id=dataset_id, **kw), {'ok': True})[1])
+        ct.retry_cloud_run('local', run.id)
+    assert captured['dataset_id'] == seeded_dataset
+    assert captured['steps'] == 2000 and captured['variant'] == 'base'
+    assert captured['train_type'] == 'krea' and captured['masked'] is False
+    assert captured['gpu_name'] == 'RTX 5090'
+    assert captured['allow_caption_mismatch'] is True
+    assert captured['allow_uncaptioned'] is True
+
+
+def test_retry_refuses_non_error_or_unknown_run(ct, app, seeded_dataset):
+    with app.app_context():
+        from app.extensions import db
+        from app.models import CloudTrainingRun
+        run = CloudTrainingRun(dataset_id=seeded_dataset, status='done', run_name='y')
+        db.session.add(run)
+        db.session.commit()
+        with pytest.raises(ValueError, match='failed run'):
+            ct.retry_cloud_run('local', run.id)
+        with pytest.raises(ValueError, match='unknown'):
+            ct.retry_cloud_run('local', 999999)
+
+
 def test_provision_registers_instance(ct, app, seeded_dataset, monkeypatch):
     _fake_export(monkeypatch, ct)
     monkeypatch.setattr(ct.vast_client, 'search_offers',

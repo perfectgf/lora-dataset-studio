@@ -114,6 +114,32 @@ def _reconcile_before_launch(app):
     reconcile_orphans(app)
 
 
+def retry_cloud_run(user_id, run_id) -> dict:
+    """Relance un run TERMINÉ EN ERREUR avec les paramètres exacts persistés au
+    lancement d'origine (train_params) — le bouton ↻ Retry de la page Cloud.
+    C'est un VRAI launch_cloud_training (pod frais, mêmes garde-fous : limite
+    de runs actifs, budget, unicité par famille), pas une réanimation du pod
+    mort. Les confirms captions ne re-bloquent pas : le lancement d'origine
+    les avait déjà passés ou fait confirmer."""
+    run = db.session.get(CloudTrainingRun, int(run_id))
+    if not run:
+        raise ValueError('unknown cloud run')
+    if run.status != 'error':
+        raise ValueError('only a failed run can be retried')
+    try:
+        p = json.loads(run.train_params or '{}')
+    except ValueError:
+        p = {}
+    return launch_cloud_training(
+        user_id, run.dataset_id,
+        steps=p.get('steps'),
+        variant=p.get('variant'),
+        train_type=p.get('train_type'),
+        masked=p.get('masked', True),
+        allow_caption_mismatch=True, allow_uncaptioned=True,
+        gpu_name=p.get('requested_gpu'))
+
+
 def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                           variant=None, train_type=None, masked=True,
                           allow_caption_mismatch=False, allow_uncaptioned=False,
