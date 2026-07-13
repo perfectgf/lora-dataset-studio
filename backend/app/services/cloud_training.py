@@ -12,7 +12,9 @@ reconciliation. The local training path is untouched: a cloud run never sets
 import json
 import logging
 import os
+import re
 import secrets as pysecrets
+import shutil
 import threading
 import time
 from datetime import datetime
@@ -747,6 +749,7 @@ def _monitor(app, run_id):
                              finished_at=datetime.utcnow())
                         return
                     _import_result(run)
+                    _mirror_into_local_run(run)
                     _finish(run, 'done', detail='Training complete')
                     return
                 if status in ('error', 'stopped'):
@@ -943,6 +946,34 @@ def _import_result(run):
                              src_dir=run.staging_dir)
     except Exception as e:
         logger.warning('cloud import into ComfyUI failed: %s', e)
+
+
+def _mirror_into_local_run(run):
+    """Copy the downloaded cloud checkpoint into the LOCAL ai-toolkit run dir,
+    renamed to the local convention (`lora_<trigger>[_<step>].safetensors`), so
+    cloud results behave exactly like local ones everywhere downstream: the
+    panel's checkpoint list, the Resume-or-Fresh prompt, Continue training.
+    (The user looked for the result in ai-toolkit/output and found it empty —
+    2026-07-13.) No-op when ai-toolkit isn't configured locally; best-effort,
+    never fails the run."""
+    try:
+        if not run.checkpoint_local_path or not os.path.isfile(run.checkpoint_local_path):
+            return
+        params = json.loads(run.train_params or '{}')
+        # cloud trains on the OFFICIAL base only -> base_model=''
+        run_dir = lt._run_dir('local', run.dataset_id, base_model='',
+                              family=params.get('train_type'))
+        os.makedirs(run_dir, exist_ok=True)
+        src_name = os.path.basename(run.checkpoint_local_path)
+        m = re.search(r'_(\d{6,})\.safetensors$', src_name)
+        base = os.path.basename(os.path.normpath(run_dir))     # lora_<trigger>
+        dest_name = f'{base}_{m.group(1)}.safetensors' if m else f'{base}.safetensors'
+        shutil.copy2(run.checkpoint_local_path, os.path.join(run_dir, dest_name))
+        logger.info('mirrored cloud checkpoint into local run dir: %s/%s',
+                    run_dir, dest_name)
+    except Exception as e:
+        # RuntimeError from _run_dir = ai-toolkit not configured -> fine
+        logger.debug('local run-dir mirror skipped: %s', e)
 
 
 def _cost_estimate(run) -> float:

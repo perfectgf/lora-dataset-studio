@@ -1208,12 +1208,25 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
     if not os.path.isdir(dest_dir):
         return []
     from ..utils.comfyui import format_trained_lora_label
+    # Cloud-trained checkpoints are auto-imported into the same folder but
+    # named after the pod job (`lds<N>_<run>…`), not `lora_<trigger>…` — the
+    # prefix filter alone hid them from the "IN COMFYUI" list even though the
+    # files were right there (user-observed 2026-07-13). Accept any filename
+    # that IS a known cloud checkpoint of THIS dataset.
+    cloud_names = set()
+    try:
+        from ..models import CloudTrainingRun
+        for r in CloudTrainingRun.query.filter_by(dataset_id=dataset_id).all():
+            if r.checkpoint_local_path:
+                cloud_names.add(os.path.basename(r.checkpoint_local_path))
+    except Exception:
+        pass
     subfolder = os.path.basename(os.path.normpath(dest_dir))
     out = []
     for fn in sorted(os.listdir(dest_dir)):
         if not fn.lower().endswith('.safetensors'):
             continue
-        if not _trigger_boundary(fn, prefix):
+        if not _trigger_boundary(fn, prefix) and fn not in cloud_names:
             continue
         out.append({'filename': os.path.join(subfolder, fn),
                     'label': format_trained_lora_label(fn, fam) or fn})

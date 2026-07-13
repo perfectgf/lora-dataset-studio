@@ -544,6 +544,39 @@ def test_import_list_delete_checkpoint_roundtrip_filesystem_scan(app, tmp_path):
         assert lt.list_imported_checkpoints(LOCAL_USER, ds.id) == []
 
 
+def test_imported_list_shows_cloud_named_checkpoints(app, tmp_path):
+    """Cloud-trained LoRA land in the same ComfyUI folder but named after the
+    pod job (lds<N>_…), not lora_<trigger>… — the trigger-boundary filter hid
+    them from the "IN COMFYUI" list even though the files were there
+    (user-observed 2026-07-13). A filename that IS a known cloud checkpoint of
+    this dataset must be listed."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+
+    with app.app_context():
+        comfy_dir = tmp_path / 'comfy'
+        cfg.save_config({'comfyui': {'base_dir': str(comfy_dir)}})
+        ds = svc.create_dataset(LOCAL_USER, 'Cloudy', 'CloudTrig')
+        dest_dir = comfy_dir / 'models' / 'loras' / 'z image'
+        dest_dir.mkdir(parents=True)
+        cloud_name = 'lds9_ulocal_cloudy_000003000.safetensors'
+        (dest_dir / cloud_name).write_bytes(b'w')
+        # a stranger file with a foreign name must STAY hidden
+        (dest_dir / 'other_dataset_lora.safetensors').write_bytes(b'w')
+        run = CloudTrainingRun(dataset_id=ds.id, status='done', job_name='j',
+                               vast_label='lds-9',
+                               checkpoint_local_path=str(tmp_path / cloud_name))
+        db.session.add(run)
+        db.session.commit()
+        names = [c['filename'] for c in lt.list_imported_checkpoints(LOCAL_USER, ds.id)]
+        assert os.path.join('z image', cloud_name) in names
+        assert not any('other_dataset' in n for n in names)
+
+
 def test_default_variant_is_family_aware():
     """Raw is the default ONLY for Krea (official « train on Raw » reco); every
     other family keeps Turbo. This is what makes « Raw par défaut » hold on the

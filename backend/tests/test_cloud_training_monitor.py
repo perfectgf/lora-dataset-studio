@@ -146,6 +146,24 @@ def test_happy_path_completes_and_terminates(ct, app, client, monkeypatch):
         assert os.path.exists(run.checkpoint_local_path)
 
 
+def test_done_run_mirrors_checkpoint_into_local_run_dir(ct, app, client, monkeypatch, tmp_path):
+    """The cloud result must land in the LOCAL ai-toolkit run dir too, renamed
+    to the local convention — the user looked in ai-toolkit/output and found
+    it empty (2026-07-13). Local naming makes the panel's checkpoint list,
+    Resume-or-Fresh and Continue treat cloud results like local ones."""
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=3)
+    local_run = tmp_path / 'ulocal_lola' / 'lora_lola'
+    monkeypatch.setattr(ct.lt, '_run_dir', lambda *a, **k: str(local_run))
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'done'
+        # pod file lds1_run_000000100.safetensors -> local lora_lola_000000100
+        assert (local_run / 'lora_lola_000000100.safetensors').is_file()
+
+
 def test_stop_requested_stops_job_and_terminates(ct, app, client, monkeypatch):
     destroyed = []
     remote = FakeRemote(polls_to_complete=50)
