@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch, putJson, del } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
-import { SETTINGS_SECTIONS, sectionStatus } from '../components/settings/registry'
+import { SETTINGS_SECTIONS, sectionStatus, matchesQuery } from '../components/settings/registry'
 import { SectionHeader } from '../components/settings/primitives'
 import OverviewSection from '../components/settings/OverviewSection'
 import EnginesSection from '../components/settings/EnginesSection'
@@ -56,6 +56,7 @@ export default function SettingsPage() {
   const [testResults, setTestResults] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [query, setQuery] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -185,6 +186,12 @@ export default function SettingsPage() {
   const active = SETTINGS_SECTIONS.find((s) => s.id === activeId)
   const ActiveSection = SECTION_COMPONENTS[activeId]
 
+  // Search filters the rail by title/keywords; the active section always stays
+  // listed so the visible content is never orphaned from its nav item.
+  const visibleSections = SETTINGS_SECTIONS.filter(
+    (s) => s.id === activeId || matchesQuery(s, query)
+  )
+
   const navItem = (s, chip) => {
     const isActive = s.id === activeId
     const base = chip
@@ -211,13 +218,26 @@ export default function SettingsPage() {
         <aside>
           {/* Mobile: horizontal chip rail */}
           <nav aria-label="Settings sections" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
-            {SETTINGS_SECTIONS.map((s) => navItem(s, true))}
+            {visibleSections.map((s) => navItem(s, true))}
           </nav>
           {/* Desktop: sticky LED rail */}
           <nav aria-label="Settings sections" className="hidden lg:sticky lg:top-20 lg:block">
             <p className="px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">Settings</p>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find a setting…"
+              aria-label="Find a setting"
+              className="mb-2 w-full rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-content placeholder:text-content-subtle focus:border-primary focus:outline-none"
+            />
+            {query.trim() && (
+              <p className="px-3 pb-1 text-[11px] text-content-subtle" role="status">
+                {visibleSections.length} section{visibleSections.length === 1 ? '' : 's'} match
+              </p>
+            )}
             <div className="flex flex-col gap-0.5">
-              {SETTINGS_SECTIONS.map((s) => navItem(s, false))}
+              {visibleSections.map((s) => navItem(s, false))}
             </div>
           </nav>
         </aside>
