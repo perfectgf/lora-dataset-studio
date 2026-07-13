@@ -255,7 +255,7 @@ The repo ships with the frontend prebuilt (`frontend/dist/`), so this doesn't ne
 start.bat
 ```
 
-This picks a compatible Python (it tries `py -3.12`, `py -3.11`, `py -3.10` — the range with prebuilt wheels for the optional ML extras), creates a `.venv`, installs `backend/requirements.txt`, opens `http://127.0.0.1:5050/` in your browser, and starts the server. A newer Python (3.13+) still runs the core app but can't install the ML extras. Override the port with `set LDS_PORT=<port>` before running.
+No Python needed up front: `start.bat` looks for a compatible interpreter (`py -3.12/3.11/3.10` — the range with prebuilt wheels for the optional ML extras) and, if it finds none, **downloads a self-contained CPython 3.12** into a local `.python\` folder (~44 MB, once — no system install, no admin, nothing added to PATH). It then creates a `.venv`, installs `backend/requirements.txt`, opens `http://127.0.0.1:5050/` in your browser, and starts the server. So the whole flow is just: **unzip → double-click `start.bat`**. (Already have Python 3.10–3.12? It's used as-is and nothing is downloaded. On 3.13+ only, the core app still runs but the ML extras can't install.) Override the port with `set LDS_PORT=<port>` before running.
 
 ### Option 2 — manual venv (any OS)
 
@@ -336,8 +336,8 @@ The app scales from "no GPU at all" to a full local training rig — each capabi
 | **LoRA training — Krea 2** (ai-toolkit) | **24 GB VRAM** at 1024px (enforced warning) | ~24 GB base download (Raw) + 10 GB+ free | 12B model. Under 24 GB, set **Resolution → 768 only** in ⚙️ Advanced options — the main VRAM lever |
 | **Face scoring / person masks** (ML extras) | none (CPU) | ~3 GB | Python **3.10–3.12 required** (no wheels beyond) |
 
-- **OS**: Windows 10/11 for the full local stack (`start.bat`, portable bundle). Linux/macOS work for API-only + manual venv.
-- **Python**: 3.10–3.12. `start.bat` picks a compatible interpreter automatically; 3.13+ runs the core app but can't install the ML extras.
+- **OS**: Windows 10/11 for the full local stack (`start.bat`). Linux/macOS work for API-only + manual venv.
+- **Python**: 3.10–3.12 — but not required up front: `start.bat` fetches a self-contained CPython 3.12 if your machine has none. 3.13+ (already installed) runs the core app but can't install the ML extras.
 - **RAM**: 16 GB+ recommended when training locally.
 - Reference rig used for development: RTX 4090 (24 GB) — every number above was measured or enforced there.
 

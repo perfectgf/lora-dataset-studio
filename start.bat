@@ -9,21 +9,42 @@ REM     source builds that fail). `py -3.x` selects an EXACT version; bare `py -
 REM     or `python` grab the NEWEST installed one -- which is exactly the trap.
 set "PY="
 set "PY_SUPPORTED=1"
+
+REM 1) A CPython 3.10-3.12 already installed (via the Windows py launcher)?
 for %%V in (3.12 3.11 3.10) do (
   if not defined PY ( py -%%V -c "import sys" >nul 2>nul && set "PY=py -%%V" )
 )
+
+REM 2) A self-contained Python we fetched on a previous run? (skip the PowerShell hop)
+REM    Relative path on purpose: cwd is pinned to the repo root above, so this stays
+REM    space-safe even if the folder was unzipped under a path that has spaces.
+if not defined PY if exist ".python\python.exe" set "PY=.python\python.exe"
+
+REM 3) Nothing suitable -> fetch a self-contained CPython 3.12 automatically: no
+REM    system install, no admin, nothing added to PATH. This is what lets start.bat
+REM    be a true one-click launcher even on a machine with no Python at all. Needs
+REM    PowerShell (ships with Windows) + an internet connection.
+if not defined PY (
+  echo [i] No CPython 3.10-3.12 found -- downloading a self-contained one ^(~44 MB, one time^)...
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\bootstrap_python.ps1" -Dest "%~dp0.python" -PyVersion 3.12
+  if exist ".python\python.exe" set "PY=.python\python.exe"
+)
+
+REM 4) Download failed (offline?) -> fall back to ANY Python so the CORE app can
+REM    still run; the optional ML extras just won't install on 3.13+.
 if not defined PY (
   set "PY_SUPPORTED=0"
-  echo [!] No CPython 3.10-3.12 found. The core app still runs, but the OPTIONAL
-  echo     ML extras -- face-similarity scoring and background masks -- cannot be
-  echo     installed on a newer Python. Install Python 3.12 from
-  echo     https://www.python.org/downloads/ and re-run start.bat to enable them.
+  echo [!] Could not obtain CPython 3.10-3.12 automatically ^(offline?^). The core app
+  echo     can still run on any Python, but the OPTIONAL ML extras -- face-similarity
+  echo     scoring and background masks -- won't install. Get 3.12 at https://www.python.org/downloads/
   echo.
   where py >nul 2>nul && set "PY=py -3"
   if not defined PY ( where python >nul 2>nul && set "PY=python" )
 )
+
+REM 5) Truly no Python anywhere and no download -> can't build a venv, stop.
 if not defined PY (
-  echo Python 3.10-3.12 is required but no Python was found.
+  echo Python 3.10-3.12 is required and the automatic download failed.
   echo Install it from https://www.python.org/downloads/ then re-run start.bat
   exit /b 1
 )
