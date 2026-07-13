@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, postJson } from '../../api/fetchClient'
+import DiagnosticReport from '../common/DiagnosticReport'
 import { Card, TextField } from './primitives'
 
 /* In-app updater: "Check for updates" hits the git-aware check (commits-behind for a
@@ -207,6 +208,7 @@ export default function MaintenanceSection({ config, setField }) {
           placeholder="Defaults to data/datasets"
         />
       </Card>
+      <DiagnosticReport />
       <LogViewer />
     </div>
   )

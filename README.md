@@ -64,7 +64,7 @@ The app is a **guided flow**: each stage stays folded until the one before it is
 11. **Test Studio** — grid-test checkpoint × strength, vote, and rank checkpoints by face similarity.
 12. **Export** the curated, captioned set as a ZIP.
 
-> 📖 **New to LoRA datasets?** Read the [Dataset Guide](docs/DATASET_GUIDE.md) — what makes a dataset work, caption rules, per-model settings, and a pre-flight checklist. It's also built into the app (the **Guide** tab).
+> 📖 **New here?** The **Guide** tab inside the app is a 5-chapter manual: getting started, day-to-day usage, dataset quality (also readable as [docs/DATASET_GUIDE.md](docs/DATASET_GUIDE.md)), troubleshooting, and how to report problems — with a one-click diagnostic report. The chapters live in [docs/guide/](docs/guide/) if you prefer reading on GitHub.
 
 ---
 
@@ -404,6 +404,8 @@ macOS reserves port 5000 for AirPlay Receiver by default. Change `server.port` i
 
 **Windows console shows garbled characters (mojibake) from `start.bat`**
 Cosmetic only — some UTF-8 text (em dashes, accents) renders incorrectly on the legacy Windows console codepage. It doesn't affect functionality.
+
+Still stuck? Open the app's **Guide → Getting help** for the one-click **diagnostic report** (version, capability status, log tail — no keys, no paths), then post it on [Discord](https://discord.gg/j6hnJBFtXE) or in a [GitHub issue](https://github.com/perfectgf/lora-dataset-studio/issues).
 
 ---
 
