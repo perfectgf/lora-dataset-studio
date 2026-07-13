@@ -505,6 +505,16 @@ def _monitor(app, run_id):
                     ready = _make_remote(run).is_ready()
                     if ready:
                         break
+                # Honor "Stop run" DURING boot too — but only on a pod that is
+                # NOT ready yet (a ready pod breaks out above and the training
+                # loop handles the stop normally). Without this, the boot-wait
+                # spun its whole 25-min budget on a dead host while the stop
+                # button silently did nothing (observed live 2026-07-13, a
+                # 5090 stuck in 'loading'). No job exists yet -> terminate.
+                if stop_event.is_set():
+                    stop_event.clear()
+                    _finish(run, 'stopped', detail='Stopped by user during boot')
+                    return
                 # Live telemetry: surface WHERE the boot is stuck (image pull,
                 # port publication, UI warm-up) in the UI phase line and the
                 # log — runs #3/#4 died blind on 'Waiting for the pod to boot'.

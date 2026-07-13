@@ -222,6 +222,25 @@ def test_pod_never_ready_fails_and_destroys(ct, app, client, monkeypatch):
         assert destroyed == ['777']
 
 
+def test_stop_during_boot_wait_terminates_immediately(ct, app, client, monkeypatch):
+    """"Stop run" while the pod is still booting (dead host stuck in 'loading',
+    observed live 2026-07-13) must terminate the pod on the next poll — NOT spin
+    silently until the boot timeout. The clock never advances here, so only the
+    stop check (never the timeout) can end the loop."""
+    destroyed = []
+    remote = FakeRemote()
+    remote.is_ready = lambda: False               # pod never becomes ready
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    monkeypatch.setattr(ct, '_now', lambda: 0.0)  # frozen: boot timeout can't fire
+    ct._stop_event_for(run_id).set()
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'stopped'
+        assert 'boot' in (run.phase_detail or '')
+        assert destroyed == ['777']
+
+
 def test_cloud_progress_shape_matches_local(ct, app, client, monkeypatch):
     destroyed = []
     remote = FakeRemote(polls_to_complete=3)
