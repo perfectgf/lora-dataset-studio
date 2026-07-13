@@ -288,6 +288,12 @@ _DROPOUT_CHOICES = (0.05, 0.1, 0.15, 0.2, 0.3)          # LoRA network dropout ;
 _ALPHA_CHOICES = (1, 2, 4, 8, 16, 24, 32, 48, 64)       # alpha découplé du rank ; absent = dérivé
 _TIMESTEP_TYPE_CHOICES = ('sigmoid', 'linear', 'weighted', 'shift')  # pondération flowmatch ; SDXL le désactive
 _DEFAULT_TIMESTEP = {'zimage': 'sigmoid', 'krea': 'linear'}          # ce que « Auto » résout (sdxl : aucun)
+# Batch 2 — optimiseur / planning du LR / batch effectif (valeurs VÉRIFIÉES dans
+# ai-toolkit : get_optimizer + toolkit/scheduler.py). CAME n'est PAS supporté.
+_OPTIMIZER_CHOICES = ('adamw8bit', 'adafactor', 'automagic', 'prodigy')
+_LR_SCHEDULER_CHOICES = ('constant', 'linear', 'cosine', 'cosine_with_restarts', 'constant_with_warmup')
+_WARMUP_CHOICES = (50, 100, 200, 500)          # num_warmup_steps ; UNIQUEMENT avec constant_with_warmup
+_GRAD_ACCUM_CHOICES = (1, 2, 4)
 
 
 def _train_settings(ds) -> dict:
@@ -335,6 +341,36 @@ def _timestep_type_eff(ds, default: str) -> str:
     a choisi une valide (gardé à l'enum ai-toolkit ; inconnu → le défaut)."""
     t = _train_settings(ds).get('timestep_type')
     return t if t in _TIMESTEP_TYPE_CHOICES else default
+
+
+def _optimizer_eff(ds) -> str:
+    o = _train_settings(ds).get('optimizer')
+    return o if o in _OPTIMIZER_CHOICES else 'adamw8bit'
+
+
+def _lr_eff(ds) -> float:
+    """Prodigy pilote le LR lui-même → convention lr≈1.0 ; les autres gardent 1e-4."""
+    return 1.0 if _optimizer_eff(ds).startswith('prodigy') else 1e-4
+
+
+def _grad_accum(ds) -> int:
+    g = _train_settings(ds).get('grad_accum')
+    return g if g in _GRAD_ACCUM_CHOICES else 1
+
+
+def _lr_sched_fields(ds) -> dict:
+    """{} par défaut (= 'constant' d'ai-toolkit). Sinon {lr_scheduler [+ lr_scheduler_params
+    {num_warmup_steps} pour constant_with_warmup]} à fusionner dans le bloc train. Le warmup
+    n'est câblé QUE pour constant_with_warmup : les schedulers torch (cosine/linear/constant)
+    n'acceptent pas num_warmup_steps → le passer les ferait planter (cf. toolkit/scheduler.py)."""
+    s = _train_settings(ds).get('lr_scheduler')
+    if s not in _LR_SCHEDULER_CHOICES or s == 'constant':
+        return {}
+    out = {'lr_scheduler': s}
+    if s == 'constant_with_warmup':
+        w = _train_settings(ds).get('warmup')
+        out['lr_scheduler_params'] = {'num_warmup_steps': w if w in _WARMUP_CHOICES else 100}
+    return out
 
 
 def _train_res(ds) -> list:
@@ -465,6 +501,14 @@ def effective_train_settings(ds, family=None) -> dict:
             'timestep_type_choices': list(_TIMESTEP_TYPE_CHOICES),
             'default_timestep_type': _DEFAULT_TIMESTEP.get(fam),   # None pour sdxl → contrôle masqué
             'timestep_type_supported': fam != 'sdxl',
+            'optimizer': s.get('optimizer') if s.get('optimizer') in _OPTIMIZER_CHOICES else None,   # None → adamw8bit
+            'optimizer_choices': list(_OPTIMIZER_CHOICES),
+            'lr_scheduler': s.get('lr_scheduler') if s.get('lr_scheduler') in _LR_SCHEDULER_CHOICES else None,  # None → constant
+            'lr_scheduler_choices': list(_LR_SCHEDULER_CHOICES),
+            'warmup': s.get('warmup') if s.get('warmup') in _WARMUP_CHOICES else None,
+            'warmup_choices': list(_WARMUP_CHOICES),
+            'grad_accum': s.get('grad_accum') if s.get('grad_accum') in _GRAD_ACCUM_CHOICES else None,   # None → 1
+            'grad_accum_choices': list(_GRAD_ACCUM_CHOICES),
             'resolution': res if res in _RES_CHOICES else '768,1024',
             'save_every': _save_every(ds),
             'sample_every': _sample_every(ds),
@@ -549,6 +593,38 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
             cur['timestep_type'] = v
         else:
             raise ValueError(f'timestep_type must be one of {_TIMESTEP_TYPE_CHOICES} (or auto)')
+    if 'optimizer' in patch:
+        v = patch['optimizer']
+        if v in (None, 'auto', '', 'adamw8bit'):
+            cur.pop('optimizer', None)                     # défaut → clé retirée
+        elif v in _OPTIMIZER_CHOICES:
+            cur['optimizer'] = v
+        else:
+            raise ValueError(f'optimizer must be one of {_OPTIMIZER_CHOICES} (or auto)')
+    if 'lr_scheduler' in patch:
+        v = patch['lr_scheduler']
+        if v in (None, 'auto', '', 'constant'):
+            cur.pop('lr_scheduler', None)                  # constant = défaut → clé retirée
+        elif v in _LR_SCHEDULER_CHOICES:
+            cur['lr_scheduler'] = v
+        else:
+            raise ValueError(f'lr_scheduler must be one of {_LR_SCHEDULER_CHOICES} (or auto)')
+    if 'warmup' in patch:
+        v = patch['warmup']
+        if v in (None, 0, 'off', ''):
+            cur.pop('warmup', None)
+        elif v in _WARMUP_CHOICES:
+            cur['warmup'] = v
+        else:
+            raise ValueError(f'warmup must be one of {_WARMUP_CHOICES} (or off)')
+    if 'grad_accum' in patch:
+        v = patch['grad_accum']
+        if v in (None, 1, 'auto'):
+            cur.pop('grad_accum', None)                    # 1 = défaut → clé retirée
+        elif v in _GRAD_ACCUM_CHOICES:
+            cur['grad_accum'] = v
+        else:
+            raise ValueError(f'grad_accum must be one of {_GRAD_ACCUM_CHOICES} (or auto)')
     ds.train_settings = json.dumps(cur) if cur else None
     fds.db.session.commit()
     return effective_train_settings(ds)
@@ -803,7 +879,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
                 'train': {
                     'batch_size': 1,
                     'steps': steps,
-                    'gradient_accumulation': 1,
+                    'gradient_accumulation': _grad_accum(ds),
                     'train_unet': True,
                     'train_text_encoder': False,
                     'gradient_checkpointing': True,
@@ -811,9 +887,10 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
                     # 'sigmoid' = reco runbook pour un LoRA de sujet (l'exemple
                     # ai-toolkit confirme : "for just subject, change to sigmoid").
                     'timestep_type': _timestep_type_eff(ds, 'sigmoid'),
-                    'optimizer': 'adamw8bit',
-                    'lr': 1e-4,
+                    'optimizer': _optimizer_eff(ds),
+                    'lr': _lr_eff(ds),
                     'dtype': 'bf16',
+                    **_lr_sched_fields(ds),
                 },
                 'model': model,
                 'sample': {
@@ -887,16 +964,17 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=
                 'train': {
                     'batch_size': 1,
                     'steps': steps,
-                    'gradient_accumulation': 1,
+                    'gradient_accumulation': _grad_accum(ds),
                     'train_unet': True,
                     'train_text_encoder': False,
                     'unload_text_encoder': True,  # décharge le Qwen3-VL après caching → VRAM pour le DiT 12B → 1024 rapide
                     'gradient_checkpointing': True,
                     'noise_scheduler': 'flowmatch',
                     'timestep_type': _timestep_type_eff(ds, 'linear'),  # défaut canonique krea2 (options.ts)
-                    'optimizer': 'adamw8bit',
-                    'lr': 1e-4,
+                    'optimizer': _optimizer_eff(ds),
+                    'lr': _lr_eff(ds),
                     'dtype': 'bf16',
+                    **_lr_sched_fields(ds),
                 },
                 'model': model,
                 'sample': {
@@ -948,14 +1026,15 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int, training_folder=
                 'train': {
                     'batch_size': 1,
                     'steps': steps,
-                    'gradient_accumulation': 1,
+                    'gradient_accumulation': _grad_accum(ds),
                     'train_unet': True,
                     'train_text_encoder': False,
                     'gradient_checkpointing': True,
                     'noise_scheduler': 'ddpm',   # SDXL = epsilon/DDPM (≠ flowmatch Z-Image)
-                    'optimizer': 'adamw8bit',
-                    'lr': 1e-4,
+                    'optimizer': _optimizer_eff(ds),
+                    'lr': _lr_eff(ds),
                     'dtype': 'bf16',
+                    **_lr_sched_fields(ds),
                 },
                 'model': model,
                 'sample': {

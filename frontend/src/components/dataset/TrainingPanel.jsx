@@ -139,6 +139,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const advTimestepDefault = adv?.default_timestep_type ?? (trainType === 'krea' ? 'linear' : trainType === 'zimage' ? 'sigmoid' : null);
   const advTimestepSupported = adv ? adv.timestep_type_supported !== false : trainType !== 'sdxl';
   const advTimestepChoices = adv?.timestep_type_choices ?? ['sigmoid', 'linear', 'weighted', 'shift'];
+  const advOptimizer = adv?.optimizer ?? 'adamw8bit';
+  const advOptimizerChoices = adv?.optimizer_choices ?? ['adamw8bit', 'adafactor', 'automagic', 'prodigy'];
+  const advLrSched = adv?.lr_scheduler ?? 'constant';
+  const advLrSchedChoices = adv?.lr_scheduler_choices ?? ['constant', 'linear', 'cosine', 'cosine_with_restarts', 'constant_with_warmup'];
+  const advWarmup = adv?.warmup ?? 0;
+  const advWarmupChoices = adv?.warmup_choices ?? [50, 100, 200, 500];
+  const advGradAccum = adv?.grad_accum ?? 1;
+  const advGradAccumChoices = adv?.grad_accum_choices ?? [1, 2, 4];
+  const LR_SCHED_LABELS = { constant: 'Constant (default)', constant_with_warmup: 'Warmup → constant', linear: 'Linear decay', cosine: 'Cosine decay', cosine_with_restarts: 'Cosine + restarts' };
   const advRes = adv?.resolution ?? '768,1024';
   const advSave = adv?.save_every ?? 250;
   const advSampleEvery = adv?.sample_every ?? 250;
@@ -863,6 +872,67 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   </span>
                 </div>
               )}
+              {/* Optimizer */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0">Optimizer</span>
+                  <select value={advOptimizer} onChange={(e) => saveAdv({ optimizer: e.target.value })}
+                    aria-label="Optimizer"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                    {advOptimizerChoices.map((o) => <option key={o} value={o}>{o}{o === 'adamw8bit' ? ' (default)' : ''}</option>)}
+                  </select>
+                </div>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> how the weights are updated — the biggest training
+                  lever after the dataset. <b className="text-content-muted font-medium">How:</b> <i>adamw8bit</i> (default)
+                  is fast and VRAM-light; <i>adafactor</i> uses less memory and auto-scales; <i>automagic</i> sets the
+                  learning rate itself (no LR to tune, no extra install); <i>prodigy</i> also auto-tunes the LR and is
+                  popular for tiny sets — but may need <code className="text-content-muted">pip install prodigyopt</code> in
+                  the ai-toolkit venv. Picking an auto-LR optimiser is the &quot;push further without cranking the LR&quot; move.
+                </span>
+              </div>
+              {/* LR schedule (+ warmup, only for the warmup schedule) */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0">LR schedule</span>
+                  <select value={advLrSched} onChange={(e) => saveAdv({ lr_scheduler: e.target.value })}
+                    aria-label="Learning-rate schedule"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                    {advLrSchedChoices.map((s) => <option key={s} value={s}>{LR_SCHED_LABELS[s] || s}</option>)}
+                  </select>
+                  {advLrSched === 'constant_with_warmup' && (
+                    <select value={String(advWarmup || 100)} onChange={(e) => saveAdv({ warmup: Number(e.target.value) })}
+                      aria-label="Warmup steps"
+                      className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                      {advWarmupChoices.map((w) => <option key={w} value={String(w)}>{w} warmup</option>)}
+                    </select>
+                  )}
+                </div>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> how the learning rate moves over the run.
+                  <b className="text-content-muted font-medium"> How:</b> <i>Constant</i> (default) holds it flat;
+                  <i> Warmup → constant</i> ramps it up over the first N steps (a gentler start that avoids early
+                  over-commitment on a small set) then holds; <i>Linear</i>/<i>Cosine</i> decay it toward 0 by the end for
+                  cleaner convergence. The warmup-steps box only applies to the warmup schedule.
+                </span>
+              </div>
+              {/* Gradient accumulation (effective batch) */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0">Effective batch</span>
+                  <select value={String(advGradAccum)} onChange={(e) => saveAdv({ grad_accum: Number(e.target.value) })}
+                    aria-label="Gradient accumulation"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                    {advGradAccumChoices.map((g) => <option key={g} value={String(g)}>{g === 1 ? '1 (default)' : `${g} × accum`}</option>)}
+                  </select>
+                </div>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> averages the gradient over N micro-batches before
+                  each update — a larger <i>effective</i> batch with no extra VRAM. <b className="text-content-muted font-medium">How:</b> 1
+                  (default); 2–4 smooths the noisy gradients a tiny dataset produces (steadier training), at the cost of a
+                  bit more time per update. A cheap stabiliser for small sets.
+                </span>
+              </div>
             </div>
           </details>
 
