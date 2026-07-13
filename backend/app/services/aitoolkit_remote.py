@@ -6,6 +6,7 @@ job_config is stored verbatim and executed by the pod's worker, so the config
 built by lora_training.build_job_config() is submitted as-is (with cloud
 overrides applied by the orchestrator)."""
 import os
+import posixpath
 from urllib.parse import quote
 
 import requests
@@ -82,6 +83,26 @@ class RemoteAiToolkit:
                 for fh in handles:
                     fh.close()
         return total
+
+    def seed_checkpoint(self, datasets_folder: str, dest_dir: str,
+                        remote_name: str, local_path: str) -> None:
+        """Pre-place a checkpoint into an ARBITRARY pod directory (dest_dir —
+        e.g. a job's save_root <TRAINING_FOLDER>/<job_name>) so ai-toolkit's
+        auto-resume picks it up on the next job start. Repurposes
+        /api/datasets/upload: that route joins its `datasetName` onto
+        DATASETS_FOLDER with Node's path.join (which normalises `..`), so a
+        relative path from DATASETS_FOLDER to dest_dir lands the file EXACTLY in
+        dest_dir. The route sanitises the FILENAME to [A-Za-z0-9._-], which
+        leaves an ai-toolkit '<job>_<step>.safetensors' name intact. Raises
+        RemoteError on a non-200 so a 'continue' that cannot seed fails loudly
+        rather than silently training from scratch."""
+        rel = posixpath.relpath(dest_dir, datasets_folder.rstrip('/'))
+        with open(local_path, 'rb') as fh:
+            r = self._request('POST', '/api/datasets/upload',
+                              files=[('files', (remote_name, fh))],
+                              data={'datasetName': rel}, timeout=_UPLOAD_TIMEOUT)
+        if r.status_code != 200:
+            raise RemoteError(f'seed checkpoint -> HTTP {r.status_code}: {r.text[:200]}')
 
     # -- jobs ----------------------------------------------------------------
     def create_job(self, name: str, job_config: dict, gpu_ids: str = '0') -> str:

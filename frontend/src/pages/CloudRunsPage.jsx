@@ -121,6 +121,30 @@ export default function CloudRunsPage() {
     }
   };
 
+  // ▶ Continue a finished cloud run: fresh pod, same settings, resuming from the
+  // run's last harvested checkpoint for `extra` more steps (ai-toolkit
+  // auto-resume — the monitor seeds the checkpoint onto the pod before start).
+  const [continuing, setContinuing] = useState({});   // run_id -> bool
+  const continueRun = async (run) => {
+    const raw = window.prompt('Additional steps to train from the last checkpoint:', '1000');
+    if (raw == null) return;                            // cancelled
+    const extra = parseInt(raw, 10);
+    if (!Number.isFinite(extra) || extra <= 0) {
+      toast.error('Enter a positive number of extra steps.');
+      return;
+    }
+    setContinuing((m) => ({ ...m, [run.run_id]: true }));
+    try {
+      const d = await postJson('/api/dataset/train/cloud/continue',
+        { run_id: run.run_id, extra_steps: extra });
+      if (d.ok === false) toast.error(d.error || 'Continue failed');
+      else toast.success(`Continuing from step ${d.resumed_from} → ${d.target_steps} on a fresh pod…`);
+      poll();
+    } finally {
+      setContinuing((m) => ({ ...m, [run.run_id]: false }));
+    }
+  };
+
   const configured = data?.configured;
   const actives = data?.actives || [];
   const recent = data?.recent || [];
@@ -336,6 +360,13 @@ export default function CloudRunsPage() {
                     title="Relaunch this run with the same settings on a fresh pod"
                     className="px-2 py-1 rounded-lg border border-primary/40 bg-primary/15 text-white text-xs font-semibold disabled:opacity-50">
                     {retrying[run.run_id] ? '↻ Retrying…' : '↻ Retry'}
+                  </button>
+                )}
+                {run.source === 'cloud' && run.status === 'done' && run.checkpoint_ready && (
+                  <button type="button" onClick={() => continueRun(run)} disabled={!!continuing[run.run_id]}
+                    title="Resume training from this run's last checkpoint for more steps, on a fresh pod"
+                    className="px-2 py-1 rounded-lg border border-sky-400/40 bg-sky-500/10 text-sky-200 text-xs font-semibold disabled:opacity-50">
+                    {continuing[run.run_id] ? '▶ Continuing…' : '▶ Continue (+1000)'}
                   </button>
                 )}
                 {settingsLine(run) && (

@@ -811,6 +811,187 @@ def test_gpu_tiers_rejects_sdxl(ct, app, seeded_dataset):
             ct.gpu_tiers('local', seeded_dataset, train_type='sdxl')
 
 
+# --- Continue in cloud: resume a finished run from its last checkpoint --------
+
+def _seed_done_run(ct, dataset_id, staging, steps=750, ckpt_name='lds1_x_000000750.safetensors',
+                   **params):
+    """A 'done' cloud run whose staging holds a harvested checkpoint."""
+    p = {'steps': steps, 'variant': 'turbo', 'train_type': 'zimage', 'masked': True}
+    p.update(params)
+    run = ct.CloudTrainingRun(
+        dataset_id=dataset_id, status='done', job_name='lds1_x',
+        vast_label='lds-1', staging_dir=str(staging), train_params=json.dumps(p))
+    ct.db.session.add(run)
+    ct.db.session.commit()
+    if ckpt_name:
+        (staging / ckpt_name).write_bytes(b'weights')
+    return run
+
+
+def test_continue_from_done_calls_launch_with_resume_params(ct, app, seeded_dataset,
+                                                            monkeypatch, tmp_path):
+    """▶ Continue = a REAL launch with the source run's persisted params, steps =
+    last_checkpoint_step + extra, and the checkpoint marked for deposit on the pod
+    (resume_ckpt_path / resume_step in the new run's params)."""
+    staging = tmp_path / 'run_src'
+    staging.mkdir()
+    with app.app_context():
+        src = _seed_done_run(ct, seeded_dataset, staging, steps=750,
+                             variant='base', train_type='krea', masked=False,
+                             requested_gpu='RTX 5090')
+        ckpt = staging / 'lds1_x_000000750.safetensors'
+        captured = {}
+        monkeypatch.setattr(ct, 'launch_cloud_training',
+                            lambda user_id, dataset_id, **kw:
+                            (captured.update(dataset_id=dataset_id, **kw), {'ok': True})[1])
+        res = ct.continue_cloud_run('local', src.id, extra_steps=500)
+    assert captured['dataset_id'] == seeded_dataset
+    assert captured['steps'] == 1250                       # 750 + 500
+    assert captured['resume_ckpt_path'] == str(ckpt)
+    assert captured['resume_step'] == 750
+    assert captured['variant'] == 'base' and captured['train_type'] == 'krea'
+    assert captured['masked'] is False and captured['gpu_name'] == 'RTX 5090'
+    assert captured['allow_caption_mismatch'] is True
+    assert res['resumed_from'] == 750 and res['target_steps'] == 1250
+
+
+def test_continue_refuses_non_done_run(ct, app, seeded_dataset, tmp_path):
+    staging = tmp_path / 'run_src'
+    staging.mkdir()
+    with app.app_context():
+        for status in ('training', 'error', 'stopped'):
+            run = _seed_done_run(ct, seeded_dataset, staging)
+            run.status = status
+            ct.db.session.commit()
+            with pytest.raises(ValueError, match='done'):
+                ct.continue_cloud_run('local', run.id)
+        with pytest.raises(ValueError, match='unknown'):
+            ct.continue_cloud_run('local', 999999)
+
+
+def test_continue_without_checkpoint_errors_actionably(ct, app, seeded_dataset, tmp_path):
+    """A done run whose staging was cleaned (no .safetensors) — or has no staging
+    at all — must fail with an actionable message, never launch a fresh run that
+    silently trains from scratch."""
+    empty = tmp_path / 'run_empty'
+    empty.mkdir()
+    with app.app_context():
+        run = _seed_done_run(ct, seeded_dataset, empty, ckpt_name=None)
+        with pytest.raises(ValueError, match='harvested checkpoint'):
+            ct.continue_cloud_run('local', run.id)
+        run.staging_dir = None
+        ct.db.session.commit()
+        with pytest.raises(ValueError, match='harvested checkpoint'):
+            ct.continue_cloud_run('local', run.id)
+
+
+def test_continue_picks_highest_step_checkpoint(ct, app, seeded_dataset, monkeypatch, tmp_path):
+    """Multiple harvested epochs -> resume from the MOST-trained one."""
+    staging = tmp_path / 'run_src'
+    staging.mkdir()
+    with app.app_context():
+        run = _seed_done_run(ct, seeded_dataset, staging, ckpt_name='lds1_x_000000500.safetensors')
+        (staging / 'lds1_x_000001500.safetensors').write_bytes(b'w')
+        (staging / 'lds1_x_000001000.safetensors').write_bytes(b'w')
+        captured = {}
+        monkeypatch.setattr(ct, 'launch_cloud_training',
+                            lambda user_id, dataset_id, **kw:
+                            (captured.update(**kw), {'ok': True})[1])
+        ct.continue_cloud_run('local', run.id, extra_steps=1000)
+    assert captured['resume_step'] == 1500 and captured['steps'] == 2500
+
+
+class _FakeRemote:
+    """Records the pod-driver calls the monitor makes, so a test can assert the
+    seed happened between create_job and start_job."""
+    def __init__(self, settings):
+        self._settings = settings
+        self.calls = []
+        self.seeded = None
+
+    def is_ready(self):
+        return True
+
+    def ensure_settings(self, hf_token=None):
+        return self._settings
+
+    def upload_dataset(self, name, folder):
+        self.calls.append(('upload_dataset', name))
+        return 1
+
+    def seed_checkpoint(self, datasets_folder, dest_dir, remote_name, local_path):
+        self.calls.append(('seed', remote_name))
+        self.seeded = {'datasets_folder': datasets_folder, 'dest_dir': dest_dir,
+                       'remote_name': remote_name, 'local_path': local_path}
+
+    def create_job(self, name, job_config, gpu_ids='0'):
+        self.calls.append(('create_job', name))
+        return 'jid'
+
+    def start_job(self, job_id, gpu_ids='0'):
+        self.calls.append(('start_job', job_id))
+
+    def stop_job(self, job_id):
+        pass
+
+    def get_job(self, job_id):
+        return {'status': 'completed', 'info': '', 'step': 100}
+
+    def get_log(self, job_id):
+        return ''
+
+    def get_samples(self, job_id):
+        return []
+
+    def list_files(self, job_id):
+        return []
+
+
+def test_continue_seeds_checkpoint_in_monitor_flow(ct, app, seeded_dataset,
+                                                   monkeypatch, tmp_path):
+    """End-to-end through the monitor: the harvested checkpoint is deposited on
+    the pod (renamed to the NEW job's prefix, into <TRAINING_FOLDER>/<job>) AFTER
+    create_job and BEFORE start_job — the ai-toolkit auto-resume contract."""
+    _fake_export(monkeypatch, ct)
+    src_staging = tmp_path / 'run_src'
+    src_staging.mkdir()
+    ckpt = src_staging / 'lds1_x_000000750.safetensors'
+    ckpt.write_bytes(b'weights')
+    fake = _FakeRemote({'TRAINING_FOLDER': '/root/ai-toolkit/output',
+                        'DATASETS_FOLDER': '/root/ai-toolkit/datasets'})
+    # network + pod driver fully mocked
+    monkeypatch.setattr(ct.vast_client, 'search_offers',
+                        lambda **kw: [{'offer_id': 9, 'gpu_name': 'RTX 4090',
+                                       'dph_total': 0.4, 'gpu_ram_gb': 24.0}])
+    monkeypatch.setattr(ct.vast_client, 'create_instance', lambda *a, **kw: '777')
+    monkeypatch.setattr(ct.vast_client, 'get_instance',
+                        lambda iid: {'jupyter_token': 'tok', 'actual_status': 'running',
+                                     'ports': {'18675/tcp': [{}]}})
+    monkeypatch.setattr(ct.vast_client, 'derive_base_url', lambda inst, port: 'http://pod')
+    monkeypatch.setattr(ct.vast_client, 'destroy_instance', lambda iid: True)
+    monkeypatch.setattr(ct, '_make_remote', lambda run: fake)
+    monkeypatch.setattr(ct.lt, 'build_job_config', lambda *a, **kw: {'config': {'process': [{}]}})
+    monkeypatch.setattr(ct, '_cloudify_job_config', lambda *a, **kw: {})
+    monkeypatch.setattr(ct, '_try_download_checkpoint', lambda run, remote, **kw: True)
+    monkeypatch.setattr(ct, '_download_intermediates', lambda run, remote: None)
+    monkeypatch.setattr(ct, '_import_result', lambda run: None)
+    monkeypatch.setattr(ct, '_mirror_into_local_run', lambda run: None)
+    with app.app_context():
+        src = _seed_done_run(ct, seeded_dataset, src_staging, ckpt_name=None)
+        res = ct.continue_cloud_run('local', src.id, extra_steps=500)
+        new_id = res['run_id']
+        new_run = ct.CloudTrainingRun.query.get(new_id)
+        job_name = new_run.job_name
+        ct._monitor(app, new_id)
+    assert fake.seeded is not None
+    assert fake.seeded['local_path'] == str(ckpt)
+    assert fake.seeded['remote_name'] == f'{job_name}_000000750.safetensors'
+    assert fake.seeded['dest_dir'] == f'/root/ai-toolkit/output/{job_name}'
+    # ordering: create_job -> seed -> start_job
+    names = [c[0] for c in fake.calls]
+    assert names.index('create_job') < names.index('seed') < names.index('start_job')
+
+
 def test_cloud_progress_selects_run_by_family(ct, app, seeded_dataset, tmp_path):
     with app.app_context():
         def seed(fam, step, sub):

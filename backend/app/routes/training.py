@@ -695,6 +695,24 @@ def dataset_train_cloud_retry():
     return jsonify({'ok': True, **res})
 
 
+@bp.post('/dataset/train/cloud/continue')
+def dataset_train_cloud_continue():
+    """▶ Continue d'un run cloud TERMINÉ (page Runs) : reprend depuis son dernier
+    checkpoint harvesté et vise dernier_step + extra_steps — pod frais, mêmes
+    garde-fous que tout launch ; le monitor dépose le checkpoint sur le pod avant
+    de démarrer (auto-resume ai-toolkit)."""
+    gate = _require_cloud()
+    if gate:
+        return gate
+    d = request.get_json(silent=True) or {}
+    try:
+        res = ct.continue_cloud_run(LOCAL_USER, int(d.get('run_id') or 0),
+                                    extra_steps=d.get('extra_steps', 1000))
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
 @bp.get('/dataset/<int:dataset_id>/train/cloud/offers')
 def dataset_train_cloud_offers(dataset_id):
     """Live GPU speed tiers for the launch dialog (price/h + approx time+cost).

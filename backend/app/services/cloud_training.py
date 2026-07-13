@@ -140,10 +140,80 @@ def retry_cloud_run(user_id, run_id) -> dict:
         gpu_name=p.get('requested_gpu'))
 
 
+def _run_staging_checkpoints(run) -> list:
+    """This run's HARVESTED checkpoints that still live in staging (NOT the
+    trash — trashed saves are moved out of staging_dir): list of
+    {'filename', 'step', 'path'}, step-sorted ascending. Mirrors
+    cloud_checkpoints' step extraction so 'continue' resumes from the exact same
+    checkpoint the hub lists. The unsuffixed FINAL save (no _<step> suffix) is
+    the run's target step count."""
+    sd = run.staging_dir
+    if not sd or not os.path.isdir(sd):
+        return []
+    target = int(_run_param(run, 'steps') or 0)
+    out = []
+    for name in os.listdir(sd):
+        if not name.lower().endswith('.safetensors'):
+            continue
+        m = re.search(r'_(\d{6,})\.safetensors$', name)
+        out.append({'filename': name,
+                    'step': int(m.group(1)) if m else target,
+                    'path': os.path.join(sd, name)})
+    # step asc; a suffixed save wins ties over the unsuffixed final (deterministic).
+    out.sort(key=lambda e: (e['step'], bool(re.search(r'_(\d{6,})\.safetensors$',
+                                                       e['filename']))))
+    return out
+
+
+def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
+    """Reprend un run cloud TERMINÉ (done) depuis son DERNIER checkpoint harvesté
+    et vise dernier_step + extra_steps — le pendant cloud de
+    lora_training.continue_training. C'est un VRAI launch_cloud_training (pod
+    frais, mêmes garde-fous : limite de runs actifs, budget, unicité par
+    famille) avec les paramètres persistés du run source (variante/famille/
+    masked/GPU class, comme retry_cloud_run) ; son monitor, AVANT de démarrer le
+    job, dépose le checkpoint dans le save_root du job sur le pod pour déclencher
+    l'auto-resume d'ai-toolkit. Le job config reprend les settings du dataset
+    comme d'habitude ; register_launch reste un launch cloud normal — le resume
+    est un détail d'exécution."""
+    run = db.session.get(CloudTrainingRun, int(run_id))
+    if not run:
+        raise ValueError('unknown cloud run')
+    if run.status != 'done':
+        raise ValueError('only a finished (done) run can be continued')
+    cks = _run_staging_checkpoints(run)
+    if not cks:
+        raise ValueError('no harvested checkpoint to continue from — its staging '
+                         'was cleaned; relaunch a fresh cloud run instead')
+    latest = cks[-1]
+    try:
+        extra = max(100, int(extra_steps))
+    except (TypeError, ValueError):
+        extra = 1000
+    try:
+        p = json.loads(run.train_params or '{}')
+    except ValueError:
+        p = {}
+    if not isinstance(p, dict):
+        p = {}
+    res = launch_cloud_training(
+        user_id, run.dataset_id,
+        steps=latest['step'] + extra,
+        variant=p.get('variant'),
+        train_type=p.get('train_type'),
+        masked=p.get('masked', True),
+        allow_caption_mismatch=True, allow_uncaptioned=True,
+        gpu_name=p.get('requested_gpu'),
+        resume_ckpt_path=latest['path'], resume_step=latest['step'])
+    res['resumed_from'] = latest['step']
+    res['target_steps'] = latest['step'] + extra
+    return res
+
+
 def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                           variant=None, train_type=None, masked=True,
                           allow_caption_mismatch=False, allow_uncaptioned=False,
-                          gpu_name=None) -> dict:
+                          gpu_name=None, resume_ckpt_path=None, resume_step=None) -> dict:
     if not cfg.secret('VAST_API_KEY'):
         raise RuntimeError('vast.ai API key is not configured — add it in Settings')
     # A user launching after days away is exactly when an expired
@@ -241,6 +311,13 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                   'train_type': fam, 'masked': bool(masked)}
         if gpu_name:
             params['requested_gpu'] = str(gpu_name)
+        # Continue-in-cloud: the monitor seeds this checkpoint into the pod job's
+        # save_root before start_job so ai-toolkit auto-resumes from it. Absent
+        # on a normal launch (the seed step is then a no-op).
+        if resume_ckpt_path:
+            params['resume_ckpt_path'] = str(resume_ckpt_path)
+            if resume_step is not None:
+                params['resume_step'] = int(resume_step)
         # Provenance registry (same as local launches): dataset version at
         # launch time, stamped into the params so payloads can expose it.
         from . import checkpoint_registry
@@ -773,6 +850,9 @@ def _monitor(app, run_id):
                 job_config = _cloudify_job_config(job_config, run.job_name,
                                                   staging_dataset, pod_settings)
                 job_id = remote.create_job(run.job_name, job_config)
+                # Continue-in-cloud: drop the source checkpoint into the job's
+                # save_root BEFORE start so ai-toolkit auto-resumes from it.
+                _seed_resume_checkpoint(run, remote, pod_settings)
                 remote.start_job(job_id)
                 _set(run, remote_job_id=job_id, status='training',
                      phase_detail='Job queued on the pod')
@@ -890,6 +970,31 @@ def _monitor(app, run_id):
             _stop_events.pop(int(run_id), None)
             _monitor_threads.pop(int(run_id), None)
             _sync_state.pop(int(run_id), None)
+
+
+def _seed_resume_checkpoint(run, remote, pod_settings):
+    """Continue-in-cloud: place the source run's harvested checkpoint into THIS
+    job's save_root on the pod so ai-toolkit's auto-resume finds it — it globs
+    <TRAINING_FOLDER>/<job_name>/<job_name>*.safetensors, takes the newest by
+    ctime, and reads the resume step from the safetensors metadata. The file is
+    renamed to THIS job's prefix so the glob matches (the save the trainer would
+    itself write). No resume checkpoint stamped in train_params -> no-op (a
+    normal launch). A missing/failed seed RAISES: a 'continue' that cannot
+    resume must fail loudly, never silently train from scratch."""
+    src = _run_param(run, 'resume_ckpt_path')
+    if not src:
+        return
+    if not os.path.isfile(src):
+        raise RuntimeError(f'resume checkpoint vanished before upload: {src}')
+    step = int(_run_param(run, 'resume_step') or 0)
+    remote_name = f'{run.job_name}_{step:09d}.safetensors'
+    training_folder = pod_settings['TRAINING_FOLDER'].rstrip('/')
+    dest_dir = f'{training_folder}/{run.job_name}'
+    _set(run, phase_detail='Seeding checkpoint for resume…')
+    remote.seed_checkpoint(pod_settings['DATASETS_FOLDER'], dest_dir,
+                           remote_name, src)
+    logger.info('run %s: seeded resume checkpoint %s -> %s',
+                run.id, os.path.basename(src), dest_dir)
 
 
 def _pull_log_and_samples(run, remote, job_id):
