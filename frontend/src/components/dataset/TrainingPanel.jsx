@@ -1236,7 +1236,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                       🏆 recommended
                     </span>
                   )}
-                  <button type="button" onClick={() => ds.importCheckpoint(c.filename, base, trainType)}
+                  <button type="button"
+                    onClick={async () => {
+                      // await + refresh: the import must show up in "IN COMFYUI"
+                      // without a manual Refresh click (user-observed).
+                      await ds.importCheckpoint(c.filename, base, trainType);
+                      loadCheckpoints(base);
+                    }}
                     className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
                     Import → {lorasLabel}
                   </button>
@@ -1287,7 +1293,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           {cloudCkpts.length > 0 && (
             <div className="flex flex-col gap-1">
               <span className="text-content-muted text-[0.625rem] uppercase">
-                ☁ Cloud checkpoints (synced locally — one per run, the newest save)
+                ☁ Cloud checkpoints (synced locally — every epoch harvested from the pod)
               </span>
               {cloudCkpts.map((c) => (
                 <div key={`cr${c.run_id}-${c.filename}`} className="flex items-center gap-2 text-[0.6875rem]">

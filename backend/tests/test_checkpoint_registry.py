@@ -156,16 +156,20 @@ def test_cloud_checkpoints_lists_synced_saves_and_checks_files(app, ds_with_imag
     from app.services import cloud_training as ct
     ds_id, _ = ds_with_images
     with app.app_context():
-        ck = tmp_path / 'lds10_x_000001000.safetensors'
+        d10 = tmp_path / 'r10'
+        d10.mkdir()
+        d11 = tmp_path / 'r11'
+        d11.mkdir()
+        ck = d10 / 'lds10_x_000001000.safetensors'
         ck.write_bytes(b'W')
-        gone = tmp_path / 'lds11_x_000000500.safetensors'   # never created
+        gone = d11 / 'lds11_x_000000500.safetensors'   # never created
         active = CloudTrainingRun(
             dataset_id=ds_id, status='training', job_name='j', vast_label='lds-10',
-            staging_dir=str(tmp_path), checkpoint_local_path=str(ck),
+            staging_dir=str(d10), checkpoint_local_path=str(ck),
             train_params=_json.dumps({'train_type': 'krea', 'version': 2, 'steps': 3100}))
         deleted = CloudTrainingRun(
             dataset_id=ds_id, status='done', job_name='j', vast_label='lds-11',
-            staging_dir=str(tmp_path), checkpoint_local_path=str(gone),
+            staging_dir=str(d11), checkpoint_local_path=str(gone),
             train_params=_json.dumps({'train_type': 'krea'}))
         db.session.add_all([active, deleted])
         db.session.commit()

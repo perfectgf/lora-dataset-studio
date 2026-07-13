@@ -308,10 +308,12 @@ def test_stop_during_boot_wait_terminates_immediately(ct, app, client, monkeypat
         assert ct._load_bad_hosts() == {}
 
 
-def test_midrun_checkpoint_sync_mirrors_latest_save(ct, app, client, monkeypatch):
+def test_midrun_checkpoint_sync_harvests_every_save(ct, app, client, monkeypatch):
     """Saves are mirrored locally DURING the run (user-observed gap 2026-07-13:
     step 1400 reached, step-1250 save existed on the pod, nothing local — a
-    dead host would have lost everything). Only the newest save is kept."""
+    dead host would have lost everything) and EVERY synced epoch is kept (the
+    pod prunes its own saves; harvesting each as it appears is the only way to
+    collect the full history — user ask)."""
     monkeypatch.setattr(ct, '_CKPT_SYNC_EVERY_POLLS', 1)
     downloads = []
 
@@ -336,11 +338,42 @@ def test_midrun_checkpoint_sync_mirrors_latest_save(ct, app, client, monkeypatch
         # intermediate saves were pulled during the run, not only at the end
         assert downloads == ['j_000000100.safetensors', 'j_000000200.safetensors',
                              'j_000000300.safetensors']
+        # checkpoint_local_path tracks the NEWEST; every epoch stays on disk
         assert run.checkpoint_local_path.endswith('j_000000300.safetensors')
         files = os.listdir(run.staging_dir)
-        # only the newest save remains; no truncated .part leftovers
-        assert [f for f in files if f.endswith('.safetensors')] == ['j_000000300.safetensors']
+        assert sorted(f for f in files if f.endswith('.safetensors')) == \
+            ['j_000000100.safetensors', 'j_000000200.safetensors',
+             'j_000000300.safetensors']
         assert not any(f.endswith('.part') for f in files)
+        # ...and the panel lists all of them
+        assert [c['step'] for c in ct.cloud_checkpoints(ds_id)] == [100, 200, 300]
+
+
+def test_completion_retrieves_intermediates_still_on_pod(ct, app, client, monkeypatch, tmp_path):
+    """A pod whose mid-run sync failed (unservable host) still delivers its
+    remaining saves at COMPLETION: after the strict final download, every
+    other listed .safetensors is fetched best-effort, and the local mirror
+    carries them all (local parity — pick any epoch)."""
+    class MultiSaveRemote(FakeRemote):
+        def list_files(self, job_id):
+            return [{'path': '/pod/out/j/j_000000050.safetensors', 'size': 4},
+                    {'path': '/pod/out/j/j_000000100.safetensors', 'size': 4}]
+
+    destroyed = []
+    remote = MultiSaveRemote(polls_to_complete=2)
+    local_run = tmp_path / 'ulocal_lola' / 'lora_lola'
+    monkeypatch.setattr(ct.lt, '_run_dir', lambda *a, **k: str(local_run))
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'done'
+        staged = sorted(f for f in os.listdir(run.staging_dir)
+                        if f.endswith('.safetensors'))
+        assert staged == ['j_000000050.safetensors', 'j_000000100.safetensors']
+        # every epoch mirrored into the local run dir under local naming
+        assert (local_run / 'lora_lola_000000050.safetensors').is_file()
+        assert (local_run / 'lora_lola_000000100.safetensors').is_file()
 
 
 class _BoomRemote:

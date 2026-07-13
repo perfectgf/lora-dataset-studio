@@ -787,6 +787,7 @@ def _monitor(app, run_id):
                                    f'recover manually at {run.base_url}',
                              finished_at=datetime.utcnow())
                         return
+                    _download_intermediates(run, remote)
                     _import_result(run)
                     _mirror_into_local_run(run)
                     _finish(run, 'done', detail='Training complete')
@@ -903,8 +904,11 @@ def _sync_latest_checkpoint(run, remote):
     """Mid-run mirror of the pod's newest SAVE: if the host dies at step 3000
     the local copy of the step-2750 save survives, instead of everything being
     lost because downloads only happened at run end (user-observed gap,
-    2026-07-13). Never raises, never flips the run's status; keeps only the
-    newest save locally (a LoRA is 100-300 MB, saves accumulate).
+    2026-07-13). Never raises, never flips the run's status. EVERY synced save
+    is KEPT (user ask: harvest ALL trained epochs) — the pod prunes its own
+    saves to max_step_saves, so grabbing each one as it appears is the only
+    way to collect the full epoch history; disk is reclaimed via the 🗑/🧹
+    tools and the trash.
 
     Some pods cannot serve big files WHILE training (observed live: streams
     die after a few chunks) — after _SYNC_MAX_FAILS failed attempts on the
@@ -936,12 +940,9 @@ def _sync_latest_checkpoint(run, remote):
             return
         _sync_state.pop(run.id, None)
         if dest != prev:
+            # checkpoint_local_path tracks the NEWEST save; earlier synced
+            # saves stay on disk (full epoch harvest).
             _set(run, checkpoint_local_path=dest)
-            if prev and os.path.isfile(prev):
-                try:
-                    os.remove(prev)
-                except OSError:
-                    pass
     except Exception as e:
         logger.debug('mid-run checkpoint sync failed: %s', e)
 
@@ -988,25 +989,62 @@ def _import_result(run):
         logger.warning('cloud import into ComfyUI failed: %s', e)
 
 
-def _mirror_into_local_run(run):
-    """Copy the downloaded cloud checkpoint into the LOCAL ai-toolkit run dir,
-    renamed to the local convention (`lora_<trigger>[_<step>].safetensors`), so
-    cloud results behave exactly like local ones everywhere downstream: the
-    panel's checkpoint list, the Resume-or-Fresh prompt, Continue training.
-    (The user looked for the result in ai-toolkit/output and found it empty —
-    2026-07-13.) No-op when ai-toolkit isn't configured locally; best-effort,
-    never fails the run."""
+def _download_intermediates(run, remote):
+    """After the FINAL checkpoint landed (strict path), also pull the pod's
+    remaining intermediate saves — WITHOUT them a cloud run offered only its
+    last epoch while a local run offers max_step_saves of them to pick the
+    least-overfit one (user-observed parity gap, 2026-07-13). Best-effort per
+    file: a failed intermediate never degrades the run's outcome."""
     try:
-        if not run.checkpoint_local_path or not os.path.isfile(run.checkpoint_local_path):
+        files = [f for f in remote.list_files(run.remote_job_id)
+                 if f.get('path', '').endswith('.safetensors')]
+    except Exception as e:
+        logger.warning('intermediate listing failed: %s', e)
+        return
+    have = os.path.basename(run.checkpoint_local_path or '')
+    for f in files:
+        name = os.path.basename(f['path'].replace('\\', '/'))
+        if name == have:
+            continue
+        dest = os.path.join(run.staging_dir, name)
+        want = int(f.get('size') or 0)
+        try:
+            if os.path.isfile(dest) and (not want or os.path.getsize(dest) == want):
+                continue
+            remote.download_public_file(f['path'], dest,
+                                        expected_size=want or None, attempts=50)
+        except Exception as e:
+            logger.warning('intermediate %s not retrieved: %s', name, e)
+
+
+def _mirror_into_local_run(run):
+    """Copy the downloaded cloud checkpoints (final + retrieved intermediates)
+    into the LOCAL ai-toolkit run dir, renamed to the local convention
+    (`lora_<trigger>[_<step>].safetensors`), so cloud results behave exactly
+    like local ones everywhere downstream: the panel's checkpoint list, the
+    Resume-or-Fresh prompt, Continue training. No-op when ai-toolkit isn't
+    configured locally; best-effort, never fails the run."""
+    try:
+        if not run.staging_dir or not os.path.isdir(run.staging_dir):
             return
         params = json.loads(run.train_params or '{}')
         # cloud trains on the OFFICIAL base only -> base_model=''
         run_dir = lt._run_dir('local', run.dataset_id, base_model='',
                               family=params.get('train_type'))
         os.makedirs(run_dir, exist_ok=True)
-        src_name = os.path.basename(run.checkpoint_local_path)
-        m = re.search(r'_(\d{6,})\.safetensors$', src_name)
         base = os.path.basename(os.path.normpath(run_dir))     # lora_<trigger>
+        for src_name in sorted(os.listdir(run.staging_dir)):
+            if not src_name.lower().endswith('.safetensors'):
+                continue
+            _mirror_one(run, run_dir, base, src_name)
+    except Exception as e:
+        # RuntimeError from _run_dir = ai-toolkit not configured -> fine
+        logger.debug('local run-dir mirror skipped: %s', e)
+
+
+def _mirror_one(run, run_dir, base, src_name):
+    try:
+        m = re.search(r'_(\d{6,})\.safetensors$', src_name)
         dest_name = f'{base}_{m.group(1)}.safetensors' if m else f'{base}.safetensors'
         dest = os.path.join(run_dir, dest_name)
         if os.path.exists(dest):
@@ -1017,12 +1055,11 @@ def _mirror_into_local_run(run):
             logger.warning('local run dir already has %s — cloud mirror skipped '
                            '(local checkpoint left untouched)', dest_name)
             return
-        shutil.copy2(run.checkpoint_local_path, dest)
+        shutil.copy2(os.path.join(run.staging_dir, src_name), dest)
         logger.info('mirrored cloud checkpoint into local run dir: %s/%s',
                     run_dir, dest_name)
-    except Exception as e:
-        # RuntimeError from _run_dir = ai-toolkit not configured -> fine
-        logger.debug('local run-dir mirror skipped: %s', e)
+    except (OSError, re.error) as e:
+        logger.warning('mirror of %s skipped: %s', src_name, e)
 
 
 def _cost_estimate(run) -> float:
@@ -1186,28 +1223,33 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
 
 
 def cloud_checkpoints(dataset_id, train_type=None) -> list:
-    """Locally-synced cloud checkpoints of this dataset (+family filter), one
-    per run, newest run first — INCLUDING an in-progress run's latest synced
-    save (user-observed gap: step 1000 reached, save synced to staging, panel
-    list empty). Only files that actually exist are listed (hand-deleting in
-    Explorer must not yield 404 buttons)."""
+    """Locally-synced cloud checkpoints of this dataset (+family filter),
+    newest run first, step-sorted within a run — ALL the saves retrieved for a
+    finished run (final + intermediates, local parity: pick the least-overfit
+    epoch), and an in-progress run's latest synced save. Only files that
+    actually exist are listed (hand-deleting in Explorer must not 404)."""
     fam = fds.normalize_train_type(train_type) if train_type else None
     out = []
     for run in (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
                 .order_by(CloudTrainingRun.id.desc()).all()):
-        p = run.checkpoint_local_path
-        if not p or not os.path.isfile(p):
-            continue
         if fam and (_run_family(run) or fam) != fam:
             continue
-        name = os.path.basename(p)
-        m = re.search(r'_(\d{6,})\.safetensors$', name)
-        step = int(m.group(1)) if m else int(_run_param(run, 'steps') or 0)
-        out.append({'filename': name, 'step': step, 'cloud': True,
-                    'run_id': run.id, 'version': _run_param(run, 'version'),
-                    'final': bool(not m and run.status == 'done'),
-                    'active': run.status in ACTIVE_STATES,
-                    'trained_at': run.created_at.isoformat() if run.created_at else None})
+        if not run.staging_dir or not os.path.isdir(run.staging_dir):
+            continue
+        entries = []
+        for name in os.listdir(run.staging_dir):
+            if not name.lower().endswith('.safetensors'):
+                continue
+            m = re.search(r'_(\d{6,})\.safetensors$', name)
+            step = int(m.group(1)) if m else int(_run_param(run, 'steps') or 0)
+            entries.append({'filename': name, 'step': step, 'cloud': True,
+                            'run_id': run.id, 'version': _run_param(run, 'version'),
+                            'final': bool(not m and run.status == 'done'),
+                            'active': run.status in ACTIVE_STATES,
+                            'trained_at': run.created_at.isoformat()
+                                          if run.created_at else None})
+        entries.sort(key=lambda e: (e['step'], e['final']))
+        out.extend(entries)
     return out
 
 
