@@ -92,9 +92,17 @@ export default function CloudRunsPage() {
   return (
     <section className="flex flex-col gap-5">
       <header className="flex flex-col gap-1">
-        <h1 className="m-0 text-content text-xl font-bold">
-          <span aria-hidden>☁️</span> Cloud runs
-        </h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="m-0 text-content text-xl font-bold">
+            <span aria-hidden>☁️</span> Cloud runs
+          </h1>
+          {/* Escape hatch to the provider: see the pod's own console (billing,
+              logs, manual destroy) when something looks off app-side. */}
+          <a href="https://cloud.vast.ai/instances/" target="_blank" rel="noreferrer"
+            className="ml-auto text-xs font-medium text-sky-300 underline hover:text-sky-200">
+            Open the vast.ai console ↗
+          </a>
+        </div>
         <p className="m-0 text-content-muted text-sm">
           Every cloud training in one place — watch progress, stop a run, or download a finished LoRA.
         </p>
