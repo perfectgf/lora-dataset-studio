@@ -425,10 +425,11 @@ def dataset_analyze_faces(dataset_id):
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
     try:
-        counts = svc.analyze_faces(LOCAL_USER, dataset_id)
+        counts, scoring_error = svc.analyze_faces(LOCAL_USER, dataset_id)
     except Exception as e:
         return _map_error(e)
-    return jsonify({'ok': True, 'states': counts, 'analyzed': sum(counts.values())})
+    return jsonify({'ok': True, 'states': counts, 'analyzed': sum(counts.values()),
+                    'scoring_error': scoring_error})
 
 
 @bp.post('/dataset/image/<int:image_id>/status')

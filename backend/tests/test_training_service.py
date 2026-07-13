@@ -169,8 +169,8 @@ def test_score_checkpoint_samples_picks_best_step(app, tmp_path, monkeypatch):
         from app.services import face_similarity as fsim
         monkeypatch.setattr(fsim, 'is_available', lambda: True)
         monkeypatch.setattr(fsim, 'score_dataset_faces',
-                            lambda ref, paths, **kw: {p: {'state': 'scorable', 'sim': sims[p]}
-                                                      for p in paths})
+                            lambda ref, paths, **kw: ({p: {'state': 'scorable', 'sim': sims[p]}
+                                                       for p in paths}, None))
         r = lt.score_checkpoint_samples(LOCAL_USER, ds.id)
     assert r['available'] is True
     assert r['best_step'] == 500

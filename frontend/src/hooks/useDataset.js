@@ -332,6 +332,17 @@ export function useDataset() {
     try {
       const d = await postJson(`/api/dataset/${currentId}/analyze-faces`);
       if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+      // Un scorer cassé disait « 0 analyzed » en VERT : le backend remonte
+      // maintenant scoring_error {kind, detail} — dire POURQUOI.
+      if (d.scoring_error) {
+        const { kind, detail } = d.scoring_error;
+        toast.error(kind === 'unavailable'
+          ? 'Face scoring is not installed — run the Quality tools step in Setup.'
+          : kind === 'ref_unusable'
+            ? `The reference photo is not usable for scoring: ${detail}`
+            : `Face scoring failed: ${detail}`);
+        return;
+      }
       const grey = (d.states?.too_small || 0) + (d.states?.no_face || 0)
         + (d.states?.extreme_pose || 0) + (d.states?.low_det || 0);
       toast.success(`${d.analyzed} analyzed · ${d.states?.scorable || 0} scored, ${grey} not scorable`);

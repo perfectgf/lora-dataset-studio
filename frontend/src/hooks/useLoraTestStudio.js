@@ -72,8 +72,21 @@ export function useLoraTestStudio(datasetId, family = null) {
     try {
       const d = await postJson(`/api/dataset/${datasetId}/lora-test/score-faces`,
         family ? { family } : {});
-      if (d.ok) toast.success(`Face scoring done — ${d.scored}/${d.total} cell(s) scored`);
-      else toast.error(d.error || 'Scoring failed');
+      // Un scorer cassé disait « done — 0/14 » en VERT (user-reported) : le
+      // backend remonte maintenant scoring_error {kind, detail} — dire POURQUOI.
+      if (!d.ok) toast.error(d.error || 'Scoring failed');
+      else if (d.scoring_error) {
+        const { kind, detail } = d.scoring_error;
+        toast.error(kind === 'unavailable'
+          ? 'Face scoring is not installed — run the Quality tools step in Setup.'
+          : kind === 'ref_unusable'
+            ? `The reference photo is not usable for scoring: ${detail}`
+            : `Face scoring failed: ${detail}`);
+      } else if (!d.total) {
+        toast.info('Nothing to score yet — run a test with several checkpoints (same seed) first.');
+      } else {
+        toast.success(`Face scoring done — ${d.scored}/${d.total} cell(s) scored`);
+      }
       await refresh();
       return d;
     } finally {

@@ -57,7 +57,7 @@ def test_analyze_faces_maps_state_and_sim_onto_rows(app, monkeypatch):
         noisy_stdout = "some progress line\n[face] loading model\n" + json.dumps(contract)
         monkeypatch.setattr('app.services.face_similarity.subprocess.run',
                             lambda *a, **k: _Proc(noisy_stdout))
-        counts = svc.analyze_faces(LOCAL_USER, ds.id)
+        counts, _err = svc.analyze_faces(LOCAL_USER, ds.id)
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
         assert refreshed.face_state == 'scorable'
         assert refreshed.face_score == 0.62
@@ -76,7 +76,7 @@ def test_analyze_faces_ref_not_ok_returns_empty_and_no_row_change(app, monkeypat
         contract = {"ref_ok": False, "results": {}, "error": "ref unusable"}
         monkeypatch.setattr('app.services.face_similarity.subprocess.run',
                             lambda *a, **k: _Proc(json.dumps(contract)))
-        counts = svc.analyze_faces(LOCAL_USER, ds.id)
+        counts, _err = svc.analyze_faces(LOCAL_USER, ds.id)
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
         assert counts == {}
         assert refreshed.face_state is None
@@ -96,7 +96,8 @@ def test_score_dataset_faces_unavailable_returns_empty_without_subprocess(app, m
 
     monkeypatch.setattr('app.services.face_similarity.subprocess.run', _boom)
     with app.app_context():
-        assert fsim.score_dataset_faces('/does/not/matter', ['/also/not']) == {}
+        # inputs missing on disk -> ({}, None) before the availability check
+        assert fsim.score_dataset_faces('/does/not/matter', ['/also/not']) == ({}, None)
 
 
 def test_is_available_delegates_to_capability_probe(app, monkeypatch):
@@ -123,9 +124,10 @@ def test_analyze_faces_returns_cleanly_when_scorer_unavailable(app, monkeypatch)
     monkeypatch.setattr(fsim, 'is_available', lambda: False)
     with app.app_context():
         ds, img = _dataset_with_ref_and_kept_image(svc, LOCAL_USER)
-        counts = svc.analyze_faces(LOCAL_USER, ds.id)
+        counts, err = svc.analyze_faces(LOCAL_USER, ds.id)
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
         assert counts == {}
+        assert err and err['kind'] == 'unavailable'
         assert refreshed.face_state is None
 
 
@@ -197,9 +199,10 @@ def test_score_dataset_faces_native_crash_returns_empty_not_exception(app, monke
     monkeypatch.setattr('app.services.face_similarity.subprocess.run', _crash)
     with app.app_context():
         ds, img = _dataset_with_ref_and_kept_image(svc, LOCAL_USER)
-        counts = svc.analyze_faces(LOCAL_USER, ds.id)  # must not raise
+        counts, err = svc.analyze_faces(LOCAL_USER, ds.id)  # must not raise
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
         assert counts == {}
+        assert err and err['kind'] == 'failed' and 'interpreter died' in err['detail']
         assert refreshed.face_state is None
 
 
@@ -222,3 +225,55 @@ def test_dataset_payload_face_thresholds_default(app):
         ds = svc.create_dataset(LOCAL_USER, 'Default', 'default')
         payload = svc.dataset_payload(LOCAL_USER, ds.id)
         assert payload['face_thresholds'] == {'green': 0.50, 'orange': 0.45}
+
+
+def test_score_dataset_faces_crash_reports_stderr_tail(app, monkeypatch):
+    """A subprocess that dies with a traceback and no JSON must surface the
+    traceback's LAST LINE as the error detail — that line named the real
+    problem (nested antelopev2 AssertionError) in the field."""
+    import os, tempfile
+    from app.services import face_similarity as fsim
+
+    monkeypatch.setattr(fsim, 'is_available', lambda: True)
+    _stderr = ('Traceback (most recent call last):\n'
+               '  File "face_analysis.py", line 61\n'
+               'AssertionError')
+    monkeypatch.setattr(
+        'app.services.face_similarity.subprocess.run',
+        lambda *a, **k: _Proc('', stderr=_stderr, returncode=1))
+    with app.app_context():
+        with tempfile.TemporaryDirectory() as d:
+            ref = os.path.join(d, 'ref.png'); img_path = os.path.join(d, 'img.png')
+            for f in (ref, img_path):
+                with open(f, 'wb') as fh:
+                    fh.write(_png())
+            results, err = fsim.score_dataset_faces(ref, [img_path])
+    assert results == {}
+    assert err['kind'] == 'failed' and err['detail'] == 'AssertionError'
+
+
+def test_score_faces_payload_carries_scoring_error(app, monkeypatch):
+    """The Studio route payload must carry scoring_error so the toast can say
+    WHY instead of a green « done — 0/N » (user-reported)."""
+    import os
+    from app.services import face_dataset_service as svc
+    from app.services import lora_test_studio as studio
+    from app.models import LoraTestImage
+    from app.config import LOCAL_USER
+
+    monkeypatch.setattr(
+        'app.services.face_similarity.score_dataset_faces',
+        lambda ref, paths, timeout=900: ({}, {'kind': 'failed', 'detail': 'AssertionError'}))
+    with app.app_context():
+        ds, img = _dataset_with_ref_and_kept_image(svc, LOCAL_USER)
+        cell_path = os.path.join(svc._dataset_dir(ds.id), 'cell.webp')
+        with open(cell_path, 'wb') as fh:
+            fh.write(_png())
+        svc.db.session.add(LoraTestImage(dataset_id=ds.id, status='done',
+                                         filename='cell.webp',
+                                         checkpoint='lora_x_000000250.safetensors',
+                                         prompt='p', seed=1, strength=1.0))
+        svc.db.session.commit()
+        out = studio.score_faces(LOCAL_USER, ds.id)
+    assert out['scored'] == 0 and out['total'] == 1
+    assert out['scoring_error'] == {'kind': 'failed', 'detail': 'AssertionError'}

@@ -14,6 +14,31 @@ DET_MIN, BBOX_MIN, YAW_MAX = 0.50, 0.06, 40.0
 def _log(m): print(m, file=sys.stderr, flush=True)
 
 
+def _repair_nested_antelopev2(models_root=None):
+    """L'antelopev2.zip d'insightface 0.7.3 contient un DOSSIER RACINE (contrairement
+    a buffalo_l) : l'auto-extract pose les .onnx dans .../models/antelopev2/antelopev2/,
+    or FaceAnalysis globbe NON-recursivement -> 0 modele charge -> AssertionError
+    (`'detection' in self.models`). CHAQUE install fraiche en auto-download est
+    touchee, et ca ne s'auto-repare jamais (le dossier externe existe, insightface
+    ne re-telecharge pas). On aplatit une fois pour toutes ici."""
+    import glob, os, shutil
+    root = models_root or os.path.join(os.path.expanduser('~'), '.insightface')
+    outer = os.path.join(root, 'models', 'antelopev2')
+    inner = os.path.join(outer, 'antelopev2')
+    if not os.path.isdir(inner) or glob.glob(os.path.join(outer, '*.onnx')):
+        return
+    moved = 0
+    for f in glob.glob(os.path.join(inner, '*.onnx')):
+        shutil.move(f, outer)
+        moved += 1
+    try:
+        os.rmdir(inner)
+    except OSError:
+        pass  # reliquats (zip...) — sans consequence
+    if moved:
+        _log(f"[face] repaired nested antelopev2 layout ({moved} model(s) moved up)")
+
+
 def main() -> int:
     raw = sys.stdin.read()
     try:
@@ -27,13 +52,21 @@ def main() -> int:
 
     import numpy as np, cv2
     from insightface.app import FaceAnalysis
-    if models_root:
-        app = FaceAnalysis(name='antelopev2', root=models_root,
-                           providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-    else:  # pas de models_root configure -> auto-download vers ~/.insightface
-        app = FaceAnalysis(name='antelopev2',
-                           providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-    app.prepare(ctx_id=0, det_size=(640, 640))
+    _repair_nested_antelopev2(models_root)
+    try:
+        if models_root:
+            app = FaceAnalysis(name='antelopev2', root=models_root,
+                               providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        else:  # pas de models_root configure -> auto-download vers ~/.insightface
+            app = FaceAnalysis(name='antelopev2',
+                               providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        app.prepare(ctx_id=0, det_size=(640, 640))
+    except Exception as e:
+        # Un crash de chargement (modeles absents/corrompus) doit sortir en JSON
+        # propre — pas en traceback muet que le parent resume en « pas de JSON ».
+        print(json.dumps({"ref_ok": False, "results": {},
+                          "error": f"model load failed: {type(e).__name__}: {e}"}))
+        return 1
     import onnxruntime as ort
     _log(f"[face] providers: {ort.get_available_providers()}")
 

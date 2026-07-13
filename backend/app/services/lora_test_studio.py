@@ -1656,9 +1656,11 @@ def score_faces(user_id, dataset_id, family=None) -> dict:
         if os.path.exists(p):
             by_path[p] = r
     if not by_path:
-        return {'scored': 0, 'total': 0, 'ranking': []}
+        return {'scored': 0, 'total': 0, 'scoring_error': None, 'ranking': []}
     from .face_similarity import score_dataset_faces
-    results = score_dataset_faces(ref_path, list(by_path.keys()))
+    # scoring_error ({kind, detail} | None) remonte jusqu'au toast : un scorer
+    # cassé doit dire POURQUOI, pas « done — 0/14 » en vert (user-reported).
+    results, scoring_error = score_dataset_faces(ref_path, list(by_path.keys()))
     scored = 0
     for p, r in by_path.items():
         res = results.get(p)
@@ -1670,7 +1672,8 @@ def score_faces(user_id, dataset_id, family=None) -> dict:
     db.session.commit()
     logger.info(f"lora-test: score-faces dataset {dataset_id} ({eff}) -> "
                 f"{scored}/{len(by_path)} cellule(s) scorée(s)")
-    return {'scored': scored, 'total': len(by_path), 'ranking': face_ranking(dataset_id, eff)}
+    return {'scored': scored, 'total': len(by_path), 'scoring_error': scoring_error,
+            'ranking': face_ranking(dataset_id, eff)}
 
 
 def face_ranking(dataset_id, family) -> list:

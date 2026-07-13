@@ -1755,7 +1755,9 @@ def analyze_faces(user_id, dataset_id) -> dict:
         from .face_similarity import score_dataset_faces
     except ImportError:
         raise RuntimeError('face scoring service not configured/available yet')
-    results = score_dataset_faces(ref_path, list(by_path.keys()))
+    # scoring_error ({kind, detail} | None) remonte jusqu'au toast : un scorer
+    # cassé doit dire POURQUOI, pas « 0 analyzed » en vert.
+    results, scoring_error = score_dataset_faces(ref_path, list(by_path.keys()))
     counts = {}
     for p, img in by_path.items():
         r = results.get(p)
@@ -1765,7 +1767,7 @@ def analyze_faces(user_id, dataset_id) -> dict:
         img.face_score = r.get('sim')   # None si non-scorable
         db.session.commit()
         counts[img.face_state] = counts.get(img.face_state, 0) + 1
-    return counts
+    return counts, scoring_error
 
 
 # --- Fan-out generation (Klein edit) ---------------------------------------
