@@ -171,7 +171,7 @@ def test_dataset_lora_test_run_missing_assets_returns_structured_409(client, mon
     def boom(*a, **k):
         raise lts.StudioAssetsMissing(
             'sdxl', [{'path': 'models/loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors',
-                      'kind': 'LoRA'}], ['HttpNotifyNode'])
+                      'kind': 'LoRA'}], ['DetailDaemonSamplerNode'])
     monkeypatch.setattr('app.services.lora_test_studio.create_run', boom)
     resp = client.post(f'/api/dataset/{ds_id}/lora-test/run',
                        json={'checkpoints': ['x'], 'strengths': [1.0]})
@@ -180,7 +180,7 @@ def test_dataset_lora_test_run_missing_assets_returns_structured_409(client, mon
     assert body['ok'] is False
     sm = body['studio_missing']
     assert sm['family'] == 'sdxl'
-    assert sm['nodes'] == ['HttpNotifyNode']
+    assert sm['nodes'] == ['DetailDaemonSamplerNode']
     assert sm['files'][0]['path'] == 'models/loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors'
     assert 'SDXL' in body['error']  # human-readable, actionable summary
 

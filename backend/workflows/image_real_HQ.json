@@ -273,30 +273,17 @@
       "title": "PatchModelAddDownscale (Kohya Deep Shrink)"
     }
   },
-  "65": {
+  "9": {
     "inputs": {
-      "flask_url": "http://localhost:5000/api/comfyui/notify",
-      "notification_type": "custom",
-      "video_path": "",
-      "job_id": "",
-      "user_id": "",
-      "prompt_text": "",
-      "custom_message": "",
-      "include_file_info": false,
-      "save_image": true,
-      "filename_prefix": "HQ_GeneratedImage",
-      "auth_token": "",
-      "action_on_finish": "nothing",
-      "shutdown_delay_seconds": 3,
-      "extra_data": "{}",
-      "image_input": [
+      "filename_prefix": "SDXL_LoraTest",
+      "images": [
         "61",
         0
       ]
     },
-    "class_type": "HttpNotifyNode",
+    "class_type": "SaveImage",
     "_meta": {
-      "title": "HTTP Notify Node"
+      "title": "Save Image"
     }
   }
 }

@@ -556,3 +556,84 @@ def test_run_owned_and_owned_test_image_are_single_user_no_ops(app):
         svc.db.session.commit()
         assert lts._owned_test_image('some-other-user', img.id) is not None
         assert lts._owned_test_image(LOCAL_USER, 999999) is None
+
+
+# --- P2: no private HttpNotifyNode in embedded workflows ----------------------
+
+def _all_workflow_files():
+    from app.services import lora_test_studio as lts
+    import glob, os
+    wf_dir = os.path.join(str(lts.cfg.BACKEND_DIR), 'workflows')
+    return sorted(glob.glob(os.path.join(wf_dir, '*.json')))
+
+
+def test_no_embedded_workflow_references_httpnotifynode():
+    """The private `HttpNotifyNode` (a vestige of another app that POSTs to a
+    hardcoded localhost:5000 and that no fresh user owns) must not appear in ANY
+    embedded workflow — otherwise the studio preflight flags it as missing and the
+    SDXL grid silently produces nothing on a clean install."""
+    import json
+    offenders = []
+    for p in _all_workflow_files():
+        with open(p, encoding='utf-8') as f:
+            data = json.load(f)
+        for node in data.values():
+            if isinstance(node, dict) and node.get('class_type') == 'HttpNotifyNode':
+                offenders.append(p)
+    assert offenders == [], f'HttpNotifyNode still present in: {offenders}'
+
+
+def test_sdxl_workflow_has_saveimage_wired_to_decoded_image():
+    """image_real_HQ.json (SDXL) must end in a standard SaveImage fed by the final
+    VAEDecode — so its result lands in ComfyUI history (type='output') and is fetched
+    by the same history/`/view` path as Z-Image/Krea/Klein. Its default filename_prefix
+    must be meaningful (the private node's was the unrelated 'HQ_GeneratedImage')."""
+    import json
+    from app.services import lora_test_studio as lts
+    with open(str(lts.WORKFLOW_HQ_PATH), encoding='utf-8') as f:
+        data = json.load(f)
+    saves = [(nid, n) for nid, n in data.items()
+             if isinstance(n, dict) and n.get('class_type') == 'SaveImage']
+    assert len(saves) == 1, 'SDXL workflow must have exactly one SaveImage'
+    nid, save = saves[0]
+    src = save['inputs']['images']
+    assert isinstance(src, list) and len(src) == 2
+    src_node = data.get(src[0])
+    assert src_node and src_node.get('class_type') == 'VAEDecode'
+    assert save['inputs'].get('filename_prefix')  # non-empty, meaningful
+
+
+def test_sdxl_builder_filename_prefix_actually_reaches_saveimage(app):
+    """Regression: `apply_sdxl_lora_test_settings` set filename_prefix on node id '9',
+    which used to NOT EXIST in the workflow (the sole output was HttpNotifyNode/'65')
+    → the per-cell prefix was a silent no-op and every cell reused ComfyUI's counter
+    names (browser-cache collisions across LoRAs). The SaveImage now lives at node '9',
+    so the prefix must land on it."""
+    import json
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        with open(str(lts.WORKFLOW_HQ_PATH), encoding='utf-8') as f:
+            data = json.load(f)
+        lts.apply_sdxl_lora_test_settings(
+            data, base_ckpt='Biglove\\base.safetensors',
+            lora_name='sdxl\\lora_nova_000001000.safetensors', strength=1.0,
+            prompt='p', seed=1, width=1024, height=1024,
+            filename_prefix='local_d7_LoraTest_abcd1234')
+        save = next(n for n in data.values()
+                    if isinstance(n, dict) and n.get('class_type') == 'SaveImage')
+        assert save['inputs']['filename_prefix'] == 'local_d7_LoraTest_abcd1234'
+
+
+def test_sdxl_preflight_scan_drops_httpnotify_keeps_detaildaemon():
+    """The preflight's class-type scan of the SDXL workflow must no longer surface
+    HttpNotifyNode (so a fresh user is never told to install a node nobody ships),
+    while DetailDaemonSamplerNode — a FUNCTIONAL custom node the graph really needs —
+    stays required, and SaveImage (core) is present."""
+    import json
+    from app.services import lora_test_studio as lts
+    with open(str(lts.WORKFLOW_HQ_PATH), encoding='utf-8') as f:
+        data = json.load(f)
+    _missing, classes = lts._scan_workflow_assets(data, None)
+    assert 'HttpNotifyNode' not in classes
+    assert 'SaveImage' in classes
+    assert 'DetailDaemonSamplerNode' in classes

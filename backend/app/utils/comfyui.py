@@ -550,7 +550,7 @@ def fetch_output_image_bytes(filename, subfolder='', timeout=30):
 def fetch_object_info_classes(timeout=8):
     """Set of node `class_type` names the target ComfyUI exposes = the KEYS of
     `GET /object_info`. Used by the Studio preflight to tell a required CUSTOM
-    node (e.g. the Krea rebalance / detail-daemon / notify nodes a workflow
+    node (e.g. the Krea rebalance / detail-daemon nodes a workflow
     hardcodes) apart from a missing one BEFORE firing a grid every tile of which
     would fail ComfyUI validation.
 

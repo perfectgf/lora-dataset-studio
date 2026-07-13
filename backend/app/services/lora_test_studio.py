@@ -732,7 +732,7 @@ def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=No
 # --- Studio preflight (model files on disk + custom nodes in ComfyUI) ---------
 # Klein already preflights its assets (KleinModelsMissing → 409 + auto-download);
 # Krea/SDXL/Z-Image did NOT — the studio workflows hardcode the developer's own
-# VAE / text-encoder / accelerator-LoRA / notify-node names (none of which exist on
+# VAE / text-encoder / accelerator-LoRA names (none of which exist on
 # a fresh install), so a fresh user launched a grid and every tile failed ComfyUI
 # validation SILENTLY (empty grid, no reason). This block gives each family the
 # same up-front check: verify (a) every model file the BUILT workflow references
