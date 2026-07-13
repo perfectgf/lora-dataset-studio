@@ -1,0 +1,17 @@
+name: 💡 Feature request
+description: An idea that would make the studio better.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The job you're doing when you miss this feature — the problem matters more than the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: false

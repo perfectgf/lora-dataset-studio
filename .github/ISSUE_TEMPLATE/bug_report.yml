@@ -1,0 +1,45 @@
+name: 🐛 Bug report
+description: Something broke or behaves wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tip: the app can write most of this for you — open **Guide → Getting help → Copy diagnostic report** and paste it below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead.
+      placeholder: |
+        1. Created a character dataset and clicked Train
+        2. Expected the run to start
+        3. Got "No SDXL checkpoint found"
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: Diagnostic report
+      description: In the app — Guide → Getting help → “Copy diagnostic report” — then paste here. Includes version, OS, capability status and the log tail; no API keys, no folder paths.
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: App version (if no diagnostic report)
+      placeholder: e.g. 2026.07.13 (755b3be) — shown in Settings → Maintenance
+    validations:
+      required: false
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Run mode
+      options:
+        - API-only (no ComfyUI / ai-toolkit)
+        - Full local (ComfyUI and/or ai-toolkit)
+        - Docker
+        - Not sure
+    validations:
+      required: false
