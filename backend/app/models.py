@@ -331,3 +331,20 @@ class TrainingRunRecord(db.Model):
     manifest = db.Column(db.Text)                           # JSON, see docstring
     version = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class TrainingPreset(db.Model):
+    """Named, shareable snapshot of the ⚙️ advanced training settings.
+
+    `settings` stores the RAW explicit keys (the same blob shape as
+    face_dataset.train_settings) — validation happens at APPLY time through
+    the per-key update_train_settings path, so a preset exported by a newer
+    (or older) app version applies gracefully: unknown keys are ignored and
+    invalid values reported, never fatal. Import/export is a JSON file built
+    around this row. New table — created by db.create_all()."""
+    __tablename__ = 'training_preset'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False, unique=True)
+    train_type = db.Column(db.String(16), nullable=False, default='zimage')
+    settings = db.Column(db.Text, nullable=False, default='{}')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

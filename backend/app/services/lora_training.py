@@ -665,6 +665,48 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
     return effective_train_settings(ds)
 
 
+# Every key update_train_settings knows how to validate — KEEP IN SYNC when a
+# new expert lever is added above. This is what makes presets schema-tolerant:
+# a preset key outside this list is IGNORED (and reported), never fatal.
+TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
+                      'sample_every', 'sample_prompts', 'dropout', 'alpha',
+                      'timestep_type', 'optimizer', 'lr_scheduler', 'warmup',
+                      'grad_accum')
+
+
+def snapshot_train_settings(user_id, dataset_id) -> dict:
+    """The dataset's RAW explicit settings (what a preset captures) — only the
+    keys the user actually changed, not the effective/derived view."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    return _train_settings(ds)
+
+
+def apply_train_settings_dict(user_id, dataset_id, settings: dict):
+    """REPLACE the dataset's explicit settings with a preset's dict, running
+    every key through the validated update_train_settings path. Content is
+    never fatal: unknown keys (newer/older app versions) are ignored, invalid
+    values collected — both reported so the UI can say what didn't land.
+    Returns (effective_settings, ignored_keys, rejected)."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    ignored = sorted(k for k in settings if k not in TRAIN_SETTING_KEYS)
+    rejected = []
+    ds.train_settings = None          # a preset REPLACES, it doesn't overlay
+    fds.db.session.commit()
+    for k in TRAIN_SETTING_KEYS:
+        if k not in settings:
+            continue
+        try:
+            update_train_settings(user_id, dataset_id, {k: settings[k]})
+        except ValueError as e:
+            rejected.append({'key': k, 'reason': str(e)})
+    return (effective_train_settings(fds.get_dataset(user_id, dataset_id)),
+            ignored, rejected)
+
+
 def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
     """Deployment-name suffix, family-aware. Like _base_tag, but for Krea
     (which has no base column - always Krea-2-Turbo) falls back to a constant tag

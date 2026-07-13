@@ -400,6 +400,105 @@ def dataset_train_settings(dataset_id):
     return jsonify({'ok': True, 'train_settings': eff})
 
 
+# --- Training presets ---------------------------------------------------------
+# Named, shareable snapshots of the advanced settings. Stored AS-IS (raw keys);
+# validation happens at APPLY time through the per-key path, so a preset file
+# from another app version degrades gracefully (unknown keys ignored, invalid
+# values reported). No ai-toolkit gate: presets are pure configuration.
+
+def _preset_payload(p):
+    import json
+    try:
+        settings = json.loads(p.settings or '{}')
+    except ValueError:
+        settings = {}
+    return {'id': p.id, 'name': p.name, 'train_type': p.train_type,
+            'settings': settings}
+
+
+@bp.get('/train/presets')
+def train_presets_list():
+    from ..models import TrainingPreset
+    rows = TrainingPreset.query.order_by(TrainingPreset.name).all()
+    return jsonify({'presets': [_preset_payload(p) for p in rows]})
+
+
+@bp.post('/train/presets')
+def train_presets_save():
+    """Create or overwrite (by name). Two sources: `dataset_id` snapshots that
+    dataset's current explicit settings (the 💾 Save-current path); `settings`
+    stores an explicit dict (the ⬆ import path)."""
+    import json
+    from ..extensions import db
+    from ..models import TrainingPreset
+    d = request.get_json(silent=True) or {}
+    name = (d.get('name') or '').strip()[:80]
+    if not name:
+        return jsonify({'error': 'name required'}), 400
+    train_type = (d.get('train_type') or '').strip() or None
+    if d.get('dataset_id') is not None:
+        ds = svc.get_dataset(LOCAL_USER, d['dataset_id'])
+        if not ds:
+            return jsonify({'error': 'dataset not found'}), 404
+        settings = lt.snapshot_train_settings(LOCAL_USER, ds.id)
+        train_type = train_type or (ds.train_type or 'zimage')
+    else:
+        settings = d.get('settings')
+        if not isinstance(settings, dict):
+            return jsonify({'error': "'settings' must be an object"}), 400
+    row = TrainingPreset.query.filter_by(name=name).first()
+    created = row is None
+    if created:
+        row = TrainingPreset(name=name)
+        db.session.add(row)
+    row.train_type = train_type or 'zimage'
+    row.settings = json.dumps(settings)
+    db.session.commit()
+    return jsonify({'ok': True, 'created': created, **_preset_payload(row)})
+
+
+@bp.delete('/train/presets/<int:preset_id>')
+def train_presets_delete(preset_id):
+    from ..extensions import db
+    from ..models import TrainingPreset
+    row = db.session.get(TrainingPreset, preset_id)
+    if not row:
+        return jsonify({'error': 'not found'}), 404
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/presets/apply')
+def dataset_train_preset_apply(dataset_id):
+    """Replace the dataset's advanced settings with a preset's ({preset_id})
+    or with a raw dict ({settings}). Returns the effective settings plus what
+    was ignored (unknown keys) and rejected (invalid values) — never fatal on
+    content, so old exports keep working as the app evolves."""
+    import json
+    from ..extensions import db
+    from ..models import TrainingPreset
+    d = request.get_json(silent=True) or {}
+    if d.get('preset_id') is not None:
+        row = db.session.get(TrainingPreset, int(d['preset_id']))
+        if not row:
+            return jsonify({'error': 'unknown preset'}), 404
+        try:
+            settings = json.loads(row.settings or '{}')
+        except ValueError:
+            settings = {}
+    else:
+        settings = d.get('settings')
+        if not isinstance(settings, dict):
+            return jsonify({'error': "'settings' must be an object"}), 400
+    try:
+        eff, ignored, rejected = lt.apply_train_settings_dict(LOCAL_USER, dataset_id, settings)
+    except ValueError as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'train_settings': eff,
+                    'ignored': ignored, 'rejected': rejected})
+
+
 @bp.post('/dataset/<int:dataset_id>/train/prepare-base')
 def dataset_train_prepare_base(dataset_id):
     """Convertit un merge ComfyUI en diffusers (thread d'arrière-plan) pour

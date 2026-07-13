@@ -53,6 +53,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Textarea des prompts de preview : état local (édition libre), sauvé au blur —
   // resynchronisé sur la valeur stockée canonique chaque fois que `adv` arrive/change.
   const [samplePromptsText, setSamplePromptsText] = useState('');
+  // Presets de réglages avancés : snapshots nommés, partageables (fichier JSON).
+  // Stockés bruts côté serveur ; la validation se fait à l'APPLICATION (clés
+  // inconnues ignorées, valeurs invalides signalées) → tolérant aux versions.
+  const [presets, setPresets] = useState([]);
+  const [presetSel, setPresetSel] = useState('');
+  const presetFileRef = useRef(null);
 
   const refreshStatus = async () => {
     try {
@@ -181,6 +187,77 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     const stored = (adv?.sample_prompts ?? []).join('\n');
     if (samplePromptsText === stored) return;      // no-op → skip the round-trip
     saveAdv({ sample_prompts: samplePromptsText }); // server splits on newlines + trims
+  };
+
+  // --- Presets (save / apply / import / export / delete) ---------------------
+  const loadPresets = async () => {
+    try {
+      const r = await fetch('/api/train/presets', { credentials: 'include' });
+      if (r.ok) setPresets((await r.json()).presets || []);
+    } catch { /* list is best-effort */ }
+  };
+  useEffect(() => { loadPresets(); }, []);
+  const selPreset = presets.find((p) => String(p.id) === presetSel) || null;
+  const savePreset = async () => {
+    const name = window.prompt('Preset name (an existing name is overwritten):');
+    if (!name || !name.trim()) return;
+    const d = await postTrain('/api/train/presets',
+      { name: name.trim(), dataset_id: ds.currentId, train_type: trainType });
+    if (d.ok === false) return toastTrainError(d, 'Preset save failed');
+    toast.success(`Preset “${name.trim()}” saved.`);
+    loadPresets();
+  };
+  const applyPreset = async () => {
+    if (!selPreset) return;
+    const d = await postTrain(`/api/dataset/${ds.currentId}/train/presets/apply`,
+      { preset_id: selPreset.id });
+    if (d.ok === false) return toastTrainError(d, 'Preset apply failed');
+    setAdv(d.train_settings);
+    const notes = [];
+    if (d.ignored?.length) notes.push(`unknown here, ignored: ${d.ignored.join(', ')}`);
+    if (d.rejected?.length) notes.push(`rejected: ${d.rejected.map((r) => r.key).join(', ')}`);
+    if (notes.length) toast.warning(`Preset applied — ${notes.join(' · ')}`);
+    else toast.success(`Preset “${selPreset.name}” applied.`);
+  };
+  const exportPreset = () => {
+    if (!selPreset) return;
+    const blob = new Blob([JSON.stringify({
+      app: 'lora-dataset-studio', kind: 'training-preset', version: 1,
+      name: selPreset.name, train_type: selPreset.train_type,
+      settings: selPreset.settings,
+    }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `lds-training-preset-${selPreset.name.replace(/[^\w.-]+/g, '_')}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const importPreset = async (file) => {
+    try {
+      const j = JSON.parse(await file.text());
+      if (j?.kind !== 'training-preset' || !j.name || typeof j.settings !== 'object' || !j.settings) {
+        toast.error('Not a training-preset file (expected kind: "training-preset").');
+        return;
+      }
+      const d = await postTrain('/api/train/presets',
+        { name: String(j.name), train_type: j.train_type || trainType, settings: j.settings });
+      if (d.ok === false) return toastTrainError(d, 'Preset import failed');
+      toast.success(`Preset “${j.name}” imported — select it and Apply.`);
+      loadPresets();
+    } catch {
+      toast.error('Unreadable preset file.');
+    }
+  };
+  const deletePreset = async () => {
+    if (!selPreset) return;
+    if (!window.confirm(`Delete the preset “${selPreset.name}”?`)) return;
+    try {
+      await fetch(`/api/train/presets/${selPreset.id}`, {
+        method: 'DELETE', headers: { 'X-CSRFToken': getCsrfToken() }, credentials: 'include',
+      });
+    } catch { /* the reload below shows the truth either way */ }
+    setPresetSel('');
+    loadPresets();
   };
 
   // Normalizes like useDataset's own postJson: a non-2xx response (e.g. the
@@ -677,10 +754,56 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
           ⚙️ Advanced options
           <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
-            base &amp; variant · rank · resolution · masked · steps · scheduling
+            base &amp; variant · rank · resolution · masked · steps · scheduling · presets
           </span>
         </summary>
         <div className="px-3 pt-1 flex flex-col gap-2">
+          {/* --- Presets : réglages nommés, ré-applicables et partageables en JSON.
+               Appliquer REMPLACE les réglages explicites du dataset ; les clés
+               inconnues d'un fichier importé sont ignorées (tolérance de version). --- */}
+          <div className="flex items-center gap-1.5 flex-wrap rounded-lg border border-border bg-app/40 px-2 py-1.5">
+            <span className="text-content-muted text-[0.625rem] uppercase">Presets</span>
+            <select value={presetSel} onChange={(e) => setPresetSel(e.target.value)}
+              aria-label="Training preset"
+              className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[220px]">
+              <option value="">— pick a preset —</option>
+              {presets.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} ({p.train_type})</option>
+              ))}
+            </select>
+            <button type="button" onClick={applyPreset} disabled={!selPreset}
+              title="Replace this dataset's advanced settings with the selected preset"
+              className="px-2.5 py-1 rounded-lg bg-primary/20 border border-primary/40 text-white text-[0.75rem] font-semibold disabled:opacity-40">
+              Apply
+            </button>
+            <span className="mx-0.5 text-content-subtle" aria-hidden>·</span>
+            <button type="button" onClick={savePreset}
+              title="Save this dataset's current advanced settings as a named preset"
+              className="px-2.5 py-1 rounded-lg bg-surface-raised border border-border text-content text-[0.75rem]">
+              💾 Save current…
+            </button>
+            <button type="button" onClick={() => presetFileRef.current?.click()}
+              title="Import a preset from a JSON file (exported from any app version — unknown options are ignored at apply time)"
+              className="px-2.5 py-1 rounded-lg bg-surface-raised border border-border text-content text-[0.75rem]">
+              ⬆ Import
+            </button>
+            <button type="button" onClick={exportPreset} disabled={!selPreset}
+              title="Download the selected preset as a shareable JSON file"
+              className="px-2.5 py-1 rounded-lg bg-surface-raised border border-border text-content text-[0.75rem] disabled:opacity-40">
+              ⬇ Export
+            </button>
+            <button type="button" onClick={deletePreset} disabled={!selPreset}
+              title="Delete the selected preset"
+              className="px-2 py-1 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-[0.75rem] disabled:opacity-40">
+              🗑
+            </button>
+            <input ref={presetFileRef} type="file" accept=".json,application/json" className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importPreset(f);
+                e.target.value = '';
+              }} />
+          </div>
           {/* --- Base d'entraînement : officielle (recommandé) ou merge ComfyUI custom.
                Affichée MÊME pendant un training en cours → choisir la base du job mis
                en file (sinon « Mettre en file » réutilisait silencieusement la base persistée). --- */}
