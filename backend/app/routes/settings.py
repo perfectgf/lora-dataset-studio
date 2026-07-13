@@ -100,6 +100,9 @@ def test_connection(target):
 # repo private, no release yet) — never an error, never a blocker.
 _UPDATE_TTL = 6 * 3600
 _update_cache = {'ts': 0.0, 'data': None}
+# Auto-detection (nav badge): the git fetch is allowed but CACHED — the SPA
+# asks on every load, the network is hit at most once per TTL.
+_git_check_cache = {'ts': 0.0, 'data': None}
 
 
 @bp.get('/update/check')
@@ -109,13 +112,20 @@ def update_check():
     from ..version import APP_VERSION
     from ..services import updater
     force = bool(request.args.get('force'))
+    auto = bool(request.args.get('auto'))
     # A git checkout: the meaningful signal is commits-behind-origin (the user pushes
     # commits to a branch, not tagged releases — a release-only check reads "up to date"
-    # while the tree is many commits behind). Only fetch on an explicit check (force),
-    # never from the passive startup banner, which must not hit the network every load.
-    if force and updater.is_git_checkout():
+    # while the tree is many commits behind). The fetch runs on an explicit check
+    # (force, always fresh) or an auto check (nav badge — served from a TTL cache so
+    # SPA loads don't hammer the network); never from the bare passive path.
+    if (force or auto) and updater.is_git_checkout():
+        now = time.time()
+        if auto and not force and _git_check_cache['data'] is not None \
+                and (now - _git_check_cache['ts']) < _UPDATE_TTL:
+            return jsonify(_git_check_cache['data'])
         gs = updater.git_update_status()
         if gs is not None:
+            _git_check_cache.update(ts=now, data=gs)
             return jsonify(gs)
     now = time.time()
     if (_update_cache['data'] is not None and (now - _update_cache['ts']) < _UPDATE_TTL
@@ -156,8 +166,9 @@ def update_apply():
     res = updater.apply_update()
     res['restarting'] = bool(res.get('ok') and res.get('changed'))
     if res['restarting']:
-        # invalidate the cached release check so the banner re-evaluates post-update
+        # invalidate the cached checks so the banner/badge re-evaluate post-update
         _update_cache.update(ts=0.0, data=None)
+        _git_check_cache.update(ts=0.0, data=None)
         updater.schedule_restart()
     return jsonify(res)
 

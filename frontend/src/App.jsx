@@ -23,15 +23,40 @@ const navItemClass = ({ isActive }) =>
 
 /** Nav action (right of Settings): force an update check and give immediate
  * feedback — a toast when up to date, and the actionable UpdateBanner (with the
- * one-click "Update & restart") when there is an update. */
+ * one-click "Update & restart") when there is an update.
+ * AUTO-DETECTION: on mount (and every 6 h while the tab stays open) it runs the
+ * git-aware check — server-side TTL cache keeps the network cost to one fetch
+ * per 6 h across all page loads. An available update lights a dot on the button
+ * and surfaces the UpdateBanner without any click. */
 function CheckUpdatesButton() {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const [available, setAvailable] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const autoCheck = async () => {
+      try {
+        const d = await apiFetch('/api/update/check?auto=1')
+        if (!alive) return
+        setAvailable(!!d?.update_available)
+        // The dot always lights up; the banner only surfaces if the user
+        // hasn't dismissed it this session (manual checks clear the flag).
+        if (d?.update_available
+            && sessionStorage.getItem('updateBannerDismissed') !== '1') {
+          window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
+        }
+      } catch { /* offline — the manual button stays available */ }
+    }
+    autoCheck()
+    const t = setInterval(autoCheck, 6 * 3600 * 1000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
   const check = async () => {
     if (busy) return
     setBusy(true)
     try {
       const d = await apiFetch('/api/update/check?force=1')
+      setAvailable(!!d?.update_available)
       if (d?.update_available) {
         sessionStorage.removeItem('updateBannerDismissed')     // re-show even if dismissed
         window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
@@ -48,10 +73,16 @@ function CheckUpdatesButton() {
     }
   }
   return (
-    <button type="button" onClick={check} disabled={busy} title="Check for updates"
-      className={`${NAV_ITEM_BASE} text-content-muted hover:text-content hover:bg-surface-raised disabled:opacity-50`}>
+    <button type="button" onClick={check} disabled={busy}
+      title={available ? 'Update available — click to review' : 'Check for updates'}
+      className={`${NAV_ITEM_BASE} relative ${available
+        ? 'text-emerald-300 hover:text-emerald-200'
+        : 'text-content-muted hover:text-content'} hover:bg-surface-raised disabled:opacity-50`}>
       <span aria-hidden>{busy ? '⏳' : '⬆'}</span>
-      <span className="sr-only">Check for updates</span>
+      {available && (
+        <span aria-hidden className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+      )}
+      <span className="sr-only">{available ? 'Update available' : 'Check for updates'}</span>
     </button>
   )
 }

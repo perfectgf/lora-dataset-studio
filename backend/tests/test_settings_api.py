@@ -90,8 +90,10 @@ def test_test_connection_unknown_target(client):
 def _reset_update_cache():
     from app.routes import settings as sroutes
     sroutes._update_cache.update(ts=0.0, data=None)
+    sroutes._git_check_cache.update(ts=0.0, data=None)
     yield
     sroutes._update_cache.update(ts=0.0, data=None)
+    sroutes._git_check_cache.update(ts=0.0, data=None)
 
 
 class _FakeResp:
@@ -121,6 +123,38 @@ def test_update_check_same_version_and_cache(client, monkeypatch, _reset_update_
     assert d['update_available'] is False and d['latest'] == APP_VERSION
     client.get('/api/update/check')          # second call served from the 6h cache
     assert len(calls) == 1
+
+
+def test_update_check_auto_fetches_git_then_serves_cache(client, monkeypatch, _reset_update_cache):
+    """auto=1 (nav badge): the git-aware check RUNS (unlike the bare passive
+    path) but is served from a TTL cache — SPA loads cost one fetch per 6 h."""
+    from app.services import updater
+    calls = []
+    monkeypatch.setattr(updater, 'is_git_checkout', lambda root=None: True)
+    monkeypatch.setattr(updater, 'git_update_status',
+                        lambda root=None: calls.append(1) or {
+                            'ok': True, 'is_git': True, 'update_available': True,
+                            'behind': 2, 'current': '1.0'})
+    d = client.get('/api/update/check?auto=1').get_json()
+    assert d['update_available'] is True and d['behind'] == 2
+    client.get('/api/update/check?auto=1')       # second auto call -> cache
+    assert len(calls) == 1
+    # a manual force check is always fresh AND refreshes the cache
+    client.get('/api/update/check?force=1')
+    assert len(calls) == 2
+
+
+def test_update_check_bare_passive_never_fetches_git(client, monkeypatch, _reset_update_cache):
+    """The bare passive path (no force, no auto) must not run the git check."""
+    import requests
+    from app.services import updater
+    monkeypatch.setattr(updater, 'is_git_checkout', lambda root=None: True)
+    monkeypatch.setattr(updater, 'git_update_status',
+                        lambda root=None: (_ for _ in ()).throw(
+                            AssertionError('git check must not run')))
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: _FakeResp(404))
+    d = client.get('/api/update/check').get_json()
+    assert d['ok'] is True
 
 
 def test_update_check_degrades_when_feed_unreachable(client, monkeypatch, _reset_update_cache):
