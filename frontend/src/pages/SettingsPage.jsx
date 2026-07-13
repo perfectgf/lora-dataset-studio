@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { apiFetch, putJson, postJson, del } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
+import {
+  INPUT_CLASS, Card, TextField, StatusBadge, TestResult, TestButton,
+} from '../components/settings/primitives'
 
 const SECRET_FIELDS = [
   { key: 'GEMINI_API_KEY', label: 'Gemini API key', testTarget: 'gemini', help: 'Powers the Nano Banana engine.' },
@@ -33,58 +36,6 @@ const CAPTIONING_OPTIONS = [
 ]
 
 const FAMILY_OPTIONS = ['zimage', 'sdxl', 'krea']
-
-const INPUT_CLASS =
-  'mt-1 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 text-sm text-content ' +
-  'placeholder:text-content-subtle focus:border-primary focus:outline-none'
-
-// Status is never color-only: an explicit glyph + text label carries the
-// meaning, color is a reinforcing cue on top.
-function StatusBadge({ ok, okLabel = 'Configured', missingLabel = 'Not set' }) {
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium ${ok ? 'text-emerald-400' : 'text-content-subtle'}`}>
-      <span aria-hidden="true">{ok ? '✓' : '✗'}</span>
-      {ok ? okLabel : missingLabel}
-    </span>
-  )
-}
-
-function TestResult({ result }) {
-  if (!result) return null
-  return (
-    <p className={`text-xs ${result.ok ? 'text-emerald-400' : 'text-rose-400'}`}>
-      <span aria-hidden="true">{result.ok ? '✓' : '✗'}</span> {result.detail}
-    </p>
-  )
-}
-
-function TestButton({ target, onResult, beforeTest }) {
-  const [busy, setBusy] = useState(false)
-  const run = async () => {
-    setBusy(true)
-    try {
-      // Secret fields pass beforeTest to persist the value still sitting in the
-      // write-only input: the probe reads the SAVED key, so testing an unsaved
-      // paste would always answer "key missing".
-      if (beforeTest) await beforeTest()
-      onResult(await postJson(`/api/settings/test/${target}`, {}))
-    } catch (e) {
-      onResult({ ok: false, detail: e.message || 'Test failed' })
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <button
-      type="button"
-      onClick={run}
-      disabled={busy}
-      className="shrink-0 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised disabled:opacity-50"
-    >
-      {busy ? 'Testing…' : 'Test'}
-    </button>
-  )
-}
 
 /* First-time walkthrough for renting cloud GPUs — collapsed by default so the
    API-keys card stays compact for users who already have a key. */
@@ -119,33 +70,6 @@ function VastKeyGuide() {
         </li>
       </ol>
     </details>
-  )
-}
-
-function Card({ title, help, children }) {
-  return (
-    <section className="rounded-xl border border-border bg-surface p-5">
-      <h2 className="text-base font-semibold text-content">{title}</h2>
-      {help && <p className="mt-1 text-sm text-content-muted">{help}</p>}
-      <div className="mt-4 space-y-4">{children}</div>
-    </section>
-  )
-}
-
-function TextField({ id, label, value, onChange, placeholder, help }) {
-  return (
-    <div>
-      <label htmlFor={id} className="block text-sm font-medium text-content">{label}</label>
-      {help && <p className="mb-1 text-xs text-content-muted">{help}</p>}
-      <input
-        id={id}
-        type="text"
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={INPUT_CLASS}
-      />
-    </div>
   )
 }
 
