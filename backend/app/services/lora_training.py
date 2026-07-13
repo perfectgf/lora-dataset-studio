@@ -1365,11 +1365,19 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
     # files were right there (user-observed 2026-07-13). Accept any filename
     # that IS a known cloud checkpoint of THIS dataset.
     cloud_names = set()
+    cloud_prefixes = set()
     try:
         from ..models import CloudTrainingRun
         for r in CloudTrainingRun.query.filter_by(dataset_id=dataset_id).all():
             if r.checkpoint_local_path:
                 cloud_names.add(os.path.basename(r.checkpoint_local_path))
+            # Every staging file of this run starts with its pod-job prefix
+            # (`lds<id>_…`, see cloud_training job_name). Matching on the prefix
+            # covers EVERY harvested epoch AND survives the `_<base_tag>` +
+            # `_v<N>` suffixes import_checkpoint appends to the deployed name —
+            # the exact-basename match above misses both (user-observed
+            # 2026-07-13: imports succeeded but "in ComfyUI" stayed at 0).
+            cloud_prefixes.add(f'lds{r.id}_')
     except Exception:
         pass
     subfolder = os.path.basename(os.path.normpath(dest_dir))
@@ -1381,7 +1389,8 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
         # strip it before matching against the staging basenames
         stem = re.sub(r'_v\d+(?=\.safetensors$)', '', fn)
         if not _trigger_boundary(fn, prefix) \
-                and fn not in cloud_names and stem not in cloud_names:
+                and fn not in cloud_names and stem not in cloud_names \
+                and not any(fn.startswith(p) for p in cloud_prefixes):
             continue
         out.append({'filename': os.path.join(subfolder, fn),
                     'label': format_trained_lora_label(fn, fam) or fn})

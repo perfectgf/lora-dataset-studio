@@ -1308,7 +1308,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                     onClick={async () => {
                       const d = await postTrain(`/api/dataset/${ds.currentId}/train/import`,
                         { filename: c.filename, train_type: trainType, cloud_run_id: c.run_id });
+                      // Success must be VISIBLE: without the toast a working
+                      // import looked like a dead button (user-observed).
                       if (d.ok === false) toastTrainError(d, 'Import failed');
+                      else toast.success(`LoRA imported: ${d.dest || c.filename}`);
                       loadCheckpoints(base);
                     }}
                     title={c.active ? 'Import the latest synced save — the run keeps training' : 'Import this cloud checkpoint into ComfyUI'}

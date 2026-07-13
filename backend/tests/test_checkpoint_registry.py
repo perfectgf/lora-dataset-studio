@@ -289,3 +289,31 @@ def test_cloud_launch_registers_and_stamps_version(app, client, monkeypatch, ds_
         run = ct.get_active_run()
         assert json.loads(run.train_params)['version'] == 1
         assert ct._run_payload(run)['version'] == 1
+
+
+def test_imported_list_shows_cloud_epoch_deployments(app, ds_with_images, tmp_path):
+    """A cloud EPOCH deployed into loras/<family> must appear in the
+    "in ComfyUI" list. Its deployed name is `<staging_stem>_<base_tag>_v<N>`
+    while only the run's FINAL checkpoint_local_path basename is recorded —
+    the exact-basename match missed every epoch (user-observed 2026-07-13:
+    imports succeeded, header stuck at "0 in ComfyUI"). The pod-job prefix
+    (`lds<run.id>_`) is what identifies the run's deployments."""
+    from app import config as cfg
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    from app.services import lora_training as lt
+    ds_id, _ = ds_with_images
+    with app.app_context():
+        cfg.save_config({'comfyui': {'base_dir': str(tmp_path / 'comfy')}})
+        run = CloudTrainingRun(dataset_id=ds_id, status='completed')
+        db.session.add(run)
+        db.session.commit()
+        dest = tmp_path / 'comfy' / 'models' / 'loras' / 'krea'
+        dest.mkdir(parents=True)
+        epoch = f'lds{run.id}_ulocal_prov_Krea-2-Raw_000002000_Krea-2-Raw_v1.safetensors'
+        (dest / epoch).write_bytes(b'W')
+        (dest / 'unrelated_other_lora.safetensors').write_bytes(b'W')
+        names = [c['filename'] for c in
+                 lt.list_imported_checkpoints(LOCAL_USER, ds_id, family='krea')]
+        assert any(n.endswith(epoch) for n in names)          # the epoch is listed
+        assert not any('unrelated' in n for n in names)       # others stay hidden
