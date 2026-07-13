@@ -1849,6 +1849,16 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     target = requested or (img.klein_model if img.klein_model in API_ENGINES else 'klein')
     if is_nsfw_label(img.variation_label):
         target = 'klein'              # fail-closed: NSFW never reaches an API engine
+    else:
+        # Engines disabled in Settings must not be used even when the row (or a
+        # stale workspace selection) points at them: fall back to the default
+        # engine, then to the first enabled one. An empty list means "all
+        # enabled" (legacy configs); NSFW above already forced local Klein.
+        enabled = [e for e in (cfg.get('engines.enabled') or [])
+                   if e == 'klein' or e in API_ENGINES]
+        if enabled and target not in enabled:
+            default = cfg.get('engines.default')
+            target = default if default in enabled else enabled[0]
     if img.status == 'pending' and not img.filename and img.job_id:  # still generating
         try:
             from ..job_queue import queue_manager

@@ -157,6 +157,16 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
   const gptAvailable = enabledEngines.includes('chatgpt') && caps.engines.chatgpt;
   const klAvailable = enabledEngines.includes('klein') && caps.engines.klein;
   const currentAvailable = isKlein ? klAvailable : isNB ? nbAvailable : gptAvailable;
+
+  // The persisted generator can point at an engine that has since been
+  // disabled in Settings (or lost its key/backend): auto-switch to the first
+  // usable card instead of staying stuck on a dead one. This also feeds
+  // regenerate, which follows the persisted selection.
+  useEffect(() => {
+    if (currentAvailable) return;
+    const first = nbAvailable ? 'nanobanana' : gptAvailable ? 'chatgpt' : klAvailable ? 'klein' : null;
+    if (first && first !== generator) setGenerator(first);
+  }, [currentAvailable, nbAvailable, gptAvailable, klAvailable, generator]);
   // Effective ChatGPT lane: the subscription (ChatGPT Plus/Pro image quota) vs the
   // pay-per-use API key. Mirrors the backend "auto = subscription when connected".
   const gptSub = caps.chatgpt_subscription || {};

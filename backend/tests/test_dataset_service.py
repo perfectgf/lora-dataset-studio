@@ -577,6 +577,30 @@ def test_regenerate_nsfw_stays_local_despite_api_engine(app, monkeypatch):
         assert seen['klein_model'] == 'flux-2-klein.safetensors'
 
 
+def test_regenerate_skips_engines_disabled_in_settings(app, monkeypatch):
+    """A Klein-born tile must not regenerate through Klein once Klein is
+    disabled in Settings (engines.enabled) — it falls back to the default
+    enabled engine, even when the client sends no engine at all."""
+    from app.services import face_dataset_service as svc
+    from app import config as cfg
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    seen = {}
+    def make(engine):
+        seen['engine'] = engine
+        return lambda refs, prompt, aspect_ratio=None: _png()
+    monkeypatch.setattr(svc, '_api_generate_fn', make)
+    with app.app_context():
+        cfg.save_config({'engines': {'enabled': ['nanobanana', 'chatgpt'],
+                                     'default': 'nanobanana'}})
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER,
+                                             engine='flux-2-klein.safetensors')  # Klein-born
+        svc.regenerate_image(LOCAL_USER, img.id)          # legacy client: no engine sent
+        assert seen['engine'] == 'nanobanana'
+        svc.db.session.expire_all()
+        assert svc.db.session.get(FaceDatasetImage, img.id).klein_model == 'nanobanana'
+
+
 def test_regenerate_rejects_unknown_engine(app):
     import pytest
     from app.services import face_dataset_service as svc
