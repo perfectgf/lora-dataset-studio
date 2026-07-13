@@ -312,6 +312,40 @@ def list_datasets(user_id):
             .order_by(FaceDataset.updated_at.desc()).all())
 
 
+def dataset_list_stats(user_id):
+    """Per-dataset aggregates for the library page — image counts and the
+    families ever trained — in two grouped queries (never one per dataset).
+    Returns {dataset_id: {'images_total', 'images_kept', 'images_captioned',
+    'trained_families': [str]}}; datasets absent from a map just have zeros."""
+    from sqlalchemy import case, func
+    from ..models import TrainingRunRecord
+    owned = (db.session.query(FaceDataset.id)
+             .filter_by(user_id=str(user_id))).subquery()
+    stats = {}
+    img_rows = (db.session.query(
+        FaceDatasetImage.dataset_id,
+        func.count(FaceDatasetImage.id),
+        func.sum(case((FaceDatasetImage.status == 'keep', 1), else_=0)),
+        func.sum(case(((FaceDatasetImage.status == 'keep')
+                       & (func.coalesce(FaceDatasetImage.caption, '') != ''), 1), else_=0)))
+        .filter(FaceDatasetImage.dataset_id.in_(db.session.query(owned.c.id)))
+        .group_by(FaceDatasetImage.dataset_id).all())
+    for ds_id, total, kept, captioned in img_rows:
+        stats[ds_id] = {'images_total': int(total or 0), 'images_kept': int(kept or 0),
+                        'images_captioned': int(captioned or 0), 'trained_families': []}
+    fam_rows = (db.session.query(TrainingRunRecord.dataset_id, TrainingRunRecord.family)
+                .filter(TrainingRunRecord.dataset_id.in_(db.session.query(owned.c.id)))
+                .distinct().all())
+    for ds_id, fam in fam_rows:
+        entry = stats.setdefault(ds_id, {'images_total': 0, 'images_kept': 0,
+                                         'images_captioned': 0, 'trained_families': []})
+        if fam and fam not in entry['trained_families']:
+            entry['trained_families'].append(fam)
+    for entry in stats.values():
+        entry['trained_families'].sort()
+    return stats
+
+
 def set_image_status(user_id, image_id, status):
     if status not in _VALID_STATUS:
         raise ValueError('invalid status')

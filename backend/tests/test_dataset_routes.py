@@ -42,6 +42,32 @@ def test_get_unknown_id_404(client):
     assert resp.status_code == 404
 
 
+def test_list_carries_library_stats(client, app):
+    """The library page reads counts + trained families straight from /list —
+    3 images (2 keep, 1 of them captioned, 1 reject) + one training run."""
+    ds_id = _create(client, 'Stats', 'stats').get_json()['id']
+    with app.app_context():
+        from app.extensions import db
+        from app.models import FaceDatasetImage, TrainingRunRecord
+        db.session.add_all([
+            FaceDatasetImage(dataset_id=ds_id, status='keep', source='upload',
+                             filename='a.webp', caption='a caption'),
+            FaceDatasetImage(dataset_id=ds_id, status='keep', source='upload',
+                             filename='b.webp', caption=''),
+            FaceDatasetImage(dataset_id=ds_id, status='reject', source='upload',
+                             filename='c.webp', caption='x'),
+            TrainingRunRecord(dataset_id=ds_id, family='krea', source='local',
+                              fingerprint='test-fp', version=1),
+        ])
+        db.session.commit()
+    entry = next(d for d in client.get('/api/dataset/list').get_json()['datasets']
+                 if d['id'] == ds_id)
+    assert entry['images_total'] == 3
+    assert entry['images_kept'] == 2
+    assert entry['images_captioned'] == 1
+    assert entry['trained_families'] == ['krea']
+
+
 def test_images_batch_route_validates_and_applies(client, app):
     ds_id = _create(client, 'Batch', 'batch').get_json()['id']
     # seed one committed image row through the service (no engine needed)

@@ -90,10 +90,16 @@ def dataset_variations():
 @bp.get('/dataset/list')
 def dataset_list():
     dss = svc.list_datasets(LOCAL_USER)
+    # Library-page aggregates (counts + trained families) ride along so the
+    # tiles can show real status without one request per dataset.
+    stats = svc.dataset_list_stats(LOCAL_USER)
+    empty = {'images_total': 0, 'images_kept': 0, 'images_captioned': 0,
+             'trained_families': []}
     return jsonify({'datasets': [
         {'id': d.id, 'name': d.name, 'trigger_word': d.trigger_word, 'ref_filename': d.ref_filename,
          'kind': ((d.kind or '').lower() or 'character'),
-         'train_type': (d.train_type or 'zimage')}
+         'train_type': (d.train_type or 'zimage'),
+         **(stats.get(d.id) or empty)}
         for d in dss]})
 
 
