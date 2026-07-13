@@ -203,18 +203,12 @@ def settings_restart():
     return jsonify({'ok': True, 'restarting': True})
 
 
-@bp.get('/logs/tail')
-def logs_tail():
-    """Last N lines of the server log for the in-app viewer — so a novice can
-    copy-paste an error instead of hunting for files. Reads data/app.log (the
+def _log_tail_lines(n):
+    """(file_name, last_n_lines) of the server log. Reads data/app.log (the
     app's own rotating log), falling back to data/server.log (the portable
-    launcher's raw stdout capture)."""
+    launcher's raw stdout capture). (None, []) when no log exists yet."""
     import os
     from pathlib import Path
-    try:
-        n = max(10, min(1000, int(request.args.get('n', 300))))
-    except ValueError:
-        n = 300
     data_dir = Path(os.environ.get('LDS_DATA_DIR', str(cfg.REPO_ROOT / 'data')))
     for name in ('app.log', 'server.log'):
         p = data_dir / name
@@ -224,11 +218,75 @@ def logs_tail():
                 with open(p, encoding='utf-8', errors='replace') as fh:
                     if size > 512 * 1024:               # tail window, never the whole file
                         fh.seek(size - 512 * 1024)
-                    lines = fh.read().splitlines()[-n:]
-                return jsonify({'ok': True, 'file': name, 'lines': lines})
+                    return name, fh.read().splitlines()[-n:]
             except OSError:
                 continue
-    return jsonify({'ok': True, 'file': None, 'lines': []})
+    return None, []
+
+
+@bp.get('/logs/tail')
+def logs_tail():
+    """Last N lines of the server log for the in-app viewer — so a novice can
+    copy-paste an error instead of hunting for files."""
+    try:
+        n = max(10, min(1000, int(request.args.get('n', 300))))
+    except ValueError:
+        n = 300
+    name, lines = _log_tail_lines(n)
+    return jsonify({'ok': True, 'file': name, 'lines': lines})
+
+
+@bp.get('/diagnostic')
+def diagnostic():
+    """Paste-safe bug-report payload: version, platform, capability booleans and
+    the log tail. Secret VALUES never appear (presence booleans only) and paths
+    are reduced to *_set booleans — the output is meant to be pasted into a
+    public issue or Discord thread as-is. (Log lines may still cite file names;
+    the UI tells the user to skim before posting.)"""
+    import platform
+    import sys
+    import time
+    from ..version import APP_VERSION
+    from ..services import updater
+    conf = cfg.load_config()
+    caps = capabilities.probe()
+    e = caps.get('engines') or {}
+    comfy = caps.get('comfyui') or {}
+    oll = caps.get('ollama') or {}
+    _, log_lines = _log_tail_lines(80)
+    return jsonify({
+        'app_version': APP_VERSION,
+        'git_sha': updater.current_sha(),
+        'os': f'{platform.system()} {platform.release()}',
+        'python': sys.version.split()[0],
+        'secrets_present': _secret_presence(),
+        'capabilities': {
+            'engines': {'nanobanana': bool(e.get('nanobanana')),
+                        'chatgpt': bool(e.get('chatgpt')),
+                        'klein': bool(e.get('klein'))},
+            'comfyui_reachable': bool(comfy.get('reachable')),
+            'klein_model': bool((comfy.get('models') or {}).get('klein')),
+            'ollama_reachable': bool(oll.get('reachable')),
+            'vision_model_ready': bool(oll.get('vision_model_ready')),
+            'face_scoring': bool(caps.get('face_scoring')),
+            'masks': bool(caps.get('masks')),
+            'aitoolkit_valid': bool((caps.get('aitoolkit') or {}).get('valid')),
+            'training_visible': bool(caps.get('training_visible')),
+            'studio_visible': bool(caps.get('studio_visible')),
+            'cloud_training': bool(caps.get('cloud_training')),
+        },
+        'config': {
+            'captioning_backend': (conf.get('captioning') or {}).get('backend'),
+            'default_engine': (conf.get('engines') or {}).get('default'),
+            'enabled_engines': (conf.get('engines') or {}).get('enabled'),
+            'training_default_family': (conf.get('training') or {}).get('default_family'),
+            'comfyui_base_dir_set': bool((conf.get('comfyui') or {}).get('base_dir')),
+            'aitoolkit_dir_set': bool((conf.get('aitoolkit') or {}).get('dir')),
+            'lan_enabled': (conf.get('server') or {}).get('host') not in (None, '', '127.0.0.1', 'localhost', '::1'),
+        },
+        'log_tail': log_lines,
+        'generated_at': int(time.time()),
+    })
 
 
 # --- ChatGPT subscription (Codex OAuth) --------------------------------------
