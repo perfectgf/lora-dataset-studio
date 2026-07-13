@@ -718,11 +718,23 @@ def test_pick_offer_prefers_requested_class_cheapest():
     assert ct._pick_offer(offers, None)['offer_id'] == 1         # global cheapest
 
 
-def test_pick_offer_falls_back_when_class_sold_out():
+def test_pick_offer_falls_back_to_similar_tier_not_potato():
+    """Requested class sold out -> an offer of a SIMILAR-OR-BETTER speed tier,
+    never the global cheapest (a $0.13 RTX 3090 handed to a 12B Krea retry,
+    user-reported: bottom-barrel hosts are the flaky ones, and ~3x slower)."""
     from app.services import cloud_training as ct
-    offers = [{'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.12}]
-    # requested class no longer on the market -> cheapest overall
-    assert ct._pick_offer(offers, 'RTX 5090')['offer_id'] == 1
+    offers = [
+        {'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.12},   # 1.0x — too slow
+        {'offer_id': 2, 'gpu_name': 'RTX 5090', 'dph_total': 0.60},   # 2.8x ≈ 93% of 3.0
+    ]
+    # RTX PRO 6000 (3.0x) sold out -> the 5090 (similar tier), not the 3090
+    assert ct._pick_offer(offers, 'RTX PRO 6000 S')['offer_id'] == 2
+    # nothing similar on the market -> actionable error, never a downgrade
+    only_potato = [{'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.12}]
+    with pytest.raises(RuntimeError, match='similar'):
+        ct._pick_offer(only_potato, 'RTX PRO 6000 S')
+    # no requested class at all -> global best (unchanged behaviour)
+    assert ct._pick_offer(only_potato, None)['offer_id'] == 1
 
 
 def test_provision_honors_requested_gpu(ct, app, seeded_dataset, monkeypatch):

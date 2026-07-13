@@ -387,13 +387,30 @@ def _best_of(group):
 
 def _pick_offer(offers, requested_gpu):
     """Best offer of the requested GPU class if the user picked a speed tier
-    and that class is still on the market; otherwise best overall. 'Best' =
-    most reliable within +10% of the cheapest (see _best_of), on offers
-    already stripped of blacklisted hosts and bait prices by _filter_offers."""
+    and that class is still on the market; otherwise an offer of a
+    SIMILAR-OR-BETTER speed tier (≥75% of the requested class's throughput,
+    per gpu_speed). 'Best' = most reliable within +10% of the cheapest (see
+    _best_of), on offers already stripped of blacklisted hosts and bait
+    prices by _filter_offers.
+
+    The historical fallback — cheapest offer of ANY class — handed a $0.13/h
+    RTX 3090 to a 12B Krea run when the requested RTX PRO 6000 S sold out
+    between the picker and the launch (retry path, user-reported): the
+    bottom-barrel is exactly where the flaky hosts live, and the run would
+    have been ~3x slower. No similar tier on the market -> actionable error,
+    never a silent downgrade."""
     if requested_gpu:
         matches = [o for o in offers if (o.get('gpu_name') or '') == requested_gpu]
         if matches:
             return _best_of(matches)
+        floor = gpu_speed.speed_factor(requested_gpu) * 0.75
+        similar = [o for o in offers
+                   if gpu_speed.speed_factor(o.get('gpu_name')) >= floor]
+        if similar:
+            return _best_of(similar)
+        raise RuntimeError(
+            f'no offers similar to {requested_gpu} right now — open the GPU '
+            'picker and choose another speed tier')
     return _best_of(offers)
 
 
