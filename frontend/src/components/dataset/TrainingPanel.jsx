@@ -9,7 +9,7 @@ import PreflightModal from './PreflightModal';
 
 // Plancher dur / recommandé par famille — miroir de TRAIN_MIN_IMAGES côté serveur
 // (le preflight reste l'autorité ; ceci ne sert qu'à désactiver le bouton tôt).
-const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20], flux: [15, 20] };
+const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20], flux: [15, 20], flux2klein: [15, 20] };
 
 const fmtBytes = (b) => {
   if (b == null) return '';
@@ -92,8 +92,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       if (alive && info) {
         setBaseInfo(info); setBase(info.base || '');
         // Défaut family-aware : Krea sans variante persistée → Raw (reco officielle
-        // « train on Raw, validate on Turbo ») ; les autres familles → Turbo.
-        setVariant(info.variant || ((info.train_type || 'zimage') === 'krea' ? 'base' : 'turbo'));
+        // « train on Raw, validate on Turbo ») ; FLUX.2 Klein → 4B (voie locale) —
+        // y compris quand la variante PERSISTÉE vient d'une autre famille (un
+        // dataset ex-Krea porte 'base', qui n'est pas une taille Klein valide) ;
+        // les autres familles → Turbo.
+        const fam = info.train_type || 'zimage';
+        const v = info.variant
+          || (fam === 'krea' ? 'base' : fam === 'flux2klein' ? '4b' : 'turbo');
+        setVariant(fam === 'flux2klein' && !['4b', '9b'].includes(v) ? '4b' : v);
         setTrainType(info.train_type || 'zimage');
         setAdv(info.train_settings || null);
       }
@@ -140,13 +146,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     setBase(t === 'sdxl' ? (list[0]?.value || '') : '');
     // Krea → Raw par défaut (reco officielle « train on Raw, validate on Turbo »).
     if (t === 'krea') setVariant('base');
+    // FLUX.2 Klein → 4B par défaut (voie locale 16-24 GB ; le 9B est la voie cloud).
+    if (t === 'flux2klein') setVariant('4b');
     ds.setDatasetTrainType?.(t);
   };
 
   // Réglages avancés effectifs (client-side pour que le défaut family-aware du rank
   // suive un changement de type SANS re-fetch). `adv.rank` null = Auto.
   const advRankChoice = adv?.rank ?? 'auto';
-  const advDefaultRank = (trainType === 'zimage' || trainType === 'flux') ? 16 : 32;   // miroir de _DEFAULT_RANK
+  const advDefaultRank = (trainType === 'zimage' || trainType === 'flux' || trainType === 'flux2klein') ? 16 : 32;   // miroir de _DEFAULT_RANK
   const advEffRank = advRankChoice === 'auto' ? advDefaultRank : advRankChoice;
   // Expert levers (all default to current behaviour when absent):
   const advAlphaChoice = adv?.alpha_setting ?? 'auto';
@@ -156,7 +164,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const advDropout = adv?.dropout ?? 0;
   const advDropoutChoices = adv?.dropout_choices ?? [0.05, 0.1, 0.15, 0.2, 0.3];
   const advTimestep = adv?.timestep_type ?? 'auto';
-  const advTimestepDefault = adv?.default_timestep_type ?? (trainType === 'krea' ? 'linear' : (trainType === 'zimage' || trainType === 'flux') ? 'sigmoid' : null);
+  const advTimestepDefault = adv?.default_timestep_type ?? (trainType === 'krea' ? 'linear' : trainType === 'flux2klein' ? 'weighted' : (trainType === 'zimage' || trainType === 'flux') ? 'sigmoid' : null);   // miroir de _DEFAULT_TIMESTEP
   const advTimestepSupported = adv ? adv.timestep_type_supported !== false : trainType !== 'sdxl';
   const advTimestepChoices = adv?.timestep_type_choices ?? ['sigmoid', 'linear', 'weighted', 'shift'];
   const advOptimizer = adv?.optimizer ?? 'adamw8bit';
@@ -509,8 +517,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     : Math.max(1500, Math.min(3500, Math.round((keptCount * 120) / 100) * 100));
   // Libellé lisible de la base sélectionnée (pour étiqueter les checkpoints de CE run).
   const baseLabel = currentBases.find((b) => b.value === base)?.label || (base || 'Official');
-  const typeLabel = trainType === 'sdxl' ? 'SDXL' : trainType === 'krea' ? 'Krea 2' : trainType === 'flux' ? 'FLUX.1' : 'Z-Image';
-  const lorasLabel = trainType === 'sdxl' ? 'loras/sdxl' : trainType === 'krea' ? 'loras/krea' : trainType === 'flux' ? 'loras/flux' : 'loras/z image';
+  const typeLabel = trainType === 'sdxl' ? 'SDXL' : trainType === 'krea' ? 'Krea 2' : trainType === 'flux' ? 'FLUX.1' : trainType === 'flux2klein' ? 'FLUX.2 Klein' : 'Z-Image';
+  const lorasLabel = trainType === 'sdxl' ? 'loras/sdxl' : trainType === 'krea' ? 'loras/krea' : trainType === 'flux' ? 'loras/flux' : trainType === 'flux2klein' ? 'loras/flux2klein' : 'loras/z image';
 
   // Panel gated off (ai-toolkit not configured): the workspace's checkpoint
   // count must not keep a stale value from a previous dataset/session.
@@ -619,7 +627,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <div className="mt-1 text-red-300/80">
             Common first-run causes: ai-toolkit’s Python venv is missing packages
             (re-run its install), or the base model is still downloading / needs a
-            Hugging Face token (gated models like Krea 2 and FLUX.1). Fix the cause above, then Train again.
+            Hugging Face token (gated models like Krea 2, FLUX.1 and FLUX.2 Klein). Fix the cause above, then Train again.
           </div>
         </div>
       )}
@@ -671,12 +679,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         <span className="text-content-muted text-[0.625rem] uppercase">LoRA type</span>
         <select value={trainType} onChange={(e) => onTypeChange(e.target.value)}
           aria-label="Type of LoRA to train"
-          title="Z-Image (prose, Qwen3 encoder) ~20 img · SDXL (ComfyUI checkpoints) ~30 img · Krea 2 (prose, base fixe Turbo) ~20 img · FLUX.1-dev (prose, gated HF, local-only) ~20 img"
+          title="Z-Image (prose, Qwen3 encoder) ~20 img · SDXL (ComfyUI checkpoints) ~30 img · Krea 2 (prose, base fixe Turbo) ~20 img · FLUX.1-dev (prose, gated HF, local-only) ~20 img · FLUX.2 Klein (prose, gated HF, 4B local / 9B cloud) ~20 img"
           className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
           <option value="zimage">Z-Image (~20 img)</option>
           <option value="sdxl">SDXL (~30 img)</option>
           <option value="krea">Krea 2 (~20 img)</option>
           <option value="flux">FLUX.1 (~20 img)</option>
+          <option value="flux2klein">FLUX.2 Klein (~20 img)</option>
         </select>
         <button type="button" disabled={!status.installed || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12) || status.in_progress || baseBlocksTrain || sdxlNeedsBase}
           title={baseBlocksTrain ? 'Convert the custom base first'
@@ -713,9 +722,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               || actives.length >= (cloudStatus.limit || 1)
               || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12)}
             title={trainType === 'sdxl'
-              ? 'SDXL needs a local base checkpoint — cloud supports Z-Image and Krea'
+              ? 'SDXL needs a local base checkpoint — cloud supports Z-Image, Krea and FLUX.2 Klein'
               : trainType === 'flux'
-              ? 'FLUX.1 is local-only for now — cloud supports Z-Image and Krea'
+              ? 'FLUX.1 is local-only for now — cloud supports Z-Image, Krea and FLUX.2 Klein'
               : cloudActiveHere ? 'This dataset already has an active cloud run'
               : actives.length >= (cloudStatus.limit || 1)
                 ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — raise it in Settings`
@@ -834,7 +843,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 aria-label="Base model"
                 className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[230px]">
                 {(currentBases.length ? currentBases
-                  : [{ value: '', label: trainType === 'sdxl' ? (comfyConfigured ? 'No SDXL checkpoint found' : 'ComfyUI not configured') : trainType === 'krea' ? 'Official — Krea 2' : trainType === 'flux' ? 'Official — FLUX.1-dev' : 'Official — Z-Image-Turbo' }]).map((b) => (
+                  : [{ value: '', label: trainType === 'sdxl' ? (comfyConfigured ? 'No SDXL checkpoint found' : 'ComfyUI not configured') : trainType === 'krea' ? 'Official — Krea 2' : trainType === 'flux' ? 'Official — FLUX.1-dev' : trainType === 'flux2klein' ? 'Official — FLUX.2 Klein' : 'Official — Z-Image-Turbo' }]).map((b) => (
                   <option key={b.value} value={b.value}>
                     {b.label}{b.value && baseInfo?.converted?.[b.value] ? ' ✓' : ''}
                   </option>
@@ -861,8 +870,23 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   <option value="turbo">Turbo (w/ adapter)</option>
                 </select>
               )}
+              {/* FLUX.2 Klein : deux TAILLES de base (pas une histoire de distillation
+                  comme Krea) — 4B = la voie locale 16-24 GB, 9B = 32-48 GB, pensé
+                  pour ☁️ Train in cloud. Les deux sont gated sur Hugging Face. */}
+              {trainType === 'flux2klein' && (
+                <select value={variant} onChange={(e) => setVariant(e.target.value)}
+                  aria-label="FLUX.2 Klein model size"
+                  title="FLUX.2 Klein model size — 4B fits a 16-24 GB local GPU (recommended locally); 9B needs 32-48 GB VRAM, best trained via ☁️ Train in cloud. Both bases are gated on Hugging Face: accept the license and set a HF token before the first run."
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                  <option value="4b">4B (local, 16-24 GB)</option>
+                  <option value="9b">9B (cloud, 32-48 GB)</option>
+                </select>
+              )}
             </div>
-            {!comfyConfigured && trainType !== 'krea' && (
+            {/* krea et flux2klein n'ont QUE des bases officielles fixes (rien à
+                lister depuis ComfyUI) → le warning « bases can't be listed » n'y
+                apporte que du bruit. */}
+            {!comfyConfigured && trainType !== 'krea' && trainType !== 'flux2klein' && (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-amber-300 text-[0.625rem]">
                   ⚠️ ComfyUI folder not set — training bases can't be listed{trainType === 'sdxl' ? '' : ' (the official Z-Image base still works)'}.
@@ -1556,7 +1580,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   );
 }
 
-const _FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1' };
+const _FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein' };
 
 function _fmtDuration(min) {
   if (min == null) return '—';

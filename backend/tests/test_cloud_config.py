@@ -21,7 +21,10 @@ def test_cloud_defaults_present(app):
     assert cfg.get('cloud.stall_timeout_minutes') == 30
     assert cfg.get('cloud.monthly_budget_usd') == 0
     assert cfg.get('cloud.disk_gb') == 60
-    assert cfg.get('cloud.min_vram_gb') == {'zimage': 24, 'sdxl': 16, 'krea': 24}
+    # flux2klein: 32 — the key is per FAMILY (not per variant) and the 9B size
+    # (32-48 GB) is that family's cloud lane; a 32 GB pod also trains the 4B.
+    assert cfg.get('cloud.min_vram_gb') == {'zimage': 24, 'sdxl': 16, 'krea': 24,
+                                            'flux2klein': 32}
 
 
 def test_vast_api_key_is_a_secret(app):

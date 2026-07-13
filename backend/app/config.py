@@ -71,7 +71,10 @@ DEFAULTS = {
         'stall_timeout_minutes': 30,   # no step progress past this -> rescue + kill
         'monthly_budget_usd': 0,       # 0 = unlimited; launches blocked past this
         'disk_gb': 60,                 # instance disk (base model + dataset + checkpoints)
-        'min_vram_gb': {'zimage': 24, 'sdxl': 16, 'krea': 24},
+        # min_vram_gb est PAR FAMILLE (pas par variante) : pour flux2klein on prend
+        # 32 — le 9B (32-48 GB) est la voie cloud principale de cette famille, et un
+        # pod 32 GB entraîne aussi le 4B sans problème (l'inverse serait faux).
+        'min_vram_gb': {'zimage': 24, 'sdxl': 16, 'krea': 24, 'flux2klein': 32},
         'onstart': '',                 # raw-image fallback: optional startup command
     },
     'face_scoring': {'python': '', 'models_root': '', 'green': 0.50, 'orange': 0.45},

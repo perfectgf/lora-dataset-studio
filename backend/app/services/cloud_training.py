@@ -239,10 +239,13 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
     fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
     if fam == 'sdxl':
         raise ValueError('SDXL training needs a local base checkpoint — '
-                         'cloud training supports Z-Image and Krea for now')
+                         'cloud training supports Z-Image, Krea and FLUX.2 Klein')
+    # flux2klein n'est PAS bloqué (contrairement à flux) : ses bases sont des repos
+    # HF officiels que le pod télécharge lui-même — le 9B (32-48 GB VRAM) est même
+    # la voie cloud principale de la famille.
     if fam == 'flux':
         raise ValueError('FLUX.1 training is local-only for now — '
-                         'cloud training supports Z-Image and Krea')
+                         'cloud training supports Z-Image, Krea and FLUX.2 Klein')
     actives = get_active_runs()
     limit = max(1, int((cfg.get('cloud.max_concurrent_runs') or 1)))
     # Uniqueness is per (dataset, family): a zimage run and a krea run may
@@ -295,7 +298,9 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         # dialog's family/variant selectors never drove the actual training
         # (it only worked when they matched what was already persisted).
         variant = (variant or '').strip().lower()
-        if variant not in ('turbo', 'base', 'deturbo'):
+        # Enum PAR FAMILLE (flux2klein : '4b'/'9b') — même validation que le
+        # lancement local, hors-liste → défaut family-aware (jamais d'erreur).
+        if variant not in lt._valid_variants_for(fam):
             variant = lt._default_variant_for(fam)
         ds.train_type = fam
         ds.train_variant = variant
@@ -1383,10 +1388,11 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
     fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
     if fam == 'sdxl':
         raise ValueError('SDXL training needs a local base checkpoint — '
-                         'cloud training supports Z-Image and Krea for now')
+                         'cloud training supports Z-Image, Krea and FLUX.2 Klein')
+    # flux2klein passe (cf. launch_cloud_training) — seul flux reste local-only.
     if fam == 'flux':
         raise ValueError('FLUX.1 training is local-only for now — '
-                         'cloud training supports Z-Image and Krea')
+                         'cloud training supports Z-Image, Krea and FLUX.2 Klein')
     n_steps = int(steps) if steps else lt.default_steps(ds)
     c = cfg.get('cloud') or {}
     min_vram = (c.get('min_vram_gb') or {}).get(fam, 24)

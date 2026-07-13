@@ -134,6 +134,13 @@ def _lora_dest_dir_flux():
     return d / 'flux'
 
 
+def _lora_dest_dir_flux2klein():
+    d = cfg.comfyui_dir('loras')
+    if not d:
+        raise RuntimeError('ComfyUI is not configured')
+    return d / 'flux2klein'
+
+
 def _sdxl_checkpoints_dir():
     d = cfg.comfyui_dir('models')
     if not d:
@@ -181,13 +188,44 @@ def _aitoolkit_supports_krea() -> bool:
     return False
 
 
+def _aitoolkit_supports_flux2klein() -> bool:
+    """L'ai-toolkit installé connaît-il FLUX.2 Klein ? Même enjeu CRITIQUE que
+    _aitoolkit_supports_krea (lire son commentaire) : les archs flux2_klein_4b/9b
+    sont des EXTENSIONS (extensions_built_in/diffusion_models/flux2), pas des archs
+    cœur comme 'flux' — un ai-toolkit pas à jour ne les connaît pas et
+    get_model_class retomberait SILENCIEUSEMENT sur le loader SD legacy → LoRA
+    corrompu. On exige l'arch EXACTE `arch = "flux2_klein_4b"` ou `"..._9b"` (les
+    chaînes émises par _build_job_config_flux2klein), jamais la sous-chaîne
+    « klein » seule — une mention incidente ferait un faux positif. Lecture
+    fraîche : un `git pull` du mainteneur passe la détection à True sans restart."""
+    root = cfg.aitoolkit_path('dir')
+    if not root:
+        return False
+    ext_root = root / 'extensions_built_in'
+    if not ext_root.is_dir():
+        return False
+    pat = re.compile(r'arch\s*=\s*[\'"]flux2_klein_(?:4b|9b)[\'"]')
+    for dp, _dn, files in os.walk(str(ext_root)):
+        for fn in files:
+            if not fn.endswith('.py'):
+                continue
+            try:
+                with open(os.path.join(dp, fn), encoding='utf-8', errors='ignore') as fh:
+                    if pat.search(fh.read()):
+                        return True
+            except OSError:
+                continue
+    return False
+
+
 def _safe_trigger(ds) -> str:
     t = (ds.trigger_word or f'dataset{ds.id}').strip()
     return ''.join(c if (c.isalnum() or c in '_-') else '_' for c in t) or f'dataset{ds.id}'
 
 
 def _train_type(ds, family=None) -> str:
-    """Famille de modèle entraînée : 'zimage' (défaut/None), 'sdxl', 'krea' ou 'flux'.
+    """Famille de modèle entraînée : 'zimage' (défaut/None), 'sdxl', 'krea',
+    'flux' ou 'flux2klein'.
     `family` (override) prime sur le train_type persisté quand fourni (non vide) -
     c'est ce qui permet au sélecteur de famille de l'UI de piloter la lecture des
     runs/checkpoints/déploiements SANS écraser le train_type persisté du dataset."""
@@ -206,6 +244,8 @@ def _lora_dest_dir(ds, family=None) -> str:
         return str(_lora_dest_dir_krea())
     if fam == 'flux':
         return str(_lora_dest_dir_flux())
+    if fam == 'flux2klein':
+        return str(_lora_dest_dir_flux2klein())
     return str(_lora_dest_dir_zimage())
 
 
@@ -267,6 +307,12 @@ KREA_BASE_LABEL = 'Krea-2-Turbo'   # mirrors name_or_path 'krea/Krea-2-Turbo'
 # stable '_FLUX-1-dev' qui isole les runs/LoRA Flux des runs Z-Image officiels
 # (tag vide) au même trigger — même garde anti-collision que Krea (cf. _dest_base_tag).
 FLUX_BASE_LABEL = 'FLUX-1-dev'
+# FLUX.2 Klein a DEUX bases officielles (4B et 9B) → tags DISTINCTS obligatoires :
+# les poids 4B et 9B sont incompatibles, et un même trigger entraîné sur les deux
+# variantes partagerait sinon le même dossier de run (auto-resume croisé → LoRA
+# corrompu) et le même nom de LoRA déployé. Sans point dans les labels (même piège
+# d'extension que FLUX_BASE_LABEL : _base_tag_for tronque après un '.').
+FLUX2KLEIN_BASE_LABELS = {'4b': 'FLUX2-Klein-4B', '9b': 'FLUX2-Klein-9B'}
 
 
 def _krea_is_raw(ds) -> bool:
@@ -278,19 +324,45 @@ def _krea_is_raw(ds) -> bool:
     return (getattr(ds, 'train_variant', None) or 'base').lower() in ('base', 'raw')
 
 
+def _flux2klein_is_9b(ds) -> bool:
+    """FLUX.2 Klein model size. `train_variant` '9b' → the 9B base (32-48 GB VRAM,
+    the cloud-first lane); anything else → the 4B base (16-24 GB, the local lane).
+    Default 4B when unset — the chosen product default (mirrors _default_variant_for),
+    so the run tag and the job-config never disagree even if train_variant was
+    never persisted."""
+    return (getattr(ds, 'train_variant', None) or '4b').lower() == '9b'
+
+
 def _default_variant_for(family) -> str:
     """Variante par défaut d'une famille quand aucune n'est fournie NI persistée :
-    Krea → 'base' (Raw, reco officielle), sinon 'turbo'. Utilisé par tous les
-    chemins de lancement (direct / file / reprise) pour que « Raw par défaut » tienne
-    de bout en bout, pas seulement quand l'UI envoie explicitement la variante."""
-    return 'base' if (family or 'zimage') == 'krea' else 'turbo'
+    Krea → 'base' (Raw, reco officielle), FLUX.2 Klein → '4b' (la voie locale
+    16-24 Go ; le 9B est la voie cloud), sinon 'turbo'. Utilisé par tous les
+    chemins de lancement (direct / file / reprise / cloud) pour que le défaut
+    tienne de bout en bout, pas seulement quand l'UI envoie explicitement la variante."""
+    fam = family or 'zimage'
+    if fam == 'krea':
+        return 'base'
+    if fam == 'flux2klein':
+        return '4b'
+    return 'turbo'
+
+
+def _valid_variants_for(family) -> tuple:
+    """Variantes acceptées au lancement, PAR FAMILLE : flux2klein n'a que ses deux
+    tailles de modèle ('4b'/'9b') ; les familles historiques gardent l'enum
+    turbo/base/deturbo (comportement inchangé). Une variante hors liste retombe
+    sur le défaut de la famille (jamais d'erreur) : c'est ce qui neutralise une
+    variante PERSISTÉE d'une autre famille quand l'utilisateur change de type
+    (ex. un dataset ex-Krea avec train_variant='base' lancé en flux2klein)."""
+    return ('4b', '9b') if (family or 'zimage') == 'flux2klein' \
+        else ('turbo', 'base', 'deturbo')
 
 
 # --- Réglages ai-toolkit avancés, éditables par dataset (persistés en JSON dans
 #     `train_settings`). Absent/NULL → défaut family-aware issu de la recherche
 #     (cf. Research vault 2026-07-10). Toute valeur hors des listes autorisées
 #     retombe sur le défaut : on ne pousse JAMAIS une config invalide à ai-toolkit. ---
-_DEFAULT_RANK = {'zimage': 16, 'krea': 32, 'sdxl': 32, 'flux': 16}   # Z-Image reste 16 (choix user) ; Krea/SDXL 32 ; Flux 16 (défaut de l'exemple flux officiel)
+_DEFAULT_RANK = {'zimage': 16, 'krea': 32, 'sdxl': 32, 'flux': 16, 'flux2klein': 16}   # Z-Image reste 16 (choix user) ; Krea/SDXL 32 ; Flux/FLUX.2 Klein 16 (défaut des exemples officiels)
 _RANK_CHOICES = (8, 16, 24, 32, 48, 64)
 # multi-échelle par défaut ; '768' seul = LE levier basse-VRAM (Krea 12B : 1024
 # sature un 24 GB à ~180 s/it, 768 mesuré ~3,5 s/it — cf. commentaire de tête).
@@ -301,7 +373,8 @@ _SAVE_CHOICES = (250, 500, 1000)
 _DROPOUT_CHOICES = (0.05, 0.1, 0.15, 0.2, 0.3)          # LoRA network dropout ; absent = off
 _ALPHA_CHOICES = (1, 2, 4, 8, 16, 24, 32, 48, 64)       # alpha découplé du rank ; absent = dérivé
 _TIMESTEP_TYPE_CHOICES = ('sigmoid', 'linear', 'weighted', 'shift')  # pondération flowmatch ; SDXL le désactive
-_DEFAULT_TIMESTEP = {'zimage': 'sigmoid', 'krea': 'linear', 'flux': 'sigmoid'}   # ce que « Auto » résout (sdxl : aucun) ; flux subject → sigmoid (reco ai-toolkit)
+_DEFAULT_TIMESTEP = {'zimage': 'sigmoid', 'krea': 'linear', 'flux': 'sigmoid',
+                     'flux2klein': 'weighted'}   # ce que « Auto » résout (sdxl : aucun) ; flux subject → sigmoid (reco ai-toolkit) ; flux2klein → weighted (défaut canonique options.ts, PAS sigmoid)
 # Batch 2 — optimiseur / planning du LR / batch effectif (valeurs VÉRIFIÉES dans
 # ai-toolkit : get_optimizer + toolkit/scheduler.py). CAME n'est PAS supporté.
 _OPTIMIZER_CHOICES = ('adamw8bit', 'adafactor', 'automagic', 'prodigy')
@@ -844,6 +917,12 @@ def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
     # isole le run et le LoRA déployé de la famille Z-Image.
     if not tag and _train_type(ds, family) == 'flux':
         tag = _base_tag_for(FLUX_BASE_LABEL)
+    # FLUX.2 Klein : même garde, mais le tag encode AUSSI la variante (4B vs 9B
+    # sont deux checkpoints incompatibles) — sans ça, deux runs du même trigger
+    # sur les deux tailles partageraient dossier de run et nom déployé.
+    if not tag and _train_type(ds, family) == 'flux2klein':
+        tag = _base_tag_for(
+            FLUX2KLEIN_BASE_LABELS['9b' if _flux2klein_is_9b(ds) else '4b'])
     return tag
 
 
@@ -1036,6 +1115,10 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
         return cfg_
     if _train_type(ds) == 'flux':
         cfg_ = _build_job_config_flux(ds, dataset_folder, steps, training_folder=training_folder)
+        _apply_style_overrides(ds, cfg_['config']['process'][0])
+        return cfg_
+    if _train_type(ds) == 'flux2klein':
+        cfg_ = _build_job_config_flux2klein(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0])
         return cfg_
     trigger = _safe_trigger(ds)
@@ -1266,6 +1349,90 @@ def _build_job_config_flux(ds, dataset_folder: str, steps: int, training_folder=
                     'sample_every': _sample_every(ds),
                     'guidance_scale': 4,   # FLUX.1-dev : guidance ~4 (notebook officiel)
                     'sample_steps': 20,
+                    'prompts': _sample_prompts(ds, trigger),
+                },
+            }],
+        },
+    }
+
+
+def _build_job_config_flux2klein(ds, dataset_folder: str, steps: int, training_folder=None) -> dict:
+    """Job-config ai-toolkit pour FLUX.2 Klein. Deux tailles selon `train_variant`
+    (cf. _flux2klein_is_9b) : arch='flux2_klein_4b' (défaut, voie locale 16-24 Go)
+    ou 'flux2_klein_9b' (32-48 Go, voie cloud surtout). Valeurs VÉRIFIÉES contre
+    l'ai-toolkit installé : `ui/.../options.ts` (entrées flux2_klein_4b/9b) et
+    `extensions_built_in/diffusion_models/flux2/flux2_klein_model.py`.
+
+    Divergences vs le chemin flux (options.ts fait foi) :
+    - timestep_type 'weighted' — le défaut canonique des deux entrées Klein
+      (PAS 'sigmoid' comme flux/zimage) ;
+    - model_kwargs {'match_target_res': False} — clé propre à cette arch,
+      absente du chemin flux ;
+    - base NON distillée (flux2_is_guidance_distilled=False côté ai-toolkit) →
+      les previews utilisent un VRAI CFG : guidance 4 / 25 steps (les défauts
+      « non distillé » de l'UI ai-toolkit — même duo que Krea Raw), là où
+      FLUX.1-dev (guidance-distillé) sample en guidance 4 / 20 steps.
+
+    Les deux name_or_path sont des modèles GATED sur Hugging Face : accepter la
+    licence + HF_TOKEN avant le 1er run, même mécanique que FLUX.1-dev et Krea.
+    ⚠️ Contrairement à 'flux' (arch CŒUR), flux2_klein_* sont des EXTENSIONS →
+    garde de version obligatoire (_aitoolkit_supports_flux2klein) sinon
+    get_model_class retombe en silence sur le loader SD legacy (LoRA corrompu).
+    quantize/low_vram/qfloat8 comme les autres familles ; curseur basse-VRAM =
+    la résolution 768 (cf. _train_res)."""
+    trigger = _safe_trigger(ds)
+    is_9b = _flux2klein_is_9b(ds)
+    _fkrank = _lora_rank(ds, 'flux2klein')   # défaut 16 ; éditable via train_settings
+    model = {
+        'arch': 'flux2_klein_9b' if is_9b else 'flux2_klein_4b',
+        'name_or_path': ('black-forest-labs/FLUX.2-klein-base-9B' if is_9b
+                         else 'black-forest-labs/FLUX.2-klein-base-4B'),
+        'quantize': True, 'quantize_te': True, 'low_vram': True, 'qtype': 'qfloat8',
+        'model_kwargs': {'match_target_res': False},
+    }
+    return {
+        'job': 'extension',
+        'config': {
+            'name': f'lora_{trigger}',
+            'process': [{
+                'type': 'sd_trainer',
+                'training_folder': (training_folder if training_folder
+                                    else str(_output_dir() / _run_name(ds))),
+                'device': 'cuda:0',
+                'trigger_word': trigger,
+                'network': _network_block(ds, _fkrank, 'flux2klein'),
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds),
+                         'max_step_saves_to_keep': _max_step_saves(ds)},
+                'datasets': [{
+                    'folder_path': dataset_folder,
+                    'caption_ext': 'txt',
+                    'caption_dropout_rate': 0.05,
+                    'cache_latents_to_disk': True,
+                    'resolution': _train_res(ds),
+                    **_mask_fields(dataset_folder),
+                }],
+                'train': {
+                    'batch_size': 1,
+                    'steps': steps,
+                    'gradient_accumulation': _grad_accum(ds),
+                    'train_unet': True,
+                    'train_text_encoder': False,
+                    'gradient_checkpointing': True,
+                    'noise_scheduler': 'flowmatch',
+                    'timestep_type': _timestep_type_eff(ds, 'weighted'),
+                    'optimizer': _optimizer_eff(ds),
+                    'lr': _lr_eff(ds),
+                    'dtype': 'bf16',
+                    **_lr_sched_fields(ds),
+                },
+                'model': model,
+                'sample': {
+                    'sampler': 'flowmatch',
+                    'neg': '',
+                    'sample_every': _sample_every(ds),
+                    # Base non distillée → vrai CFG (cf. docstring) : 4 / 25 steps.
+                    'guidance_scale': 4,
+                    'sample_steps': 25,
                     'prompts': _sample_prompts(ds, trigger),
                 },
             }],
@@ -1728,10 +1895,10 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
     removed: list[str] = []
     run_prefix = f'u{user_id}_{trigger_safe}'    # ex. u1_Lola69382
     lora_prefix = f'lora_{trigger_safe}'         # ex. lora_Lola69382
-    # 1) LoRA déployés dans ComfyUI (z image + sdxl + krea + flux séparés)
+    # 1) LoRA déployés dans ComfyUI (z image + sdxl + krea + flux + flux2klein séparés)
     lora_roots = []
     for accessor in (_lora_dest_dir_zimage, _lora_dest_dir_sdxl, _lora_dest_dir_krea,
-                     _lora_dest_dir_flux):
+                     _lora_dest_dir_flux, _lora_dest_dir_flux2klein):
         try:
             lora_roots.append(str(accessor()))
         except RuntimeError:
@@ -1855,11 +2022,17 @@ def recommended_steps_info(dataset_id) -> dict:
 # deux → warning à confirmer. 10 images fixes pour tout le monde sous-estimait
 # SDXL (booru, plus gourmand en variété) et laissait passer des runs voués au
 # surapprentissage.
-TRAIN_MIN_IMAGES = {'zimage': (12, 20), 'sdxl': (20, 30), 'krea': (15, 20), 'flux': (15, 20)}
-_FAMILY_LABEL = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2', 'flux': 'FLUX.1'}
+TRAIN_MIN_IMAGES = {'zimage': (12, 20), 'sdxl': (20, 30), 'krea': (15, 20), 'flux': (15, 20),
+                    'flux2klein': (15, 20)}
+_FAMILY_LABEL = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2', 'flux': 'FLUX.1',
+                 'flux2klein': 'FLUX.2 Klein'}
 # VRAM mesurée : Krea 2 (12B) sature un 24 GB à 1024 (cf. KREA_TRAIN_RESOLUTION). Flux
 # est un DiT de même classe (12B) → même seuil recommandé.
 _KREA_MIN_VRAM_GB = 24
+# flux2klein est VOLONTAIREMENT absent : le check est variant-aveugle (la variante
+# se choisit au lancement, après ce preflight) et le défaut 4B tient en 16-24 Go —
+# un warning « il faut ~24 GB » serait un faux positif sur la voie locale normale.
+# Le 9B (32-48 Go) est la voie cloud ; un seuil 24 le sous-estimerait de toute façon.
 _VRAM24_FAMILIES = ('krea', 'flux')   # familles 12B qui recommandent ~24 GB à 1024
 
 
@@ -2190,10 +2363,12 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # dataset → _run_name/_run_dir/list_checkpoints deviennent base-aware (run isolé).
     base_model = (base_model or '').strip() or None
     variant = (variant or '').strip().lower()
-    if variant not in ('turbo', 'base', 'deturbo'):
-        # Aucune variante valide fournie → défaut family-aware (Krea → Raw). La famille
-        # de CE lancement vient du param train_type s'il est donné, sinon du dataset.
-        variant = _default_variant_for(train_type or getattr(ds, 'train_type', None))
+    # La famille de CE lancement vient du param train_type s'il est donné, sinon du
+    # dataset — c'est elle qui fixe l'enum de variantes valide (flux2klein : 4b/9b ;
+    # les autres : turbo/base/deturbo) et le défaut (Krea → Raw, flux2klein → 4B).
+    launch_fam = _train_type(ds, train_type)
+    if variant not in _valid_variants_for(launch_fam):
+        variant = _default_variant_for(launch_fam)
     if train_type is not None:
         ds.train_type = train_type
     # Conversion diffusers : UNIQUEMENT pour Z-Image (SDXL = single-file direct,
@@ -2212,6 +2387,12 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
         raise ValueError(
             "ai-toolkit doesn't support Krea 2 yet (krea2 arch missing) - "
             "update it (git pull) before training a Krea LoRA.")
+    # FLUX.2 Klein : même garde que Krea (archs d'EXTENSION, fallback SD silencieux
+    # sur un ai-toolkit pas à jour → LoRA corrompu, cf. _aitoolkit_supports_flux2klein).
+    if _train_type(ds) == 'flux2klein' and not _aitoolkit_supports_flux2klein():
+        raise ValueError(
+            "ai-toolkit doesn't support FLUX.2 Klein yet (flux2_klein arch missing) - "
+            "update it (git pull) before training a FLUX.2 Klein LoRA.")
     # Garde-fou anti-collision de dossier : un AUTRE dataset du user avec le même
     # (trigger, base) écrirait dans le même run → LoRA mélangés. Refuser AVANT de
     # persister/lancer, en nommant le conflit pour que l'utilisateur change un trigger.
@@ -2636,6 +2817,11 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
         raise ValueError(
             "ai-toolkit doesn't support Krea 2 yet (krea2 arch missing) - "
             "update it (git pull) before queuing a Krea LoRA.")
+    # FLUX.2 Klein : même garde qu'au lancement (archs d'extension, cf. launch).
+    if ttype == 'flux2klein' and not _aitoolkit_supports_flux2klein():
+        raise ValueError(
+            "ai-toolkit doesn't support FLUX.2 Klein yet (flux2_klein arch missing) - "
+            "update it (git pull) before queuing a FLUX.2 Klein LoRA.")
     # Même garde-fou de collision qu'au lancement : pas de mise en file d'un job
     # qui partagerait le dossier de run d'un autre dataset (même trigger + base).
     clash = find_run_collision(user_id, dataset_id, base_model=base)

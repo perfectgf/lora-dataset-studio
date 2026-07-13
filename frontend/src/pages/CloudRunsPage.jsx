@@ -10,7 +10,7 @@ import TrainingProgress from '../components/dataset/TrainingProgress';
    /train/cloud/runs endpoint (actives + recent history + budget summary). */
 
 const POLL_MS = 5000;
-const FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1' };
+const FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein' };
 
 const STATUS_STYLE = {
   done: 'text-emerald-300 border-emerald-400/40 bg-emerald-500/10',

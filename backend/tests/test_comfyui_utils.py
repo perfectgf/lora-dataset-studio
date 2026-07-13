@@ -28,6 +28,9 @@ def test_family_of_lora():
     assert family_of_lora(r'sdxl\lora_A_000001000.safetensors') == 'sdxl'
     assert family_of_lora(r'krea\x.safetensors') == 'krea'
     assert family_of_lora(r'z image\x.safetensors') == 'zimage'
+    # flux vs flux2klein: the folder prefixes must never swallow each other.
+    assert family_of_lora(r'flux\x.safetensors') == 'flux'
+    assert family_of_lora(r'flux2klein\x.safetensors') == 'flux2klein'
     assert family_of_lora(r'unknown\x.safetensors') is None
 
 

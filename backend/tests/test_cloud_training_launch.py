@@ -55,6 +55,47 @@ def test_launch_rejects_sdxl(ct, app, seeded_dataset):
             ct.launch_cloud_training('local', seeded_dataset, train_type='sdxl')
 
 
+def test_launch_rejects_flux_but_allows_flux2klein(ct, app, seeded_dataset, monkeypatch):
+    """FLUX.1 stays local-only; FLUX.2 Klein is cloud-ENABLED (official HF bases
+    the pod downloads itself — the 9B size is even the family's cloud-first
+    lane). The launch persists the family and its '4b' default variant, exactly
+    like the local path."""
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        with pytest.raises(ValueError, match='local-only'):
+            ct.launch_cloud_training('local', seeded_dataset, train_type='flux')
+        res = ct.launch_cloud_training('local', seeded_dataset, train_type='flux2klein')
+        assert res['status'] == 'preparing'
+        from app.services import face_dataset_service as fds
+        ds = fds.get_dataset('local', seeded_dataset)
+        assert ds.train_type == 'flux2klein'
+        assert ds.train_variant == '4b'
+
+
+def test_launch_flux2klein_accepts_9b_variant(ct, app, seeded_dataset, monkeypatch):
+    """The per-family variant enum: '9b' is kept as-is; a foreign leftover like
+    'turbo' falls back to the family default '4b' (never leaks into the run)."""
+    import json as _json
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        ct.launch_cloud_training('local', seeded_dataset,
+                                 train_type='flux2klein', variant='9b')
+        run = ct.get_active_run()
+        assert _json.loads(run.train_params)['variant'] == '9b'
+        from app.services import face_dataset_service as fds
+        assert fds.get_dataset('local', seeded_dataset).train_variant == '9b'
+
+
+def test_launch_flux2klein_coerces_foreign_variant_to_4b(ct, app, seeded_dataset, monkeypatch):
+    import json as _json
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        ct.launch_cloud_training('local', seeded_dataset,
+                                 train_type='flux2klein', variant='turbo')
+        run = ct.get_active_run()
+        assert _json.loads(run.train_params)['variant'] == '4b'
+
+
 def test_launch_without_key_raises(app, seeded_dataset, monkeypatch):
     monkeypatch.delenv('VAST_API_KEY', raising=False)
     from app.services import cloud_training as ct
@@ -990,6 +1031,22 @@ def test_continue_seeds_checkpoint_in_monitor_flow(ct, app, seeded_dataset,
     # ordering: create_job -> seed -> start_job
     names = [c[0] for c in fake.calls]
     assert names.index('create_job') < names.index('seed') < names.index('start_job')
+
+
+def test_gpu_tiers_flux2klein_open_and_uses_32gb_vram_floor(ct, app, seeded_dataset, monkeypatch):
+    """The GPU picker is open for flux2klein (flux stays refused) and the offer
+    search uses the family's min_vram_gb default of 32 — the 9B (32-48 GB) is
+    the family's cloud lane, and a 32 GB pod trains the 4B fine too."""
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 1000)
+    seen = {}
+    monkeypatch.setattr(ct.vast_client, 'search_offers',
+                        lambda **kw: seen.update(kw) or _offers_multi())
+    with app.app_context():
+        with pytest.raises(ValueError, match='local-only'):
+            ct.gpu_tiers('local', seeded_dataset, train_type='flux')
+        out = ct.gpu_tiers('local', seeded_dataset, train_type='flux2klein')
+        assert out['family'] == 'flux2klein'
+        assert seen['min_vram_gb'] == 32
 
 
 def test_cloud_progress_selects_run_by_family(ct, app, seeded_dataset, tmp_path):

@@ -12,8 +12,8 @@ hide.
 
 1. **Create the dataset** — Datasets → New. Pick **Character**, name it, set a
    **trigger word** (the token your prompts will use), and choose the **target
-   model** (Z-Image / SDXL / Krea 2 — changes the caption style; you can change
-   it later).
+   model** (Z-Image / SDXL / Krea 2 / FLUX.1 / FLUX.2 Klein — changes the caption
+   style; you can change it later).
 2. **Upload the reference photo.** The app head-crops it automatically; use the
    crop editor (or *Reset to auto*) if the framing is off. Up to 3 extra angles
    can be added for multi-view consistency.

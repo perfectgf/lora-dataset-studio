@@ -363,6 +363,9 @@ def dataset_train_base_info(dataset_id):
     # de conversion. Entrée explicite pour que l'UI n'aille PAS retomber sur les bases
     # Z-Image (fallback `bases_by_type[type] || bases`) quand la famille est Flux.
     flux_bases = [{'value': '', 'label': 'Official - FLUX.1-dev'}]
+    # FLUX.2 Klein : bases officielles fixes (gated HF) — le choix 4B/9B se fait via
+    # le sélecteur `variant` (comme Raw/Turbo pour Krea), pas ici → label neutre.
+    flux2klein_bases = [{'value': '', 'label': 'Official - FLUX.2 Klein'}]
     # Les listers de bases (get_checkpoint_models / get_zimage_models) résolvent le
     # dossier des modèles depuis comfyui.base_dir → vides tant qu'il n'est pas
     # configuré. On expose ce fait pour que l'UI dise « configure ComfyUI dans Setup »
@@ -374,9 +377,10 @@ def dataset_train_base_info(dataset_id):
         models_dir = None
     comfyui_configured = bool(models_dir) and os.path.isdir(str(models_dir))
     return jsonify({'bases': bases, 'base': ds.train_base_model or '',
-                    # Défaut family-aware : Krea → Raw (reco officielle), sinon Turbo.
-                    # Le back-end (_krea_is_raw) applique le même défaut, ils s'accordent.
-                    'variant': ds.train_variant or ('base' if (ds.train_type or 'zimage') == 'krea' else 'turbo'),
+                    # Défaut family-aware : Krea → Raw (reco officielle), FLUX.2 Klein
+                    # → 4B, sinon Turbo. Déféré au service (_default_variant_for) pour
+                    # que l'UI et le lancement (_krea_is_raw/_flux2klein_is_9b) s'accordent.
+                    'variant': ds.train_variant or lt._default_variant_for(ds.train_type or 'zimage'),
                     'converted': converted,
                     'convert': zc.convert_status(),
                     'train_type': ds.train_type or 'zimage',
@@ -387,7 +391,8 @@ def dataset_train_base_info(dataset_id):
                     # « Advanced options » les affiche et laisse les éditer.
                     'train_settings': lt.effective_train_settings(ds),
                     'bases_by_type': {'zimage': bases, 'sdxl': sdxl_bases,
-                                      'krea': krea_bases, 'flux': flux_bases}})
+                                      'krea': krea_bases, 'flux': flux_bases,
+                                      'flux2klein': flux2klein_bases}})
 
 
 @bp.post('/dataset/<int:dataset_id>/train/settings')

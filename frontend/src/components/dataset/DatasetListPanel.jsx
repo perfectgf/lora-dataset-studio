@@ -91,6 +91,9 @@ const FAMILY_BADGE = {
   sdxl: ['SDXL', 'border-violet-400/40 bg-violet-500/10 text-violet-300'],
   krea: ['Krea', 'border-amber-400/40 bg-amber-500/10 text-amber-300'],
   flux: ['FLUX.1', 'border-emerald-400/40 bg-emerald-500/10 text-emerald-300'],
+  // rose: libre (fuchsia/cyan sont pris par les badges kind Concept/Style au-dessus
+  // de la vignette — une couleur distincte évite de les confondre avec une famille).
+  flux2klein: ['FLUX.2 Klein', 'border-rose-400/40 bg-rose-500/10 text-rose-300'],
 };
 
 // Familles de modèle proposées à la création + ordre/labels des sections du menu.
@@ -101,6 +104,7 @@ const FAMILY_ORDER = [
   ['sdxl', 'SDXL', '🎨'],
   ['krea', 'Krea 2', '✨'],
   ['flux', 'FLUX.1', '⚡'],
+  ['flux2klein', 'FLUX.2 Klein', '🌹'],
 ];
 
 /** One-line status of a tile: how big, how far along. Text, not color-only. */
@@ -262,6 +266,7 @@ function NewDatasetForm({ onCreate, onRestore, onClose }) {
           <option value="sdxl">SDXL (booru-tag captions)</option>
           <option value="krea">Krea 2 (prose captions)</option>
           <option value="flux">FLUX.1 (prose captions)</option>
+          <option value="flux2klein">FLUX.2 Klein (prose captions)</option>
         </select>
       </label>
       {/* Fidélité (personnage) : visage seul (défaut) vs visage + corps. En mode corps,

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { INPUT_CLASS, Card, SecretField } from './primitives'
 
-const FAMILY_OPTIONS = ['zimage', 'sdxl', 'krea']
+// Keep in sync with backend TRAIN_TYPES (face_dataset_service.py) — 'flux' had
+// been forgotten here when the FLUX.1 family landed (fixed alongside flux2klein).
+const FAMILY_OPTIONS = ['zimage', 'sdxl', 'krea', 'flux', 'flux2klein']
 
 /* First-time walkthrough for renting cloud GPUs — collapsed by default so the
    card stays compact for users who already have a key. */

@@ -15,13 +15,13 @@ enforces or defaults to — when in doubt, the app's warnings are this guide app
 The family changes the caption style, the image count, and the settings — so decide
 before you caption anything.
 
-| | Z-Image | SDXL | Krea 2 | FLUX.1 |
-|---|---|---|---|---|
-| **Caption style** | Prose sentences | Booru tags | Prose sentences | Prose sentences |
-| **Images (min → good)** | 12 → 20+ | 20 → 30+ | 15 → 20+ | 15 → 20+ |
-| **Training base** | Z-Image-Turbo (or a converted custom merge) | Your ComfyUI checkpoint (e.g. bigLove) | Krea-2-Raw (default) or Turbo | FLUX.1-dev (gated HF) |
-| **Preview quality** | Fast, distilled | Depends on checkpoint | Raw: slow but faithful | High, ~20 steps |
-| **Best for** | Fast iteration, prose-driven prompting | Booru-native checkpoints, NSFW ecosystems | Highest realism ceiling | The largest LoRA ecosystem, strong prompt fidelity |
+| | Z-Image | SDXL | Krea 2 | FLUX.1 | FLUX.2 Klein |
+|---|---|---|---|---|---|
+| **Caption style** | Prose sentences | Booru tags | Prose sentences | Prose sentences | Prose sentences |
+| **Images (min → good)** | 12 → 20+ | 20 → 30+ | 15 → 20+ | 15 → 20+ | 15 → 20+ |
+| **Training base** | Z-Image-Turbo (or a converted custom merge) | Your ComfyUI checkpoint (e.g. bigLove) | Krea-2-Raw (default) or Turbo | FLUX.1-dev (gated HF) | FLUX.2-klein-base 4B (default) or 9B (gated HF) |
+| **Preview quality** | Fast, distilled | Depends on checkpoint | Raw: slow but faithful | High, ~20 steps | Non-distilled, real CFG (~25 steps) |
+| **Best for** | Fast iteration, prose-driven prompting | Booru-native checkpoints, NSFW ecosystems | Highest realism ceiling | The largest LoRA ecosystem, strong prompt fidelity | Modern FLUX.2 stack; 4B trains on mid-range GPUs |
 
 **Krea note:** the default trains on **Krea-2-Raw** — the official recommendation is
 *"train on Raw, validate on Turbo"*. Raw runs are long (hours); that's normal, not stuck.
@@ -31,6 +31,14 @@ license and set a HF token before the first run (the initial download is ~24 GB)
 a 12B model like Krea 2, so **~24 GB VRAM** is the comfort zone (drop the resolution to
 **768** to fit smaller cards). **Local training only for now**; in-app testing (Test
 Studio) is coming — until then, test your Flux LoRA in your own ComfyUI.
+
+**FLUX.2 Klein note:** two model sizes, picked next to the base selector — **4B**
+(default) trains on a **16–24 GB** local GPU, **9B** needs **32–48 GB VRAM** and is
+best trained via **☁️ Train in cloud** (both local and cloud runs are supported for
+this family). Both bases are *gated* on Hugging Face: accept the license of
+`FLUX.2-klein-base-4B` / `-9B` and set a HF token before the first run. In-app
+testing (Test Studio) is coming — until then, test your Klein LoRA in your own
+ComfyUI.
 
 ---
 
@@ -94,13 +102,13 @@ very thing you're training).
 The defaults below are the app's defaults (post-research). Change them from
 ⚙️ Advanced options on the training panel — each knob has its own why/how there.
 
-| Setting | Z-Image | SDXL | Krea 2 | FLUX.1 | Why |
-|---|---|---|---|---|---|
-| **LoRA rank / alpha** | 16 / 16 | 32 / 16 | 32 / 32 | 16 / 16 | Capacity to memorize the identity. SDXL's alpha = rank ÷ 2 is that family's half-strength convention. |
-| **Resolution** | 768 + 1024 | 768 + 1024 | 768 + 1024 | 768 + 1024 | Multi-scale: holds up from close-up to full-body. |
-| **Save checkpoint** | every 250 | every 250 | every 250 | every 250 | More snapshots → better odds one is at the sweet spot. |
-| **Steps** | auto | auto | auto | auto | ~120 × images, clamped 1500–3500. A fixed 3000 overcooks small sets. |
-| **Masked training** | ON | ON | ON | ON | Background weighs only 10% of the loss → identity binds to the person, not the room. OFF for concepts. |
+| Setting | Z-Image | SDXL | Krea 2 | FLUX.1 | FLUX.2 Klein | Why |
+|---|---|---|---|---|---|---|
+| **LoRA rank / alpha** | 16 / 16 | 32 / 16 | 32 / 32 | 16 / 16 | 16 / 16 | Capacity to memorize the identity. SDXL's alpha = rank ÷ 2 is that family's half-strength convention. |
+| **Resolution** | 768 + 1024 | 768 + 1024 | 768 + 1024 | 768 + 1024 | 768 + 1024 | Multi-scale: holds up from close-up to full-body. |
+| **Save checkpoint** | every 250 | every 250 | every 250 | every 250 | every 250 | More snapshots → better odds one is at the sweet spot. |
+| **Steps** | auto | auto | auto | auto | auto | ~120 × images, clamped 1500–3500. A fixed 3000 overcooks small sets. |
+| **Masked training** | ON | ON | ON | ON | ON | Background weighs only 10% of the loss → identity binds to the person, not the room. OFF for concepts. |
 
 Rules of thumb:
 
@@ -119,8 +127,8 @@ Rules of thumb:
 
 The app sets the step count **automatically** for a character LoRA:
 **≈ 120 × kept images, clamped to 1500–3500.** The *target is the same* for
-Z-Image, SDXL, Krea 2 and FLUX.1 — the model family changes how *fast* that target
-converges, not the number. (Concept/style datasets scale differently:
+Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein — the model family changes how *fast*
+that target converges, not the number. (Concept/style datasets scale differently:
 **475 · √n, clamped 2000–12000**, because they train on hundreds of images.)
 
 So the character step count just follows your dataset size:
@@ -144,6 +152,7 @@ usable checkpoint appears depends on how fast the model converges:
 | **SDXL** | Medium (base-dependent) | Middle of the run; booru-native checkpoints lock an identity quickly |
 | **Krea 2 – Raw** | Slow (12B, non-distilled) | The **last third** — the run is long by design, let it finish the full count rather than stopping early |
 | **FLUX.1-dev** | Medium (12B, guidance-distilled) | Middle of the run; a strong prompt-follower, so watch for waxy skin / frozen expression if you overshoot into the last ~20% |
+| **FLUX.2 Klein (4B/9B)** | Medium (non-distilled base) | Middle of the run; previews run with real CFG so overfit shows honestly — pick the earliest checkpoint that holds the identity |
 
 **Takeaway:** don't hand-tune the step number. Train the auto count, then use the
 **Test Studio** to pick the *earliest* checkpoint that nails the identity — that's
@@ -155,7 +164,7 @@ the one with the most prompt flexibility left.
 
 The app runs these checks when you hit Train — here's the list to self-check earlier:
 
-- [ ] At least the family minimum kept (12 Z-Image / 20 SDXL / 15 Krea / 15 FLUX.1) — 20–30 is the comfort zone
+- [ ] At least the family minimum kept (12 Z-Image / 20 SDXL / 15 Krea / 15 FLUX.1 / 15 FLUX.2 Klein) — 20–30 is the comfort zone
 - [ ] Framing balanced — not 100% face shots (some bust/body/back)
 - [ ] Every kept image captioned
 - [ ] **Zero identity leaks** (no hair/face/skin words — the leak badge shows 0)

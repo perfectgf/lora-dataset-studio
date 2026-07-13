@@ -217,7 +217,10 @@ def set_fidelity(user_id, dataset_id, fidelity) -> bool:
 # Familles de modèle entraînables (= pipeline ai-toolkit). Source de vérité côté UI
 # ET validation : choisie à la création, drive le format de caption (sdxl→booru, sinon
 # prose) et le regroupement du menu. Reste modifiable ensuite (TrainingPanel).
-TRAIN_TYPES = ('zimage', 'sdxl', 'krea', 'flux')
+# NB : 'flux2klein' (FLUX.2 Klein) — PAS 'klein' : ce namespace est déjà pris par
+# le moteur de GÉNÉRATION (engines.klein, unet/klein/) ; un train_type 'klein'
+# télescoperait les résolveurs de modèles et les chemins loras du Studio.
+TRAIN_TYPES = ('zimage', 'sdxl', 'krea', 'flux', 'flux2klein')
 
 
 def normalize_train_type(t) -> str:

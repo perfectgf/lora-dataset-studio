@@ -580,7 +580,8 @@ _TRAINED_STEP_RE = re.compile(r'^\d{4,}$')
 # Familles d'entraînement (= pipeline). La clé interne ('zimage'/'sdxl'/'krea') et
 # son libellé d'affichage : source UNIQUE, réutilisée par le studio (sélecteur de
 # famille) et par le label de LoRA ci-dessous.
-FAMILY_LABELS = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2', 'flux': 'FLUX.1'}
+FAMILY_LABELS = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2', 'flux': 'FLUX.1',
+                 'flux2klein': 'FLUX.2 Klein'}
 
 
 def family_of_lora(filename: str) -> str | None:
@@ -593,6 +594,10 @@ def family_of_lora(filename: str) -> str | None:
         return 'sdxl'
     if low.startswith('krea\\'):
         return 'krea'
+    # flux2klein AVANT flux par lisibilité seulement : « flux\\ » exige le backslash
+    # juste après « flux », donc « flux2klein\\x » ne le matche pas — pas d'ambiguïté.
+    if low.startswith('flux2klein\\'):
+        return 'flux2klein'
     if low.startswith('flux\\'):
         return 'flux'
     if low.startswith(('z image\\', 'zimage\\', 'z-image\\')):
