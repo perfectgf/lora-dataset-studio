@@ -1806,7 +1806,8 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
     return ids
 
 
-def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=None):
+def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=None,
+                     engine=None, klein_model=None):
     """Re-enqueue a single generated variation IN PLACE (same row id): cancel any
     in-flight job, drop the old file, reset the row to pending with the new
     job_id. Returns the new job_id, or None if the image is not owned / not a
@@ -1818,7 +1819,18 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     (so a later plain regenerate / reject-regenerate reuses the edit), then feeds
     the identity-guard wrapper like any catalog prompt — the face lock is still
     applied on top, the user only steers the creative half. Empty/None = the
-    current behaviour (recover the prompt from the row or the label)."""
+    current behaviour (recover the prompt from the row or the label).
+
+    `engine` (optional, 'nanobanana'/'chatgpt'/'klein') is the generator
+    CURRENTLY selected in the workspace — it wins over the engine that
+    originally produced the row, so a tile born on Klein doesn't pin every
+    regenerate to Klein after the user switched to Nano Banana (and vice
+    versa). None = legacy behaviour (reuse the row's origin). Exception:
+    an NSFW-labelled tile always stays on the local Klein path (fail-closed —
+    NSFW never goes to third-party APIs, mirroring the batch generate rule).
+    `klein_model` (optional) is the workspace's Klein model pick, used when a
+    row born on an API engine switches to Klein (its klein_model column holds
+    an engine TAG, not a real model file)."""
     img = _owned_image(user_id, image_id)
     if not img or img.source != 'generated':
         return None
@@ -1831,6 +1843,12 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     prompt = img.variation_prompt or prompt_by_label(img.variation_label or '')
     if prompt is None:
         raise ValueError('variation prompt unknown')
+    requested = (engine or '').strip() or None
+    if requested is not None and requested != 'klein' and requested not in API_ENGINES:
+        raise ValueError(f'unknown engine: {requested}')
+    target = requested or (img.klein_model if img.klein_model in API_ENGINES else 'klein')
+    if is_nsfw_label(img.variation_label):
+        target = 'klein'              # fail-closed: NSFW never reaches an API engine
     if img.status == 'pending' and not img.filename and img.job_id:  # still generating
         try:
             from ..job_queue import queue_manager
@@ -1843,13 +1861,15 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
         except OSError:
             pass
 
-    # API rows (marked klein_model='nanobanana'/'chatgpt', no queue job):
-    # regenerate via the SAME engine that produced the row. With an `app`
-    # handle the call runs in a background thread (the row flips to in-flight
-    # IMMEDIATELY so the tile shows "…" and the polling/banner UI reacts at
-    # once); without it the call is synchronous (test path / legacy callers).
-    if img.klein_model in API_ENGINES:
-        engine = img.klein_model
+    # API target ('nanobanana'/'chatgpt' — requested, or the row's origin when
+    # no engine was given): the row's klein_model column carries the engine tag.
+    # With an `app` handle the call runs in a background thread (the row flips
+    # to in-flight IMMEDIATELY so the tile shows "…" and the polling/banner UI
+    # reacts at once); without it the call is synchronous (test path / legacy
+    # callers).
+    if target in API_ENGINES:
+        engine = target
+        img.klein_model = engine      # the row's engine tag follows the switch
         api_generate = _api_generate_fn(engine)
         ref_path = _ref_path(ds)
         if not os.path.exists(ref_path):
@@ -1900,13 +1920,19 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
         from .klein_edit_helper import enqueue_klein_edit
     except ImportError:
         raise RuntimeError('ComfyUI is not configured')
+    # Klein target: keep the row's real model file when it has one; a row born
+    # on an API engine holds an engine TAG here, not a model — use the
+    # workspace's Klein pick instead (None = enqueue's default model).
+    model = (img.klein_model if img.klein_model not in API_ENGINES
+             else ((klein_model or '').strip() or None))
+    img.klein_model = model           # the row's engine/model tag follows the switch
     extra_paths = [os.path.join(_dataset_dir(ds.id), fn) for fn in extra_ref_filenames(ds)]
     job_id = enqueue_klein_edit(
         user_id=str(user_id), source_filename=ds.ref_filename,
         source_path=_ref_path(ds),
         edit_prompt=wrap_variation_klein(prompt, nsfw=is_nsfw_label(img.variation_label),
                                          framing=img.framing),
-        klein_model=img.klein_model,
+        klein_model=model,
         lora_strength=lora_strength, extra_ref_paths=extra_paths,
         extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
                         'variation_label': img.variation_label})

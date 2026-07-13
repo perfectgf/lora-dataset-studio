@@ -507,6 +507,87 @@ def test_regenerate_without_prompt_keeps_existing(app, monkeypatch):
         assert svc.db.session.get(FaceDatasetImage, img.id).variation_prompt == 'old prompt'
 
 
+def test_regenerate_honors_currently_selected_api_engine(app, monkeypatch):
+    """A tile born on Klein regenerates through the CURRENTLY selected engine
+    when the workspace sends one — the row's origin no longer pins it."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    seen = {}
+    def make(engine):
+        seen['engine'] = engine
+        return lambda refs, prompt, aspect_ratio=None: _png()
+    monkeypatch.setattr(svc, '_api_generate_fn', make)
+    with app.app_context():
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER,
+                                             engine='flux-2-klein.safetensors')  # Klein-born
+        svc.regenerate_image(LOCAL_USER, img.id, engine='nanobanana')  # app=None -> sync
+        svc.db.session.expire_all()
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert seen['engine'] == 'nanobanana'
+        assert row.klein_model == 'nanobanana'    # the row's engine tag follows the switch
+        assert row.filename                        # generated through the API path
+
+
+def test_regenerate_switch_to_klein_uses_picker_model(app, monkeypatch):
+    """A tile born on an API engine regenerates through Klein when requested:
+    the enqueue receives the workspace's Klein model pick — never the API tag."""
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    seen = {}
+    def fake_enqueue(**kwargs):
+        seen.update(kwargs)
+        return 'job-123'
+    monkeypatch.setattr(klein_edit_helper, 'enqueue_klein_edit', fake_enqueue)
+    with app.app_context():
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER)  # nanobanana-born
+        job = svc.regenerate_image(LOCAL_USER, img.id, engine='klein',
+                                   klein_model='flux-2-klein.safetensors')
+        assert job == 'job-123'
+        assert seen['klein_model'] == 'flux-2-klein.safetensors'
+        svc.db.session.expire_all()
+        assert (svc.db.session.get(FaceDatasetImage, img.id).klein_model
+                == 'flux-2-klein.safetensors')
+
+
+def test_regenerate_nsfw_stays_local_despite_api_engine(app, monkeypatch):
+    """Fail-closed: an NSFW-labelled tile regenerates on the LOCAL Klein path
+    even when the workspace's selected engine is an API one (mirrors the batch
+    rule — NSFW never reaches a third-party API)."""
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    seen = {}
+    def fake_enqueue(**kwargs):
+        seen.update(kwargs)
+        return 'job-nsfw'
+    monkeypatch.setattr(klein_edit_helper, 'enqueue_klein_edit', fake_enqueue)
+    monkeypatch.setattr(svc, '_api_generate_fn',
+                        lambda engine: (_ for _ in ()).throw(AssertionError('API engine must not be called')))
+    with app.app_context():
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER,
+                                             engine='flux-2-klein.safetensors')
+        img.variation_label = '🔞 custom shot'    # is_nsfw_label() -> True
+        svc.db.session.commit()
+        job = svc.regenerate_image(LOCAL_USER, img.id, engine='nanobanana')
+        assert job == 'job-nsfw'                   # Klein path, not the API one
+        assert seen['klein_model'] == 'flux-2-klein.safetensors'
+
+
+def test_regenerate_rejects_unknown_engine(app):
+    import pytest
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER)
+        with pytest.raises(ValueError, match='unknown engine'):
+            svc.regenerate_image(LOCAL_USER, img.id, engine='dalle3')
+
+
 def test_regenerate_prompt_truncated_to_column_limit(app, monkeypatch):
     """A very long edited prompt is truncated to the variation_prompt column (500)."""
     from app.services import face_dataset_service as svc

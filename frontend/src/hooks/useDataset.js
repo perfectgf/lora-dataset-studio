@@ -395,9 +395,20 @@ export function useDataset() {
   // AND failed tiles — it is the recovery path for failures. `prompt` (optional)
   // is the user-edited core prompt from the tile's ✏️ bubble; omitted → the
   // server reuses the row's / label's prompt (plain 🔄 and reject→regenerate).
+  // The generator CURRENTLY selected in the workspace (persisted by
+  // VariationCatalog) is sent along so the regenerate follows the user's
+  // selection instead of being pinned to the engine that made the tile;
+  // the Klein model pick rides too for an API→Klein switch. Missing keys =
+  // server keeps the legacy reuse-the-row's-engine behaviour.
   const regenerate = useCallback(async (imageId, loraStrength, prompt) => {
+    let engine = null; let kleinModel = null;
+    try {
+      engine = localStorage.getItem('datasetGenerator') || null;
+      kleinModel = localStorage.getItem('editPage_flux2KleinModel_v1') || null;
+    } catch { /* private mode — legacy behaviour */ }
     const d = await postJson(`/api/dataset/image/${imageId}/regenerate`,
-      { lora_strength: loraStrength, ...(prompt ? { prompt } : {}) });
+      { lora_strength: loraStrength, ...(prompt ? { prompt } : {}),
+        ...(engine ? { engine } : {}), ...(kleinModel ? { klein_model: kleinModel } : {}) });
     if (d.ok) { toast.success('Regeneration started'); await refresh(); }
     else toast.error(d.error || 'Unexpected error');
   }, [refresh, toast]);

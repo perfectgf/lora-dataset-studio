@@ -462,11 +462,16 @@ def dataset_image_regenerate(image_id):
     # current behaviour (recover from the row / label); the identity guard is
     # re-applied on top either way (see regenerate_image).
     edited_prompt = (data.get('prompt') or '').strip() or None
+    # Optional engine override: the generator currently selected in the
+    # workspace (absent = legacy behaviour, reuse the row's origin engine).
+    engine = (data.get('engine') or '').strip() or None
+    klein_model = (data.get('klein_model') or '').strip() or None
     try:
         from flask import current_app
         job_id = svc.regenerate_image(LOCAL_USER, image_id,
                                       lora_strength=data.get('lora_strength'),
                                       prompt=edited_prompt,
+                                      engine=engine, klein_model=klein_model,
                                       app=current_app._get_current_object())
     except Exception as e:
         from ..services.klein_edit_helper import KleinModelsMissing
