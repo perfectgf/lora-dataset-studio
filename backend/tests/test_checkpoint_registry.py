@@ -108,6 +108,26 @@ def test_import_suffixes_deployed_name_with_version(app, ds_with_images, tmp_pat
         assert any(n.endswith('_v1.safetensors') for n in names)
 
 
+def test_record_for_mtime_prefers_oldest_for_preregistry_files(app, ds_with_images):
+    """A checkpoint file OLDER than every record predates the registry: its
+    owner is the oldest record (legacy baseline), never the newest (live
+    sighting: local checkpoints wore a ☁ chip because a cloud launch was the
+    latest record)."""
+    import time
+    from app.services import checkpoint_registry as reg
+    ds_id, _ = ds_with_images
+    with app.app_context():
+        legacy = reg.register_launch(LOCAL_USER, ds_id, 'krea', 'legacy')
+        cloud = reg.register_launch(LOCAL_USER, ds_id, 'krea', 'cloud', cloud_run_id=10)
+        assert legacy.id != cloud.id
+        # file mtime far in the past -> oldest record wins
+        rec = reg.record_for_mtime(ds_id, 'krea', time.time() - 86400)
+        assert rec.id == legacy.id and rec.source == 'legacy'
+        # file newer than everything -> newest record wins (loop path)
+        rec = reg.record_for_mtime(ds_id, 'krea', time.time() + 60)
+        assert rec.id == cloud.id
+
+
 def test_ensure_baseline_retrofits_pretrained_datasets(app, ds_with_images):
     """Deployed-project rule: a dataset trained BEFORE the registry existed
     (evidence: checkpoints/cloud runs, zero records) gets a retroactive v1

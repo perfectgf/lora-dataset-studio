@@ -134,7 +134,11 @@ def ensure_baseline(user_id, dataset_id, family, had_training) -> None:
 def record_for_mtime(dataset_id, family, mtime_ts):
     """The run record a FILE most plausibly belongs to: the newest record
     created BEFORE the file was written (records are created at launch, files
-    after). Fallback: the latest record. None when nothing is registered."""
+    after). A file older than EVERY record predates the registry — its most
+    plausible owner is the OLDEST record (the legacy baseline), not the
+    newest (live sighting: yesterday's local checkpoints wore a ☁ chip
+    because a cloud launch happened to be the latest record). None when
+    nothing is registered."""
     from datetime import datetime
     recs = (TrainingRunRecord.query
             .filter_by(dataset_id=dataset_id, family=family)
@@ -148,7 +152,7 @@ def record_for_mtime(dataset_id, family, mtime_ts):
                 return r
     except (OverflowError, OSError, ValueError):
         pass
-    return recs[0]
+    return recs[-1]
 
 
 def dataset_state(user_id, dataset_id, family) -> dict:
