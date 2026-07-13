@@ -9,7 +9,7 @@ import PreflightModal from './PreflightModal';
 
 // Plancher dur / recommandé par famille — miroir de TRAIN_MIN_IMAGES côté serveur
 // (le preflight reste l'autorité ; ceci ne sert qu'à désactiver le bouton tôt).
-const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20] };
+const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20], flux: [15, 20] };
 
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
@@ -126,7 +126,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Réglages avancés effectifs (client-side pour que le défaut family-aware du rank
   // suive un changement de type SANS re-fetch). `adv.rank` null = Auto.
   const advRankChoice = adv?.rank ?? 'auto';
-  const advDefaultRank = trainType === 'zimage' ? 16 : 32;   // miroir de _DEFAULT_RANK
+  const advDefaultRank = (trainType === 'zimage' || trainType === 'flux') ? 16 : 32;   // miroir de _DEFAULT_RANK
   const advEffRank = advRankChoice === 'auto' ? advDefaultRank : advRankChoice;
   // Expert levers (all default to current behaviour when absent):
   const advAlphaChoice = adv?.alpha_setting ?? 'auto';
@@ -136,7 +136,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const advDropout = adv?.dropout ?? 0;
   const advDropoutChoices = adv?.dropout_choices ?? [0.05, 0.1, 0.15, 0.2, 0.3];
   const advTimestep = adv?.timestep_type ?? 'auto';
-  const advTimestepDefault = adv?.default_timestep_type ?? (trainType === 'krea' ? 'linear' : trainType === 'zimage' ? 'sigmoid' : null);
+  const advTimestepDefault = adv?.default_timestep_type ?? (trainType === 'krea' ? 'linear' : (trainType === 'zimage' || trainType === 'flux') ? 'sigmoid' : null);
   const advTimestepSupported = adv ? adv.timestep_type_supported !== false : trainType !== 'sdxl';
   const advTimestepChoices = adv?.timestep_type_choices ?? ['sigmoid', 'linear', 'weighted', 'shift'];
   const advOptimizer = adv?.optimizer ?? 'adamw8bit';
@@ -399,8 +399,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     : Math.max(1500, Math.min(3500, Math.round((keptCount * 120) / 100) * 100));
   // Libellé lisible de la base sélectionnée (pour étiqueter les checkpoints de CE run).
   const baseLabel = currentBases.find((b) => b.value === base)?.label || (base || 'Official');
-  const typeLabel = trainType === 'sdxl' ? 'SDXL' : trainType === 'krea' ? 'Krea 2' : 'Z-Image';
-  const lorasLabel = trainType === 'sdxl' ? 'loras/sdxl' : trainType === 'krea' ? 'loras/krea' : 'loras/z image';
+  const typeLabel = trainType === 'sdxl' ? 'SDXL' : trainType === 'krea' ? 'Krea 2' : trainType === 'flux' ? 'FLUX.1' : 'Z-Image';
+  const lorasLabel = trainType === 'sdxl' ? 'loras/sdxl' : trainType === 'krea' ? 'loras/krea' : trainType === 'flux' ? 'loras/flux' : 'loras/z image';
 
   // Panel gated off (ai-toolkit not configured): the workspace's checkpoint
   // count must not keep a stale value from a previous dataset/session.
@@ -493,6 +493,29 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         </p>
       )}
 
+      {/* Local training CRASHED (ai-toolkit run.py exited non-zero): the watcher
+          captured the reason into training_error. Without surfacing it, a run that
+          starts then dies just flips back to idle after the green "Training started"
+          toast — the exact "shows confirmation but nothing happens" report (GH #3).
+          Cleared automatically on the next launch (server resets training_error). */}
+      {status.error && (!status.error.dataset_id || status.error.dataset_id === ds.currentId) && (
+        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-200 text-[0.6875rem]">
+          <div className="font-semibold">
+            ⚠ The last training run failed{status.error.rc != null ? ` (ai-toolkit exited ${status.error.rc})` : ''} — nothing is training now.
+          </div>
+          {status.error.log_tail && (
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-1.5 font-mono text-[0.625rem] text-red-300/90">
+              {status.error.log_tail}
+            </pre>
+          )}
+          <div className="mt-1 text-red-300/80">
+            Common first-run causes: ai-toolkit’s Python venv is missing packages
+            (re-run its install), or the base model is still downloading / needs a
+            Hugging Face token (gated models like Krea 2 and FLUX.1). Fix the cause above, then Train again.
+          </div>
+        </div>
+      )}
+
       {/* Live progress of THIS dataset's run: bar + loss sparkline + sample
           previews. Only while it is the one training (queued/other runs: no poll). */}
       {status.in_progress && status.current?.dataset_id === ds.currentId && (
@@ -540,11 +563,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         <span className="text-content-muted text-[0.625rem] uppercase">LoRA type</span>
         <select value={trainType} onChange={(e) => onTypeChange(e.target.value)}
           aria-label="Type of LoRA to train"
-          title="Z-Image (prose, Qwen3 encoder) ~20 img · SDXL (ComfyUI checkpoints) ~30 img · Krea 2 (prose, base fixe Turbo) ~20 img"
+          title="Z-Image (prose, Qwen3 encoder) ~20 img · SDXL (ComfyUI checkpoints) ~30 img · Krea 2 (prose, base fixe Turbo) ~20 img · FLUX.1-dev (prose, gated HF, local-only) ~20 img"
           className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
           <option value="zimage">Z-Image (~20 img)</option>
           <option value="sdxl">SDXL (~30 img)</option>
           <option value="krea">Krea 2 (~20 img)</option>
+          <option value="flux">FLUX.1 (~20 img)</option>
         </select>
         <button type="button" disabled={!status.installed || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12) || status.in_progress || baseBlocksTrain || sdxlNeedsBase}
           title={baseBlocksTrain ? 'Convert the custom base first'
@@ -573,11 +597,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         </button>
         {caps.cloud_training && (
           <button type="button"
-            disabled={trainType === 'sdxl' || !!cloudActiveHere
+            disabled={trainType === 'sdxl' || trainType === 'flux' || !!cloudActiveHere
               || actives.length >= (cloudStatus.limit || 1)
               || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12)}
             title={trainType === 'sdxl'
               ? 'SDXL needs a local base checkpoint — cloud supports Z-Image and Krea'
+              : trainType === 'flux'
+              ? 'FLUX.1 is local-only for now — cloud supports Z-Image and Krea'
               : cloudActiveHere ? 'This dataset already has an active cloud run'
               : actives.length >= (cloudStatus.limit || 1)
                 ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — raise it in Settings`
@@ -648,7 +674,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 aria-label="Base model"
                 className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[230px]">
                 {(currentBases.length ? currentBases
-                  : [{ value: '', label: trainType === 'sdxl' ? (comfyConfigured ? 'No SDXL checkpoint found' : 'ComfyUI not configured') : trainType === 'krea' ? 'Official — Krea 2' : 'Official — Z-Image-Turbo' }]).map((b) => (
+                  : [{ value: '', label: trainType === 'sdxl' ? (comfyConfigured ? 'No SDXL checkpoint found' : 'ComfyUI not configured') : trainType === 'krea' ? 'Official — Krea 2' : trainType === 'flux' ? 'Official — FLUX.1-dev' : 'Official — Z-Image-Turbo' }]).map((b) => (
                   <option key={b.value} value={b.value}>
                     {b.label}{b.value && baseInfo?.converted?.[b.value] ? ' ✓' : ''}
                   </option>
@@ -1223,7 +1249,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   );
 }
 
-const _FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL' };
+const _FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1' };
 
 function _fmtDuration(min) {
   if (min == null) return '—';

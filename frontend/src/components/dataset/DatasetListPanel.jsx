@@ -79,6 +79,7 @@ const FAMILY_BADGE = {
   zimage: ['Z-Image', 'border-sky-400/40 bg-sky-500/10 text-sky-300'],
   sdxl: ['SDXL', 'border-violet-400/40 bg-violet-500/10 text-violet-300'],
   krea: ['Krea', 'border-amber-400/40 bg-amber-500/10 text-amber-300'],
+  flux: ['FLUX.1', 'border-emerald-400/40 bg-emerald-500/10 text-emerald-300'],
 };
 
 // Familles de modèle proposées à la création + ordre/labels des sections du menu.
@@ -88,6 +89,7 @@ const FAMILY_ORDER = [
   ['zimage', 'Z-Image', '🌀'],
   ['sdxl', 'SDXL', '🎨'],
   ['krea', 'Krea 2', '✨'],
+  ['flux', 'FLUX.1', '⚡'],
 ];
 
 function DatasetCard({ d, onOpen, onDelete }) {
@@ -240,6 +242,7 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
             <option value="zimage">Z-Image (prose captions)</option>
             <option value="sdxl">SDXL (booru-tag captions)</option>
             <option value="krea">Krea 2 (prose captions)</option>
+            <option value="flux">FLUX.1 (prose captions)</option>
           </select>
         </label>
         {/* Fidélité (personnage) : visage seul (défaut) vs visage + corps. En mode corps,

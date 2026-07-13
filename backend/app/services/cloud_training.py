@@ -133,6 +133,9 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
     if fam == 'sdxl':
         raise ValueError('SDXL training needs a local base checkpoint — '
                          'cloud training supports Z-Image and Krea for now')
+    if fam == 'flux':
+        raise ValueError('FLUX.1 training is local-only for now — '
+                         'cloud training supports Z-Image and Krea')
     actives = get_active_runs()
     limit = max(1, int((cfg.get('cloud.max_concurrent_runs') or 1)))
     # Uniqueness is per (dataset, family): a zimage run and a krea run may
@@ -1080,6 +1083,9 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
     if fam == 'sdxl':
         raise ValueError('SDXL training needs a local base checkpoint — '
                          'cloud training supports Z-Image and Krea for now')
+    if fam == 'flux':
+        raise ValueError('FLUX.1 training is local-only for now — '
+                         'cloud training supports Z-Image and Krea')
     n_steps = int(steps) if steps else lt.default_steps(ds)
     c = cfg.get('cloud') or {}
     min_vram = (c.get('min_vram_gb') or {}).get(fam, 24)

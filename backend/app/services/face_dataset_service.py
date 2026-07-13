@@ -210,7 +210,7 @@ def set_fidelity(user_id, dataset_id, fidelity) -> bool:
 # Familles de modèle entraînables (= pipeline ai-toolkit). Source de vérité côté UI
 # ET validation : choisie à la création, drive le format de caption (sdxl→booru, sinon
 # prose) et le regroupement du menu. Reste modifiable ensuite (TrainingPanel).
-TRAIN_TYPES = ('zimage', 'sdxl', 'krea')
+TRAIN_TYPES = ('zimage', 'sdxl', 'krea', 'flux')
 
 
 def normalize_train_type(t) -> str:

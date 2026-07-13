@@ -331,6 +331,10 @@ def dataset_train_base_info(dataset_id):
     # Krea 2 : base officielle fixe (pas de checkpoint custom, pas de conversion) ; le
     # choix Raw/Turbo se fait via le sélecteur `variant`, pas ici → label neutre.
     krea_bases = [{'value': '', 'label': 'Official - Krea 2'}]
+    # Flux : base officielle fixe (FLUX.1-dev, gated HF) — pas de checkpoint custom ni
+    # de conversion. Entrée explicite pour que l'UI n'aille PAS retomber sur les bases
+    # Z-Image (fallback `bases_by_type[type] || bases`) quand la famille est Flux.
+    flux_bases = [{'value': '', 'label': 'Official - FLUX.1-dev'}]
     # Les listers de bases (get_checkpoint_models / get_zimage_models) résolvent le
     # dossier des modèles depuis comfyui.base_dir → vides tant qu'il n'est pas
     # configuré. On expose ce fait pour que l'UI dise « configure ComfyUI dans Setup »
@@ -354,7 +358,8 @@ def dataset_train_base_info(dataset_id):
                     # la famille courante : rank/alpha/resolution/save_every → le panneau
                     # « Advanced options » les affiche et laisse les éditer.
                     'train_settings': lt.effective_train_settings(ds),
-                    'bases_by_type': {'zimage': bases, 'sdxl': sdxl_bases, 'krea': krea_bases}})
+                    'bases_by_type': {'zimage': bases, 'sdxl': sdxl_bases,
+                                      'krea': krea_bases, 'flux': flux_bases}})
 
 
 @bp.post('/dataset/<int:dataset_id>/train/settings')

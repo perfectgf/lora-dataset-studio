@@ -127,6 +127,13 @@ def _lora_dest_dir_krea():
     return d / 'krea'
 
 
+def _lora_dest_dir_flux():
+    d = cfg.comfyui_dir('loras')
+    if not d:
+        raise RuntimeError('ComfyUI is not configured')
+    return d / 'flux'
+
+
 def _sdxl_checkpoints_dir():
     d = cfg.comfyui_dir('models')
     if not d:
@@ -180,7 +187,7 @@ def _safe_trigger(ds) -> str:
 
 
 def _train_type(ds, family=None) -> str:
-    """Famille de modèle entraînée : 'zimage' (défaut/None), 'sdxl' ou 'krea'.
+    """Famille de modèle entraînée : 'zimage' (défaut/None), 'sdxl', 'krea' ou 'flux'.
     `family` (override) prime sur le train_type persisté quand fourni (non vide) -
     c'est ce qui permet au sélecteur de famille de l'UI de piloter la lecture des
     runs/checkpoints/déploiements SANS écraser le train_type persisté du dataset."""
@@ -197,6 +204,8 @@ def _lora_dest_dir(ds, family=None) -> str:
         return str(_lora_dest_dir_sdxl())
     if fam == 'krea':
         return str(_lora_dest_dir_krea())
+    if fam == 'flux':
+        return str(_lora_dest_dir_flux())
     return str(_lora_dest_dir_zimage())
 
 
@@ -253,6 +262,11 @@ def _base_tag(ds) -> str:
 
 
 KREA_BASE_LABEL = 'Krea-2-Turbo'   # mirrors name_or_path 'krea/Krea-2-Turbo'
+# Flux a une seule base officielle (FLUX.1-dev). Sans point dans le label (sinon
+# _base_tag_for le prendrait pour une extension et tronquerait à « FLUX ») → tag
+# stable '_FLUX-1-dev' qui isole les runs/LoRA Flux des runs Z-Image officiels
+# (tag vide) au même trigger — même garde anti-collision que Krea (cf. _dest_base_tag).
+FLUX_BASE_LABEL = 'FLUX-1-dev'
 
 
 def _krea_is_raw(ds) -> bool:
@@ -276,7 +290,7 @@ def _default_variant_for(family) -> str:
 #     `train_settings`). Absent/NULL → défaut family-aware issu de la recherche
 #     (cf. Research vault 2026-07-10). Toute valeur hors des listes autorisées
 #     retombe sur le défaut : on ne pousse JAMAIS une config invalide à ai-toolkit. ---
-_DEFAULT_RANK = {'zimage': 16, 'krea': 32, 'sdxl': 32}   # Z-Image reste 16 (choix user) ; Krea/SDXL 32
+_DEFAULT_RANK = {'zimage': 16, 'krea': 32, 'sdxl': 32, 'flux': 16}   # Z-Image reste 16 (choix user) ; Krea/SDXL 32 ; Flux 16 (défaut de l'exemple flux officiel)
 _RANK_CHOICES = (8, 16, 24, 32, 48, 64)
 # multi-échelle par défaut ; '768' seul = LE levier basse-VRAM (Krea 12B : 1024
 # sature un 24 GB à ~180 s/it, 768 mesuré ~3,5 s/it — cf. commentaire de tête).
@@ -287,7 +301,7 @@ _SAVE_CHOICES = (250, 500, 1000)
 _DROPOUT_CHOICES = (0.05, 0.1, 0.15, 0.2, 0.3)          # LoRA network dropout ; absent = off
 _ALPHA_CHOICES = (1, 2, 4, 8, 16, 24, 32, 48, 64)       # alpha découplé du rank ; absent = dérivé
 _TIMESTEP_TYPE_CHOICES = ('sigmoid', 'linear', 'weighted', 'shift')  # pondération flowmatch ; SDXL le désactive
-_DEFAULT_TIMESTEP = {'zimage': 'sigmoid', 'krea': 'linear'}          # ce que « Auto » résout (sdxl : aucun)
+_DEFAULT_TIMESTEP = {'zimage': 'sigmoid', 'krea': 'linear', 'flux': 'sigmoid'}   # ce que « Auto » résout (sdxl : aucun) ; flux subject → sigmoid (reco ai-toolkit)
 # Batch 2 — optimiseur / planning du LR / batch effectif (valeurs VÉRIFIÉES dans
 # ai-toolkit : get_optimizer + toolkit/scheduler.py). CAME n'est PAS supporté.
 _OPTIMIZER_CHOICES = ('adamw8bit', 'adafactor', 'automagic', 'prodigy')
@@ -641,6 +655,12 @@ def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
         # run folders / deployed LoRA names never collide (same trigger, same
         # family, but incompatible weights would otherwise share a folder).
         tag = _base_tag_for('Krea-2-Raw' if _krea_is_raw(ds) else KREA_BASE_LABEL)
+    # Même garde pour Flux : sa base officielle donne un tag vide, qui télescoperait
+    # un run Z-Image officiel du même trigger (même dossier `u{user}_{trigger}` →
+    # ai-toolkit auto-resume le mauvais run, poids mélangés). Le tag `_FLUX-1-dev`
+    # isole le run et le LoRA déployé de la famille Z-Image.
+    if not tag and _train_type(ds, family) == 'flux':
+        tag = _base_tag_for(FLUX_BASE_LABEL)
     return tag
 
 
@@ -831,6 +851,10 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
         cfg_ = _build_job_config_krea(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0])
         return cfg_
+    if _train_type(ds) == 'flux':
+        cfg_ = _build_job_config_flux(ds, dataset_folder, steps, training_folder=training_folder)
+        _apply_style_overrides(ds, cfg_['config']['process'][0])
+        return cfg_
     trigger = _safe_trigger(ds)
     base_model = getattr(ds, 'train_base_model', None)
     variant = (getattr(ds, 'train_variant', None) or 'turbo').lower()
@@ -984,6 +1008,78 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=
                     # Turbo (distillé) : cfg 1 / 8 steps ; Raw (non distillé) : cfg 4 / 25 steps.
                     'guidance_scale': 4 if is_raw else 1,
                     'sample_steps': 25 if is_raw else 8,
+                    'prompts': _sample_prompts(ds, trigger),
+                },
+            }],
+        },
+    }
+
+
+def _build_job_config_flux(ds, dataset_folder: str, steps: int, training_folder=None) -> dict:
+    """Job-config ai-toolkit pour FLUX.1-dev (arch='flux'). Valeurs VÉRIFIÉES contre
+    l'ai-toolkit installé : `ui/.../options.ts` (entrée 'flux' : name_or_path
+    'black-forest-labs/FLUX.1-dev', quantize + quantize_te True, sampler /
+    noise_scheduler 'flowmatch') ET le notebook officiel `FLUX_1_dev_LoRA_Training`
+    (linear/alpha 16, lr 1e-4, previews guidance 4 / 20 steps).
+
+    arch='flux' est une arch CŒUR d'ai-toolkit (toolkit/config_modules.py) — supportée
+    par tout ai-toolkit, donc AUCUNE garde de version (contrairement à krea2, extension).
+    FLUX.1-dev est un modèle GATED sur Hugging Face : le 1er run télécharge ~24 Go et
+    exige un HF_TOKEN ayant accepté la licence (même mécanique que Krea, aussi gated).
+
+    VRAM : Flux est un DiT 12B (même classe que Krea 2). On ajoute low_vram + qfloat8
+    (comme Krea, dont la mesure LDS a montré la nécessité à 24 Go) au-dessus des defaults
+    options.ts — curseur basse-VRAM = la résolution 768 (cf. _train_res / KREA_TRAIN)."""
+    trigger = _safe_trigger(ds)
+    _frank = _lora_rank(ds, 'flux')   # défaut 16 (exemple flux officiel) ; éditable via train_settings
+    model = {
+        'arch': 'flux',
+        'name_or_path': 'black-forest-labs/FLUX.1-dev',
+        'quantize': True, 'quantize_te': True, 'low_vram': True, 'qtype': 'qfloat8',
+    }
+    return {
+        'job': 'extension',
+        'config': {
+            'name': f'lora_{trigger}',
+            'process': [{
+                'type': 'sd_trainer',
+                'training_folder': (training_folder if training_folder
+                                    else str(_output_dir() / _run_name(ds))),
+                'device': 'cuda:0',
+                'trigger_word': trigger,
+                'network': _network_block(ds, _frank, 'flux'),
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
+                'datasets': [{
+                    'folder_path': dataset_folder,
+                    'caption_ext': 'txt',
+                    'caption_dropout_rate': 0.05,
+                    'cache_latents_to_disk': True,
+                    'resolution': _train_res(ds),
+                    **_mask_fields(dataset_folder),
+                }],
+                'train': {
+                    'batch_size': 1,
+                    'steps': steps,
+                    'gradient_accumulation': _grad_accum(ds),
+                    'train_unet': True,
+                    'train_text_encoder': False,
+                    'gradient_checkpointing': True,
+                    'noise_scheduler': 'flowmatch',
+                    # 'sigmoid' = reco LoRA de SUJET pour les modèles flowmatch (l'exemple
+                    # flux d'ai-toolkit documente ce choix ; identique à Z-Image).
+                    'timestep_type': _timestep_type_eff(ds, 'sigmoid'),
+                    'optimizer': _optimizer_eff(ds),
+                    'lr': _lr_eff(ds),
+                    'dtype': 'bf16',
+                    **_lr_sched_fields(ds),
+                },
+                'model': model,
+                'sample': {
+                    'sampler': 'flowmatch',
+                    'neg': '',
+                    'sample_every': _sample_every(ds),
+                    'guidance_scale': 4,   # FLUX.1-dev : guidance ~4 (notebook officiel)
+                    'sample_steps': 20,
                     'prompts': _sample_prompts(ds, trigger),
                 },
             }],
@@ -1286,9 +1382,10 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
     removed: list[str] = []
     run_prefix = f'u{user_id}_{trigger_safe}'    # ex. u1_Lola69382
     lora_prefix = f'lora_{trigger_safe}'         # ex. lora_Lola69382
-    # 1) LoRA déployés dans ComfyUI (z image + sdxl + krea séparés)
+    # 1) LoRA déployés dans ComfyUI (z image + sdxl + krea + flux séparés)
     lora_roots = []
-    for accessor in (_lora_dest_dir_zimage, _lora_dest_dir_sdxl, _lora_dest_dir_krea):
+    for accessor in (_lora_dest_dir_zimage, _lora_dest_dir_sdxl, _lora_dest_dir_krea,
+                     _lora_dest_dir_flux):
         try:
             lora_roots.append(str(accessor()))
         except RuntimeError:
@@ -1412,10 +1509,12 @@ def recommended_steps_info(dataset_id) -> dict:
 # deux → warning à confirmer. 10 images fixes pour tout le monde sous-estimait
 # SDXL (booru, plus gourmand en variété) et laissait passer des runs voués au
 # surapprentissage.
-TRAIN_MIN_IMAGES = {'zimage': (12, 20), 'sdxl': (20, 30), 'krea': (15, 20)}
-_FAMILY_LABEL = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2'}
-# VRAM mesurée : Krea 2 (12B) sature un 24 GB à 1024 (cf. KREA_TRAIN_RESOLUTION).
+TRAIN_MIN_IMAGES = {'zimage': (12, 20), 'sdxl': (20, 30), 'krea': (15, 20), 'flux': (15, 20)}
+_FAMILY_LABEL = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2', 'flux': 'FLUX.1'}
+# VRAM mesurée : Krea 2 (12B) sature un 24 GB à 1024 (cf. KREA_TRAIN_RESOLUTION). Flux
+# est un DiT de même classe (12B) → même seuil recommandé.
 _KREA_MIN_VRAM_GB = 24
+_VRAM24_FAMILIES = ('krea', 'flux')   # familles 12B qui recommandent ~24 GB à 1024
 
 
 def training_preflight(user_id, dataset_id, train_type=None) -> dict:
@@ -1589,11 +1688,12 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     try:
         from .. import capabilities
         vram = capabilities.gpu_vram_gb()
-        if vram is not None and ttype == 'krea' and vram < _KREA_MIN_VRAM_GB:
-            warnings.append(f'Krea 2 training needs ~{_KREA_MIN_VRAM_GB} GB of VRAM at 1024 '
-                            f'— this GPU reports {vram} GB; expect OOM or extreme slowness.')
+        if vram is not None and ttype in _VRAM24_FAMILIES and vram < _KREA_MIN_VRAM_GB:
+            warnings.append(f'{label} training needs ~{_KREA_MIN_VRAM_GB} GB of VRAM at 1024 '
+                            f'— this GPU reports {vram} GB; expect OOM or extreme slowness. '
+                            'Drop the resolution to 768 in Advanced options to fit.')
             _check('vram', 'GPU memory', 'warn',
-                   f'Krea 2 needs ~{_KREA_MIN_VRAM_GB} GB VRAM — this GPU reports {vram} GB')
+                   f'{label} needs ~{_KREA_MIN_VRAM_GB} GB VRAM — this GPU reports {vram} GB')
     except Exception:
         pass
 
