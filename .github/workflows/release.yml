@@ -1,0 +1,52 @@
+# Release automation: push a tag `vYYYY.MM.DD[.N]` and this builds the portable
+# Windows bundle (packaging/build_portable.ps1) and publishes it as a GitHub
+# Release. The release author is the github-actions bot. The in-app update
+# check for PACKAGED builds compares the latest release tag against
+# backend/app/version.py, so the tag MUST match APP_VERSION — enforced below.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # create the release + upload the asset
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match APP_VERSION
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path backend/app/version.py -Pattern "APP_VERSION = '([^']+)'").Matches[0].Groups[1].Value
+          if ("v$v" -ne "${{ github.ref_name }}") {
+            throw "tag ${{ github.ref_name }} does not match APP_VERSION $v - bump backend/app/version.py first"
+          }
+
+      # Host python for PyInstaller only (the bundle ships its own standalone CPython).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run the test suite
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r backend/requirements.txt
+          python -m pytest backend/tests -q
+
+      - name: Build the portable bundle
+        shell: pwsh
+        run: ./packaging/build_portable.ps1
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "packaging/dist/LoRA-Dataset-Studio-win64.zip" `
+            --title "LoRA Dataset Studio ${{ github.ref_name }}" `
+            --generate-notes
