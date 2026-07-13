@@ -870,6 +870,7 @@ def _dataset_name(dataset_id):
 def _run_payload(run) -> dict:
     return {'run_id': run.id, 'dataset_id': run.dataset_id, 'status': run.status,
             'run_name': run.run_name, 'dataset_name': _dataset_name(run.dataset_id),
+            'vast_instance_id': run.vast_instance_id,   # for the per-run "console ↗" tooltip
             'phase_detail': run.phase_detail, 'gpu': run.gpu_name,
             'price_per_hour': run.price_per_hour,
             'cost_estimate': _cost_estimate(run), 'error': run.error,

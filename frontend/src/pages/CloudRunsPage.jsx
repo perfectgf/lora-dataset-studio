@@ -179,10 +179,22 @@ export default function CloudRunsPage() {
                     ⬇ Download the LoRA
                   </a>
                 )}
-                <button type="button" onClick={() => openDataset(run.dataset_id)}
-                  className="ml-auto px-2 py-1 rounded-lg text-content-muted hover:text-content text-xs">
-                  Open dataset ↗
-                </button>
+                <span className="ml-auto flex items-center gap-2">
+                  {/* Per-run escape hatch to this pod's provider console (billing,
+                      logs, manual destroy). The vast instance id, when known, goes
+                      in the tooltip so it's findable in the console's instance list. */}
+                  <a href="https://cloud.vast.ai/instances/" target="_blank" rel="noreferrer"
+                    title={run.vast_instance_id
+                      ? `vast.ai instance ${run.vast_instance_id} — provider console (billing, logs, manual destroy)`
+                      : 'vast.ai console — billing, logs, manual destroy'}
+                    className="px-2 py-1 rounded-lg text-sky-300 hover:text-sky-200 text-xs no-underline">
+                    vast.ai console ↗
+                  </a>
+                  <button type="button" onClick={() => openDataset(run.dataset_id)}
+                    className="px-2 py-1 rounded-lg text-content-muted hover:text-content text-xs">
+                    Open dataset ↗
+                  </button>
+                </span>
               </div>
             </div>
           ))
