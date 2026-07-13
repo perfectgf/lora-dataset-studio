@@ -112,26 +112,75 @@ class RemoteAiToolkit:
 
     # -- downloads (public, path-restricted routes) ---------------------------
     def _download(self, route: str, remote_path: str, dest_path: str,
-                  timeout=None) -> None:
+                  timeout=None, expected_size=None, attempts=3) -> None:
+        """Stream to dest_path.part, then rename. RESUME-CAPABLE: some vast
+        hosts' proxies cut the stream every ~0.5-2 MB (observed live
+        2026-07-13 on 2 of 3 pods — an 85 MB checkpoint needed ~100 resumed
+        connections); each retry continues from the current offset with an
+        HTTP Range header, as long as the previous attempt made progress.
+        With expected_size, completion means EXACTLY that many bytes (a clean
+        EOF short of it is just another resume point); without it, completion
+        is a stream that ends without error (small files: samples)."""
         url_path = f'{route}{quote(remote_path, safe="")}'
-        with self._request('GET', url_path, stream=True,
-                           timeout=timeout or _UPLOAD_TIMEOUT) as r:
-            if r.status_code != 200:
-                raise RemoteError(f'download {remote_path} -> HTTP {r.status_code}')
-            tmp = dest_path + '.part'
-            with open(tmp, 'wb') as fh:
-                for chunk in r.iter_content(chunk_size=1024 * 256):
-                    if chunk:
-                        fh.write(chunk)
-            os.replace(tmp, dest_path)
+        tmp = dest_path + '.part'
+        try:
+            os.remove(tmp)                    # stale leftover from a past run
+        except OSError:
+            pass
+        got = 0
+        want = int(expected_size or 0)
+        for _ in range(max(1, int(attempts))):
+            before = got
+            clean = False
+            try:
+                headers = {'Range': f'bytes={got}-'} if got else {}
+                with self._request('GET', url_path, stream=True, headers=headers,
+                                   timeout=timeout or _UPLOAD_TIMEOUT) as r:
+                    if got and r.status_code == 416:
+                        clean = True          # nothing left to serve
+                    else:
+                        if r.status_code not in (200, 206):
+                            raise RemoteError(
+                                f'download {remote_path} -> HTTP {r.status_code}')
+                        if got and r.status_code == 200:
+                            got = 0           # Range ignored -> full restart
+                        with open(tmp, 'ab' if got else 'wb') as fh:
+                            for chunk in r.iter_content(chunk_size=1024 * 256):
+                                if chunk:
+                                    fh.write(chunk)
+                        clean = True          # stream ended without exception
+            except RemoteError:
+                raise                          # HTTP-level refusal: no point retrying
+            except requests.RequestException:
+                clean = False                  # cut mid-stream -> resume below
+            got = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+            if want:
+                if got == want:
+                    os.replace(tmp, dest_path)
+                    return
+                if got > want or got == before:
+                    break                      # garbage, or no progress -> dead
+            else:
+                if clean:
+                    os.replace(tmp, dest_path)
+                    return
+                if got == before:
+                    break
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise RemoteError(f'download {remote_path} incomplete '
+                          f'({got}{f"/{want}" if want else ""} bytes after resume attempts)')
 
     def download_public_file(self, remote_path: str, dest_path: str,
-                             timeout=None) -> None:
-        # timeout override: the OPPORTUNISTIC mid-run checkpoint sync fails
-        # fast (a training pod that trickles bytes would otherwise hold the
-        # monitor loop for the full default timeout); final downloads keep
-        # the default.
-        self._download('/api/files/', remote_path, dest_path, timeout=timeout)
+                             timeout=None, expected_size=None, attempts=3) -> None:
+        # timeout/attempts overrides: the OPPORTUNISTIC mid-run checkpoint sync
+        # fails fast (few attempts, short timeout — the monitor loop must not
+        # hang); the FINAL end-of-run download passes a large attempts budget
+        # so a sick-proxy host still delivers via many resumed connections.
+        self._download('/api/files/', remote_path, dest_path, timeout=timeout,
+                       expected_size=expected_size, attempts=attempts)
 
     def download_sample(self, remote_path: str, dest_path: str) -> None:
         self._download('/api/img/', remote_path, dest_path)

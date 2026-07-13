@@ -78,7 +78,7 @@ class FakeRemote:
     def list_files(self, job_id):
         return [{'path': '/pod/out/lds1_run/lds1_run_000000100.safetensors', 'size': 4}]
 
-    def download_public_file(self, remote_path, dest, timeout=None):
+    def download_public_file(self, remote_path, dest, timeout=None, **kw):
         if self.fail_downloads:
             raise RuntimeError('download failed')
         with open(dest, 'wb') as f:
@@ -262,7 +262,7 @@ def test_midrun_checkpoint_sync_mirrors_latest_save(ct, app, client, monkeypatch
                 return []
             return [{'path': f'/pod/out/j/j_{step:09d}.safetensors', 'size': 4}]
 
-        def download_public_file(self, remote_path, dest, timeout=None):
+        def download_public_file(self, remote_path, dest, timeout=None, **kw):
             downloads.append(os.path.basename(remote_path))
             super().download_public_file(remote_path, dest)
 
@@ -297,7 +297,7 @@ def test_truncated_download_is_rejected_not_registered(ct, app, tmp_path):
         def list_files(self, job_id):
             return [{'path': '/pod/out/j/j_000000100.safetensors', 'size': 100}]
 
-        def download_public_file(self, remote_path, dest, timeout=None):
+        def download_public_file(self, remote_path, dest, timeout=None, **kw):
             with open(dest, 'wb') as f:
                 f.write(b'CKPT')                      # 4 of 100 bytes
 
@@ -330,7 +330,7 @@ def test_midrun_sync_gives_up_after_repeated_failures_resets_on_new_save(ct, app
         def list_files(self, job_id):
             return [{'path': self.path, 'size': 4}]
 
-        def download_public_file(self, remote_path, dest, timeout=None):
+        def download_public_file(self, remote_path, dest, timeout=None, **kw):
             calls['dl'] += 1
             raise RuntimeError('stream died')
 

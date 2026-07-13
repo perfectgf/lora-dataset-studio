@@ -814,7 +814,7 @@ def _newest_remote_checkpoint(remote, job_id):
     return sorted(files, key=lambda f: f['path'])[-1]
 
 
-def _fetch_checkpoint(run, remote, ckpt, timeout=None) -> str:
+def _fetch_checkpoint(run, remote, ckpt, timeout=None, attempts=3) -> str:
     """Download the checkpoint entry ({'path','size'}) into staging and return
     the local path. Skips the transfer when this exact save is already local
     (the mid-run sync usually got there first). Two integrity layers:
@@ -830,7 +830,8 @@ def _fetch_checkpoint(run, remote, ckpt, timeout=None) -> str:
     if run.checkpoint_local_path and os.path.isfile(dest) \
             and os.path.basename(run.checkpoint_local_path) == name:
         return dest
-    remote.download_public_file(remote_path, dest, timeout=timeout)
+    remote.download_public_file(remote_path, dest, timeout=timeout,
+                                expected_size=ckpt.get('size'), attempts=attempts)
     want = int(ckpt.get('size') or 0)
     got = os.path.getsize(dest)
     if want and got != want:
@@ -904,7 +905,10 @@ def _try_download_checkpoint(run, remote, allow_stale=False) -> bool:
     try:
         ckpt = _newest_remote_checkpoint(remote, run.remote_job_id)
         if ckpt:
-            dest = _fetch_checkpoint(run, remote, ckpt)
+            # Large attempts budget: a sick-proxy host cutting the stream
+            # every ~0.5-2 MB still delivers an 85 MB file via ~100 resumed
+            # connections (validated live 2026-07-13, run #7's manual rescue).
+            dest = _fetch_checkpoint(run, remote, ckpt, attempts=400)
             _set(run, status='downloading', checkpoint_local_path=dest,
                  phase_detail=f'Downloaded {os.path.basename(dest)}')
             return True

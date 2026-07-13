@@ -169,6 +169,79 @@ def test_get_job_log_samples_files(remote, monkeypatch):
     assert remote.list_files('j-1')[0]['size'] == 5
 
 
+class _CuttingResp:
+    """Serves `body` but cuts the stream after `serve` bytes (mid-transfer
+    connection loss, like the sick vast proxies observed live 2026-07-13)."""
+
+    def __init__(self, body, serve, status_code=200):
+        self.status_code = status_code
+        self._body, self._serve = body, serve
+        self.text = ''
+
+    def iter_content(self, chunk_size=1):
+        import requests as _rq
+        sent = 0
+        while sent < min(self._serve, len(self._body)):
+            chunk = self._body[sent:sent + chunk_size][:self._serve - sent]
+            sent += len(chunk)
+            yield chunk
+        if self._serve < len(self._body):
+            raise _rq.exceptions.ChunkedEncodingError('stream cut')
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_download_resumes_with_range_until_expected_size(remote, monkeypatch, tmp_path):
+    """A proxy cutting every ~2 chunks must not fail the download: each retry
+    continues from the current offset (Range header, 206) until the byte
+    count matches expected_size."""
+    body = b'0123456789' * 10          # 100 bytes
+    calls = []
+
+    def fake(method, url, **kw):
+        offset = int((kw.get('headers') or {}).get('Range', 'bytes=0-')
+                     .split('=')[1].split('-')[0])
+        calls.append(offset)
+        return _CuttingResp(body[offset:], serve=30,
+                            status_code=206 if offset else 200)
+
+    monkeypatch.setattr('app.services.aitoolkit_remote.requests.request', fake)
+    dest = tmp_path / 'f.safetensors'
+    remote.download_public_file('/out/f.safetensors', str(dest),
+                                expected_size=100, attempts=10)
+    assert dest.read_bytes() == body
+    assert calls == [0, 30, 60, 90]            # resumed from each offset
+    assert not (tmp_path / 'f.safetensors.part').exists()
+
+
+def test_download_fails_when_no_progress(remote, monkeypatch, tmp_path):
+    """A server answering clean EOFs at the same offset forever (or a dead
+    stream) must fail after the no-progress attempt — never spin, never
+    register a short file."""
+    monkeypatch.setattr('app.services.aitoolkit_remote.requests.request',
+                        lambda method, url, **kw: _CuttingResp(b'', serve=0))
+    dest = tmp_path / 'f.safetensors'
+    with pytest.raises(RemoteError, match='incomplete'):
+        remote.download_public_file('/out/f.safetensors', str(dest),
+                                    expected_size=100, attempts=10)
+    assert not dest.exists()
+    assert not (tmp_path / 'f.safetensors.part').exists()
+
+
+def test_download_without_expected_size_keeps_clean_eof_semantics(remote, monkeypatch, tmp_path):
+    """Small files (samples) have no size contract: a stream that ends
+    cleanly is complete, exactly the old behavior."""
+    monkeypatch.setattr('app.services.aitoolkit_remote.requests.request',
+                        lambda method, url, **kw: _CuttingResp(b'IMG', serve=3))
+    dest = tmp_path / 's.jpg'
+    remote.download_sample('/out/s.jpg', str(dest))
+    assert dest.read_bytes() == b'IMG'
+
+
 def test_download_public_file_streams_and_urlencodes(remote, monkeypatch, tmp_path):
     seen = {}
 
