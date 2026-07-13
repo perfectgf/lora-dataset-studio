@@ -54,6 +54,21 @@ design.
 folder for new files if you want proof of life. The cloud runs page has a
 stall watchdog that kills genuinely stuck runs.
 
+## Reddit scan says "rate limiting requests, retry in Ns" (429)
+
+**Why:** out of the box, Reddit scans authenticate with a **public client id
+shared by many people** (the gallery-dl one). Reddit's quota — about 1000
+requests per 10-minute window — is attached to that id, so other users can
+exhaust it before your very first scan of the day. The "retry in Ns" number is
+just the time left in the current 10-minute window.
+
+**Fix:** get your own free client ID (one minute, no app secret involved):
+**Settings → Scraping & sources** has the field plus a built-in step-by-step
+guide. The one trap: on reddit.com/prefs/apps, pick the app type
+**installed app** — a *web app* or *script* id comes with a client secret and
+Reddit then rejects the anonymous login this app uses (every scan fails
+with 401). Takes effect immediately, no restart needed.
+
 ## ComfyUI shows as unreachable
 
 Check **Settings → Local tools → ComfyUI API URL** (default

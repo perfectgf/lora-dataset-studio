@@ -7,6 +7,7 @@ import { SETTINGS_SECTIONS, sectionStatus, matchesQuery } from '../components/se
 import { SectionHeader } from '../components/settings/primitives'
 import OverviewSection from '../components/settings/OverviewSection'
 import EnginesSection from '../components/settings/EnginesSection'
+import ScrapingSection from '../components/settings/ScrapingSection'
 import LocalToolsSection from '../components/settings/LocalToolsSection'
 import CaptioningSection from '../components/settings/CaptioningSection'
 import TrainingSection from '../components/settings/TrainingSection'
@@ -16,6 +17,7 @@ import MaintenanceSection from '../components/settings/MaintenanceSection'
 const SECTION_COMPONENTS = {
   overview: OverviewSection,
   engines: EnginesSection,
+  scraping: ScrapingSection,
   'local-tools': LocalToolsSection,
   captioning: CaptioningSection,
   training: TrainingSection,

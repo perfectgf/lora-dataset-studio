@@ -44,9 +44,10 @@ _TOKEN_URL = 'https://www.reddit.com/api/v1/access_token'
 # UA descriptif (les règles API Reddit demandent un UA unique et identifiable).
 _UA = 'LoRA-Dataset-Studio/1.0 (+https://github.com/perfectgf/lora-dataset-studio)'
 # client-id public « installed_client » de gallery-dl : autorise un jeton ANONYME
-# (grant device_id) sans compte ni app enregistrée. Surchargée si l'utilisateur
-# fournit le sien (env REDDIT_CLIENT_ID ou <SCRAPE_COOKIES_DIR>/reddit_client_id.txt),
-# utile si ce client-id partagé se fait rate-limiter.
+# (grant device_id) sans compte ni app enregistrée. Surchargé si l'utilisateur
+# fournit le sien — Settings → Scraping & sources (secret REDDIT_CLIENT_ID, posé
+# dans os.environ à la sauvegarde) ou <SCRAPE_COOKIES_DIR>/reddit_client_id.txt —
+# indispensable quand ce client-id partagé se fait rate-limiter (429).
 _GDL_CLIENT_ID = '6N9uN0krSDE-ig'
 
 _HTTP_TIMEOUT = 20
@@ -57,7 +58,10 @@ _SORTS = frozenset({'hot', 'new', 'top', 'rising', 'controversial', 'best'})
 _IMG_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
 
 # Jeton mis en cache en mémoire du process (valable ~24 h ; on renouvelle avant expiry).
-_token_cache = {'value': None, 'exp': 0.0}
+# `cid` = client-id qui a frappé le jeton : si l'utilisateur change de client-id
+# (Settings → Scraping, effectif via os.environ sans restart), le jeton en cache
+# appartient encore à l'ANCIEN id — donc à son quota — et doit être re-frappé.
+_token_cache = {'value': None, 'exp': 0.0, 'cid': None}
 
 _REDDIT_CAPS = Capabilities(
     can_enumerate_profile=True,
@@ -241,7 +245,8 @@ def _items_from_post(p: dict) -> list:
 # API OAuth (jeton anonyme + GET authentifié)
 # ---------------------------------------------------------------------------
 def _client_id() -> str:
-    """client-id Reddit : env > fichier admin > client-id public de gallery-dl."""
+    """client-id Reddit : env (y compris Settings, qui écrit os.environ) > fichier
+    admin > client-id public de gallery-dl."""
     env = (os.environ.get('REDDIT_CLIENT_ID') or '').strip()
     if env:
         return env
@@ -257,17 +262,20 @@ def _client_id() -> str:
 
 
 def _get_token():
-    """Jeton OAuth anonyme (installed_client), mis en cache jusqu'à ~2 min avant expiry.
-    Retourne le jeton ou None (échec réseau/auth). Ne lève jamais."""
+    """Jeton OAuth anonyme (installed_client), mis en cache jusqu'à ~2 min avant expiry
+    — et re-frappé si le client-id a changé entre-temps (un jeton appartient au quota
+    du client-id qui l'a émis). Retourne le jeton ou None (échec réseau/auth). Ne lève
+    jamais."""
     now = time.time()
-    if _token_cache['value'] and now < _token_cache['exp']:
+    cid = _client_id()
+    if _token_cache['value'] and now < _token_cache['exp'] and _token_cache['cid'] == cid:
         return _token_cache['value']
     try:
         r = requests.post(
             _TOKEN_URL,
             data={'grant_type': 'https://oauth.reddit.com/grants/installed_client',
                   'device_id': 'DO_NOT_TRACK_THIS_DEVICE'},
-            auth=(_client_id(), ''), headers={'User-Agent': _UA}, timeout=15)
+            auth=(cid, ''), headers={'User-Agent': _UA}, timeout=15)
         r.raise_for_status()
         j = r.json()
     except (requests.RequestException, ValueError) as e:
@@ -277,6 +285,7 @@ def _get_token():
     if tok:
         _token_cache['value'] = tok
         _token_cache['exp'] = now + max(60, int(j.get('expires_in', 3600)) - 120)
+        _token_cache['cid'] = cid
     return tok
 
 

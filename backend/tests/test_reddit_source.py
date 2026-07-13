@@ -237,3 +237,34 @@ def test_scan_rate_limited_returns_actionable_message(monkeypatch):
     items, err = reddit.RedditSource().scan(Match(url='https://www.reddit.com/search/?q=cats'))
     assert items is None
     assert '1000' in err and '~45s' in err
+
+
+# --- client-id perso & invalidation du cache de jeton ------------------------
+def test_client_id_env_overrides_shared_default(monkeypatch):
+    monkeypatch.setattr(reddit, 'resolve_cookies', lambda key: None)   # pas de fichier admin local
+    monkeypatch.setenv('REDDIT_CLIENT_ID', 'my-own-id')
+    assert reddit._client_id() == 'my-own-id'
+    monkeypatch.delenv('REDDIT_CLIENT_ID')
+    assert reddit._client_id() == reddit._GDL_CLIENT_ID
+
+
+def test_get_token_remints_when_client_id_changes(monkeypatch):
+    """Un jeton en cache appartient au client-id qui l'a frappé — donc à SON quota.
+    Sauver son propre id dans Settings pose l'env sans restart : le cache doit le
+    voir et re-frapper un jeton, sinon on continue de rouler sur le quota partagé
+    (jusqu'à ~24 h) et le champ Settings a l'air cassé."""
+    calls = []
+
+    def fake_post(url, data=None, auth=None, headers=None, timeout=None):
+        calls.append(auth[0])
+        return _Resp(200, {}, {'access_token': f'tok-{auth[0]}', 'expires_in': 3600})
+    monkeypatch.setattr(reddit.requests, 'post', fake_post)
+    monkeypatch.setattr(reddit, 'resolve_cookies', lambda key: None)
+    monkeypatch.setattr(reddit, '_token_cache', {'value': None, 'exp': 0.0, 'cid': None})
+    monkeypatch.delenv('REDDIT_CLIENT_ID', raising=False)
+    assert reddit._get_token() == f'tok-{reddit._GDL_CLIENT_ID}'
+    assert reddit._get_token() == f'tok-{reddit._GDL_CLIENT_ID}'
+    assert calls == [reddit._GDL_CLIENT_ID]                  # 2e appel servi par le cache
+    monkeypatch.setenv('REDDIT_CLIENT_ID', 'my-own-id')
+    assert reddit._get_token() == 'tok-my-own-id'            # re-frappé avec le nouvel id
+    assert calls == [reddit._GDL_CLIENT_ID, 'my-own-id']

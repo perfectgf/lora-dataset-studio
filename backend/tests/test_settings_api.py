@@ -33,6 +33,38 @@ def test_put_settings_persists_config_and_secret(client, tmp_path):
     assert r.get_json()['config']['ollama']['url'] == 'http://127.0.0.1:11500'
     assert r.get_json()['secrets']['GEMINI_API_KEY'] is True
 
+def test_put_settings_saves_scrape_credentials(client):
+    """REDDIT_CLIENT_ID / CIVITAI_API_KEY ride the same secrets store as the engine
+    keys: presence-only in the payload, env stamped on save — the scrape sources
+    read the env var first, so a key saved in the UI works without a restart."""
+    import os
+    r = client.put('/api/settings', json={'secrets': {'REDDIT_CLIENT_ID': 'my-cid',
+                                                      'CIVITAI_API_KEY': 'civ-key'}})
+    assert r.status_code == 200
+    secrets = r.get_json()['secrets']
+    assert secrets['REDDIT_CLIENT_ID'] is True and secrets['CIVITAI_API_KEY'] is True
+    assert 'my-cid' not in str(r.get_json())               # presence only, never the value
+    assert os.environ['REDDIT_CLIENT_ID'] == 'my-cid'      # effective immediately
+    from app.scrape.sources import reddit
+    from app.scrape.sources.civitai import civitai_api_key
+    assert reddit._client_id() == 'my-cid'
+    assert civitai_api_key() == 'civ-key'
+
+
+def test_delete_scrape_credential_falls_back_to_shared_id(client, monkeypatch):
+    """Removing the saved Reddit client id must drop it from the env too, so the
+    source falls back to the shared gallery-dl id instead of a stale value."""
+    import os
+    from app.scrape.sources import reddit
+    monkeypatch.setattr(reddit, 'resolve_cookies', lambda key: None)  # ignore any local admin file
+    client.put('/api/settings', json={'secrets': {'REDDIT_CLIENT_ID': 'my-cid'}})
+    r = client.delete('/api/settings/secret/REDDIT_CLIENT_ID')
+    assert r.status_code == 200
+    assert r.get_json()['secrets']['REDDIT_CLIENT_ID'] is False
+    assert 'REDDIT_CLIENT_ID' not in os.environ
+    assert reddit._client_id() == reddit._GDL_CLIENT_ID
+
+
 def test_put_rejects_unknown_section(client):
     assert client.put('/api/settings', json={'config': {'nope': 1}}).status_code == 400
 

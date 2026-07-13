@@ -54,6 +54,12 @@ the captioner needs to know exactly *what to omit*. What changes vs character:
   **scraper** (paste a gallery URL or run a Reddit keyword search, tick the
   frames you want, they land straight in the dataset — deduplicated and
   quality-filtered).
+
+  > **Reddit says "wait N seconds" (429)?** By default Reddit scans share a
+  > public client id (and its ~1000 requests / 10 min quota) with many other
+  > people, so it can be exhausted before your first scan. Add your own free
+  > client ID in **Settings → Scraping & sources** — a one-minute, step-by-step
+  > guide is built into that page.
 - **Captions invert**: they describe everything *except* the concept, so the
   concept is what binds to the trigger. The leak check watches for stray
   descriptions of it.
