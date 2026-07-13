@@ -28,7 +28,7 @@ _VISION_BATCH_KEEPALIVE = '5m'
 from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CAPTION_PROMPT_CONCEPT,
                               CAPTION_REFINE_CONCEPT_PROMPT, CAPTION_LEAK_FIX_PROMPT,
                               EXPAND_CONCEPT_TERMS_PROMPT,
-                              CLASSIFY_PROMPT, HEAD_BBOX_PROMPT,
+                              CLASSIFY_PROMPT, HEAD_BBOX_PROMPT, WATERMARK_BBOX_PROMPT,
                               JOYCAPTION_PROMPT, aspect_for_label, caption_prompt_for,
                               caption_prompt_for_style,
                               caption_has_identity_leak, drop_identity_sentences, drop_identity_tags,
@@ -827,7 +827,11 @@ def dataset_payload(user_id, dataset_id):
                     # alone forced a hunt through the grid).
                     'leak': bool(not concept and i.status == 'keep'
                                  and caption_has_identity_leak(i.caption, body=body)),
-                    'face_score': i.face_score, 'face_state': i.face_state} for i in imgs],
+                    'face_score': i.face_score, 'face_state': i.face_state,
+                    # Watermark V1: state drives the tile badge (🚩 detected / ✨ cleaned
+                    # / ⚠ failed) and the "Clean (N)" count; bbox lets the UI hint the route.
+                    'watermark_state': i.watermark_state,
+                    'watermark_bbox': _safe_json(i.watermark_bbox)} for i in imgs],
         # Dataset CONCEPT : décrire l'identité est VOULU (le concept, pas le visage,
         # se lie au trigger) → le badge « fuite d'identité » n'a aucun sens, on le zéro.
         # Fidélité corps : les marques corporelles comptent aussi comme fuite.
@@ -881,6 +885,59 @@ def detect_head_bbox(image_bytes):
     if not (0 <= x1 < x2 <= 1000 and 0 <= y1 < y2 <= 1000):
         return None
     return (x1 / 1000.0, y1 / 1000.0, x2 / 1000.0, y2 / 1000.0)
+
+
+# Marge d'elargissement de la bbox watermark (fraction du cote). Les bbox VLM sont
+# GROSSIERES et souvent trop serrees : sans marge, le crop/inpaint laisse un lisere du
+# watermark. 2.5% de chaque cote = filet de securite sans engloutir le sujet.
+_WATERMARK_BBOX_MARGIN = 0.025
+
+
+def _parse_watermark_bbox(raw):
+    """PURE parser for a WATERMARK_BBOX_PROMPT answer. Returns a MARGIN-EXPANDED
+    normalized (x1,y1,x2,y2) in [0,1], or None (no watermark / unparseable). Split out
+    from the vision call so the batch can tell an EMPTY vision output (Ollama down ->
+    leave the state untouched) apart from a clean 'present:false' answer (-> 'none').
+
+    Same bbox handling as detect_head_bbox: 0-1000 grid, swapped corners normalized to
+    min/max. A `present:false` (or a missing/invalid box) -> None. VLM boxes run tight,
+    so we pad by _WATERMARK_BBOX_MARGIN and clamp -- the router needs the whole mark."""
+    try:
+        s = raw.index('{')
+        obj = json.loads(raw[s:raw.index('}', s) + 1])
+    except (ValueError, AttributeError, TypeError):
+        return None
+    if 'present' in obj and not obj.get('present'):
+        return None
+    try:
+        y1, x1, y2, x2 = (float(obj[k]) for k in ('y1', 'x1', 'y2', 'x2'))
+    except (KeyError, TypeError, ValueError):
+        return None
+    x1, x2 = min(x1, x2), max(x1, x2)
+    y1, y2 = min(y1, y2), max(y1, y2)
+    if not (0 <= x1 < x2 <= 1000 and 0 <= y1 < y2 <= 1000):
+        return None
+    m = _WATERMARK_BBOX_MARGIN
+    return (max(0.0, x1 / 1000.0 - m), max(0.0, y1 / 1000.0 - m),
+            min(1.0, x2 / 1000.0 + m), min(1.0, y2 / 1000.0 + m))
+
+
+def detect_watermark_bbox(image_bytes, *, keep_alive=0):
+    """Return normalized (x1, y1, x2, y2) of an OVERLAID watermark via Qwen3-VL, or
+    None (no overlaid watermark, or the model is unreachable / the JSON won't parse).
+    fmt='json' forces Ollama's grammar mode, same as detect_head_bbox.
+
+    The prompt targets watermark/logo/URL/username text ADDED ON TOP of the photo, NOT
+    scene text (signs, clothing prints) -- see WATERMARK_BBOX_PROMPT. Box is margin-
+    expanded (see _parse_watermark_bbox). `keep_alive` mirrors describe_image_ollama:
+    0 unloads after this call; a batch passes a duration and unloads at the end."""
+    try:
+        from .vision_ollama import describe_image_ollama
+    except ImportError:
+        return None
+    raw = describe_image_ollama(image_bytes, WATERMARK_BBOX_PROMPT, num_predict=400,
+                                prefer_json=True, fmt='json', keep_alive=keep_alive)
+    return _parse_watermark_bbox(raw)
 
 
 def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 1.7,
@@ -1830,6 +1887,199 @@ def analyze_faces(user_id, dataset_id) -> dict:
         db.session.commit()
         counts[img.face_state] = counts.get(img.face_state, 0) + 1
     return counts, scoring_error
+
+
+# --- Watermark auto-correction (V1) ----------------------------------------
+# Scraped images often carry an OVERLAID watermark (site logo, URL, @username, studio
+# text) that the LoRA would learn. V1 = detect (Qwen3-VL bbox) then route removal by
+# cost/risk: CROP a border-band mark (PIL pur, invents no pixel), LaMa-inpaint a small
+# off-center mark (non-generative, only masked pixels change), else leave it for manual
+# review. NO YOLO, NO generative inpaint -- those are V2.
+WATERMARK_BORDER_BAND = 0.20       # a mark within this outer strip is croppable
+WATERMARK_MAX_INPAINT_AREA = 0.10  # bbox area above this fraction -> manual review
+WATERMARK_MIN_SIDE = 768           # never crop a side below this (ai-toolkit only downscales)
+
+
+def _route_watermark(bbox, W, H, *, min_side=WATERMARK_MIN_SIDE):
+    """Decide how to remove the watermark at normalized `bbox` (x1,y1,x2,y2) on a
+    W x H image. Returns ('crop', (left, top, right, bottom)) | ('lama', None) |
+    ('review', None). PURE function (no I/O) so the routing is unit-testable.
+
+    CROP (default, invents no pixel) when the mark sits ENTIRELY inside one outer
+    border band (<= WATERMARK_BORDER_BAND of the side) AND the resulting crop keeps
+    BOTH sides >= min_side -- we cut the band up to the mark's INNER edge. LaMa when
+    the mark is small (area <= WATERMARK_MAX_INPAINT_AREA) and does not straddle the
+    image center. Otherwise (large, or on the central subject with no safe crop) ->
+    manual review, never a risky auto-edit."""
+    x1, y1, x2, y2 = bbox
+    px1, py1, px2, py2 = x1 * W, y1 * H, x2 * W, y2 * H
+    band = WATERMARK_BORDER_BAND
+    # Border-band crops, tried top/bottom/left/right. The kept box is (left,top,right,bottom).
+    if y2 <= band and (H - py2) >= min_side and W >= min_side:            # top band
+        return 'crop', (0, int(round(py2)), W, H)
+    if y1 >= 1 - band and py1 >= min_side and W >= min_side:              # bottom band
+        return 'crop', (0, 0, W, int(round(py1)))
+    if x2 <= band and (W - px2) >= min_side and H >= min_side:            # left band
+        return 'crop', (int(round(px2)), 0, W, H)
+    if x1 >= 1 - band and px1 >= min_side and H >= min_side:              # right band
+        return 'crop', (0, 0, int(round(px1)), H)
+    # Not a safe border crop (off-band, or the crop would fall below min_side).
+    area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    overlaps_center = (x1 < 0.5 < x2) and (y1 < 0.5 < y2)
+    if area <= WATERMARK_MAX_INPAINT_AREA and not overlaps_center:
+        return 'lama', None
+    return 'review', None
+
+
+def _preserve_original(path) -> None:
+    """Copy `path` to a sibling `<stem>.orig<suffix>` before a destructive edit, so the
+    watermarked original stays recoverable. The app trash util (send_to_trash) MOVES a
+    file -- unusable here since the cleaned image must keep serving from the SAME path
+    (and LaMa overwrites it in place) -- so we keep a sibling copy instead. Only written
+    ONCE (a re-clean must not clobber the true original with an already-modified one).
+    These .orig files carry no DB row, so export/backup (which iterate rows) ignore them."""
+    stem, ext = os.path.splitext(path)
+    backup = f'{stem}.orig{ext or ".webp"}'
+    if not os.path.exists(backup):
+        try:
+            shutil.copy2(path, backup)
+        except OSError as e:
+            logger.warning('watermark: could not preserve original %s: %s', path, e)
+
+
+def _apply_watermark_crop(path, box) -> bool:
+    """Crop `path` to `box` (left,top,right,bottom px) and re-save WEBP q92 WITHOUT
+    resizing -- the whole point of the crop route is that it invents no pixel (the
+    aspect-ratio change is absorbed by ai-toolkit's bucketing). Returns bool."""
+    try:
+        im = Image.open(path).convert('RGB')
+    except (OSError, ValueError):
+        return False
+    box = (max(0, int(box[0])), max(0, int(box[1])),
+           min(im.width, int(box[2])), min(im.height, int(box[3])))
+    if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+        return False
+    out = io.BytesIO()
+    im.crop(box).save(out, 'WEBP', quality=92)
+    with open(path, 'wb') as fh:
+        fh.write(out.getvalue())
+    return True
+
+
+def detect_watermarks(user_id, dataset_id):
+    """Scan the KEPT images for an overlaid watermark via Qwen3-VL and persist
+    watermark_state ('detected'|'none') + watermark_bbox (JSON normalized box).
+    CALLER holds the GPU-exclusive vision window (same as classify/caption). Returns
+    {'detected': n, 'none': n, 'checked': n}."""
+    try:
+        from .vision_ollama import describe_image_ollama, unload_vision_model
+    except ImportError:
+        raise RuntimeError('vision (Ollama) service not configured/available yet')
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return {'detected': 0, 'none': 0, 'checked': 0}
+    rows = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
+            .filter(FaceDatasetImage.filename.isnot(None)).all())
+    counts = {'detected': 0, 'none': 0, 'checked': 0}
+    try:
+        for img in rows:
+            path = _img_path(img)
+            if not os.path.exists(path):
+                continue
+            with open(path, 'rb') as fh:
+                raw = describe_image_ollama(fh.read(), WATERMARK_BBOX_PROMPT, num_predict=400,
+                                            prefer_json=True, fmt='json',
+                                            keep_alive=_VISION_BATCH_KEEPALIVE)
+            if not (raw or '').strip():
+                # Vision unreachable/empty != "no watermark" (same reasoning as
+                # classify_images): leave the state UNTOUCHED (retry possible) instead
+                # of falsely marking every image clean when Ollama is just down.
+                continue
+            bbox = _parse_watermark_bbox(raw)
+            if bbox:
+                img.watermark_state = 'detected'
+                img.watermark_bbox = json.dumps([round(v, 4) for v in bbox])
+                counts['detected'] += 1
+            else:
+                img.watermark_state = 'none'
+                img.watermark_bbox = None
+                counts['none'] += 1
+            counts['checked'] += 1
+            db.session.commit()
+    finally:
+        unload_vision_model()  # rend la VRAM a ComfyUI en fin de batch
+    return counts
+
+
+def clean_watermarks(user_id, dataset_id):
+    """Apply the crop/LaMa/review routing to every image marked 'detected'. Returns
+    ({'cropped', 'inpainted', 'needs_review', 'failed', 'skipped'}, error|None) -- same
+    tuple contract as score_dataset_faces: `error` is None unless a LaMa inpaint that
+    was ATTEMPTED failed (never a silent swallow). CPU only (crop = PIL, LaMa = CPU
+    subprocess) -> NO GPU window; LaMa runs OUTSIDE the vision window on purpose.
+
+    LaMa absent (probe False) is NOT an error: LaMa-routed images are counted as
+    `skipped` (crop still runs) so the UI can nudge "install the ML extras"."""
+    from . import watermark_lama
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    rows = (FaceDatasetImage.query
+            .filter_by(dataset_id=dataset_id, watermark_state='detected')
+            .filter(FaceDatasetImage.filename.isnot(None)).all())
+    out = {'cropped': 0, 'inpainted': 0, 'needs_review': 0, 'failed': 0, 'skipped': 0}
+    error = None
+    lama_ok = watermark_lama.is_available()
+    for img in rows:
+        path = _img_path(img)
+        bbox = _safe_json(img.watermark_bbox)
+        if not os.path.exists(path) or not (isinstance(bbox, list) and len(bbox) == 4):
+            img.watermark_state = 'failed'
+            out['failed'] += 1
+            db.session.commit()
+            continue
+        try:
+            with Image.open(path) as im:
+                W, H = im.size
+        except (OSError, ValueError):
+            img.watermark_state = 'failed'
+            out['failed'] += 1
+            db.session.commit()
+            continue
+        route, box = _route_watermark(tuple(bbox), W, H)
+        if route == 'crop':
+            _preserve_original(path)
+            if _apply_watermark_crop(path, box):
+                # NOTE dHash: the perceptual hash used for import-dedupe is recomputed
+                # ON THE FLY from the file (_existing_dhashes / _dhash), NOT stored in a
+                # column -- there is no stored dHash to leave untouched. So after a crop
+                # the dedupe compares against the CLEANED pixels; re-importing the same
+                # watermarked visual is NOT guaranteed to dedupe against it (a border
+                # crop shifts the whole hash). Preserving the original-dHash behaviour the
+                # spec asks for would need a new stored column -> deferred (out of V1 scope).
+                img.watermark_state = 'cleaned'
+                out['cropped'] += 1
+            else:
+                img.watermark_state = 'failed'
+                out['failed'] += 1
+        elif route == 'lama':
+            if not lama_ok:
+                out['skipped'] += 1          # leave state='detected' (crop-only mode)
+            else:
+                _preserve_original(path)
+                ok, err = watermark_lama.inpaint_watermark(path, bbox)
+                if ok:
+                    img.watermark_state = 'cleaned'  # see dHash note above (recomputed on the fly)
+                    out['inpainted'] += 1
+                else:
+                    img.watermark_state = 'failed'
+                    out['failed'] += 1
+                    if err and err.get('kind') != 'unavailable':
+                        error = err   # surface WHY, never a silent inpaint failure
+        else:  # 'review' -> stays 'detected' so the badge/count keep flagging it
+            out['needs_review'] += 1
+        db.session.commit()
+    return out, error
 
 
 # --- Fan-out generation (Klein edit) ---------------------------------------

@@ -439,6 +439,33 @@ def dataset_analyze_faces(dataset_id):
                     'scoring_error': scoring_error})
 
 
+@bp.post('/dataset/<int:dataset_id>/watermarks/detect')
+def dataset_watermarks_detect(dataset_id):
+    """Scan kept images for overlaid watermarks (Qwen3-VL) — GPU-exclusive vision
+    window like classify/caption. Persists watermark_state/bbox; deletes nothing."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        with gpu_exclusive_vision_window(flag_ttl=1800):
+            counts = svc.detect_watermarks(LOCAL_USER, dataset_id)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **counts})
+
+
+@bp.post('/dataset/<int:dataset_id>/watermarks/clean')
+def dataset_watermarks_clean(dataset_id):
+    """Apply crop/LaMa/review routing to the 'detected' images. CPU only (crop = PIL,
+    LaMa = CPU subprocess) -> NO GPU window. Returns per-route counts + LaMa error."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        counts, error = svc.clean_watermarks(LOCAL_USER, dataset_id)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'error': error, **counts})
+
+
 @bp.post('/dataset/image/<int:image_id>/status')
 def dataset_image_status(image_id):
     data = request.get_json(silent=True) or {}

@@ -54,6 +54,7 @@ export function useDataset() {
   // Tracks an in-flight captioning pass so the UI can poll progressively.
   const [captioning, setCaptioning] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [watermarking, setWatermarking] = useState(false);
   // Per-image cache-bust versions (M1): only the cropped image reloads,
   // plus a separate version counter for the reference photo.
   const [nonces, setNonces] = useState({});
@@ -354,6 +355,57 @@ export function useDataset() {
     }
   }), [wrap, currentId, refresh, toast]);
 
+  // Watermark scan (Qwen3-VL, GPU window). Marks kept images with an overlaid
+  // watermark → 🚩 badges + a "Clean (N)" button. Deletes nothing.
+  const findWatermarks = useCallback(() => wrap(async () => {
+    setWatermarking(true);
+    try {
+      const d = await postJson(`/api/dataset/${currentId}/watermarks/detect`);
+      if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+      toast.success(`${d.detected || 0} watermark(s) found · ${d.none || 0} clean (of ${d.checked || 0})`);
+      await refresh();
+    } finally {
+      setWatermarking(false);
+    }
+  }), [wrap, currentId, refresh, toast]);
+
+  // Clean the detected watermarks: border marks are CROPPED, small off-center ones
+  // INPAINTED (LaMa), the rest flagged for manual review. CPU only (no ComfyUI pause).
+  const cleanWatermarks = useCallback(() => wrap(async () => {
+    setWatermarking(true);
+    // Capture the ids whose file may change IN PLACE so we can cache-bust their
+    // thumbnails (same filename → the browser would otherwise show the stale image).
+    const detectedIds = (data?.images || [])
+      .filter((i) => i.watermark_state === 'detected').map((i) => i.id);
+    try {
+      const d = await postJson(`/api/dataset/${currentId}/watermarks/clean`);
+      if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+      // A LaMa inpaint that was attempted and failed surfaces WHY (never silent).
+      if (d.error) {
+        toast.error(d.error.kind === 'unavailable'
+          ? 'Watermark inpainting is not installed — install the ML extras.'
+          : `Watermark inpainting failed: ${d.error.detail}`);
+      }
+      const parts = [];
+      if (d.cropped) parts.push(`${d.cropped} cropped`);
+      if (d.inpainted) parts.push(`${d.inpainted} inpainted`);
+      if (d.needs_review) parts.push(`${d.needs_review} need manual review`);
+      if (d.failed) parts.push(`${d.failed} failed`);
+      toast.success(parts.length ? parts.join(' · ') : 'Nothing to clean');
+      if (d.skipped) toast.warning(`${d.skipped} skipped — install the ML extras for inpainting`);
+      if (detectedIds.length) {
+        setNonces((m) => {
+          const next = { ...m };
+          detectedIds.forEach((id) => { next[id] = (next[id] || 0) + 1; });
+          return next;
+        });
+      }
+      await refresh();
+    } finally {
+      setWatermarking(false);
+    }
+  }), [wrap, currentId, data, refresh, toast]);
+
   const setStatus = useCallback(async (imageId, status) => {
     const d = await postJson(`/api/dataset/image/${imageId}/status`, { status });
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -629,6 +681,7 @@ export function useDataset() {
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzing, analyzeFaces,
+           watermarking, findWatermarks, cleanWatermarks,
            purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };

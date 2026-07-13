@@ -195,6 +195,16 @@ def probe_masks() -> dict:
     return {'ok': ok, 'detail': 'rembg import OK' if ok else 'import failed'}
 
 
+def probe_watermark_inpaint() -> dict:
+    """LaMa inpainting availability (simple-lama-inpainting, ML extra). Dedicated
+    interpreter key, else reuse the ML python (masks.python) then sys.executable —
+    same subprocess-probe pattern/timeout handling as probe_masks. When False the
+    Clean pass still runs crop-only (LaMa-routed images are skipped, not failed)."""
+    python = cfg.get('watermark.python') or cfg.get('masks.python') or sys.executable
+    ok = _cached_import('watermark', python, 'import simple_lama_inpainting')
+    return {'ok': ok, 'detail': 'simple-lama-inpainting import OK' if ok else 'import failed'}
+
+
 # Prebuilt wheels for the ML extras (insightface 0.7.3, numpy<2, onnxruntime,
 # rembg, opencv) exist for CPython 3.10–3.12 only. On a newer interpreter (3.13+)
 # there is no numpy<2 / insightface wheel, so `pip install -r requirements-ml.txt`
@@ -445,6 +455,7 @@ def probe(force=False) -> dict:
     openai_ = probe_openai()
     face_scoring = probe_face_scoring()
     masks = probe_masks()
+    watermark_inpaint = probe_watermark_inpaint()
     models = _scan_models()
     base_dir = cfg.get('comfyui.base_dir') or ''
     comfy_dir = resolve_comfyui_base(base_dir)
@@ -491,6 +502,9 @@ def probe(force=False) -> dict:
         },
         'face_scoring': face_scoring['ok'],
         'masks': masks['ok'],
+        # Lets the front adapt the watermark Clean tooltip: when False, Clean is
+        # crop-only (LaMa-routed watermarks are skipped with an install hint).
+        'watermark_inpaint': watermark_inpaint['ok'],
         'python': python_ml_status(),
         'scrape_deps': probe_scrape_deps()['ok'],
         'training_visible': aitoolkit['ok'] or bool(cfg.secret('VAST_API_KEY')),

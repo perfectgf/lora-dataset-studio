@@ -34,6 +34,17 @@ function faceBadge(img, thresholds) {
   return { border: 'border-4 border-red-500', icon: '⚠', cls: 'text-red-300', label: `${s.toFixed(2)} low` };
 }
 
+// Watermark V1 badge from watermark_state (🚩 detected / ✨ cleaned / ⚠ failed), or
+// null when never scanned ('none' is also silent — nothing to show). The tooltip names
+// what Clean will do; the exact crop-vs-inpaint route needs the image dims, which the
+// grid doesn't have, so it lists the possibilities rather than pre-deciding.
+const WATERMARK_BADGE = {
+  detected: { icon: '🚩', cls: 'text-amber-300',
+    label: 'Overlaid watermark detected — Clean will crop the border, inpaint a small mark, or flag it for manual review (V2 handles on-subject watermarks)' },
+  cleaned: { icon: '✨', cls: 'text-emerald-300', label: 'Watermark removed (original kept as a .orig backup)' },
+  failed: { icon: '⚠', cls: 'text-red-300', label: 'Watermark removal failed' },
+};
+
 export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, onCrop, onDelete,
                                           onRegenerate, onView, nonce = 0, faceThresholds,
                                           selected = false, onToggleSelect }) {
@@ -55,6 +66,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
   const canRegenerate = img.source === 'generated' && !(img.status === 'pending' && !img.filename);
 
   const fb = faceBadge(img, faceThresholds);
+  const wb = WATERMARK_BADGE[img.watermark_state];
   const borderCls = fb ? fb.border : `border-2 ${STATUS_CLS[img.status] || 'border-border'}`;
 
   return (
@@ -103,6 +115,12 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
           <span className={`absolute top-6 left-1 px-1.5 py-0.5 rounded text-[10px] bg-black/70 ${fb.cls} pointer-events-none flex items-center gap-0.5`}
             title={`Resemblance to the reference face — ${fb.label}`}>
             {fb.icon} 🎭 {fb.label}
+          </span>
+        )}
+        {wb && (
+          <span className={`absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] bg-black/70 ${wb.cls} flex items-center gap-0.5`}
+            title={wb.label}>
+            {wb.icon} watermark
           </span>
         )}
         <div className="absolute top-1 right-1 flex gap-1">

@@ -90,6 +90,15 @@ class FaceDatasetImage(db.Model):
     # create_app). Alimente composition_upscaled (dataset_payload) pour repérer un
     # dataset trop chargé en gros plans fabriqués plutôt que natifs.
     upscale_ratio = db.Column(Float, nullable=True)
+    # Watermark auto-correction (V1) : détection + suppression des watermarks INCRUSTÉS
+    # (logo de site, URL, pseudo, texte de studio ajouté PAR-DESSUS la photo scrapée) —
+    # sinon le LoRA les apprend. watermark_state : NULL (jamais scanné) | 'none' (propre)
+    # | 'detected' (trouvé, pas encore traité / à revoir manuellement) | 'cleaned' (crop
+    # ou inpaint LaMa appliqué) | 'failed'. watermark_bbox : JSON [x1,y1,x2,y2] normalisé
+    # [0,1] du watermark (NULL si aucun). Les bbox VLM sont GROSSIÈRES → déjà élargies
+    # d'une marge avant stockage. Colonnes additives (migration create_app).
+    watermark_state = db.Column(String(16), nullable=True)
+    watermark_bbox = db.Column(Text, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
 
     def __repr__(self):

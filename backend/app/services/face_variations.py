@@ -681,6 +681,17 @@ HEAD_BBOX_PROMPT = (
     'JSON object with the bounding box on a 0-1000 grid: {"y1":top,"x1":left,"y2":bottom,"x2":right}. '
     "Include the whole head and hair, tight but complete. Output the JSON only.")
 
+WATERMARK_BBOX_PROMPT = (
+    "Look for an OVERLAID WATERMARK on this photo: a logo, a website URL, a social-media "
+    "@username/handle, or studio/site text that was ADDED ON TOP of the picture after it "
+    "was taken (often semi-transparent, in a corner, along an edge, or tiled). Do NOT "
+    "report text that is PHYSICALLY PART OF THE SCENE (shop signs, street signs, clothing "
+    "prints, book/product labels, tattoos) — only the overlay added onto the image. "
+    'Output ONLY a minified JSON object. If an overlaid watermark is present: '
+    '{"present":true,"y1":top,"x1":left,"y2":bottom,"x2":right} — the bounding box of the '
+    "watermark on a 0-1000 grid (top-left origin, tight but complete). If there is NO "
+    'overlaid watermark: {"present":false}. Output the JSON only.')
+
 CLASSIFY_PROMPT = (
     "Classify this portrait photo. Output ONLY a minified JSON object: "
     '{"framing":"face|bust|body|back","angle":"front|three-quarter|profile|back",'

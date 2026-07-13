@@ -21,6 +21,8 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset', 'train_settings', 'TEXT'),
     ('face_dataset_image', 'fail_reason', 'TEXT'),
     ('face_dataset_image', 'upscale_ratio', 'REAL'),
+    ('face_dataset_image', 'watermark_state', 'VARCHAR(16)'),
+    ('face_dataset_image', 'watermark_bbox', 'TEXT'),
     ('training_run_record', 'settings', 'TEXT'),
     ('lora_test_image', 'error', 'TEXT'),
 )

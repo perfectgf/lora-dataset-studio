@@ -119,6 +119,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const unused = images.filter((i) => i.status === 'reject' || i.status === 'failed').length;
   const keptUncaptioned = images.filter((i) => i.status === 'keep' && !i.caption).length;
   const keptCaptioned = kept - keptUncaptioned;
+  // Overlaid watermarks still awaiting removal → drives the "🧽 Clean (N)" button.
+  const watermarkDetected = images.filter((i) => i.watermark_state === 'detected').length;
   // Style de caption : défaut AUTO (SDXL booru-native → booru tags ; sinon prose), surchargé par le sélecteur.
   const effCaptionMode = captionMode || (d.train_type === 'sdxl' ? 'booru' : 'prose');
   const pending = images.filter((i) => i.status === 'pending' && !i.filename).length;
@@ -437,6 +439,23 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   title={d.ref_filename ? "Scores each image's facial resemblance vs the reference (deletes nothing)" : "Set a reference photo first"}
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
                   {ds.analyzing ? '🎭 Analyzing…' : '🎭 Analyze faces'}
+                </button>
+              )}
+              {/* Watermark auto-correction (V1): find overlaid site logos/URLs/usernames on
+                  the kept images, then Clean them (border → crop, small off-center → LaMa
+                  inpaint, on-subject → manual review). Applies to any dataset kind. */}
+              <button type="button" onClick={ds.findWatermarks} disabled={ds.busy}
+                title="Scans the kept images for overlaid watermarks/logos/URLs added on top of the photo (deletes nothing)"
+                className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
+                {ds.watermarking ? '🧽 Scanning…' : '🧽 Find watermarks'}
+              </button>
+              {watermarkDetected > 0 && (
+                <button type="button" onClick={ds.cleanWatermarks} disabled={ds.busy}
+                  title={caps.watermark_inpaint
+                    ? 'Removes them: border marks are cropped, small off-center marks are inpainted (LaMa), on-subject marks are flagged for manual review'
+                    : 'Removes border marks by cropping. Inpainting (LaMa) needs the ML extras — off-center marks will be skipped until then'}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold disabled:opacity-40">
+                  🧽 Clean ({watermarkDetected})
                 </button>
               )}
               {!concept && d.caption_leak && d.caption_leak.captioned > 0 && (
