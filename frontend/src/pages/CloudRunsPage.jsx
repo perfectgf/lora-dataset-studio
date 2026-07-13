@@ -220,9 +220,21 @@ export default function CloudRunsPage() {
       {/* Recent history */}
       {recent.length > 0 && (
         <div className="flex flex-col gap-2">
-          <h2 className="m-0 text-content-muted text-xs font-semibold uppercase tracking-wide">
-            Recent
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="m-0 text-content-muted text-xs font-semibold uppercase tracking-wide">
+              Recent
+            </h2>
+            <button type="button"
+              onClick={async () => {
+                if (!window.confirm('Move the staging folders of all FINISHED runs to the trash?\n\nDataset copies, samples and checkpoint duplicates already imported. Active runs and pods kept for recovery are spared. Recoverable until you empty the trash in Settings.')) return;
+                const d = await postJson('/api/dataset/train/cloud/purge', {});
+                if (d.ok) toast.info(`Cleaned ${d.purged_runs} run(s) — ${(d.freed_bytes / 1e9).toFixed(1)} GB moved to the trash.`);
+                poll();
+              }}
+              className="ml-auto px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold">
+              🧹 Clean finished runs
+            </button>
+          </div>
           <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
             {recent.map((run) => (
               <div key={run.run_id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">

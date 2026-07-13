@@ -11,6 +11,13 @@ import PreflightModal from './PreflightModal';
 // (le preflight reste l'autorité ; ceci ne sert qu'à désactiver le bouton tôt).
 const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20], flux: [15, 20] };
 
+const fmtBytes = (b) => {
+  if (b == null) return '';
+  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
+  if (b >= 1e6) return `${Math.round(b / 1e6)} MB`;
+  return `${Math.max(1, Math.round(b / 1e3))} KB`;
+};
+
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
  * Poll régulier : c'est ce poll qui fait avancer la file (fin du courant → suivant). */
@@ -26,6 +33,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Saves cloud synchronisés en local (y compris ceux d'un run EN COURS) —
   // liste séparée : le prompt Resume-or-Fresh ne raisonne que sur le local.
   const [cloudCkpts, setCloudCkpts] = useState([]);
+  // {run_dir_bytes, cloud_staging_bytes, deployed_bytes, total_bytes}
+  const [diskUsage, setDiskUsage] = useState(null);
   // {steps, kind, n_images, rationale} renvoyé par /train/checkpoints — le POURQUOI
   // du barème adaptatif, affiché avec le champ Steps (pédagogie, pas boîte noire).
   const [stepsInfo, setStepsInfo] = useState(null);
@@ -347,6 +356,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     // (alerte « le dataset a changé depuis vN » + numéro de la prochaine version).
     setDatasetState(data.dataset_state || null);
     setCloudCkpts(data.cloud_checkpoints || []);
+    setDiskUsage(data.disk_usage || null);
     // Rationale du barème adaptatif (backend = source de vérité) : affiché en tooltip
     // du champ Steps pour que l'app EXPLIQUE le nombre au lieu de le décréter.
     setStepsInfo(data.recommended_steps_info || null);
@@ -807,7 +817,29 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
                 <b className="text-content-muted font-medium">Why:</b> how often a checkpoint is written.
                 <b className="text-content-muted font-medium"> How:</b> finer (250) gives more epochs to pick the
-                least-overfit one in the Test Studio; coarser saves disk. Only the last 10 are kept.
+                least-overfit one in the Test Studio; coarser saves disk.
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-content text-[0.75rem] w-28 shrink-0">Saves kept</span>
+                <select value={String(adv?.max_step_saves ?? 4)}
+                  onChange={(e) => saveAdv({ max_step_saves: Number(e.target.value) })}
+                  aria-label="Maximum intermediate saves kept"
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                  <option value="2">last 2</option>
+                  <option value="3">last 3</option>
+                  <option value="4">last 4</option>
+                  <option value="6">last 6</option>
+                  <option value="10">last 10</option>
+                </select>
+              </div>
+              <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                <b className="text-content-muted font-medium">Why:</b> older intermediate saves are deleted by
+                ai-toolkit itself (local and cloud) past this count — the old default of 10 piled up ~10 GB per
+                Krea run. <b className="text-content-muted font-medium">How:</b> 4 is plenty to pick the best
+                epoch; raise it only for long runs you want to comb through finely.
               </span>
             </div>
 
@@ -1094,7 +1126,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           📦 Checkpoints &amp; trained LoRAs
           <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
             {ckLoaded
-              ? `${checkpoints.length} checkpoint(s) · ${imported.length} in ComfyUI`
+              ? `${checkpoints.length} checkpoint(s) · ${imported.length} in ComfyUI${diskUsage?.total_bytes ? ` · ${fmtBytes(diskUsage.total_bytes)} on disk` : ''}`
               : 'the files your training runs produce'}
           </span>
         </summary>
@@ -1208,8 +1240,47 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                     className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
                     Import → {lorasLabel}
                   </button>
+                  <button type="button"
+                    onClick={async () => {
+                      if (!window.confirm(`Move « ${c.filename} » to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
+                      const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
+                        { filename: c.filename, base_model: base, train_type: trainType });
+                      if (d.ok === false) toastTrainError(d, 'Delete failed');
+                      loadCheckpoints(base);
+                    }}
+                    title="Move this checkpoint to the trash (recoverable until the trash is emptied in Settings)"
+                    className="px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">
+                    🗑
+                  </button>
                 </div>
               ))}
+              <div className="flex items-center gap-2">
+                <button type="button"
+                  onClick={async () => {
+                    const finals = checkpoints.filter((c) => c.final).map((c) => c.filename);
+                    const best = bestEpoch?.available ? [bestEpoch.checkpoint] : [];
+                    const keep = [...new Set([...finals, ...best])];
+                    if (!keep.length) {
+                      // no final yet (unfinished run): keep the last step
+                      const last = checkpoints[checkpoints.length - 1];
+                      if (last) keep.push(last.filename);
+                    }
+                    const removed = checkpoints.filter((c) => !keep.includes(c.filename)).length;
+                    if (!removed) return;
+                    if (!window.confirm(`Clean up this run?\n\nKeeps ${keep.length} checkpoint(s) (${keep.join(', ')}) and moves ${removed} to the trash — recoverable until you empty the trash in Settings.`)) return;
+                    const d = await postTrain(`/api/dataset/${ds.currentId}/train/checkpoints/cleanup`,
+                      { keep_filenames: keep, base_model: base, train_type: trainType });
+                    if (d.ok === false) toastTrainError(d, 'Cleanup failed');
+                    loadCheckpoints(base);
+                  }}
+                  title="Keep the final (+ the 🏆 best-epoch pick if scored) and move every other checkpoint of this run to the trash"
+                  className="px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-200 text-[0.6875rem] font-semibold">
+                  🧹 Clean up this run
+                </button>
+                <span className="text-content-subtle text-[0.625rem]">
+                  keeps final{bestEpoch?.available ? ' + 🏆 best' : ''} — the rest goes to the trash
+                </span>
+              </div>
             </div>
           )}
 
@@ -1238,6 +1309,20 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                     className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
                     Import → {lorasLabel}
                   </button>
+                  {!c.active && (
+                    <button type="button"
+                      onClick={async () => {
+                        if (!window.confirm(`Move « ${c.filename} » to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
+                        const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
+                          { filename: c.filename, cloud_run_id: c.run_id });
+                        if (d.ok === false) toastTrainError(d, 'Delete failed');
+                        loadCheckpoints(base);
+                      }}
+                      title="Move this cloud save to the trash"
+                      className="px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">
+                      🗑
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

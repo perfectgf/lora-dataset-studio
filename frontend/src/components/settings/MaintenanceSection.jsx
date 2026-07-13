@@ -195,10 +195,53 @@ function LogViewer() {
   )
 }
 
+/* App-wide trash: everything the app "deletes" (checkpoints, cloud staging,
+   deployed LoRAs) is MOVED here — this card is the only place bytes actually
+   die. Size fetched once on mount (no poll). */
+function TrashCard() {
+  const [size, setSize] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let alive = true
+    apiFetch('/api/trash')
+      .then((d) => { if (alive) setSize(d?.size_bytes ?? null) })
+      .catch(() => { /* best-effort */ })
+    return () => { alive = false }
+  }, [])
+  const fmt = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB`
+    : b >= 1e6 ? `${Math.round(b / 1e6)} MB`
+    : b > 0 ? `${Math.max(1, Math.round(b / 1e3))} KB` : 'empty')
+  const empty = async () => {
+    if (!window.confirm('Permanently delete everything in the trash?\n\nThis is the ONLY destructive action — deleted checkpoints cannot be recovered afterwards.')) return
+    setBusy(true)
+    try {
+      const d = await postJson('/api/trash/empty', {})
+      if (d?.ok) setSize(0)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Card title="Trash" help="Everything the app deletes (checkpoints, cloud staging, deployed LoRAs) is moved here first — emptying it is the only action that actually destroys files.">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm text-content">
+          <span aria-hidden>🗑</span> Trash size:{' '}
+          <span className="font-semibold tabular-nums">{size == null ? '…' : fmt(size)}</span>
+        </span>
+        <button type="button" onClick={empty} disabled={busy || !size}
+          className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-300 disabled:opacity-40">
+          {busy ? 'Emptying…' : 'Empty trash'}
+        </button>
+      </div>
+    </Card>
+  )
+}
+
 export default function MaintenanceSection({ config, setField }) {
   return (
     <div className="space-y-6">
       <UpdatesCard />
+      <TrashCard />
       <Card title="Data" help="Where dataset images live on disk.">
         <TextField
           id="dataset-images-root"
