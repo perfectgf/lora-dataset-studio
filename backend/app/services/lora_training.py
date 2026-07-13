@@ -706,6 +706,65 @@ BUILTIN_TRAIN_PRESETS = [
             ],
         },
     },
+    # Concept/style runs scale SUB-linearly (recommended_steps: 475·√n clamped
+    # [2000, 12000] — code anchors: ~30-40 images → ~3000 steps, ~400 → ~9500).
+    # save/sample every 500 (vs 250 for characters) is the coverage compromise:
+    # max_step_saves keeps the N most RECENT saves (ai-toolkit deletes the
+    # oldest), so 10×500 spans the last 5000 steps — the whole run at the small
+    # anchor, the second half at the large one — while halving the preview GPU
+    # cost of long runs (1 image per prompt per interval). Probes exercise the
+    # concept across framings, contexts and lighting: a concept LoRA that only
+    # reproduces its training context has overfit.
+    {
+        'id': 'builtin-concept',
+        'name': 'Concept — recommended',
+        'train_type': 'zimage',
+        'builtin': True,
+        'settings': {
+            'resolution': '768,1024',
+            'save_every': 500,
+            'max_step_saves': 10,
+            'sample_every': 500,
+            'sample_prompts': [
+                '{trigger}',
+                '{trigger}, close-up, high detail, sharp focus',
+                '{trigger}, wide shot showing the full scene',
+                '{trigger}, in an unusual setting, outdoors',
+                '{trigger}, soft natural window light',
+                '{trigger}, night scene, artificial light',
+                '{trigger}, seen from a high angle',
+                '{trigger}, cinematic composition, shallow depth of field',
+            ],
+        },
+    },
+    # Same steps scale and save/preview cadence as concept (same 475·√n
+    # recipe drives both). Style previews carry NO trigger — a style LoRA has
+    # none and the export strips `{trigger}` on style datasets — so varied
+    # CONTENT is the probe: if the aesthetic shows on a portrait AND a night
+    # street AND a still life, the style generalized instead of memorizing
+    # its training scenes.
+    {
+        'id': 'builtin-style',
+        'name': 'Style — recommended',
+        'train_type': 'zimage',
+        'builtin': True,
+        'settings': {
+            'resolution': '768,1024',
+            'save_every': 500,
+            'max_step_saves': 10,
+            'sample_every': 500,
+            'sample_prompts': [
+                'a woman reading in a sunlit cafe',
+                'a city street at night, rain, neon reflections',
+                'a mountain landscape, wide shot, morning mist',
+                'a still life of fruit on a wooden table',
+                'a cozy interior, warm lamp light',
+                'a runner mid-stride on a bridge, motion',
+                'a cat sleeping on a windowsill',
+                'a modern building facade, strong shadows',
+            ],
+        },
+    },
 ]
 
 
