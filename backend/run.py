@@ -59,12 +59,28 @@ if __name__ == '__main__':
     if host not in ('127.0.0.1', 'localhost', '::1') \
             and not os.environ.get('LDS_ACCESS_TOKEN') \
             and os.environ.get('LDS_ALLOW_UNAUTHENTICATED') != '1':
-        import secrets
-        os.environ['LDS_ACCESS_TOKEN'] = secrets.token_urlsafe(24)
+        # Persisted in config.json (not just this process's env) so the token
+        # survives a restart instead of rotating every boot -- the Settings
+        # "Server" card reads it back from there to show/copy it.
+        token = cfg_get('server.access_token') or ''
+        if not token:
+            import secrets
+            token = secrets.token_urlsafe(24)
+            try:
+                from app.config import save_config
+                save_config({'server': {'access_token': token}})
+            except ImportError:
+                pass   # config module unavailable (see cfg_get fallback above) -> ephemeral this run
+        os.environ['LDS_ACCESS_TOKEN'] = token
         print(f"\n[LDS] server.host={host} is reachable from the network -> access token enabled.")
         print(f"[LDS] Open from another device:  http://<this-machine>:{port}/?token={os.environ['LDS_ACCESS_TOKEN']}")
         print("[LDS] (set LDS_ACCESS_TOKEN yourself for a stable token, or "
               "LDS_ALLOW_UNAUTHENTICATED=1 if the network is already locked down)\n")
+    # Snapshot of what's ACTUALLY bound, for the Settings "Server" card: config.json
+    # may already hold newer values the user saved but hasn't restarted into yet, so
+    # reading cfg_get again there would lie about what's currently serving requests.
+    app.config['LDS_BOUND_HOST'] = host
+    app.config['LDS_BOUND_PORT'] = port
     app.run(debug=os.environ.get('FLASK_DEBUG', '0') == '1',
             host=host,
             # LDS_PORT wins over config so the launcher can dodge a busy 5000

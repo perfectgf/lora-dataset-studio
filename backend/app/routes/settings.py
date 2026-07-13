@@ -1,5 +1,5 @@
 """Settings API: config/secrets CRUD + capability probes."""
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from .. import capabilities
 from .. import config as cfg
@@ -23,7 +23,15 @@ def _secret_presence() -> dict:
 
 
 def _settings_payload() -> dict:
-    return {'config': cfg.load_config(), 'secrets': _secret_presence()}
+    return {
+        'config': cfg.load_config(), 'secrets': _secret_presence(),
+        # What THIS running process is actually bound to — run.py stamps these
+        # before app.run(); a dev/test boot that never went through run.py (or a
+        # WSGI launch) leaves them unset, so the Server card just hides the
+        # "running vs saved" diff instead of showing a misleading n/a:n/a.
+        'runtime': {'host': current_app.config.get('LDS_BOUND_HOST'),
+                    'port': current_app.config.get('LDS_BOUND_PORT')},
+    }
 
 
 @bp.get('/settings')
@@ -172,6 +180,17 @@ def update_apply():
         _git_check_cache.update(ts=0.0, data=None)
         updater.schedule_restart()
     return jsonify(res)
+
+
+@bp.post('/settings/restart')
+def settings_restart():
+    """Manual restart — used after saving server.host/server.port (a live bind
+    change needs a fresh process; Flask can't rebind mid-request) and as a plain
+    troubleshooting action. Same schedule_restart() as the updater, so it
+    survives both a git checkout and the packaged build."""
+    from ..services import updater
+    updater.schedule_restart()
+    return jsonify({'ok': True, 'restarting': True})
 
 
 @bp.get('/logs/tail')

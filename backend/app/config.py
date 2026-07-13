@@ -20,7 +20,12 @@ load_dotenv(ENV_PATH)
 SECRET_KEYS = ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'HF_TOKEN', 'VAST_API_KEY')
 
 DEFAULTS = {
-    'server': {'host': '127.0.0.1', 'port': 5000},
+    # host: '127.0.0.1' = this machine only ; '0.0.0.0' = reachable from the LAN
+    # (phone, tablet, another PC) — the Settings "Server" card's LAN toggle just
+    # flips this. access_token is generated + persisted here the first time LAN
+    # mode is used without one already set (see run.py) so it survives restarts
+    # and can be copied from Settings instead of hunting the console output.
+    'server': {'host': '127.0.0.1', 'port': 5000, 'access_token': ''},
     'paths': {'dataset_images_root': ''},                      # '' -> DATA_DIR/datasets
     'comfyui': {'api_url': 'http://127.0.0.1:8188', 'base_dir': '',
                 'output_dir': '', 'input_dir': '', 'models_dir': '', 'loras_dir': ''},

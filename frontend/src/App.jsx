@@ -91,41 +91,67 @@ function CheckUpdatesButton() {
 
 function NavBar() {
   const { caps } = useCapabilities()
+  // Below `md` the horizontal link row has nowhere to go (it used to just wrap
+  // mid-word, brand included) -- collapse it into a hamburger-triggered panel
+  // instead. navLinks is shared markup: `hidden md:flex` on desktop, only
+  // mounted (not just hidden) inside the mobile panel so a closed menu costs
+  // nothing extra in the DOM.
+  const [open, setOpen] = useState(false)
+  const goHome = () => {
+    // Home = the datasets LIST: clear the persisted open dataset and tell
+    // the mounted page (same-route clicks don't remount) to close it.
+    try { localStorage.removeItem('datasetCurrentId'); } catch { /* ignore */ }
+    window.dispatchEvent(new CustomEvent('lds:home'))
+    setOpen(false)
+  }
+  const navLinks = (
+    <>
+      <NavLink to="/datasets" className={navItemClass} onClick={() => setOpen(false)}>Datasets</NavLink>
+      {caps.cloud_training && (
+        <NavLink to="/cloud" className={navItemClass} onClick={() => setOpen(false)}>
+          <span className="inline-flex items-center gap-1"><span aria-hidden>☁️</span> Cloud</span>
+        </NavLink>
+      )}
+      {caps.studio_visible && (
+        <NavLink to="/studio" className={navItemClass} onClick={() => setOpen(false)}>Test Studio</NavLink>
+      )}
+      <NavLink to="/guide" className={navItemClass} onClick={() => setOpen(false)}>Guide</NavLink>
+      <NavLink to="/setup" className={navItemClass} onClick={() => setOpen(false)}>
+        <span className="inline-flex items-center gap-1">
+          Setup
+          {!recommendedMet(caps) && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-primary" />}
+        </span>
+      </NavLink>
+      <NavLink to="/settings" className={navItemClass} onClick={() => setOpen(false)}>Settings</NavLink>
+    </>
+  )
   return (
     <header className="border-b border-border bg-surface-overlay/90 backdrop-blur-sm sticky top-0 z-40">
-      <div className="mx-auto flex max-w-5xl items-center gap-6 px-4 py-3">
-        <NavLink to="/datasets" title="Back to the datasets page"
-          onClick={() => {
-            // Home = the datasets LIST: clear the persisted open dataset and tell
-            // the mounted page (same-route clicks don't remount) to close it.
-            try { localStorage.removeItem('datasetCurrentId'); } catch { /* ignore */ }
-            window.dispatchEvent(new CustomEvent('lds:home'));
-          }}
-          className="bg-gradient-primary bg-clip-text text-base font-bold text-transparent no-underline">
+      <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 sm:gap-6">
+        <NavLink to="/datasets" title="Back to the datasets page" onClick={goHome}
+          className="shrink-0 whitespace-nowrap bg-gradient-primary bg-clip-text text-base font-bold text-transparent no-underline">
           LoRA Dataset Studio
         </NavLink>
         {/* Workflow first (make → train in cloud → test), docs/config last. */}
-        <nav className="flex gap-1" aria-label="Main navigation">
-          <NavLink to="/datasets" className={navItemClass}>Datasets</NavLink>
-          {caps.cloud_training && (
-            <NavLink to="/cloud" className={navItemClass}>
-              <span className="inline-flex items-center gap-1"><span aria-hidden>☁️</span> Cloud</span>
-            </NavLink>
-          )}
-          {caps.studio_visible && (
-            <NavLink to="/studio" className={navItemClass}>Test Studio</NavLink>
-          )}
-          <NavLink to="/guide" className={navItemClass}>Guide</NavLink>
-          <NavLink to="/setup" className={navItemClass}>
-            <span className="inline-flex items-center gap-1">
-              Setup
-              {!recommendedMet(caps) && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-primary" />}
-            </span>
-          </NavLink>
-          <NavLink to="/settings" className={navItemClass}>Settings</NavLink>
+        <nav className="hidden md:flex gap-1" aria-label="Main navigation">
+          {navLinks}
           <CheckUpdatesButton />
         </nav>
+        <div className="ml-auto flex items-center gap-1 md:hidden">
+          <CheckUpdatesButton />
+          <button type="button" onClick={() => setOpen((v) => !v)}
+            aria-expanded={open} aria-label={open ? 'Close navigation menu' : 'Open navigation menu'}
+            className="rounded-md p-2 text-content-muted hover:text-content hover:bg-surface-raised">
+            <span aria-hidden className="block text-lg leading-none">{open ? '✕' : '☰'}</span>
+          </button>
+        </div>
       </div>
+      {open && (
+        <nav aria-label="Main navigation (mobile)"
+          className="flex flex-col gap-1 border-t border-border px-4 py-2 md:hidden">
+          {navLinks}
+        </nav>
+      )}
     </header>
   )
 }

@@ -219,3 +219,47 @@ def test_put_settings_saves_chatgpt_auth_mode(client):
     r = client.put('/api/settings', json={'config': {'engines': {'chatgpt_auth': 'subscription'}}})
     assert r.status_code == 200
     assert r.get_json()['config']['engines']['chatgpt_auth'] == 'subscription'
+
+
+# --- Server settings (host/port/LAN/access token) ----------------------------
+def test_settings_payload_includes_server_defaults(client):
+    cfg = client.get('/api/settings').get_json()['config']
+    assert cfg['server'] == {'host': '127.0.0.1', 'port': 5000, 'access_token': ''}
+
+
+def test_put_settings_saves_server_lan_and_port(client):
+    r = client.put('/api/settings', json={'config': {'server': {'host': '0.0.0.0', 'port': 5001}}})
+    assert r.status_code == 200
+    assert r.get_json()['config']['server']['host'] == '0.0.0.0'
+    assert r.get_json()['config']['server']['port'] == 5001
+
+
+def test_runtime_reflects_what_run_py_stamped_on_boot(client, app):
+    """Before run.py's __main__ block runs (dev/test boots go through create_app()
+    directly), nothing has been bound yet -- the card must show that as 'unknown',
+    never fabricate a value that looks like a real running bind."""
+    assert client.get('/api/settings').get_json()['runtime'] == {'host': None, 'port': None}
+    app.config['LDS_BOUND_HOST'] = '0.0.0.0'
+    app.config['LDS_BOUND_PORT'] = 5000
+    assert client.get('/api/settings').get_json()['runtime'] == {'host': '0.0.0.0', 'port': 5000}
+
+
+def test_runtime_can_differ_from_saved_config_until_restart(client, app):
+    """Saving a new port must NOT retroactively change what's reported as running --
+    that would lie about a bind change that hasn't taken effect yet."""
+    app.config['LDS_BOUND_HOST'] = '127.0.0.1'
+    app.config['LDS_BOUND_PORT'] = 5000
+    client.put('/api/settings', json={'config': {'server': {'host': '0.0.0.0', 'port': 5001}}})
+    data = client.get('/api/settings').get_json()
+    assert data['config']['server']['port'] == 5001
+    assert data['runtime'] == {'host': '127.0.0.1', 'port': 5000}
+
+
+def test_settings_restart_triggers_schedule_restart(client, monkeypatch):
+    from app.services import updater
+    called = []
+    monkeypatch.setattr(updater, 'schedule_restart', lambda *a, **k: called.append(1))
+    r = client.post('/api/settings/restart')
+    assert r.status_code == 200
+    assert r.get_json() == {'ok': True, 'restarting': True}
+    assert called == [1]
