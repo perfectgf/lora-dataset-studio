@@ -1,16 +1,20 @@
 """Scans de listings à galeries (PornPics catégorie/tag/recherche) : covers par
 défaut, albums complets sur option.
 
-Un scan mot-clé/catégorie remonte par défaut UNE image par galerie — la cover,
-celle qui matche le mot-clé ; le reste de l'album est souvent hors-sujet. Le flag
-`include_albums` (case « Scan full albums » de l'UI, transmis par /scan) rétablit
-la plongée intégrale. L'URL directe d'une galerie (/galleries/...) n'est pas
-concernée : ses médias sont top-level, `per_album` ne borne que la récursion.
+Un scan mot-clé/catégorie remonte par défaut LA VIGNETTE que la page affiche pour
+chaque galerie — l'image choisie par le site comme représentative du mot-clé
+(jamais la 1re de l'album : _009_, _113_… observé en réel) — via le parse
+HTML/AJAX du listing, sans gallery-dl. Le flag `include_albums` (case « Scan
+full albums » de l'UI, transmis par /scan) rétablit la plongée intégrale
+gallery-dl. Si le parse covers échoue (layout changé), repli gallery-dl borné à
+1 image/album. L'URL directe d'une galerie (/galleries/...) n'est pas concernée.
 
 Tout est mocké — aucun appel réseau ni process gallery-dl."""
-from app.scrape.sources import gdl
+import pytest
+
+from app.scrape.sources import gdl, image_sites
 from app.scrape.sources.base import Match
-from app.scrape.sources.image_sites import PornpicsSource
+from app.scrape.sources.image_sites import PornpicsSource, _covers_scan, _full_size
 
 
 def _mock_gdl_runs(monkeypatch):
@@ -47,22 +51,108 @@ def test_enumerate_without_per_album_dives_full_albums(monkeypatch):
     assert len(items) == 10          # 2 albums × 5 images : comportement historique
 
 
-def test_pornpics_scan_maps_include_albums_to_per_album(monkeypatch):
+# --- Mode covers : parse des vignettes du listing -----------------------------
+_TILE_HTML = '''
+<li><a class="rel-link" href="/galleries/flexible-girl-123/">
+  <img src="1px.png" data-src="https://cdni.pornpics.com/460/1/2/123/123_009_ab.jpg" alt="Flexible girl">
+</a></li>
+<li><a class="rel-link" href="https://www.pornpics.com/galleries/splits-babe-456/">
+  <img src='1px.png' data-src='https://cdni.pornpics.com/300/3/4/456/456_113_cd.jpg' alt='Splits babe'>
+</a></li>
+<li><a class="rel-link" href="/channels/whatever/">nav link sans data-src de tuile</a></li>
+'''
+
+
+def test_full_size_swaps_cdn_size_segment():
+    assert _full_size('https://cdni.pornpics.com/460/1/2/123/123_009_ab.jpg') \
+        == 'https://cdni.pornpics.com/1280/1/2/123/123_009_ab.jpg'
+    assert _full_size('https://cdni.pornpics.com/300/3/4/456/456_113_cd.jpg') \
+        == 'https://cdni.pornpics.com/1280/3/4/456/456_113_cd.jpg'
+
+
+def test_covers_page0_returns_the_listing_thumbnails(monkeypatch):
+    monkeypatch.setattr(image_sites, '_listing_html', lambda url: _TILE_HTML)
+    items, err = _covers_scan('https://www.pornpics.com/flexible/', 0)
+    assert err is None
+    # la vignette VISIBLE (image _009_/_113_), pas la 1re image de l'album —
+    # et seulement les tuiles galerie (le lien /channels/ est ignoré)
+    assert [it['url'] for it in items] == [
+        'https://cdni.pornpics.com/1280/1/2/123/123_009_ab.jpg',
+        'https://cdni.pornpics.com/1280/3/4/456/456_113_cd.jpg']
+    assert items[0]['thumbnail'].startswith('https://cdni.pornpics.com/460/')
+    assert items[0]['title'] == 'Flexible girl'
+
+
+def test_covers_next_pages_use_the_ajax_endpoint(monkeypatch):
     seen = {}
 
+    def fake_json(url, offset):
+        seen['offset'] = offset
+        return [{'g_url': 'https://www.pornpics.com/galleries/x-789/', 'desc': 'X',
+                 't_url_460': 'https://cdni.pornpics.com/460/5/6/789/789_042_ef.jpg'}]
+    monkeypatch.setattr(image_sites, '_listing_json', fake_json)
+    items, err = _covers_scan('https://www.pornpics.com/flexible/', 2)
+    assert err is None and seen['offset'] == 40
+    assert items[0]['url'] == 'https://cdni.pornpics.com/1280/5/6/789/789_042_ef.jpg'
+    assert items[0]['title'] == 'X'
+
+
+def test_covers_scan_signals_fallback_never_raises(monkeypatch):
+    def boom(url):
+        raise RuntimeError('site down')
+    monkeypatch.setattr(image_sites, '_listing_html', boom)
+    assert _covers_scan('https://www.pornpics.com/flexible/', 0) == (None, None)
+    monkeypatch.setattr(image_sites, '_listing_html', lambda url: '<html>layout changé</html>')
+    assert _covers_scan('https://www.pornpics.com/flexible/', 0) == (None, None)
+
+
+# --- Routage PornpicsSource.scan : covers / albums / galerie directe / repli ---
+@pytest.fixture()
+def _spies(monkeypatch):
+    seen = {'enum': None, 'covers': 0}
+
     def fake_enum(url, **kw):
-        seen.clear()
-        seen.update(kw)
+        seen['enum'] = kw
         return [], None
     monkeypatch.setattr(gdl, 'enumerate', fake_enum)
-    src = PornpicsSource()
+    monkeypatch.setattr(image_sites, '_listing_html', lambda url: seen.update(covers=seen['covers'] + 1) or _TILE_HTML)
+    return seen
+
+
+def test_pornpics_default_scan_serves_covers_without_gdl(_spies):
     m = Match(url='https://www.pornpics.com/flexible/')
     m.page = 0
-    src.scan(m)                                  # défaut → covers seulement
-    assert seen['per_album'] == 1
+    items, err = PornpicsSource().scan(m)
+    assert err is None and len(items) == 2
+    assert _spies['covers'] == 1 and _spies['enum'] is None   # gallery-dl jamais lancé
+
+
+def test_pornpics_include_albums_dives_via_gdl(_spies):
+    m = Match(url='https://www.pornpics.com/flexible/')
+    m.page = 0
     m.include_albums = True
-    src.scan(m)                                  # option cochée → plongée intégrale
-    assert seen['per_album'] is None
+    PornpicsSource().scan(m)
+    assert _spies['covers'] == 0                    # pas de parse covers
+    assert _spies['enum']['per_album'] is None      # plongée intégrale
+
+
+def test_pornpics_direct_gallery_url_bypasses_covers(_spies):
+    m = Match(url='https://www.pornpics.com/galleries/flexible-girl-123/')
+    m.page = 0
+    PornpicsSource().scan(m)
+    assert _spies['covers'] == 0                    # URL d'album → gallery-dl direct
+    assert _spies['enum'] is not None
+
+
+def test_pornpics_covers_failure_falls_back_to_bounded_gdl(monkeypatch, _spies):
+    def boom(url):
+        raise RuntimeError('site down')
+    monkeypatch.setattr(image_sites, '_listing_html', boom)
+    m = Match(url='https://www.pornpics.com/flexible/')
+    m.page = 0
+    items, err = PornpicsSource().scan(m)
+    assert err is None
+    assert _spies['enum']['per_album'] == 1         # repli borné : 1 image/album
 
 
 def test_scan_route_passes_include_albums_to_match(client, monkeypatch):

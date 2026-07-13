@@ -163,7 +163,7 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
           URLs (a direct /galleries/... URL always returns its full album). */}
       {/pornpics\.com/i.test(url) && !/\/galleries\//i.test(url) && (
         <label className="flex items-center gap-2 text-[0.6875rem] text-content-muted cursor-pointer"
-          title="Off: each matched gallery contributes only its cover — the photo that actually matches your keyword. On: every photo of each matched gallery floods in (a lot of off-topic frames). To grab one full album, paste its /galleries/ URL directly.">
+          title="Off: you get exactly the preview images the listing page shows — one per gallery, the shot that matches your keyword. On: every photo of each matched gallery floods in (a lot of off-topic frames). To grab one full album, paste its /galleries/ URL directly.">
           <input type="checkbox" checked={fullAlbums}
             onChange={(e) => setFullAlbums(e.target.checked)}
             className="h-3.5 w-3.5 rounded border-border-strong accent-indigo-500" />
