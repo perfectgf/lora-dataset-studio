@@ -53,7 +53,10 @@ the captioner needs to know exactly *what to omit*. What changes vs character:
 - **No reference photo.** Images come from **import** or the built-in
   **scraper** (paste a gallery URL or run a Reddit keyword search, tick the
   frames you want, they land straight in the dataset — deduplicated and
-  quality-filtered). On gallery sites (PornPics), a category/tag/search scan
+  quality-filtered). Already have a kohya-style dataset on disk (images +
+  same-name `.txt` captions)? **⋯ More → 📂 Import from folder…** merges it in
+  from a pasted folder path — captions attach, duplicates are skipped (a ZIP
+  works too, via **📦 Import dataset**). On gallery sites (PornPics), a category/tag/search scan
   shows **the same previews the listing page does** — one per gallery, the shot
   that actually matches your keyword. Tick **Scan full albums** to pull every
   photo of each matched gallery instead, or paste a single `/galleries/…` URL

@@ -1001,15 +1001,73 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     return ids, failed
 
 
-# --- Import d'un dataset d'entraînement existant (ZIP kohya-style) -----------
-# Un ZIP d'images + sidecars .txt de même nom (la convention kohya/ai-toolkit) :
-# les images gardent leur ratio (normalize_to_webp, pas de crop), les captions
-# atterrissent sur les rows, dédup perceptuelle vs le lot ET le dataset. Les
-# fichiers sont réécrits sous des noms générés (jamais celui du zip → aucune
-# traversée possible), profondeur de dossiers libre.
+# --- Import d'un dataset d'entraînement existant (ZIP kohya-style / dossier) --
+# Des images + sidecars .txt de même nom (la convention kohya/ai-toolkit), soit
+# dans un ZIP uploadé, soit dans un dossier du disque du serveur (app locale
+# mono-user : le chemin est SON disque). Les images gardent leur ratio
+# (normalize_to_webp, pas de crop), les captions atterrissent sur les rows,
+# dédup perceptuelle vs le lot ET le dataset. Les fichiers sont réécrits sous
+# des noms générés (jamais celui de la source → aucune traversée possible),
+# profondeur de dossiers libre (le ZIP accepte toute arborescence ; le dossier
+# est parcouru récursivement pour rester aligné).
 DATASET_ZIP_MAX_FILES = 400
 DATASET_ZIP_MAX_BYTES = 2 * 1024 * 1024 * 1024
 _DATASET_ZIP_IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.bmp')
+
+
+def _merge_training_images(user_id, dataset_id, entries, captions, stats=None):
+    """Cœur commun ZIP/dossier : `entries` = liste de (stem, display_name, getter)
+    où `getter()` rend les bytes de l'image, `captions` = {stem: texte}. Chaque
+    image lisible devient une row 'import' (status=keep, ratio préservé), la
+    caption de même stem est attachée (tronquée à CAPTION_MAX_CHARS), les
+    doublons perceptuels (dHash) vs le lot ET le dataset sont sautés.
+    Returns (ids, failed)."""
+    seen = _existing_dhashes(dataset_id)
+    ids, failed = [], 0
+    for stem, display, getter in entries:
+        try:
+            raw = getter()
+        except (OSError, zipfile.BadZipFile):
+            failed += 1
+            continue
+        if stats is not None:   # même garde qualité que l'import de photos
+            try:
+                with Image.open(io.BytesIO(raw)) as im0:
+                    if min(im0.size) < SCRAPE_IMPORT_MIN_SIDE:
+                        stats['small'] = stats.get('small', 0) + 1
+            except Exception:
+                pass
+        try:
+            webp = normalize_to_webp(raw)
+        except Exception as e:
+            failed += 1
+            logger.warning(f"dataset import: image skipped ({display}): {e}")
+            continue
+        try:
+            with Image.open(io.BytesIO(webp)) as im:
+                fp = _dhash(im)
+        except (OSError, ValueError):
+            fp = None
+        if fp is not None:
+            if any(_hamming(fp, s) <= SCRAPE_DHASH_MAX_DISTANCE for s in seen):
+                if stats is not None:
+                    stats['duplicates'] = stats.get('duplicates', 0) + 1
+                continue
+            seen.append(fp)
+        fn = f"{user_id}_dsimport_{uuid.uuid4().hex[:8]}.webp"
+        with open(os.path.join(_dataset_dir(dataset_id), fn), 'wb') as fh:
+            fh.write(webp)
+        cap = (captions.get(stem) or '').strip() or None
+        if cap:
+            cap = cap[:CAPTION_MAX_CHARS]
+            if stats is not None:
+                stats['captions'] = stats.get('captions', 0) + 1
+        img = FaceDatasetImage(dataset_id=dataset_id, source='import', status='keep',
+                               filename=fn, caption=cap)
+        db.session.add(img)
+        db.session.commit()
+        ids.append(img.id)
+    return ids, failed
 
 
 def import_dataset_zip(user_id, dataset_id, zip_bytes, stats=None):
@@ -1037,54 +1095,55 @@ def import_dataset_zip(user_id, dataset_id, zip_bytes, stats=None):
                     z.read(i).decode('utf-8', 'replace').strip()
             except (OSError, zipfile.BadZipFile):
                 pass
-    seen = _existing_dhashes(dataset_id)
-    ids, failed = [], 0
-    for i in infos:
-        if not i.filename.lower().endswith(_DATASET_ZIP_IMG_EXTS):
-            continue
+    entries = [(os.path.splitext(i.filename)[0], i.filename, lambda i=i: z.read(i))
+               for i in infos if i.filename.lower().endswith(_DATASET_ZIP_IMG_EXTS)]
+    return _merge_training_images(user_id, dataset_id, entries, captions, stats=stats)
+
+
+def import_dataset_folder(user_id, dataset_id, folder, stats=None):
+    """Same merge as import_dataset_zip but straight from a folder on the
+    server's disk — no need to zip an existing kohya dataset first. Recursive
+    (the zip accepts any folder depth, the folder walk mirrors that); non-image
+    files are ignored, same-stem .txt sidecars become captions. Returns
+    (ids, failed). ValueError on a missing folder / oversized content."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    # Windows «Copier en tant que chemin» colle le chemin entre guillemets —
+    # on les retire pour que le coller-direct marche du premier coup.
+    folder = (folder or '').strip().strip('"\'')
+    if not folder or not os.path.isdir(folder):
+        raise ValueError(f'folder not found or not readable: {folder or "(empty)"}')
+    paths = []
+    for root, _dirs, files in os.walk(folder):
+        paths.extend(os.path.join(root, f) for f in files)
+    if len(paths) > DATASET_ZIP_MAX_FILES:
+        raise ValueError(f'too many files in the folder (max {DATASET_ZIP_MAX_FILES})')
+    sizes = {}
+    for p in paths:
         try:
-            raw = z.read(i)
-        except (OSError, zipfile.BadZipFile):
-            failed += 1
-            continue
-        if stats is not None:   # même garde qualité que l'import de photos
+            sizes[p] = os.path.getsize(p)
+        except OSError:
+            sizes[p] = 0
+    if sum(sizes.values()) > DATASET_ZIP_MAX_BYTES:
+        raise ValueError('folder too large (max 2 GB)')
+    captions = {}
+    for p in paths:
+        if p.lower().endswith('.txt') and sizes.get(p, 0) <= 64 * 1024:
             try:
-                with Image.open(io.BytesIO(raw)) as im0:
-                    if min(im0.size) < SCRAPE_IMPORT_MIN_SIDE:
-                        stats['small'] = stats.get('small', 0) + 1
-            except Exception:
+                with open(p, 'rb') as fh:
+                    captions[os.path.splitext(p)[0]] = \
+                        fh.read().decode('utf-8', 'replace').strip()
+            except OSError:
                 pass
-        try:
-            webp = normalize_to_webp(raw)
-        except Exception as e:
-            failed += 1
-            logger.warning(f"dataset zip import: image skipped ({i.filename}): {e}")
-            continue
-        try:
-            with Image.open(io.BytesIO(webp)) as im:
-                fp = _dhash(im)
-        except (OSError, ValueError):
-            fp = None
-        if fp is not None:
-            if any(_hamming(fp, s) <= SCRAPE_DHASH_MAX_DISTANCE for s in seen):
-                if stats is not None:
-                    stats['duplicates'] = stats.get('duplicates', 0) + 1
-                continue
-            seen.append(fp)
-        fn = f"{user_id}_dsimport_{uuid.uuid4().hex[:8]}.webp"
-        with open(os.path.join(_dataset_dir(dataset_id), fn), 'wb') as fh:
-            fh.write(webp)
-        cap = (captions.get(os.path.splitext(i.filename)[0]) or '').strip() or None
-        if cap:
-            cap = cap[:CAPTION_MAX_CHARS]
-            if stats is not None:
-                stats['captions'] = stats.get('captions', 0) + 1
-        img = FaceDatasetImage(dataset_id=dataset_id, source='import', status='keep',
-                               filename=fn, caption=cap)
-        db.session.add(img)
-        db.session.commit()
-        ids.append(img.id)
-    return ids, failed
+
+    def _read(p):
+        with open(p, 'rb') as fh:
+            return fh.read()
+
+    entries = [(os.path.splitext(p)[0], p, lambda p=p: _read(p))
+               for p in paths if p.lower().endswith(_DATASET_ZIP_IMG_EXTS)]
+    return _merge_training_images(user_id, dataset_id, entries, captions, stats=stats)
 
 
 # --- Scrape direct → dataset concept ----------------------------------------

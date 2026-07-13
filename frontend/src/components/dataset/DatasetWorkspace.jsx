@@ -239,6 +239,19 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 📦 Import dataset
                 <span className="ml-auto text-content-subtle text-[0.625rem]">merge a ZIP in</span>
               </button>
+              <button type="button" disabled={ds.busy}
+                onClick={() => {
+                  // The folder lives on the machine running the app, so a browser
+                  // file-picker can't select it — the user pastes the path instead.
+                  const p = window.prompt(
+                    'Path of the dataset folder on this machine (images + same-name .txt captions):');
+                  if (p && p.trim()) ds.importDatasetFolder(p.trim());
+                }}
+                title="Merge an existing training dataset already on this machine's disk: a folder of images with kohya-style same-name .txt captions (subfolders included). Aspect kept, perceptual duplicates skipped."
+                className={MENU_ITEM}>
+                📂 Import from folder…
+                <span className="ml-auto text-content-subtle text-[0.625rem]">paste a local path</span>
+              </button>
               <button type="button" onClick={() => setSettingsOpen(true)}
                 title="Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list."
                 className={MENU_ITEM}>

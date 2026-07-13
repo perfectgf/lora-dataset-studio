@@ -591,11 +591,26 @@ export function useDataset() {
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 
+  // Same merge from a FOLDER on this machine's disk (kohya images + same-stem
+  // .txt captions) — the path is a server-side path pasted as text, not a
+  // browser file pick (a browser can't hand the server a folder path).
+  const importDatasetFolder = useCallback((path) => wrap(async () => {
+    const d = await postJson(`/api/dataset/${currentId}/import-folder`, { path });
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+    const parts = [`${d.imported} imported`];
+    if (d.captions) parts.push(`${d.captions} caption(s) attached`);
+    if (d.duplicates) parts.push(`${d.duplicates} duplicate(s) skipped`);
+    if (d.failed) parts.push(`${d.failed} unreadable`);
+    toast.success(parts.join(' · '));
+    if (d.small) toast.warning(`${d.small} image(s) under 768 px — they will stay soft in training.`);
+    await refresh();
+  }), [wrap, currentId, refresh, toast]);
+
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, cancelPending, regenerate, analyzing, analyzeFaces,
-           purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, refresh, train, stopTraining, continueTraining,
+           purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };
 }

@@ -511,6 +511,30 @@ def dataset_import_zip(dataset_id):
                     'small': stats.get('small', 0)})
 
 
+@bp.post('/dataset/<int:dataset_id>/import-folder')
+def dataset_import_folder(dataset_id):
+    """Merge an EXISTING training dataset from a FOLDER on this machine's disk
+    (images + kohya-style same-stem .txt captions, any depth) — same merge as
+    import-zip without zipping first. Body: {path}. Local single-user app: an
+    arbitrary path is fine (it's the user's own disk); a missing folder is a
+    clear 400, non-image files are ignored."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    path = (data.get('path') or '').strip()
+    if not path:
+        return jsonify({'error': 'path is required'}), 400
+    stats = {}
+    try:
+        ids, failed = svc.import_dataset_folder(LOCAL_USER, dataset_id, path, stats=stats)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
+                    'duplicates': stats.get('duplicates', 0),
+                    'captions': stats.get('captions', 0),
+                    'small': stats.get('small', 0)})
+
+
 @bp.post('/dataset/<int:dataset_id>/captions/replace')
 def dataset_captions_replace(dataset_id):
     """Bulk find/replace across the KEPT images' captions.

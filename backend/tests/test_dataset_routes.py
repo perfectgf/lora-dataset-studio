@@ -273,3 +273,68 @@ def test_delete_dataset(client):
 def test_delete_unknown_dataset_404(client):
     resp = client.post('/api/dataset/999999/delete')
     assert resp.status_code == 404
+
+
+# --- Import from folder (kohya folder already on the server's disk) ----------
+def _patterned_png(seed, base=(255, 255, 255)):
+    """Distinct NON-uniform image: solid colors all share the same (zero) dHash
+    and would read as perceptual duplicates of each other (cf. test_dataset_service)."""
+    im = Image.new('RGB', (64, 64), base)
+    for i in range(8):
+        x = (seed * 13 + i * 7) % 56
+        im.paste(((seed * 37) % 255, (i * 61) % 255, (seed * 7 + i * 29) % 255),
+                 (x, i * 8, x + 8, i * 8 + 8))
+    buf = io.BytesIO(); im.save(buf, 'PNG')
+    return buf.getvalue()
+
+
+def test_import_folder_route_images_captions_and_nonimage(client, app, tmp_path):
+    """Kohya folder: images (any depth) + same-stem .txt sidecars become rows with
+    captions, the caption lands on the MATCHING image, non-image files are ignored."""
+    import os
+    ds_id = _create(client, 'Folder', 'folder').get_json()['id']
+    src = tmp_path / 'kohya'; (src / 'sub').mkdir(parents=True)
+    (src / 'a.png').write_bytes(_patterned_png(1, base=(220, 30, 30)))     # red
+    (src / 'a.txt').write_text('a red patterned square', encoding='utf-8')
+    (src / 'sub' / 'b.png').write_bytes(_patterned_png(2, base=(30, 30, 220)))  # blue
+    (src / 'notes.md').write_text('ignore me', encoding='utf-8')
+    resp = client.post(f'/api/dataset/{ds_id}/import-folder', json={'path': str(src)})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['imported'] == 2 and body['captions'] == 1 and body['failed'] == 0
+    with app.app_context():
+        from app.services import face_dataset_service as svc
+        from app.models import FaceDatasetImage
+        rows = FaceDatasetImage.query.filter_by(dataset_id=ds_id).all()
+        assert len(rows) == 2   # notes.md ignored
+        assert all(r.status == 'keep' and r.source == 'import' for r in rows)
+        captioned = [r for r in rows if r.caption]
+        assert len(captioned) == 1 and captioned[0].caption == 'a red patterned square'
+        # the caption landed on the RED image (a.png), not the blue one
+        with Image.open(os.path.join(svc._dataset_dir(ds_id), captioned[0].filename)) as im:
+            r, _g, b = im.convert('RGB').resize((1, 1)).getpixel((0, 0))
+        assert r > b
+
+
+def test_import_folder_route_missing_or_bad_path(client, tmp_path):
+    ds_id = _create(client, 'FolderBad', 'folderbad').get_json()['id']
+    resp = client.post(f'/api/dataset/{ds_id}/import-folder',
+                       json={'path': str(tmp_path / 'does-not-exist')})
+    assert resp.status_code == 400
+    assert 'not found' in resp.get_json()['error']
+    assert client.post(f'/api/dataset/{ds_id}/import-folder', json={}).status_code == 400
+    assert client.post('/api/dataset/999999/import-folder',
+                       json={'path': str(tmp_path)}).status_code == 404
+
+
+def test_import_folder_route_reimport_dedupes(client, tmp_path):
+    """Importing the same folder twice must not duplicate anything (dHash vs the
+    dataset's existing rows)."""
+    ds_id = _create(client, 'FolderDup', 'folderdup').get_json()['id']
+    src = tmp_path / 'kohya'; src.mkdir()
+    (src / 'a.png').write_bytes(_patterned_png(3))
+    (src / 'b.png').write_bytes(_patterned_png(4))
+    first = client.post(f'/api/dataset/{ds_id}/import-folder', json={'path': str(src)}).get_json()
+    assert first['imported'] == 2
+    again = client.post(f'/api/dataset/{ds_id}/import-folder', json={'path': str(src)}).get_json()
+    assert again['imported'] == 0 and again['duplicates'] == 2
