@@ -228,16 +228,26 @@ function UpdateBanner() {
         ) : (
           <>
             <span className="text-content">
-              Update available — <span className="font-semibold">v{info.latest}</span> (you run v{info.current}).
+              Update available — <span className="font-semibold">
+                {info.latest
+                  ? `v${info.latest}`
+                  : info.behind
+                    ? `${info.behind} new commit${info.behind === 1 ? '' : 's'}`
+                    : 'a new version'}
+              </span> (you run v{info.current}).
             </span>
             <button type="button" onClick={apply}
               className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white transition-transform hover:-translate-y-px">
               Update &amp; restart
             </button>
-            <a href={info.url} target="_blank" rel="noreferrer"
-              className="text-emerald-300 underline">
-              Download
-            </a>
+            {/* Download link only for packaged builds (a git checkout updates in
+                place via the button — a release ZIP would be the wrong artifact). */}
+            {!info.is_git && (
+              <a href={info.url} target="_blank" rel="noreferrer"
+                className="text-emerald-300 underline">
+                Download
+              </a>
+            )}
             {error && <span className="text-rose-300">{error}</span>}
             <button type="button"
               onClick={() => { setInfo(null); sessionStorage.setItem('updateBannerDismissed', '1') }}
@@ -296,10 +306,12 @@ function AppInner() {
             <Route path="/" element={<Navigate to="/datasets" replace />} />
             <Route path="/datasets" element={<DatasetPage />} />
             <Route path="/guide" element={<GuidePage />} />
+            <Route path="/guide/:section" element={<GuidePage />} />
             <Route path="/studio" element={<StudioPage />} />
             <Route path="/dataset/studio/:id" element={<StudioPage />} />
             <Route path="/cloud" element={<CloudRunsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/:section" element={<SettingsPage />} />
             <Route path="/setup" element={<SetupPage />} />
             <Route path="*" element={<Navigate to="/datasets" replace />} />
           </Route>

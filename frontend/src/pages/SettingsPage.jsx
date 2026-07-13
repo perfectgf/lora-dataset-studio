@@ -1,7 +1,11 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch, putJson, del } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
+import { SETTINGS_SECTIONS, sectionStatus } from '../components/settings/registry'
+import { SectionHeader } from '../components/settings/primitives'
+import OverviewSection from '../components/settings/OverviewSection'
 import EnginesSection from '../components/settings/EnginesSection'
 import LocalToolsSection from '../components/settings/LocalToolsSection'
 import CaptioningSection from '../components/settings/CaptioningSection'
@@ -9,10 +13,43 @@ import TrainingSection from '../components/settings/TrainingSection'
 import ServerSection from '../components/settings/ServerSection'
 import MaintenanceSection from '../components/settings/MaintenanceSection'
 
+const SECTION_COMPONENTS = {
+  overview: OverviewSection,
+  engines: EnginesSection,
+  'local-tools': LocalToolsSection,
+  captioning: CaptioningSection,
+  training: TrainingSection,
+  server: ServerSection,
+  maintenance: MaintenanceSection,
+}
+
+/* Sidebar LED: the section's live health, so the rail doubles as a status map.
+   Never color-only — an sr-only label spells the state out. */
+function StatusLed({ status }) {
+  if (!status) return null
+  const cls = status === 'ready' ? 'bg-emerald-400'
+    : status === 'partial' ? 'bg-amber-400'
+    : 'bg-white/15'
+  const label = status === 'ready' ? 'configured'
+    : status === 'partial' ? 'partly configured'
+    : 'not configured'
+  return (
+    <span className="ml-auto flex items-center pl-2">
+      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${cls}`} />
+      <span className="sr-only">({label})</span>
+    </span>
+  )
+}
+
 export default function SettingsPage() {
   const toast = useToast()
   const { caps, refresh } = useCapabilities()
+  const { section } = useParams()
+  const navigate = useNavigate()
   const [config, setConfig] = useState(null)
+  // Snapshot of the last-persisted config: the floating save bar appears when
+  // the edited config drifts from it (or a secret paste is pending).
+  const [savedConfig, setSavedConfig] = useState(null)
   const [runtime, setRuntime] = useState({ host: null, port: null })
   const [secretsPresence, setSecretsPresence] = useState({})
   const [secretInputs, setSecretInputs] = useState({})
@@ -25,6 +62,7 @@ export default function SettingsPage() {
     try {
       const data = await apiFetch('/api/settings')
       setConfig(data.config)
+      setSavedConfig(data.config)
       setRuntime(data.runtime || { host: null, port: null })
       setSecretsPresence(data.secrets)
     } catch (e) {
@@ -95,6 +133,7 @@ export default function SettingsPage() {
       )
       const data = await putJson('/api/settings', { config, secrets })
       setConfig(data.config)
+      setSavedConfig(data.config)
       setRuntime(data.runtime || { host: null, port: null })
       setSecretsPresence(data.secrets)
       setSecretInputs({})
@@ -112,6 +151,26 @@ export default function SettingsPage() {
     }
   }
 
+  // Dirty = the edited config drifted from the saved snapshot, or a secret is
+  // typed but not yet persisted. Drives the floating save bar + the tab-close
+  // guard. (Section switches keep this page mounted, so edits survive them.)
+  const dirty = useMemo(() => !!(config && savedConfig
+      && (JSON.stringify(config) !== JSON.stringify(savedConfig)
+          || Object.values(secretInputs).some((v) => (v || '').trim()))),
+    [config, savedConfig, secretInputs])
+
+  useEffect(() => {
+    if (!dirty) return undefined
+    const warn = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
+
+  const discard = () => {
+    setConfig(savedConfig)
+    setSecretInputs({})
+  }
+
   if (loading || !config) {
     return <p className="text-content-muted">Loading settings…</p>
   }
@@ -122,46 +181,70 @@ export default function SettingsPage() {
     toggleEngine, handleSave, saving, runtime, caps, refreshCaps: refresh, toast,
   }
 
+  const activeId = SECTION_COMPONENTS[section] ? section : 'overview'
+  const active = SETTINGS_SECTIONS.find((s) => s.id === activeId)
+  const ActiveSection = SECTION_COMPONENTS[activeId]
+
+  const navItem = (s, chip) => {
+    const isActive = s.id === activeId
+    const base = chip
+      ? `flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium ${
+          isActive ? 'border-border-strong bg-surface-raised text-content' : 'border-border text-content-muted hover:text-content'}`
+      : `relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium ${
+          isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:bg-surface hover:text-content'}`
+    return (
+      <button key={s.id} type="button" onClick={() => navigate(`/settings/${s.id}`)}
+        aria-current={isActive ? 'page' : undefined} className={base}>
+        {!chip && isActive && (
+          <span aria-hidden className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded bg-gradient-primary" />
+        )}
+        <span aria-hidden>{s.icon}</span>
+        <span>{s.title}</span>
+        {!chip && <StatusLed status={sectionStatus(s.id, caps)} />}
+      </button>
+    )
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold text-content">Settings</h1>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-lg bg-gradient-primary px-4 py-2 text-sm font-semibold text-white transition-transform hover:-translate-y-px disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save changes'}
-        </button>
+    <div>
+      <div className="lg:grid lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start lg:gap-8">
+        <aside>
+          {/* Mobile: horizontal chip rail */}
+          <nav aria-label="Settings sections" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
+            {SETTINGS_SECTIONS.map((s) => navItem(s, true))}
+          </nav>
+          {/* Desktop: sticky LED rail */}
+          <nav aria-label="Settings sections" className="hidden lg:sticky lg:top-20 lg:block">
+            <p className="px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">Settings</p>
+            <div className="flex flex-col gap-0.5">
+              {SETTINGS_SECTIONS.map((s) => navItem(s, false))}
+            </div>
+          </nav>
+        </aside>
+
+        <div className="mt-2 space-y-6 lg:mt-0">
+          <SectionHeader eyebrow={active.eyebrow} title={active.title} description={active.description} />
+          <ActiveSection {...sectionProps} />
+        </div>
       </div>
 
-      {!caps.configured && (
-        <div role="status" className="rounded-xl border border-primary/40 bg-primary/10 p-4 text-sm text-content">
-          <p className="font-medium">Let's get you set up.</p>
-          <p className="mt-1 text-content-muted">
-            Add at least one image API key to start. Add ComfyUI + ai-toolkit for local generation & training.
-          </p>
+      {/* Floating save bar — only exists while there is something to save, so
+          the page never shows a dead "Save" button. */}
+      {dirty && (
+        <div role="status"
+          className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[calc(100vw-2rem)] items-center gap-3 rounded-full border border-border bg-surface-overlay/95 px-4 py-2 shadow-lg backdrop-blur">
+          <span aria-hidden className="text-amber-400">●</span>
+          <span className="text-sm text-content">Unsaved changes</span>
+          <button type="button" onClick={discard}
+            className="rounded-full border border-border-strong px-3 py-1 text-xs font-medium text-content hover:bg-surface-raised">
+            Discard
+          </button>
+          <button type="button" onClick={handleSave} disabled={saving}
+            className="rounded-full bg-gradient-primary px-4 py-1 text-xs font-semibold text-white disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
         </div>
       )}
-
-      <EnginesSection {...sectionProps} />
-      <LocalToolsSection {...sectionProps} />
-      <CaptioningSection {...sectionProps} />
-      <TrainingSection {...sectionProps} />
-      <ServerSection {...sectionProps} />
-      <MaintenanceSection {...sectionProps} />
-
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-lg bg-gradient-primary px-4 py-2 text-sm font-semibold text-white transition-transform hover:-translate-y-px disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save changes'}
-        </button>
-      </div>
     </div>
   )
 }
