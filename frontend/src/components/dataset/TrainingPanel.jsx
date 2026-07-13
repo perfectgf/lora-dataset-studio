@@ -23,6 +23,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const [ckLoaded, setCkLoaded] = useState(false);
   // {registered, version, changed, diff} — provenance du dataset (registre).
   const [datasetState, setDatasetState] = useState(null);
+  // Saves cloud synchronisés en local (y compris ceux d'un run EN COURS) —
+  // liste séparée : le prompt Resume-or-Fresh ne raisonne que sur le local.
+  const [cloudCkpts, setCloudCkpts] = useState([]);
   // {steps, kind, n_images, rationale} renvoyé par /train/checkpoints — le POURQUOI
   // du barème adaptatif, affiché avec le champ Steps (pédagogie, pas boîte noire).
   const [stepsInfo, setStepsInfo] = useState(null);
@@ -343,6 +346,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     // Provenance : dernière version enregistrée du dataset vs son état ACTUEL
     // (alerte « le dataset a changé depuis vN » + numéro de la prochaine version).
     setDatasetState(data.dataset_state || null);
+    setCloudCkpts(data.cloud_checkpoints || []);
     // Rationale du barème adaptatif (backend = source de vérité) : affiché en tooltip
     // du champ Steps pour que l'app EXPLIQUE le nombre au lieu de le décréter.
     setStepsInfo(data.recommended_steps_info || null);
@@ -1209,7 +1213,37 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             </div>
           )}
 
-          {ckLoaded && checkpoints.length === 0 && !status.in_progress && (
+          {cloudCkpts.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="text-content-muted text-[0.625rem] uppercase">
+                ☁ Cloud checkpoints (synced locally — one per run, the newest save)
+              </span>
+              {cloudCkpts.map((c) => (
+                <div key={`cr${c.run_id}-${c.filename}`} className="flex items-center gap-2 text-[0.6875rem]">
+                  <span className={c.final ? 'text-green-400 font-semibold' : 'text-content'}>
+                    {c.final ? '✓ final (training complete)' : `step ${c.step}`}
+                  </span>
+                  <span className="px-1.5 py-px rounded border border-sky-500/40 bg-sky-500/10 text-sky-200"
+                    title={`Cloud run #${c.run_id}${c.version ? ` · dataset v${c.version}` : ''}${c.trained_at ? ` · ${new Date(/[Z+]/.test(c.trained_at) ? c.trained_at : `${c.trained_at}Z`).toLocaleString()}` : ''}`}>
+                    ☁{c.version ? ` v${c.version}` : ''}{c.active ? ' · run in progress' : ''}
+                  </span>
+                  <button type="button"
+                    onClick={async () => {
+                      const d = await postTrain(`/api/dataset/${ds.currentId}/train/import`,
+                        { filename: c.filename, train_type: trainType, cloud_run_id: c.run_id });
+                      if (d.ok === false) toastTrainError(d, 'Import failed');
+                      loadCheckpoints(base);
+                    }}
+                    title={c.active ? 'Import the latest synced save — the run keeps training' : 'Import this cloud checkpoint into ComfyUI'}
+                    className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
+                    Import → {lorasLabel}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {ckLoaded && checkpoints.length === 0 && cloudCkpts.length === 0 && !status.in_progress && (
             <p className="m-0 text-content-subtle text-[0.625rem]">
               No checkpoint for base « {baseLabel} » — run a training on this base first.
             </p>

@@ -1044,7 +1044,11 @@ def _run_payload(run) -> dict:
             'phase_detail': run.phase_detail, 'gpu': run.gpu_name,
             'price_per_hour': run.price_per_hour,
             'cost_estimate': _cost_estimate(run), 'error': run.error,
-            'checkpoint_ready': bool(run.checkpoint_local_path),
+            # isfile, not just a stored path: the user may delete staging
+            # files by hand (Explorer) — a ready flag pointing at a missing
+            # file yields a download button that 404s.
+            'checkpoint_ready': bool(run.checkpoint_local_path
+                                     and os.path.isfile(run.checkpoint_local_path)),
             'train_type': _run_family(run),
             'version': _run_param(run, 'version'),
             'created_at': run.created_at.isoformat() if run.created_at else None,
@@ -1156,6 +1160,32 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
     return {'tiers': tiers, 'steps': n_steps, 'family': fam,
             'max_price_per_hour': price_cap,
             'max_runtime_minutes': max_runtime}
+
+
+def cloud_checkpoints(dataset_id, train_type=None) -> list:
+    """Locally-synced cloud checkpoints of this dataset (+family filter), one
+    per run, newest run first — INCLUDING an in-progress run's latest synced
+    save (user-observed gap: step 1000 reached, save synced to staging, panel
+    list empty). Only files that actually exist are listed (hand-deleting in
+    Explorer must not yield 404 buttons)."""
+    fam = fds.normalize_train_type(train_type) if train_type else None
+    out = []
+    for run in (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
+                .order_by(CloudTrainingRun.id.desc()).all()):
+        p = run.checkpoint_local_path
+        if not p or not os.path.isfile(p):
+            continue
+        if fam and (_run_family(run) or fam) != fam:
+            continue
+        name = os.path.basename(p)
+        m = re.search(r'_(\d{6,})\.safetensors$', name)
+        step = int(m.group(1)) if m else int(_run_param(run, 'steps') or 0)
+        out.append({'filename': name, 'step': step, 'cloud': True,
+                    'run_id': run.id, 'version': _run_param(run, 'version'),
+                    'final': bool(not m and run.status == 'done'),
+                    'active': run.status in ACTIVE_STATES,
+                    'trained_at': run.created_at.isoformat() if run.created_at else None})
+    return out
 
 
 def cloud_progress(user_id, dataset_id, train_type=None) -> dict:

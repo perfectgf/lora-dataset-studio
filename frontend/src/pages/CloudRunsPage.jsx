@@ -37,6 +37,9 @@ function famLabel(f) { return FAMILY_LABEL[f] || f || 'LoRA'; }
 function checkpointHref(run) {
   const qs = new URLSearchParams();
   if (run.train_type) qs.set('train_type', run.train_type);
+  // run_id: THIS row's file — with several finished runs of a family in the
+  // history, family resolution alone would serve the newest run's checkpoint.
+  if (run.run_id) qs.set('run_id', String(run.run_id));
   return `/api/dataset/${run.dataset_id}/train/cloud/checkpoint?${qs.toString()}`;
 }
 

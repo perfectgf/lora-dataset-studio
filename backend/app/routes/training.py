@@ -217,11 +217,16 @@ def dataset_train_checkpoints(dataset_id):
     # baseline, so versioning covers the past, not only future runs. Runs
     # BEFORE list_checkpoints so the fresh baseline annotates this response.
     had_training = (bool(lt.list_checkpoints(LOCAL_USER, dataset_id, **kw))
-                    or CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
-                       .first() is not None)
+                    or any((ct._run_family(r) or fam_resolved) == fam_resolved
+                           for r in CloudTrainingRun.query
+                           .filter_by(dataset_id=dataset_id).all()))
     checkpoint_registry.ensure_baseline(LOCAL_USER, dataset_id, fam_resolved,
                                         had_training)
     return jsonify({'checkpoints': lt.list_checkpoints(LOCAL_USER, dataset_id, **kw),
+                    # cloud saves synced locally (incl. an ACTIVE run's latest)
+                    # — separate field: the resume-or-fresh prompt reasons on
+                    # LOCAL checkpoints only
+                    'cloud_checkpoints': ct.cloud_checkpoints(dataset_id, fam_resolved),
                     'recommended_steps': lt.recommended_steps(dataset_id),
                     'recommended_steps_info': lt.recommended_steps_info(dataset_id),
                     'imported': lt.list_imported_checkpoints(LOCAL_USER, dataset_id, family=fam),
@@ -471,6 +476,17 @@ def dataset_train_import(dataset_id):
     fam = body.get('train_type') or None
     if fam:
         kw['family'] = fam
+    # cloud_run_id: import a CLOUD checkpoint (synced into the run's staging —
+    # possibly mid-run) instead of a local ai-toolkit file. The run must belong
+    # to this dataset; its dataset version rides along into the deployed name.
+    if body.get('cloud_run_id'):
+        from ..models import CloudTrainingRun
+        crun = CloudTrainingRun.query.get(int(body['cloud_run_id']))
+        if not crun or crun.dataset_id != dataset_id or not crun.staging_dir:
+            return jsonify({'error': 'unknown cloud run'}), 404
+        kw['src_dir'] = crun.staging_dir
+        kw['version'] = ct._run_param(crun, 'version')
+        kw.pop('base_model', None)          # cloud trains on the official base
     try:
         dest = lt.import_checkpoint(LOCAL_USER, dataset_id, fn, **kw)
     except Exception as e:
@@ -556,7 +572,17 @@ def dataset_train_cloud_sample(dataset_id, filename):
 @bp.get('/dataset/<int:dataset_id>/train/cloud/checkpoint')
 def dataset_train_cloud_checkpoint(dataset_id):
     from flask import send_file, abort
-    run = ct.latest_run_for(dataset_id, request.args.get('train_type'))
+    # ?run_id targets THAT run's file: with several finished runs of a family
+    # in the hub history, 'newest run of the family' would serve the WRONG
+    # checkpoint from an older row's button.
+    rid = request.args.get('run_id', type=int)
+    if rid is not None:
+        from ..models import CloudTrainingRun
+        run = CloudTrainingRun.query.get(rid)
+        if run and run.dataset_id != dataset_id:
+            run = None
+    else:
+        run = ct.latest_run_for(dataset_id, request.args.get('train_type'))
     if not run or not run.checkpoint_local_path \
             or not os.path.isfile(run.checkpoint_local_path):
         abort(404)

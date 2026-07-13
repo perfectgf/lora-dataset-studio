@@ -108,6 +108,26 @@ def test_import_suffixes_deployed_name_with_version(app, ds_with_images, tmp_pat
         assert any(n.endswith('_v1.safetensors') for n in names)
 
 
+def test_record_for_mtime_prefers_oldest_for_preregistry_files(app, ds_with_images):
+    """A checkpoint file OLDER than every record predates the registry: its
+    owner is the oldest record (legacy baseline), never the newest (live
+    sighting: local checkpoints wore a ☁ chip because a cloud launch was the
+    latest record)."""
+    import time
+    from app.services import checkpoint_registry as reg
+    ds_id, _ = ds_with_images
+    with app.app_context():
+        legacy = reg.register_launch(LOCAL_USER, ds_id, 'krea', 'legacy')
+        cloud = reg.register_launch(LOCAL_USER, ds_id, 'krea', 'cloud', cloud_run_id=10)
+        assert legacy.id != cloud.id
+        # file mtime far in the past -> oldest record wins
+        rec = reg.record_for_mtime(ds_id, 'krea', time.time() - 86400)
+        assert rec.id == legacy.id and rec.source == 'legacy'
+        # file newer than everything -> newest record wins (loop path)
+        rec = reg.record_for_mtime(ds_id, 'krea', time.time() + 60)
+        assert rec.id == cloud.id
+
+
 def test_ensure_baseline_retrofits_pretrained_datasets(app, ds_with_images):
     """Deployed-project rule: a dataset trained BEFORE the registry existed
     (evidence: checkpoints/cloud runs, zero records) gets a retroactive v1
@@ -124,6 +144,130 @@ def test_ensure_baseline_retrofits_pretrained_datasets(app, ds_with_images):
         assert rec.version == 1 and rec.source == 'legacy'
         reg.ensure_baseline(LOCAL_USER, ds_id, 'zimage', had_training=True)
         assert reg.latest_record(ds_id, 'zimage').id == rec.id   # no duplicate
+
+
+def test_cloud_checkpoints_lists_synced_saves_and_checks_files(app, ds_with_images, tmp_path):
+    """The panel list must show cloud saves synced locally — including an
+    ACTIVE run's latest (user-observed: step 1000, save synced, list empty) —
+    and only files that still exist (hand-deletion must not yield 404s)."""
+    import json as _json
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    from app.services import cloud_training as ct
+    ds_id, _ = ds_with_images
+    with app.app_context():
+        ck = tmp_path / 'lds10_x_000001000.safetensors'
+        ck.write_bytes(b'W')
+        gone = tmp_path / 'lds11_x_000000500.safetensors'   # never created
+        active = CloudTrainingRun(
+            dataset_id=ds_id, status='training', job_name='j', vast_label='lds-10',
+            staging_dir=str(tmp_path), checkpoint_local_path=str(ck),
+            train_params=_json.dumps({'train_type': 'krea', 'version': 2, 'steps': 3100}))
+        deleted = CloudTrainingRun(
+            dataset_id=ds_id, status='done', job_name='j', vast_label='lds-11',
+            staging_dir=str(tmp_path), checkpoint_local_path=str(gone),
+            train_params=_json.dumps({'train_type': 'krea'}))
+        db.session.add_all([active, deleted])
+        db.session.commit()
+        out = ct.cloud_checkpoints(ds_id, 'krea')
+        assert len(out) == 1                              # missing file filtered out
+        assert out[0]['step'] == 1000 and out[0]['active'] is True
+        assert out[0]['version'] == 2 and out[0]['cloud'] is True
+        # checkpoint_ready reflects the FILE, not the stored path
+        assert ct._run_payload(active)['checkpoint_ready'] is True
+        assert ct._run_payload(deleted)['checkpoint_ready'] is False
+        # family filter: zimage view doesn't show krea saves
+        assert ct.cloud_checkpoints(ds_id, 'zimage') == []
+
+
+def test_checkpoint_download_targets_run_id(app, client, monkeypatch, ds_with_images, tmp_path):
+    """Two finished runs of a family: the older row's ⬇ must serve ITS file,
+    not the newest run's (family resolution alone did)."""
+    import json as _json
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    ds_id, _ = ds_with_images
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    with app.app_context():
+        runs = []
+        for i, content in ((1, b'OLD'), (2, b'NEW')):
+            ck = tmp_path / f'lds{i}_x_000001000.safetensors'
+            ck.write_bytes(content)
+            r = CloudTrainingRun(dataset_id=ds_id, status='done', job_name='j',
+                                 vast_label=f'lds-{i}', staging_dir=str(tmp_path),
+                                 checkpoint_local_path=str(ck),
+                                 train_params=_json.dumps({'train_type': 'krea'}))
+            db.session.add(r)
+            db.session.commit()
+            runs.append(r.id)
+    old_id, new_id = runs
+    # family resolution -> newest run's file (unchanged default)
+    assert client.get(f'/api/dataset/{ds_id}/train/cloud/checkpoint?train_type=krea').data == b'NEW'
+    # run_id targets the OLD row's own file
+    assert client.get(f'/api/dataset/{ds_id}/train/cloud/checkpoint?run_id={old_id}').data == b'OLD'
+    # a run_id of another dataset -> 404, no cross-dataset leak
+    assert client.get(f'/api/dataset/{ds_id + 999}/train/cloud/checkpoint?run_id={old_id}').status_code == 404
+
+
+def test_baseline_evidence_is_family_scoped(app, client, monkeypatch, ds_with_images, tmp_path):
+    """A dataset with only a ZIMAGE cloud run must not get a krea/sdxl
+    baseline just because the user clicks through family tabs (live sighting:
+    tata got zimage+krea+sdxl v1 rows after tab browsing)."""
+    import json as _json
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    from app.services import checkpoint_registry as reg
+    ds_id, _ = ds_with_images
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda force=False: {'aitoolkit': {'valid': True},
+                                             'cloud_training': True})
+    with app.app_context():
+        from app import config as cfg
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path)}})
+        run = CloudTrainingRun(dataset_id=ds_id, status='done', job_name='j',
+                               vast_label='lds-1',
+                               train_params=_json.dumps({'train_type': 'zimage'}))
+        db.session.add(run)
+        db.session.commit()
+    client.get(f'/api/dataset/{ds_id}/train/checkpoints?train_type=krea')
+    client.get(f'/api/dataset/{ds_id}/train/checkpoints?train_type=zimage')
+    with app.app_context():
+        assert reg.latest_record(ds_id, 'krea') is None       # not trained -> no baseline
+        z = reg.latest_record(ds_id, 'zimage')
+        assert z is not None and z.version == 1               # trained -> baseline
+
+
+def test_import_route_accepts_cloud_run_id(app, client, monkeypatch, ds_with_images, tmp_path):
+    """POST /train/import {cloud_run_id}: imports from the run's staging with
+    the run's dataset version in the deployed name."""
+    import json as _json
+    from app import config as cfg
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    ds_id, _ = ds_with_images
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda force=False: {'aitoolkit': {'valid': True},
+                                             'cloud_training': True})
+    with app.app_context():
+        cfg.save_config({'comfyui': {'base_dir': str(tmp_path / 'comfy')}})
+        ck = tmp_path / 'lds10_x_000001000.safetensors'
+        ck.write_bytes(b'W')
+        run = CloudTrainingRun(
+            dataset_id=ds_id, status='training', job_name='j', vast_label='lds-10',
+            staging_dir=str(tmp_path), checkpoint_local_path=str(ck),
+            train_params=_json.dumps({'train_type': 'zimage', 'version': 3}))
+        db.session.add(run)
+        db.session.commit()
+        run_id = run.id
+    r = client.post(f'/api/dataset/{ds_id}/train/import',
+                    json={'filename': ck.name, 'train_type': 'zimage',
+                          'cloud_run_id': run_id})
+    assert r.status_code == 200
+    assert r.get_json()['dest'] == 'lds10_x_000001000_v3.safetensors'
+    # unknown run / wrong dataset -> 404
+    r = client.post(f'/api/dataset/{ds_id}/train/import',
+                    json={'filename': ck.name, 'cloud_run_id': 999999})
+    assert r.status_code == 404
 
 
 def test_cloud_launch_registers_and_stamps_version(app, client, monkeypatch, ds_with_images):

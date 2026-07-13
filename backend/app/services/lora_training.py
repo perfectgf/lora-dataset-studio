@@ -1230,6 +1230,7 @@ def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None) ->
         if rec is not None:
             c['version'] = rec.version
             c['source'] = rec.source
+            c['trained_at'] = rec.created_at.isoformat() if rec.created_at else None
     return out
 
 
