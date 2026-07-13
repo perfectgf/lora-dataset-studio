@@ -774,11 +774,12 @@ def _monitor(app, run_id):
             logger.exception('cloud run %s failed', run_id)
             _finish(run, 'error', detail='Run failed', error=str(e)[:500])
         finally:
-            # This run's slot in both maps is done with — drop it so they
-            # cannot grow unbounded across the app's lifetime with many
+            # This run's slot in the module maps is done with — drop it so
+            # they cannot grow unbounded across the app's lifetime with many
             # concurrent runs coming and going.
             _stop_events.pop(int(run_id), None)
             _monitor_threads.pop(int(run_id), None)
+            _sync_state.pop(int(run_id), None)
 
 
 def _pull_log_and_samples(run, remote, job_id):
@@ -813,7 +814,7 @@ def _newest_remote_checkpoint(remote, job_id):
     return sorted(files, key=lambda f: f['path'])[-1]['path']
 
 
-def _fetch_checkpoint(run, remote, remote_path) -> str:
+def _fetch_checkpoint(run, remote, remote_path, timeout=None) -> str:
     """Download remote_path into staging and return the local path. Skips the
     transfer when this exact save is already local (the mid-run sync usually
     got there first). Atomicity (a killed transfer must never leave a
@@ -825,8 +826,13 @@ def _fetch_checkpoint(run, remote, remote_path) -> str:
     if run.checkpoint_local_path and os.path.isfile(dest) \
             and os.path.basename(run.checkpoint_local_path) == name:
         return dest
-    remote.download_public_file(remote_path, dest)
+    remote.download_public_file(remote_path, dest, timeout=timeout)
     return dest
+
+
+_SYNC_DL_TIMEOUT = 60      # opportunistic pull: fail fast, the loop must not hang
+_SYNC_MAX_FAILS = 3        # give up on a save after this; a NEWER save retries
+_sync_state = {}           # run_id -> {'name': save filename, 'fails': int}
 
 
 def _sync_latest_checkpoint(run, remote):
@@ -834,13 +840,37 @@ def _sync_latest_checkpoint(run, remote):
     the local copy of the step-2750 save survives, instead of everything being
     lost because downloads only happened at run end (user-observed gap,
     2026-07-13). Never raises, never flips the run's status; keeps only the
-    newest save locally (a LoRA is 100-300 MB, saves accumulate)."""
+    newest save locally (a LoRA is 100-300 MB, saves accumulate).
+
+    Some pods cannot serve big files WHILE training (observed live: streams
+    die after a few chunks) — after _SYNC_MAX_FAILS failed attempts on the
+    same save we stop retrying it (a newer save resets the counter), and each
+    attempt is capped at _SYNC_DL_TIMEOUT so a trickling stream cannot hold
+    the monitor loop — and with it the stop button — for minutes."""
     try:
         remote_path = _newest_remote_checkpoint(remote, run.remote_job_id)
         if not remote_path:
             return
+        name = os.path.basename(remote_path.replace('\\', '/'))
+        st = _sync_state.get(run.id)
+        if st and st.get('name') == name and st.get('fails', 0) >= _SYNC_MAX_FAILS:
+            return
         prev = run.checkpoint_local_path
-        dest = _fetch_checkpoint(run, remote, remote_path)
+        try:
+            dest = _fetch_checkpoint(run, remote, remote_path,
+                                     timeout=_SYNC_DL_TIMEOUT)
+        except Exception as e:
+            st = _sync_state.setdefault(run.id, {'name': name, 'fails': 0})
+            if st.get('name') != name:
+                st.update(name=name, fails=0)
+            st['fails'] += 1
+            # First failure at WARNING so it is visible in the log viewer;
+            # repeats at DEBUG (the give-up cap bounds them anyway).
+            log = logger.warning if st['fails'] == 1 else logger.debug
+            log('mid-run checkpoint sync of %s failed (attempt %s/%s): %s',
+                name, st['fails'], _SYNC_MAX_FAILS, e)
+            return
+        _sync_state.pop(run.id, None)
         if dest != prev:
             _set(run, checkpoint_local_path=dest)
             if prev and os.path.isfile(prev):

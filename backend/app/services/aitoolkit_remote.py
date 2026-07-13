@@ -111,9 +111,11 @@ class RemoteAiToolkit:
         return (self._json('GET', f'/api/jobs/{job_id}/files') or {}).get('files') or []
 
     # -- downloads (public, path-restricted routes) ---------------------------
-    def _download(self, route: str, remote_path: str, dest_path: str) -> None:
+    def _download(self, route: str, remote_path: str, dest_path: str,
+                  timeout=None) -> None:
         url_path = f'{route}{quote(remote_path, safe="")}'
-        with self._request('GET', url_path, stream=True, timeout=_UPLOAD_TIMEOUT) as r:
+        with self._request('GET', url_path, stream=True,
+                           timeout=timeout or _UPLOAD_TIMEOUT) as r:
             if r.status_code != 200:
                 raise RemoteError(f'download {remote_path} -> HTTP {r.status_code}')
             tmp = dest_path + '.part'
@@ -123,8 +125,13 @@ class RemoteAiToolkit:
                         fh.write(chunk)
             os.replace(tmp, dest_path)
 
-    def download_public_file(self, remote_path: str, dest_path: str) -> None:
-        self._download('/api/files/', remote_path, dest_path)
+    def download_public_file(self, remote_path: str, dest_path: str,
+                             timeout=None) -> None:
+        # timeout override: the OPPORTUNISTIC mid-run checkpoint sync fails
+        # fast (a training pod that trickles bytes would otherwise hold the
+        # monitor loop for the full default timeout); final downloads keep
+        # the default.
+        self._download('/api/files/', remote_path, dest_path, timeout=timeout)
 
     def download_sample(self, remote_path: str, dest_path: str) -> None:
         self._download('/api/img/', remote_path, dest_path)

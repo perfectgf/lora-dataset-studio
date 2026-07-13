@@ -78,7 +78,7 @@ class FakeRemote:
     def list_files(self, job_id):
         return [{'path': '/pod/out/lds1_run/lds1_run_000000100.safetensors', 'size': 4}]
 
-    def download_public_file(self, remote_path, dest):
+    def download_public_file(self, remote_path, dest, timeout=None):
         if self.fail_downloads:
             raise RuntimeError('download failed')
         with open(dest, 'wb') as f:
@@ -262,7 +262,7 @@ def test_midrun_checkpoint_sync_mirrors_latest_save(ct, app, client, monkeypatch
                 return []
             return [{'path': f'/pod/out/j/j_{step:09d}.safetensors', 'size': 4}]
 
-        def download_public_file(self, remote_path, dest):
+        def download_public_file(self, remote_path, dest, timeout=None):
             downloads.append(os.path.basename(remote_path))
             super().download_public_file(remote_path, dest)
 
@@ -286,6 +286,40 @@ def test_midrun_checkpoint_sync_mirrors_latest_save(ct, app, client, monkeypatch
 class _BoomRemote:
     def list_files(self, job_id):
         raise RuntimeError('pod gone')
+
+
+def test_midrun_sync_gives_up_after_repeated_failures_resets_on_new_save(ct, app, tmp_path):
+    """Some pods cannot serve big files WHILE training (live 2026-07-13:
+    streams died after a few chunks on 2 of 3 pods). The sync must stop
+    retrying a save after 3 failures — not hammer it every 2 min for hours —
+    and try again when a NEWER save appears."""
+    calls = {'dl': 0}
+
+    class FlakyRemote:
+        path = '/pod/out/j/j_000000100.safetensors'
+
+        def list_files(self, job_id):
+            return [{'path': self.path, 'size': 4}]
+
+        def download_public_file(self, remote_path, dest, timeout=None):
+            calls['dl'] += 1
+            raise RuntimeError('stream died')
+
+    with app.app_context():
+        run = ct.CloudTrainingRun(dataset_id=1, status='training', job_name='j',
+                                  vast_label='lds-1', staging_dir=str(tmp_path),
+                                  remote_job_id='j-1')
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        remote = FlakyRemote()
+        for _ in range(6):
+            ct._sync_latest_checkpoint(run, remote)
+        assert calls['dl'] == 3                     # gave up after 3 attempts
+        remote.path = '/pod/out/j/j_000000200.safetensors'
+        ct._sync_latest_checkpoint(run, remote)
+        assert calls['dl'] == 4                     # newer save -> retried
+        assert run.checkpoint_local_path is None    # still nothing usable
+        ct._sync_state.pop(run.id, None)            # don't leak into other tests
 
 
 def test_rescue_download_accepts_synced_save_completion_stays_strict(ct, app, tmp_path):
