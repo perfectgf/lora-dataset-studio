@@ -21,6 +21,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
   const [checkpoints, setCheckpoints] = useState([]);
   const [ckLoaded, setCkLoaded] = useState(false);
+  // {registered, version, changed, diff} — provenance du dataset (registre).
+  const [datasetState, setDatasetState] = useState(null);
   // {steps, kind, n_images, rationale} renvoyé par /train/checkpoints — le POURQUOI
   // du barème adaptatif, affiché avec le champ Steps (pédagogie, pas boîte noire).
   const [stepsInfo, setStepsInfo] = useState(null);
@@ -338,6 +340,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     const data = await ds.listCheckpoints(b, trainType);
     setCheckpoints(data.checkpoints || []);
     setImported(data.imported || []);
+    // Provenance : dernière version enregistrée du dataset vs son état ACTUEL
+    // (alerte « le dataset a changé depuis vN » + numéro de la prochaine version).
+    setDatasetState(data.dataset_state || null);
     // Rationale du barème adaptatif (backend = source de vérité) : affiché en tooltip
     // du champ Steps pour que l'app EXPLIQUE le nombre au lieu de le décréter.
     setStepsInfo(data.recommended_steps_info || null);
@@ -1090,6 +1095,31 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           </span>
         </summary>
         <div className="px-3 pt-1 flex flex-col gap-2">
+          {/* Provenance du dataset : version courante + alerte si le dataset a
+              changé depuis le dernier entraînement (les checkpoints listés ne
+              reflètent alors PLUS l'état actuel). */}
+          {datasetState?.registered && (datasetState.changed ? (
+            <p className="m-0 rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-amber-200 text-[0.6875rem]">
+              ⚠ The dataset has <b>changed since v{datasetState.version}</b>
+              {datasetState.diff && (
+                <>
+                  {' '}(
+                  {[
+                    datasetState.diff.images_added ? `+${datasetState.diff.images_added} image${datasetState.diff.images_added > 1 ? 's' : ''}` : null,
+                    datasetState.diff.images_removed ? `−${datasetState.diff.images_removed} image${datasetState.diff.images_removed > 1 ? 's' : ''}` : null,
+                    datasetState.diff.captions_changed ? `${datasetState.diff.captions_changed} caption${datasetState.diff.captions_changed > 1 ? 's' : ''} edited` : null,
+                    datasetState.diff.images_edited ? `${datasetState.diff.images_edited} image${datasetState.diff.images_edited > 1 ? 's' : ''} edited` : null,
+                  ].filter(Boolean).join(', ')}
+                  )
+                </>
+              )}
+              {' '}— these checkpoints reflect the old state; the next training becomes <b>v{datasetState.version + 1}</b>.
+            </p>
+          ) : (
+            <p className="m-0 text-content-subtle text-[0.625rem]">
+              Dataset version: <span className="text-content font-semibold">v{datasetState.version}</span> — unchanged since the last training.
+            </p>
+          ))}
           <div className="flex items-center gap-2 flex-wrap">
             {/* () => … sinon React passe l'event en 1er arg → forBase = PointerEvent
                 → base_model=[object Object] → run inexistant → liste vide. */}
@@ -1158,6 +1188,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   <span className={c.final ? 'text-green-400 font-semibold' : 'text-content'}>
                     {c.final ? '✓ final (training complete)' : `step ${c.step}`}
                   </span>
+                  {c.version && (
+                    <span className="px-1.5 py-px rounded border border-border bg-surface-raised text-content-subtle"
+                      title={`Trained on dataset version v${c.version}${c.source ? ` (${c.source} run)` : ''}${datasetState?.changed ? ' — the dataset has changed since' : ''}`}>
+                      v{c.version}{c.source === 'cloud' ? ' ☁' : ''}
+                    </span>
+                  )}
                   {bestEpoch?.available && bestEpoch.checkpoint === c.filename && (
                     <span className="px-1.5 py-px rounded border border-amber-400/50 bg-amber-400/15 text-amber-200 font-semibold"
                       title={`Closest checkpoint to the best-scoring step (${bestEpoch.best_step})`}>
