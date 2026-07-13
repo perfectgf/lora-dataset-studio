@@ -958,6 +958,7 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
         if cur is None or (dph is not None and (cur.get('dph_total') is None
                            or dph < cur['dph_total'])):
             cheapest_by_gpu[name] = o
+    max_runtime = int(c.get('max_runtime_minutes') or 480)
     tiers = []
     for name, o in cheapest_by_gpu.items():
         dph = o.get('dph_total')
@@ -967,15 +968,20 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
                     if dph is not None else None)
         tiers.append({
             'gpu_name': name, 'offer_id': o.get('offer_id'),
-            'dph_total': dph, 'gpu_ram_gb': o.get('gpu_ram_gb'),
+            'dph_total': round(dph, 4) if dph is not None else None,
+            'gpu_ram_gb': o.get('gpu_ram_gb'),
             'speed': round(gpu_speed.speed_factor(name), 2),
             'est_minutes': int(round(est_min)), 'est_cost': est_cost,
+            # A tier slower than the runtime cap would be KILLED mid-training
+            # (checkpoint rescued, but steps lost) — warn at pick time.
+            'exceeds_cap': (est_min + overhead_min) > max_runtime,
         })
     # slowest -> fastest (matches the launch dialog); ties broken by price.
     tiers.sort(key=lambda t: (t['speed'], t['dph_total']
                               if t['dph_total'] is not None else 9e9))
     return {'tiers': tiers, 'steps': n_steps, 'family': fam,
-            'max_price_per_hour': price_cap}
+            'max_price_per_hour': price_cap,
+            'max_runtime_minutes': max_runtime}
 
 
 def cloud_progress(user_id, dataset_id, train_type=None) -> dict:

@@ -45,7 +45,7 @@ DEFAULTS = {
         'image': 'vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9',  # raw-image fallback only
         'max_price_per_hour': 0.80,    # background safety cap on offer price, $/h
         'offer_scan_limit': 100,       # offers fetched when listing GPU speed tiers
-        'pod_overhead_minutes': 10,    # boot+download+quantize, added to cost estimates
+        'pod_overhead_minutes': 35,    # boot+model download+quantize (measured ~40 min live), in cost estimates
         'max_concurrent_runs': 1,      # simultaneous cloud pods; raise in Settings
         'min_inet_down_mbps': 400,     # skip hosts too slow to pull the 7 GB image
         'min_disk_bw_mbps': 500,       # skip hosts too slow to EXTRACT it (frozen 'loading')

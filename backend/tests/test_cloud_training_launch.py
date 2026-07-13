@@ -704,6 +704,22 @@ def test_gpu_tiers_groups_ranks_and_estimates(ct, app, seeded_dataset, monkeypat
         assert all(t['est_cost'] is not None and t['est_minutes'] > 0 for t in tiers)
 
 
+def test_gpu_tiers_flags_tiers_slower_than_the_runtime_cap(ct, app, seeded_dataset, monkeypatch):
+    """A 3090 doing 6000 krea steps (~15 h measured rate) blows the 8 h cap —
+    the tier must say so BEFORE the user rents it; a 5090 fits."""
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 6000)
+    monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: [
+        {'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.13, 'gpu_ram_gb': 24.0},
+        {'offer_id': 3, 'gpu_name': 'RTX 5090', 'dph_total': 0.69, 'gpu_ram_gb': 32.0},
+    ])
+    with app.app_context():
+        out = ct.gpu_tiers('local', seeded_dataset, train_type='krea')
+        by_name = {t['gpu_name']: t for t in out['tiers']}
+        assert by_name['RTX 3090']['exceeds_cap'] is True
+        assert by_name['RTX 5090']['exceeds_cap'] is False
+        assert out['max_runtime_minutes'] == 480
+
+
 def test_gpu_tiers_requires_key(app, seeded_dataset, monkeypatch):
     monkeypatch.delenv('VAST_API_KEY', raising=False)
     from app.services import cloud_training as ct
