@@ -48,7 +48,9 @@ function CheckUpdatesButton() {
       } catch { /* offline — the manual button stays available */ }
     }
     autoCheck()
-    const t = setInterval(autoCheck, 6 * 3600 * 1000)
+    // 1 h: the project ships several times a day right now — 6 h let a tab
+    // sit stale most of a working day. Server-side TTL matches.
+    const t = setInterval(autoCheck, 3600 * 1000)
     return () => { alive = false; clearInterval(t) }
   }, [])
   const check = async () => {

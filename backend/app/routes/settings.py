@@ -98,7 +98,8 @@ def test_connection(target):
 # Cached 6 h so the SPA banner can call it freely. Degrades to
 # update_available=False with a reason when the feed is unreachable (offline,
 # repo private, no release yet) — never an error, never a blocker.
-_UPDATE_TTL = 6 * 3600
+_UPDATE_TTL = 6 * 3600           # GitHub releases feed (packaged builds; rare)
+_GIT_CHECK_TTL = 3600            # git commits-behind check — the project moves fast
 _update_cache = {'ts': 0.0, 'data': None}
 # Auto-detection (nav badge): the git fetch is allowed but CACHED — the SPA
 # asks on every load, the network is hit at most once per TTL.
@@ -121,7 +122,7 @@ def update_check():
     if (force or auto) and updater.is_git_checkout():
         now = time.time()
         if auto and not force and _git_check_cache['data'] is not None \
-                and (now - _git_check_cache['ts']) < _UPDATE_TTL:
+                and (now - _git_check_cache['ts']) < _GIT_CHECK_TTL:
             return jsonify(_git_check_cache['data'])
         gs = updater.git_update_status()
         if gs is not None:
