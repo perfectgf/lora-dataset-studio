@@ -248,6 +248,63 @@ def test_stop_during_boot_wait_terminates_immediately(ct, app, client, monkeypat
         assert ct._load_bad_hosts() == {}
 
 
+def test_midrun_checkpoint_sync_mirrors_latest_save(ct, app, client, monkeypatch):
+    """Saves are mirrored locally DURING the run (user-observed gap 2026-07-13:
+    step 1400 reached, step-1250 save existed on the pod, nothing local — a
+    dead host would have lost everything). Only the newest save is kept."""
+    monkeypatch.setattr(ct, '_CKPT_SYNC_EVERY_POLLS', 1)
+    downloads = []
+
+    class EvolvingRemote(FakeRemote):
+        def list_files(self, job_id):
+            step = min(self.polls, 3) * 100
+            if step == 0:
+                return []
+            return [{'path': f'/pod/out/j/j_{step:09d}.safetensors', 'size': 4}]
+
+        def download_public_file(self, remote_path, dest):
+            downloads.append(os.path.basename(remote_path))
+            super().download_public_file(remote_path, dest)
+
+    destroyed = []
+    remote = EvolvingRemote(polls_to_complete=3)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'done'
+        # intermediate saves were pulled during the run, not only at the end
+        assert downloads == ['j_000000100.safetensors', 'j_000000200.safetensors',
+                             'j_000000300.safetensors']
+        assert run.checkpoint_local_path.endswith('j_000000300.safetensors')
+        files = os.listdir(run.staging_dir)
+        # only the newest save remains; no truncated .part leftovers
+        assert [f for f in files if f.endswith('.safetensors')] == ['j_000000300.safetensors']
+        assert not any(f.endswith('.part') for f in files)
+
+
+class _BoomRemote:
+    def list_files(self, job_id):
+        raise RuntimeError('pod gone')
+
+
+def test_rescue_download_accepts_synced_save_completion_stays_strict(ct, app, tmp_path):
+    """When the pod can't serve files anymore, a mid-run synced save counts as
+    success on RESCUE paths (stop/stall/cap) — but the COMPLETION path stays
+    strict: an older save must not silently replace the final steps."""
+    with app.app_context():
+        ckpt = tmp_path / 'j_000000100.safetensors'
+        ckpt.write_bytes(b'CKPT')
+        run = ct.CloudTrainingRun(dataset_id=1, status='training', job_name='j',
+                                  vast_label='lds-1', staging_dir=str(tmp_path),
+                                  remote_job_id='j-1',
+                                  checkpoint_local_path=str(ckpt))
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        assert ct._try_download_checkpoint(run, _BoomRemote(), allow_stale=True) is True
+        assert ct._try_download_checkpoint(run, _BoomRemote()) is False
+
+
 def test_cloud_progress_shape_matches_local(ct, app, client, monkeypatch):
     destroyed = []
     remote = FakeRemote(polls_to_complete=3)

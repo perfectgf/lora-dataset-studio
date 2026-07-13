@@ -502,6 +502,7 @@ def boot_recover(app):
 
 
 POLL_SECONDS = 10
+_CKPT_SYNC_EVERY_POLLS = 12          # mid-run checkpoint mirror every ~2 min
 READY_TIMEOUT_SECONDS = 900          # 15 min: boot + image pull
 UNREACHABLE_GRACE_SECONDS = 180      # tolerated mid-run network blackout
 _sleep = time.sleep
@@ -689,13 +690,14 @@ def _monitor(app, run_id):
             last_step = -1
             last_progress_ts = _now()
             last_ok = _now()
+            polls = 0
             while True:
                 if _now() - cap_anchor > max_seconds:
                     try:
                         remote.stop_job(job_id)
                     except Exception:
                         pass
-                    _try_download_checkpoint(run, remote)
+                    _try_download_checkpoint(run, remote, allow_stale=True)
                     _finish(run, 'stopped',
                             detail='Max runtime reached — pod terminated',
                             error='max runtime cap hit')
@@ -707,7 +709,7 @@ def _monitor(app, run_id):
                         remote.stop_job(job_id)
                     except Exception:
                         pass
-                    _try_download_checkpoint(run, remote)
+                    _try_download_checkpoint(run, remote, allow_stale=True)
                     _finish(run, 'stopped', detail='Stopped by user')
                     return
                 try:
@@ -720,6 +722,12 @@ def _monitor(app, run_id):
                     continue
 
                 _pull_log_and_samples(run, remote, job_id)
+                # Mid-run checkpoint mirror, throttled (~2 min at 10 s polls):
+                # list_files is cheap, but no need to hammer it every poll —
+                # the pod only writes a new save every save_every steps.
+                polls += 1
+                if polls % _CKPT_SYNC_EVERY_POLLS == 0:
+                    _sync_latest_checkpoint(run, remote)
                 status = job.get('status')
                 info = job.get('info') or ''
                 _set(run, phase_detail=f"{status}: {info}"[:500])
@@ -738,7 +746,7 @@ def _monitor(app, run_id):
                     _finish(run, 'done', detail='Training complete')
                     return
                 if status in ('error', 'stopped'):
-                    _try_download_checkpoint(run, remote)
+                    _try_download_checkpoint(run, remote, allow_stale=True)
                     _finish(run, 'error' if status == 'error' else 'stopped',
                             detail=f'Remote job {status}', error=info or status)
                     return
@@ -755,7 +763,7 @@ def _monitor(app, run_id):
                         remote.stop_job(job_id)
                     except Exception:
                         pass
-                    _try_download_checkpoint(run, remote)
+                    _try_download_checkpoint(run, remote, allow_stale=True)
                     _finish(run, 'error',
                             detail='Stalled — no step progress for '
                                    f'{stall_seconds // 60} min; pod terminated',
@@ -795,23 +803,73 @@ def _pull_log_and_samples(run, remote, job_id):
         logger.debug('sample mirror failed: %s', e)
 
 
-def _try_download_checkpoint(run, remote) -> bool:
-    """Download the newest .safetensors into staging. False on failure."""
+def _newest_remote_checkpoint(remote, job_id):
+    """Remote path of the newest .safetensors, or None. ai-toolkit zero-pads
+    step numbers, so lexicographic order IS step order."""
+    files = [f for f in remote.list_files(job_id)
+             if f.get('path', '').endswith('.safetensors')]
+    if not files:
+        return None
+    return sorted(files, key=lambda f: f['path'])[-1]['path']
+
+
+def _fetch_checkpoint(run, remote, remote_path) -> str:
+    """Download remote_path into staging ATOMICALLY (.part then rename — a
+    killed transfer must never leave a truncated file registered as the
+    official checkpoint). Skips the transfer when this exact save is already
+    local (the mid-run sync usually got there first). Returns the local path."""
+    name = os.path.basename(remote_path.replace('\\', '/'))
+    dest = os.path.join(run.staging_dir, name)
+    if run.checkpoint_local_path and os.path.isfile(dest) \
+            and os.path.basename(run.checkpoint_local_path) == name:
+        return dest
+    part = dest + '.part'
+    remote.download_public_file(remote_path, part)
+    os.replace(part, dest)
+    return dest
+
+
+def _sync_latest_checkpoint(run, remote):
+    """Mid-run mirror of the pod's newest SAVE: if the host dies at step 3000
+    the local copy of the step-2750 save survives, instead of everything being
+    lost because downloads only happened at run end (user-observed gap,
+    2026-07-13). Never raises, never flips the run's status; keeps only the
+    newest save locally (a LoRA is 100-300 MB, saves accumulate)."""
     try:
-        files = [f for f in remote.list_files(run.remote_job_id)
-                 if f.get('path', '').endswith('.safetensors')]
-        if not files:
-            return False
-        newest = sorted(files, key=lambda f: f['path'])[-1]
-        name = os.path.basename(newest['path'].replace('\\', '/'))
-        dest = os.path.join(run.staging_dir, name)
-        remote.download_public_file(newest['path'], dest)
-        _set(run, status='downloading', checkpoint_local_path=dest,
-             phase_detail=f'Downloaded {name}')
-        return True
+        remote_path = _newest_remote_checkpoint(remote, run.remote_job_id)
+        if not remote_path:
+            return
+        prev = run.checkpoint_local_path
+        dest = _fetch_checkpoint(run, remote, remote_path)
+        if dest != prev:
+            _set(run, checkpoint_local_path=dest)
+            if prev and os.path.isfile(prev):
+                try:
+                    os.remove(prev)
+                except OSError:
+                    pass
+    except Exception as e:
+        logger.debug('mid-run checkpoint sync failed: %s', e)
+
+
+def _try_download_checkpoint(run, remote, allow_stale=False) -> bool:
+    """Download the newest .safetensors into staging. False on failure.
+    allow_stale (rescue paths — stop/stall/cap): when the pod can't serve the
+    newest save anymore, an already-synced OLDER save still counts as success.
+    The COMPLETION path must stay strict (allow_stale=False): falling back to
+    an older save there would silently discard the final training steps —
+    error_pod_kept keeps the pod so the user can recover the real result."""
+    try:
+        remote_path = _newest_remote_checkpoint(remote, run.remote_job_id)
+        if remote_path:
+            dest = _fetch_checkpoint(run, remote, remote_path)
+            _set(run, status='downloading', checkpoint_local_path=dest,
+                 phase_detail=f'Downloaded {os.path.basename(dest)}')
+            return True
     except Exception as e:
         logger.warning('checkpoint download failed: %s', e)
-        return False
+    return bool(allow_stale and run.checkpoint_local_path
+                and os.path.isfile(run.checkpoint_local_path))
 
 
 def _import_result(run):
