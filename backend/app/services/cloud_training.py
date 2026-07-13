@@ -814,18 +814,18 @@ def _newest_remote_checkpoint(remote, job_id):
 
 
 def _fetch_checkpoint(run, remote, remote_path) -> str:
-    """Download remote_path into staging ATOMICALLY (.part then rename — a
-    killed transfer must never leave a truncated file registered as the
-    official checkpoint). Skips the transfer when this exact save is already
-    local (the mid-run sync usually got there first). Returns the local path."""
+    """Download remote_path into staging and return the local path. Skips the
+    transfer when this exact save is already local (the mid-run sync usually
+    got there first). Atomicity (a killed transfer must never leave a
+    truncated file at dest) is provided by RemoteAiToolkit._download's own
+    .part-then-rename — no second layer here (it produced transient
+    '.part.part' files, observed live 2026-07-13)."""
     name = os.path.basename(remote_path.replace('\\', '/'))
     dest = os.path.join(run.staging_dir, name)
     if run.checkpoint_local_path and os.path.isfile(dest) \
             and os.path.basename(run.checkpoint_local_path) == name:
         return dest
-    part = dest + '.part'
-    remote.download_public_file(remote_path, part)
-    os.replace(part, dest)
+    remote.download_public_file(remote_path, dest)
     return dest
 
 
