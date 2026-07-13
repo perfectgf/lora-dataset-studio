@@ -34,6 +34,26 @@ function timeAgo(iso) {
 
 function famLabel(f) { return FAMILY_LABEL[f] || f || 'LoRA'; }
 
+/* One compact line: the EFFECTIVE ai-toolkit settings this launch used
+   (snapshotted at launch by the provenance registry). Absent on rows that
+   predate the snapshot feature. */
+function settingsLine(run) {
+  const s = run.settings;
+  if (!s) return null;
+  return [
+    s.rank ? `rank ${s.rank}${s.alpha ? `/${s.alpha}` : ''}` : null,
+    Array.isArray(s.resolution) ? `${s.resolution.join('+')} px` : null,
+    run.steps ? `${run.steps} steps` : null,
+    s.save_every ? `save ${s.save_every}` : null,
+    s.optimizer && s.optimizer !== 'adamw8bit' ? s.optimizer : null,
+    s.lr_scheduler || null,
+    s.dropout ? `dropout ${s.dropout}` : null,
+    s.timestep_type || null,
+    run.variant ? (run.variant === 'base' ? 'Raw' : run.variant) : null,
+    run.masked === false ? 'unmasked' : 'masked',
+  ].filter(Boolean).join(' · ');
+}
+
 function checkpointHref(run) {
   const qs = new URLSearchParams();
   if (run.train_type) qs.set('train_type', run.train_type);
@@ -113,7 +133,7 @@ export default function CloudRunsPage() {
       <header className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="m-0 text-content text-xl font-bold">
-            <span aria-hidden>☁️</span> Cloud runs
+            <span aria-hidden>🏋️</span> Training runs
           </h1>
           {/* Escape hatch to the provider: see the pod's own console (billing,
               logs, manual destroy) when something looks off app-side. */}
@@ -123,7 +143,8 @@ export default function CloudRunsPage() {
           </a>
         </div>
         <p className="m-0 text-content-muted text-sm">
-          Every cloud training in one place — watch progress, stop a run, or download a finished LoRA.
+          Every training in one place — cloud and local: watch progress, stop a run,
+          download a finished LoRA, and see the exact settings each launch used.
         </p>
       </header>
 
@@ -156,12 +177,38 @@ export default function CloudRunsPage() {
         <h2 className="m-0 text-content-muted text-xs font-semibold uppercase tracking-wide">
           In progress
         </h2>
+        {/* Live LOCAL training — its own card next to the cloud actives. */}
+        {data?.local_active?.current && (
+          <div className="flex flex-col gap-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span aria-hidden>💻</span>
+              <button type="button" onClick={() => openDataset(data.local_active.current.dataset_id)}
+                title="Open this dataset"
+                className="text-content font-semibold text-sm hover:underline">
+                {data.local_active.current.name || `Dataset #${data.local_active.current.dataset_id}`}
+              </button>
+              <span className="rounded border border-violet-400/40 bg-violet-500/10 px-1.5 py-0.5 text-violet-200 text-[0.625rem] uppercase">
+                local · training
+              </span>
+              {data.local_active.error && (
+                <span className="text-rose-300 text-[0.625rem]">{data.local_active.error}</span>
+              )}
+              <button type="button" onClick={() => openDataset(data.local_active.current.dataset_id)}
+                className="ml-auto px-2 py-1 rounded-lg text-content-muted hover:text-content text-xs">
+                Open dataset ↗
+              </button>
+            </div>
+            <TrainingProgress datasetId={data.local_active.current.dataset_id} />
+          </div>
+        )}
         {!data ? (
           <p className="m-0 text-content-subtle text-sm">Loading…</p>
         ) : actives.length === 0 ? (
-          <p className="m-0 text-content-subtle text-sm">
-            No cloud run in progress. Launch one from a dataset’s training panel.
-          </p>
+          !data.local_active && (
+            <p className="m-0 text-content-subtle text-sm">
+              No run in progress. Launch one from a dataset’s training panel.
+            </p>
+          )
         ) : (
           actives.map((run) => (
             <div key={run.run_id}
@@ -252,8 +299,12 @@ export default function CloudRunsPage() {
             </button>
           </div>
           <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
-            {recent.map((run) => (
-              <div key={run.run_id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+            {recent.map((run, i) => (
+              <div key={run.run_id ? `c${run.run_id}` : `l${run.dataset_id}-${run.created_at || i}`}
+                className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                <span aria-hidden title={run.source === 'cloud' ? 'Cloud run (vast.ai)' : 'Local run'}>
+                  {run.source === 'cloud' ? '☁️' : '💻'}
+                </span>
                 <button type="button" onClick={() => openDataset(run.dataset_id)}
                   className="text-content font-medium hover:underline">
                   {run.dataset_name || run.run_name || `Dataset #${run.dataset_id}`}
@@ -286,6 +337,12 @@ export default function CloudRunsPage() {
                     className="px-2 py-1 rounded-lg border border-primary/40 bg-primary/15 text-white text-xs font-semibold disabled:opacity-50">
                     {retrying[run.run_id] ? '↻ Retrying…' : '↻ Retry'}
                   </button>
+                )}
+                {settingsLine(run) && (
+                  <span className="w-full text-content-subtle text-[0.625rem]"
+                    title="The effective ai-toolkit settings this launch used">
+                    ⚙ {settingsLine(run)}
+                  </span>
                 )}
               </div>
             ))}

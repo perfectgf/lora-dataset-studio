@@ -75,7 +75,8 @@ def manifest_diff(old, new) -> dict:
 
 
 def register_launch(user_id, dataset_id, family, source, base_model='',
-                    variant=None, masked=True, steps=None, cloud_run_id=None):
+                    variant=None, masked=True, steps=None, cloud_run_id=None,
+                    settings=None):
     """Record a training launch and return its TrainingRunRecord (or None on
     failure — provenance must never block a launch)."""
     try:
@@ -98,6 +99,7 @@ def register_launch(user_id, dataset_id, family, source, base_model='',
             dataset_id=dataset_id, family=family, source=source,
             cloud_run_id=cloud_run_id, base_model=base_model or '',
             variant=variant, masked=bool(masked), steps=steps,
+            settings=json.dumps(settings) if settings else None,
             fingerprint=fp, manifest=json.dumps(manifest), version=version)
         db.session.add(rec)
         db.session.commit()

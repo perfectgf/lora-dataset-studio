@@ -317,3 +317,39 @@ def test_imported_list_shows_cloud_epoch_deployments(app, ds_with_images, tmp_pa
                  lt.list_imported_checkpoints(LOCAL_USER, ds_id, family='krea')]
         assert any(n.endswith(epoch) for n in names)          # the epoch is listed
         assert not any('unrelated' in n for n in names)       # others stay hidden
+
+
+def test_register_launch_stores_settings_snapshot(app, ds_with_images):
+    """The launch stamps the EFFECTIVE ai-toolkit settings on the record — the
+    unified Runs page shows them per run. NULL-safe on pre-feature rows."""
+    import json
+    from app.services import checkpoint_registry as reg
+    from app.config import LOCAL_USER
+    ds_id, _imgs = ds_with_images
+    with app.app_context():
+        rec = reg.register_launch(LOCAL_USER, ds_id, 'krea', 'local',
+                                  settings={'rank': 32, 'resolution': [768, 1024]})
+        assert json.loads(rec.settings) == {'rank': 32, 'resolution': [768, 1024]}
+        rec2 = reg.register_launch(LOCAL_USER, ds_id, 'krea', 'local')
+        assert rec2.settings is None
+
+
+def test_launch_settings_snapshot_reflects_effective_values(app, ds_with_images):
+    """Effective values (defaults resolved), expert levers only when set."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as fds
+    from app.config import LOCAL_USER
+    ds_id, _imgs = ds_with_images
+    with app.app_context():
+        ds = fds.get_dataset(LOCAL_USER, ds_id)
+        snap = lt.launch_settings_snapshot(ds, 'krea')
+        assert snap['rank'] == 32 and snap['alpha'] == 32   # Krea researched defaults
+        assert snap['resolution'] == [768, 1024]
+        assert snap['save_every'] == 250
+        assert snap['timestep_type'] == 'linear'            # Krea family default
+        assert 'dropout' not in snap                        # lever untouched -> absent
+        lt.update_train_settings(LOCAL_USER, ds_id, {'rank': 64, 'dropout': 0.1})
+        ds = fds.get_dataset(LOCAL_USER, ds_id)
+        snap2 = lt.launch_settings_snapshot(ds, 'krea')
+        assert snap2['rank'] == 64
+        assert snap2['dropout'] == 0.1

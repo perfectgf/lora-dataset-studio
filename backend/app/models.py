@@ -329,6 +329,10 @@ class TrainingRunRecord(db.Model):
     steps = db.Column(db.Integer)
     fingerprint = db.Column(db.String(16), nullable=False)
     manifest = db.Column(db.Text)                           # JSON, see docstring
+    # JSON launch_settings_snapshot: the EFFECTIVE ai-toolkit settings this
+    # launch used (rank/alpha/resolution/optimizer/...) — shown per run on the
+    # unified Runs page. NULL on pre-feature rows.
+    settings = db.Column(db.Text)
     version = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 

@@ -107,9 +107,11 @@ function NavBar() {
   const navLinks = (
     <>
       <NavLink to="/datasets" className={navItemClass} onClick={() => setOpen(false)}>Datasets</NavLink>
-      {caps.cloud_training && (
+      {/* Unified runs hub (cloud + local history) — useful as soon as ANY
+          training path exists, not just the cloud one. */}
+      {(caps.cloud_training || caps.training_visible) && (
         <NavLink to="/cloud" className={navItemClass} onClick={() => setOpen(false)}>
-          <span className="inline-flex items-center gap-1"><span aria-hidden>☁️</span> Cloud</span>
+          <span className="inline-flex items-center gap-1"><span aria-hidden>🏋️</span> Runs</span>
         </NavLink>
       )}
       {caps.studio_visible && (

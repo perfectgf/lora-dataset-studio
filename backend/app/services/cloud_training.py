@@ -247,7 +247,7 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         rec = checkpoint_registry.register_launch(
             user_id, dataset_id, family=fam, source='cloud',
             variant=variant, masked=bool(masked), steps=n_steps,
-            cloud_run_id=run.id)
+            cloud_run_id=run.id, settings=lt.launch_settings_snapshot(ds, fam))
         if rec is not None:
             params['version'] = rec.version
         _set(run, train_params=json.dumps(params))
@@ -1177,21 +1177,71 @@ def cloud_status() -> dict:
 
 
 def all_runs(limit: int = 20) -> dict:
-    """Everything the dedicated Cloud-runs hub needs in one call: the active
-    runs (manage/watch) plus the most recent TERMINAL runs (history: outcome +
-    checkpoint download), newest first, and the same budget summary as
-    cloud_status(). Kept separate from cloud_status() so the per-dataset panel
-    poll stays lean (it never needs the history)."""
+    """Everything the unified Runs hub needs in one call: the active cloud
+    runs (manage/watch), the LIVE local training if any, and a history of
+    EVERY launch — local AND cloud — from the provenance registry (each row
+    carries the settings snapshot the launch actually sent to ai-toolkit).
+    Cloud rows are enriched from their CloudTrainingRun (status/cost/
+    checkpoint); cloud runs that predate the registry still appear via a
+    fallback union, so history never shrinks."""
+    from ..models import TrainingRunRecord
     actives = get_active_runs()
     c = cfg.get('cloud') or {}
     limit = max(1, min(int(limit or 20), 100))
-    recent = (CloudTrainingRun.query
-              .filter(CloudTrainingRun.status.notin_(ACTIVE_STATES))
-              .order_by(CloudTrainingRun.id.desc()).limit(limit).all())
+    recs = (TrainingRunRecord.query
+            .order_by(TrainingRunRecord.id.desc()).limit(limit).all())
+    cloud_ids = {r.cloud_run_id for r in recs if r.cloud_run_id}
+    cloud_by_id = ({r.id: r for r in CloudTrainingRun.query
+                    .filter(CloudTrainingRun.id.in_(cloud_ids)).all()}
+                   if cloud_ids else {})
+    recent = []
+    for rec in recs:
+        crun = cloud_by_id.get(rec.cloud_run_id)
+        if crun is not None and crun.status in ACTIVE_STATES:
+            continue                      # already shown in the actives section
+        try:
+            settings = json.loads(rec.settings) if rec.settings else None
+        except ValueError:
+            settings = None
+        row = {'source': 'cloud' if rec.source == 'cloud' else 'local',
+               'dataset_id': rec.dataset_id,
+               'dataset_name': _dataset_name(rec.dataset_id),
+               'train_type': rec.family, 'version': rec.version,
+               'steps': rec.steps, 'masked': bool(rec.masked),
+               'variant': rec.variant, 'base_model': rec.base_model or '',
+               'settings': settings,
+               'created_at': rec.created_at.isoformat() if rec.created_at else None}
+        if crun is not None:
+            # cloud enrichment wins on shared keys (status/cost/checkpoint/...)
+            row.update(_run_payload(crun))
+            row['settings'] = settings
+            row['source'] = 'cloud'
+        recent.append(row)
+    # Legacy cloud runs that predate the provenance registry (no record row).
+    seen_cloud = {r.get('run_id') for r in recent if r.get('run_id')}
+    for crun in (CloudTrainingRun.query
+                 .filter(CloudTrainingRun.status.notin_(ACTIVE_STATES))
+                 .order_by(CloudTrainingRun.id.desc()).limit(limit).all()):
+        if crun.id in seen_cloud:
+            continue
+        recent.append({'source': 'cloud', 'settings': None, **_run_payload(crun)})
+    recent.sort(key=lambda r: r.get('created_at') or '', reverse=True)
+    recent = recent[:limit]
+    # Live LOCAL training: shown as its own card next to the cloud actives;
+    # its freshly-registered history row is dropped to avoid the double.
+    local = lt.training_status()
+    local_active = local if local.get('in_progress') else None
+    if local_active and (local.get('current') or {}).get('dataset_id') is not None:
+        cur_ds = local['current']['dataset_id']
+        for i, r in enumerate(recent):
+            if r['source'] == 'local' and r['dataset_id'] == cur_ds:
+                recent.pop(i)
+                break
     return {'configured': bool(cfg.secret('VAST_API_KEY')),
             'limit': max(1, int((c.get('max_concurrent_runs') or 1))),
             'actives': [_run_payload(r) for r in actives],
-            'recent': [_run_payload(r) for r in recent],
+            'local_active': local_active,
+            'recent': recent,
             'total_price_per_hour': round(sum(r.price_per_hour or 0 for r in actives), 4),
             'month_spend': round(month_spend_usd(), 2),
             'monthly_budget': float(c.get('monthly_budget_usd') or 0)}

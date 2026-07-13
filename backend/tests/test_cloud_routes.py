@@ -259,3 +259,43 @@ def test_cloud_checkpoint_route_honors_train_type(client, app, monkeypatch, tmp_
     assert r.status_code == 200 and r.data == b'CKPT-krea'
     # without the filter the newest run's checkpoint is served (unchanged)
     assert client.get(f'/api/dataset/{ds}/train/cloud/checkpoint').data == b'CKPT-krea'
+
+
+def test_all_runs_unifies_local_and_cloud_history(app, client, monkeypatch):
+    """The Runs hub history merges the provenance registry (local + cloud, with
+    the per-launch settings snapshot) and enriches cloud rows from their
+    CloudTrainingRun; legacy cloud runs without a registry row still appear."""
+    import json
+    ds = _mkds(client)
+    with app.app_context():
+        from app.extensions import db
+        from app.models import CloudTrainingRun, TrainingRunRecord
+        from app.services import cloud_training as ct
+        # local launch record with a settings snapshot
+        db.session.add(TrainingRunRecord(
+            dataset_id=ds, family='krea', source='local', fingerprint='fp1', version=1,
+            steps=2000, masked=True, settings=json.dumps({'rank': 32, 'resolution': [768, 1024]})))
+        # cloud run + its registry row
+        crun = CloudTrainingRun(dataset_id=ds, status='error', run_name='r', error='boom')
+        db.session.add(crun)
+        db.session.commit()
+        db.session.add(TrainingRunRecord(
+            dataset_id=ds, family='krea', source='cloud', fingerprint='fp1', version=1,
+            steps=2000, masked=True, cloud_run_id=crun.id,
+            settings=json.dumps({'rank': 48})))
+        # legacy cloud run (predates the registry)
+        db.session.add(CloudTrainingRun(dataset_id=ds, status='done', run_name='old'))
+        db.session.commit()
+        out = ct.all_runs(limit=10)
+    recent = out['recent']
+    assert len(recent) == 3
+    sources = sorted(r['source'] for r in recent)
+    assert sources == ['cloud', 'cloud', 'local']
+    local_row = next(r for r in recent if r['source'] == 'local')
+    assert local_row['settings'] == {'rank': 32, 'resolution': [768, 1024]}
+    assert local_row['steps'] == 2000
+    enriched = next(r for r in recent if r.get('error') == 'boom')
+    assert enriched['status'] == 'error' and enriched['settings'] == {'rank': 48}
+    legacy = next(r for r in recent if r.get('run_name') == 'old')
+    assert legacy['settings'] is None and legacy['status'] == 'done'
+    assert out['local_active'] is None

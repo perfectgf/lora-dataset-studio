@@ -500,6 +500,32 @@ def _sample_every(ds) -> int:
     return v if v in _SAMPLE_EVERY_CHOICES else 250
 
 
+def launch_settings_snapshot(ds, family=None) -> dict:
+    """Les réglages EFFECTIFS envoyés à ai-toolkit pour CE lancement — défauts
+    résolus, pas les choix stockés. Stampé dans le registre de provenance
+    (TrainingRunRecord.settings) par chaque launch local et cloud ; la page
+    Runs l'affiche par run (« quels réglages sont partis ? »). Compact : les
+    leviers experts n'apparaissent que s'ils dévient du défaut."""
+    fam = family or _train_type(ds)
+    rank = _lora_rank(ds, fam)
+    snap = {
+        'rank': rank,
+        'alpha': _lora_alpha_eff(ds, rank, fam),
+        'resolution': _train_res(ds),
+        'save_every': _save_every(ds),
+        'max_step_saves': _max_step_saves(ds),
+        'optimizer': _optimizer_eff(ds),
+        'lr': _lr_eff(ds),
+    }
+    if fam != 'sdxl':
+        snap['timestep_type'] = _timestep_type_eff(ds, _DEFAULT_TIMESTEP.get(fam, 'sigmoid'))
+    s = _train_settings(ds)
+    for k in ('dropout', 'lr_scheduler', 'warmup', 'grad_accum', 'sample_every'):
+        if s.get(k):
+            snap[k] = s[k]
+    return snap
+
+
 def effective_train_settings(ds, family=None) -> dict:
     """Réglages pour la famille courante — ce que « Advanced options » affiche et
     ce que build_job_config enverra. `rank` = choix STOCKÉ (None = auto/défaut) pour
@@ -2210,7 +2236,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     checkpoint_registry.register_launch(
         user_id, dataset_id, family=_train_type(ds), source='local',
         base_model=base_model or '', variant=variant, masked=bool(masked),
-        steps=int(steps))
+        steps=int(steps), settings=launch_settings_snapshot(ds))
     # Pause GPU longue durée : le superviseur stoppe ComfyUI -> comfyui_ready=False
     # -> le dispatch worker se met en pause tout seul.
     queue_manager._set_system_state('training_error', None, ttl_seconds=1)  # reset crash précédent
