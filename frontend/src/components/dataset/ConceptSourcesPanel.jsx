@@ -29,6 +29,9 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
   const [page, setPage] = useState(0);
   const [paginated, setPaginated] = useState(false);
   const [scanning, setScanning] = useState(false);
+  // Gallery-listing scans (PornPics category/tag/search): OFF = one cover per
+  // matched gallery (the keyword-relevant shot), ON = every photo of each gallery.
+  const [fullAlbums, setFullAlbums] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   // URLs whose thumbnail failed to load (dead/expired source links). Hidden from
   // the grid so you only ever see & pick live images — dead galleries are common.
@@ -51,7 +54,8 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
     if (!target || scanning) return;
     setScanning(true);
     try {
-      const body = await postJson('/api/scrape/scan', { url: target, page: nextPage });
+      const body = await postJson('/api/scrape/scan',
+        { url: target, page: nextPage, include_albums: fullAlbums });
       if (!body || !body.scannable) { toast.error((body && body.error) || 'Could not scan this URL.'); return; }
       // Images only (the dataset import rejects video/gif anyway).
       const imgs = (body.items || []).filter((it) => it.type === 'image');
@@ -63,7 +67,7 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
     } finally {
       setScanning(false);
     }
-  }, [url, scanning, toast]);
+  }, [url, scanning, fullAlbums, toast]);
 
   // Reddit search, three modes depending on which field is filled:
   //   keyword only          → search all of Reddit for the term
@@ -154,6 +158,18 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
           ⬇ Import {selected.size || ''}
         </button>
       </form>
+
+      {/* Gallery-listing option — only meaningful for PornPics category/tag/search
+          URLs (a direct /galleries/... URL always returns its full album). */}
+      {/pornpics\.com/i.test(url) && !/\/galleries\//i.test(url) && (
+        <label className="flex items-center gap-2 text-[0.6875rem] text-content-muted cursor-pointer"
+          title="Off: each matched gallery contributes only its cover — the photo that actually matches your keyword. On: every photo of each matched gallery floods in (a lot of off-topic frames). To grab one full album, paste its /galleries/ URL directly.">
+          <input type="checkbox" checked={fullAlbums}
+            onChange={(e) => setFullAlbums(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-border-strong accent-indigo-500" />
+          Scan full albums — off = one cover per matched gallery, on = every photo of each
+        </label>
+      )}
 
       {/* Reddit search — two fields, three modes (keyword / keyword+sub / sub only).
           Both build a reddit URL routed through the same scan pipeline. */}

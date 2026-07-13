@@ -32,9 +32,10 @@ _PHOTO_CAPS = Capabilities(
 
 # Plafond d'items remontés par un scan. Bien plus haut que le défaut gdl (120) :
 # une catégorie PornPics pagine sur PLUSIEURS galeries (gdl.enumerate récurse dans
-# les albums type 6) et on veut la catégorie entière, pas juste la 1re galerie.
-# gallery-dl auto-pagine ; --range 1-N borne juste le total (les --simulate restent
-# rapides, métadonnées seules).
+# les albums type 6) et en mode « Scan full albums » on veut la fournée entière,
+# pas juste la 1re galerie. gallery-dl auto-pagine ; --range 1-N borne juste le
+# total (les --simulate restent rapides, métadonnées seules). Par défaut (covers
+# seulement, cf. scan()) le plafond effectif est gallery_cap covers par page.
 _PHOTO_SCAN_MAX = 400
 
 
@@ -67,10 +68,17 @@ class _PhotoSiteSource(GalleryDlSource):
         extra = ['--chapter-range', f'{start}-{end}']
         if self.gdl_opts:
             extra = list(self.gdl_opts) + extra
+        # Par défaut un listing catégorie/tag/recherche ne remonte que la COVER de
+        # chaque galerie — c'est elle qui matche le mot-clé ; le reste de l'album est
+        # souvent hors-sujet. match.include_albums (case « Scan full albums » de l'UI,
+        # posé par /scan) rétablit la plongée intégrale. L'URL directe d'une galerie
+        # n'est pas concernée (médias top-level, per_album ne s'y applique pas).
+        include_albums = bool(getattr(match, 'include_albums', False))
         return gdl.enumerate(match.url, platform=self.name,
                              max_items=self.scan_max_items,
                              max_albums=self.gallery_cap,
-                             cookies=self._cookies(), extra_opts=extra)
+                             cookies=self._cookies(), extra_opts=extra,
+                             per_album=None if include_albums else 1)
 
 
 class PornpicsSource(_PhotoSiteSource):

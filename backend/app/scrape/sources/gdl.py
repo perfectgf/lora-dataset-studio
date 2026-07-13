@@ -112,14 +112,18 @@ def _error_sentinel(entries):
 
 def enumerate(url, *, platform='generic', max_items=DEFAULT_MAX_ITEMS,
               max_albums=DEFAULT_MAX_ALBUMS, cookies=None, extra_opts=None,
-              image_range=None):
+              image_range=None, per_album=None):
     """Énumère les médias d'une URL via gallery-dl. Retourne (items, error).
 
     Gère les types de message : -1 (erreur → remontée), 2 (header, ignoré),
     3 (média), 6 (album enfant → récursion ≤ max_albums). Ne lève jamais.
 
     `image_range` borne la fenêtre d'images du listing TOP-LEVEL (pagination des
-    sources à images directes) ; la récursion d'albums garde le défaut 1-max_items."""
+    sources à images directes) ; la récursion d'albums garde le défaut 1-max_items.
+
+    `per_album` borne les images remontées PAR ALBUM lors de la récursion type 6
+    (per_album=1 → la cover de chaque album, pas son contenu). Ne touche PAS les
+    médias top-level : scanner l'URL d'un album précis rend toujours tout l'album."""
     try:
         entries, err = _run_simulate(url, max_items, cookies, extra_opts,
                                      image_range=image_range)
@@ -152,7 +156,10 @@ def enumerate(url, *, platform='generic', max_items=DEFAULT_MAX_ITEMS,
                         break
         album_errors = []
         for album_url in album_urls:
-            sub, sub_err = _run_simulate(album_url, max_items, cookies, extra_opts)
+            # per_album posé → borner la simulation elle-même (--range 1-N) : gallery-dl
+            # s'arrête après N images au lieu d'énumérer tout l'album pour rien.
+            sub, sub_err = _run_simulate(album_url, max_items, cookies, extra_opts,
+                                         image_range=f'1-{per_album}' if per_album else None)
             if sub_err:
                 album_errors.append(sub_err)
                 continue
@@ -162,13 +169,17 @@ def enumerate(url, *, platform='generic', max_items=DEFAULT_MAX_ITEMS,
             if sent:
                 album_errors.append(sent)
                 continue
+            taken = 0
             for entry in sub:
                 if isinstance(entry, (list, tuple)) and entry and entry[0] == 3:
                     item = _media_item(entry, platform)
                     if item:
                         items.append(item)
+                        taken += 1
                         if len(items) >= max_items:
                             return items[:max_items], None
+                        if per_album and taken >= per_album:
+                            break
         if items:
             return items[:max_items], None
         # Tous les albums ont échoué → remonter la 1ère erreur (auth/429) plutôt

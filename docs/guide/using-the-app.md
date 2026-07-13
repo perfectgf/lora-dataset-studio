@@ -53,7 +53,10 @@ the captioner needs to know exactly *what to omit*. What changes vs character:
 - **No reference photo.** Images come from **import** or the built-in
   **scraper** (paste a gallery URL or run a Reddit keyword search, tick the
   frames you want, they land straight in the dataset — deduplicated and
-  quality-filtered).
+  quality-filtered). On gallery sites (PornPics), a category/tag/search scan
+  shows **one cover per matched gallery** — the shot that actually matches your
+  keyword. Tick **Scan full albums** to pull every photo of each matched
+  gallery instead, or paste a single `/galleries/…` URL to get that whole album.
 
   > **Reddit says "wait N seconds" (429)?** By default Reddit scans share a
   > public client id (and its ~1000 requests / 10 min quota) with many other

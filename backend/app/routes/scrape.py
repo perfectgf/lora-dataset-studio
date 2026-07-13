@@ -29,9 +29,12 @@ _ALLOWED_THUMB_TYPES = {'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'i
 def scrape_scan():
     """List the downloadable media of a URL via the sources registry (read-only).
 
-    Body: {"url": "...", "page": 0}. Returns {scannable, platform, url_type,
-    count, items, paginated, page, category} (200), {error, suggestions} (400),
-    or {error} (502) on a source-level failure. Downloads nothing."""
+    Body: {"url": "...", "page": 0, "include_albums": false}. include_albums
+    only matters for gallery-listing sources (PornPics category/tag/search):
+    false (default) returns one cover per matched gallery, true dives into every
+    photo of each gallery. Returns {scannable, platform, url_type, count, items,
+    paginated, page, category} (200), {error, suggestions} (400), or {error}
+    (502) on a source-level failure. Downloads nothing."""
     data = request.get_json(silent=True) or {}
     url = data.get('url')
     if not url or not isinstance(url, str):
@@ -60,6 +63,7 @@ def scrape_scan():
                         ['Check the URL is a reachable media page.']}), 400
 
     match.page = page
+    match.include_albums = bool(data.get('include_albums'))
     items, err = match.source.scan(match)
     if err:
         return jsonify({'error': err, 'platform': result.platform.value,
