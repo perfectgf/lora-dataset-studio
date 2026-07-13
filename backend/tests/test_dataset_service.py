@@ -590,12 +590,15 @@ def test_generate_variations_klein_raises_models_missing_when_unconfigured(app):
                                     1, 'some_klein_model')
 
 
-def test_link_completed_dataset_image_without_comfyui_configured(app):
-    """comfyui.base_dir/output_dir are unset in phase-1 test config -> the
-    completion link must mark the row failed instead of crashing (checklist item 3)."""
+def test_link_completed_dataset_image_without_comfyui_configured(app, monkeypatch):
+    """comfyui.base_dir/output_dir are unset in phase-1 test config -> with no
+    file on disk AND the /view API unreachable, the completion link must mark the
+    row failed instead of crashing (checklist item 3). The API fetch is stubbed to
+    None here to keep the test hermetic (no real localhost request)."""
     from app.services import face_dataset_service as svc
     from app.models import FaceDatasetImage
     from app.config import LOCAL_USER
+    monkeypatch.setattr('app.utils.comfyui.fetch_output_image_bytes', lambda *a, **k: None)
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'G', 'g')
         img = FaceDatasetImage(dataset_id=ds.id, source='generated', status='pending',

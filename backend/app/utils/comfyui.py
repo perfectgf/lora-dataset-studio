@@ -30,7 +30,7 @@ import re
 import socket
 import subprocess
 import time
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import requests
 from flask import current_app
@@ -520,6 +520,31 @@ def download_image_from_worker(filename, worker_url, output_dir):
     except Exception as e:
         logger.error(f"Erreur téléchargement image {filename} depuis {worker_url} : {e}")
         return False
+
+
+def fetch_output_image_bytes(filename, subfolder='', timeout=30):
+    """Fetch a finished image's bytes from the LOCAL ComfyUI over its HTTP API
+    (`GET /view`), rather than reading the file off disk.
+
+    This is path-INDEPENDENT: ComfyUI serves the image straight from its own
+    output directory, wherever that happens to be. The disk reader
+    (`_comfy_output_dir`) breaks the moment a user points ComfyUI at a custom
+    output path (`--output-directory`, `extra_model_paths.yaml`, the desktop
+    app's output setting…) because the app can't know that path — but the API
+    can. This mirrors how other ComfyUI front-ends (e.g. SillyTavern) receive
+    generated images.
+
+    Returns the raw bytes, or None on any failure so the caller can fall back to
+    its existing disk / not-found handling."""
+    try:
+        qs = urlencode({'filename': filename, 'subfolder': subfolder or '', 'type': 'output'})
+        url = urljoin(api_address(), f"/view?{qs}")
+        response = requests.get(url, timeout=timeout)
+        response.raise_for_status()
+        return response.content
+    except Exception as e:
+        logger.warning(f"fetch_output_image_bytes failed for {filename!r}: {e}")
+        return None
 
 
 def free_comfyui_vram(worker_url=None):

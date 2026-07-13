@@ -105,6 +105,94 @@ def test_link_completed_dataset_image_moves_file(app, tmp_path):
         assert os.path.exists(os.path.join(svc._dataset_dir(ds.id), 'out.png'))
 
 
+def test_fetch_output_image_bytes_builds_view_url_and_returns_content(app, monkeypatch):
+    """The /view fetch must target ComfyUI's api_address with filename + subfolder
+    + type=output, return the raw bytes on 200, and swallow errors into None."""
+    from app.utils import comfyui
+
+    seen = {}
+
+    class _Resp:
+        content = b'PNGDATA'
+        def raise_for_status(self): pass
+
+    def fake_get(url, timeout=None):
+        seen['url'] = url
+        return _Resp()
+
+    with app.app_context():
+        monkeypatch.setattr(comfyui, 'api_address', lambda: 'http://127.0.0.1:8188')
+        monkeypatch.setattr(comfyui.requests, 'get', fake_get)
+        out = comfyui.fetch_output_image_bytes('img_00001_.png', subfolder='sub dir')
+        assert out == b'PNGDATA'
+        assert '/view?' in seen['url']
+        assert 'filename=img_00001_.png' in seen['url']
+        assert 'type=output' in seen['url']
+        assert 'subfolder=sub+dir' in seen['url']       # urlencoded
+
+        def boom(*a, **k):
+            raise ConnectionError('refused')
+        monkeypatch.setattr(comfyui.requests, 'get', boom)
+        assert comfyui.fetch_output_image_bytes('x.png') is None
+
+
+def test_link_completed_dataset_image_falls_back_to_view_api(app, tmp_path, monkeypatch):
+    """GH #2: the user pointed ComfyUI at a custom output path, so the finished
+    file is NOT in the app's _comfy_output_dir(). The completion link must then
+    pull it over the /view API (path-independent) instead of losing the image."""
+    from app import config as cfg
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        base = _configure_comfy_dirs(tmp_path, cfg)
+        ds = svc.create_dataset(LOCAL_USER, 'Api', 'api')
+        img = FaceDatasetImage(dataset_id=ds.id, source='generated', status='pending',
+                               job_id='job-api', klein_model='k.safetensors')
+        svc.db.session.add(img)
+        svc.db.session.commit()
+
+        # File is absent from the app's output dir — the API is the only route.
+        assert not (base / 'output' / 'far.png').exists()
+        monkeypatch.setattr('app.utils.comfyui.fetch_output_image_bytes',
+                            lambda *a, **k: b'REMOTE_BYTES')
+
+        svc.link_completed_dataset_image('job-api', 'far.png')
+
+        refreshed = svc.db.session.get(FaceDatasetImage, img.id)
+        assert refreshed.status != 'failed'
+        assert refreshed.filename == 'far.png'
+        dst = os.path.join(svc._dataset_dir(ds.id), 'far.png')
+        with open(dst, 'rb') as fh:
+            assert fh.read() == b'REMOTE_BYTES'
+
+
+def test_link_completed_dataset_image_api_fetch_fails_marks_failed(app, tmp_path, monkeypatch):
+    """File missing on disk AND the /view fetch fails (ComfyUI unreachable) -> the
+    row is marked failed with a real reason, not left stuck pending."""
+    from app import config as cfg
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        _configure_comfy_dirs(tmp_path, cfg)
+        ds = svc.create_dataset(LOCAL_USER, 'Down', 'down')
+        img = FaceDatasetImage(dataset_id=ds.id, source='generated', status='pending',
+                               job_id='job-down', klein_model='k.safetensors')
+        svc.db.session.add(img)
+        svc.db.session.commit()
+
+        monkeypatch.setattr('app.utils.comfyui.fetch_output_image_bytes',
+                            lambda *a, **k: None)
+        svc.link_completed_dataset_image('job-down', 'gone.png')
+
+        refreshed = svc.db.session.get(FaceDatasetImage, img.id)
+        assert refreshed.status == 'failed'
+        assert refreshed.fail_reason
+
+
 def test_link_completed_dataset_image_failed_marks_row_no_move(app, tmp_path):
     from app import config as cfg
     from app.services import face_dataset_service as svc

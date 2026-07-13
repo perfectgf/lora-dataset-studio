@@ -1261,18 +1261,25 @@ def link_completed_test_image(job_id, filename, failed=False):
     else:
         img.filename = filename
         img.status = 'done'
-        # Move the completed file from shared OUTPUT_DIR to the per-dataset dir
-        # (served by /api/dataset/<id>/img/<filename>, cleaned with the dataset).
+        # Bring the completed file into the per-dataset dir (served by
+        # /api/dataset/<id>/img/<filename>, cleaned with the dataset). Prefer a
+        # local disk move from ComfyUI's output dir; if the file isn't there —
+        # ComfyUI was pointed at a custom output path, or none is configured —
+        # fetch it over the /view API instead (path-independent). See GH #2.
+        dst = os.path.join(fds._dataset_dir(img.dataset_id), filename)
         out_dir = _comfy_output_dir()
-        if out_dir:
-            src = os.path.join(out_dir, filename)
-            dst = os.path.join(fds._dataset_dir(img.dataset_id), filename)
-            if os.path.exists(src):
-                shutil.move(src, dst)
-            elif not os.path.exists(dst):
-                logger.warning(f"lora-test link: file not found at src={src} or dst={dst}")
-        else:
-            logger.warning(f"lora-test link: ComfyUI output dir not configured - cannot move {filename}")
+        src = os.path.join(out_dir, filename) if out_dir else None
+        if src and os.path.exists(src):
+            shutil.move(src, dst)
+        elif not os.path.exists(dst):
+            from ..utils.comfyui import fetch_output_image_bytes
+            data = fetch_output_image_bytes(filename)
+            if data:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                with open(dst, 'wb') as f:
+                    f.write(data)
+            else:
+                logger.warning(f"lora-test link: file not on disk and /view API fetch failed for {filename}")
     db.session.commit()
 
 

@@ -2115,29 +2115,38 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
                            or 'Klein generation failed (see 🪵 Server log in Settings for the ComfyUI error)')
     else:
         output_dir = _comfy_output_dir()
-        if output_dir is None:  # ComfyUI not configured -> can't locate the file, treat as failed
-            img.status = 'failed'
-            img.fail_reason = 'ComfyUI output dir not configured - the finished file could not be located'
-            logger.warning(f"dataset link: ComfyUI output dir not configured (job {job_id})")
-        else:
-            # Move the completed file from the shared output dir to the per-dataset dir.
-            src = os.path.join(output_dir, filename)
+        src = os.path.join(output_dir, filename) if output_dir else None
+        dst = os.path.join(_dataset_dir(img.dataset_id), filename)
+        if src and os.path.exists(src) and os.path.exists(dst):
+            # Collision guard: NEVER overwrite another tile's file. ComfyUI's
+            # SaveImage counter re-issued the same name when earlier results
+            # were moved out of its output folder — every tile then displayed
+            # the same (last) image. The prefix is unique per job now, but a
+            # residual collision must degrade to a rename, not a silent loss.
+            base, ext = os.path.splitext(filename)
+            filename = f"{base}_{uuid.uuid4().hex[:6]}{ext}"
             dst = os.path.join(_dataset_dir(img.dataset_id), filename)
-            if os.path.exists(src) and os.path.exists(dst):
-                # Collision guard: NEVER overwrite another tile's file. ComfyUI's
-                # SaveImage counter re-issued the same name when earlier results
-                # were moved out of its output folder — every tile then displayed
-                # the same (last) image. The prefix is unique per job now, but a
-                # residual collision must degrade to a rename, not a silent loss.
-                base, ext = os.path.splitext(filename)
-                filename = f"{base}_{uuid.uuid4().hex[:6]}{ext}"
-                dst = os.path.join(_dataset_dir(img.dataset_id), filename)
-                logger.warning(f"dataset link: name collision, storing as {filename}")
-            img.filename = filename
-            if os.path.exists(src):
-                shutil.move(src, dst)
-            elif not os.path.exists(dst):
-                logger.warning(f"dataset link: file not found at src={src} or dst={dst}")
+            logger.warning(f"dataset link: name collision, storing as {filename}")
+        img.filename = filename
+        if src and os.path.exists(src):
+            shutil.move(src, dst)          # file where we expected it on disk
+        elif os.path.exists(dst):
+            pass                           # already brought in (retry / dup completion)
+        else:
+            # The file isn't on disk where we look — ComfyUI was pointed at a
+            # custom output path, or none is configured. Fetch it over the /view
+            # API instead (path-independent, like other ComfyUI front-ends). #2
+            from ..utils.comfyui import fetch_output_image_bytes
+            data = fetch_output_image_bytes(filename)
+            if data:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                with open(dst, 'wb') as f:
+                    f.write(data)
+            else:
+                img.status = 'failed'
+                img.fail_reason = ('The finished image could not be retrieved from ComfyUI '
+                                   '(not on disk, and the /view API fetch failed).')
+                logger.warning(f"dataset link: file not on disk and /view API fetch failed (job {job_id})")
     db.session.commit()
 
 
