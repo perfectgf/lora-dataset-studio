@@ -305,3 +305,29 @@ class CloudTrainingRun(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     finished_at = db.Column(db.DateTime)
+
+
+class TrainingRunRecord(db.Model):
+    """Provenance registry: one row per training LAUNCH (local or cloud).
+    Answers "which VERSION of the dataset produced this checkpoint, with what
+    settings?" — nothing recorded local runs before this (files only), and no
+    run recorded the dataset's state. `version` is a human counter per
+    (dataset, family): a launch whose dataset fingerprint was never seen
+    becomes v(max+1); re-running an unchanged dataset keeps its version.
+    `manifest` (JSON [[image_id, caption_hash], ...]) lets the UI say WHAT
+    changed since ("+2 images, 3 captions edited"), not just that it did.
+    New table — created by db.create_all(), no migration of existing rows."""
+    __tablename__ = 'training_run_record'
+    id = db.Column(db.Integer, primary_key=True)
+    dataset_id = db.Column(db.Integer, nullable=False, index=True)
+    family = db.Column(db.String(16), nullable=False)
+    source = db.Column(db.String(8), nullable=False)        # 'local' | 'cloud'
+    cloud_run_id = db.Column(db.Integer)                    # FK-ish, cloud only
+    base_model = db.Column(db.String(255), default='')      # '' = official base
+    variant = db.Column(db.String(32))
+    masked = db.Column(db.Boolean, default=True)
+    steps = db.Column(db.Integer)
+    fingerprint = db.Column(db.String(16), nullable=False)
+    manifest = db.Column(db.Text)                           # JSON, see docstring
+    version = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
