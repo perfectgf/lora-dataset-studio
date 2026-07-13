@@ -37,7 +37,10 @@ DEFAULTS = {
     'comfyui': {'api_url': 'http://127.0.0.1:8188', 'base_dir': '',
                 'output_dir': '', 'input_dir': '', 'models_dir': '', 'loras_dir': ''},
     'ollama': {'url': 'http://127.0.0.1:11434', 'vision_model': 'huihui_ai/qwen3-vl-abliterated:8b-instruct'},  # -instruct, NOT ':8b' (=thinking): see get_vision_model()
-    'aitoolkit': {'dir': '', 'datasets_dir': '', 'output_dir': '', 'hf_home': ''},
+    'aitoolkit': {'dir': '', 'datasets_dir': '', 'output_dir': '', 'hf_home': '',
+                  # Explicit interpreter for installs without venv/.venv
+                  # (conda, uv, system python). Empty = auto-detect.
+                  'python': ''},
     'engines': {'default': 'chatgpt', 'enabled': ['nanobanana', 'chatgpt', 'klein'],
                 # chatgpt_auth: 'auto' = subscription when connected, else API key.
                 'chatgpt_auth': 'auto',            # auto|api|subscription
@@ -193,6 +196,20 @@ def aitoolkit_path(kind: str):
     if kind == 'hf_home':
         return Path(get('aitoolkit.hf_home') or root / 'hf-cache' / 'huggingface')
     if kind == 'venv_python':
+        # An explicit interpreter wins — installs WITHOUT a venv folder exist
+        # in the wild (conda, uv, system python; user-reported from Reddit).
+        explicit = (get('aitoolkit.python') or '').strip()
+        if explicit:
+            return Path(explicit)
+        # Both venv layouts exist: ai-toolkit's docs say `venv`, plenty of
+        # setups use `.venv`. Pick whichever actually exists.
+        for env_dir in ('venv', '.venv'):
+            p = (root / env_dir / 'Scripts' / 'python.exe' if os.name == 'nt'
+                 else root / env_dir / 'bin' / 'python')
+            if p.exists():
+                return p
+        # Nothing found: return the historical default path so callers keep a
+        # concrete path to name in their "invalid" details.
         win = root / 'venv' / 'Scripts' / 'python.exe'
         return win if os.name == 'nt' else root / 'venv' / 'bin' / 'python'
     if kind == 'jobs':

@@ -68,7 +68,7 @@ export default function LocalToolsSection(props) {
 
       <Card
         title="ai-toolkit"
-        help="The training engine. Point at the folder its installer produced — the one containing run.py and venv/."
+        help="The training engine. Point at the folder containing run.py — its venv/ or .venv/ is detected automatically."
       >
         <div className="flex items-end gap-3">
           <div className="flex-1">
@@ -83,6 +83,14 @@ export default function LocalToolsSection(props) {
           </div>
           <TestButton target="aitoolkit" onResult={(r) => recordTestResult('aitoolkit', r)} />
         </div>
+        <TextField
+          id="aitoolkit-python"
+          label="Python interpreter (optional)"
+          value={config.aitoolkit.python}
+          onChange={(v) => setField('aitoolkit', 'python', v)}
+          placeholder="Auto — only needed when ai-toolkit has no venv/.venv (conda, uv, system Python)"
+          help="Full path to the python executable ai-toolkit should run with, e.g. C:\miniconda3\envs\aitk\python.exe."
+        />
 
         <details className="rounded-lg border border-border p-3">
           <summary className="cursor-pointer text-sm font-medium text-content-muted">

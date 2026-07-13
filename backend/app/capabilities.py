@@ -148,8 +148,18 @@ def probe_aitoolkit() -> dict:
     if not d:
         return {'ok': False, 'detail': 'aitoolkit.dir not configured'}
     venv_python = cfg.aitoolkit_path('venv_python')
-    ok = (d / 'run.py').exists() and bool(venv_python) and venv_python.exists()
-    return {'ok': ok, 'detail': str(d) if ok else f'invalid aitoolkit dir: {d}'}
+    has_run = (d / 'run.py').exists()
+    ok = has_run and bool(venv_python) and venv_python.exists()
+    if ok:
+        return {'ok': True, 'detail': str(d)}
+    if has_run:
+        # The folder IS an ai-toolkit checkout — only the interpreter is
+        # missing (no venv/.venv: conda/uv/system installs, user-reported).
+        # Name the actionable fix instead of a blanket "invalid dir".
+        return {'ok': False,
+                'detail': (f'ai-toolkit found at {d} but no venv/.venv inside — '
+                           'set its Python interpreter in Settings → Local tools')}
+    return {'ok': False, 'detail': f'invalid aitoolkit dir: {d}'}
 
 
 VAST_API_BASE = 'https://console.vast.ai/api/v0'
@@ -356,8 +366,14 @@ def gpu_vram_gb():
 
 
 def _is_comfyui_dir(d) -> bool:
+    """A real ComfyUI install: classic (main.py at the root) OR the Desktop
+    app's basedir (models/ + custom_nodes/, no main.py — a user had to
+    symlink main.py to pass the old check). Everything the app does with this
+    folder is SCAN models/, so that is the hard requirement."""
     try:
-        return (d / 'main.py').exists() and (d / 'models').is_dir()
+        if not (d / 'models').is_dir():
+            return False
+        return (d / 'main.py').exists() or (d / 'custom_nodes').is_dir()
     except OSError:
         return False
 

@@ -448,3 +448,50 @@ def test_probe_exposes_chatgpt_subscription_block(app, monkeypatch):
     assert sub['email'] == 'u@x.io'
     assert isinstance(sub['codex_cli_detected'], bool)
     assert caps['engines']['chatgpt'] is True     # subscription alone enables the engine
+
+
+def test_probe_aitoolkit_accepts_dot_venv_and_explicit_python(app, tmp_path, monkeypatch):
+    """Installs without `venv/` exist in the wild (Reddit-reported): `.venv/`
+    must be auto-detected, and an explicit aitoolkit.python must win over
+    both. run.py present but no interpreter -> ACTIONABLE detail."""
+    import os
+    from app import capabilities, config as cfg
+    root = tmp_path / 'aitk'
+    (root / '.venv' / ('Scripts' if os.name == 'nt' else 'bin')).mkdir(parents=True)
+    py = root / '.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+    py.touch()
+    (root / 'run.py').touch()
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(root)}})
+        assert capabilities.probe_aitoolkit()['ok'] is True
+        # explicit interpreter wins (even over an existing .venv)
+        other = tmp_path / 'conda-python.exe'
+        other.touch()
+        cfg.save_config({'aitoolkit': {'dir': str(root), 'python': str(other)}})
+        assert cfg.aitoolkit_path('venv_python') == other
+        assert capabilities.probe_aitoolkit()['ok'] is True
+        # run.py present, no interpreter anywhere -> actionable message
+        bare = tmp_path / 'bare'
+        bare.mkdir()
+        (bare / 'run.py').touch()
+        cfg.save_config({'aitoolkit': {'dir': str(bare), 'python': ''}})
+        probe = capabilities.probe_aitoolkit()
+        assert probe['ok'] is False
+        assert 'Python interpreter' in probe['detail']
+
+
+def test_is_comfyui_dir_accepts_desktop_layout(tmp_path):
+    """The ComfyUI Desktop app's basedir has models/ + custom_nodes/ but NO
+    main.py (a user had to symlink one to pass the old check)."""
+    from app.capabilities import _is_comfyui_dir
+    desktop = tmp_path / 'desktop'
+    (desktop / 'models').mkdir(parents=True)
+    (desktop / 'custom_nodes').mkdir()
+    assert _is_comfyui_dir(desktop) is True
+    classic = tmp_path / 'classic'
+    (classic / 'models').mkdir(parents=True)
+    (classic / 'main.py').touch()
+    assert _is_comfyui_dir(classic) is True
+    not_comfy = tmp_path / 'other'
+    (not_comfy / 'custom_nodes').mkdir(parents=True)   # no models/
+    assert _is_comfyui_dir(not_comfy) is False
