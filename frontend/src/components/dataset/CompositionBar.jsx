@@ -6,13 +6,21 @@ const TARGET_FACE = { face: 12, bust: 6, body: 6, back: 1 };
 const TARGET_BODY = { face: 8, bust: 8, body: 8, back: 2 };
 const LABEL = { face: 'Face', bust: 'Bust', body: 'Body', back: 'Back' };
 
-export default function CompositionBar({ composition, bodyFidelity = false }) {
+export default function CompositionBar({ composition, upscaled, bodyFidelity = false }) {
   const TARGET = bodyFidelity ? TARGET_BODY : TARGET_FACE;
   const c = composition || { face: 0, bust: 0, body: 0, back: 0 };
+  const u = upscaled || { face: 0, bust: 0, body: 0, back: 0 };
   const total = (c.face || 0) + (c.bust || 0) + (c.body || 0) + (c.back || 0);
   const missing = Object.keys(TARGET)
     .map((k) => ({ k, n: Math.max(0, TARGET[k] - (c[k] || 0)) }))
     .filter((m) => m.n > 0);
+  // Buckets whose target is MET but mostly by heavily-upscaled crops rather than
+  // native shots: counting toward the ratio hides that the shot is fabricated
+  // texture (LANCZOS-enlarged from a small detected/fallback box), which biases
+  // training toward that crop's local detail instead of the intended framing mix.
+  const upscaleHeavy = Object.keys(TARGET)
+    .map((k) => ({ k, n: u[k] || 0, of: c[k] || 0 }))
+    .filter((m) => m.n > 0 && m.n >= Math.ceil(m.of / 2));
 
   return (
     <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface px-3 py-2">
@@ -37,6 +45,12 @@ export default function CompositionBar({ composition, bodyFidelity = false }) {
         </p>
       ) : (
         <p className="m-0 text-green-300/80 text-[0.6875rem]">✓ Target composition reached — ready to caption/export</p>
+      )}
+      {upscaleHeavy.length > 0 && (
+        <p className="m-0 text-amber-300/90 text-[0.6875rem]">
+          ⚠ Upscaled: {upscaleHeavy.map((m) => `${m.n}/${m.of} ${LABEL[m.k].toLowerCase()}`).join(' · ')}
+          <span className="text-content-subtle"> — these tiles are LANCZOS-enlarged crops (fabricated detail, not native resolution); add native shots for that framing instead of only cropping in</span>
+        </p>
       )}
     </div>
   );

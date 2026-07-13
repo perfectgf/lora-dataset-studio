@@ -20,6 +20,7 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset', 'fidelity', 'VARCHAR(8)'),
     ('face_dataset', 'train_settings', 'TEXT'),
     ('face_dataset_image', 'fail_reason', 'TEXT'),
+    ('face_dataset_image', 'upscale_ratio', 'REAL'),
 )
 
 def _apply_additive_migrations():

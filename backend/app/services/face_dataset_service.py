@@ -55,6 +55,13 @@ CAPTION_MAX_CHARS = 800
 # gardent le défaut 1.7 de face_crop_to_square_webp).
 REF_CROP_PAD = 2.0
 
+# Un crop dont le côté source fait moins de size/1.5 se retrouve agrandi ≥50% par le
+# LANCZOS du resize final — au-delà, la texture visible est majoritairement inventée
+# par l'upscale plutôt que capturée du sujet. Seuil d'avertissement composition_upscaled
+# (dataset_payload), pas un blocage : un unique gros plan upscalé n'est pas un problème,
+# un dataset qui n'en a QUE des upscalés l'est (biais loss vers ce patch, cf. issue GitHub).
+UPSCALE_WARN_THRESHOLD = 1.5
+
 
 def _dataset_dir(dataset_id) -> str:
     d = str(cfg.dataset_images_root() / str(dataset_id))
@@ -343,23 +350,27 @@ def _crop_resize_file(path, x, y, w, h, size=1024, dst=None):
     distortion (ai-toolkit buckets handle non-square training images). Writes to
     `dst` (default: overwrite `path`). Passing a distinct `dst` lets the reference
     crop read the untouched full-frame ORIGINAL and write the derived crop — so a
-    re-crop can widen back out instead of only tightening the previous crop."""
+    re-crop can widen back out instead of only tightening the previous crop.
+
+    Returns (ok, upscale_ratio) — ratio is size / long_side_of_box (>1 means the
+    box was smaller than `size` and got enlarged), or None on failure."""
     if not os.path.exists(path):
-        return False
+        return False, None
     src = Image.open(path).convert('RGB')
     box = (max(0, int(x)), max(0, int(y)), min(src.width, int(x + w)), min(src.height, int(y + h)))
     if box[2] <= box[0] or box[3] <= box[1]:
-        return False
+        return False, None
     bw, bh = box[2] - box[0], box[3] - box[1]
     if bw >= bh:
         out_w, out_h = size, max(1, round(size * bh / bw))
     else:
         out_w, out_h = max(1, round(size * bw / bh)), size
+    scale = size / max(bw, bh)
     out = io.BytesIO()
     src.crop(box).resize((out_w, out_h), Image.LANCZOS).save(out, 'WEBP', quality=92)
     with open(dst or path, 'wb') as fh:
         fh.write(out.getvalue())
-    return True
+    return True, scale
 
 
 def crop_image(user_id, image_id, x, y, w, h):
@@ -367,7 +378,11 @@ def crop_image(user_id, image_id, x, y, w, h):
     img = _owned_image(user_id, image_id)
     if not img or not img.filename:
         return False
-    return _crop_resize_file(_img_path(img), x, y, w, h)
+    ok, scale = _crop_resize_file(_img_path(img), x, y, w, h)
+    if ok:
+        img.upscale_ratio = scale
+        db.session.commit()
+    return ok
 
 
 def delete_image(user_id, image_id):
@@ -700,7 +715,8 @@ def crop_reference(user_id, dataset_id, x, y, w, h):
     ds = get_dataset(user_id, dataset_id)
     if not ds or not ds.ref_filename:
         return False
-    return _crop_resize_file(_ref_crop_source_path(ds), x, y, w, h, dst=_ref_path(ds))
+    ok, _scale = _crop_resize_file(_ref_crop_source_path(ds), x, y, w, h, dst=_ref_path(ds))
+    return ok
 
 
 def recrop_reference_auto(user_id, dataset_id):
@@ -728,11 +744,19 @@ def dataset_payload(user_id, dataset_id):
     imgs = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id)
             .order_by(FaceDatasetImage.id.desc()).all())
     comp = {'face': 0, 'bust': 0, 'body': 0, 'back': 0}
+    # Combien, PAR bucket, sont des crops fortement agrandis (upscale_ratio >=
+    # UPSCALE_WARN_THRESHOLD) plutôt que du natif : le compte `comp` seul traite un
+    # gros plan natif et un gros plan upscalé x3 comme équivalents vis-à-vis de la
+    # cible — ce sous-compte permet à l'UI de signaler un dataset qui « remplit »
+    # sa cible face/bust surtout avec de la texture fabriquée par le resize.
+    comp_upscaled = {'face': 0, 'bust': 0, 'body': 0, 'back': 0}
     for i in imgs:
         # Composition counts only usable images: rejected and failed ones don't
         # contribute to the training-target tally the UI tracks deficits against.
         if i.framing in comp and i.status not in ('reject', 'failed'):
             comp[i.framing] += 1
+            if (i.upscale_ratio or 0) >= UPSCALE_WARN_THRESHOLD:
+                comp_upscaled[i.framing] += 1
     # concept OU style : la fuite d'identité est une heuristique de LoRA PERSONNAGE —
     # un style décrit librement ses sujets, un concept son contexte. Sans ce
     # regroupement, chaque caption de style lèverait un faux badge « leak ».
@@ -747,6 +771,7 @@ def dataset_payload(user_id, dataset_id):
         'ref_filename': ds.ref_filename,
         'ref_original_filename': ds.ref_original_filename or '',
         'ref_extra_filenames': extra_ref_filenames(ds), 'composition': comp,
+        'composition_upscaled': comp_upscaled,
         # Réglages gagnants du Studio (JSON → objet). Manquait du payload : le badge
         # ★ du workspace ne s'affichait jamais, et le garde-fou « suppression d'un
         # checkpoint référencé » en a besoin.
@@ -756,6 +781,7 @@ def dataset_payload(user_id, dataset_id):
                     'framing': i.framing, 'variation_label': i.variation_label,
                     'status': i.status, 'caption': i.caption,
                     'fail_reason': i.fail_reason,
+                    'upscale_ratio': i.upscale_ratio,
                     # Core creative prompt (generated tiles) → seeds the ✏️ edit
                     # bubble so the user edits the real prompt, not a blank box.
                     'variation_prompt': i.variation_prompt,
@@ -821,7 +847,8 @@ def detect_head_bbox(image_bytes):
 
 
 def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 1.7,
-                             *, return_detected: bool = False, use_vision: bool = True):
+                             *, return_detected: bool = False, use_vision: bool = True,
+                             return_scale: bool = False):
     """Head-crop (Qwen3-VL bbox, generous padding for hair + shoulders) into a
     SQUARE that FILLS `size` - no black padding, no distortion (the square is
     shrunk to fit inside the image so it never needs letterboxing). Falls back to
@@ -830,6 +857,11 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
     `return_detected=True` -> (webp_bytes, head_detected) so the caller can WARN the
     user when it silently fell back to a centered crop (e.g. vision model not pulled)
     instead of leaving them puzzled by a body-centered reference.
+
+    `return_scale=True` -> also returns the upscale ratio applied to reach `size`
+    (>1 means the detected/fallback box was smaller than `size` and got LANCZOS-
+    enlarged — see UPSCALE_WARN_THRESHOLD). Additive and independent from
+    `return_detected` so existing 2-tuple callers (the /ref route) are unaffected.
 
     `use_vision=False` -> skip the bbox detection entirely (fast pure-PIL centered
     square, no GPU window needed) — the manual-first reference flow."""
@@ -850,9 +882,18 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
         side = min(W, H)
         left, top = (W - side) // 2, (H - side) // 2
         box = (left, top, left + side, top + side)
+    box_side = max(1, box[2] - box[0])
+    scale = size / box_side
     out = io.BytesIO()
     im.crop(box).resize((size, size), Image.LANCZOS).save(out, 'WEBP', quality=92)
-    return (out.getvalue(), head_detected) if return_detected else out.getvalue()
+    webp = out.getvalue()
+    if return_detected and return_scale:
+        return webp, head_detected, scale
+    if return_detected:
+        return webp, head_detected
+    if return_scale:
+        return webp, scale
+    return webp
 
 
 # --- Import + classify (Qwen3-VL) ------------------------------------------
@@ -893,7 +934,10 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
             except Exception:
                 pass
         try:
-            webp = face_crop_to_square_webp(raw) if crop else normalize_to_webp(raw)
+            if crop:
+                webp, scale = face_crop_to_square_webp(raw, return_scale=True)
+            else:
+                webp, scale = normalize_to_webp(raw), None
         except Exception as e:
             failed += 1
             logger.warning(f"dataset import: image skipped (dataset {dataset_id}): {e}")
@@ -915,7 +959,8 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
         with open(os.path.join(_dataset_dir(dataset_id), fn), 'wb') as fh:
             fh.write(webp)
         img = FaceDatasetImage(dataset_id=dataset_id, source='import', status='keep',
-                               filename=fn, framing='face' if crop else None)
+                               filename=fn, framing='face' if crop else None,
+                               upscale_ratio=scale)
         db.session.add(img)
         db.session.commit()
         ids.append(img.id)

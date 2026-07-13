@@ -356,7 +356,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
               <StepSection n={2} {...cardProps('gf-generate')}
                 title="Add images"
                 help="generate AI variations of the reference — and mix in a few real photos if you have them">
-                <CompositionBar composition={d.composition} bodyFidelity={bodyFid} />
+                <CompositionBar composition={d.composition} upscaled={d.composition_upscaled} bodyFidelity={bodyFid} />
                 <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}
                   onGenerate={(...args) => {
                     // Guard-rail: a batch is already in flight — launching another one
