@@ -287,6 +287,23 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     const msg = (d && d.error) || fallback;
     toast.error(d && d.hint ? `${msg} — ${d.hint}` : msg);
   };
+  // Confirmable launch refusals: the server prefixes the error with a marker;
+  // the window.confirm IS the user's answer, the retry carries the matching
+  // force flag. Both can fire in sequence (uncaptioned first, then mismatch) —
+  // call sites loop until launched, declined, or a non-confirmable error.
+  const CONFIRMABLE_REFUSALS = [
+    ['MISMATCH_CAPTION: ', 'allow_caption_mismatch'],
+    ['UNCAPTIONED: ', 'allow_uncaptioned'],
+  ];
+  const confirmableRetryFlag = (error, actionLabel) => {
+    const s = String(error || '');
+    for (const [marker, flag] of CONFIRMABLE_REFUSALS) {
+      if (s.includes(marker)) {
+        return window.confirm(s.replace(marker, '') + `\n\n${actionLabel}?`) ? flag : 'declined';
+      }
+    }
+    return null;
+  };
 
   // Pre-launch sanity gate (server preflight): blockers stop with a toast,
   // warnings open the interactive PreflightModal (lists WHICH captions leak /
@@ -370,14 +387,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const enqueue = async () => {
     if (!(await preflightOk())) return;
     // Mise en file AVEC la base/variante choisie (sinon le job reprend la base persistée).
-    let d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`, { base_model: base, variant, train_type: trainType, masked, steps: stepsN });
-    if (d && d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
-      if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nQueue anyway (force)?')) {
-        d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`,
-          { base_model: base, variant, train_type: trainType, masked, steps: stepsN, allow_caption_mismatch: true });
-      } else {
-        d = null; // declined — matches ds.train(): no error surfaced, the confirm WAS the answer
-      }
+    let body = { base_model: base, variant, train_type: trainType, masked, steps: stepsN };
+    let d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`, body);
+    for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Queue anyway (force)')); ) {
+      if (flag === 'declined') { d = null; break; }  // the confirm WAS the answer
+      body = { ...body, [flag]: true };
+      d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`, body);
     }
     if (d && d.ok === false) { setEnqErr(d.error || 'enqueue refused'); toastTrainError(d, 'enqueue refused'); }
     else setEnqErr(null);
@@ -408,15 +423,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const schedule = async () => {
     if (!schedAt) return;
     if (!(await preflightOk())) return;
-    let d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`,
-      { at: schedAt, base_model: base, variant, train_type: trainType, masked, steps: stepsN });
-    if (d && d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
-      if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nSchedule anyway (force)?')) {
-        d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`,
-          { at: schedAt, base_model: base, variant, train_type: trainType, masked, steps: stepsN, allow_caption_mismatch: true });
-      } else {
-        d = null; // declined — matches ds.train(): no error surfaced, the confirm WAS the answer
-      }
+    let body = { at: schedAt, base_model: base, variant, train_type: trainType, masked, steps: stepsN };
+    let d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`, body);
+    for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Schedule anyway (force)')); ) {
+      if (flag === 'declined') { d = null; break; }  // the confirm WAS the answer
+      body = { ...body, [flag]: true };
+      d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`, body);
     }
     if (d && d.ok === false) { setEnqErr(d.error || 'schedule refused'); toastTrainError(d, 'schedule refused'); }
     else { setEnqErr(null); setShowSched(false); }
@@ -542,17 +554,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // retry that used to live inline in the button handler.
   const [cloudDialog, setCloudDialog] = useState(false);
   const launchCloud = async (gpuName) => {
-    const body = { variant, train_type: trainType, masked,
+    let body = { variant, train_type: trainType, masked,
       ...(stepsN ? { steps: stepsN } : {}), ...(gpuName ? { gpu_name: gpuName } : {}) };
-    const d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`, body);
-    if (d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
-      if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nTrain anyway (force)?')) {
-        const d2 = await postJson(`/api/dataset/${ds.currentId}/train/cloud`,
-          { ...body, allow_caption_mismatch: true });
-        if (d2.ok === false) toastTrainError(d2, 'Cloud training failed');
-      }
-      // Declined confirm = the answer; no error toast (matches local train).
-    } else if (d.ok === false) {
+    let d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`, body);
+    for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Train anyway (force)')); ) {
+      if (flag === 'declined') { d = null; break; }  // the confirm WAS the answer
+      body = { ...body, [flag]: true };
+      d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`, body);
+    }
+    if (d && d.ok === false) {
       toastTrainError(d, 'Cloud training failed');
     }
     // Success needs no toast — the 5s cloud-status poll picks it up.
@@ -682,11 +692,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             const mode = await askResumeOrFresh();
             if (!mode) return;
             const fresh = mode === 'fresh';
-            let d = await ds.train({ baseModel: base, variant, trainType, masked, steps: stepsN, fresh });
-            if (d && d.ok === false && String(d.error || '').includes('MISMATCH_CAPTION')) {
-              if (window.confirm(String(d.error).replace('MISMATCH_CAPTION: ', '') + '\n\nTrain anyway (force)?')) {
-                await ds.train({ baseModel: base, variant, trainType, masked, steps: stepsN, allowCaptionMismatch: true, fresh });
-              }
+            // ds.train takes camelCase opts — map the confirmable force flags.
+            const OPT_FOR_FLAG = { allow_caption_mismatch: 'allowCaptionMismatch',
+                                   allow_uncaptioned: 'allowUncaptioned' };
+            let opts = { baseModel: base, variant, trainType, masked, steps: stepsN, fresh };
+            let d = await ds.train(opts);
+            for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Train anyway (force)')); ) {
+              if (flag === 'declined') break;        // the confirm WAS the answer
+              opts = { ...opts, [OPT_FOR_FLAG[flag]]: true };
+              d = await ds.train(opts);
             }
             refreshStatus();
           }}

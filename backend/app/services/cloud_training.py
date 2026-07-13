@@ -116,7 +116,8 @@ def _reconcile_before_launch(app):
 
 def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                           variant=None, train_type=None, masked=True,
-                          allow_caption_mismatch=False, gpu_name=None) -> dict:
+                          allow_caption_mismatch=False, allow_uncaptioned=False,
+                          gpu_name=None) -> dict:
     if not cfg.secret('VAST_API_KEY'):
         raise RuntimeError('vast.ai API key is not configured — add it in Settings')
     # A user launching after days away is exactly when an expired
@@ -175,7 +176,8 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
     # no extraction was needed -- just match its real signature:
     # assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False).
     lt.assert_trainable(dataset_id, train_type=fam,
-                        allow_caption_mismatch=allow_caption_mismatch)
+                        allow_caption_mismatch=allow_caption_mismatch,
+                        allow_uncaptioned=allow_uncaptioned)
 
     run = CloudTrainingRun(dataset_id=dataset_id, status='preparing',
                            run_name=lt._run_name(ds, family=fam))

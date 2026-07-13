@@ -57,6 +57,7 @@ def dataset_train(dataset_id):
                                  variant=d.get('variant', 'turbo'),
                                  train_type=d.get('train_type'),
                                  allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),
+                                 allow_uncaptioned=bool(d.get('allow_uncaptioned')),
                                  masked=d.get('masked', True),
                                  # fresh=True : écarte le run existant (archivé, pas
                                  # détruit) → repart de zéro au lieu de l'auto-resume.
@@ -120,6 +121,8 @@ def dataset_train_enqueue(dataset_id):
         kw['train_type'] = d.get('train_type')
     if d.get('allow_caption_mismatch'):
         kw['allow_caption_mismatch'] = True
+    if d.get('allow_uncaptioned'):
+        kw['allow_uncaptioned'] = True
     # steps = cible absolue choisie côté UI (None → adaptatif). Forwarding conditionnel.
     if d.get('steps') is not None:
         kw['steps'] = d.get('steps')
@@ -162,6 +165,8 @@ def dataset_train_schedule(dataset_id):
         kw['train_type'] = d.get('train_type')
     if d.get('allow_caption_mismatch'):
         kw['allow_caption_mismatch'] = True
+    if d.get('allow_uncaptioned'):
+        kw['allow_uncaptioned'] = True
     if d.get('steps') is not None:
         kw['steps'] = d.get('steps')
     try:
@@ -667,6 +672,7 @@ def dataset_train_cloud(dataset_id):
             train_type=d.get('train_type'),
             masked=d.get('masked', True),
             allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),
+            allow_uncaptioned=bool(d.get('allow_uncaptioned')),
             gpu_name=d.get('gpu_name'))
     except Exception as e:
         return _map_error(e)

@@ -445,6 +445,9 @@ export function useDataset() {
       { base_model: opts.baseModel || '', variant: opts.variant || 'turbo',
         train_type: opts.trainType || 'zimage',
         allow_caption_mismatch: !!opts.allowCaptionMismatch,
+        // Images sans caption : plus un mur — confirm « train anyway » dans
+        // TrainingPanel (marqueur UNCAPTIONED:), même flux que le mismatch.
+        allow_uncaptioned: !!opts.allowUncaptioned,
         // Masked training (fond à 10 %) — défaut ON, toggle dans TrainingPanel.
         masked: opts.masked !== false,
         // Cible de steps absolue (plafond choisi dans TrainingPanel) — omise si
@@ -456,8 +459,12 @@ export function useDataset() {
     // L'entraînement tourne en CLI headless (pas l'UI ai-toolkit) → on N'OUVRE PAS
     // localhost:8675 (lien mort). La progression se suit ici (checkpoints + statut).
     if (d.ok) toast.success(`Training started (${d.steps || '?'} steps) — ComfyUI paused, follow the checkpoints here`);
-    // Le mismatch caption↔type est géré par un confirm dans TrainingPanel (pas un toast d'erreur).
-    else if (!String(d.error || '').includes('MISMATCH_CAPTION')) toast.error(d.error || 'Unexpected error');
+    // Les refus confirmables (mismatch caption↔type, images sans caption) sont
+    // gérés par un confirm dans TrainingPanel — pas un toast d'erreur.
+    else if (!String(d.error || '').includes('MISMATCH_CAPTION')
+             && !String(d.error || '').includes('UNCAPTIONED')) {
+      toast.error(d.error || 'Unexpected error');
+    }
     return d;
   }, [currentId, toast]);
 

@@ -1910,13 +1910,16 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
             _check('composition', 'Framing balance', 'ok',
                    f"face {comp['face']} · bust {comp['bust']} · body {comp['body']} · back {comp['back']}")
 
-    # 3bis) toutes les gardées ont une caption (sinon assert_trainable refusera le
-    # launch) — check UNIQUEMENT (pas de doublon du blocker de launch, cf. docstring).
+    # 3bis) toutes les gardées ont une caption — WARN, plus un mur : le launch
+    # demande un confirm (« train anyway ») au lieu de refuser (UNCAPTIONED:
+    # dans assert_trainable). Les captions restent fortement recommandées.
     uncaptioned = sum(1 for r in kept if not (r.caption or '').strip())
     if n:
         if uncaptioned:
-            _check('captioned', 'Every kept image captioned', 'fail',
-                   f'{uncaptioned}/{n} kept image(s) have no caption', 'gf-images')
+            warnings.append(f'{uncaptioned}/{n} kept image(s) have no caption — '
+                            'strongly recommended; launching will ask you to confirm.')
+            _check('captioned', 'Every kept image captioned', 'warn',
+                   f'{uncaptioned}/{n} kept image(s) have no caption — launching asks to confirm', 'gf-images')
         else:
             _check('captioned', 'Every kept image captioned', 'ok', f'{n}/{n} captioned')
 
@@ -2121,7 +2124,7 @@ def archive_previous_run(ds) -> str | None:
 def launch_training(user_id, dataset_id, steps: int | None = None, check_captions: bool = True,
                     base_model=None, variant: str | None = None, train_type: str | None = None,
                     allow_caption_mismatch: bool = False, masked: bool = True,
-                    fresh: bool = False) -> dict:
+                    fresh: bool = False, allow_uncaptioned: bool = False) -> dict:
     """Export + config + pause ComfyUI (flag) + lance l'entraînement ai-toolkit
     en CLI headless (`run.py <config>`).
 
@@ -2149,7 +2152,9 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
             and _pid_alive(queue_manager._get_system_state('training_pid', None))):
         raise ValueError('a training is already in progress - wait for it to finish or queue this dataset')
     if check_captions:
-        assert_trainable(dataset_id, train_type=train_type, allow_caption_mismatch=allow_caption_mismatch)
+        assert_trainable(dataset_id, train_type=train_type,
+                         allow_caption_mismatch=allow_caption_mismatch,
+                         allow_uncaptioned=allow_uncaptioned)
     # Base d'entraînement : None/'' = officielle ; sinon un merge ComfyUI qui DOIT
     # avoir été converti en diffusers d'abord (gate). On persiste le choix sur le
     # dataset → _run_name/_run_dir/list_checkpoints deviennent base-aware (run isolé).
@@ -2313,12 +2318,17 @@ def kept_uncaptioned_count(dataset_id) -> int:
             .count())
 
 
-def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False) -> None:
+def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
+                     allow_uncaptioned=False) -> None:
     """Lève ValueError si le dataset n'est pas prêt : trop peu d'images gardées,
     captions manquantes, ou STYLE de caption incohérent avec le type de modèle
     (SDXL booru-native attend des tags booru ; Z-Image attend de la prose). Le
     `train_type` effectif est passé par l'appelant car il n'est persisté qu'APRÈS
-    cet appel. `allow_caption_mismatch=True` = override explicite (bouton « forcer »)."""
+    cet appel. `allow_caption_mismatch=True` = override explicite (bouton « forcer »).
+    `allow_uncaptioned=True` = confirm explicite « train anyway » : les captions
+    manquantes ne sont plus un mur, juste un « êtes-vous sûr ? » (demande
+    utilisateur — pouvoir expérimenter), le préfixe UNCAPTIONED: déclenche le
+    confirm côté front comme MISMATCH_CAPTION:."""
     kept = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     if kept < 10:
         raise ValueError(f"not enough kept images ({kept}/10)")
@@ -2329,8 +2339,11 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False) 
     # (un style SDXL captionné en prose = même mismatch qu'un character).
     style = fds.is_style(ds_)
     missing = kept_uncaptioned_count(dataset_id)
-    if missing and not style:
-        raise ValueError(f"{missing} kept image(s) without caption - add captions first")
+    if missing and not style and not allow_uncaptioned:
+        raise ValueError(
+            f"UNCAPTIONED: {missing} kept image(s) have no caption. Captions are "
+            "strongly recommended — whatever a caption does NOT explain binds to "
+            "the trigger — but you can train without them.")
     if allow_caption_mismatch:
         return
     # Garde-fou style ↔ type : un LoRA SDXL entraîné sur des captions PROSE = mismatch
@@ -2549,7 +2562,7 @@ def _save_queue(q: list) -> None:
 def enqueue_training(user_id, dataset_id, extra_steps=None,
                      base_model=_PERSISTED, variant=None, train_type=None,
                      allow_caption_mismatch=False, not_before=None, masked=True,
-                     steps=None) -> dict:
+                     steps=None, allow_uncaptioned=False) -> dict:
     """Ajoute un dataset à la file (lancé à la fin du training courant).
 
     `base_model`/`variant` permettent de CHOISIR explicitement la base du job en
@@ -2566,7 +2579,9 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
         raise ValueError('dataset not found')
     # Pas de mise en file si le dataset n'est pas prêt (captions manquantes, etc.).
     if extra_steps is None:
-        assert_trainable(dataset_id, train_type=train_type, allow_caption_mismatch=allow_caption_mismatch)
+        assert_trainable(dataset_id, train_type=train_type,
+                         allow_caption_mismatch=allow_caption_mismatch,
+                         allow_uncaptioned=allow_uncaptioned)
     if train_type is not None:
         ds.train_type = train_type
         fds.db.session.commit()

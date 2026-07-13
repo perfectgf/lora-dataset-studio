@@ -83,6 +83,7 @@ def test_train_configured_forwards_kwargs(client, monkeypatch):
         'variant': 'turbo',
         'train_type': 'sdxl',
         'allow_caption_mismatch': True,
+        'allow_uncaptioned': False,   # absent du body → False (confirm non donné)
         'masked': False,
         'fresh': False,          # absent du body → False (resume historique)
     }

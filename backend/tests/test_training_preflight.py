@@ -224,9 +224,10 @@ def test_preflight_checks_and_verdict_mirror_findings(app, monkeypatch):
         assert all(c['status'] == 'ok' for c in r3['checks'])
 
 
-def test_preflight_uncaptioned_kept_is_fail_check_not_blocker(app, monkeypatch):
-    """Une gardée sans caption : fail dans `checks` (assert_trainable refusera le
-    launch) mais PAS de nouveau blocker — le flux modal existant est préservé."""
+def test_preflight_uncaptioned_kept_is_warning_not_blocker(app, monkeypatch):
+    """Une gardée sans caption : WARN (plus un mur) — le launch demande un
+    confirm « train anyway » (UNCAPTIONED: dans assert_trainable) au lieu de
+    refuser. Demande utilisateur : pouvoir expérimenter sans captions."""
     from app.services import lora_training as lt
     from app import capabilities
     with app.app_context():
@@ -235,9 +236,23 @@ def test_preflight_uncaptioned_kept_is_fail_check_not_blocker(app, monkeypatch):
                  extra_rows=[{'filename': 'nocap.webp', 'status': 'keep', 'framing': 'body'}])
         r = lt.training_preflight(LOCAL_USER, ds.id)
     cap = next(c for c in r['checks'] if c['id'] == 'captioned')
-    assert cap['status'] == 'fail' and cap['target'] == 'gf-images' and '1/14' in cap['detail']
-    assert r['verdict'] == 'blocked'
-    assert r['blockers'] == []          # le launch, lui, refusera via assert_trainable
+    assert cap['status'] == 'warn' and cap['target'] == 'gf-images' and '1/14' in cap['detail']
+    assert r['verdict'] == 'warnings'
+    assert r['blockers'] == []
+    assert any('no caption' in w for w in r['warnings'])
+
+
+def test_assert_trainable_uncaptioned_is_confirmable(app):
+    """Le refus sans-caption porte le marqueur UNCAPTIONED: (déclencheur du
+    confirm côté front) et allow_uncaptioned=True le lève."""
+    import pytest
+    from app.services import lora_training as lt
+    with app.app_context():
+        ds = _mk(app, n_keep=13, framing='body',
+                 extra_rows=[{'filename': 'nocap.webp', 'status': 'keep', 'framing': 'body'}])
+        with pytest.raises(ValueError, match='^UNCAPTIONED:'):
+            lt.assert_trainable(ds.id)
+        lt.assert_trainable(ds.id, allow_uncaptioned=True)   # confirm → passe
 
 
 def test_preflight_route(client, app, monkeypatch):
