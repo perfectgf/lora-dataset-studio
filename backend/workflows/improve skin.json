@@ -220,7 +220,7 @@
         0
       ]
     },
-    "class_type": "easy int",
+    "class_type": "PrimitiveInt",
     "_meta": {
       "title": "Width"
     }
@@ -232,7 +232,7 @@
         1
       ]
     },
-    "class_type": "easy int",
+    "class_type": "PrimitiveInt",
     "_meta": {
       "title": "Height"
     }
