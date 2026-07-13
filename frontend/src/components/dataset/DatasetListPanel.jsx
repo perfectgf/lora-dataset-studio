@@ -204,7 +204,13 @@ function NewDatasetForm({ onCreate, onRestore, onClose }) {
   // PAS de trigger dans la config d'entraînement (champ facultatif ici, il ne sert
   // qu'à nommer le run), pas de description à omettre, pas de fidélité visage.
   const style = kind === 'style';
-  const canCreate = name.trim() && (!concept || conceptDesc.trim());
+  // Mirrors the server rule EXACTLY (POST /api/dataset/create): name is always
+  // required; trigger_word is required for character/concept (it's the token
+  // that summons them) but NOT for style (the server auto-generates a
+  // zsty_<id> placeholder — no trigger to type, as the field above says).
+  // Without this, an empty-trigger character/concept create used to reach the
+  // server with the button enabled and 400 silently (no toast, no feedback).
+  const canCreate = name.trim() && (!concept || conceptDesc.trim()) && (style || trigger.trim());
   return (
     <div className="rounded-xl border border-border bg-surface p-3 flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">

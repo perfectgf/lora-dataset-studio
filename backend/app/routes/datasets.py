@@ -30,7 +30,14 @@ _PRESET_NAMES = ('balanced_25', 'zimage_12', 'balanced_multiformat',
 def dataset_create():
     data = request.get_json(silent=True) or {}
     name, trigger = (data.get('name') or '').strip(), (data.get('trigger_word') or '').strip()
-    if not name or not trigger:
+    # A style LoRA has no trigger — it tints every image once loaded, so there's
+    # nothing to type in a prompt (create_dataset() auto-generates a unique
+    # zsty_<id> placeholder for it). Character/concept datasets still need one:
+    # it's the token the user types to summon them. Without this kind check the
+    # blanket "trigger required" below rejected an empty-trigger style create
+    # even though the UI (and the service layer) advertise it as optional.
+    kind = svc.normalize_kind(data.get('kind'))
+    if not name or (not trigger and kind != 'style'):
         return jsonify({'error': 'name and trigger_word are required'}), 400
     try:
         ds = svc.create_dataset(LOCAL_USER, name, trigger, kind=data.get('kind'),

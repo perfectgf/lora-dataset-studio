@@ -45,3 +45,26 @@ def test_diagnostic_includes_log_tail(client, app, tmp_path, monkeypatch):
     (data_dir / 'app.log').write_text('line one\nline two\n', encoding='utf-8')
     j = client.get('/api/diagnostic').get_json()
     assert j['log_tail'][-1] == 'line two'
+
+
+def test_diagnostic_redacts_user_paths_in_log_tail(client, app):
+    """The log tail can legitimately cite absolute paths (e.g. "Checkpoint
+    model directories not found: C:\\Users\\somebody\\ComfyUI\\models") — but
+    this payload is pasted into a PUBLIC issue/Discord thread, so the Windows
+    account / Unix username must be redacted to `~` (Windows single- AND
+    double-backslash, plus the POSIX /home and /Users forms)."""
+    import os
+    from pathlib import Path
+    data_dir = Path(os.environ['LDS_DATA_DIR'])
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / 'app.log').write_text(
+        'Checkpoint model directories not found: C:\\Users\\somebody\\ComfyUI\\models\n'
+        'escaped form: C:\\\\Users\\\\somebody\\\\ComfyUI\\models\n'
+        'posix home: /home/somebody/x\n'
+        'posix mac: /Users/somebody/x\n',
+        encoding='utf-8')
+    r = client.get('/api/diagnostic')
+    body = r.get_data(as_text=True)
+    assert 'somebody' not in body
+    log_tail = r.get_json()['log_tail']
+    assert all('~' in line for line in log_tail)

@@ -598,7 +598,13 @@ export default function SetupPage() {
   )
 
   const skipLink = (
-    <Link to="/datasets" className="text-xs text-content-subtle underline hover:text-content">
+    // Defense in depth: also mark the onboarding redirect as "already fired" here,
+    // in the same sessionStorage key App.jsx's OnboardingRedirect guards on — so
+    // skipping never bounces straight back to #/setup even in an edge case where
+    // the guard effect hasn't run yet (e.g. this Link navigates before that effect
+    // re-fires with fresh caps).
+    <Link to="/datasets" onClick={() => sessionStorage.setItem('lds_setup_redirected', '1')}
+      className="text-xs text-content-subtle underline hover:text-content">
       Skip setup — I'll do it later
     </Link>
   )

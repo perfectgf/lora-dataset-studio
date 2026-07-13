@@ -262,13 +262,26 @@ function UpdateBanner() {
   )
 }
 
+// sessionStorage key shared with SetupPage's "Skip setup" link (defense in depth).
+const SETUP_REDIRECT_KEY = 'lds_setup_redirected'
+
 /** Onboarding: a never-configured backend (no config.json yet) sends the
- * user straight to Settings instead of a workspace with nothing wired up. */
+ * user straight to Settings instead of a workspace with nothing wired up.
+ * Fires AT MOST ONCE per browser session: `caps.configured` stays false for
+ * the whole session once the user skips setup (or just navigates away without
+ * finishing it), so re-running this on every render would bounce every later
+ * navigation — including "Skip setup" and a manual click on Settings — straight
+ * back to #/setup, trapping the user. The sessionStorage flag remembers that
+ * the redirect already happened; it dies with the tab, so a NEW tab (or next
+ * browser session) re-offers Setup once — fine; an in-session trap is not. */
 function OnboardingRedirect() {
   const { caps, loading } = useCapabilities()
   const navigate = useNavigate()
   useEffect(() => {
-    if (!loading && !caps.configured) navigate('/setup', { replace: true })
+    if (loading || caps.configured) return
+    if (sessionStorage.getItem(SETUP_REDIRECT_KEY)) return
+    sessionStorage.setItem(SETUP_REDIRECT_KEY, '1')
+    navigate('/setup', { replace: true })
   }, [loading, caps.configured, navigate])
   return null
 }

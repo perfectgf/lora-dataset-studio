@@ -29,6 +29,27 @@ def test_create_requires_name_and_trigger(client):
     assert resp.status_code == 400
 
 
+def test_create_character_requires_trigger(client):
+    """No kind (character, the default) still needs a trigger — it's the token
+    that summons the identity. A blank trigger with a filled name is still 400,
+    not a silent create (this is the exact shape the UI's Create button must
+    stay disabled for)."""
+    resp = client.post('/api/dataset/create', json={'name': 'Nolora', 'trigger_word': ''})
+    assert resp.status_code == 400
+
+
+def test_create_style_does_not_require_trigger(client):
+    """A style LoRA has no trigger (it tints every image once loaded) — the
+    service auto-generates a unique zsty_<id> placeholder for it, so the route
+    must NOT reject an empty trigger_word for kind='style'."""
+    resp = client.post('/api/dataset/create',
+                       json={'name': 'Inkwash', 'trigger_word': '', 'kind': 'style'})
+    assert resp.status_code == 200
+    ds_id = resp.get_json()['id']
+    full = client.get(f'/api/dataset/{ds_id}').get_json()
+    assert full['trigger_word'] == f'zsty_{ds_id}'
+
+
 def test_list_contains_created_dataset(client):
     created = _create(client).get_json()
     resp = client.get('/api/dataset/list')
