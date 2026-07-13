@@ -735,6 +735,10 @@ def _monitor(app, run_id):
                 if status == 'completed':
                     ok = _try_download_checkpoint(run, remote)
                     if not ok:
+                        # A host that cannot DELIVER its result (even through
+                        # the resume loop) is a bad host — skip it next time.
+                        _blacklist_host(_run_machine_id(run),
+                                        'could not serve the final checkpoint')
                         # LoRA > a few minutes of pod time: keep the pod for
                         # manual recovery; max-runtime/reconcile will reap it.
                         _set(run, status='error_pod_kept',
@@ -772,6 +776,11 @@ def _monitor(app, run_id):
                 _sleep(POLL_SECONDS)
         except Exception as e:
             logger.exception('cloud run %s failed', run_id)
+            # A pod that died mid-run is a HOST-quality signal (live
+            # 2026-07-13: a krea run lost at ~$0.93 when its pod went
+            # unreachable) — skip this machine for the next launches.
+            if 'unreachable' in str(e).lower():
+                _blacklist_host(_run_machine_id(run), 'pod died mid-run (unreachable)')
             _finish(run, 'error', detail='Run failed', error=str(e)[:500])
         finally:
             # This run's slot in the module maps is done with — drop it so

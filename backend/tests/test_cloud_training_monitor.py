@@ -207,6 +207,30 @@ def test_download_failure_keeps_pod(ct, app, client, monkeypatch):
         assert run.status == 'error_pod_kept'
         assert destroyed == []                      # pod intentionally kept
         assert run.base_url                          # surfaced for manual recovery
+        # a host that cannot DELIVER its result is a bad host — blacklisted
+        assert '43503' in ct._load_bad_hosts()
+
+
+def test_pod_unreachable_mid_run_blacklists_host(ct, app, client, monkeypatch):
+    """A pod dying mid-run (live 2026-07-13: a krea run lost at ~$0.93) is a
+    host-quality signal: the machine is blacklisted for the next launches."""
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=10_000)
+
+    def dead_get_job(job_id):
+        raise RuntimeError('connection refused')
+
+    remote.get_job = dead_get_job
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    clock = {'t': 0.0}
+    monkeypatch.setattr(ct, '_now', lambda: clock.__setitem__('t', clock['t'] + 120) or clock['t'])
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'error'
+        assert 'unreachable' in (run.error or '')
+        assert destroyed == ['777']                 # leak-safety unchanged
+        assert '43503' in ct._load_bad_hosts()
 
 
 def test_pod_never_ready_fails_and_destroys(ct, app, client, monkeypatch):
