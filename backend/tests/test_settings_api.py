@@ -289,6 +289,31 @@ def test_settings_runtime_includes_lan_ip(client):
     assert ip is None or (isinstance(ip, str) and not ip.startswith('127.'))
 
 
+def test_settings_runtime_includes_tailscale_ip(client):
+    """The Server card offers a Tailscale URL beside the LAN one as the phone's
+    off-perimeter path. It's a tailnet address (100.64.0.0/10) or None when the
+    tunnel is down — never a bare LAN IP masquerading as a tailnet address."""
+    from app.routes import settings as sroutes
+    runtime = client.get('/api/settings').get_json()['runtime']
+    assert 'tailscale_ip' in runtime
+    ip = runtime['tailscale_ip']
+    assert ip is None or sroutes._is_cgnat(ip)
+
+
+def test_is_cgnat_classifies_tailscale_range():
+    """Only 100.64.0.0/10 (Tailscale's CGNAT block) counts — a real LAN IP or a
+    100.x address outside the block must not be mistaken for a tailnet address."""
+    from app.routes import settings as sroutes
+    assert sroutes._is_cgnat('100.87.119.32') is True     # in-block (real tailnet IP)
+    assert sroutes._is_cgnat('100.64.0.1') is True        # lower edge
+    assert sroutes._is_cgnat('100.127.255.254') is True   # upper edge
+    assert sroutes._is_cgnat('100.63.255.255') is False   # just below the block
+    assert sroutes._is_cgnat('100.128.0.1') is False      # just above the block
+    assert sroutes._is_cgnat('192.168.1.162') is False    # a real LAN IP
+    assert sroutes._is_cgnat('') is False
+    assert sroutes._is_cgnat(None) is False
+
+
 def test_settings_restart_triggers_schedule_restart(client, monkeypatch):
     from app.services import updater
     called = []

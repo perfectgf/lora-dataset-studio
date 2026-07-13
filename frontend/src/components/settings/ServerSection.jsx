@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { INPUT_CLASS, Card } from './primitives'
@@ -14,15 +15,29 @@ export default function ServerSection({ config, setField, runtime, handleSave })
   const toast = useToast()
   const [restarting, setRestarting] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [copiedUrl, setCopiedUrl] = useState(false)
+  const [copiedUrl, setCopiedUrl] = useState(null)   // which reach-URL was just copied (by key)
   const lan = !LOOPBACK_HOSTS.includes(config.server.host)
   const requireToken = !!config.server.require_token
   // Real LAN IPv4 of this machine (backend socket probe), so the remote-access
   // URL is copyable as-is instead of a <this-computer> placeholder. null when the
   // backend couldn't determine it (offline / loopback-only) -> keep the placeholder.
   const lanIp = runtime.lan_ip || null
+  const tsIp = runtime.tailscale_ip || null
   const knownRuntime = runtime.host != null && runtime.port != null
   const dirty = knownRuntime && (runtime.host !== config.server.host || runtime.port !== config.server.port)
+
+  // The exact URL(s) a phone should open. Token is appended ONLY when the token
+  // gate is on (a tokenless URL would 403); when it's on but no token exists yet,
+  // reachUrls stays empty and the card asks the user to generate one first.
+  const port = config.server.port
+  const token = requireToken ? (config.server.access_token || '') : ''
+  const tokenReady = !requireToken || !!token
+  const tokenQS = token ? `?token=${token}` : ''
+  const reachUrls = tokenReady ? [
+    lanIp && { key: 'lan', label: 'Same Wi-Fi / LAN', url: `http://${lanIp}:${port}/${tokenQS}` },
+    tsIp && { key: 'ts', label: 'From anywhere · Tailscale', url: `http://${tsIp}:${port}/${tokenQS}` },
+  ].filter(Boolean) : []
+  const qrUrl = reachUrls[0]?.url || null
 
   const waitForHealthAndReload = async () => {
     for (let i = 0; i < 120; i += 1) {
@@ -64,11 +79,11 @@ export default function ServerSection({ config, setField, runtime, handleSave })
     } catch { /* clipboard unavailable (non-HTTPS remote origin) — token stays selectable */ }
   }
 
-  const copyUrl = async (url) => {
+  const copyUrl = async (key, url) => {
     try {
       await navigator.clipboard.writeText(url)
-      setCopiedUrl(true)
-      setTimeout(() => setCopiedUrl(false), 1500)
+      setCopiedUrl(key)
+      setTimeout(() => setCopiedUrl(null), 1500)
     } catch { /* clipboard unavailable (non-HTTPS remote origin) — URL stays selectable */ }
   }
 
@@ -122,7 +137,7 @@ export default function ServerSection({ config, setField, runtime, handleSave })
             </button>
           </div>
 
-          {requireToken ? (
+          {requireToken && (
             <div>
               <div className="flex items-center justify-between">
                 <label htmlFor="server-token" className="block text-sm font-medium text-content">Access token</label>
@@ -132,8 +147,8 @@ export default function ServerSection({ config, setField, runtime, handleSave })
                 </button>
               </div>
               <p className="mb-1 text-xs text-content-muted">
-                Remote devices present this once (via the URL below) — a signed session cookie
-                takes over from there. Requests from this computer never need it.
+                Remote devices present this once (baked into the link below) — a signed session
+                cookie takes over from there. Requests from this computer never need it.
               </p>
               <div className="flex gap-2">
                 <input id="server-token" type="text" readOnly
@@ -146,43 +161,52 @@ export default function ServerSection({ config, setField, runtime, handleSave })
                   </button>
                 )}
               </div>
-              {config.server.access_token && (
-                lanIp ? (
-                  <div className="mt-1 flex items-start gap-2">
-                    <p className="break-all text-xs text-content-subtle">
-                      From another device: <code className="text-content">http://{lanIp}:{config.server.port}/?token={config.server.access_token}</code>
-                    </p>
-                    <button type="button"
-                      onClick={() => copyUrl(`http://${lanIp}:${config.server.port}/?token=${config.server.access_token}`)}
-                      className="shrink-0 rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium text-content hover:bg-surface-raised">
-                      {copiedUrl ? 'Copied ✓' : 'Copy'}
-                    </button>
-                  </div>
-                ) : (
-                  <p className="mt-1 break-all text-xs text-content-subtle">
-                    From another device: <code className="text-content">http://&lt;this-computer&gt;:{config.server.port}/?token={config.server.access_token}</code>
-                  </p>
-                )
-              )}
             </div>
-          ) : (
-            lanIp ? (
-              <div className="flex items-start gap-2">
-                <p className="break-all text-xs text-content-subtle">
-                  From another device: <code className="text-content">http://{lanIp}:{config.server.port}/</code>
-                </p>
-                <button type="button" onClick={() => copyUrl(`http://${lanIp}:${config.server.port}/`)}
-                  className="shrink-0 rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium text-content hover:bg-surface-raised">
-                  {copiedUrl ? 'Copied ✓' : 'Copy'}
-                </button>
-              </div>
-            ) : (
-              <p className="break-all text-xs text-content-subtle">
-                From another device: <code className="text-content">http://&lt;this-computer&gt;:{config.server.port}/</code>
-                <span className="text-content-muted"> — replace &lt;this-computer&gt; with this machine's LAN IP (e.g. 192.168.1.148).</span>
-              </p>
-            )
           )}
+
+          {/* Open it on your phone: scannable QR + copyable URLs, detected from
+              the machine's real addresses — no more guessing which IP/port. */}
+          <div className="rounded-lg border border-border bg-surface-raised px-3 py-3">
+            <p className="text-sm font-medium text-content">Open it on your phone</p>
+            {reachUrls.length > 0 ? (
+              <div className="mt-2 flex items-start gap-4">
+                {qrUrl && (
+                  <div className="shrink-0 rounded-md bg-white p-2" title={qrUrl}>
+                    <QRCodeSVG value={qrUrl} size={128} level="M" marginSize={2} />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1 space-y-2">
+                  <p className="text-xs text-content-muted">
+                    Point your phone camera at the code — or open a link below. The LAN link
+                    needs the phone on the same Wi-Fi; the Tailscale link works from anywhere.
+                  </p>
+                  {reachUrls.map((u) => (
+                    <div key={u.key} className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] uppercase tracking-wide text-content-subtle">{u.label}</p>
+                        <code className="block truncate text-xs text-content">{u.url}</code>
+                      </div>
+                      <button type="button" onClick={() => copyUrl(u.key, u.url)}
+                        className="shrink-0 rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium text-content hover:bg-surface-raised">
+                        {copiedUrl === u.key ? 'Copied ✓' : 'Copy'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : requireToken && !token ? (
+              <p className="mt-1 text-xs text-content-subtle">
+                Turn the token on, then <span className="text-content">Generate new token</span> (or
+                Save &amp; restart) — the scannable link appears once a token exists.
+              </p>
+            ) : (
+              <p className="mt-1 break-all text-xs text-content-subtle">
+                Couldn’t detect this machine’s address. From another device open{' '}
+                <code className="text-content">http://&lt;this-computer&apos;s LAN IP&gt;:{port}/</code>{' '}
+                (find the IP by running <code className="text-content">ipconfig</code>).
+              </p>
+            )}
+          </div>
         </>
       )}
 

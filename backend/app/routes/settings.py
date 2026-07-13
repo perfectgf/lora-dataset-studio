@@ -40,6 +40,38 @@ def _lan_ip():
     return None if ip.startswith('127.') else ip
 
 
+def _is_cgnat(ip) -> bool:
+    """True for the 100.64.0.0/10 carrier-grade-NAT block that Tailscale draws
+    every node's address from — the reliable signature of a tailnet IP."""
+    try:
+        a, b = (int(x) for x in ip.split('.')[:2])
+    except (ValueError, AttributeError):
+        return False
+    return a == 100 and 64 <= b <= 127
+
+
+def _tailscale_ip():
+    """This host's Tailscale IPv4, or None when Tailscale isn't up. Same
+    UDP-connect probe as _lan_ip but aimed at Tailscale's service IP
+    (100.100.100.100): when the tunnel is up Tailscale owns the route for
+    100.64.0.0/10, so the OS picks the tailscale interface and getsockname()
+    reveals its address. With Tailscale down the probe falls through the default
+    route to the LAN IP, which is outside 100.64/10 and gets rejected — so this
+    is None exactly when there's no tailnet address to offer. A Tailscale URL is
+    the phone's bulletproof path: it sidesteps Wi-Fi client-isolation, a shifting
+    DHCP LAN IP, and works even off the home network."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('100.100.100.100', 80))   # selects the tailnet route; nothing is sent
+        ip = s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+    return ip if _is_cgnat(ip) else None
+
+
 def _settings_payload() -> dict:
     return {
         'config': cfg.load_config(), 'secrets': _secret_presence(),
@@ -52,7 +84,11 @@ def _settings_payload() -> dict:
                     # LAN IPv4 so the Server card can show a real, copyable
                     # http://<ip>:port/ URL instead of a <this-computer> placeholder;
                     # None (offline / loopback-only) -> the UI keeps the placeholder.
-                    'lan_ip': _lan_ip()},
+                    'lan_ip': _lan_ip(),
+                    # Tailscale IPv4 (100.64/10), or None when the tunnel is down.
+                    # Offered alongside the LAN URL as the phone's bulletproof path
+                    # (survives Wi-Fi client-isolation, a shifting DHCP IP, off-LAN).
+                    'tailscale_ip': _tailscale_ip()},
     }
 
 
