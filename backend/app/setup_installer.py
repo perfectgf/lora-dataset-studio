@@ -74,7 +74,7 @@ class Precondition(Exception):
 
 
 def _new_run():
-    return {'state': 'running', 'returncode': None, 'log': []}
+    return {'state': 'running', 'returncode': None, 'log': [], 'progress': None}
 
 
 def _append(action, line):
@@ -82,6 +82,20 @@ def _append(action, line):
     log.append(line.rstrip('\n'))
     if len(log) > _LOG_MAX:
         del log[:-_LOG_MAX]
+
+
+def _set_progress(action, done, total):
+    """Publish a live byte-progress snapshot for a streaming download, separate
+    from the text log (so a smooth % bar never spams the log). `total` may be 0
+    when the server sends no content-length -> pct is None (indeterminate)."""
+    run = _runs.get(action)
+    if run is None:
+        return
+    run['progress'] = {
+        'done': done,
+        'total': total,
+        'pct': (done * 100 // total) if total else None,
+    }
 
 
 def _quote(p: str) -> str:
@@ -116,9 +130,11 @@ def status(action) -> dict:
     run = _runs.get(action)
     cmd = manual_command(action)
     if run is None:
-        return {'state': 'idle', 'returncode': None, 'log': [], 'manual_command': cmd}
+        return {'state': 'idle', 'returncode': None, 'log': [], 'progress': None,
+                'manual_command': cmd}
     return {'state': run['state'], 'returncode': run['returncode'],
-            'log': list(run['log']), 'manual_command': cmd}
+            'log': list(run['log']), 'progress': run.get('progress'),
+            'manual_command': cmd}
 
 
 def start(action) -> dict:
@@ -266,13 +282,15 @@ def _run_klein_download(action) -> int:
             total = int(resp.headers.get('content-length') or 0)
             done = 0
             next_mark = 0
+            _set_progress(action, 0, total)   # show the bar from the first byte
             with open(part, 'wb') as fh:
                 for chunk in resp.iter_content(chunk_size=8 * 1024 * 1024):
                     if not chunk:
                         continue
                     fh.write(chunk)
                     done += len(chunk)
-                    if done >= next_mark:
+                    _set_progress(action, done, total)   # live % for the UI bar (every chunk)
+                    if done >= next_mark:                 # coarse milestone in the text log
                         pct = f' ({done * 100 // total}%)' if total else ''
                         _append(action, f'{done / 1e9:.2f} / {total / 1e9:.2f} GB{pct}')
                         next_mark = done + 512 * 1024 * 1024
