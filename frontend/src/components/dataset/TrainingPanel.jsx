@@ -712,8 +712,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
           {/* Model & training knobs — researched defaults (see the Research note),
               editable per dataset. Each carries a plain-English "why / how". */}
-          <div className="flex flex-col gap-2 rounded-lg border border-border bg-app/30 p-2.5">
-            <span className="text-content-muted text-[0.625rem] uppercase tracking-wide">Model &amp; training</span>
+          <div className="flex flex-col rounded-lg border border-border bg-app/30 p-2.5 divide-y divide-white/[0.07] [&>*]:py-2.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
+            <div className="flex items-center gap-1.5 text-indigo-300/80 text-[0.625rem] font-semibold uppercase tracking-wider">
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-indigo-400/60" /> Model &amp; training
+            </div>
 
             <div className="flex flex-col gap-0.5">
               <div className="flex items-center gap-2 flex-wrap">
@@ -808,12 +810,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
           {/* Expert — last-mile levers. Collapsed by default; every control defaults
               to the current behaviour, so a newcomer who never opens this is unaffected. */}
-          <details className="rounded-lg border border-border bg-app/30">
-            <summary className="cursor-pointer select-none px-2.5 py-2 text-content-muted text-[0.625rem] uppercase tracking-wide">
-              🔬 Expert — last-mile levers{' '}
-              <span className="text-content-subtle normal-case">alpha · dropout{advTimestepSupported ? ' · timestep' : ''}</span>
+          <details className="group rounded-lg border border-indigo-400/40 border-l-[3px] border-l-indigo-400 bg-indigo-500/[0.14] transition-colors hover:bg-indigo-500/20">
+            <summary className="flex items-center gap-2 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden px-2.5 py-2.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-indigo-100 hover:text-white">
+              <span aria-hidden className="text-indigo-300 transition-transform group-open:rotate-90">▸</span>
+              <span aria-hidden>🔬</span>
+              <span>Expert — last-mile levers</span>
+              <span className="ml-auto hidden sm:inline normal-case font-normal tracking-normal text-indigo-300/50">alpha · dropout{advTimestepSupported ? ' · timestep' : ''} · optimizer · schedule</span>
             </summary>
-            <div className="flex flex-col gap-3 px-2.5 pb-2.5">
+            <div className="flex flex-col px-2.5 pb-2.5 divide-y divide-indigo-400/10 [&>div]:py-2.5 [&>div:first-child]:pt-1 [&>div:last-child]:pb-0">
               {/* Decoupled alpha */}
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
