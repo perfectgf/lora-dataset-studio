@@ -534,8 +534,9 @@ def dataset_train_prepare_base(dataset_id):
 
 @bp.post('/dataset/<int:dataset_id>/train/open-folder')
 def dataset_train_open_folder(dataset_id):
-    """Ouvre le dossier des LoRA dans l'explorateur du poste (app locale) :
-    target 'loras' (import ComfyUI de la famille) ou 'run' (checkpoints du run).
+    """Ouvre un dossier dans l'explorateur du poste (app locale) : target 'loras'
+    (import ComfyUI de la famille), 'run' (checkpoints du run) ou 'dataset'
+    (images + captions .txt du dataset — pas de dépendance ai-toolkit).
     Chemins résolus serveur — le body ne transporte jamais de chemin."""
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404

@@ -495,7 +495,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
               <span aria-hidden className="ml-auto text-content-subtle">{showImages ? '▾' : '▸'}</span>
             </button>
             {showImages && (
-              <CaptionToolsBar images={images} trainType={d.train_type} onReplace={ds.replaceCaptions} busy={ds.busy} />
+              <CaptionToolsBar images={images} trainType={d.train_type} onReplace={ds.replaceCaptions}
+                onWriteFiles={ds.writeCaptionFiles} onOpenFolder={ds.openDatasetFolder} busy={ds.busy} />
             )}
             {showImages && (
               <DatasetGrid images={d.images} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}

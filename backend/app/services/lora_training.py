@@ -1355,9 +1355,11 @@ def _run_dir(user_id, dataset_id, base_model=_PERSISTED, family=None) -> str:
 def open_training_folder(user_id, dataset_id, target='loras', family=None,
                          base_model=_PERSISTED) -> str:
     """Ouvre dans l'explorateur de fichiers du POSTE (app locale mono-utilisateur,
-    le navigateur tourne sur la même machine) le dossier des LoRA :
+    le navigateur tourne sur la même machine) le dossier demandé :
     'loras' → dossier d'import ComfyUI de la famille (loras/krea, loras/sdxl,
-    loras/z image) ; 'run' → dossier de checkpoints du run courant (base+famille).
+    loras/z image) ; 'run' → dossier de checkpoints du run courant (base+famille) ;
+    'dataset' → dossier des images du dataset (data/datasets/<id>/ — où « 💾 Write
+    .txt files » dépose les captions sidecar ; aucune dépendance ai-toolkit).
     Cibles FIXES résolues côté serveur — le client n'envoie jamais de chemin.
     Crée le dossier au besoin (avant un premier import il n'existe pas encore).
     Retourne le chemin ouvert."""
@@ -1368,6 +1370,8 @@ def open_training_folder(user_id, dataset_id, target='loras', family=None,
         path = _run_dir(user_id, dataset_id, base_model, family)
     elif target == 'loras':
         path = _lora_dest_dir(ds, family)
+    elif target == 'dataset':
+        path = fds._dataset_dir(dataset_id)
     else:
         raise ValueError('unknown folder target')
     os.makedirs(path, exist_ok=True)

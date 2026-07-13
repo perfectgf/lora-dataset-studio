@@ -32,7 +32,9 @@ hide.
 7. **Caption** — one click captions the kept set (prose or booru tags,
    matched to the target model). The **identity-leak check** flags any caption
    that describes hair/face/skin — fix every flagged one. A find/replace +
-   tag-frequency panel sweeps the whole set at once.
+   tag-frequency panel sweeps the whole set at once; its **💾 Write .txt
+   files** button drops a kohya-style `<image>.txt` next to each kept image
+   in the dataset folder (same format as the export ZIP) for external tools.
 8. **Fix individual shots** — every generated tile has a ✏️ button: edit the
    exact prompt that made it and regenerate in place, without losing the rest.
 9. **Train** — the pre-flight check runs the full checklist (count, balance,

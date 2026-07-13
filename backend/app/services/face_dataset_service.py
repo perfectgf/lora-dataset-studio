@@ -2321,6 +2321,15 @@ _INFO = ("Trigger: {trigger}\nImages: {n}\nComposition: {comp}\n\n"
          "batch 1-2, save checkpoint every 500, caption dropout 0.05.\n")
 
 
+def _export_caption(ds, caption) -> str:
+    """The exact text a trainer reads for one image: the dataset trigger prepended
+    to the stored caption (captions are stored WITHOUT it — it's added at export).
+    Single source of truth shared by the ZIP export and write_caption_files, so
+    on-disk .txt sidecars always match what the ZIP would contain."""
+    cap = (caption or '').strip()
+    return f"{ds.trigger_word}, {cap}" if cap else ds.trigger_word
+
+
 def build_export_zip(user_id, dataset_id) -> bytes:
     """Training-ready ZIP in the PUBLIC-TOOL layout, not an app-internal format:
     one `10_<trigger>/` folder of `image.png` + same-stem `image.txt` caption
@@ -2362,10 +2371,37 @@ def build_export_zip(user_id, dataset_id) -> bytes:
             Image.open(path).convert('RGB').save(png, 'PNG')
             base = f"{folder}/{safe}_{n:03d}"
             zf.writestr(f"{base}.png", png.getvalue())
-            cap = (img.caption or '').strip()
-            zf.writestr(f"{base}.txt", f"{ds.trigger_word}, {cap}" if cap else ds.trigger_word)
+            zf.writestr(f"{base}.txt", _export_caption(ds, img.caption))
             if img.framing in comp:
                 comp[img.framing] += 1
         zf.writestr(f"{folder}/_dataset_info.md",
                     _INFO.format(trigger=ds.trigger_word, n=len(kept), comp=comp))
     return buf.getvalue()
+
+
+def write_caption_files(user_id, dataset_id) -> dict:
+    """Write a kohya/ai-toolkit-style `<image>.txt` sidecar NEXT TO each kept
+    captioned image in the dataset folder (data/datasets/<id>/) — same caption
+    text as the ZIP export (trigger prepended), for tools that read the folder
+    directly instead of downloading the ZIP. Overwrites existing .txt files
+    (it's a resync after re-captioning/edits); kept images without a caption are
+    counted, not written — they'd only get the bare trigger, better captioned
+    first. Returns {'ok', 'written', 'skipped_uncaptioned'}."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    kept = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
+            .order_by(FaceDatasetImage.id.asc()).all())
+    written = skipped_uncaptioned = 0
+    for img in kept:
+        if not img.filename or not os.path.exists(_img_path(img)):
+            continue                       # nothing on disk to sit next to
+        if not (img.caption or '').strip():
+            skipped_uncaptioned += 1
+            continue
+        stem = os.path.splitext(img.filename)[0]
+        with open(os.path.join(_dataset_dir(dataset_id), f'{stem}.txt'), 'w',
+                  encoding='utf-8') as fh:
+            fh.write(_export_caption(ds, img.caption))
+        written += 1
+    return {'ok': True, 'written': written, 'skipped_uncaptioned': skipped_uncaptioned}

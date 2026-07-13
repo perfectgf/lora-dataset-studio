@@ -160,6 +160,48 @@ def test_captions_replace_route(client, app):
     assert payload['images'][0]['caption'] == 'a blue dress'
 
 
+def test_captions_write_files_route(client, app):
+    """💾 Write .txt files: kohya-style same-stem sidecars next to the KEPT
+    captioned images only, trigger prepended like the export ZIP. Uncaptioned
+    kept images are counted as skipped (not written), rejects are ignored,
+    and a re-call after a caption edit overwrites the file (resync)."""
+    import os
+    ds_id = _create(client, 'Sidecar', 'sidetrig').get_json()['id']
+    with app.app_context():
+        from app.services import face_dataset_service as svc
+        from app.models import FaceDatasetImage
+        d = svc._dataset_dir(ds_id)
+        for name in ('a.webp', 'b.webp', 'c.webp'):
+            open(os.path.join(d, name), 'wb').write(_png_bytes())
+        rows = [FaceDatasetImage(dataset_id=ds_id, filename='a.webp', status='keep',
+                                 caption='a red dress'),
+                FaceDatasetImage(dataset_id=ds_id, filename='b.webp', status='keep',
+                                 caption=''),
+                FaceDatasetImage(dataset_id=ds_id, filename='c.webp', status='reject',
+                                 caption='rejected caption')]
+        svc.db.session.add_all(rows); svc.db.session.commit()
+        captioned_id = rows[0].id
+    assert client.post('/api/dataset/999999/captions/write-files').status_code == 404
+    resp = client.post(f'/api/dataset/{ds_id}/captions/write-files')
+    assert resp.status_code == 200
+    assert resp.get_json() == {'ok': True, 'written': 1, 'skipped_uncaptioned': 1}
+    with app.app_context():
+        from app.services import face_dataset_service as svc
+        d = svc._dataset_dir(ds_id)
+        with open(os.path.join(d, 'a.txt'), encoding='utf-8') as fh:
+            assert fh.read() == 'sidetrig, a red dress'
+        assert not os.path.exists(os.path.join(d, 'b.txt'))   # uncaptioned -> skipped
+        assert not os.path.exists(os.path.join(d, 'c.txt'))   # reject -> ignored
+    # Resync: edit the caption, call again -> same envelope, file overwritten.
+    client.post(f'/api/dataset/image/{captioned_id}/caption', json={'caption': 'a blue dress'})
+    resp2 = client.post(f'/api/dataset/{ds_id}/captions/write-files')
+    assert resp2.get_json() == {'ok': True, 'written': 1, 'skipped_uncaptioned': 1}
+    with app.app_context():
+        from app.services import face_dataset_service as svc
+        with open(os.path.join(svc._dataset_dir(ds_id), 'a.txt'), encoding='utf-8') as fh:
+            assert fh.read() == 'sidetrig, a blue dress'
+
+
 def test_variations_catalog(client):
     resp = client.get('/api/dataset/variations')
     assert resp.status_code == 200

@@ -5,8 +5,11 @@ import { useMemo, useState } from 'react';
    from the payload the workspace already polls (captions split on commas) —
    it's mainly useful for booru tags (SDXL), where one stray recurring tag
    pollutes the whole training. Clicking a tag pre-fills "find" in tag mode;
-   leaving "replace" empty removes the tag cleanly (no dangling commas). */
-export default function CaptionToolsBar({ images, trainType, onReplace, busy }) {
+   leaving "replace" empty removes the tag cleanly (no dangling commas).
+   Also hosts 💾 Write .txt files (kohya-style sidecar captions written next to
+   the images on disk, same text as the export ZIP) + 📂 open that folder. */
+export default function CaptionToolsBar({ images, trainType, onReplace, onWriteFiles,
+                                          onOpenFolder, busy }) {
   const [open, setOpen] = useState(false);
   const [find, setFind] = useState('');
   const [replace, setReplace] = useState('');
@@ -94,6 +97,32 @@ export default function CaptionToolsBar({ images, trainType, onReplace, busy }) 
                   {tag} <span className="text-content-subtle">×{n}</span>
                 </button>
               ))}
+              </div>
+            </div>
+          )}
+          {/* Sidecar caption files: some people train with external tools that
+              read <image>.txt next to each image (kohya / ai-toolkit convention)
+              straight from the dataset folder — no ZIP download needed. */}
+          {onWriteFiles && (
+            <div className="flex flex-col gap-1">
+              <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Caption files on disk</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button type="button" onClick={onWriteFiles} disabled={busy}
+                  title="Writes <image>.txt next to each kept image in the dataset folder — same format as the ZIP export, for external tools"
+                  className="px-3 py-1 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold disabled:opacity-40 hover:bg-surface">
+                  💾 Write .txt files
+                </button>
+                {onOpenFolder && (
+                  <button type="button" onClick={onOpenFolder}
+                    title="Open the dataset folder in the file explorer"
+                    aria-label="Open the dataset folder"
+                    className="px-2 py-1 rounded-lg bg-surface-raised border border-border text-content text-xs hover:bg-surface">
+                    📂
+                  </button>
+                )}
+                <span className="text-content-subtle text-[0.6875rem]">
+                  kohya-style sidecar captions, trigger included — overwrites existing .txt
+                </span>
               </div>
             </div>
           )}

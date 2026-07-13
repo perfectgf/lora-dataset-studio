@@ -552,6 +552,21 @@ def dataset_captions_replace(dataset_id):
     return jsonify({'ok': True, 'changed': n})
 
 
+@bp.post('/dataset/<int:dataset_id>/captions/write-files')
+def dataset_captions_write_files(dataset_id):
+    """Write kohya-style same-stem .txt captions NEXT TO the kept images in the
+    dataset folder (same text as the export ZIP: trigger prepended) — for
+    external tools that read the folder directly, no ZIP download needed.
+    Overwrites existing .txt files (resync)."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        res = svc.write_caption_files(LOCAL_USER, dataset_id)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify(res)
+
+
 @bp.post('/dataset/<int:dataset_id>/images/batch')
 def dataset_images_batch(dataset_id):
     """Multi-select curation: apply one action to many images in one request.

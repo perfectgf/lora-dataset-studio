@@ -405,6 +405,23 @@ export function useDataset() {
     return d.changed;
   }, [currentId, refresh, toast]);
 
+  // Write kohya-style same-stem .txt captions next to the kept images in the
+  // dataset folder (same text as the export ZIP) — for external tools that read
+  // the folder directly instead of downloading the ZIP.
+  const writeCaptionFiles = useCallback(async () => {
+    const d = await postJson(`/api/dataset/${currentId}/captions/write-files`);
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+    toast.success(`${d.written} caption file(s) written`
+      + (d.skipped_uncaptioned ? ` · ${d.skipped_uncaptioned} uncaptioned skipped` : ''));
+  }, [currentId, toast]);
+
+  // Open the dataset folder (images + .txt sidecars) in the OS file explorer —
+  // same server-resolved open-folder route as the training panel's 📂 buttons.
+  const openDatasetFolder = useCallback(async () => {
+    const d = await postJson(`/api/dataset/${currentId}/train/open-folder`, { target: 'dataset' });
+    if (!d.ok) toast.error(d.error || 'Unexpected error');
+  }, [currentId, toast]);
+
   // Multi-select curation: one request for the whole selection (grid checkboxes
   // + auto-triage). action: keep|reject|pending|delete|clear_caption.
   const batchImages = useCallback(async (ids, action, { silent = false } = {}) => {
@@ -609,7 +626,7 @@ export function useDataset() {
   return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
-           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, cancelPending, regenerate, analyzing, analyzeFaces,
+           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzing, analyzeFaces,
            purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };
