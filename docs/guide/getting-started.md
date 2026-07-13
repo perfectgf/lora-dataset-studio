@@ -63,9 +63,13 @@ you immediately whether the app can see it.
 
 ## Around the app
 
-- **Datasets** — the home tab: create a dataset and work it through the guided
+- **Datasets** — the home tab and your **library**: photo tiles of every
+  dataset, grouped by model family, with a search box and a badge for each
+  family you've already trained. Create one and work it through the guided
   flow (source → curate → caption → train).
-- **Cloud** — monitor cloud GPU training runs (appears once a vast.ai key is set).
+- **🏋️ Runs** — every training in one place, cloud *and* local: live progress,
+  the settings each launch used, retry a failed run (↻), continue a finished
+  one (▶), and download the LoRA (appears once ai-toolkit or a vast.ai key is set).
 - **Test Studio** — grid-test a trained LoRA across checkpoints and strengths,
   vote, and rank (appears once ComfyUI is reachable).
 - **Guide** — this manual.

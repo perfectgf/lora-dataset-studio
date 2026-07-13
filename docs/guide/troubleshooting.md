@@ -54,6 +54,19 @@ design.
 folder for new files if you want proof of life. The cloud runs page has a
 stall watchdog that kills genuinely stuck runs.
 
+## ai-toolkit isn't detected (conda / uv / no venv)
+
+**Why:** the app auto-detects ai-toolkit's Python from a `venv/` or `.venv/`
+folder next to its `run.py`. Installs that use conda, uv or the system Python
+have no such folder, so the Test button can't find an interpreter — training
+and JoyCaption stay hidden.
+
+**Fix:** in **Settings → Local tools → ai-toolkit**, keep the directory pointing
+at the ai-toolkit folder and fill the optional **Python interpreter** field with
+the full path to the python that has ai-toolkit's dependencies (e.g.
+`C:\miniconda3\envs\aitk\python.exe`), then hit **Test**. ComfyUI Desktop installs
+are recognized automatically — no extra step.
+
 ## Reddit scan says "rate limiting requests, retry in Ns" (429)
 
 **Why:** out of the box, Reddit scans authenticate with a **public client id

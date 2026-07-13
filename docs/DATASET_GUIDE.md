@@ -101,6 +101,9 @@ very thing you're training).
 
 The defaults below are the app's defaults (post-research). Change them from
 ⚙️ Advanced options on the training panel — each knob has its own why/how there.
+That panel also has a **Presets** row: apply a shipped ★ recipe (*Krea
+character*, *Concept*, *Style*), or save your tuned settings as a named preset to
+reuse across datasets and share (import/export as JSON).
 
 | Setting | Z-Image | SDXL | Krea 2 | FLUX.1 | FLUX.2 Klein | Why |
 |---|---|---|---|---|---|---|
@@ -166,7 +169,7 @@ The app runs these checks when you hit Train — here's the list to self-check e
 
 - [ ] At least the family minimum kept (12 Z-Image / 20 SDXL / 15 Krea / 15 FLUX.1 / 15 FLUX.2 Klein) — 20–30 is the comfort zone
 - [ ] Framing balanced — not 100% face shots (some bust/body/back)
-- [ ] Every kept image captioned
+- [ ] Every kept image captioned *(strongly recommended — a blank caption won't block the launch, it just asks you to confirm "train anyway")*
 - [ ] **Zero identity leaks** (no hair/face/skin words — the leak badge shows 0)
 - [ ] Captions varied, ≥ 8 words, style matches the family (prose vs booru)
 - [ ] Near-duplicate pairs resolved (keep one of each)

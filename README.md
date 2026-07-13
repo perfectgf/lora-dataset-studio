@@ -116,6 +116,8 @@ What it does on your behalf:
 - **Dead-link hygiene** — source links whose thumbnails fail to load are hidden from the grid, so you only ever pick live images.
 - **Sensible guidance baked in** — the panel nudges you toward 20–50 varied images, at most ~10 per gallery (one gallery ≈ one shoot), which is what actually trains well.
 
+Some sources take **optional credentials** in **Settings → Scraping & sources**: your own free **Reddit client ID** (the built-in shared one is rate-limited — a personal id gives you a private quota and clears the "retry in Ns" 429s) and a **Civitai API key** (Civitai scans return SFW results only without one). Everything works without them — they just lift per-source limits.
+
 The scraper can reach adult communities as well — this is an NSFW-capable tool — so use it only for material you have the right to train on. See [Legal & responsible use](#legal--responsible-use). The scraping extras (`gallery-dl`, `curl_cffi`, …) install with one click from the panel when they're missing.
 
 ### 3. The guided workspace
@@ -156,6 +158,9 @@ Click **Train** and ai-toolkit runs underneath — but you don't touch a config 
 - A **training queue** with scheduling, so runs line up instead of colliding on the GPU.
 - **Masked training** from **auto-generated rembg masks** — the app makes the masks and writes the `mask_path` config for you.
 - **Continue +N steps** to extend a run, and **auto-import** of the finished LoRA into ComfyUI's `models/loras/<family>` so it's ready to test immediately.
+- **Named presets** — save the whole ⚙️ Advanced panel as a named recipe, apply it to any dataset, and import/export it as a shareable JSON. Three recommended presets ship read-only (★): *Krea character*, *Concept*, and *Style*.
+- **Checkpoint housekeeping** — a **Saves kept** cap lets ai-toolkit trim older intermediate checkpoints during the run (default 4, so a long Krea run no longer piles up ~10 GB of snapshots), and everything the app deletes goes to an app-wide **Trash** (Settings → Maintenance) that you empty on your own terms.
+- **One place for every run** — a **🏋️ Runs** tab collects all training, cloud *and* local: live progress, the exact settings each launch used (and which dataset version, v1/v2/…, it trained on), **↻ Retry** a failed run on a fresh pod, **▶ Continue** a finished cloud run from its last checkpoint, and a one-click download of the resulting LoRA.
 - Model families: **Z-Image**, **SDXL**, **Krea 2**, **FLUX.1**, **FLUX.2 Klein** — each with its own base/variant presets.
 
 ### 9. Test Studio — pick the best checkpoint
@@ -224,6 +229,9 @@ ai-toolkit configuration as a local run, downloads the resulting
 - Supported families: **Z-Image, Krea and FLUX.2 Klein** (official Hugging Face
   bases; Klein 9B — 32-48 GB VRAM — is the cloud-first lane of its family).
   SDXL and custom converted bases require local training.
+- Manage it from the **🏋️ Runs** tab (top nav): retry a failed run (↻), continue
+  a finished run for more steps (▶), stop a run, and download the LoRA — cloud and
+  local runs listed side by side, each showing the exact settings it used.
 - Safety: pods are labeled `lds-<run-id>`; on every app start, orphaned pods
   are destroyed automatically. If the app is closed mid-run, the pod keeps
   training and the app resumes monitoring on restart.
@@ -300,10 +308,10 @@ None of these are bundled — each one is optional, installed separately, and th
 | Tool | Unlocks | Get it |
 |---|---|---|
 | [ai-toolkit](https://github.com/ostris/ai-toolkit) (Ostris) | LoRA **training**, JoyCaption **captioning** | Follow its README install (clone + its installer creates a `venv`) |
-| [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | **Klein** local generation, **Test Studio** | Windows portable build or git install; keep it running on `http://127.0.0.1:8188` |
+| [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | **Klein** local generation, **Test Studio** | Windows portable build, git install, or the ComfyUI Desktop app; keep it running on `http://127.0.0.1:8188` |
 | [Ollama](https://ollama.com) | Auto-captioning, framing auto-classify, head-crop | Install, then `ollama pull qwen3-vl:8b-instruct` (use the **-instruct** tag, not the Thinking one — or set your own vision model in Settings) |
 
-**ai-toolkit** — install it anywhere (e.g. `C:\ai-toolkit`), following [its own instructions](https://github.com/ostris/ai-toolkit#installation). This app expects the standard layout its installer produces: `<folder>/run.py` and `<folder>/venv/` (Scripts\python.exe on Windows, bin/python on Linux). Paste the folder path into **Settings → ai-toolkit directory** and hit Test — training and JoyCaption captioning appear once it's valid. Job configs, datasets, and outputs live under that same folder by default (overridable under "Advanced").
+**ai-toolkit** — install it anywhere (e.g. `C:\ai-toolkit`), following [its own instructions](https://github.com/ostris/ai-toolkit#installation). Paste the folder path into **Settings → Local tools → ai-toolkit directory** and hit Test — training and JoyCaption captioning appear once it's valid. The app looks for `<folder>/run.py` and auto-detects the interpreter from a `venv/` **or** `.venv/` next to it (Scripts\python.exe on Windows, bin/python on Linux). Installed with conda, uv, or system Python and have **no venv folder**? Leave the directory pointing at the ai-toolkit folder and fill the optional **Python interpreter** field with the full path to the python that has ai-toolkit's dependencies. Job configs, datasets, and outputs live under that same folder by default (overridable under "Advanced").
 
 **ComfyUI** — this app talks to a running ComfyUI over its HTTP API and scans its `models/` folders to list checkpoints and LoRAs. Set **Settings → ComfyUI API URL** (default `http://127.0.0.1:8188`) and **ComfyUI install directory** (the folder containing `models/`, `output/`, `input/`). Each family's base model goes in the layout its scanner expects:
 
@@ -351,6 +359,7 @@ Copy `config.example.json` to `config.json` (git-ignored) and adjust. Every key:
 |---|---|
 | `server.host` | Interface the Flask server binds to (default `127.0.0.1`, local-only). |
 | `server.port` | Port the server listens on (default `5000`). |
+| `server.require_token` | On a non-loopback bind, require remote clients to present an access token (default `false` — a trusted LAN needs none). Toggle and token also live in Settings → Server & access. |
 | `paths.dataset_images_root` | Where dataset images are stored. Empty string defaults to `<data dir>/datasets`. |
 | `comfyui.api_url` | Base URL of your ComfyUI instance (default `http://127.0.0.1:8188`). |
 | `comfyui.base_dir` | ComfyUI install directory, used to derive `output`/`input`/`models`/`loras` dirs if those aren't set explicitly. |
@@ -364,10 +373,11 @@ Copy `config.example.json` to `config.json` (git-ignored) and adjust. Every key:
 | `aitoolkit.datasets_dir` | Override for ai-toolkit's datasets folder (defaults to `<aitoolkit.dir>/datasets`). |
 | `aitoolkit.output_dir` | Override for ai-toolkit's output folder (defaults to `<aitoolkit.dir>/output`). |
 | `aitoolkit.hf_home` | Override for the Hugging Face cache directory ai-toolkit uses. |
+| `aitoolkit.python` | Full path to the Python interpreter to run ai-toolkit with. Empty = auto-detect a `venv/`/`.venv/` next to `run.py`; set it for conda/uv/system-Python installs that have no venv folder. |
 | `engines.default` | Default image-generation engine selected in the UI (`nanobanana`, `chatgpt`, or `klein`). |
 | `engines.enabled` | List of engines shown as options in the UI. |
 | `captioning.backend` | Caption backend: `auto` (prefer JoyCaption, fall back to Ollama), `joycaption`, `ollama`, or `none`. |
-| `training.default_family` | Default model family preselected for new training runs (`zimage`, `sdxl`, or `krea2`). |
+| `training.default_family` | Default model family preselected for new training runs (`zimage`, `sdxl`, `krea`, `flux`, or `flux2klein`). |
 | `face_scoring.python` | Python interpreter used to run the InsightFace subprocess (empty = current interpreter). |
 | `face_scoring.models_root` | Directory where InsightFace model weights are stored/downloaded. |
 | `face_scoring.green` | Similarity score threshold (0–1) above which an image is flagged "green" (strong match). |
@@ -382,7 +392,9 @@ A few environment variables override paths for advanced/containerized setups: `L
 
 ## Exposing the app beyond localhost
 
-The app has **no user accounts** — on `127.0.0.1` (the default) that's fine, but any other bind (e.g. `0.0.0.0` to reach the app from your phone) would hand the whole network your API keys, GPU and datasets. So when the bind is non-loopback, remote clients must present an **access token**: `run.py` generates one at boot (printed to the console with a ready-to-open URL) unless you set `LDS_ACCESS_TOKEN` yourself. Open `http://<machine>:<port>/?token=<token>` once from the remote device — a signed session cookie takes over from there. Requests from localhost never need the token. If your network is already locked down (VPN, authenticated reverse proxy), `LDS_ALLOW_UNAUTHENTICATED=1` disables the guard explicitly.
+The simplest path is the UI. **Settings → Server & access** has an *Available on the local network* toggle (flips the bind between `127.0.0.1` and `0.0.0.0`), an optional *Require an access token* switch (off by default — a home LAN is trusted), and an **Open it on your phone** card that shows a scannable **QR code** plus copyable URLs built from this machine's real LAN IP (and Tailscale IP, if present) — no guessing which address to type. Changing the port or the LAN toggle needs a restart; the card does it in one click.
+
+Under the hood: the app has **no user accounts**, so on `127.0.0.1` (the default) that's fine, but any other bind would hand the whole network your API keys, GPU and datasets. On a non-loopback bind you can require an **access token**: with the token gate on, `run.py` generates one at boot (printed to the console with a ready-to-open URL) unless you set `LDS_ACCESS_TOKEN` yourself. Open `http://<machine>:<port>/?token=<token>` once from the remote device — a signed session cookie takes over from there. Requests from localhost never need the token. If your network is already locked down (VPN, authenticated reverse proxy), `LDS_ALLOW_UNAUTHENTICATED=1` disables the guard explicitly.
 
 ## Known limitations
 

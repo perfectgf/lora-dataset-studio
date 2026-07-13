@@ -38,9 +38,16 @@ hide.
 8. **Fix individual shots** — every generated tile has a ✏️ button: edit the
    exact prompt that made it and regenerate in place, without losing the rest.
 9. **Train** — the pre-flight check runs the full checklist (count, balance,
-   captions, leaks, duplicates); fix what it flags, then launch. Steps are
-   computed automatically; ⚙️ Advanced options exposes the knobs, each with its
-   own explanation. No GPU? **☁️ Train in cloud** rents one per run.
+   captions, leaks, duplicates). It no longer *blocks*: leaking captions and
+   near-duplicates are editable right inside the confirm, and missing captions
+   just ask you to **Start anyway** (captions stay strongly recommended). Steps
+   are computed automatically; ⚙️ Advanced options exposes every knob (each with
+   its own why/how) and a **Presets** row — apply a shipped ★ recipe (*Krea
+   character*, *Concept*, *Style*) or save/import/export your own as a JSON.
+   No GPU? **☁️ Train in cloud** rents one per run. Watch this run — and every
+   other, cloud or local — from the **🏋️ Runs** tab, where you can retry a
+   failed run (↻), continue a finished cloud run for more steps (▶), and download
+   the LoRA.
 10. **Pick the best checkpoint** — open the **Test Studio** from the dataset:
     grid-test checkpoint × strength, vote, rank by face similarity, and star ★
     the winning settings. The last checkpoint is almost never the best one.
@@ -64,7 +71,9 @@ the captioner needs to know exactly *what to omit*. What changes vs character:
   photo of each matched gallery instead, or paste a single `/galleries/…` URL
   to get that whole album. Sex.com works the same way for keyword searches
   (`sex.com/en/pics?search=…`) — every pin **is** a single matching image, so
-  there is no album option to worry about.
+  there is no album option to worry about. Civitai searches return **SFW
+  results only** unless you add a Civitai API key in **Settings → Scraping &
+  sources**.
 
   > **Reddit says "wait N seconds" (429)?** By default Reddit scans share a
   > public client id (and its ~1000 requests / 10 min quota) with many other
