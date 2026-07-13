@@ -126,7 +126,13 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
     # reconcile_orphans directly) so tests can no-op *this* call site without
     # also neutering tests that exercise reconcile_orphans() itself.
     from flask import current_app
-    _reconcile_before_launch(current_app._get_current_object())
+    # Fire-and-forget: reconcile_orphans never raises and reaping an expired
+    # pod does not need to finish before THIS launch — inline it cost the
+    # launch click a vast list_instances round-trip.
+    threading.Thread(
+        target=_reconcile_before_launch,
+        args=(current_app._get_current_object(),), daemon=True,
+        name='cloud-reconcile-prelaunch').start()
     if base_model:
         raise ValueError('Custom base models are local-only — cloud training '
                          'uses the official Hugging Face bases')
@@ -176,17 +182,15 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
     db.session.add(run)
     db.session.commit()
     try:
-        # Anything failing past this point (export, staging, thread start) must
-        # not strand the 'preparing' row forever — that would deadlock the
+        # Anything failing past this point (params, thread start) must not
+        # strand the 'preparing' row forever — that would deadlock the
         # single-active-run guard above. Flip it to 'error' and re-raise.
+        # NOTE: the heavy dataset EXPORT (rembg masks: ~1-2 s/image) happens in
+        # the MONITOR thread (_prepare_staging), not here — this call must
+        # return in well under a second or the launch dialog sits on
+        # 'Launching…' for a minute (user-observed).
         _set(run, vast_label=f'lds-{run.id}',
              job_name=f'lds{run.id}_{lt._run_name(ds, family=fam)}')
-
-        staging = _staging_root() / f'run_{run.id}'
-        dataset_dir = staging / 'dataset'
-        (staging / 'samples').mkdir(parents=True, exist_ok=True)
-        lt.export_dataset_to_aitoolkit(user_id, dataset_id, masked=masked,
-                                       dest_dir=str(dataset_dir))
         n_steps = int(steps) if steps else lt.default_steps(ds)
         # requested_gpu (from the launch-time speed picker) is a PREFERENCE, not
         # a lock: _provision re-searches live offers and rents the cheapest one
@@ -205,7 +209,7 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
             cloud_run_id=run.id)
         if rec is not None:
             params['version'] = rec.version
-        _set(run, staging_dir=str(staging), train_params=json.dumps(params))
+        _set(run, train_params=json.dumps(params))
         _stop_event_for(run.id).clear()
         _start_monitor(run.id)
     except Exception as e:
@@ -214,6 +218,23 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         raise
     return {'run_id': run.id, 'status': run.status,
             'job_name': run.job_name, 'steps': n_steps}
+
+
+def _prepare_staging(run):
+    """Heavy part of the launch, run from the MONITOR thread: staging dirs +
+    dataset export (rembg masks — ~1-2 s/image). No-op when staging already
+    exists (resume). A failure propagates to the monitor's generic error
+    handler (run flips to 'error', slot freed)."""
+    if run.staging_dir:
+        return
+    _set(run, phase_detail='Preparing dataset (masks)…')
+    params = json.loads(run.train_params or '{}')
+    staging = _staging_root() / f'run_{run.id}'
+    (staging / 'samples').mkdir(parents=True, exist_ok=True)
+    lt.export_dataset_to_aitoolkit('local', run.dataset_id,
+                                   masked=bool(params.get('masked', True)),
+                                   dest_dir=str(staging / 'dataset'))
+    _set(run, staging_dir=str(staging))
 
 
 def _register_instance(run, instance_id, offer, token):
@@ -585,6 +606,8 @@ def _monitor(app, run_id):
         cap_anchor = _now() - run_age
         boot_started = _now()
         try:
+            # -- heavy launch work, moved off the HTTP path (see launch) ----
+            _prepare_staging(run)
             # -- provision (if resuming, the instance may already exist) ----
             if not run.vast_instance_id:
                 _provision(run)
@@ -1186,6 +1209,55 @@ def cloud_checkpoints(dataset_id, train_type=None) -> list:
                     'active': run.status in ACTIVE_STATES,
                     'trained_at': run.created_at.isoformat() if run.created_at else None})
     return out
+
+
+def delete_cloud_checkpoint(dataset_id, run_id, filename) -> str:
+    """Move a cloud run's synced checkpoint to the trash. The run must belong
+    to the dataset and be TERMINAL (deleting an active run's save is pointless
+    — the sync re-downloads it). Clears checkpoint_local_path when it pointed
+    at the trashed file."""
+    run = CloudTrainingRun.query.get(int(run_id))
+    if not run or run.dataset_id != int(dataset_id) or not run.staging_dir:
+        raise ValueError('unknown cloud run')
+    if run.status in ACTIVE_STATES:
+        raise ValueError('this cloud run is still active — its save would just '
+                         'be re-synced; stop the run first')
+    allowed = {f for f in os.listdir(run.staging_dir)
+               if f.lower().endswith('.safetensors')}
+    if filename not in allowed:
+        raise ValueError('unknown checkpoint')
+    from . import trash
+    trash.send_to_trash(os.path.join(run.staging_dir, filename),
+                        context=f'cloudckpt_run{run.id}')
+    if run.checkpoint_local_path \
+            and os.path.basename(run.checkpoint_local_path) == filename:
+        _set(run, checkpoint_local_path=None)
+    return filename
+
+
+def purge_finished_runs() -> dict:
+    """Hub 'Clean finished runs': move the staging dirs of TERMINAL runs to the
+    trash — dataset copies, samples and checkpoint duplicates of results that
+    are already imported/mirrored. Active runs and error_pod_kept (manual
+    recovery may still be under way) are spared. DB rows stay (history)."""
+    from . import trash
+    purged = 0
+    freed = 0
+    for run in CloudTrainingRun.query.all():
+        if run.status in ACTIVE_STATES or run.status == 'error_pod_kept':
+            continue
+        sd = run.staging_dir
+        if not sd or not os.path.isdir(sd):
+            continue
+        try:
+            freed += lt._dir_size(sd)
+            trash.send_to_trash(sd, context=f'staging_run{run.id}')
+            purged += 1
+            if run.checkpoint_local_path:
+                _set(run, checkpoint_local_path=None)
+        except OSError as e:
+            logger.warning('purge: could not trash %s: %s', sd, e)
+    return {'purged_runs': purged, 'freed_bytes': freed}
 
 
 def cloud_progress(user_id, dataset_id, train_type=None) -> dict:

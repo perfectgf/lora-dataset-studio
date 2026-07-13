@@ -396,6 +396,17 @@ def _save_every(ds) -> int:
     return v if v in _SAVE_CHOICES else 250
 
 
+# Combien de saves intermédiaires ai-toolkit CONSERVE pendant le run (local et
+# cloud) : au-delà, il supprime les plus anciens lui-même. L'historique (10)
+# laissait s'accumuler ~10 Go de checkpoints par run Krea.
+_MAX_SAVES_CHOICES = (2, 3, 4, 6, 10)
+
+
+def _max_step_saves(ds) -> int:
+    v = _train_settings(ds).get('max_step_saves')
+    return v if v in _MAX_SAVES_CHOICES else 4
+
+
 # --- Prompts de preview (sample) -----------------------------------------------
 # ai-toolkit génère une image par prompt tous les `sample_every` steps pendant le
 # run (dossier .../samples), pour voir le LoRA converger. Les défauts historiques
@@ -525,6 +536,8 @@ def effective_train_settings(ds, family=None) -> dict:
             'grad_accum_choices': list(_GRAD_ACCUM_CHOICES),
             'resolution': res if res in _RES_CHOICES else '768,1024',
             'save_every': _save_every(ds),
+            'max_step_saves': _max_step_saves(ds),
+            'max_step_saves_choices': list(_MAX_SAVES_CHOICES),
             'sample_every': _sample_every(ds),
             # liste STOCKÉE brute (telle que tapée) ou [] → textarea vide = « défauts ».
             'sample_prompts': stored_prompts if isinstance(stored_prompts, list) else [],
@@ -562,6 +575,14 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
             cur['save_every'] = v
         else:
             raise ValueError(f'save_every must be one of {_SAVE_CHOICES}')
+    if 'max_step_saves' in patch:
+        v = patch['max_step_saves']
+        if v in (None, 'auto'):
+            cur.pop('max_step_saves', None)
+        elif v in _MAX_SAVES_CHOICES:
+            cur['max_step_saves'] = v
+        else:
+            raise ValueError(f'max_step_saves must be one of {_MAX_SAVES_CHOICES}')
     if 'sample_every' in patch:
         v = patch['sample_every']
         if v in _SAMPLE_EVERY_CHOICES:
@@ -888,7 +909,8 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
                 'device': 'cuda:0',
                 'trigger_word': trigger,
                 'network': _network_block(ds, _zrank, 'zimage'),
-                'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds),
+                         'max_step_saves_to_keep': _max_step_saves(ds)},
                 'datasets': [{
                     'folder_path': dataset_folder,
                     'caption_ext': 'txt',
@@ -972,7 +994,8 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=
                 'device': 'cuda:0',
                 'trigger_word': trigger,
                 'network': _network_block(ds, _krank, 'krea'),
-                'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds),
+                         'max_step_saves_to_keep': _max_step_saves(ds)},
                 'datasets': [{
                     'folder_path': dataset_folder,
                     'caption_ext': 'txt',
@@ -1048,7 +1071,8 @@ def _build_job_config_flux(ds, dataset_folder: str, steps: int, training_folder=
                 'device': 'cuda:0',
                 'trigger_word': trigger,
                 'network': _network_block(ds, _frank, 'flux'),
-                'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds),
+                         'max_step_saves_to_keep': _max_step_saves(ds)},
                 'datasets': [{
                     'folder_path': dataset_folder,
                     'caption_ext': 'txt',
@@ -1110,7 +1134,8 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int, training_folder=
                 'device': 'cuda:0',
                 'trigger_word': trigger,
                 'network': _network_block(ds, _srank, 'sdxl'),
-                'save': {'dtype': 'float16', 'save_every': _save_every(ds), 'max_step_saves_to_keep': 10},
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds),
+                         'max_step_saves_to_keep': _max_step_saves(ds)},
                 'datasets': [{
                     'folder_path': dataset_folder,
                     'caption_ext': 'txt',
@@ -1381,9 +1406,110 @@ def delete_imported_checkpoint(user_id, dataset_id, filename, family=None) -> st
     dest = os.path.abspath(os.path.join(loras_root, rel))
     if os.path.commonpath([dest, root]) != root or not os.path.isfile(dest):
         raise ValueError('file not found')
-    os.remove(dest)
-    logger.info(f'delete imported checkpoint {dest}')
+    # trash, never destroy: a wrong click on a deployed LoRA is recoverable
+    # until 'Empty trash' in Settings.
+    from . import trash
+    trash.send_to_trash(dest, context=f'lora_ds{dataset_id}')
+    logger.info(f'trashed imported checkpoint {dest}')
     return os.path.basename(dest)
+
+
+def _local_training_active_for(dataset_id) -> bool:
+    """True while THIS dataset trains locally — its run dir is being written
+    (deleting a checkpoint ai-toolkit is about to rewrite invites corruption)."""
+    try:
+        if not queue_manager._get_system_state('training_in_progress'):
+            return False
+        active_ds = queue_manager._get_system_state('training_dataset_id')
+        return active_ds is not None and int(active_ds) == int(dataset_id)
+    except Exception:
+        return False
+
+
+def delete_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED,
+                      family=None) -> str:
+    """Move ONE run-dir checkpoint to the trash. Whitelisted against
+    list_checkpoints (anti path-traversal), refused while this dataset trains
+    locally. Returns the trashed filename."""
+    if _local_training_active_for(dataset_id):
+        raise ValueError('this dataset is training right now — stop the run '
+                         'before deleting its checkpoints')
+    allowed = {c['filename'] for c in
+               list_checkpoints(user_id, dataset_id, base_model, family)}
+    if filename not in allowed:
+        raise ValueError('unknown checkpoint')
+    run_dir = _run_dir(user_id, dataset_id, base_model, family)
+    from . import trash
+    trash.send_to_trash(os.path.join(run_dir, filename),
+                        context=f'ckpt_ds{dataset_id}')
+    return filename
+
+
+def cleanup_checkpoints(user_id, dataset_id, keep, base_model=_PERSISTED,
+                        family=None) -> dict:
+    """'Clean up this run': trash every run-dir checkpoint NOT in `keep`
+    (typically the final + the best-epoch pick). Returns {'removed', 'kept'}."""
+    if _local_training_active_for(dataset_id):
+        raise ValueError('this dataset is training right now — stop the run '
+                         'before cleaning its checkpoints')
+    keep_set = {str(k) for k in (keep or [])}
+    run_dir = _run_dir(user_id, dataset_id, base_model, family)
+    from . import trash
+    removed = 0
+    for c in list_checkpoints(user_id, dataset_id, base_model, family):
+        if c['filename'] in keep_set:
+            continue
+        try:
+            trash.send_to_trash(os.path.join(run_dir, c['filename']),
+                                context=f'cleanup_ds{dataset_id}')
+            removed += 1
+        except OSError as e:
+            logger.warning('cleanup: could not trash %s: %s', c['filename'], e)
+    return {'removed': removed, 'kept': sorted(keep_set)}
+
+
+def _dir_size(path) -> int:
+    total = 0
+    for dirpath, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(dirpath, f))
+            except OSError:
+                pass
+    return total
+
+
+def dataset_disk_usage(user_id, dataset_id, base_model=_PERSISTED, family=None) -> dict:
+    """Where this dataset's training bytes live: the selected run dir, the
+    cloud staging dirs of its runs, and its deployed LoRA. Best-effort."""
+    out = {'run_dir_bytes': 0, 'cloud_staging_bytes': 0, 'deployed_bytes': 0}
+    try:
+        rd = _run_dir(user_id, dataset_id, base_model, family)
+        if os.path.isdir(rd):
+            out['run_dir_bytes'] = _dir_size(rd)
+    except Exception:
+        pass
+    try:
+        from ..models import CloudTrainingRun
+        for r in CloudTrainingRun.query.filter_by(dataset_id=dataset_id).all():
+            if r.staging_dir and os.path.isdir(r.staging_dir):
+                out['cloud_staging_bytes'] += _dir_size(r.staging_dir)
+    except Exception:
+        pass
+    try:
+        ds = fds.get_dataset(user_id, dataset_id)
+        root = _lora_dest_dir(ds, family)
+        for c in list_imported_checkpoints(user_id, dataset_id, family=family):
+            p = os.path.join(os.path.dirname(root),
+                             c['filename'].replace('\\', os.sep))
+            try:
+                out['deployed_bytes'] += os.path.getsize(p)
+            except OSError:
+                pass
+    except Exception:
+        pass
+    out['total_bytes'] = sum(v for k, v in out.items() if k.endswith('_bytes'))
+    return out
 
 
 def _trigger_boundary(name: str, prefix: str) -> bool:

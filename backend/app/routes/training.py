@@ -230,6 +230,7 @@ def dataset_train_checkpoints(dataset_id):
                     'recommended_steps': lt.recommended_steps(dataset_id),
                     'recommended_steps_info': lt.recommended_steps_info(dataset_id),
                     'imported': lt.list_imported_checkpoints(LOCAL_USER, dataset_id, family=fam),
+                    'disk_usage': lt.dataset_disk_usage(LOCAL_USER, dataset_id, **kw),
                     # provenance: latest registered dataset version vs the
                     # dataset's CURRENT state (drift warning in the panel)
                     'dataset_state': checkpoint_registry.dataset_state(
@@ -459,6 +460,60 @@ def dataset_train_checkpoint_delete(dataset_id):
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, 'removed': removed})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/run-checkpoint/delete')
+def dataset_train_run_checkpoint_delete(dataset_id):
+    """Move ONE RUN checkpoint to the trash — run-dir file, or a cloud run's
+    synced save when cloud_run_id is given (the deployed-LoRA delete above is
+    a separate route). Nothing is destroyed until 'Empty trash' in Settings."""
+    gate = _require_aitoolkit()
+    if gate and not capabilities.probe().get('cloud_training'):
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    body = request.get_json(silent=True) or {}
+    try:
+        if body.get('cloud_run_id'):
+            removed = ct.delete_cloud_checkpoint(dataset_id, body['cloud_run_id'],
+                                                 body.get('filename', ''))
+        else:
+            kw = {} if 'base_model' not in body else {'base_model': body.get('base_model')}
+            if body.get('train_type'):
+                kw['family'] = body.get('train_type')
+            removed = lt.delete_checkpoint(LOCAL_USER, dataset_id,
+                                           body.get('filename', ''), **kw)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'removed': removed})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/checkpoints/cleanup')
+def dataset_train_checkpoints_cleanup(dataset_id):
+    """'Clean up this run': trash every run-dir checkpoint NOT in keep_filenames
+    (typically final + best-epoch)."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    body = request.get_json(silent=True) or {}
+    kw = {} if 'base_model' not in body else {'base_model': body.get('base_model')}
+    if body.get('train_type'):
+        kw['family'] = body.get('train_type')
+    try:
+        res = lt.cleanup_checkpoints(LOCAL_USER, dataset_id,
+                                     body.get('keep_filenames') or [], **kw)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
+@bp.post('/dataset/train/cloud/purge')
+def dataset_train_cloud_purge():
+    """Trash the staging dirs of finished cloud runs (dataset copies, samples,
+    checkpoint duplicates already imported)."""
+    return jsonify({'ok': True, **ct.purge_finished_runs()})
 
 
 @bp.post('/dataset/<int:dataset_id>/train/import')

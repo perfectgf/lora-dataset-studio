@@ -203,6 +203,20 @@ def settings_restart():
     return jsonify({'ok': True, 'restarting': True})
 
 
+@bp.get('/trash')
+def trash_info():
+    """Trash size for the Settings card — everything the app 'deletes' lands
+    there; only 'Empty trash' below actually destroys bytes."""
+    from ..services import trash
+    return jsonify({'size_bytes': trash.trash_size()})
+
+
+@bp.post('/trash/empty')
+def trash_empty():
+    from ..services import trash
+    return jsonify({'ok': True, **trash.empty_trash()})
+
+
 def _log_tail_lines(n):
     """(file_name, last_n_lines) of the server log. Reads data/app.log (the
     app's own rotating log), falling back to data/server.log (the portable

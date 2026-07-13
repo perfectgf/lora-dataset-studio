@@ -349,17 +349,19 @@ def test_reconcile_keeps_multiple_actives_destroys_orphan(ct, app, monkeypatch):
         assert n == 1
 
 
-def test_launch_failure_frees_the_active_slot(ct, app, seeded_dataset, monkeypatch):
-    """A mid-launch failure (after the row is created) must not strand a
-    'preparing' row forever -- the run flips to 'error' so the single active
-    slot is freed for the next launch."""
+def test_export_failure_in_monitor_frees_the_active_slot(ct, app, seeded_dataset, monkeypatch):
+    """The dataset export now runs in the MONITOR thread (the launch click
+    must return fast — rembg masks cost ~1-2 s/image). An export failure must
+    not strand the 'preparing' row: the monitor flips it to 'error' so the
+    active slot is freed for the next launch."""
     monkeypatch.setattr(ct.lt, 'assert_trainable', lambda *a, **kw: None)
     monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 100)
     monkeypatch.setattr(ct.lt, 'export_dataset_to_aitoolkit',
                         lambda *a, **kw: (_ for _ in ()).throw(OSError('disk full')))
     with app.app_context():
-        with pytest.raises(OSError):
-            ct.launch_cloud_training('local', seeded_dataset)
+        res = ct.launch_cloud_training('local', seeded_dataset)   # returns fast
+        assert res['status'] == 'preparing'
+        ct._monitor(app, res['run_id'])                            # export blows here
         assert ct.get_active_run() is None        # slot freed
         run = ct.CloudTrainingRun.query.first()
         assert run.status == 'error' and 'disk full' in run.error
