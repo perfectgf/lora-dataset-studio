@@ -971,7 +971,16 @@ def _mirror_into_local_run(run):
         m = re.search(r'_(\d{6,})\.safetensors$', src_name)
         base = os.path.basename(os.path.normpath(run_dir))     # lora_<trigger>
         dest_name = f'{base}_{m.group(1)}.safetensors' if m else f'{base}.safetensors'
-        shutil.copy2(run.checkpoint_local_path, os.path.join(run_dir, dest_name))
+        dest = os.path.join(run_dir, dest_name)
+        if os.path.exists(dest):
+            # A LOCAL run of the same dataset+family already produced this
+            # exact name (the unsuffixed FINAL collides whenever both worlds
+            # completed a run) — never clobber local work. The cloud result
+            # stays available in staging, ComfyUI and the hub's ⬇ button.
+            logger.warning('local run dir already has %s — cloud mirror skipped '
+                           '(local checkpoint left untouched)', dest_name)
+            return
+        shutil.copy2(run.checkpoint_local_path, dest)
         logger.info('mirrored cloud checkpoint into local run dir: %s/%s',
                     run_dir, dest_name)
     except Exception as e:

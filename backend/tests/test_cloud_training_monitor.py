@@ -164,6 +164,24 @@ def test_done_run_mirrors_checkpoint_into_local_run_dir(ct, app, client, monkeyp
         assert (local_run / 'lora_lola_000000100.safetensors').is_file()
 
 
+def test_mirror_never_clobbers_an_existing_local_checkpoint(ct, app, client, monkeypatch, tmp_path):
+    """Cloud training on a dataset that ALSO trained locally: the mirror's
+    dest name can collide with the local run's files — local work must never
+    be overwritten (the cloud result stays in staging/ComfyUI/hub)."""
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=3)
+    local_run = tmp_path / 'ulocal_lola' / 'lora_lola'
+    local_run.mkdir(parents=True)
+    prior = local_run / 'lora_lola_000000100.safetensors'    # same step as pod's
+    prior.write_bytes(b'LOCAL-WEIGHTS')
+    monkeypatch.setattr(ct.lt, '_run_dir', lambda *a, **k: str(local_run))
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        assert ct.CloudTrainingRun.query.get(run_id).status == 'done'
+        assert prior.read_bytes() == b'LOCAL-WEIGHTS'        # untouched
+
+
 def test_stop_requested_stops_job_and_terminates(ct, app, client, monkeypatch):
     destroyed = []
     remote = FakeRemote(polls_to_complete=50)
