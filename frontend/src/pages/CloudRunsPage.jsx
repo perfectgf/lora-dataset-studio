@@ -156,6 +156,12 @@ export default function CloudRunsPage() {
                 <span className="rounded border border-border bg-surface px-1.5 py-0.5 text-content-muted text-[0.625rem] uppercase">
                   {famLabel(run.train_type)}
                 </span>
+                {run.version && (
+                  <span className="rounded border border-border bg-surface px-1.5 py-0.5 text-content-subtle text-[0.625rem]"
+                    title="Dataset version this run trains on">
+                    v{run.version}
+                  </span>
+                )}
                 <span className={`rounded border px-1.5 py-0.5 text-[0.625rem] ${statusStyle(run.status)}`}>
                   {run.status}
                 </span>
@@ -222,6 +228,9 @@ export default function CloudRunsPage() {
                   {run.dataset_name || run.run_name || `Dataset #${run.dataset_id}`}
                 </button>
                 <span className="text-content-subtle text-[0.625rem] uppercase">{famLabel(run.train_type)}</span>
+                {run.version && (
+                  <span className="text-content-subtle text-[0.625rem]" title="Dataset version">v{run.version}</span>
+                )}
                 <span className={`rounded border px-1.5 py-0.5 text-[0.625rem] ${statusStyle(run.status)}`}>
                   {run.status}
                 </span>

@@ -65,17 +65,21 @@ def get_active_run():
     return actives[0] if actives else None
 
 
-def _run_family(run):
-    """Family ('zimage'/'krea'/...) stamped in the run's train_params.
-    None when the params are absent or corrupted — a pre-feature row, or the
-    'preparing' window before launch stamps them."""
+def _run_param(run, key):
+    """One key of the run's train_params JSON. None when the params are absent
+    or corrupted — a pre-feature row, or the 'preparing' window before launch
+    stamps them. Valid-but-non-dict JSON ('"x"', '[1]', '3') must degrade to
+    None too, not AttributeError — one corrupt row would 500 cloud_status."""
     try:
         parsed = json.loads(run.train_params or '{}')
-        # Valid-but-non-dict JSON ('"x"', '[1]', '3') must degrade to None too,
-        # not AttributeError — one corrupt row would 500 cloud_status for all.
-        return parsed.get('train_type') if isinstance(parsed, dict) else None
+        return parsed.get(key) if isinstance(parsed, dict) else None
     except (ValueError, TypeError):
         return None
+
+
+def _run_family(run):
+    """Family ('zimage'/'krea'/...) stamped in the run's train_params."""
+    return _run_param(run, 'train_type')
 
 
 def latest_run_for(dataset_id, train_type=None):
@@ -192,6 +196,15 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                   'train_type': fam, 'masked': bool(masked)}
         if gpu_name:
             params['requested_gpu'] = str(gpu_name)
+        # Provenance registry (same as local launches): dataset version at
+        # launch time, stamped into the params so payloads can expose it.
+        from . import checkpoint_registry
+        rec = checkpoint_registry.register_launch(
+            user_id, dataset_id, family=fam, source='cloud',
+            variant=variant, masked=bool(masked), steps=n_steps,
+            cloud_run_id=run.id)
+        if rec is not None:
+            params['version'] = rec.version
         _set(run, staging_dir=str(staging), train_params=json.dumps(params))
         _stop_event_for(run.id).clear()
         _start_monitor(run.id)
@@ -946,7 +959,8 @@ def _import_result(run):
         lt.import_checkpoint('local', run.dataset_id,
                              os.path.basename(run.checkpoint_local_path),
                              family=params.get('train_type'),
-                             src_dir=run.staging_dir)
+                             src_dir=run.staging_dir,
+                             version=params.get('version'))
     except Exception as e:
         logger.warning('cloud import into ComfyUI failed: %s', e)
 
@@ -1032,6 +1046,7 @@ def _run_payload(run) -> dict:
             'cost_estimate': _cost_estimate(run), 'error': run.error,
             'checkpoint_ready': bool(run.checkpoint_local_path),
             'train_type': _run_family(run),
+            'version': _run_param(run, 'version'),
             'created_at': run.created_at.isoformat() if run.created_at else None,
             'finished_at': run.finished_at.isoformat() if run.finished_at else None}
 

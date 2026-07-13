@@ -1215,11 +1215,26 @@ def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None) ->
     if os.path.isfile(os.path.join(run, final_name)):
         last = out[-1]['step'] if out else 0
         out.append({'step': last, 'filename': final_name, 'final': True})
+    # Provenance annotation: which dataset VERSION most plausibly produced
+    # each file (newest registry record older than the file). Pre-feature
+    # datasets have no records -> no annotation, shape unchanged otherwise.
+    from . import checkpoint_registry
+    ds = fds.get_dataset(user_id, dataset_id)
+    fam = _train_type(ds, family) if ds else None
+    for c in out:
+        try:
+            rec = checkpoint_registry.record_for_mtime(
+                dataset_id, fam, os.path.getmtime(os.path.join(run, c['filename'])))
+        except OSError:
+            rec = None
+        if rec is not None:
+            c['version'] = rec.version
+            c['source'] = rec.source
     return out
 
 
 def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, family=None,
-                      src_dir=None) -> str:
+                      src_dir=None, version=None) -> str:
     """Copie le checkpoint choisi vers le dossier loras de ComfyUI : loras/z image/
     pour Z-Image, loras/sdxl/ pour SDXL, loras/krea/ pour Krea (routage par famille,
     pour ne pas polluer le Test Studio Z-Image). Anti path-traversal :
@@ -1268,11 +1283,25 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
     dest_dir = _lora_dest_dir(ds, family)
     os.makedirs(dest_dir, exist_ok=True)
     tag = _dest_base_tag(ds, base_model, family)
-    if tag:
-        stem, ext = os.path.splitext(filename)
-        dest_name = f'{stem}{tag}{ext}'
-    else:
-        dest_name = filename
+    # Dataset-version suffix (_v3): makes successive dataset states
+    # distinguishable in the ComfyUI/Test Studio dropdowns AND prevents a
+    # cloud/local re-run of a CHANGED dataset from silently overwriting the
+    # deployed LoRA of the previous version. `version` is passed explicitly by
+    # the cloud import (the run knows its version); local imports resolve the
+    # file's run via the provenance registry (file mtime vs launch times).
+    # No registry rows (pre-feature datasets) -> no suffix, names unchanged.
+    if version is None and not src_dir:
+        from . import checkpoint_registry
+        try:
+            mtime = os.path.getmtime(os.path.join(run_dir, filename))
+            rec = checkpoint_registry.record_for_mtime(
+                dataset_id, _train_type(ds, family), mtime)
+            version = rec.version if rec else None
+        except OSError:
+            version = None
+    stem, ext = os.path.splitext(filename)
+    suffix = f'{tag}' + (f'_v{int(version)}' if version else '')
+    dest_name = f'{stem}{suffix}{ext}' if suffix else filename
     dest = os.path.join(dest_dir, dest_name)
     shutil.copy2(os.path.join(run_dir, filename), dest)
     logger.info(f'import checkpoint {filename} -> {dest}')
@@ -1322,7 +1351,11 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
     for fn in sorted(os.listdir(dest_dir)):
         if not fn.lower().endswith('.safetensors'):
             continue
-        if not _trigger_boundary(fn, prefix) and fn not in cloud_names:
+        # deployed cloud names may carry the _v<N> dataset-version suffix —
+        # strip it before matching against the staging basenames
+        stem = re.sub(r'_v\d+(?=\.safetensors$)', '', fn)
+        if not _trigger_boundary(fn, prefix) \
+                and fn not in cloud_names and stem not in cloud_names:
             continue
         out.append({'filename': os.path.join(subfolder, fn),
                     'label': format_trained_lora_label(fn, fam) or fn})
@@ -1882,6 +1915,14 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # job-config passe en masked training (fond 10 %). OFF ou indispo = historique.
     dataset_folder = export_dataset_to_aitoolkit(user_id, dataset_id, masked=masked)
     config_path = write_job_config(ds, dataset_folder, steps=steps)
+    # Provenance registry: record WHICH dataset version this launch trains on
+    # (fingerprint + manifest -> human version v1/v2/...). Best-effort — a
+    # registry failure must never block a training launch.
+    from . import checkpoint_registry
+    checkpoint_registry.register_launch(
+        user_id, dataset_id, family=_train_type(ds), source='local',
+        base_model=base_model or '', variant=variant, masked=bool(masked),
+        steps=int(steps))
     # Pause GPU longue durée : le superviseur stoppe ComfyUI -> comfyui_ready=False
     # -> le dispatch worker se met en pause tout seul.
     queue_manager._set_system_state('training_error', None, ttl_seconds=1)  # reset crash précédent

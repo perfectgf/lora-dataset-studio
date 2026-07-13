@@ -208,10 +208,27 @@ def dataset_train_checkpoints(dataset_id):
     kw = {} if bm is None else {'base_model': bm}
     if fam:
         kw['family'] = fam
+    from ..models import CloudTrainingRun
+    from ..services import checkpoint_registry
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    fam_resolved = lt._train_type(ds, fam)
+    # Retrofit for datasets trained BEFORE the provenance registry existed:
+    # training evidence without records -> record the current state as the v1
+    # baseline, so versioning covers the past, not only future runs. Runs
+    # BEFORE list_checkpoints so the fresh baseline annotates this response.
+    had_training = (bool(lt.list_checkpoints(LOCAL_USER, dataset_id, **kw))
+                    or CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
+                       .first() is not None)
+    checkpoint_registry.ensure_baseline(LOCAL_USER, dataset_id, fam_resolved,
+                                        had_training)
     return jsonify({'checkpoints': lt.list_checkpoints(LOCAL_USER, dataset_id, **kw),
                     'recommended_steps': lt.recommended_steps(dataset_id),
                     'recommended_steps_info': lt.recommended_steps_info(dataset_id),
-                    'imported': lt.list_imported_checkpoints(LOCAL_USER, dataset_id, family=fam)})
+                    'imported': lt.list_imported_checkpoints(LOCAL_USER, dataset_id, family=fam),
+                    # provenance: latest registered dataset version vs the
+                    # dataset's CURRENT state (drift warning in the panel)
+                    'dataset_state': checkpoint_registry.dataset_state(
+                        LOCAL_USER, dataset_id, fam_resolved)})
 
 
 @bp.get('/dataset/<int:dataset_id>/train/progress')
