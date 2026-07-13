@@ -73,6 +73,29 @@ def test_apply_replaces_previous_settings(client, app):
         assert lt.snapshot_train_settings('local', ds_id) == {'rank': 16}
 
 
+def test_builtin_presets_listed_first_and_undeletable(client):
+    listed = client.get('/api/train/presets').get_json()['presets']
+    assert listed and listed[0]['id'] == 'builtin-krea-character'
+    assert listed[0]['builtin'] is True
+    # the delete route only matches integer ids — built-ins are unreachable
+    assert client.delete('/api/train/presets/builtin-krea-character').status_code == 404
+
+
+def test_every_builtin_applies_cleanly(client, app):
+    """The shipped presets must ALWAYS apply with zero ignored keys and zero
+    rejected values — this is the guard that catches a choice-list drifting
+    away from what the built-ins promise."""
+    from app.services.lora_training import BUILTIN_TRAIN_PRESETS
+    ds_id = _create_ds(client)
+    for preset in BUILTIN_TRAIN_PRESETS:
+        r = client.post(f'/api/dataset/{ds_id}/train/presets/apply',
+                        json={'settings': preset['settings']})
+        body = r.get_json()
+        assert body['ok'] is True, preset['id']
+        assert body['ignored'] == [], preset['id']
+        assert body['rejected'] == [], preset['id']
+
+
 def test_apply_by_preset_id_and_delete(client):
     ds_id = _create_ds(client)
     pid = client.post('/api/train/presets',

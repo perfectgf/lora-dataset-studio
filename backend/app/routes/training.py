@@ -418,9 +418,12 @@ def _preset_payload(p):
 
 @bp.get('/train/presets')
 def train_presets_list():
+    """Built-ins first (shipped with the app, read-only — the frontend applies
+    them by sending their settings, and hides delete), then the user's own."""
     from ..models import TrainingPreset
     rows = TrainingPreset.query.order_by(TrainingPreset.name).all()
-    return jsonify({'presets': [_preset_payload(p) for p in rows]})
+    return jsonify({'presets': [*lt.BUILTIN_TRAIN_PRESETS,
+                                *(_preset_payload(p) for p in rows)]})
 
 
 @bp.post('/train/presets')

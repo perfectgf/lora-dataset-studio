@@ -209,8 +209,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   };
   const applyPreset = async () => {
     if (!selPreset) return;
+    // Built-ins live in the code, not the DB — apply them by VALUE. Same
+    // validated path server-side either way.
     const d = await postTrain(`/api/dataset/${ds.currentId}/train/presets/apply`,
-      { preset_id: selPreset.id });
+      selPreset.builtin ? { settings: selPreset.settings } : { preset_id: selPreset.id });
     if (d.ok === false) return toastTrainError(d, 'Preset apply failed');
     setAdv(d.train_settings);
     const notes = [];
@@ -249,7 +251,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     }
   };
   const deletePreset = async () => {
-    if (!selPreset) return;
+    if (!selPreset || selPreset.builtin) return;   // built-ins ship with the app
     if (!window.confirm(`Delete the preset “${selPreset.name}”?`)) return;
     try {
       await fetch(`/api/train/presets/${selPreset.id}`, {
@@ -768,7 +770,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[220px]">
               <option value="">— pick a preset —</option>
               {presets.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} ({p.train_type})</option>
+                <option key={p.id} value={p.id}>
+                  {p.builtin ? '★ ' : ''}{p.name} ({p.train_type})
+                </option>
               ))}
             </select>
             <button type="button" onClick={applyPreset} disabled={!selPreset}
@@ -792,8 +796,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               className="px-2.5 py-1 rounded-lg bg-surface-raised border border-border text-content text-[0.75rem] disabled:opacity-40">
               ⬇ Export
             </button>
-            <button type="button" onClick={deletePreset} disabled={!selPreset}
-              title="Delete the selected preset"
+            <button type="button" onClick={deletePreset} disabled={!selPreset || selPreset.builtin}
+              title={selPreset?.builtin ? 'Built-in presets ship with the app and cannot be deleted' : 'Delete the selected preset'}
               className="px-2 py-1 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-[0.75rem] disabled:opacity-40">
               🗑
             </button>

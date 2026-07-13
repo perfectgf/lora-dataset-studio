@@ -673,6 +673,41 @@ TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
                       'timestep_type', 'optimizer', 'lr_scheduler', 'warmup',
                       'grad_accum')
 
+# Built-in presets: shipped with the app (every install sees them), read-only,
+# versioned with the code. The recommended character recipe: the researched
+# family defaults pinned explicitly, plus the checkpoint-SELECTION machinery —
+# a save + a probe preview at every 250 steps and no snapshot cap, because on
+# character sets the quality comes from picking the earliest checkpoint that
+# holds the identity, not from exotic hyper-parameters. Steps stay adaptive
+# (~120 × kept images). A test asserts every builtin applies with zero
+# ignored/rejected keys, so a drifting choice-list can't silently break them.
+BUILTIN_TRAIN_PRESETS = [
+    {
+        'id': 'builtin-krea-character',
+        'name': 'Krea character — recommended',
+        'train_type': 'krea',
+        'builtin': True,
+        'settings': {
+            'rank': 32,                    # Krea researched default (alpha derives = 32)
+            'resolution': '768,1024',      # multi-scale: close-up → full body
+            'save_every': 250,
+            'max_step_saves': 10,          # keep every snapshot — all sweet-spot candidates
+            'sample_every': 250,           # one probe sheet per checkpoint
+            'sample_prompts': [            # identity AND flexibility probes — overfit
+                                           # (waxy skin, frozen pose) shows here first
+                '{trigger}, close-up portrait, neutral expression, soft studio light',
+                '{trigger}, headshot, golden hour sunlight, slight smile',
+                '{trigger}, bust shot, profile view, window light',
+                '{trigger}, full body, walking outdoors in a park, casual jeans and t-shirt',
+                '{trigger}, full body, elegant evening dress, dim moody lighting',
+                '{trigger}, sitting at a cafe table, laughing, candid photo',
+                '{trigger}, sportswear, stretching in a gym, harsh fluorescent light',
+                '{trigger}, wide shot, standing on a beach at dusk, wind in hair',
+            ],
+        },
+    },
+]
+
 
 def snapshot_train_settings(user_id, dataset_id) -> dict:
     """The dataset's RAW explicit settings (what a preset captures) — only the
