@@ -350,6 +350,197 @@ def test_build_cell_workflow_krea_honors_local_base(app, monkeypatch):
         assert wf2['20']['inputs']['unet_name'] == 'Krea\\krea2_turbo_fp8.safetensors'
 
 
+def _configure_comfy(tmp_path, monkeypatch):
+    """A tmp ComfyUI base with an empty models/ tree; returns its path."""
+    from app import config
+    base = tmp_path / 'Comfy'
+    (base / 'models').mkdir(parents=True)
+    config.save_config({'comfyui': {'base_dir': str(base)}})
+    return base
+
+
+# --- P0-a: Studio preflight (model files on disk + custom nodes) --------------
+
+def test_preflight_family_flags_missing_model_file(app, tmp_path, monkeypatch):
+    """A VAE the built graph references but that's absent on disk → StudioAssetsMissing
+    listing it with its expected models/ path (the fresh-user Krea/SDXL silent-fail)."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        (base / 'models' / 'unet').mkdir(parents=True)
+        (base / 'models' / 'unet' / 'present.safetensors').touch()
+        # object_info: every node available → isolate the file check.
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: {'UNETLoader', 'VAELoader'})
+        wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}},
+              '2': {'class_type': 'VAELoader', 'inputs': {'vae_name': 'nope_vae.safetensors'}}}
+        with pytest.raises(lts.StudioAssetsMissing) as ei:
+            lts.preflight_family('zimage', [wf])
+        e = ei.value
+        assert e.family == 'zimage' and e.missing_nodes == []
+        assert any(f['path'] == 'models/vae/nope_vae.safetensors' and f['kind'] == 'VAE'
+                   for f in e.missing_files)
+        # The present UNET is NOT reported missing.
+        assert all('present.safetensors' not in f['path'] for f in e.missing_files)
+
+
+def test_preflight_family_flags_missing_custom_node_via_object_info(app, tmp_path, monkeypatch):
+    """A custom node the graph uses but that /object_info doesn't list → reported
+    as a missing node (compare class_type ⊄ available)."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        (base / 'models' / 'unet').mkdir(parents=True)
+        (base / 'models' / 'unet' / 'present.safetensors').touch()
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: {'UNETLoader'})  # no Krea2RebalanceConditioning
+        wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}},
+              '30': {'class_type': 'Krea2RebalanceConditioning', 'inputs': {}}}
+        with pytest.raises(lts.StudioAssetsMissing) as ei:
+            lts.preflight_family('krea', [wf])
+        assert ei.value.missing_nodes == ['Krea2RebalanceConditioning']
+        assert ei.value.missing_files == []
+
+
+def test_preflight_family_passes_when_everything_present(app, tmp_path, monkeypatch):
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        (base / 'models' / 'unet').mkdir(parents=True)
+        (base / 'models' / 'unet' / 'present.safetensors').touch()
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: {'UNETLoader'})
+        wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}}}
+        lts.preflight_family('zimage', [wf])  # no raise
+
+
+def test_preflight_object_info_unreachable_fails_open_on_nodes(app, tmp_path, monkeypatch):
+    """When /object_info can't be fetched (None), the node check is SKIPPED (fail-open)
+    — never block a launch on a transient probe failure; the per-tile error capture
+    (P0-b) still surfaces a genuinely-missing node at runtime."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        (base / 'models' / 'unet').mkdir(parents=True)
+        (base / 'models' / 'unet' / 'present.safetensors').touch()
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes', lambda *a, **k: None)
+        wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}},
+              '9': {'class_type': 'SomeMissingCustomNode', 'inputs': {}}}
+        lts.preflight_family('krea', [wf])  # file present + node check skipped → no raise
+
+
+def test_preflight_matches_folder_casing_insensitively(app, tmp_path, monkeypatch):
+    """The workflow templates carry 'Z image\\…' / 'Krea\\…' while the folders on
+    disk are 'z image' / 'krea' — the file check must resolve regardless of case."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        te_dir = base / 'models' / 'text_encoders' / 'z image'
+        te_dir.mkdir(parents=True)
+        (te_dir / 'qwen_3_4b.safetensors').touch()
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: {'CLIPLoader'})
+        wf = {'2': {'class_type': 'CLIPLoader',
+                    'inputs': {'clip_name': 'Z image\\qwen_3_4b.safetensors'}}}
+        lts.preflight_family('zimage', [wf])  # 'Z image' ref resolves to 'z image' dir
+
+
+def test_create_run_preflights_missing_zimage_vae_and_text_encoder(app, tmp_path, monkeypatch):
+    """End-to-end fresh-user scenario: the LoRA + base UNET are on disk but the
+    Z-Image workflow's hardcoded VAE ('z ae') and text encoder ('Z image/qwen_3_4b')
+    aren't → create_run raises StudioAssetsMissing BEFORE creating a single row
+    (no grid of doomed tiles). Uses the REAL _build_cell_workflow."""
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.models import LoraTestImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        lora_dir = base / 'models' / 'loras' / 'z image'
+        lora_dir.mkdir(parents=True)
+        ck = 'z image\\lora_pf_000002000.safetensors'
+        (lora_dir / 'lora_pf_000002000.safetensors').touch()
+        unet_dir = base / 'models' / 'unet' / 'z image'
+        unet_dir.mkdir(parents=True)
+        (unet_dir / 'zmodel.safetensors').touch()
+        # Deliberately NO models/vae/z ae.safetensors and NO text_encoders/…/qwen_3_4b.
+        import app.utils.comfyui as comfyui_utils
+        monkeypatch.setattr(comfyui_utils, '_zimage_models_cache', {'data': None, 'timestamp': 0})
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: {'UNETLoader', 'CLIPLoader', 'VAELoader',
+                                             'CLIPTextEncode', 'EmptySD3LatentImage',
+                                             'BasicScheduler', 'KSamplerSelect', 'CFGGuider',
+                                             'RandomNoise', 'SamplerCustomAdvanced', 'VAEDecode',
+                                             'SaveImage', 'LoraLoaderModelOnly'})
+        monkeypatch.setattr(lts, 'gpu_busy_reason', lambda: None)
+        ds = svc.create_dataset(LOCAL_USER, 'PF', 'pf')
+        with pytest.raises(lts.StudioAssetsMissing) as ei:
+            lts.create_run(LOCAL_USER, ds.id, [ck], [1.0], prompt='p', count=1)
+        paths = ' '.join(f['path'] for f in ei.value.missing_files)
+        assert 'z ae.safetensors' in paths and 'qwen_3_4b.safetensors' in paths
+        assert LoraTestImage.query.filter_by(dataset_id=ds.id).count() == 0  # no rows created
+
+
+# --- P0-b: failed cells say WHY + are excluded from ranking -------------------
+
+def test_link_completed_test_image_failed_records_reason(app, tmp_path):
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.models import LoraTestImage
+    from app.config import LOCAL_USER
+    from app import config
+    with app.app_context():
+        base = tmp_path / 'Comfy'
+        (base / 'output').mkdir(parents=True)
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        ds = svc.create_dataset(LOCAL_USER, 'Why', 'whytrig')
+        img = LoraTestImage(dataset_id=ds.id, checkpoint='z image\\lora_whytrig_000001000.safetensors',
+                            strength=1.0, status='pending', job_id='job-why')
+        svc.db.session.add(img)
+        svc.db.session.commit()
+        lts.link_completed_test_image('job-why', None, failed=True,
+                                      reason='WORKFLOW_INVALIDE (validation ComfyUI 400): VAE not found')
+        refreshed = svc.db.session.get(LoraTestImage, img.id)
+        assert refreshed.status == 'failed'
+        assert refreshed.error == 'WORKFLOW_INVALIDE (validation ComfyUI 400): VAE not found'
+
+
+def test_failed_cell_excluded_from_cell_scores_ranking(app):
+    """A failed cell shares its config key with a real done cell — it must NOT
+    inflate the 'images' denominator nor otherwise pollute the ranking."""
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.models import LoraTestImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Rank', 'ranktrig')
+        ck = 'z image\\lora_ranktrig_000002000.safetensors'
+        svc.db.session.add(LoraTestImage(dataset_id=ds.id, checkpoint=ck, strength=1.0,
+                                         status='done', rating=1))
+        svc.db.session.add(LoraTestImage(dataset_id=ds.id, checkpoint=ck, strength=1.0,
+                                         status='failed', error='boom'))
+        svc.db.session.commit()
+        scores = lts.cell_scores(ds.id, family='zimage')
+        assert len(scores) == 1
+        assert scores[0]['images'] == 1  # the failed row is excluded, not counted
+
+
+def test_studio_payload_exposes_error_only_on_failed_cell(app):
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.models import LoraTestImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Pay', 'paytrig')
+        ck = 'z image\\lora_paytrig_000001000.safetensors'
+        failed = LoraTestImage(dataset_id=ds.id, checkpoint=ck, strength=1.0,
+                               status='failed', error='the reason')
+        done = LoraTestImage(dataset_id=ds.id, checkpoint=ck, strength=1.0,
+                             status='done', error='stale', filename='x.png')
+        svc.db.session.add_all([failed, done])
+        svc.db.session.commit()
+        payload = lts.studio_payload(LOCAL_USER, ds.id)
+        by_id = {c['id']: c for c in payload['cells']}
+        assert by_id[failed.id]['error'] == 'the reason'
+        assert by_id[done.id]['error'] is None  # non-failed cells never leak an error
+
+
 def test_run_owned_and_owned_test_image_are_single_user_no_ops(app):
     """Checklist item 2: `_run_owned` always True, `_owned_test_image` drops the
     user comparison (single-user app, no cross-user ownership DB)."""

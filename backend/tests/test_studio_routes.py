@@ -158,6 +158,48 @@ def test_dataset_lora_test_run_gpu_busy_returns_503(client, monkeypatch):
     assert 'GPU busy' in resp.get_json()['error']
 
 
+# --- missing Studio assets -> structured 409 (P0-a) --------------------------
+
+def test_dataset_lora_test_run_missing_assets_returns_structured_409(client, monkeypatch):
+    """A StudioAssetsMissing from the service maps to a 409 carrying the itemized
+    file/node lists (same spirit as Klein's missing-models 409) so the front lists
+    the manques instead of the current silent grid."""
+    _comfy(monkeypatch, True)
+    ds_id = _create(client)
+    from app.services import lora_test_studio as lts
+
+    def boom(*a, **k):
+        raise lts.StudioAssetsMissing(
+            'sdxl', [{'path': 'models/loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors',
+                      'kind': 'LoRA'}], ['HttpNotifyNode'])
+    monkeypatch.setattr('app.services.lora_test_studio.create_run', boom)
+    resp = client.post(f'/api/dataset/{ds_id}/lora-test/run',
+                       json={'checkpoints': ['x'], 'strengths': [1.0]})
+    assert resp.status_code == 409
+    body = resp.get_json()
+    assert body['ok'] is False
+    sm = body['studio_missing']
+    assert sm['family'] == 'sdxl'
+    assert sm['nodes'] == ['HttpNotifyNode']
+    assert sm['files'][0]['path'] == 'models/loras/DMD2/dmd2_sdxl_4step_lora_fp16.safetensors'
+    assert 'SDXL' in body['error']  # human-readable, actionable summary
+
+
+def test_studio_comparison_run_missing_assets_returns_structured_409(client, monkeypatch):
+    _comfy(monkeypatch, True)
+    from app.services import lora_test_studio as lts
+
+    def boom(*a, **k):
+        raise lts.StudioAssetsMissing('krea', [], ['Krea2RebalanceConditioning'])
+    monkeypatch.setattr('app.services.lora_test_studio.create_comparison_run', boom)
+    resp = client.post('/api/studio/run',
+                       json={'selections': [{'dataset_id': 1, 'checkpoint': 'x'}]})
+    assert resp.status_code == 409
+    sm = resp.get_json()['studio_missing']
+    assert sm['family'] == 'krea'
+    assert sm['nodes'] == ['Krea2RebalanceConditioning'] and sm['files'] == []
+
+
 # --- rate: valid ratings 1/-1/0 ok, invalid -> 400 ---------------------------
 
 def test_rate_valid_ratings_accepted(client):

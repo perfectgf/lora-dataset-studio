@@ -25,3 +25,34 @@ def _require_comfyui():
         return jsonify({'error': 'ComfyUI is not reachable',
                         'hint': 'Check the URL in Settings'}), 409
     return None
+
+
+_STUDIO_FAMILY_LABELS = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2 Turbo'}
+
+
+def _studio_missing_response(e):
+    """Turn a StudioAssetsMissing into a structured 409 (same spirit as Klein's
+    missing-models 409): a human message + the itemized file/node lists the front
+    lists in a banner, so the user knows WHY the grid can't run instead of watching
+    every tile fail silently.
+
+    No auto-download: unlike Klein's public assets, Studio bases / VAEs / text
+    encoders are large and often license-gated, and the missing custom nodes aren't
+    files at all — a clear 'place X here / install node Y' is the P0 contract.
+    Shared by the per-dataset run and the comparison run."""
+    fam = _STUDIO_FAMILY_LABELS.get(e.family, e.family)
+    bits = []
+    if e.missing_files:
+        bits.append(f"{len(e.missing_files)} required model file(s)")
+    if e.missing_nodes:
+        bits.append(f"{len(e.missing_nodes)} custom node(s)")
+    msg = f"The {fam} test pipeline can't run — your ComfyUI is missing " + " and ".join(bits) + ". "
+    if e.missing_files:
+        msg += "Place the file(s) at the shown path(s) inside your ComfyUI folder. "
+    if e.missing_nodes:
+        msg += "Install the missing custom node(s) into ComfyUI. "
+    msg += "Then relaunch the test."
+    return jsonify({'ok': False, 'error': msg,
+                    'studio_missing': {'family': e.family,
+                                       'files': e.missing_files,
+                                       'nodes': e.missing_nodes}}), 409

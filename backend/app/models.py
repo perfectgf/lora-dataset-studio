@@ -120,6 +120,12 @@ class LoraTestImage(db.Model):
     # (backfillés par add_lora_test_run_id).
     run_id = db.Column(String(36), nullable=True, index=True)
     status = db.Column(String(10), nullable=False, default='pending')  # pending|done|failed|cancelled
+    # Pourquoi status='failed' : raison réelle remontée du chemin de génération
+    # ComfyUI (validation 400 « modèle/node introuvable », node error, timeout,
+    # enqueue raté…) — affichée au survol de la tuile en échec. Sinon l'échec est
+    # muet et l'utilisateur relance à l'aveugle (P0-b). Colonne additive (migration
+    # create_app). Les cellules en échec sont exclues du classement (cf. cell_scores).
+    error = db.Column(Text, nullable=True)
     # Réglages du run (pour afficher TOUS les paramètres du meilleur résultat).
     z_model = db.Column(String(255), nullable=True)   # modèle Z-Image de base
     aspect = db.Column(String(16), nullable=True)     # format d'image (9:16, 4:3, …)

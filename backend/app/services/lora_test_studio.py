@@ -729,6 +729,175 @@ def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=No
             'init_image': ini, 'denoise': den}
 
 
+# --- Studio preflight (model files on disk + custom nodes in ComfyUI) ---------
+# Klein already preflights its assets (KleinModelsMissing → 409 + auto-download);
+# Krea/SDXL/Z-Image did NOT — the studio workflows hardcode the developer's own
+# VAE / text-encoder / accelerator-LoRA / notify-node names (none of which exist on
+# a fresh install), so a fresh user launched a grid and every tile failed ComfyUI
+# validation SILENTLY (empty grid, no reason). This block gives each family the
+# same up-front check: verify (a) every model file the BUILT workflow references
+# is on disk (via the exact filenames the workflow will send — zero divergence),
+# and (b) every custom node the workflow uses exists in the target ComfyUI
+# (/object_info), and raises StudioAssetsMissing so the route answers ONE
+# actionable 409 instead.
+
+class StudioAssetsMissing(Exception):
+    """A Studio family's workflow references model files not on disk, or custom
+    nodes the target ComfyUI doesn't expose, so every grid tile would fail ComfyUI
+    validation and land as a silently-empty cell. Raised BEFORE any row/job is
+    created so the caller can answer one actionable 409 (same spirit as Klein's
+    KleinModelsMissing).
+
+    `.family` = pipeline key ('zimage'/'sdxl'/'krea'); `.missing_files` =
+    [{path, kind}] with `path` a display path like 'models/vae/…'; `.missing_nodes`
+    = [class_type]."""
+    def __init__(self, family, missing_files, missing_nodes):
+        self.family = family
+        self.missing_files = list(missing_files)
+        self.missing_nodes = list(missing_nodes)
+        n_f, n_n = len(self.missing_files), len(self.missing_nodes)
+        super().__init__(f'{family} studio assets missing: {n_f} file(s), {n_n} node(s)')
+
+
+# ComfyUI loader class_type -> (input keys carrying a model FILENAME, the models/
+# subfolders that loader lists files from, human kind). A loader lists files
+# relative to ONE of these subfolders; the file counts as present if it resolves
+# under any (a UNET lives in unet/ OR diffusion_models/ on shared installs). Only
+# loaders the studio workflows actually use are mapped.
+_STUDIO_MODEL_LOADERS = {
+    'UNETLoader': (('unet_name',), ('unet', 'diffusion_models'), 'diffusion model'),
+    'CheckpointLoaderSimple': (('ckpt_name',), ('checkpoints',), 'checkpoint'),
+    'VAELoader': (('vae_name',), ('vae',), 'VAE'),
+    'CLIPLoader': (('clip_name',), ('text_encoders', 'clip'), 'text encoder'),
+    'DualCLIPLoader': (('clip_name1', 'clip_name2'), ('text_encoders', 'clip'), 'text encoder'),
+    'LoraLoader': (('lora_name',), ('loras',), 'LoRA'),
+    'LoraLoaderModelOnly': (('lora_name',), ('loras',), 'LoRA'),
+}
+
+
+def _models_root():
+    try:
+        d = cfg.comfyui_dir('models')
+    except Exception:
+        return None
+    return str(d) if d else None
+
+
+def _ci_join_exists(root, rel):
+    """os.path.exists(root/rel) with each component matched case-INSENSITIVELY
+    below `root`. ComfyUI on Windows is case-insensitive and the workflow templates
+    carry mixed folder casing (node refs 'Z image\\…' / 'Krea\\…' vs the on-disk
+    'z image' / 'krea') — a case-sensitive filesystem (cloud) must NOT read those
+    as missing. `root` is assumed to exist."""
+    cur = root
+    for part in rel.split(os.sep):
+        if not part or part == '.':
+            continue
+        nxt = os.path.join(cur, part)
+        if os.path.exists(nxt):
+            cur = nxt
+            continue
+        try:
+            match = next((e for e in os.listdir(cur) if e.lower() == part.lower()), None)
+        except OSError:
+            return False
+        if match is None:
+            return False
+        cur = os.path.join(cur, match)
+    return os.path.exists(cur)
+
+
+def _model_file_present(models_root, subfolders, ref):
+    """True if `ref` (a loader value, possibly with its own subfolder prefix)
+    resolves to a real file under models_root/<subfolder>/ for any candidate
+    subfolder."""
+    rel_ref = (ref or '').replace('\\', os.sep).replace('/', os.sep).lstrip(os.sep)
+    if not rel_ref:
+        return True  # empty ref = loader left at a wired default upstream — not our miss
+    return any(_ci_join_exists(models_root, os.path.join(sub, rel_ref)) for sub in subfolders)
+
+
+def _scan_workflow_assets(workflow, models_root):
+    """(missing_files, class_types) for a BUILT cell workflow. missing_files =
+    [{path, kind}] for every model-loader reference NOT on disk (skipped entirely
+    when models_root is unknown — the base-pool guards already caught that case);
+    class_types = every node class in the graph (for the /object_info node check)."""
+    missing, classes = [], set()
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        ct = node.get('class_type')
+        if not ct:
+            continue
+        classes.add(ct)
+        spec = _STUDIO_MODEL_LOADERS.get(ct)
+        if not (spec and models_root):
+            continue
+        keys, subfolders, kind = spec
+        inputs = node.get('inputs', {}) if isinstance(node.get('inputs'), dict) else {}
+        for k in keys:
+            ref = inputs.get(k)
+            if not isinstance(ref, str) or not ref.strip():
+                continue
+            if _model_file_present(models_root, subfolders, ref):
+                continue
+            entry = {'path': f'models/{subfolders[0]}/{ref}'.replace('\\', '/'), 'kind': kind}
+            if entry not in missing:
+                missing.append(entry)
+    return missing, classes
+
+
+def preflight_family(family, workflows):
+    """Raise StudioAssetsMissing if the target ComfyUI is missing any model file or
+    custom node the family's BUILT workflow(s) need. `workflows` = representative
+    built cell workflow(s) (one per base) — checking the ACTUAL built graph means
+    zero divergence from what will be enqueued. Best-effort: only raises on a
+    CONCRETE absence; a build that couldn't be produced or an unreachable
+    /object_info fails OPEN (the per-tile error capture still surfaces the reason).
+    """
+    models_root = _models_root()
+    missing_files, all_classes = [], set()
+    for wf in workflows:
+        if not wf:
+            continue
+        mf, classes = _scan_workflow_assets(wf, models_root)
+        for e in mf:
+            if e not in missing_files:
+                missing_files.append(e)
+        all_classes |= classes
+    # Custom nodes: compare the graph's class_types to /object_info. Fail-OPEN when
+    # it can't be fetched (None) — never block on a transient probe failure.
+    missing_nodes = []
+    from ..utils.comfyui import fetch_object_info_classes
+    available = fetch_object_info_classes()
+    if available is not None and all_classes:
+        missing_nodes = sorted(c for c in all_classes if c not in available)
+    if missing_files or missing_nodes:
+        raise StudioAssetsMissing(family, missing_files, missing_nodes)
+
+
+def _preflight_run(user_id, run_family, checkpoint, bases, allowed, prompt, seed,
+                   dataset_id, trigger_word):
+    """Build a representative cell workflow for `run_family` (one per distinct base
+    in `bases`) and run `preflight_family` on it. Raises StudioAssetsMissing when
+    the target ComfyUI can't run the grid. A representative build that itself fails
+    is skipped (the enqueue loop would surface that path's own error)."""
+    wfs = []
+    seen = set()
+    for base in (bases or [None]):
+        key = base or ''
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            wfs.append(_build_cell_workflow(
+                user_id, checkpoint, 1.0, prompt or '', seed or 1, base, allowed,
+                dataset_id=dataset_id, train_type=run_family, trigger_word=trigger_word))
+        except Exception as e:  # noqa: BLE001 — a bad representative build ≠ a missing asset
+            logger.warning('studio preflight: representative build failed (base=%r): %s', base, e)
+    preflight_family(run_family, wfs)
+
+
 # --- Run lifecycle -----------------------------------------------------------
 def _batch_lora_axis(batch_loras, run_family) -> list:
     """Valide la liste « ⚖ batch axis » (mêmes règles anti path-injection que les
@@ -877,6 +1046,15 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
 
     # Prompt custom optionnel ; sinon prompt d'identité par défaut (trigger).
     prompt = (prompt or '').strip() or identity_prompt(ds)
+
+    # Preflight : le ComfyUI cible a-t-il RÉELLEMENT chaque modèle + custom node
+    # dont le workflow de la famille a besoin ? On construit le graphe représentatif
+    # (par base) et on le vérifie AVANT de créer la moindre ligne → un utilisateur
+    # frais reçoit un seul 409 actionnable au lieu d'une grille de tuiles muettes.
+    # (Krea/SDXL n'avaient AUCUN preflight ; seul Klein en avait un.)
+    _preflight_run(user_id, run_family, cells[0][0], valid_models, allowed,
+                   prompt, seeds[0], dataset_id, ds.trigger_word)
+
     ids = []
     for zm in valid_models:                       # AXE modèle de base (multi-sélection)
         for checkpoint, strength, cell_aspect, cell_cfg, cell_steps, cell_steps2 in cells:
@@ -914,8 +1092,9 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
                                                     detail_amount=knobs['detail_amount'],
                                                     trigger_word=ds.trigger_word)
                     job_id = _enqueue_cell(user_id, dataset_id, workflow, prompt)
-                except Exception:
+                except Exception as e:
                     img.status = 'failed'
+                    img.error = str(e)[:400] or 'enqueue failed'  # say WHY, not a mute red tile
                     db.session.commit()
                     raise
                 img.job_id = job_id
@@ -1012,6 +1191,21 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         detail_amount=detail_amount, resolution_tier=resolution_tier,
         init_image=init_image, denoise=denoise)
 
+    # Preflight (même contrat que create_run) : le ComfyUI cible peut-il vraiment
+    # exécuter le workflow de cette famille ? On vérifie sur la 1re sélection valable
+    # (le run est mono-famille) AVANT de créer les lignes → un seul 409 actionnable.
+    for _sel in selections:
+        _pf_ds = fds.get_dataset(user_id, _sel.get('dataset_id'))
+        if not _pf_ds:
+            continue
+        _pf_allowed = {c['filename'] for c in list_test_checkpoints(_pf_ds, run_type)}
+        _pf_cp = _sel.get('checkpoint')
+        if _pf_cp in _pf_allowed:
+            _preflight_run(user_id, run_type, _pf_cp, [z_model], _pf_allowed,
+                           common_prompt or identity_prompt(_pf_ds), seeds[0],
+                           _sel.get('dataset_id'), getattr(_pf_ds, 'trigger_word', None))
+            break
+
     run_id = uuid.uuid4().hex
     ids = []
     for sel in selections:
@@ -1056,8 +1250,9 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
                                                     detail_amount=knobs['detail_amount'],
                                                     trigger_word=ds.trigger_word)
                     job_id = _enqueue_cell(user_id, ds.id, workflow, cell_prompt)
-                except Exception:
-                    img.status = 'failed'; db.session.commit(); raise
+                except Exception as e:
+                    img.status = 'failed'; img.error = str(e)[:400] or 'enqueue failed'
+                    db.session.commit(); raise
                 img.job_id = job_id; db.session.commit(); ids.append(img.id)
     logger.info(f"lora-test: comparison run {run_id} -> {len(ids)} cellule(s), {len(selections)} LoRA, seed {seed}")
     return {'created': len(ids), 'seed': seed, 'count': count, 'run_id': run_id, 'ids': ids}
@@ -1209,10 +1404,12 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
             img.filename = None
             img.job_id = job_id
             img.seed = seed
+            img.error = None  # clean slate on a successful re-enqueue
             db.session.commit()
             n += 1
-        except Exception:
+        except Exception as e:
             img.status = 'failed'
+            img.error = str(e)[:400] or 'resume failed'
             db.session.commit()
     return {'resumed': n}
 
@@ -1234,13 +1431,16 @@ def _cleanup_output_file(filename, failed):
         pass
 
 
-def link_completed_test_image(job_id, filename, failed=False):
+def link_completed_test_image(job_id, filename, failed=False, reason=None):
     """Attach a finished studio job to its LoraTestImage row.
 
     Mirror of link_completed_dataset_image: runs in the queue monitor thread
     whose SQLAlchemy session may hold a STALE read snapshot - if the first
     lookup misses, rollback (end the transaction) and re-read on a fresh
-    snapshot before concluding the row doesn't exist."""
+    snapshot before concluding the row doesn't exist.
+    `reason` (the job row's error_message: a ComfyUI 400 validation body / node
+    execution error / timeout) is persisted on the failed cell so the tile can
+    say WHY it's empty instead of a mute red square (P0-b)."""
     img = LoraTestImage.query.filter_by(job_id=job_id).first()
     if img is None:
         db.session.rollback()  # drop the stale read snapshot, then re-read
@@ -1258,6 +1458,8 @@ def link_completed_test_image(job_id, filename, failed=False):
         return
     if failed:
         img.status = 'failed'
+        img.error = (reason
+                     or 'Generation failed (see 🪵 Server log in Settings for the ComfyUI error).')
     else:
         img.filename = filename
         img.status = 'done'
@@ -1279,6 +1481,14 @@ def link_completed_test_image(job_id, filename, failed=False):
                 with open(dst, 'wb') as f:
                     f.write(data)
             else:
+                # The result vanished (not on disk, /view fetch failed) — mark the
+                # cell failed WITH a reason rather than leaving a 'done' row whose
+                # <img> would 404 into a mute broken tile (P0-b, mirrors the dataset
+                # fan-out's fail path).
+                img.filename = None
+                img.status = 'failed'
+                img.error = ('The finished image could not be retrieved from ComfyUI '
+                             '(not on disk, and the /view API fetch failed).')
                 logger.warning(f"lora-test link: file not on disk and /view API fetch failed for {filename}")
     db.session.commit()
 
@@ -1326,6 +1536,10 @@ def cell_scores(dataset_id, family=None) -> list[dict]:
     compte brut, qui biaisait vers les configs simplement plus testées. Tri
     best-first : rank ↓, nb de votes ↓ (confiance), strength ↑ (anti-overfit)."""
     rows = LoraTestImage.query.filter_by(dataset_id=dataset_id).all()
+    # Failed cells produced no image and can't be judged — exclude them so a broken
+    # config doesn't inflate the 'images' denominator or otherwise pollute the
+    # ranking / best-config pick (P0-b).
+    rows = [r for r in rows if r.status != 'failed']
     if family:
         fam = family.lower()
         rows = [r for r in rows if (family_of_lora(r.checkpoint) or 'zimage') == fam]
@@ -1797,6 +2011,8 @@ def studio_payload(user_id, dataset_id, family=None) -> dict | None:
                    'z_model_label': (_basename(r.z_model).rsplit('.', 1)[0] if r.z_model else None),
                    'cfg': r.cfg, 'steps': r.steps, 'steps2': r.steps2,
                    'batch_lora': _batch_lora_label(r),
+                   # Why the tile is empty (failed cells only) → shown on hover (P0-b).
+                   'error': r.error if r.status == 'failed' else None,
                    'face_score': r.face_score, 'face_state': r.face_state}
                   for r in rows],
         # cell_scores scanne la table une fois (filtré famille) → partagé entre
@@ -1868,7 +2084,8 @@ def studio_payload_run(user_id, run_id) -> dict | None:
                    'aspect': r.aspect, 'filename': r.filename, 'rating': r.rating, 'seed': r.seed,
                    'run_seed': r.run_seed, 'status': r.status, 'prompt': r.prompt,
                    'z_model': r.z_model, 'cfg': r.cfg, 'steps': r.steps, 'steps2': r.steps2,
-                   'batch_lora': _batch_lora_label(r)} for r in rows],
+                   'batch_lora': _batch_lora_label(r),
+                   'error': r.error if r.status == 'failed' else None} for r in rows],
         'lora_ranking': lora_net_scores(run_id),
         'pending': sum(1 for r in rows if r.status == 'pending' and not r.filename),
         'resumable': sum(1 for r in rows if r.status in ('cancelled', 'failed')),

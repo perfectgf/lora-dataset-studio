@@ -32,7 +32,9 @@ export async function postJson(url, body, isForm) {
     const r = await post(url, body, isForm);
     let d = null;
     try { d = await r.json(); } catch { /* non-JSON body (proxy page, empty) */ }
-    if (!r.ok) return { ok: false, error: (d && d.error) || `Server error (${r.status})` };
+    // Preserve any structured fields the error body carries (e.g. `studio_missing`,
+    // `klein_missing`) so callers can render an itemized banner, not just a toast.
+    if (!r.ok) return { ...(d || {}), ok: false, error: (d && d.error) || `Server error (${r.status})` };
     return d || { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || 'Network error' };

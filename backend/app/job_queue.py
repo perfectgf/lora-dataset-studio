@@ -141,7 +141,12 @@ def _dispatch_completion(job, filename, failed):
     try:
         if md.get('is_lora_test'):
             from .services import lora_test_studio
-            lora_test_studio.link_completed_test_image(job.job_id, filename, failed=failed)
+            # Pass the real failure reason (ComfyUI 400 body / node error / timeout)
+            # so the failed grid tile can say WHY. The generic 'generation failed'
+            # is LESS useful than the tile's own default → only forward real detail.
+            reason = job.error_message if job.error_message != 'generation failed' else None
+            lora_test_studio.link_completed_test_image(job.job_id, filename,
+                                                       failed=failed, reason=reason)
         elif md.get('model_name') == 'klein_edit_dataset':
             from .services import face_dataset_service
             # The bare fallback 'generation failed' is LESS useful than the tile's

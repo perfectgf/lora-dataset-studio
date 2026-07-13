@@ -14,8 +14,17 @@ export default function ResultTile({ cell, row, strength, variant, datasetId, on
           <span className="inline-block w-5 h-5 border-2 border-purple-400/40 border-t-purple-400 rounded-full animate-spin" aria-hidden />
         </div>
       )}
+      {/* Failed tiles are no longer mute: the real reason (ComfyUI validation /
+          node error / timeout, from the `error` column) shows on hover so the
+          user knows WHY instead of relaunching blind (P0-b). */}
       {cell.status === 'failed' && (
-        <div className="w-20 h-28 rounded-md border border-red-500/50 bg-red-500/10 flex items-center justify-center text-red-300 text-[0.625rem]">failed</div>
+        <div
+          title={cell.error || 'Generation failed — see the 🪵 Server log in Settings for details.'}
+          className="w-20 h-28 overflow-hidden rounded-md border border-red-500/50 bg-red-500/10 flex flex-col items-center justify-center gap-0.5 text-red-300 text-[0.625rem] cursor-help px-1 text-center">
+          <span aria-hidden className="text-sm">⚠</span>
+          <span>failed</span>
+          {cell.error && <span className="text-red-300/70 leading-tight line-clamp-3">{cell.error}</span>}
+        </div>
       )}
       {cell.status === 'cancelled' && (
         <div className="w-20 h-28 rounded-md border border-amber-500/40 bg-amber-500/10 flex flex-col items-center justify-center text-amber-300 text-[0.625rem] gap-0.5"><span aria-hidden>⏸</span> stopped</div>
@@ -49,16 +58,20 @@ export default function ResultTile({ cell, row, strength, variant, datasetId, on
           + {cell.batch_lora}
         </span>
       )}
-      <div className="flex items-center gap-1">
-        <button type="button" aria-pressed={cell.rating === 1}
-          aria-label={`Like ${row.label} @ ${fmt(strength)} (${variant.aspect || '—'}) seed ${cell.seed}`}
-          onClick={() => onRate(cell.id, cell.rating === 1 ? 0 : 1)}
-          className={`px-1.5 py-0.5 rounded text-[0.75rem] border ${cell.rating === 1 ? 'border-green-400/60 bg-green-500/20' : 'border-border bg-surface opacity-70'}`}>👍</button>
-        <button type="button" aria-pressed={cell.rating === -1}
-          aria-label={`Dislike ${row.label} @ ${fmt(strength)} (${variant.aspect || '—'}) seed ${cell.seed}`}
-          onClick={() => onRate(cell.id, cell.rating === -1 ? 0 : -1)}
-          className={`px-1.5 py-0.5 rounded text-[0.75rem] border ${cell.rating === -1 ? 'border-red-400/60 bg-red-500/20' : 'border-border bg-surface opacity-70'}`}>👎</button>
-      </div>
+      {/* Votes only make sense for a finished image — a failed/pending/stopped tile
+          has nothing to judge and must not pollute the ranking (P0-b). */}
+      {cell.status === 'done' && (
+        <div className="flex items-center gap-1">
+          <button type="button" aria-pressed={cell.rating === 1}
+            aria-label={`Like ${row.label} @ ${fmt(strength)} (${variant.aspect || '—'}) seed ${cell.seed}`}
+            onClick={() => onRate(cell.id, cell.rating === 1 ? 0 : 1)}
+            className={`px-1.5 py-0.5 rounded text-[0.75rem] border ${cell.rating === 1 ? 'border-green-400/60 bg-green-500/20' : 'border-border bg-surface opacity-70'}`}>👍</button>
+          <button type="button" aria-pressed={cell.rating === -1}
+            aria-label={`Dislike ${row.label} @ ${fmt(strength)} (${variant.aspect || '—'}) seed ${cell.seed}`}
+            onClick={() => onRate(cell.id, cell.rating === -1 ? 0 : -1)}
+            className={`px-1.5 py-0.5 rounded text-[0.75rem] border ${cell.rating === -1 ? 'border-red-400/60 bg-red-500/20' : 'border-border bg-surface opacity-70'}`}>👎</button>
+        </div>
+      )}
     </div>
   );
 }

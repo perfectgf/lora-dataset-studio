@@ -9,6 +9,7 @@ import SeedControls from './SeedControls';
 import LaunchBar from './LaunchBar';
 import StudioGenerationSettings from './StudioGenerationSettings';
 import StudioActionBar from './StudioActionBar';
+import StudioPreflightBanner from './StudioPreflightBanner';
 
 // Rail gauche « Setup du run » : pickers + seed/launch + bandeaux d'état.
 // Extraction behavior-preserving de LoraTestStudio.jsx :
@@ -25,20 +26,31 @@ export default function RunSetupPanel({ d, studio, form, datasetId }) {
   // (source unique de vérité pour rebalance/enhancer/precision/format/detail/negative +
   // pile LoRA « always-on »). Le composant est gaté PAR FAMILLE et se persiste seul.
   const [genSettings, setGenSettings] = useState({});
+  // Manques de modèles/nodes remontés par un 409 `studio_missing` au lancement
+  // (P0-a) → bandeau actionnable listant les fichiers/nodes absents.
+  const [preflight, setPreflight] = useState(null);
 
   const canLaunch = form.total > 0 && !d.pending && !d.gpu_busy && !studio.launching;
   // Axe ⚖ batch (Always-on LoRA cochés batch) : chaque config tourne SANS puis
   // AVEC chaque LoRA coché → le compteur d'images/temps doit en tenir compte
   // (le backend multiplie déjà les cellules par 1 + nb cochés).
   const batchMult = 1 + ((genSettings.batch_loras || []).length);
-  const onLaunch = () => studio.launch(
-    form.chosenCps, form.selSts, form.nextSeed(), form.effectivePrompt,
-    form.effectiveModels, form.effectiveAspects, form.effectiveCfgs, form.effectiveSteps,
-    form.effectiveSteps2, form.genCount, genSettings,
-  );
+  const onLaunch = async () => {
+    const res = await studio.launch(
+      form.chosenCps, form.selSts, form.nextSeed(), form.effectivePrompt,
+      form.effectiveModels, form.effectiveAspects, form.effectiveCfgs, form.effectiveSteps,
+      form.effectiveSteps2, form.genCount, genSettings,
+    );
+    // Persist the itemized manques (toast is transient) — cleared on the next
+    // launch that isn't blocked on missing assets.
+    setPreflight(res && res.studio_missing ? res.studio_missing : null);
+  };
 
   return (
     <>
+      {/* --- Preflight : modèles/nodes manquants (P0-a) ----------------- */}
+      <StudioPreflightBanner missing={preflight} onDismiss={() => setPreflight(null)} />
+
       {/* --- Garde-fous ------------------------------------------------- */}
       {d.gpu_busy && (
         <p className="m-0 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-red-300 text-sm" role="status">

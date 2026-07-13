@@ -18,7 +18,7 @@ from ..services import lora_test_studio as lts
 from ..services.face_variations import (NSFW_VARIATION_CATALOG, VARIATION_CATALOG,
                                         is_nsfw_label, select_preset)
 from ..utils.comfyui import KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS, get_krea_loras
-from ._common import _map_error, _require_comfyui
+from ._common import _map_error, _require_comfyui, _studio_missing_response
 
 bp = Blueprint('datasets', __name__, url_prefix='/api')
 
@@ -701,6 +701,9 @@ def lora_test_run(dataset_id):
                              resolution_tier=d.get('resolution_tier'),
                              init_image=d.get('init_image'), denoise=d.get('denoise'))
     except Exception as e:
+        from ..services.lora_test_studio import StudioAssetsMissing
+        if isinstance(e, StudioAssetsMissing):  # models/nodes absent → actionable 409
+            return _studio_missing_response(e)
         return _map_error(e)
     return jsonify({'ok': True, 'created': res['created'], 'seed': res['seed'],
                     'count': res.get('count', 1)})

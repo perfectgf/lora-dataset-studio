@@ -14,7 +14,7 @@ from flask import Blueprint, jsonify, request
 from ..config import LOCAL_USER
 from ..services import lora_test_studio as lts
 from ..utils.comfyui import get_zimage_models
-from ._common import _map_error, _require_comfyui
+from ._common import _map_error, _require_comfyui, _studio_missing_response
 
 bp = Blueprint('studio', __name__, url_prefix='/api/studio')
 
@@ -80,6 +80,9 @@ def studio_run():
             resolution_tier=d.get('resolution_tier'), init_image=d.get('init_image'),
             denoise=d.get('denoise'))
     except Exception as e:
+        from ..services.lora_test_studio import StudioAssetsMissing
+        if isinstance(e, StudioAssetsMissing):  # models/nodes absent → actionable 409
+            return _studio_missing_response(e)
         return _map_error(e)
     return jsonify({'ok': True, **{k: res[k] for k in ('created', 'seed', 'count', 'run_id')}})
 

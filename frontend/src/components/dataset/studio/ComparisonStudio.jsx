@@ -22,6 +22,7 @@ import { DEFAULT_STRENGTHS, FAMILY_LABELS } from './constants';
 import StudioRunSetup from './StudioRunSetup';
 import StudioGenerationSettings from './StudioGenerationSettings';
 import StudioActionBar from './StudioActionBar';
+import StudioPreflightBanner from './StudioPreflightBanner';
 import LoraComparisonGrid from './LoraComparisonGrid';
 import LoraRankingPanel from './LoraRankingPanel';
 import RunSelector from './RunSelector';
@@ -55,6 +56,8 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
     } catch { /* private mode */ }
   }, [strengths, prompt, count]);
   const [launching, setLaunching] = useState(false);
+  // 409 `studio_missing` au lancement (P0-a) → bandeau des modèles/nodes manquants.
+  const [preflight, setPreflight] = useState(null);
   // Réglages de génération GLOBAUX (parité Generate) remontés par StudioGenerationSettings.
   // Objet snake_case déjà prêt à fusionner dans le POST /run (voir launch()).
   const [genSettings, setGenSettings] = useState({});
@@ -110,14 +113,13 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
       };
       if (prompt.trim()) body.prompt = prompt.trim();
       const dResp = await postJson('/api/studio/run', body);
-      if (dResp.ok) {
-        toast.success(`${dResp.created} generation(s) queued (seed ${dResp.seed}${dResp.count > 1 ? ` ×${dResp.count}` : ''})`);
-        setRunId(dResp.run_id);
-        setSeed(rollSeed());
-      } else {
-        toast.error(dResp.error || 'Error on launch');
-      }
+      toast.success(`${dResp.created} generation(s) queued (seed ${dResp.seed}${dResp.count > 1 ? ` ×${dResp.count}` : ''})`);
+      setRunId(dResp.run_id);
+      setSeed(rollSeed());
+      setPreflight(null);
     } catch (e) {
+      // apiFetch throws on non-2xx; a 409 carries the itemized manques on e.body (P0-a).
+      setPreflight(e?.body?.studio_missing || null);
       toast.error(e.message || 'Error on launch');
     } finally {
       setLaunching(false);
@@ -179,6 +181,7 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
       </aside>
 
       <main id="st-results" className="flex flex-col gap-3 min-w-0 scroll-mt-16">
+        <StudioPreflightBanner missing={preflight} onDismiss={() => setPreflight(null)} />
         {data?.pending > 0 && (
           <div className="flex items-center gap-2 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2" role="status">
             <span className="inline-block w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />

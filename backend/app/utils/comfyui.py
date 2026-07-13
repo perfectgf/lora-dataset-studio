@@ -547,6 +547,26 @@ def fetch_output_image_bytes(filename, subfolder='', timeout=30):
         return None
 
 
+def fetch_object_info_classes(timeout=8):
+    """Set of node `class_type` names the target ComfyUI exposes = the KEYS of
+    `GET /object_info`. Used by the Studio preflight to tell a required CUSTOM
+    node (e.g. the Krea rebalance / detail-daemon / notify nodes a workflow
+    hardcodes) apart from a missing one BEFORE firing a grid every tile of which
+    would fail ComfyUI validation.
+
+    Returns None (not an empty set) on any failure so the caller can distinguish
+    'ComfyUI didn't answer, can't verify nodes' (fail-open) from 'the graph uses
+    a node ComfyUI doesn't have'."""
+    try:
+        resp = requests.get(urljoin(api_address(), '/object_info'), timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        return set(data.keys()) if isinstance(data, dict) else None
+    except Exception as e:
+        logger.warning(f"fetch_object_info_classes failed: {e}")
+        return None
+
+
 def free_comfyui_vram(worker_url=None):
     """
     Free ComfyUI VRAM by calling /free endpoint.

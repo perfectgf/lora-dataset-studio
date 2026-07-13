@@ -25,9 +25,10 @@ export async function apiFetch(url, options = {}) {
 
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
+    let body = null;
     try {
-      const b = await res.json();
-      msg = b.error || b.detail || b.message || msg;
+      body = await res.json();
+      msg = body.error || body.detail || body.message || msg;
     } catch {}
 
     if (res.status === 401) {
@@ -40,6 +41,9 @@ export async function apiFetch(url, options = {}) {
 
     const err = new Error(msg);
     err.status = res.status;
+    // Carry the parsed error body so callers can read structured fields (e.g. a
+    // 409's `studio_missing`) instead of just the flat message.
+    err.body = body;
     throw err;
   }
 

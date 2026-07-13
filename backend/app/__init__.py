@@ -22,6 +22,7 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset_image', 'fail_reason', 'TEXT'),
     ('face_dataset_image', 'upscale_ratio', 'REAL'),
     ('training_run_record', 'settings', 'TEXT'),
+    ('lora_test_image', 'error', 'TEXT'),
 )
 
 def _apply_additive_migrations():
