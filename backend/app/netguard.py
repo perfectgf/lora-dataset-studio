@@ -6,9 +6,12 @@ but `server.host` is configurable, and binding 0.0.0.0 (e.g. to reach the app
 from a phone) would otherwise expose everything to the whole LAN.
 
 Rule: requests from loopback clients are always allowed (the normal local flow,
-untouched). Any OTHER client must present the access token — `run.py` generates
-one automatically (and prints it) when the bind is non-loopback and none is set,
-so the protection cannot be forgotten. Token sources, in order:
+untouched). A non-loopback (LAN) client is allowed straight through UNLESS the
+user opted into a token via Settings (`server.require_token`) — a home LAN is
+trusted by default, so no token has to be typed on a phone. When require_token
+is on, the LAN client must present the access token — `run.py` generates one
+automatically (and prints it) when none is set, so the gate can't be forgotten.
+Token sources, in order:
   - `Authorization: Bearer <token>` header
   - `X-LDS-Token: <token>` header
   - `?token=<token>` query parameter (first hit from a phone browser) — on
@@ -53,7 +56,18 @@ def install_network_guard(app):
             return None
         if os.environ.get('LDS_ALLOW_UNAUTHENTICATED') == '1':
             return None
-        token = os.environ.get('LDS_ACCESS_TOKEN') or app.config.get('LDS_ACCESS_TOKEN')
+        # LAN access is open by default (trusted home network); the token gate
+        # only engages when the user turned it on in Settings. Read lazily so the
+        # toggle takes effect on the next request without a restart.
+        from . import config as cfg
+        if not cfg.get('server.require_token'):
+            return None
+        # config.server.access_token is read here too (not only the boot-time env)
+        # so turning the gate on with a saved token works LIVE — no restart, unlike
+        # the bind change. run.py still seeds the env token at boot for the custom
+        # WSGI path that never writes config.
+        token = (os.environ.get('LDS_ACCESS_TOKEN') or app.config.get('LDS_ACCESS_TOKEN')
+                 or cfg.get('server.access_token'))
         if not token:
             # Non-loopback client but no token configured (custom WSGI launch that
             # bypassed run.py): fail CLOSED with an actionable message.

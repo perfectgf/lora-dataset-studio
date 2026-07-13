@@ -187,8 +187,18 @@ def settings_restart():
     """Manual restart — used after saving server.host/server.port (a live bind
     change needs a fresh process; Flask can't rebind mid-request) and as a plain
     troubleshooting action. Same schedule_restart() as the updater, so it
-    survives both a git checkout and the packaged build."""
+    survives both a git checkout and the packaged build.
+
+    Pins the restarted process to the SAVED host/port via env: the launcher
+    (start.bat) exports LDS_PORT, which otherwise wins over config.json forever
+    — so without this, changing the port in Settings + restart would keep coming
+    back on the launcher's port and the field would look broken. schedule_restart
+    passes os.environ down to the relaunch, so setting it here is what makes the
+    saved port actually take effect."""
+    import os
     from ..services import updater
+    os.environ['LDS_HOST'] = str(cfg.get('server.host') or '127.0.0.1')
+    os.environ['LDS_PORT'] = str(cfg.get('server.port') or 5050)
     updater.schedule_restart()
     return jsonify({'ok': True, 'restarting': True})
 

@@ -224,7 +224,29 @@ def test_put_settings_saves_chatgpt_auth_mode(client):
 # --- Server settings (host/port/LAN/access token) ----------------------------
 def test_settings_payload_includes_server_defaults(client):
     cfg = client.get('/api/settings').get_json()['config']
-    assert cfg['server'] == {'host': '127.0.0.1', 'port': 5000, 'access_token': ''}
+    assert cfg['server'] == {'host': '127.0.0.1', 'port': 5050,
+                             'require_token': False, 'access_token': ''}
+
+
+def test_put_settings_saves_require_token(client):
+    r = client.put('/api/settings', json={'config': {'server': {'require_token': True}}})
+    assert r.status_code == 200
+    assert r.get_json()['config']['server']['require_token'] is True
+
+
+def test_settings_restart_pins_saved_host_port_to_env(client, monkeypatch):
+    """The launcher exports LDS_PORT, which otherwise wins over config forever.
+    The restart route must stamp the SAVED host/port into env so the relaunch
+    actually binds where the user asked (else the port field looks broken)."""
+    import os
+    from app.services import updater
+    monkeypatch.setattr(updater, 'schedule_restart', lambda *a, **k: None)
+    monkeypatch.delenv('LDS_PORT', raising=False)
+    monkeypatch.delenv('LDS_HOST', raising=False)
+    client.put('/api/settings', json={'config': {'server': {'host': '0.0.0.0', 'port': 5123}}})
+    client.post('/api/settings/restart')
+    assert os.environ['LDS_HOST'] == '0.0.0.0'
+    assert os.environ['LDS_PORT'] == '5123'
 
 
 def test_put_settings_saves_server_lan_and_port(client):

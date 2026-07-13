@@ -53,13 +53,12 @@ app = create_app()
 if __name__ == '__main__':
     host = os.environ.get('LDS_HOST') or cfg_get('server.host')
     port = int(os.environ.get('LDS_PORT') or cfg_get('server.port'))
-    # Opening the bind beyond loopback exposes an unauthenticated single-user app
-    # (API keys, GPU, datasets) to the network → make sure the token guard
-    # (app/netguard.py) has a token to check, and tell the user how to connect.
-    if host not in ('127.0.0.1', 'localhost', '::1') \
+    is_lan = host not in ('127.0.0.1', 'localhost', '::1')
+    if is_lan and cfg_get('server.require_token') \
             and not os.environ.get('LDS_ACCESS_TOKEN') \
             and os.environ.get('LDS_ALLOW_UNAUTHENTICATED') != '1':
-        # Persisted in config.json (not just this process's env) so the token
+        # Token gate is ON (opt-in in Settings): make sure netguard has a token to
+        # check. Persisted in config.json (not just this process's env) so it
         # survives a restart instead of rotating every boot -- the Settings
         # "Server" card reads it back from there to show/copy it.
         token = cfg_get('server.access_token') or ''
@@ -72,10 +71,12 @@ if __name__ == '__main__':
             except ImportError:
                 pass   # config module unavailable (see cfg_get fallback above) -> ephemeral this run
         os.environ['LDS_ACCESS_TOKEN'] = token
-        print(f"\n[LDS] server.host={host} is reachable from the network -> access token enabled.")
+        print(f"\n[LDS] server.host={host} reachable from the network -> access token REQUIRED.")
         print(f"[LDS] Open from another device:  http://<this-machine>:{port}/?token={os.environ['LDS_ACCESS_TOKEN']}")
-        print("[LDS] (set LDS_ACCESS_TOKEN yourself for a stable token, or "
-              "LDS_ALLOW_UNAUTHENTICATED=1 if the network is already locked down)\n")
+        print("[LDS] (turn the token off in Settings -> Server to open the LAN without one)\n")
+    elif is_lan:
+        print(f"\n[LDS] server.host={host} reachable from the network (no token — trusted-LAN mode).")
+        print(f"[LDS] Open from another device:  http://<this-machine>:{port}/\n")
     # Snapshot of what's ACTUALLY bound, for the Settings "Server" card: config.json
     # may already hold newer values the user saved but hasn't restarted into yet, so
     # reading cfg_get again there would lie about what's currently serving requests.

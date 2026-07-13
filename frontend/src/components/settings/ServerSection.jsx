@@ -15,6 +15,7 @@ export default function ServerSection({ config, setField, runtime, handleSave })
   const [restarting, setRestarting] = useState(false)
   const [copied, setCopied] = useState(false)
   const lan = !LOOPBACK_HOSTS.includes(config.server.host)
+  const requireToken = !!config.server.require_token
   const knownRuntime = runtime.host != null && runtime.port != null
   const dirty = knownRuntime && (runtime.host !== config.server.host || runtime.port !== config.server.port)
 
@@ -74,7 +75,7 @@ export default function ServerSection({ config, setField, runtime, handleSave })
           <p className="text-sm font-medium text-content">Available on the local network</p>
           <p className="mt-0.5 text-xs text-content-muted">
             Off (default): only this computer can open the app. On: any device on your
-            Wi-Fi/LAN can reach it — e.g. from your phone — guarded by the access token below.
+            Wi-Fi/LAN can reach it — e.g. from your phone — using the plain URL below.
           </p>
         </div>
         <button type="button" role="switch" aria-checked={lan}
@@ -87,35 +88,64 @@ export default function ServerSection({ config, setField, runtime, handleSave })
       </div>
 
       {lan && (
-        <div>
-          <div className="flex items-center justify-between">
-            <label htmlFor="server-token" className="block text-sm font-medium text-content">Access token</label>
-            <button type="button" onClick={regenerateToken}
-              className="text-xs font-medium text-sky-300 underline hover:text-sky-200">
-              Generate new token
+        <>
+          {/* Trusted-LAN default: no token to type on a phone. The token is an
+              opt-in extra layer, off by default (see backend server.require_token). */}
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-surface-raised px-3 py-2.5">
+            <div>
+              <p className="text-sm font-medium text-content">Require an access token</p>
+              <p className="mt-0.5 text-xs text-content-muted">
+                {requireToken
+                  ? 'On: remote devices must open the URL WITH the token once (a session cookie takes over after). Extra safety on a shared or untrusted network.'
+                  : 'Off (default): anyone on your Wi-Fi/LAN can open the app with no password. Fine for a home network; turn on if the network is shared or untrusted.'}
+              </p>
+            </div>
+            <button type="button" role="switch" aria-checked={requireToken}
+              onClick={() => setField('server', 'require_token', !requireToken)}
+              aria-label="Require an access token"
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${requireToken ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
+              <span aria-hidden
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${requireToken ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </button>
           </div>
-          <p className="mb-1 text-xs text-content-muted">
-            Remote devices present this once (via the URL below) — a signed session cookie
-            takes over from there. Requests from this computer never need it.
-          </p>
-          <div className="flex gap-2">
-            <input id="server-token" type="text" readOnly
-              value={config.server.access_token || '(created automatically the first time LAN access is used — or click “Generate new token”)'}
-              className={`${INPUT_CLASS} font-mono text-xs`} />
-            {config.server.access_token && (
-              <button type="button" onClick={copyToken}
-                className="shrink-0 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised">
-                {copied ? 'Copied ✓' : 'Copy'}
-              </button>
-            )}
-          </div>
-          {config.server.access_token && (
-            <p className="mt-1 break-all text-xs text-content-subtle">
-              From another device: <code className="text-content">http://&lt;this-computer&gt;:{config.server.port}/?token={config.server.access_token}</code>
+
+          {requireToken ? (
+            <div>
+              <div className="flex items-center justify-between">
+                <label htmlFor="server-token" className="block text-sm font-medium text-content">Access token</label>
+                <button type="button" onClick={regenerateToken}
+                  className="text-xs font-medium text-sky-300 underline hover:text-sky-200">
+                  Generate new token
+                </button>
+              </div>
+              <p className="mb-1 text-xs text-content-muted">
+                Remote devices present this once (via the URL below) — a signed session cookie
+                takes over from there. Requests from this computer never need it.
+              </p>
+              <div className="flex gap-2">
+                <input id="server-token" type="text" readOnly
+                  value={config.server.access_token || '(created automatically on the next restart — or click “Generate new token”)'}
+                  className={`${INPUT_CLASS} font-mono text-xs`} />
+                {config.server.access_token && (
+                  <button type="button" onClick={copyToken}
+                    className="shrink-0 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised">
+                    {copied ? 'Copied ✓' : 'Copy'}
+                  </button>
+                )}
+              </div>
+              {config.server.access_token && (
+                <p className="mt-1 break-all text-xs text-content-subtle">
+                  From another device: <code className="text-content">http://&lt;this-computer&gt;:{config.server.port}/?token={config.server.access_token}</code>
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="break-all text-xs text-content-subtle">
+              From another device: <code className="text-content">http://&lt;this-computer&gt;:{config.server.port}/</code>
+              <span className="text-content-muted"> — replace &lt;this-computer&gt; with this machine's LAN IP (e.g. 192.168.1.148).</span>
             </p>
           )}
-        </div>
+        </>
       )}
 
       {knownRuntime && (
