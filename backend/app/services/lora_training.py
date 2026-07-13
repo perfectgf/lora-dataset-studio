@@ -1368,6 +1368,17 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
         except OSError:
             version = None
     stem, ext = os.path.splitext(filename)
+    # Cloud jobs are named `lds<run>_u<user>_<trigger>_<base>` on the pod, so
+    # their checkpoints arrive as `lds12_ulocal_tata_cv_Krea-2-Raw_000000250`.
+    # Deployed as-is, that stem is invisible to every trigger-prefix matcher
+    # (Test Studio's `lora_<trigger>_…` whitelist, labels) — "my cloud
+    # checkpoints are unusable", user-reported — and the deploy suffix used to
+    # re-append a base tag the stem already carried. Normalize to the LOCAL
+    # ai-toolkit convention at deploy time: `lora_<trigger>[_<step>]`, rebuilt
+    # from the dataset's own trigger (no string surgery on the tag).
+    if re.match(r'^lds\d+_u[0-9A-Za-z]+_', stem):
+        step = re.search(r'_(\d{6,10})$', stem)
+        stem = f'lora_{_safe_trigger(ds)}' + (f'_{step.group(1)}' if step else '')
     suffix = f'{tag}' + (f'_v{int(version)}' if version else '')
     dest_name = f'{stem}{suffix}{ext}' if suffix else filename
     dest = os.path.join(dest_dir, dest_name)

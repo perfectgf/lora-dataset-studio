@@ -657,8 +657,10 @@ def dataset_train_cloud(dataset_id):
     try:
         res = ct.launch_cloud_training(
             LOCAL_USER, dataset_id,
+            # No hardcoded 'turbo' default: an absent variant now resolves to
+            # the family-aware default in the service (Krea → Raw, like local).
             steps=d.get('steps'),
-            variant=d.get('variant', 'turbo'),
+            variant=d.get('variant'),
             train_type=d.get('train_type'),
             masked=d.get('masked', True),
             allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),

@@ -115,7 +115,7 @@ def _reconcile_before_launch(app):
 
 
 def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
-                          variant='turbo', train_type=None, masked=True,
+                          variant=None, train_type=None, masked=True,
                           allow_caption_mismatch=False, gpu_name=None) -> dict:
     if not cfg.secret('VAST_API_KEY'):
         raise RuntimeError('vast.ai API key is not configured — add it in Settings')
@@ -191,7 +191,20 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         # 'Launching…' for a minute (user-observed).
         _set(run, vast_label=f'lds-{run.id}',
              job_name=f'lds{run.id}_{lt._run_name(ds, family=fam)}')
-        n_steps = int(steps) if steps else lt.default_steps(ds)
+        # Mirror the LOCAL launch (launch_training persists train_type/variant
+        # before building): build_job_config() runs later in the MONITOR thread
+        # and reads the PERSISTED dataset values — without this, the cloud
+        # dialog's family/variant selectors never drove the actual training
+        # (it only worked when they matched what was already persisted).
+        variant = (variant or '').strip().lower()
+        if variant not in ('turbo', 'base', 'deturbo'):
+            variant = lt._default_variant_for(fam)
+        ds.train_type = fam
+        ds.train_variant = variant
+        db.session.commit()
+        # Same floor as the local path — a sub-500 target produces a run with
+        # zero usable snapshots.
+        n_steps = max(500, int(steps)) if steps else lt.default_steps(ds)
         # requested_gpu (from the launch-time speed picker) is a PREFERENCE, not
         # a lock: _provision re-searches live offers and rents the cheapest one
         # of this class, falling back to the cheapest overall if the class has

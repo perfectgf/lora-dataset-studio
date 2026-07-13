@@ -83,6 +83,30 @@ def test_launch_refuses_second_active_run(ct, app, seeded_dataset, monkeypatch):
             ct.launch_cloud_training('local', seeded_dataset)
 
 
+def test_launch_persists_family_and_variant(ct, app, seeded_dataset, monkeypatch):
+    """The cloud dialog's family/variant must drive the ACTUAL training: the
+    monitor builds the job config from the PERSISTED dataset values, so the
+    launch has to persist them exactly like the local path does. Absent
+    variant resolves to the family-aware default (Krea → Raw), never a
+    hardcoded 'turbo'."""
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        from app.services import face_dataset_service as fds
+        ct.launch_cloud_training('local', seeded_dataset, train_type='krea')
+        ds = fds.get_dataset('local', seeded_dataset)
+        assert ds.train_type == 'krea'
+        assert ds.train_variant == 'base'
+
+
+def test_launch_floors_explicit_steps(ct, app, seeded_dataset, monkeypatch):
+    """Same floor as the local path — a sub-500 target would produce a run
+    with zero usable snapshots."""
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        res = ct.launch_cloud_training('local', seeded_dataset, steps=100)
+        assert res['steps'] == 500
+
+
 def test_provision_registers_instance(ct, app, seeded_dataset, monkeypatch):
     _fake_export(monkeypatch, ct)
     monkeypatch.setattr(ct.vast_client, 'search_offers',

@@ -120,6 +120,34 @@ def test_import_checkpoint_final_name_from_src_dir(app, client, tmp_path, monkey
         assert dest.startswith(str(loras))
 
 
+def test_import_checkpoint_normalizes_cloud_job_names(app, client, tmp_path, monkeypatch):
+    """Pod checkpoints arrive named `lds<run>_u<user>_<trigger>_<base>[_step]` —
+    deployed as-is they are invisible to every `lora_<trigger>_…` matcher
+    (Test Studio dropdown + whitelist rejected them: "unusable cloud
+    checkpoints", user-reported). Import must rename to the local convention
+    and never double the base tag."""
+    ds_id = _mkds(client)
+    from app.services import lora_training as lt
+    src = tmp_path / 'staging'
+    src.mkdir()
+    (src / 'lds12_ulocal_lola_Krea-2-Raw_000000250.safetensors').write_bytes(b'ckpt')
+    (src / 'lds12_ulocal_lola_Krea-2-Raw.safetensors').write_bytes(b'ckpt')
+    loras = tmp_path / 'loras'
+    monkeypatch.setattr(lt, '_lora_dest_dir', lambda ds, family=None: str(loras))
+    with app.app_context():
+        dest = lt.import_checkpoint(
+            'local', ds_id, 'lds12_ulocal_lola_Krea-2-Raw_000000250.safetensors',
+            src_dir=str(src), version=1)
+        name = os.path.basename(dest)
+        assert name.startswith('lora_lola_000000250')
+        assert 'lds12' not in name
+        assert name.count('Krea-2-Raw') <= 1          # embedded tag never doubled
+        final = lt.import_checkpoint(
+            'local', ds_id, 'lds12_ulocal_lola_Krea-2-Raw.safetensors',
+            src_dir=str(src), version=1)
+        assert os.path.basename(final).startswith('lora_lola')
+
+
 def test_default_steps_matches_launch_training_logic(app, client):
     from app.services import face_dataset_service as fds
     from app.services import lora_training as lt
