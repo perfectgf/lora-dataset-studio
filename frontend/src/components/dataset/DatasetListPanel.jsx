@@ -18,7 +18,8 @@ function gradientFor(name = '') {
   return AVATAR_GRADIENTS[h % AVATAR_GRADIENTS.length];
 }
 
-/** The 3-step pipeline strip of the hero — what this page is for, at a glance. */
+/** The 3-step pipeline strip — what this page is for, at a glance. Only shown
+ *  on an EMPTY library: returning users know the pipeline by heart. */
 function PipelineSteps() {
   const steps = [
     { n: 1, icon: '📸', title: 'Reference photo', text: 'Upload one clear photo of the face.' },
@@ -47,7 +48,8 @@ function PipelineSteps() {
   );
 }
 
-/** Empty state — a mini contact sheet of shot pictograms instead of a bare line. */
+/** Empty state = the page's only "hero": what the app does, the 3-step strip,
+ *  and a mini contact sheet of shot pictograms. */
 function EmptyState() {
   const shots = [
     { framing: 'face', label: '' },
@@ -58,18 +60,27 @@ function EmptyState() {
     { framing: 'back', label: '' },
   ];
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-app/30 px-4 py-8 text-center">
-      <div className="grid grid-cols-6 gap-1.5" aria-hidden="true">
-        {shots.map((s, i) => (
-          <ShotIllustration key={i} framing={s.framing} label={s.label}
-            className={`w-9 h-9 ${i === 0 ? 'text-indigo-300' : 'text-content-subtle'}`} />
-        ))}
+    <div className="flex flex-col gap-3">
+      <div className="rounded-xl border border-border bg-gradient-to-br from-surface to-app/60 p-3 flex flex-col gap-2.5">
+        <p className="text-content-subtle text-xs">
+          Build a consistent character: one reference photo becomes a curated,
+          captioned training set for a LoRA you can use in every generator.
+        </p>
+        <PipelineSteps />
       </div>
-      <p className="text-content-muted text-sm font-medium">No datasets yet</p>
-      <p className="text-content-subtle text-xs max-w-xs">
-        Create your first character above — one reference photo is enough to start
-        generating a full training set.
-      </p>
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-app/30 px-4 py-8 text-center">
+        <div className="grid grid-cols-6 gap-1.5" aria-hidden="true">
+          {shots.map((s, i) => (
+            <ShotIllustration key={i} framing={s.framing} label={s.label}
+              className={`w-9 h-9 ${i === 0 ? 'text-indigo-300' : 'text-content-subtle'}`} />
+          ))}
+        </div>
+        <p className="text-content-muted text-sm font-medium">No datasets yet</p>
+        <p className="text-content-subtle text-xs max-w-xs">
+          Create your first character with <span className="font-semibold text-content-muted">+ New dataset</span> —
+          one reference photo is enough to start generating a full training set.
+        </p>
+      </div>
     </div>
   );
 }
@@ -92,53 +103,64 @@ const FAMILY_ORDER = [
   ['flux', 'FLUX.1', '⚡'],
 ];
 
-function DatasetCard({ d, onOpen, onDelete }) {
+/** One-line status of a tile: how big, how far along. Text, not color-only. */
+function tileStats(d) {
+  const total = d.images_total ?? 0;
+  const kept = d.images_kept ?? 0;
+  const captioned = d.images_captioned ?? 0;
+  if (!total) return 'empty';
+  if (!kept) return `${total} img · none kept`;
+  if (captioned >= kept) return `${kept} kept · ✓ captioned`;
+  if (captioned > 0) return `${kept} kept · ${captioned}/${kept} captioned`;
+  return `${kept} kept`;
+}
+
+/** Photo-first tile: the reference face IS the identity — lead with it. */
+function DatasetTile({ d, onOpen, onDelete }) {
   return (
-    <div
-      className="group flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 hover:bg-surface-raised hover:border-primary/40 transition-colors">
+    <div className="group relative overflow-hidden rounded-xl border border-border bg-surface transition-colors hover:border-primary/40">
       <button type="button" onClick={() => onOpen(d.id)}
-        className="flex-1 flex items-center gap-3 text-left min-w-0">
-        {/* Avatar = la photo de RÉFÉRENCE du dataset quand elle existe ; sinon
-            repli sur l'initiale en dégradé (dataset encore sans référence). */}
-        {d.ref_filename ? (
-          <img
-            src={`/api/dataset/${d.id}/img/${encodeURIComponent(d.ref_filename)}`}
-            alt="" loading="lazy" aria-hidden="true"
-            className="w-10 h-10 shrink-0 rounded-full object-cover border border-border shadow" />
-        ) : (
-          <span className={`grid place-items-center w-10 h-10 shrink-0 rounded-full bg-gradient-to-br ${gradientFor(d.name)} text-white font-bold text-base shadow`}
-            aria-hidden="true">
-            {(d.name || '?').charAt(0).toUpperCase()}
-          </span>
-        )}
-        <span className="min-w-0">
+        aria-label={`Open the dataset ${d.name}`}
+        className="block w-full text-left">
+        <div className="relative aspect-[4/3] bg-app/60">
+          {d.ref_filename ? (
+            <img
+              src={`/api/dataset/${d.id}/img/${encodeURIComponent(d.ref_filename)}`}
+              alt="" loading="lazy" aria-hidden="true"
+              className="h-full w-full object-cover" />
+          ) : (
+            <span className={`grid h-full w-full place-items-center bg-gradient-to-br ${gradientFor(d.name)} text-white text-3xl font-bold`}
+              aria-hidden="true">
+              {(d.name || '?').charAt(0).toUpperCase()}
+            </span>
+          )}
+          {d.kind === 'concept' && (
+            <span className="absolute left-1.5 top-1.5 rounded border border-fuchsia-400/40 bg-black/50 px-1.5 py-px text-[0.5625rem] font-semibold uppercase text-fuchsia-300 backdrop-blur-sm">
+              💡 Concept
+            </span>
+          )}
+          {d.kind === 'style' && (
+            <span className="absolute left-1.5 top-1.5 rounded border border-cyan-400/40 bg-black/50 px-1.5 py-px text-[0.5625rem] font-semibold uppercase text-cyan-300 backdrop-blur-sm">
+              🎨 Style
+            </span>
+          )}
+        </div>
+        <div className="flex flex-col gap-0.5 p-2.5">
           <span className="flex items-center gap-1.5 min-w-0">
-            <span className="text-content text-sm font-semibold truncate">{d.name}</span>
-            {d.kind === 'concept' && (
-              <span className="shrink-0 px-1.5 py-px rounded border border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-300 text-[0.5625rem] font-semibold uppercase">
-                💡 Concept
-              </span>
-            )}
-            {d.kind === 'style' && (
-              <span className="shrink-0 px-1.5 py-px rounded border border-cyan-400/40 bg-cyan-500/10 text-cyan-300 text-[0.5625rem] font-semibold uppercase">
-                🎨 Style
-              </span>
-            )}
+            <span className="truncate text-sm font-semibold text-content">{d.name}</span>
             {(d.trained_families || []).map((f) => {
               const [lbl, cls] = FAMILY_BADGE[f] || [f, 'border-border bg-white/5 text-content-muted'];
               return (
-                <span key={f} className={`shrink-0 px-1.5 py-px rounded border text-[0.5625rem] font-semibold uppercase ${cls}`}>
+                <span key={f} className={`shrink-0 rounded border px-1.5 py-px text-[0.5625rem] font-semibold uppercase ${cls}`}
+                  title={`A ${lbl} LoRA has been trained from this dataset`}>
                   {lbl}
                 </span>
               );
             })}
           </span>
-          <span className="block text-content-subtle text-[0.6875rem] truncate">
-            trigger: <code className="text-indigo-300">{d.trigger_word || '—'}</code>
-          </span>
-        </span>
-        <span className="ml-auto shrink-0 text-content-subtle opacity-0 group-hover:opacity-100 transition-opacity"
-          aria-hidden="true">Open →</span>
+          <span className="truncate font-mono text-[0.6875rem] text-indigo-300">{d.trigger_word || '—'}</span>
+          <span className="text-[0.6875rem] text-content-subtle">{tileStats(d)}</span>
+        </div>
       </button>
       {onDelete && (
         <button type="button"
@@ -146,7 +168,7 @@ function DatasetCard({ d, onOpen, onDelete }) {
             if (window.confirm(`Permanently delete the dataset "${d.name}" and all its images? This cannot be undone.`)) onDelete(d.id);
           }}
           title="Delete this dataset" aria-label={`Delete the dataset ${d.name}`}
-          className="px-2 py-1 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-xs hover:bg-red-500/25">
+          className="absolute right-1.5 top-1.5 rounded-lg border border-red-500/40 bg-black/50 px-2 py-1 text-xs text-red-300 opacity-70 backdrop-blur-sm transition-opacity hover:bg-red-500/25 hover:opacity-100">
           🗑
         </button>
       )}
@@ -154,7 +176,9 @@ function DatasetCard({ d, onOpen, onDelete }) {
   );
 }
 
-export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete, onRestore }) {
+/** The creation form — folded behind "+ New dataset" (auto-open on an empty
+ *  library). Fields unchanged from the historical always-open card. */
+function NewDatasetForm({ onCreate, onRestore, onClose }) {
   const restoreRef = useRef(null);
   const [name, setName] = useState('');
   const [trigger, setTrigger] = useState('');
@@ -178,161 +202,208 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
   const style = kind === 'style';
   const canCreate = name.trim() && (!concept || conceptDesc.trim());
   return (
-    <div className="flex flex-col gap-4">
-      {/* What this page does — pipeline hero. */}
-      <div className="rounded-xl border border-border bg-gradient-to-br from-surface to-app/60 p-3 flex flex-col gap-2.5">
-        <p className="text-content-subtle text-xs">
-          Build a consistent character: one reference photo becomes a curated,
-          captioned training set for a LoRA you can use in every generator.
-        </p>
-        <PipelineSteps />
-      </div>
-
-      {/* Creation card. */}
-      <div className="rounded-xl border border-border bg-surface p-3 flex flex-col gap-2.5">
+    <div className="rounded-xl border border-border bg-surface p-3 flex flex-col gap-2.5">
+      <div className="flex items-center justify-between gap-2">
         <h2 className="text-content font-semibold text-sm flex items-center gap-2">
           <span aria-hidden="true">🆕</span> New dataset
         </h2>
-        {/* Nature : personnage (défaut) vs concept. Choisir « Concept » adapte tout le
-            reste — import brut aspect conservé, captions qui gardent l'identité, pas de
-            photo de référence ni de générateur de variations. */}
-        <div className="flex gap-1.5">
-          {[['character', '🧑 Character', 'A person/face — identity binds to the trigger'],
-            ['concept', '💡 Concept', 'A recurring act/effect — the concept binds to the trigger'],
-            ['style', '🎨 Style', 'A global aesthetic — no trigger: the LoRA tints every image it is loaded on']].map(
-            ([val, label, hint]) => (
-              <button key={val} type="button" onClick={() => setKind(val)} title={hint}
-                className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                  kind === val
-                    ? 'border-primary/60 bg-primary/15 text-content'
-                    : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised'}`}>
-                {label}
-              </button>
-            ))}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
-            {concept ? 'Concept name' : style ? 'Style name' : 'Character name'}
-            <input value={name} onChange={(e) => setName(e.target.value)}
-              placeholder={concept ? 'e.g. cim' : style ? 'e.g. ink-wash' : 'e.g. Emma'}
-              className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
-          </label>
-          <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
-            Trigger word{style ? ' (names the run — a style LoRA has no trigger)' : ''}
-            <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
-              placeholder={concept ? 'e.g. cim_act' : style ? 'e.g. zsty_inkwash' : 'e.g. zchar_emma'}
-              className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
-            {/* Guard-rail: a plain short word ("emma", "girl") collides with the base
-                model's existing vocabulary — the identity bleeds into that word
-                everywhere. A unique token (prefix/underscore/digits) binds cleanly. */}
-            {trigger.trim() && /^[a-z]{1,7}$/i.test(trigger.trim()) && (
-              <span className="text-amber-300 text-[0.625rem]">
-                ⚠ “{trigger.trim()}” looks like a common word — the base model already has a meaning
-                for it. Prefer a unique token like <span className="font-mono">zchar_{trigger.trim().toLowerCase()}</span>.
-              </span>
-            )}
-          </label>
-        </div>
-        {/* Modèle cible : fixe le format de caption (SDXL→tags booru, sinon prose) et la
-            section du menu. Modifiable ensuite dans le panneau d'entraînement. */}
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Close the new-dataset form"
+            className="rounded px-1.5 text-content-subtle hover:text-content">✕</button>
+        )}
+      </div>
+      {/* Nature : personnage (défaut) vs concept. Choisir « Concept » adapte tout le
+          reste — import brut aspect conservé, captions qui gardent l'identité, pas de
+          photo de référence ni de générateur de variations. */}
+      <div className="flex gap-1.5">
+        {[['character', '🧑 Character', 'A person/face — identity binds to the trigger'],
+          ['concept', '💡 Concept', 'A recurring act/effect — the concept binds to the trigger'],
+          ['style', '🎨 Style', 'A global aesthetic — no trigger: the LoRA tints every image it is loaded on']].map(
+          ([val, label, hint]) => (
+            <button key={val} type="button" onClick={() => setKind(val)} title={hint}
+              className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                kind === val
+                  ? 'border-primary/60 bg-primary/15 text-content'
+                  : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised'}`}>
+              {label}
+            </button>
+          ))}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
-          Target model <span className="text-content-subtle normal-case">— sets the caption style &amp; groups the menu (changeable later)</span>
-          <select value={trainType} onChange={(e) => setTrainType(e.target.value)}
-            className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content">
-            <option value="zimage">Z-Image (prose captions)</option>
-            <option value="sdxl">SDXL (booru-tag captions)</option>
-            <option value="krea">Krea 2 (prose captions)</option>
-            <option value="flux">FLUX.1 (prose captions)</option>
-          </select>
+          {concept ? 'Concept name' : style ? 'Style name' : 'Character name'}
+          <input value={name} onChange={(e) => setName(e.target.value)}
+            placeholder={concept ? 'e.g. cim' : style ? 'e.g. ink-wash' : 'e.g. Emma'}
+            className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
         </label>
-        {/* Fidélité (personnage) : visage seul (défaut) vs visage + corps. En mode corps,
-            les marques corporelles permanentes sont bannies des captions (elles se lient
-            au trigger) et la composition cible plus de bustes/corps. */}
-        {!concept && !style && (
-          <div className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
-            <span>Fidelity <span className="text-content-subtle normal-case">— what the LoRA must reproduce (changeable later)</span></span>
-            <div className="flex gap-1.5">
-              {[['face', '🙂 Face', 'Identity = the face. Body shape may vary with the prompt.'],
-                ['body', '🧍 Face + body', 'Total fidelity: body shape, tattoos and marks bind to the trigger too. Prefers full-frame imports and more bust/body shots.']].map(
-                ([val, label, hint]) => (
-                  <button key={val} type="button" onClick={() => setFidelity(val)} title={hint}
-                    className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                      fidelity === val
-                        ? 'border-primary/60 bg-primary/15 text-content'
-                        : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised'}`}>
-                    {label}
-                  </button>
-                ))}
-            </div>
-          </div>
-        )}
-        {/* Concept description : ce que la caption OMET (l'acte récurrent). Alimente le
-            {concept} des prompts caption/raffinage/ban-list. Décrire l'ACTE, pas le sujet. */}
-        {concept && (
-          <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
-            What is the recurring concept? <span className="text-fuchsia-300">(required — it will be omitted from every caption)</span>
-            <textarea value={conceptDesc} onChange={(e) => setConceptDesc(e.target.value)} rows={2}
-              placeholder="Describe the recurring act/effect itself, not the people — e.g. “a tongue licking an ice-cream cone”"
-              className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content resize-y" />
-          </label>
-        )}
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-content-subtle text-[0.6875rem]">
-            {concept
-              ? 'The trigger word is the token you type to summon this concept. Import raw images of it, then caption and train.'
-              : style
-                ? 'A style LoRA applies to every image once loaded — no trigger needed. Import varied images sharing the style, then train (captions optional).'
-                : 'The trigger word is the unique token you will type in prompts to summon this character.'}
-          </p>
-          <button type="button"
-            onClick={() => canCreate && onCreate(name.trim(), trigger.trim(), kind, conceptDesc.trim(), trainType,
-              (concept || style) ? undefined : fidelity)}
-            disabled={!canCreate}
-            className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-            Create
-          </button>
-          {onRestore && (
-            <>
-              <button type="button" onClick={() => restoreRef.current?.click()}
-                title="Restore a dataset from a backup zip (made with the 💾 Backup button) — creates a new dataset."
-                className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
-                📦 Restore backup
-              </button>
-              <input ref={restoreRef} type="file" accept=".zip,application/zip" className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) onRestore(f);
-                  e.target.value = '';
-                }} />
-            </>
+        <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
+          Trigger word{style ? ' (names the run — a style LoRA has no trigger)' : ''}
+          <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
+            placeholder={concept ? 'e.g. cim_act' : style ? 'e.g. zsty_inkwash' : 'e.g. zchar_emma'}
+            className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
+          {/* Guard-rail: a plain short word ("emma", "girl") collides with the base
+              model's existing vocabulary — the identity bleeds into that word
+              everywhere. A unique token (prefix/underscore/digits) binds cleanly. */}
+          {trigger.trim() && /^[a-z]{1,7}$/i.test(trigger.trim()) && (
+            <span className="text-amber-300 text-[0.625rem]">
+              ⚠ “{trigger.trim()}” looks like a common word — the base model already has a meaning
+              for it. Prefer a unique token like <span className="font-mono">zchar_{trigger.trim().toLowerCase()}</span>.
+            </span>
           )}
+        </label>
+      </div>
+      {/* Modèle cible : fixe le format de caption (SDXL→tags booru, sinon prose) et la
+          section du menu. Modifiable ensuite dans le panneau d'entraînement. */}
+      <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
+        Target model <span className="text-content-subtle normal-case">— sets the caption style &amp; groups the menu (changeable later)</span>
+        <select value={trainType} onChange={(e) => setTrainType(e.target.value)}
+          className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content">
+          <option value="zimage">Z-Image (prose captions)</option>
+          <option value="sdxl">SDXL (booru-tag captions)</option>
+          <option value="krea">Krea 2 (prose captions)</option>
+          <option value="flux">FLUX.1 (prose captions)</option>
+        </select>
+      </label>
+      {/* Fidélité (personnage) : visage seul (défaut) vs visage + corps. En mode corps,
+          les marques corporelles permanentes sont bannies des captions (elles se lient
+          au trigger) et la composition cible plus de bustes/corps. */}
+      {!concept && !style && (
+        <div className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
+          <span>Fidelity <span className="text-content-subtle normal-case">— what the LoRA must reproduce (changeable later)</span></span>
+          <div className="flex gap-1.5">
+            {[['face', '🙂 Face', 'Identity = the face. Body shape may vary with the prompt.'],
+              ['body', '🧍 Face + body', 'Total fidelity: body shape, tattoos and marks bind to the trigger too. Prefers full-frame imports and more bust/body shots.']].map(
+              ([val, label, hint]) => (
+                <button key={val} type="button" onClick={() => setFidelity(val)} title={hint}
+                  className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                    fidelity === val
+                      ? 'border-primary/60 bg-primary/15 text-content'
+                      : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised'}`}>
+                  {label}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
+      {/* Concept description : ce que la caption OMET (l'acte récurrent). Alimente le
+          {concept} des prompts caption/raffinage/ban-list. Décrire l'ACTE, pas le sujet. */}
+      {concept && (
+        <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
+          What is the recurring concept? <span className="text-fuchsia-300">(required — it will be omitted from every caption)</span>
+          <textarea value={conceptDesc} onChange={(e) => setConceptDesc(e.target.value)} rows={2}
+            placeholder="Describe the recurring act/effect itself, not the people — e.g. “a tongue licking an ice-cream cone”"
+            className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content resize-y" />
+        </label>
+      )}
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-content-subtle text-[0.6875rem]">
+          {concept
+            ? 'The trigger word is the token you type to summon this concept. Import raw images of it, then caption and train.'
+            : style
+              ? 'A style LoRA applies to every image once loaded — no trigger needed. Import varied images sharing the style, then train (captions optional).'
+              : 'The trigger word is the unique token you will type in prompts to summon this character.'}
+        </p>
+        <button type="button"
+          onClick={() => canCreate && onCreate(name.trim(), trigger.trim(), kind, conceptDesc.trim(), trainType,
+            (concept || style) ? undefined : fidelity)}
+          disabled={!canCreate}
+          className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+          Create
+        </button>
+        {onRestore && (
+          <>
+            <button type="button" onClick={() => restoreRef.current?.click()}
+              title="Restore a dataset from a backup zip (made with the 💾 Backup button) — creates a new dataset."
+              className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
+              📦 Restore backup
+            </button>
+            <input ref={restoreRef} type="file" accept=".zip,application/zip" className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onRestore(f);
+                e.target.value = '';
+              }} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete, onRestore }) {
+  // Library-first: the creation form stays folded behind "+ New dataset" so the
+  // page opens on the collection — except on an empty library, where creating
+  // is the only meaningful action.
+  const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState('');
+  const empty = datasets.length === 0;
+  const formOpen = creating || empty;
+  const q = query.trim().toLowerCase();
+  const matches = (d) => !q
+    || (d.name || '').toLowerCase().includes(q)
+    || (d.trigger_word || '').toLowerCase().includes(q);
+  const filtered = datasets.filter(matches);
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Header: the page IS the library. */}
+      <div>
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">library</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-semibold text-content">Datasets</h1>
+          {!empty && <span className="text-sm text-content-subtle">{datasets.length}</span>}
+          <div className="ml-auto flex items-center gap-2">
+            {!empty && (
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find a dataset…"
+                aria-label="Find a dataset"
+                className="w-40 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-content placeholder:text-content-subtle focus:border-primary focus:outline-none sm:w-52"
+              />
+            )}
+            {!empty && (
+              <button type="button" onClick={() => setCreating((v) => !v)}
+                aria-expanded={formOpen}
+                className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">
+                {creating ? '✕ Close' : '+ New dataset'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Existing datasets — GROUPED by target model family (Z-Image / SDXL / Krea) so a
-          multi-pipeline library stays easy to manage. Character vs concept stays a badge. */}
-      {datasets.length > 0 ? (
+      {formOpen && (
+        <NewDatasetForm onCreate={onCreate} onRestore={onRestore}
+          onClose={empty ? null : () => setCreating(false)} />
+      )}
+
+      {empty ? (
+        <EmptyState />
+      ) : filtered.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border bg-app/30 px-4 py-8 text-center text-sm text-content-muted">
+          No dataset matches “{query.trim()}”.
+        </p>
+      ) : (
         <>
           {FAMILY_ORDER.map(([fam, label, emoji]) => {
-            const group = datasets.filter((d) => (d.train_type || 'zimage') === fam);
+            const group = filtered.filter((d) => (d.train_type || 'zimage') === fam);
             if (!group.length) return null;
             return (
               <div key={fam} className="flex flex-col gap-2">
-                <h2 className="text-content-muted text-[0.6875rem] uppercase tracking-wide font-semibold flex items-center gap-2">
+                <h2 className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-content-subtle">
                   <span aria-hidden="true">{emoji}</span> {label}
-                  <span className="text-content-subtle font-normal normal-case">({group.length})</span>
+                  <span className="font-normal normal-case tracking-normal">({group.length})</span>
                 </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                   {group.map((d) => (
-                    <DatasetCard key={d.id} d={d} onOpen={onOpen} onDelete={onDelete} />
+                    <DatasetTile key={d.id} d={d} onOpen={onOpen} onDelete={onDelete} />
                   ))}
                 </div>
               </div>
             );
           })}
         </>
-      ) : (
-        <EmptyState />
       )}
     </div>
   );

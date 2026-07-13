@@ -1239,9 +1239,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   <button type="button"
                     onClick={async () => {
                       // await + refresh: the import must show up in "IN COMFYUI"
-                      // without a manual Refresh click (user-observed).
-                      await ds.importCheckpoint(c.filename, base, trainType);
-                      loadCheckpoints(base);
+                      // without a manual Refresh click (user-observed). finally:
+                      // the list refreshes even if the import failed (the error
+                      // toast comes from the hook).
+                      try { await ds.importCheckpoint(c.filename, base, trainType); }
+                      finally { loadCheckpoints(base); }
                     }}
                     className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
                     Import → {lorasLabel}

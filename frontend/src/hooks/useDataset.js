@@ -497,8 +497,15 @@ export function useDataset() {
     const body = { filename };
     if (baseModel !== undefined && baseModel !== null) body.base_model = baseModel;
     if (trainType) body.train_type = trainType;
-    const d = await postJson(`/api/dataset/${currentId}/train/import`, body);
-    if (d.ok) toast.success(`LoRA imported: ${d.dest}`); else toast.error(d.error || 'Unexpected error');
+    try {
+      const d = await postJson(`/api/dataset/${currentId}/train/import`, body);
+      if (d.ok) toast.success(`LoRA imported: ${d.dest}`); else toast.error(d.error || 'Unexpected error');
+    } catch (e) {
+      // postJson THROWS on non-2xx and only fires a global toast for
+      // 401/429/5xx — a 400/404/409 here used to be a silent no-op (the
+      // button "did nothing", user-observed from a phone).
+      toast.error(e.message || 'Import failed');
+    }
   }, [currentId, toast]);
 
   // Supprime un checkpoint du dossier loras de la famille dans ComfyUI (libère de l'espace).

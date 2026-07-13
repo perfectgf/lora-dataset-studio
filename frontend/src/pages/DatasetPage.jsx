@@ -14,8 +14,7 @@ export default function DatasetPage() {
       {ds.currentId ? (
         <DatasetWorkspace ds={ds} onBack={() => ds.setCurrentId(null)} />
       ) : (
-        <div className="max-w-3xl mx-auto">
-          <h1 className="text-lg font-bold text-content mb-3">🧬 Dataset Maker — face for LoRA</h1>
+        <div className="max-w-4xl mx-auto">
           <DatasetListPanel datasets={ds.datasets} onOpen={ds.open} onCreate={ds.create}
             onDelete={ds.deleteDataset} onRestore={ds.importBackup} />
         </div>
