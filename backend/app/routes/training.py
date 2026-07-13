@@ -217,8 +217,9 @@ def dataset_train_checkpoints(dataset_id):
     # baseline, so versioning covers the past, not only future runs. Runs
     # BEFORE list_checkpoints so the fresh baseline annotates this response.
     had_training = (bool(lt.list_checkpoints(LOCAL_USER, dataset_id, **kw))
-                    or CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
-                       .first() is not None)
+                    or any((ct._run_family(r) or fam_resolved) == fam_resolved
+                           for r in CloudTrainingRun.query
+                           .filter_by(dataset_id=dataset_id).all()))
     checkpoint_registry.ensure_baseline(LOCAL_USER, dataset_id, fam_resolved,
                                         had_training)
     return jsonify({'checkpoints': lt.list_checkpoints(LOCAL_USER, dataset_id, **kw),
@@ -571,7 +572,17 @@ def dataset_train_cloud_sample(dataset_id, filename):
 @bp.get('/dataset/<int:dataset_id>/train/cloud/checkpoint')
 def dataset_train_cloud_checkpoint(dataset_id):
     from flask import send_file, abort
-    run = ct.latest_run_for(dataset_id, request.args.get('train_type'))
+    # ?run_id targets THAT run's file: with several finished runs of a family
+    # in the hub history, 'newest run of the family' would serve the WRONG
+    # checkpoint from an older row's button.
+    rid = request.args.get('run_id', type=int)
+    if rid is not None:
+        from ..models import CloudTrainingRun
+        run = CloudTrainingRun.query.get(rid)
+        if run and run.dataset_id != dataset_id:
+            run = None
+    else:
+        run = ct.latest_run_for(dataset_id, request.args.get('train_type'))
     if not run or not run.checkpoint_local_path \
             or not os.path.isfile(run.checkpoint_local_path):
         abort(404)
