@@ -36,6 +36,9 @@ class Platform(Enum):
     # « vraies photos amateur » (r/OOTD, fit checks, photo dumps…) pour les
     # datasets de style/concept. Énuméré via gallery-dl.
     REDDIT = "reddit"
+    # Sex.com — pinboard porno (chaque pin = UNE image). La recherche mot-clé
+    # (/pics?search=…) passe par l'API JSON du site ; pins/boards via gallery-dl.
+    SEXCOM = "sexcom"
     GENERIC = "generic"   # toute autre URL http(s) — déléguée à yt-dlp
     UNKNOWN = "unknown"
 
@@ -141,6 +144,7 @@ class URLValidator:
         Platform.X: ['x.com', 'twitter.com', 'www.x.com', 'www.twitter.com', 'mobile.twitter.com'],
         Platform.TIKTOK: ['tiktok.com', 'www.tiktok.com', 'vm.tiktok.com'],
         Platform.PORNPICS: ['pornpics.com', 'www.pornpics.com'],
+        Platform.SEXCOM: ['sex.com', 'www.sex.com'],
         Platform.CIVITAI: ['civitai.com', 'www.civitai.com', 'civitai.red', 'www.civitai.red'],
         # Bunkr tourne sur des TLDs rotatifs → matché par host-contains 'bunkr' (cf. detect_platform).
     }
@@ -160,6 +164,7 @@ class URLValidator:
         ('x.com', Platform.X), ('twitter.com', Platform.X),
         ('tiktok.com', Platform.TIKTOK),
         ('pornpics.com', Platform.PORNPICS),
+        ('sex.com', Platform.SEXCOM),
         ('civitai.com', Platform.CIVITAI),
         ('civitai.red', Platform.CIVITAI),
         # fapello.com + tout miroir de langue (fr./de./es.…) via endswith('.fapello.com').
@@ -256,7 +261,7 @@ class URLValidator:
         if platform in (Platform.COOMER, Platform.KEMONO, Platform.BUNKR,
                         Platform.CYBERDROP, Platform.X, Platform.TIKTOK,
                         Platform.PORNPICS, Platform.CIVITAI, Platform.FAPELLO,
-                        Platform.REDDIT):
+                        Platform.REDDIT, Platform.SEXCOM):
             return cls._validate_gallerydl_platform(url, platform)
 
         # Inatteignable : tout Platform détecté ci-dessus a son _validate_X.

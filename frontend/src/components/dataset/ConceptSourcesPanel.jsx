@@ -146,7 +146,7 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); runScan(0); }}>
         <input
           type="url" value={url} onChange={(e) => setUrl(e.target.value)}
-          placeholder="Gallery URL (e.g. https://www.pornpics.com/galleries/...)"
+          placeholder="Gallery or search URL (e.g. pornpics.com/… or sex.com/en/pics?search=…)"
           className="flex-1 min-w-0 px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
         />
         <button type="submit" disabled={scanning || !url.trim()}

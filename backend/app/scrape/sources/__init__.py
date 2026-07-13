@@ -26,6 +26,7 @@ from . import image_sites  # noqa: F401  (pornpics — vraies photos par catégo
 from . import civitai     # noqa: F401  (civitai.com/.red — images IA par tag)
 from . import fapello     # noqa: F401  (fapello.com + miroirs de langue — page modèle)
 from . import reddit       # noqa: F401  (reddit.com — recherche mot-clé via API OAuth)
+from . import sexcom      # noqa: F401  (sex.com — recherche mot-clé via l'API du site)
 from . import universal  # noqa: F401
 
 # Invariant : exactement une source universelle, noms uniques. Lève au démarrage

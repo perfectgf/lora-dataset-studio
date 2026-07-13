@@ -57,7 +57,9 @@ the captioner needs to know exactly *what to omit*. What changes vs character:
   shows **the same previews the listing page does** — one per gallery, the shot
   that actually matches your keyword. Tick **Scan full albums** to pull every
   photo of each matched gallery instead, or paste a single `/galleries/…` URL
-  to get that whole album.
+  to get that whole album. Sex.com works the same way for keyword searches
+  (`sex.com/en/pics?search=…`) — every pin **is** a single matching image, so
+  there is no album option to worry about.
 
   > **Reddit says "wait N seconds" (429)?** By default Reddit scans share a
   > public client id (and its ~1000 requests / 10 min quota) with many other
