@@ -85,6 +85,7 @@ _SETTING_ROWS = [
     ('trigger', 'Trigger word', str),
     ('rank', 'LoRA rank', str),
     ('alpha', 'LoRA alpha', str),
+    ('network_type', 'Network type', str),
     ('resolution', 'Resolution', _fmt_resolution),
     ('save_every', 'Save every', _fmt_steps),
     ('max_step_saves', 'Max saved checkpoints', str),
@@ -95,6 +96,7 @@ _SETTING_ROWS = [
     ('grad_accum', 'Gradient accumulation', str),
     ('timestep_type', 'Timestep type', str),
     ('dropout', 'LoRA dropout', str),
+    ('ema', 'EMA decay', str),
     ('sample_every', 'Sample every', _fmt_steps),
 ]
 _KNOWN_SETTING_KEYS = {k for k, _, _ in _SETTING_ROWS}

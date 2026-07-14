@@ -640,6 +640,19 @@ _OPTIMIZER_CHOICES = ('adamw8bit', 'adafactor', 'automagic', 'prodigy')
 _LR_SCHEDULER_CHOICES = ('constant', 'linear', 'cosine', 'cosine_with_restarts', 'constant_with_warmup')
 _WARMUP_CHOICES = (50, 100, 200, 500)          # num_warmup_steps ; UNIQUEMENT avec constant_with_warmup
 _GRAD_ACCUM_CHOICES = (1, 2, 4)
+# Network variant + EMA — both VÉRIFIÉS arch-génériques dans ai-toolkit installé :
+#   - network.type='lokr' : LoRASpecialNetwork choisit LokrModule pour TOUTE arch
+#     (toolkit/lora_special.py L384 `elif self.network_type.lower() == "lokr"`) et
+#     'lokr' est dans le Literal NetworkType (toolkit/config_modules.py L165). Aucune
+#     famille exclue → PAS de whitelist. lokr_factor reste au défaut -1 (auto = plus
+#     grand facteur) donc non émis. NB : use_old_lokr_format diffère selon l'arch
+#     (nommage des poids seulement, pas le support) — krea2/flux2_klein = nouveau
+#     format, zimage/sdxl/flux = ancien ; les deux s'entraînent et se chargent.
+#   - train.ema_config={use_ema, ema_decay} : knob niveau TrainConfig, arch-agnostique
+#     (config_modules.py L525-533 + EMAConfig L794-797, défaut ema_decay=0.999).
+# Recette communautaire (Krea-2) : LoKr + rank bas + EMA 0.99 → ressemblance ~step 500.
+_NETWORK_TYPE_CHOICES = ('lora', 'lokr')
+_EMA_CHOICES = (0.99, 0.999)
 
 
 def _train_settings(ds) -> dict:
@@ -672,10 +685,21 @@ def _lora_alpha_eff(ds, rank, family) -> int:
     return a if a in _ALPHA_CHOICES else _lora_alpha(rank, family)
 
 
+def _network_type_eff(ds) -> str:
+    """'lora' (défaut) ou 'lokr' — validé contre l'enum ai-toolkit ; inconnu → 'lora'.
+    LoKr est arch-générique (LokrModule sur toutes les familles), aucune garde
+    par famille nécessaire."""
+    t = _train_settings(ds).get('network_type')
+    return t if t in _NETWORK_TYPE_CHOICES else 'lora'
+
+
 def _network_block(ds, rank, family) -> dict:
-    """Bloc `network` LoRA partagé par les 3 job-configs : rank + alpha (override-aware)
-    + dropout optionnel (régularisateur anti-overfit, clé omise quand off)."""
-    net = {'type': 'lora', 'linear': rank, 'linear_alpha': _lora_alpha_eff(ds, rank, family)}
+    """Bloc `network` LoRA/LoKr partagé par les 5 job-configs : type + rank + alpha
+    (override-aware) + dropout optionnel (régularisateur anti-overfit, clé omise quand
+    off). LoKr = même bloc, seul `type` change ; lokr_factor reste au défaut ai-toolkit
+    (-1 = auto) donc non émis."""
+    net = {'type': _network_type_eff(ds), 'linear': rank,
+           'linear_alpha': _lora_alpha_eff(ds, rank, family)}
     d = _train_settings(ds).get('dropout')
     if isinstance(d, (int, float)) and d in _DROPOUT_CHOICES:
         net['dropout'] = d
@@ -717,6 +741,22 @@ def _lr_sched_fields(ds) -> dict:
         w = _train_settings(ds).get('warmup')
         out['lr_scheduler_params'] = {'num_warmup_steps': w if w in _WARMUP_CHOICES else 100}
     return out
+
+
+def _ema_eff(ds):
+    """Décroissance EMA choisie (0.99/0.999) ou None (= off). Inconnu → None."""
+    v = _train_settings(ds).get('ema')
+    return v if v in _EMA_CHOICES else None
+
+
+def _ema_fields(ds) -> dict:
+    """{} par défaut (= ai-toolkit use_ema=False) → à fusionner dans le bloc `train`.
+    Sinon {ema_config: {use_ema, ema_decay}} : moyenne mobile exponentielle des poids,
+    checkpoints plus lisses (clés VÉRIFIÉES config_modules.py EMAConfig L794-797)."""
+    v = _ema_eff(ds)
+    if v is None:
+        return {}
+    return {'ema_config': {'use_ema': True, 'ema_decay': v}}
 
 
 def _train_res(ds) -> list:
@@ -870,6 +910,15 @@ def launch_settings_snapshot(ds, family=None) -> dict:
     for k in ('dropout', 'lr_scheduler', 'warmup', 'grad_accum', 'sample_every'):
         if s.get(k):
             snap[k] = s[k]
+    # Recipe levers surfaced only when they deviate from the default (LoRA / EMA off),
+    # so the provenance line and ⎘ Share config stay compact — and the cloud run, which
+    # stamps this same snapshot, carries them too.
+    nt = _network_type_eff(ds)
+    if nt != 'lora':
+        snap['network_type'] = nt
+    em = _ema_eff(ds)
+    if em is not None:
+        snap['ema'] = em
     return snap
 
 
@@ -907,6 +956,14 @@ def effective_train_settings(ds, family=None) -> dict:
             'warmup_choices': list(_WARMUP_CHOICES),
             'grad_accum': s.get('grad_accum') if s.get('grad_accum') in _GRAD_ACCUM_CHOICES else None,   # None → 1
             'grad_accum_choices': list(_GRAD_ACCUM_CHOICES),
+            'network_type': s.get('network_type') if s.get('network_type') in _NETWORK_TYPE_CHOICES else None,  # None → lora
+            'network_type_choices': list(_NETWORK_TYPE_CHOICES),
+            # LoKr is arch-generic in ai-toolkit → offered on every family. The flag
+            # mirrors timestep_type_supported so the UI can gate a future family with
+            # one line; today it is always True (no family refuses lokr).
+            'network_type_supported': True,
+            'ema': s.get('ema') if s.get('ema') in _EMA_CHOICES else None,   # None → off
+            'ema_choices': list(_EMA_CHOICES),
             'resolution': res if res in _RES_CHOICES else '768,1024',
             'save_every': _save_every(ds),
             'max_step_saves': _max_step_saves(ds),
@@ -1033,6 +1090,22 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
             cur['grad_accum'] = v
         else:
             raise ValueError(f'grad_accum must be one of {_GRAD_ACCUM_CHOICES} (or auto)')
+    if 'network_type' in patch:
+        v = patch['network_type']
+        if v in (None, 'auto', '', 'lora'):
+            cur.pop('network_type', None)                  # lora = défaut → clé retirée
+        elif v in _NETWORK_TYPE_CHOICES:
+            cur['network_type'] = v
+        else:
+            raise ValueError(f'network_type must be one of {_NETWORK_TYPE_CHOICES} (or auto)')
+    if 'ema' in patch:
+        v = patch['ema']
+        if v in (None, 'off', '', 0, 0.0):
+            cur.pop('ema', None)                           # off → clé retirée
+        elif v in _EMA_CHOICES:
+            cur['ema'] = v
+        else:
+            raise ValueError(f'ema must be one of {_EMA_CHOICES} (or off)')
     ds.train_settings = json.dumps(cur) if cur else None
     fds.db.session.commit()
     return effective_train_settings(ds)
@@ -1044,7 +1117,7 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
 TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
                       'sample_every', 'sample_prompts', 'dropout', 'alpha',
                       'timestep_type', 'optimizer', 'lr_scheduler', 'warmup',
-                      'grad_accum')
+                      'grad_accum', 'network_type', 'ema')
 
 # Built-in presets: shipped with the app (every install sees them), read-only,
 # versioned with the code. The recommended character recipe: the researched
@@ -1473,6 +1546,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
                     'lr': _lr_eff(ds),
                     'dtype': 'bf16',
                     **_lr_sched_fields(ds),
+                    **_ema_fields(ds),
                 },
                 'model': model,
                 'sample': {
@@ -1562,6 +1636,7 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=
                     'lr': _lr_eff(ds),
                     'dtype': 'bf16',
                     **_lr_sched_fields(ds),
+                    **_ema_fields(ds),
                 },
                 'model': model,
                 'sample': {
@@ -1640,6 +1715,7 @@ def _build_job_config_flux(ds, dataset_folder: str, steps: int, training_folder=
                     'lr': _lr_eff(ds),
                     'dtype': 'bf16',
                     **_lr_sched_fields(ds),
+                    **_ema_fields(ds),
                 },
                 'model': model,
                 'sample': {
@@ -1727,6 +1803,7 @@ def _build_job_config_flux2klein(ds, dataset_folder: str, steps: int, training_f
                     'lr': _lr_eff(ds),
                     'dtype': 'bf16',
                     **_lr_sched_fields(ds),
+                    **_ema_fields(ds),
                 },
                 'model': model,
                 'sample': {
@@ -1801,6 +1878,7 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int, training_folder=
                     'lr': _lr_eff(ds),
                     'dtype': 'bf16',
                     **_lr_sched_fields(ds),
+                    **_ema_fields(ds),
                 },
                 'model': model,
                 'sample': {

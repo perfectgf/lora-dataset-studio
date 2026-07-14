@@ -208,6 +208,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const advWarmupChoices = adv?.warmup_choices ?? [50, 100, 200, 500];
   const advGradAccum = adv?.grad_accum ?? 1;
   const advGradAccumChoices = adv?.grad_accum_choices ?? [1, 2, 4];
+  // Recipe levers — network variant (LoKr) + EMA. LoKr is arch-generic in ai-toolkit,
+  // so network_type_supported is always true today; the flag mirrors the timestep
+  // pattern so a future family could be gated with one server-side flip.
+  const advNetworkType = adv?.network_type ?? 'lora';
+  const advNetworkChoices = adv?.network_type_choices ?? ['lora', 'lokr'];
+  const advNetworkSupported = adv ? adv.network_type_supported !== false : true;
+  const advEma = adv?.ema ?? 0;
+  const advEmaChoices = adv?.ema_choices ?? [0.99, 0.999];
   const LR_SCHED_LABELS = { constant: 'Constant (default)', constant_with_warmup: 'Warmup → constant', linear: 'Linear decay', cosine: 'Cosine decay', cosine_with_restarts: 'Cosine + restarts' };
   const advRes = adv?.resolution ?? '768,1024';
   const advSave = adv?.save_every ?? 250;
@@ -829,7 +837,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             réglages eux-mêmes vivent dans « Advanced options ». */}
         <span className="ml-auto text-content-subtle text-[0.625rem]"
           title="The configuration the next run will use — change it in Advanced options below">
-          base « {baseLabel} » · {maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : 'adaptive steps'}
+          base « {baseLabel} » · {maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : 'adaptive steps'}{advNetworkType === 'lokr' ? ' · LoKr' : ''}{advEma ? ` · EMA ${advEma}` : ''}
         </span>
       </div>
 
@@ -1189,9 +1197,50 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               <span aria-hidden className="text-indigo-300 transition-transform group-open:rotate-90">▸</span>
               <span aria-hidden>🔬</span>
               <span>Expert — last-mile levers</span>
-              <span className="ml-auto hidden sm:inline normal-case font-normal tracking-normal text-indigo-300/50">alpha · dropout{advTimestepSupported ? ' · timestep' : ''} · optimizer · schedule</span>
+              <span className="ml-auto hidden sm:inline normal-case font-normal tracking-normal text-indigo-300/50">network · alpha · dropout{advTimestepSupported ? ' · timestep' : ''} · optimizer · schedule · EMA</span>
             </summary>
             <div className="flex flex-col px-2.5 pb-2.5 divide-y divide-indigo-400/10 [&>div]:py-2.5 [&>div:first-child]:pt-1 [&>div:last-child]:pb-0">
+              {/* Network variant — LoRA (default) or LoKr. LoKr is arch-generic in
+                  ai-toolkit, so it's offered on every family; the *_supported guard
+                  mirrors the timestep pattern for a future family that can't run it. */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0">Network</span>
+                  <select value={advNetworkType} onChange={(e) => saveAdv({ network_type: e.target.value })}
+                    aria-label="Network type"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                    {advNetworkChoices.map((n) => <option key={n} value={n}>{n === 'lora' ? 'LoRA (default)' : 'LoKr'}</option>)}
+                  </select>
+                  {advNetworkType === 'lokr' && !advNetworkSupported && (
+                    <span className="text-amber-300 text-[0.625rem]" title={`LoKr isn't supported for ${trainType} — this run would fall back to LoRA.`}>⚠ not supported for {trainType}</span>
+                  )}
+                </div>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> LoKr often locks likeness earlier at small
+                  rank — community recipe: LoKr + low rank + EMA. <b className="text-content-muted font-medium">How:</b> LoRA
+                  (default) is the standard adapter; LoKr factorises the update differently and can capture identity in
+                  fewer steps on a tiny set. Pair it with a low rank and EMA below.
+                </span>
+              </div>
+              {/* EMA — exponential moving average of the weights */}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0">EMA</span>
+                  <select value={String(advEma)}
+                    onChange={(e) => saveAdv({ ema: e.target.value === '0' ? 'off' : Number(e.target.value) })}
+                    aria-label="EMA (exponential moving average)"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                    <option value="0">Off (default)</option>
+                    {advEmaChoices.map((d) => <option key={d} value={String(d)}>{d}</option>)}
+                  </select>
+                </div>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> exponential moving average of the weights —
+                  smoother, often better checkpoints. <b className="text-content-muted font-medium">How:</b> Off by
+                  default; 0.99 averages faster (the recommended pairing with LoKr on small sets), 0.999 is slower and
+                  steadier.
+                </span>
+              </div>
               {/* Decoupled alpha */}
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
