@@ -5,6 +5,13 @@
  * watermark (dismiss — badge clears, future scans skip it), or ✕ Reject (drop it from
  * the kept set). Big tap targets + keyboard: ← → navigate, c/d/x act, Esc closes.
  *
+ * Clean does NOT auto-advance: the user asked to actually SEE the cleaned pixels before
+ * moving on. A successful clean reloads the same tile (existing nonce/cache-bust), hides
+ * the now-stale bbox, and shows a "Cleaned — cropped/inpainted" badge; the user then
+ * presses → themselves. Dismiss/Reject don't touch pixels — nothing to look at — so they
+ * keep the original auto-advance. Navigation is held (arrows + buttons) while an action
+ * is in flight so the "Cleaning…" spinner can't end up drawn over the wrong image.
+ *
  * The queue is FROZEN on open (a snapshot of the currently-detected images): actions
  * remove images from the live 'detected' set, but the filmstrip stays stable so the
  * user walks it once. Per-image outcomes are tracked locally; the parent refreshes the
@@ -22,7 +29,9 @@ const ROUTE_LABEL = {
 };
 
 // Per-image outcome after an action. Terminal ones leave the 'detected' set (badge
-// gone) and auto-advance; the rest keep the image flagged so the user can still reject.
+// gone) and hide the (now stale) bbox overlay; the rest keep the image flagged so the
+// user can still reject. Of the terminal outcomes, only dismissed/rejected auto-advance
+// (see AUTO_ADVANCE below) — cleaned holds so the user can see the result.
 const OUTCOME = {
   cleaned: { icon: '✨', text: 'Cleaned', cls: 'text-emerald-300', terminal: true },
   dismissed: { icon: '⊘', text: 'Marked “not a watermark”', cls: 'text-content-subtle', terminal: true },
@@ -31,6 +40,14 @@ const OUTCOME = {
   skipped: { icon: '⬇', text: 'Skipped — inpainting not installed', cls: 'text-amber-300', terminal: false },
   failed: { icon: '⚠', text: 'Clean failed', cls: 'text-red-300', terminal: false },
 };
+
+// Which terminal outcomes auto-advance to the next image. Cleaned is deliberately
+// excluded — the user needs to see the cleaned pixels first.
+const AUTO_ADVANCE = new Set(['dismissed', 'rejected']);
+
+// Clean's outcome text, refined with which route actually ran (from the clean API's
+// per-request counts) once known.
+const CLEAN_DETAIL_TEXT = { cropped: 'Cleaned — cropped', inpainted: 'Cleaned — inpainted' };
 
 const RECAP_ORDER = ['cleaned', 'dismissed', 'rejected', 'review', 'skipped', 'failed'];
 const RECAP_WORD = { cleaned: 'cleaned', dismissed: 'dismissed', rejected: 'rejected',
@@ -47,7 +64,9 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
                                                   onClean, onDismiss, onReject, onClose }) {
   const [idx, setIdx] = useState(0);
   const [outcomes, setOutcomes] = useState({});   // id -> OUTCOME key
+  const [cleanDetail, setCleanDetail] = useState({}); // id -> 'cropped' | 'inpainted' (cleaned outcomes only)
   const [working, setWorking] = useState(false);
+  const [workingKind, setWorkingKind] = useState(null); // 'clean' | 'dismiss' | 'reject' — which action is in flight
   const [note, setNote] = useState(null);         // transient inline note {tone, text}
   const dialogRef = useRef(null);
   const workingRef = useRef(false);               // re-entrancy guard (double keypress)
@@ -64,57 +83,64 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   const close = useCallback(() => onClose(recap), [onClose, recap]);
 
   const go = useCallback((delta) => {
+    if (workingRef.current) return;   // hold navigation while an action is in flight
     setNote(null);
     setIdx((i) => Math.min(total - 1, Math.max(0, i + delta)));
   }, [total]);
   const advance = useCallback(() => setIdx((i) => Math.min(total - 1, i + 1)), [total]);
 
-  const run = useCallback(async (fn) => {
+  const run = useCallback(async (kind, fn) => {
     if (!item || workingRef.current) return;
     workingRef.current = true;
     setWorking(true);
+    setWorkingKind(kind);
     setNote(null);
     try {
-      const { key, note: n } = await fn(item);
+      const { key, note: n, detail } = await fn(item);
       if (key) setOutcomes((m) => ({ ...m, [item.id]: key }));
+      if (detail) setCleanDetail((m) => ({ ...m, [item.id]: detail }));
       if (n) setNote(n);
-      if (key && OUTCOME[key]?.terminal) advance();
+      if (key && AUTO_ADVANCE.has(key)) advance();
     } finally {
       workingRef.current = false;
       setWorking(false);
+      setWorkingKind(null);
     }
   }, [item, advance]);
 
-  const doClean = useCallback(() => run(async (it) => {
-    const d = await onClean(it.id);
-    if (!d || d.ok === false) {
-      return { key: 'failed', note: { tone: 'err', text: (d && d.error && (d.error.detail || d.error)) || 'Clean failed' } };
-    }
-    if (d.error) {
-      return { key: 'failed', note: { tone: 'err',
-        text: d.error.kind === 'unavailable'
-          ? 'Inpainting isn’t installed — install it (next to the 🧽 tools) or reject/crop this one.'
-          : `Inpainting failed: ${d.error.detail || d.error.kind}` } };
-    }
-    if (d.cropped || d.inpainted) return { key: 'cleaned' };
-    if (d.needs_review) {
-      return { key: 'review', note: { tone: 'warn',
-        text: 'On the subject — auto crop/inpaint would damage the photo. Reject it or crop it manually.' } };
-    }
-    if (d.skipped) {
-      return { key: 'skipped', note: { tone: 'warn',
-        text: 'Off-center mark, but inpainting isn’t installed — install it or reject/crop this one.' } };
-    }
-    return { key: 'cleaned' };   // nothing to do reported → treat as resolved
-  }), [run, onClean]);
+  const doClean = useCallback(() => {
+    if (outcome === 'cleaned') return;   // already cleaned — 'c' must not re-trigger it
+    return run('clean', async (it) => {
+      const d = await onClean(it.id);
+      if (!d || d.ok === false) {
+        return { key: 'failed', note: { tone: 'err', text: (d && d.error && (d.error.detail || d.error)) || 'Clean failed' } };
+      }
+      if (d.error) {
+        return { key: 'failed', note: { tone: 'err',
+          text: d.error.kind === 'unavailable'
+            ? 'Inpainting isn’t installed — install it (next to the 🧽 tools) or reject/crop this one.'
+            : `Inpainting failed: ${d.error.detail || d.error.kind}` } };
+      }
+      if (d.cropped || d.inpainted) return { key: 'cleaned', detail: d.cropped ? 'cropped' : 'inpainted' };
+      if (d.needs_review) {
+        return { key: 'review', note: { tone: 'warn',
+          text: 'On the subject — auto crop/inpaint would damage the photo. Reject it or crop it manually.' } };
+      }
+      if (d.skipped) {
+        return { key: 'skipped', note: { tone: 'warn',
+          text: 'Off-center mark, but inpainting isn’t installed — install it or reject/crop this one.' } };
+      }
+      return { key: 'cleaned' };   // nothing to do reported → treat as resolved
+    });
+  }, [run, onClean, outcome]);
 
-  const doDismiss = useCallback(() => run(async (it) => {
+  const doDismiss = useCallback(() => run('dismiss', async (it) => {
     const d = await onDismiss(it.id);
     if (!d || d.ok === false) return { note: { tone: 'err', text: (d && d.error) || 'Could not dismiss' } };
     return { key: 'dismissed' };
   }), [run, onDismiss]);
 
-  const doReject = useCallback(() => run(async (it) => {
+  const doReject = useCallback(() => run('reject', async (it) => {
     await onReject(it.id);
     return { key: 'rejected' };
   }), [run, onReject]);
@@ -145,7 +171,11 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     ? item.watermark_bbox : null;
   const route = item ? ROUTE_LABEL[item.watermark_route] : null;
   const oc = outcome ? OUTCOME[outcome] : null;
-  const showBox = bbox && !(oc && oc.terminal);
+  const ocText = outcome === 'cleaned' && cleanDetail[item?.id]
+    ? CLEAN_DETAIL_TEXT[cleanDetail[item.id]] || oc.text
+    : oc?.text;
+  const cleaning = working && workingKind === 'clean';   // navigation is held while true, so this always tracks `item`
+  const showBox = bbox && !(oc && oc.terminal) && !cleaning;
   const lamaMissing = item && item.watermark_route === 'lama' && caps && !caps.watermark_inpaint;
 
   const btn = 'flex-1 min-w-[7rem] min-h-[3rem] px-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 disabled:opacity-40';
@@ -181,10 +211,17 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
                   width: `${(bbox[2] - bbox[0]) * 100}%`, height: `${(bbox[3] - bbox[1]) * 100}%`,
                 }} />
             )}
-            {oc && (
+            {cleaning ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-sm">
+                <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/75 text-amber-200 text-sm font-semibold">
+                  <span aria-hidden className="w-4 h-4 rounded-full border-2 border-amber-200/40 border-t-amber-200 animate-spin" />
+                  Cleaning…
+                </span>
+              </div>
+            ) : oc && (
               <div className="absolute inset-x-0 bottom-0 flex justify-center pb-2 pointer-events-none">
                 <span className={`px-2 py-1 rounded-lg bg-black/75 text-xs font-semibold ${oc.cls}`}>
-                  {oc.icon} {oc.text}
+                  {oc.icon} {ocText}
                 </span>
               </div>
             )}
@@ -217,10 +254,12 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
         )}
 
         <div className="flex gap-2 flex-wrap">
-          <button type="button" onClick={doClean} disabled={working}
-            title="Apply this image's watermark removal now (crop / inpaint / manual review) — shortcut c"
+          <button type="button" onClick={doClean} disabled={working || outcome === 'cleaned'}
+            title={outcome === 'cleaned'
+              ? 'Already cleaned'
+              : "Apply this image's watermark removal now (crop / inpaint / manual review) — shortcut c"}
             className={`${btn} bg-amber-500/20 border border-amber-400/50 text-amber-100 hover:bg-amber-500/30`}>
-            🧽 Clean <kbd className="text-[10px] text-white/50">c</kbd>
+            {cleaning ? '🧽 Cleaning…' : <>🧽 Clean <kbd className="text-[10px] text-white/50">c</kbd></>}
           </button>
           <button type="button" onClick={doDismiss} disabled={working}
             title="This is NOT a watermark (false positive) — clears the flag, future scans skip it — shortcut d"
@@ -235,19 +274,19 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          <button type="button" onClick={() => go(-1)} disabled={idx <= 0}
+          <button type="button" onClick={() => go(-1)} disabled={idx <= 0 || working}
             title="Previous (←)" aria-label="Previous image"
             className="px-3 min-h-[2.5rem] rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm disabled:opacity-30">← Prev</button>
           <span className="text-white/40 text-[11px] text-center hidden sm:block">
             ← → navigate · <kbd>c</kbd> clean · <kbd>d</kbd> dismiss · <kbd>x</kbd> reject · Esc close
           </span>
           {allDone ? (
-            <button type="button" onClick={close}
-              className="px-4 min-h-[2.5rem] rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold">
+            <button type="button" onClick={close} disabled={working}
+              className="px-4 min-h-[2.5rem] rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold disabled:opacity-40">
               Done ✓
             </button>
           ) : (
-            <button type="button" onClick={() => go(1)} disabled={idx >= total - 1}
+            <button type="button" onClick={() => go(1)} disabled={idx >= total - 1 || working}
               title="Next (→)" aria-label="Next image"
               className="px-3 min-h-[2.5rem] rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm disabled:opacity-30">Next →</button>
           )}
