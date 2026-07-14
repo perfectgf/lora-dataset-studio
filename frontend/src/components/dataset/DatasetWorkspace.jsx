@@ -633,7 +633,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       {navItem(s, false)}
                       {isActive && (
                         <ul id={`dataset-nav-panels-${s.id}`}
-                          className="m-0 ml-4 flex list-none flex-col gap-0.5 border-l border-border/70 py-1 pl-1 p-0">
+                          className="m-0 ml-4 flex list-none flex-col gap-0.5 border-l border-border py-1 pl-1 p-0">
                           {destinations.map((destination) => (
                             <li key={destination.id}>{panelNavItem(s.id, destination, false)}</li>
                           ))}
