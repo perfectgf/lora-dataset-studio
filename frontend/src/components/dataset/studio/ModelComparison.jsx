@@ -28,7 +28,7 @@ export default function ModelComparison({ items }) {
           </thead>
           <tbody>
             {items.map((m) => (
-              <tr key={m.z_model || 'officiel'} className="border-t border-border/50">
+              <tr key={m.z_model || 'officiel'} className="border-t border-border">
                 <td className="py-0.5 text-content truncate max-w-[140px]" title={m.z_model_label || 'Official'}>
                   {m.z_model_label || 'Official'}
                 </td>

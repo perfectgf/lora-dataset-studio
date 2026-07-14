@@ -7,7 +7,7 @@ import { Card, SecretField } from './primitives'
    (free, one minute, no app secret involved) gives you a private quota. */
 function RedditClientIdGuide() {
   return (
-    <details className="mb-2 rounded-lg border border-border bg-surface-raised/50 open:pb-1">
+    <details className="mb-2 rounded-lg border border-border bg-surface-raised open:pb-1">
       <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-content">
         How to create your client ID (takes 1 minute)
       </summary>

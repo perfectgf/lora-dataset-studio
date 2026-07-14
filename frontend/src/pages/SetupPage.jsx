@@ -502,7 +502,7 @@ export default function SetupPage() {
             {ML_CAPS.map((c) => {
               const present = !!caps[c.cap]
               return (
-                <div key={c.action} className="rounded-md border border-border bg-surface-raised/40 p-3 space-y-2">
+                <div key={c.action} className="rounded-md border border-border bg-surface-raised p-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold text-content">{c.icon} {c.title}</span>
                     <span className={`shrink-0 text-xs font-medium ${present ? 'text-emerald-400' : 'text-content-subtle'}`}>
@@ -520,7 +520,7 @@ export default function SetupPage() {
               )
             })}
           </div>
-          <details className="rounded-md border border-border/60 bg-surface-raised/20 px-3 py-2">
+          <details className="rounded-md border border-border bg-surface-raised px-3 py-2">
             <summary className="cursor-pointer text-xs text-content-subtle hover:text-content">
               Or install everything at once (first-time setup)
             </summary>

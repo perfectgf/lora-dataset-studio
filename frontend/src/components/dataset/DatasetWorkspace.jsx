@@ -724,7 +724,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   editable IN PLACE (saves on blur, like the grid). Style sets have no leak
                   concept, so the panel only opens for character/concept. */}
               {showLeaks && !isStyle && (
-                <div className="rounded-lg border border-border bg-surface-raised/60 p-3 flex flex-col gap-3 text-[0.75rem]">
+                <div className="rounded-lg border border-border bg-surface-raised p-3 flex flex-col gap-3 text-[0.75rem]">
                   <div className="flex items-start gap-2">
                     <span aria-hidden className="text-base leading-none">🎭</span>
                     <div className="flex flex-col gap-1">

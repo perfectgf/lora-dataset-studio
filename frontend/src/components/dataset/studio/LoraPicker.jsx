@@ -172,7 +172,7 @@ export default function LoraPicker({ preselectDataset, onSelectionChange }) {
               <div key={k}
                 className={`flex flex-col gap-1 rounded-lg border px-2.5 py-2 ${
                   on ? 'border-primary/40 bg-primary/10'
-                  : locked ? 'border-border/40 bg-surface-raised opacity-50'
+                  : locked ? 'border-border bg-surface-raised opacity-50'
                   : 'border-border bg-surface-raised'
                 }`}>
                 <button type="button" onClick={() => toggle(l)} aria-pressed={on}

@@ -1,7 +1,7 @@
 // Meilleur réglage PAR MODÈLE (les votes varient selon le checkpoint).
 // Extrait de LoraTestStudio.jsx (bloc d.best_per_model), rendu REPLIABLE + couleur
-// corrigée : `bg-surface/60` rendait un panneau BLANC (surface = blanc, /60 force
-// l'alpha à 0.6) → on utilise `bg-surface-raised` (surface sombre surélevée).
+// corrigée : un modificateur d'opacité à 60 % sur `bg-surface` rendait un panneau
+// BLANC (surface = blanc) → on utilise `bg-surface-raised` (surface sombre surélevée).
 import { useState } from 'react';
 
 export default function BestPerModelList({ items, breakdown, datasetId, onMemorize, fmt }) {
