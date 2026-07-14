@@ -57,7 +57,7 @@ const WATERMARK_BADGE = {
 
 export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, onCrop, onDelete,
                                           onRegenerate, onView, nonce = 0, faceThresholds,
-                                          selected = false, onToggleSelect }) {
+                                          selected = false, onToggleSelect, tileSize = 'M' }) {
   const [cap, setCap] = useState(img.caption || '');
   // ✏️ edit-prompt bubble open state (regenerate this tile with an edited prompt).
   const [editingPrompt, setEditingPrompt] = useState(false);
@@ -78,6 +78,13 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
   const fb = faceBadge(img, faceThresholds);
   const wb = WATERMARK_BADGE[img.watermark_state];
   const borderCls = fb ? fb.border : `border-2 ${STATUS_CLS[img.status] || 'border-border'}`;
+  // The tile stays a square (crop decisions need a stable grid), but at the L
+  // size — fewer, bigger tiles, the whole point being to judge a composition
+  // before deciding — a hard object-cover square crop hides exactly what you'd
+  // need to see (is this shot portrait or landscape?). So L switches to
+  // object-contain (letterboxed on the existing black tile background); S/M
+  // stay object-cover so the dense overview grid reads as a clean tiled wall.
+  const imgFitCls = tileSize === 'L' ? 'object-contain' : 'object-cover';
 
   return (
     <div className={`rounded-lg ${borderCls} ${selected ? 'ring-2 ring-indigo-400' : ''} bg-app/40 overflow-hidden flex flex-col`}>
@@ -98,7 +105,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
             aria-label={`Inspect ${displayLabel(img.variation_label) || 'the image'} full screen`}
             className="block w-full h-full cursor-zoom-in">
             <img src={url} alt={displayLabel(img.variation_label)} loading="lazy"
-              className="w-full h-full object-cover" />
+              className={`w-full h-full ${imgFitCls}`} />
           </button>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-1 px-2 text-center"

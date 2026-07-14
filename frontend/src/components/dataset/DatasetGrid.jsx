@@ -3,6 +3,45 @@ import DatasetGridItem from './DatasetGridItem';
 
 const DEFAULT_GREEN = 0.50;
 
+// Thumbnail size (S/M/L): 3 crans plutôt qu'un slider (fragile à la souris, pas
+// de granularité utile ici). Persisté en préférence GLOBALE (pas par dataset —
+// même pattern que `datasetGenerator`) : c'est un réglage d'affichage, pas une
+// donnée du dataset. M = comportement historique (grid-cols-2/3/4) inchangé.
+// L réduit les colonnes pour de vraies grandes tuiles (juger une composition
+// verticale/horizontale avant crop) ; S en ajoute pour un survol dense.
+const TILE_SIZE_KEY = 'datasetGridTileSize';
+const TILE_SIZE_COLS = {
+  S: 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6',
+  M: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4',
+  L: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+};
+const TILE_SIZE_TITLE = {
+  S: 'Small tiles — more per row, quick overview',
+  M: 'Medium tiles (default)',
+  L: 'Large tiles — see the full composition before you crop/keep/reject',
+};
+
+// Discreet segmented S/M/L control, not a slider (mouse-fragile, no useful
+// granularity for 3 steps). Lives in the grid header, next to "select all".
+function TileSizeControl({ size, onChange, className = '' }) {
+  return (
+    <div role="group" aria-label="Thumbnail size" className={`flex items-center gap-1 shrink-0 ${className}`}>
+      <span aria-hidden className="text-content-subtle text-xs">🔳</span>
+      {['S', 'M', 'L'].map((s) => (
+        <button key={s} type="button" onClick={() => onChange(s)}
+          aria-pressed={size === s} title={TILE_SIZE_TITLE[s]}
+          aria-label={`${TILE_SIZE_TITLE[s]}${size === s ? ' (active)' : ''}`}
+          className={`w-6 h-6 rounded-md border text-[0.6875rem] font-semibold transition-colors ${
+            size === s
+              ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
+              : 'border-border bg-surface text-content-muted hover:bg-surface-raised'}`}>
+          {s}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* Auto-triage (A2): pre-mark the UNDECIDED scorable images by face-score
    threshold — score >= t -> keep, below -> reject. Client-side derivation from
    the payload the grid already has; applies through the same batch endpoint as
@@ -58,6 +97,18 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
       return next.size === prev.size ? prev : next;
     });
   }, [images]);
+  // Thumbnail size: a UI preference, not dataset data — persisted globally
+  // (same lazy-init + effect pattern as `datasetGenerator` in VariationCatalog).
+  // Runs before the early return below so hook order stays stable.
+  const [tileSize, setTileSize] = useState(() => {
+    try {
+      const v = localStorage.getItem(TILE_SIZE_KEY);
+      return v === 'S' || v === 'M' || v === 'L' ? v : 'M';
+    } catch { return 'M'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(TILE_SIZE_KEY, tileSize); } catch { /* ignore — private mode */ }
+  }, [tileSize]);
 
   if (!images || !images.length) {
     return <p className="text-content-subtle text-xs">No images — generate variations or import photos.</p>;
@@ -82,9 +133,9 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
       {onBatch && (
         <AutoTriageBar images={images} faceThresholds={faceThresholds} onBatch={onBatch} busy={busy} />
       )}
-      {onBatch && (
-        <div className="flex items-center gap-2 flex-wrap text-xs">
-          {selected.size === 0 ? (
+      <div className="flex items-center gap-2 flex-wrap text-xs">
+        {onBatch && (
+          selected.size === 0 ? (
             <>
               <span className="text-content-subtle">Tick images to curate them in bulk —</span>
               <button type="button" onClick={() => setSelected(new Set(selectable.map((i) => i.id)))}
@@ -112,15 +163,16 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
                   className="text-content-muted underline hover:text-content">none</button>
               </span>
             </div>
-          )}
-        </div>
-      )}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          )
+        )}
+        <TileSizeControl size={tileSize} onChange={setTileSize} className="ml-auto" />
+      </div>
+      <div className={`grid ${TILE_SIZE_COLS[tileSize]} gap-2`}>
         {images.map((img) => (
           <DatasetGridItem key={img.id} img={img} datasetId={datasetId} onStatus={onStatus} onCaption={onCaption}
             onCrop={onCrop} onDelete={onDelete} onRegenerate={onRegenerate} onView={onView}
             selected={selected.has(img.id)} onToggleSelect={onBatch ? toggle : undefined}
-            nonce={(nonces && nonces[img.id]) || 0} faceThresholds={faceThresholds} />
+            nonce={(nonces && nonces[img.id]) || 0} faceThresholds={faceThresholds} tileSize={tileSize} />
         ))}
       </div>
     </div>
