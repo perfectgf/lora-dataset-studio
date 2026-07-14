@@ -20,6 +20,7 @@ import GuidedChecklist from './GuidedChecklist';
 import NextStepCard from './NextStepCard';
 import TrainingReadiness from './TrainingReadiness';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
+import { filterImages, normalizeTag } from '../../utils/tagFilter';
 
 /* Chaque étape du workflow est une CARTE distincte plutôt qu'un simple titre
    flottant : un bandeau-titre teinté (numéro, ou ✓ vert une fois l'étape faite)
@@ -75,6 +76,47 @@ function StepSection({ n, title, help, id, active, done, summary, open, onToggle
 // Style partagé des items du menu « ⋯ More » du header (actions secondaires).
 const MENU_ITEM = 'w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-md text-sm text-content hover:bg-surface-raised disabled:opacity-40';
 
+/* Loud banner sitting directly above the grid whenever a tag filter is active,
+   so the user can NEVER mistake a filtered view for "images disappeared". Shows
+   every active exclusion (⊘) / inclusion (◉ only) as a removable chip, the live
+   "showing N of M" count, and a one-click "clear all". Session-only state lives
+   in the parent workspace (transient view, not persisted). */
+function GridFilterBar({ excludes, includes, shown, total, onRemoveExclude, onRemoveInclude, onClearAll }) {
+  return (
+    <div role="status"
+      className="flex items-center gap-2 flex-wrap rounded-lg border-2 border-amber-400/50 bg-amber-400/10 px-3 py-2">
+      <span className="text-amber-200 text-sm font-semibold shrink-0">🔎 Filtered view</span>
+      <span className="text-content-muted text-xs tabular-nums shrink-0">
+        showing {shown} of {total}
+      </span>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {excludes.map((t) => (
+          <span key={`x-${t}`}
+            className="inline-flex items-center gap-1 rounded-full border border-rose-400/50 bg-rose-500/15 pl-2 pr-1 py-0.5 text-[0.6875rem] text-rose-200">
+            <span aria-hidden>⊘</span> {t}
+            <button type="button" onClick={() => onRemoveExclude(t)}
+              aria-label={`Stop hiding images tagged ${t}`}
+              className="w-4 h-4 grid place-items-center rounded-full hover:bg-rose-500/30">✕</button>
+          </span>
+        ))}
+        {includes.map((t) => (
+          <span key={`i-${t}`}
+            className="inline-flex items-center gap-1 rounded-full border border-indigo-400/50 bg-indigo-500/15 pl-2 pr-1 py-0.5 text-[0.6875rem] text-indigo-200">
+            <span aria-hidden>◉</span> only {t}
+            <button type="button" onClick={() => onRemoveInclude(t)}
+              aria-label={`Stop isolating images tagged ${t}`}
+              className="w-4 h-4 grid place-items-center rounded-full hover:bg-indigo-500/30">✕</button>
+          </span>
+        ))}
+      </div>
+      <button type="button" onClick={onClearAll}
+        className="ml-auto shrink-0 text-content-muted underline hover:text-content text-xs">
+        clear all
+      </button>
+    </div>
+  );
+}
+
 export default function DatasetWorkspace({ ds, onBack }) {
   const navigate = useNavigate();
   const toast = useToast();
@@ -96,12 +138,19 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Un clic sur le bandeau écrit ici ; un saut depuis la checklist force l'ouverture.
   const [openMap, setOpenMap] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Grid tag-filter (session-only): tags whose images are hidden (exclude) or the
+  // ONLY tags allowed through (include). Both are normalized (trim+lowercase).
+  const [excludeTags, setExcludeTags] = useState([]);
+  const [includeTags, setIncludeTags] = useState([]);
   // Hooks must run unconditionally on every render — deriveSteps() null-guards `d`,
   // so this is safe to call before the loading early-return below.
   const { steps, nextStep } = useGuidedFlow(d, caps, checkpointCount);
   // Changer de dataset repart d'un repli « propre » (les overrides visent des ids
   // partagés entre datasets, sinon ils fuiteraient d'un dataset à l'autre).
   useEffect(() => { setOpenMap({}); }, [d?.id]);
+  // Filters are per-dataset & transient — drop them when switching datasets so they
+  // never leak from one dataset to the next (mirrors the openMap reset above).
+  useEffect(() => { setExcludeTags([]); setIncludeTags([]); }, [d?.id]);
   // Pendant une passe de captioning, épingle la section images ouverte : sinon,
   // dès que la DERNIÈRE caption tombe, stepDone['gf-images'] bascule à true et la
   // carte se replie toute seule (sectionOpen retombe sur !stepDone) — la grille
@@ -130,6 +179,25 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const watermarkDetected = images.filter((i) => i.watermark_state === 'detected').length;
   // Style de caption : défaut AUTO (SDXL booru-native → booru tags ; sinon prose), surchargé par le sélecteur.
   const effCaptionMode = captionMode || (d.train_type === 'sdxl' ? 'booru' : 'prose');
+  // ── Grid tag-filter (session-only) ──────────────────────────────────────────
+  // A tag is toggled in its list and mutually excluded from the other (a tag can't
+  // be both hidden and isolated). Match mode follows the caption style so booru
+  // captions match a whole tag, prose captions a whole word (see utils/tagFilter).
+  const toggleTag = (setSelf, setOther) => (raw) => {
+    const t = normalizeTag(raw);
+    if (!t) return;
+    setOther((prev) => prev.filter((x) => x !== t));
+    setSelf((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+  };
+  const toggleExclude = toggleTag(setExcludeTags, setIncludeTags);
+  const toggleInclude = toggleTag(setIncludeTags, setExcludeTags);
+  const clearFilters = () => { setExcludeTags([]); setIncludeTags([]); };
+  const filtersActive = excludeTags.length > 0 || includeTags.length > 0;
+  // The list actually rendered by the grid. Filtering here means select-all,
+  // auto-triage and every bulk action operate ONLY on the visible images. The
+  // Caption-tools counts keep using the full `images` list (global, never lies).
+  const gridImages = filterImages(images, {
+    excludes: excludeTags, includes: includeTags, mode: effCaptionMode });
   const pending = images.filter((i) => i.status === 'pending' && !i.filename).length;
   const triage = images.filter((i) => i.status === 'pending' && i.filename).length;   // generated, awaiting ✓/✕
 
@@ -600,11 +668,28 @@ export default function DatasetWorkspace({ ds, onBack }) {
               <span aria-hidden className="ml-auto text-content-subtle">{showImages ? '▾' : '▸'}</span>
             </button>
             {showImages && (
-              <CaptionToolsBar images={images} trainType={d.train_type} onReplace={ds.replaceCaptions}
+              <CaptionToolsBar images={images} trainType={d.train_type} mode={effCaptionMode}
+                excludes={excludeTags} includes={includeTags}
+                onExclude={toggleExclude} onInclude={toggleInclude}
+                onReplace={ds.replaceCaptions}
                 onWriteFiles={ds.writeCaptionFiles} onOpenFolder={ds.openDatasetFolder} busy={ds.busy} />
             )}
-            {showImages && (
-              <DatasetGrid images={d.images} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}
+            {showImages && filtersActive && (
+              <GridFilterBar excludes={excludeTags} includes={includeTags}
+                shown={gridImages.length} total={images.length}
+                onRemoveExclude={toggleExclude} onRemoveInclude={toggleInclude}
+                onClearAll={clearFilters} />
+            )}
+            {showImages && filtersActive && gridImages.length === 0 ? (
+              // Filtered down to nothing: say so plainly (the grid's own "no images"
+              // empty-state would read as "everything's gone", which would be a lie).
+              <p className="rounded-lg border border-border bg-surface px-3 py-4 text-center text-content-subtle text-sm">
+                No images match the active filter{excludeTags.length + includeTags.length > 1 ? 's' : ''} —{' '}
+                <button type="button" onClick={clearFilters} className="underline hover:text-content">clear all</button>{' '}
+                to see all {images.length} again.
+              </p>
+            ) : showImages && (
+              <DatasetGrid images={gridImages} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}
                 onCrop={setCropImg} onDelete={ds.deleteImage}
                 onRegenerate={(id, loraStrength, prompt) => ds.regenerate(id, loraStrength, prompt)} onView={setViewImg}
                 onBatch={ds.batchImages} busy={ds.busy}
