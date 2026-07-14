@@ -602,20 +602,34 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <span aria-hidden className="text-content-subtle text-xs">{installInpaintOpen ? '▴' : '▾'}</span>
                 </button>
               )}
-              {!concept && d.caption_leak && d.caption_leak.captioned > 0 && (
-                d.caption_leak.leaking === 0 ? (
-                  <span className="ml-auto text-emerald-400 text-[0.8125rem]"
-                    title="No caption describes hair/face/skin — identity binds to the trigger.">
-                    ✅ 0 leak ({d.caption_leak.captioned})
-                  </span>
-                ) : (
+              {/* Identity-leak badge. BOTH states are clickable → the same explainer
+                  panel (what a leak is, what was checked, why 0 is normal, offenders to
+                  fix). The count is spelled out ("N captions checked") so a green 0 reads
+                  as a REAL result on N captions, not a check that never ran. */}
+              {!concept && d.caption_leak && (
+                d.caption_leak.captioned > 0 ? (
                   <button type="button" onClick={() => setShowLeaks((v) => !v)}
                     aria-expanded={showLeaks}
-                    title="These captions mention hair/face/skin → identity won't bind to the trigger. Click to list and fix them here."
-                    className="ml-auto text-amber-400 text-[0.8125rem] underline decoration-amber-400/50 decoration-dashed">
-                    ⚠️ {d.caption_leak.leaking}/{d.caption_leak.captioned} identity leak {showLeaks ? '▴' : '▾'}
+                    title={d.caption_leak.leaking === 0
+                      ? "0 captions describe hair/face/skin — identity binds to the trigger. Click for what was checked and why."
+                      : "These captions mention hair/face/skin → identity won't bind to the trigger. Click to see what's watched and fix them here."}
+                    className={`ml-auto text-[0.8125rem] underline decoration-dashed ${
+                      d.caption_leak.leaking === 0
+                        ? 'text-emerald-400 decoration-emerald-400/40'
+                        : 'text-amber-400 decoration-amber-400/50'}`}>
+                    {d.caption_leak.leaking === 0
+                      ? `✅ 0 identity leaks · ${d.caption_leak.captioned} captions checked`
+                      : `⚠️ ${d.caption_leak.leaking}/${d.caption_leak.captioned} captions leak identity`}
+                    {' '}{showLeaks ? '▴' : '▾'}
                   </button>
-                )
+                ) : kept > 0 ? (
+                  <button type="button" onClick={() => setShowLeaks((v) => !v)}
+                    aria-expanded={showLeaks}
+                    title="The identity-leak scan runs on captions. Caption the kept images first. Click to learn what it checks."
+                    className="ml-auto text-content-subtle text-[0.8125rem] underline decoration-dashed decoration-border">
+                    identity-leak scan: no captions yet {showLeaks ? '▴' : '▾'}
+                  </button>
+                ) : null
               )}
             </div>
 
@@ -645,34 +659,85 @@ export default function DatasetWorkspace({ ds, onBack }) {
               </div>
             )}
 
-            {/* Identity-leak triage list: every leaking caption editable IN PLACE
-                (saves on blur, like the grid) — no more hunting through the tiles. */}
+            {/* Identity-leak explainer + triage. Opened from the badge in EITHER state:
+                it says what a leak is, WHAT was checked (so a green 0 is a real result,
+                not a check that never ran), which word categories are watched, why 0 is
+                normal on a character set — and, when there ARE leaks, the offending
+                captions editable IN PLACE (saves on blur, like the grid). */}
             {showLeaks && !concept && (
-              <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 p-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-amber-300 text-sm font-semibold">⚠️ Captions leaking identity</span>
-                  <span className="text-content-subtle text-[0.6875rem]">
-                    they mention hair / face / skin{bodyFid ? ' / body marks' : ''} — the identity
-                    won't bind to the trigger. Edit here (saves when you click away) or 🔄 Re-caption.
-                  </span>
-                  <button type="button" onClick={() => setShowLeaks(false)}
-                    className="ml-auto text-content-subtle hover:text-content text-sm" aria-label="Close the leak list">✕</button>
-                </div>
-                {images.filter((i) => i.leak).map((img) => (
-                  <div key={img.id} className="flex gap-2 items-start">
-                    <img src={`/api/dataset/${d.id}/img/${encodeURIComponent(img.filename)}`}
-                      alt={img.variation_label || 'dataset image'} loading="lazy"
-                      className="w-14 h-14 rounded-lg object-cover shrink-0 bg-black" />
-                    <textarea defaultValue={img.caption || ''} rows={2}
-                      onBlur={(e) => {
-                        if (e.target.value !== (img.caption || '')) ds.setCaption(img.id, e.target.value);
-                      }}
-                      aria-label={`Caption of image ${img.id}`}
-                      className="flex-1 bg-app/60 border border-amber-400/30 rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
+              <div className="rounded-lg border border-border bg-surface-raised/60 p-3 flex flex-col gap-3 text-[0.75rem]">
+                <div className="flex items-start gap-2">
+                  <span aria-hidden className="text-base leading-none">🎭</span>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-content font-semibold text-sm">Identity-leak check</span>
+                    <p className="m-0 text-content-muted leading-relaxed">
+                      An <strong className="text-content">identity leak</strong> is a word in a caption
+                      that describes <em>who the person is</em> — hair, eye or skin colour, facial
+                      features. On a character LoRA these words must stay OUT of the captions: they
+                      dilute the identity into the text instead of binding it to your trigger word{' '}
+                      <code className="text-indigo-300">{d.trigger_word || 'your trigger'}</code>.
+                    </p>
                   </div>
-                ))}
-                {images.filter((i) => i.leak).length === 0 && (
-                  <p className="text-emerald-400 text-[0.8125rem]">✅ All clear — no leaking caption left.</p>
+                  <button type="button" onClick={() => setShowLeaks(false)}
+                    className="ml-auto shrink-0 text-content-subtle hover:text-content text-sm" aria-label="Close">✕</button>
+                </div>
+
+                {/* What was checked — the numbers behind the badge. */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-content-subtle tabular-nums">
+                  <span><strong className="text-content-muted">{d.caption_leak?.captioned ?? 0}</strong> captions checked</span>
+                  <span className={d.caption_leak?.leaking ? 'text-amber-300' : 'text-emerald-400'}>
+                    <strong>{d.caption_leak?.leaking ?? 0}</strong> leaking
+                  </span>
+                  <span className="text-content-subtle/70">re-scanned live on every caption change</span>
+                </div>
+
+                {/* Categories the detector watches (mirrors the backend regex). */}
+                <div className="flex flex-col gap-1">
+                  <span className="text-content-subtle">Words watched for:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {['hair', 'eye colour', 'skin · complexion · freckles',
+                      'jawline · eyebrows · facial features', 'face shape',
+                      ...(bodyFid ? ['tattoos · scars · piercings (body fidelity)'] : [])].map((c) => (
+                      <span key={c} className="rounded-full bg-surface border border-border px-2 py-0.5 text-content-muted text-[0.6875rem]">{c}</span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Why a green 0 is expected, not suspicious. */}
+                {d.caption_leak?.captioned === 0 ? (
+                  <p className="m-0 text-content-subtle leading-relaxed">
+                    Nothing checked yet — the scan runs on captions. Caption the kept images first.
+                  </p>
+                ) : d.caption_leak?.leaking === 0 ? (
+                  <p className="m-0 text-emerald-400/90 leading-relaxed">
+                    ✅ All clear — and this is expected. The app's captioner is built to describe pose,
+                    clothing, setting and framing but never the person's identity, so a clean character
+                    set genuinely reads 0. It's a real result on {d.caption_leak?.captioned} caption(s),
+                    not a check that didn't run.
+                  </p>
+                ) : (
+                  <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 p-2.5 flex flex-col gap-2">
+                    <span className="text-amber-300 text-[0.8125rem] font-semibold">
+                      Captions leaking identity ({d.caption_leak?.leaking}) — remove the highlighted
+                      words, or 🔄 Re-caption. Edits save when you click away.
+                    </span>
+                    {images.filter((i) => i.leak).map((img) => (
+                      <div key={img.id} className="flex gap-2 items-start">
+                        <img src={`/api/dataset/${d.id}/img/${encodeURIComponent(img.filename)}`}
+                          alt={img.variation_label || 'dataset image'} loading="lazy"
+                          className="w-14 h-14 rounded-lg object-cover shrink-0 bg-black" />
+                        <textarea defaultValue={img.caption || ''} rows={2}
+                          onBlur={(e) => {
+                            if (e.target.value !== (img.caption || '')) ds.setCaption(img.id, e.target.value);
+                          }}
+                          aria-label={`Caption of image ${img.id}`}
+                          className="flex-1 bg-app/60 border border-amber-400/30 rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
+                      </div>
+                    ))}
+                    {images.filter((i) => i.leak).length === 0 && (
+                      <p className="m-0 text-emerald-400 text-[0.8125rem]">✅ All clear — no leaking caption left.</p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
