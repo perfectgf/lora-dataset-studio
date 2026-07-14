@@ -3,6 +3,14 @@ import DatasetGridItem from './DatasetGridItem';
 
 const DEFAULT_GREEN = 0.50;
 
+// 3-4 line plain-language explanation for the 🎯 panel's "?" button.
+const AUTO_TRIAGE_HELP = [
+  'Marks the UNDECIDED, face-scored images: keep when the face similarity is ≥ the threshold, reject below it.',
+  'It never deletes anything and never touches your manual ✓/✕ — those are left as-is and drop out of a Re-apply.',
+  'Images with no score (face too small / no face detected) are skipped — judge those by eye.',
+  'After an Apply, move the slider and Re-apply to re-sort everything it triaged this session at the new threshold.',
+];
+
 // Thumbnail size (S/M/L): 3 crans plutôt qu'un slider (fragile à la souris, pas
 // de granularité utile ici). Persisté en préférence GLOBALE (pas par dataset —
 // même pattern que `datasetGenerator`) : c'est un réglage d'affichage, pas une
@@ -42,45 +50,117 @@ function TileSizeControl({ size, onChange, className = '' }) {
   );
 }
 
-/* Auto-triage (A2): pre-mark the UNDECIDED scorable images by face-score
-   threshold — score >= t -> keep, below -> reject. Client-side derivation from
-   the payload the grid already has; applies through the same batch endpoint as
-   the manual multi-select. Manual keep/reject decisions are never touched. */
-function AutoTriageBar({ images, faceThresholds, onBatch, busy }) {
+/* Auto-triage (A2): pre-mark scorable images by face-score threshold —
+   score >= t -> keep, below -> reject. It marks the currently UNDECIDED scorable
+   images AND re-owns the images IT decided earlier in this session, so the panel
+   stays after an Apply and is replayable: move the slider, Re-apply, and the
+   whole {previously auto-triaged} ∪ {new undecided} set is re-sorted at the new
+   threshold. A manual ✓/✕ made after an auto-triage releases that image from the
+   replay set — its status no longer matches what auto-triage assigned it — so
+   manual decisions are never re-flipped. (Blind spot: manually re-affirming the
+   SAME status auto-triage already set is indistinguishable and may be re-sorted.)
+   Client-side derivation from the payload the grid already has; applies through
+   the same batch endpoint as the manual multi-select, which already allows a
+   direct keep<->reject switch (no backend change). */
+function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy }) {
   const [t, setT] = useState(() => faceThresholds?.green ?? DEFAULT_GREEN);
-  const [lastRun, setLastRun] = useState(null);
-  const candidates = useMemo(
-    () => images.filter((i) => i.status === 'pending' && i.filename
-      && i.face_state === 'scorable' && i.face_score != null),
-    [images]);
-  if (!candidates.length) return null;
-  const keepIds = candidates.filter((i) => i.face_score >= t).map((i) => i.id);
-  const rejectIds = candidates.filter((i) => i.face_score < t).map((i) => i.id);
+  // Session memory: image id -> the status auto-triage last assigned it
+  // ('keep'|'reject'). An image whose CURRENT status still equals this value is
+  // still "owned" by auto-triage and re-enters a Re-apply; if the user changed it
+  // by hand since, its status diverges and it drops out (manual decision wins).
+  const [owned, setOwned] = useState({});
+  const [lastRun, setLastRun] = useState(null); // {kept, rejected, t} of the last Apply
+  const [showHelp, setShowHelp] = useState(false);
+
+  // A different dataset = a fresh session (the component isn't remounted on a
+  // dataset switch — no key on <DatasetGrid> — so reset explicitly, like the
+  // sibling per-dataset states elsewhere in the workspace).
+  useEffect(() => {
+    setOwned({});
+    setLastRun(null);
+    setShowHelp(false);
+    setT(faceThresholds?.green ?? DEFAULT_GREEN);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId]);
+
+  const isScorable = (i) => i.filename && i.face_state === 'scorable' && i.face_score != null;
+  // Always-eligible: the undecided scorable images.
+  const pending = useMemo(
+    () => images.filter((i) => i.status === 'pending' && isScorable(i)), [images]);
+  // Still owned by auto-triage: present, scorable, and status unchanged since we set it.
+  const ownedImgs = useMemo(
+    () => images.filter((i) => isScorable(i) && owned[i.id] != null && i.status === owned[i.id]),
+    [images, owned]);
+  // Replay scope = new undecided ∪ still-owned (disjoint: a 'pending' status can
+  // never equal an owned 'keep'/'reject').
+  const replay = useMemo(() => [...pending, ...ownedImgs], [pending, ownedImgs]);
+
+  // Keep the panel while there is anything to triage OR anything it still owns.
+  if (!replay.length) return null;
+
+  const isReplay = lastRun != null; // at least one Apply already happened this session
+  const keepTargets = replay.filter((i) => i.face_score >= t);
+  const rejectTargets = replay.filter((i) => i.face_score < t);
+  // Only flip the images that aren't already at their target status (no-op churn).
+  const keepIds = keepTargets.filter((i) => i.status !== 'keep').map((i) => i.id);
+  const rejectIds = rejectTargets.filter((i) => i.status !== 'reject').map((i) => i.id);
+  const nothingToDo = !keepIds.length && !rejectIds.length;
+
   const apply = async () => {
-    const kept = keepIds.length ? await onBatch(keepIds, 'keep', { silent: true }) : 0;
-    const rejected = rejectIds.length ? await onBatch(rejectIds, 'reject', { silent: true }) : 0;
-    setLastRun({ kept, rejected });
+    if (keepIds.length) await onBatch(keepIds, 'keep', { silent: true });
+    if (rejectIds.length) await onBatch(rejectIds, 'reject', { silent: true });
+    // Re-own the WHOLE replay scope at this threshold (incl. images left unchanged)
+    // and forget any previously-owned image no longer in scope (manual override).
+    const next = {};
+    keepTargets.forEach((i) => { next[i.id] = 'keep'; });
+    rejectTargets.forEach((i) => { next[i.id] = 'reject'; });
+    setOwned(next);
+    setLastRun({ kept: keepTargets.length, rejected: rejectTargets.length, t });
   };
+
   return (
-    <div className="flex items-center gap-3 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
+    <div className="relative flex items-center gap-3 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
       <span className="text-content text-sm font-semibold shrink-0">🎯 Auto-triage</span>
+      <button type="button" onClick={() => setShowHelp((v) => !v)}
+        aria-expanded={showHelp} aria-label="What does auto-triage do?"
+        title="What does auto-triage do?"
+        className="shrink-0 w-5 h-5 -ml-1 rounded-full border border-border bg-surface-raised text-content-muted text-xs font-bold leading-none hover:text-content hover:bg-surface">
+        ?
+      </button>
+      {showHelp && (
+        <>
+          {/* Transparent backdrop: an outside click dismisses the popover. */}
+          <div className="fixed inset-0 z-40" onClick={() => setShowHelp(false)} aria-hidden />
+          <div role="tooltip"
+            className="absolute z-50 top-full left-2 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface p-3 shadow-xl flex flex-col gap-1.5">
+            {AUTO_TRIAGE_HELP.map((line) => (
+              <p key={line} className="text-[11px] leading-snug text-content-muted">{line}</p>
+            ))}
+          </div>
+        </>
+      )}
       <label className="flex items-center gap-2 text-xs text-content-muted">
         keep&nbsp;≥
         <input type="range" min="0.30" max="0.70" step="0.01" value={t}
-          onChange={(e) => { setT(parseFloat(e.target.value)); setLastRun(null); }}
+          onChange={(e) => setT(parseFloat(e.target.value))}
           aria-label="Face-score threshold for auto-triage" className="w-36" />
         <span className="font-mono text-content w-10">{t.toFixed(2)}</span>
       </label>
       <span className="text-xs text-content-subtle">
-        → would keep {keepIds.length} · reject {rejectIds.length} (of {candidates.length} undecided)
+        → keep {keepTargets.length} · reject {rejectTargets.length}
+        {isReplay
+          ? ` (re-sort ${ownedImgs.length}${pending.length ? ` + ${pending.length} new` : ''})`
+          : ` (of ${replay.length} undecided)`}
       </span>
-      <button type="button" onClick={apply} disabled={busy || !candidates.length}
-        title="Pre-marks only UNDECIDED analyzed images — your manual ✓/✕ choices are never changed"
+      <button type="button" onClick={apply} disabled={busy || nothingToDo}
+        title="Marks only scored images — your manual ✓/✕ choices are never changed"
         className="ml-auto px-3 py-1 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold disabled:opacity-40 hover:bg-surface">
-        Apply
+        {isReplay ? 'Re-apply' : 'Apply'}
       </button>
       {lastRun && (
-        <span className="text-xs text-emerald-400">✓ {lastRun.kept} kept · {lastRun.rejected} rejected</span>
+        <span className="text-xs text-emerald-400">
+          ✓ applied: kept {lastRun.kept} · rejected {lastRun.rejected} at ≥ {lastRun.t.toFixed(2)}
+        </span>
       )}
     </div>
   );
@@ -131,7 +211,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   return (
     <div className="flex flex-col gap-2">
       {onBatch && (
-        <AutoTriageBar images={images} faceThresholds={faceThresholds} onBatch={onBatch} busy={busy} />
+        <AutoTriageBar images={images} datasetId={datasetId} faceThresholds={faceThresholds} onBatch={onBatch} busy={busy} />
       )}
       <div className="flex items-center gap-2 flex-wrap text-xs">
         {onBatch && (
