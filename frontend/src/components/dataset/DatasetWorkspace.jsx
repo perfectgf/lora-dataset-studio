@@ -222,8 +222,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
     let finished = false;
     let observer;
     let timer;
+    let frame;
 
     const land = () => {
+      if (finished) return true;
       const target = document.getElementById(destination.targetId);
       if (!target || target.getClientRects().length === 0) return false;
       if ((destination.reveal === 'training-advanced'
@@ -234,15 +236,28 @@ export default function DatasetWorkspace({ ds, onBack }) {
       target.classList.add('gf-highlight');
       window.setTimeout(() => target.classList.remove('gf-highlight'), 1500);
       if (focusRequestedRef.current) {
+        const focusableSelector = [
+          'button:not([disabled])', 'a[href]', 'input:not([disabled])',
+          'select:not([disabled])', 'textarea:not([disabled])', 'summary',
+          '[tabindex]:not([tabindex="-1"])',
+        ].join(', ');
         const preferred = destination.focusSelector
           ? target.querySelector(destination.focusSelector)
           : target.querySelector('[data-workspace-focus]');
-        const fallback = target.querySelector(
-          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary',
-        );
-        const focusTarget = preferred || fallback || target;
-        if (focusTarget === target && !target.hasAttribute('tabindex')) target.tabIndex = -1;
-        focusTarget.focus({ preventScroll: true });
+        const fallback = target.matches(focusableSelector)
+          ? target
+          : target.querySelector(focusableSelector);
+        let focusTarget = preferred?.matches?.(':not(:disabled)') ? preferred : fallback;
+        if (!focusTarget) {
+          const nativeControl = target.matches('button, input, select, textarea');
+          if (!nativeControl) {
+            if (!target.hasAttribute('tabindex')) target.tabIndex = -1;
+            focusTarget = target;
+          } else {
+            focusTarget = document.getElementById(`ds-section-${section}-heading`);
+          }
+        }
+        focusTarget?.focus({ preventScroll: true });
         focusRequestedRef.current = false;
       }
       finished = true;
@@ -257,7 +272,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
         childList: true, subtree: true, attributes: true,
         attributeFilter: ['class', 'open'],
       });
-      requestAnimationFrame(land);
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        land();
+      });
       timer = window.setTimeout(() => {
         if (finished) return;
         observer.disconnect();
@@ -271,7 +289,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
     }
 
     return () => {
+      finished = true;
       observer?.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
       if (timer) window.clearTimeout(timer);
     };
   }, [d, section, panel, workspaceLocation.pending, landingRequest,
