@@ -4,7 +4,9 @@ original preservation, and the additive columns."""
 import io
 import json
 import os
+import sqlite3
 
+import pytest
 from PIL import Image
 
 
@@ -142,6 +144,88 @@ def test_watermark_columns_migrated(app):
     with app.app_context():
         cols = {r[1] for r in db.session.execute(text('PRAGMA table_info(face_dataset_image)'))}
         assert 'watermark_state' in cols and 'watermark_bbox' in cols
+
+
+def test_watermark_regions_column_migrated(app):
+    from app.extensions import db
+    from sqlalchemy import text
+    with app.app_context():
+        cols = {r[1] for r in db.session.execute(text('PRAGMA table_info(face_dataset_image)'))}
+        assert 'watermark_regions' in cols
+
+
+def test_watermark_regions_column_added_to_legacy_database(tmp_path, monkeypatch):
+    legacy_db = tmp_path / 'legacy.db'
+    with sqlite3.connect(legacy_db) as conn:
+        conn.execute('''
+            CREATE TABLE face_dataset_image (
+                id INTEGER PRIMARY KEY,
+                dataset_id INTEGER NOT NULL,
+                watermark_state VARCHAR(16),
+                watermark_bbox TEXT
+            )
+        ''')
+        conn.execute(
+            'INSERT INTO face_dataset_image '
+            '(id, dataset_id, watermark_state, watermark_bbox) VALUES (1, 7, ?, ?)',
+            ('detected', '[0.1, 0.1, 0.2, 0.2]'),
+        )
+
+    monkeypatch.setenv('LDS_DATA_DIR', str(tmp_path / 'data'))
+    monkeypatch.setenv('LDS_CONFIG', str(tmp_path / 'config.json'))
+    monkeypatch.setenv('LDS_ENV', str(tmp_path / '.env'))
+    import app.config as cfg
+    monkeypatch.setattr(cfg, 'ENV_PATH', tmp_path / '.env')
+    monkeypatch.setattr(cfg, '_cache', None)
+    from app import create_app
+    from app.extensions import db
+    from sqlalchemy import text
+    legacy_app = create_app({
+        'TESTING': True,
+        'WTF_CSRF_ENABLED': False,
+        'SQLALCHEMY_DATABASE_URI': f'sqlite:///{legacy_db}',
+    })
+
+    with legacy_app.app_context():
+        cols = {r[1] for r in db.session.execute(text('PRAGMA table_info(face_dataset_image)'))}
+        bbox = db.session.execute(text(
+            'SELECT watermark_bbox FROM face_dataset_image WHERE id = 1'
+        )).scalar_one()
+
+    assert 'watermark_regions' in cols
+    assert bbox == '[0.1, 0.1, 0.2, 0.2]'
+
+
+# --- manual watermark region validation -----------------------------------
+
+@pytest.mark.parametrize('regions', [
+    [[0.1, 0.2, 0.1, 0.3]],          # zero width
+    [[0.1, 0.2, 0.104, 0.3]],        # below minimum width
+    [[-0.1, 0.2, 0.3, 0.4]],         # outside image
+    [[0.1, 0.2, float('nan'), 0.4]],  # non-finite
+    [[True, 0.2, 0.3, 0.4]],         # bool is not a coordinate
+    [[0.1, 0.2, 0.3]],               # wrong arity
+    'not-a-list',
+])
+def test_normalize_watermark_regions_rejects_invalid(regions):
+    from app.services import face_dataset_service as svc
+    with pytest.raises(ValueError):
+        svc.normalize_watermark_regions(regions)
+
+
+def test_normalize_watermark_regions_rounds_and_preserves_separate_boxes():
+    from app.services import face_dataset_service as svc
+    assert svc.normalize_watermark_regions([
+        [0.10004, 0.20004, 0.30006, 0.40006],
+        [0.7, 0.7, 0.9, 0.9],
+    ]) == [[0.1, 0.2, 0.3001, 0.4001], [0.7, 0.7, 0.9, 0.9]]
+
+
+def test_normalize_watermark_regions_controls_null_acceptance():
+    from app.services import face_dataset_service as svc
+    assert svc.normalize_watermark_regions(None) is None
+    with pytest.raises(ValueError):
+        svc.normalize_watermark_regions(None, allow_null=False)
 
 
 # --- detect_watermarks batch ------------------------------------------------
@@ -355,6 +439,212 @@ def test_watermark_routes_404_when_dataset_missing(client):
     assert client.post('/api/dataset/999999/watermarks/clean').status_code == 404
 
 
+# --- manual watermark region route ----------------------------------------
+
+def test_watermark_regions_route_replaces_override_and_returns_payload(client, app):
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'Regions', 'regions').get_json()['id']
+    with app.app_context():
+        img_id = _kept_image(svc, ds_id, 'regions.webp', state='detected',
+                             bbox=[0.1, 0.1, 0.2, 0.2]).id
+
+    url = f'/api/dataset/{ds_id}/image/{img_id}/watermark-regions'
+    first = [[0.2, 0.2, 0.3, 0.3]]
+    replacement = [[0.4, 0.4, 0.5, 0.5], [0.7, 0.7, 0.9, 0.9]]
+    assert client.put(url, json={'regions': first}).status_code == 200
+    response = client.put(url, json={'regions': replacement})
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        'ok': True,
+        'watermark_regions': replacement,
+        'effective_watermark_regions': replacement,
+    }
+    with app.app_context():
+        img = svc.db.session.get(FaceDatasetImage, img_id)
+        assert json.loads(img.watermark_regions) == replacement
+        assert json.loads(img.watermark_bbox) == [0.1, 0.1, 0.2, 0.2]
+
+
+def test_watermark_regions_route_stores_empty_override(client, app):
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'Empty regions', 'empty-regions').get_json()['id']
+    with app.app_context():
+        img_id = _kept_image(svc, ds_id, 'empty.webp', state='detected',
+                             bbox=[0.1, 0.1, 0.2, 0.2]).id
+
+    response = client.put(
+        f'/api/dataset/{ds_id}/image/{img_id}/watermark-regions',
+        json={'regions': []},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()['watermark_regions'] == []
+    assert response.get_json()['effective_watermark_regions'] == []
+    with app.app_context():
+        assert svc.db.session.get(FaceDatasetImage, img_id).watermark_regions == '[]'
+
+
+def test_watermark_regions_route_null_restores_detection(client, app):
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'Reset regions', 'reset-regions').get_json()['id']
+    bbox = [0.1, 0.1, 0.2, 0.2]
+    with app.app_context():
+        img = _kept_image(svc, ds_id, 'reset.webp', state='detected', bbox=bbox)
+        img.watermark_regions = json.dumps([[0.3, 0.3, 0.4, 0.4]])
+        svc.db.session.commit()
+        img_id = img.id
+
+    response = client.put(
+        f'/api/dataset/{ds_id}/image/{img_id}/watermark-regions',
+        json={'regions': None},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()['watermark_regions'] is None
+    assert response.get_json()['effective_watermark_regions'] == [bbox]
+    with app.app_context():
+        assert svc.db.session.get(FaceDatasetImage, img_id).watermark_regions is None
+
+
+def test_watermark_regions_route_rejects_too_many_regions(client, app):
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'Limit regions', 'limit-regions').get_json()['id']
+    with app.app_context():
+        img_id = _kept_image(svc, ds_id, 'limit.webp', state='detected',
+                             bbox=[0.1, 0.1, 0.2, 0.2]).id
+    regions = [[0.1, 0.1, 0.2, 0.2] for _ in range(33)]
+
+    response = client.put(
+        f'/api/dataset/{ds_id}/image/{img_id}/watermark-regions',
+        json={'regions': regions},
+    )
+
+    assert response.status_code == 400
+
+
+def test_watermark_regions_route_rejects_integer_beyond_float_range(client, app):
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'Huge region', 'huge-region').get_json()['id']
+    with app.app_context():
+        img_id = _kept_image(svc, ds_id, 'huge.webp', state='detected',
+                             bbox=[0.1, 0.1, 0.2, 0.2]).id
+
+    response = client.put(
+        f'/api/dataset/{ds_id}/image/{img_id}/watermark-regions',
+        json={'regions': [[0.1, 0.1, 10 ** 309, 0.2]]},
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize('body', [
+    {},
+    {'regions': [[0.4, 0.2, 0.3, 0.4]]},
+    {'regions': [[True, 0.2, 0.3, 0.4]]},
+])
+def test_watermark_regions_route_rejects_missing_or_malformed_coordinates(client, app, body):
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'Invalid regions', 'invalid-regions').get_json()['id']
+    with app.app_context():
+        img_id = _kept_image(svc, ds_id, 'invalid.webp', state='detected',
+                             bbox=[0.1, 0.1, 0.2, 0.2]).id
+
+    response = client.put(
+        f'/api/dataset/{ds_id}/image/{img_id}/watermark-regions',
+        json=body,
+    )
+
+    assert response.status_code == 400
+
+
+def test_watermark_regions_route_returns_404_for_missing_or_foreign_image(client, app):
+    from app.services import face_dataset_service as svc
+    owned_id = _create(client, 'Owned dataset', 'owned').get_json()['id']
+    foreign_id = _create(client, 'Foreign dataset', 'foreign').get_json()['id']
+    with app.app_context():
+        foreign_image_id = _kept_image(
+            svc, foreign_id, 'foreign.webp', state='detected',
+            bbox=[0.1, 0.1, 0.2, 0.2],
+        ).id
+    body = {'regions': [[0.2, 0.2, 0.3, 0.3]]}
+
+    assert client.put(
+        f'/api/dataset/{owned_id}/image/999999/watermark-regions', json=body,
+    ).status_code == 404
+    assert client.put(
+        f'/api/dataset/{owned_id}/image/{foreign_image_id}/watermark-regions', json=body,
+    ).status_code == 404
+
+
+def test_set_watermark_regions_enforces_user_and_dataset_ownership(app):
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    with app.app_context():
+        owned = svc.create_dataset(LOCAL_USER, 'Owned service dataset', 'owned-service')
+        foreign = svc.create_dataset(LOCAL_USER, 'Foreign service dataset', 'foreign-service')
+        foreign_image = _kept_image(
+            svc, foreign.id, 'foreign-service.webp', state='detected',
+            bbox=[0.1, 0.1, 0.2, 0.2],
+        )
+        regions = [[0.2, 0.2, 0.3, 0.3]]
+
+        assert svc.set_watermark_regions(
+            LOCAL_USER, owned.id, foreign_image.id, regions,
+        ) is None
+        assert svc.set_watermark_regions(
+            'another-user', foreign.id, foreign_image.id, regions,
+        ) is None
+
+
+def test_set_watermark_regions_rechecks_detected_state_at_write(app, monkeypatch):
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Concurrent state', 'concurrent-state')
+        img = _kept_image(svc, ds.id, 'concurrent.webp', state='detected',
+                          bbox=[0.1, 0.1, 0.2, 0.2])
+        img_id = img.id
+        original_normalize = svc.normalize_watermark_regions
+
+        def change_state_between_check_and_write(value, *, allow_null=True):
+            current = svc.db.session.get(FaceDatasetImage, img_id)
+            current.watermark_state = 'dismissed'
+            svc.db.session.commit()
+            return original_normalize(value, allow_null=allow_null)
+
+        monkeypatch.setattr(
+            svc, 'normalize_watermark_regions', change_state_between_check_and_write,
+        )
+
+        with pytest.raises(RuntimeError, match='no longer detected'):
+            svc.set_watermark_regions(
+                LOCAL_USER, ds.id, img_id, [[0.2, 0.2, 0.3, 0.3]],
+            )
+
+        current = svc.db.session.get(FaceDatasetImage, img_id)
+        assert current.watermark_state == 'dismissed'
+        assert current.watermark_regions is None
+
+
+def test_watermark_regions_route_returns_409_when_image_not_detected(client, app):
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'Clean image', 'clean-image').get_json()['id']
+    with app.app_context():
+        img_id = _kept_image(svc, ds_id, 'clean.webp', state='none').id
+
+    response = client.put(
+        f'/api/dataset/{ds_id}/image/{img_id}/watermark-regions',
+        json={'regions': [[0.2, 0.2, 0.3, 0.3]]},
+    )
+
+    assert response.status_code == 409
+
+
 # --- payload ----------------------------------------------------------------
 
 def test_dataset_payload_exposes_watermark_fields(app):
@@ -367,6 +657,25 @@ def test_dataset_payload_exposes_watermark_fields(app):
         img = payload['images'][0]
         assert img['watermark_state'] == 'detected'
         assert img['watermark_bbox'] == [0.1, 0.1, 0.2, 0.15]
+        assert img['watermark_regions'] is None
+        assert img['effective_watermark_regions'] == [[0.1, 0.1, 0.2, 0.15]]
+
+
+def test_dataset_payload_prefers_stored_watermark_regions(app):
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    regions = [[0.2, 0.2, 0.3, 0.3], [0.7, 0.7, 0.9, 0.9]]
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Manual regions', 'manual-regions')
+        img = _kept_image(svc, ds.id, 'manual.webp', state='detected',
+                          bbox=[0.1, 0.1, 0.2, 0.2])
+        img.watermark_regions = json.dumps(regions)
+        svc.db.session.commit()
+
+        payload_img = svc.dataset_payload(LOCAL_USER, ds.id)['images'][0]
+
+        assert payload_img['watermark_regions'] == regions
+        assert payload_img['effective_watermark_regions'] == regions
 
 
 def test_payload_exposes_watermark_route_for_detected_only(app):

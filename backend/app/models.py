@@ -107,6 +107,9 @@ class FaceDatasetImage(db.Model):
     # d'une marge avant stockage. Colonnes additives (migration create_app).
     watermark_state = db.Column(String(16), nullable=True)
     watermark_bbox = db.Column(Text, nullable=True)
+    # Correction manuelle : JSON list de bbox normalisées. NULL conserve le bbox
+    # automatique comme source effective ; [] est un override explicite vide.
+    watermark_regions = db.Column(Text, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
 
     def __repr__(self):

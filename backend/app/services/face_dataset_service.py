@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -172,6 +173,23 @@ def _safe_json(text):
         return json.loads(text)
     except ValueError:
         return None
+
+
+def _watermark_regions_payload(img) -> dict:
+    """Return the nullable stored override and the editor's always-list value."""
+    stored = _safe_json(img.watermark_regions)
+    if not isinstance(stored, list):
+        stored = None
+    if stored is not None:
+        effective = stored
+    else:
+        bbox = _safe_json(img.watermark_bbox)
+        effective = ([bbox] if img.watermark_state == 'detected'
+                     and isinstance(bbox, list) and len(bbox) == 4 else [])
+    return {
+        'watermark_regions': stored,
+        'effective_watermark_regions': effective,
+    }
 
 
 def is_concept(ds) -> bool:
@@ -881,6 +899,7 @@ def dataset_payload(user_id, dataset_id):
                     # EXACT planned action ('crop'|'lama'|'review') for detected images.
                     'watermark_state': i.watermark_state,
                     'watermark_bbox': _safe_json(i.watermark_bbox),
+                    **_watermark_regions_payload(i),
                     'watermark_route': _payload_watermark_route(i)} for i in imgs],
         # Kind-specific leak count (see _img_leaks): character = identity, concept = the
         # caption naming the concept (NEVER forced 0 any more), style = 0 (not applicable).
@@ -2000,6 +2019,63 @@ def analyze_faces(user_id, dataset_id) -> dict:
 WATERMARK_BORDER_BAND = 0.20       # a mark within this outer strip is croppable
 WATERMARK_MAX_INPAINT_AREA = 0.10  # bbox area above this fraction -> manual review
 WATERMARK_MIN_SIDE = 768           # never crop a side below this (ai-toolkit only downscales)
+WATERMARK_REGION_LIMIT = 32
+WATERMARK_REGION_MIN_SIDE = 0.005
+
+
+def normalize_watermark_regions(value, *, allow_null=True) -> list[list[float]] | None:
+    if value is None:
+        if allow_null:
+            return None
+        raise ValueError('regions must be a list')
+    if not isinstance(value, list) or len(value) > WATERMARK_REGION_LIMIT:
+        raise ValueError('regions must contain at most 32 boxes')
+    out = []
+    for box in value:
+        if not isinstance(box, list) or len(box) != 4:
+            raise ValueError('each region must be [x1,y1,x2,y2]')
+        try:
+            invalid_number = any(
+                isinstance(v, bool) or not isinstance(v, (int, float))
+                or not math.isfinite(v) for v in box
+            )
+        except OverflowError:
+            invalid_number = True
+        if invalid_number:
+            raise ValueError('region coordinates must be finite numbers')
+        x1, y1, x2, y2 = map(float, box)
+        if not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1):
+            raise ValueError('region coordinates must be ordered within [0,1]')
+        if x2 - x1 < WATERMARK_REGION_MIN_SIDE or y2 - y1 < WATERMARK_REGION_MIN_SIDE:
+            raise ValueError('region is too small')
+        out.append([round(v, 4) for v in (x1, y1, x2, y2)])
+    return out
+
+
+def set_watermark_regions(user_id, dataset_id, image_id, regions) -> dict | None:
+    """Atomically replace a detected image's manual watermark-region override."""
+    owned_query = (FaceDatasetImage.query
+                   .join(FaceDataset, FaceDatasetImage.dataset_id == FaceDataset.id)
+                   .filter(FaceDatasetImage.id == image_id,
+                           FaceDatasetImage.dataset_id == dataset_id,
+                           FaceDataset.user_id == str(user_id)))
+    img = owned_query.one_or_none()
+    if not img:
+        return None
+    if img.watermark_state != 'detected':
+        raise RuntimeError('image is no longer detected')
+    normalized = normalize_watermark_regions(regions)
+    stored = json.dumps(normalized) if normalized is not None else None
+    updated = (FaceDatasetImage.query
+               .filter_by(id=img.id, watermark_state='detected')
+               .update({'watermark_regions': stored}, synchronize_session=False))
+    if updated != 1:
+        db.session.rollback()
+        if owned_query.one_or_none() is None:
+            return None
+        raise RuntimeError('image is no longer detected')
+    db.session.commit()
+    return _watermark_regions_payload(img)
 
 
 def _route_watermark(bbox, W, H, *, min_side=WATERMARK_MIN_SIDE):

@@ -518,6 +518,22 @@ def dataset_watermarks_dismiss(dataset_id):
     return jsonify({'ok': True, 'dismissed': n})
 
 
+@bp.put('/dataset/<int:dataset_id>/image/<int:image_id>/watermark-regions')
+def dataset_image_watermark_regions(dataset_id, image_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or 'regions' not in data:
+        return jsonify({'error': 'regions is required'}), 400
+    try:
+        result = svc.set_watermark_regions(
+            LOCAL_USER, dataset_id, image_id, data['regions'],
+        )
+    except (ValueError, RuntimeError) as e:
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
+
+
 @bp.post('/dataset/image/<int:image_id>/status')
 def dataset_image_status(image_id):
     data = request.get_json(silent=True) or {}
