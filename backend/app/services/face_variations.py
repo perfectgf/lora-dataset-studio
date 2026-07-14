@@ -13,7 +13,10 @@ import re
 IDENTITY_GUARD = (
     "This is the SAME person as the reference image. Preserve their facial identity "
     "EXACTLY: same eye shape and color, nose, jawline, lips, skin tone and texture, "
-    "and face proportions. Do NOT beautify, slim, age, or alter the face. "
+    "and face proportions. Do NOT beautify, slim, age, or alter the face. Use the "
+    "reference ONLY to lock the facial identity: take the clothing/outfit and the "
+    "facial expression from the description below, and do NOT copy the outfit or the "
+    "expression shown in the reference image. "
     "SFW, realistic photographic portrait.")
 
 # Variante multi-références (Nano Banana) : avec un guard au singulier le modèle
@@ -24,6 +27,9 @@ IDENTITY_GUARD_MULTI = (
     "framings). Use EVERY reference image together to lock the identity. Preserve their "
     "facial identity EXACTLY: same eye shape and color, nose, jawline, lips, skin tone "
     "and texture, and face proportions. Do NOT beautify, slim, age, or alter the face. "
+    "Use the reference images ONLY to lock the facial identity: take the clothing/outfit "
+    "and the facial expression from the description below, and do NOT copy the outfit or "
+    "the expression shown in the reference images. "
     "SFW, realistic photographic portrait.")
 
 
@@ -75,17 +81,75 @@ def wrap_variation_klein(prompt: str, nsfw: bool = False, framing: str | None = 
     return (
         f"Create a new photograph of the same person as the reference image: {prompt}. "
         + (f"{detail} " if detail else "")
-        + "Restage the shot to match this description — change the pose, camera angle and "
-          "framing accordingly; do not copy the composition of the reference image. "
+        + "Restage the shot to match this description — change the pose, camera angle, "
+          "framing, clothing and facial expression accordingly; do not copy the "
+          "composition, the outfit or the facial expression of the reference image (use "
+          "it only for the facial identity). "
           "Keep the facial identity exactly the same: same eye shape and color, nose, "
           "jawline, lips, skin tone and texture, and face proportions. Do not beautify "
           "or alter the face. Sharp focus, natural skin texture with visible pores, "
           f"realistic lighting with soft shadows, high detail. {ending}")
 
 
+# --- Anti-fuite tenue / expression (constat terrain 2026-07-14) ---------------
+# Les moteurs d'édition (Nano Banana, ChatGPT-image, Klein) PRÉSERVENT ce qu'on ne
+# contredit pas explicitement. Symptômes réels rapportés par le propriétaire :
+#   1) sur les plans buste, le modèle reprend la MÊME tenue que la réf → la tenue se
+#      lie à l'identité dans le LoRA ;
+#   2) l'expression de la réf (sourire, grimace) se propage à TOUS les plans.
+# Deux corrections complémentaires, au bon niveau :
+#   • WRAPPERS (IDENTITY_GUARD / IDENTITY_GUARD_MULTI / wrap_variation_klein) : la réf
+#     ne sert QU'À l'identité du visage ; tenue + expression viennent de la description,
+#     jamais copiées de la réf. Directive GÉNÉRALE → couvre aussi les prompts édités /
+#     custom, les deux familles de moteurs et la régénération.
+#   • CATALOGUE : chaque entrée SANS tenue / expression explicite reçoit une cible
+#     CONCRÈTE mais variée (les modèles d'édition suivent mieux une consigne « porte X »
+#     qu'un vide qu'ils comblent par la réf). Baker la directive dans le TEXTE du prompt
+#     la propage partout (API + Klein + persistance variation_prompt + régénération).
+OUTFIT_VARY = ('wearing a different casual everyday outfit, varied in style and colour '
+               '(not the outfit from the reference image)')
+EXPRESSION_NEUTRAL = ('a calm neutral facial expression, not copying the expression from '
+                      'the reference image')
+
+# Détecteurs « le texte nomme-t-il DÉJÀ une tenue / une expression ? » (mots entiers).
+# Servent à n'ajouter la directive par défaut qu'aux entrées qui n'en portent pas —
+# les entrées à tenue nommée (veste, robe, bikini…) ou expression nommée (sourire,
+# sérieux…) gardent la leur. OUTFIT_VARY contient « outfit » et EXPRESSION_NEUTRAL
+# « expression » → la passe d'augmentation est idempotente.
+_HAS_OUTFIT = re.compile(
+    r'\b(outfit|top|clothes|clothing|jacket|dress|bikini|swimsuit|swimwear|sportswear|'
+    r'leggings|jeans|lingerie|towel|shirt|blouse|coat|skirt|gown|suit)\b', re.I)
+# NB: 'neutral' is deliberately NOT an expression token — it's ambiguous with the
+# frequent 'neutral background/studio' phrasing. A shot whose only expression cue is a
+# bare 'neutral' therefore GAINS the explicit EXPRESSION_NEUTRAL directive (which also
+# adds the 'not copying the reference' anti-leak clause a bare 'neutral' lacks).
+_HAS_EXPRESSION = re.compile(
+    r'\b(expression|smil\w*|serious|laugh\w*|surprised|pensive|grin\w*|'
+    r'frown\w*|smirk\w*|pout\w*)\b', re.I)
+
+
 def _e(i, axis, framing, label, prompt, co=False, cb=False, aspect=None):
     return {'id': i, 'axis': axis, 'framing': framing, 'label': label,
             'prompt': prompt, 'changes_outfit': co, 'changes_bg': cb, 'aspect': aspect}
+
+
+def _augment_prompt(entry, *, allow_outfit=True):
+    """Bake the default outfit-variation + neutral-expression directives into an
+    entry's prompt when it does not already specify them (see OUTFIT_VARY /
+    EXPRESSION_NEUTRAL). Skips the outfit clause when framing='back' would still get
+    it? No — outfit is visible from behind, so back shots DO get the outfit clause;
+    only the expression clause is skipped for 'back' (no face). `allow_outfit=False`
+    (NSFW nude/lingerie states) skips the outfit clause entirely: the described state
+    of (un)dress IS the intent, not a leak — injecting a 'casual outfit' would fight it."""
+    p = entry['prompt']
+    add = []
+    if allow_outfit and not _HAS_OUTFIT.search(p):
+        add.append(OUTFIT_VARY)
+    if entry['framing'] != 'back' and not _HAS_EXPRESSION.search(p):
+        add.append(EXPRESSION_NEUTRAL)
+    if add:
+        entry['prompt'] = p + ', ' + ', '.join(add)
+    return entry
 
 
 VARIATION_CATALOG = [
@@ -118,7 +182,8 @@ VARIATION_CATALOG = [
     _e('face_look_down', 'angle', 'face', 'Visage, regard bas',
        'close-up portrait, looking slightly downward, pensive, indoor blurred background', cb=True),
     _e('bust_front', 'framing', 'bust', 'Buste face',
-       'upper body portrait, front view, neutral, casual top', co=True, cb=True),
+       'upper body portrait, front view, neutral, wearing a casual top different from the reference outfit',
+       co=True, cb=True),
     _e('bust_34', 'framing', 'bust', 'Buste 3/4',
        'upper body portrait, three-quarter view, smiling, different outfit, indoor', co=True, cb=True),
     _e('bust_outdoor', 'background', 'bust', 'Buste exterieur',
@@ -126,11 +191,14 @@ VARIATION_CATALOG = [
     _e('bust_studio', 'background', 'bust', 'Buste studio',
        'upper body portrait, three-quarter view, studio backdrop', cb=True),
     _e('bust_jacket', 'outfit', 'bust', 'Buste, veste',
-       'upper body portrait, wearing a jacket, urban background', co=True, cb=True),
+       'upper body portrait, wearing a jacket different from the reference outfit, urban background',
+       co=True, cb=True),
     _e('bust_evening', 'outfit', 'bust', 'Buste, tenue soiree',
-       'upper body portrait, elegant evening outfit, dim ambient light', co=True, cb=True),
+       'upper body portrait, elegant evening look, different from the reference outfit, dim ambient light',
+       co=True, cb=True),
     _e('body_stand_front', 'framing', 'body', 'Corps debout face',
-       'full body shot, standing, front view, casual clothes, street', co=True, cb=True),
+       'full body shot, standing, front view, casual clothes different from the reference outfit, street',
+       co=True, cb=True),
     _e('body_stand_34', 'framing', 'body', 'Corps debout 3/4',
        'full body shot, standing, three-quarter view, different outfit, outdoor', co=True, cb=True),
     _e('body_sit', 'framing', 'body', 'Corps assis',
@@ -140,7 +208,8 @@ VARIATION_CATALOG = [
     _e('body_cafe', 'background', 'body', 'Corps, cafe',
        'full body shot, standing in a cafe, warm light', co=True, cb=True),
     _e('body_beach', 'background', 'body', 'Corps, plage (habille)',
-       'full body shot, standing on a beach, summer casual clothes, daylight', co=True, cb=True),
+       'full body shot, standing on a beach, summer casual clothes different from the reference outfit, daylight',
+       co=True, cb=True),
     _e('back_34', 'framing', 'back', 'Dos 3/4',
        'full body shot, three-quarter back view, showing hairstyle and silhouette', co=True, cb=True),
     _e('body_wide_env', 'framing', 'body', 'Corps, plan large urbain',
@@ -244,6 +313,17 @@ NSFW_VARIATION_CATALOG = [
        'full body shot from behind, standing nude, back and buttocks visible, natural anatomy, '
        'neutral background', co=True, cb=True, aspect='3:4'),
 ]
+
+# Bake the default outfit-variation / neutral-expression directives into every entry
+# that doesn't already specify one (see _augment_prompt). Done in place, AFTER both
+# catalogs are built, so `prompt_by_label` and the /variations route serve the fixed
+# text and it lands in `variation_prompt` at generation time. NSFW entries keep their
+# described state of (un)dress (allow_outfit=False) but still get a neutral expression.
+for _entry in VARIATION_CATALOG:
+    _augment_prompt(_entry)
+for _entry in NSFW_VARIATION_CATALOG:
+    _augment_prompt(_entry, allow_outfit=False)
+del _entry
 
 _NSFW_LABELS = {e['label'] for e in NSFW_VARIATION_CATALOG}
 
