@@ -12,6 +12,7 @@ import CaptionToolsBar from './CaptionToolsBar';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
 import DatasetSettingsModal from './DatasetSettingsModal';
+import PublishHfModal from './PublishHfModal';
 import WatermarkReviewLightbox, { buildWatermarkRecap } from './WatermarkReviewLightbox';
 import { useToast } from '../common/Toast';
 import { useCapabilities } from '../../context/CapabilitiesContext';
@@ -138,6 +139,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Un clic sur le bandeau écrit ici ; un saut depuis la checklist force l'ouverture.
   const [openMap, setOpenMap] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [publishHfOpen, setPublishHfOpen] = useState(false);
   // Grid tag-filter (session-only): tags whose images are hidden (exclude) or the
   // ONLY tags allowed through (include). Both are normalized (trim+lowercase).
   const [excludeTags, setExcludeTags] = useState([]);
@@ -335,6 +337,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 💾 Backup
                 <span className="ml-auto text-content-subtle text-[0.625rem]">portable copy</span>
               </button>
+              {caps.hf_publish && kept > 0 && (
+                <button type="button" onClick={() => setPublishHfOpen(true)}
+                  title="Publish this dataset (kept images + captions) as a dataset repo on the Hugging Face Hub. Private by default; you choose the license and confirm you have the right to share."
+                  className={MENU_ITEM}>
+                  🤗 Publish to Hugging Face
+                  <span className="ml-auto text-content-subtle text-[0.625rem]">export to the Hub</span>
+                </button>
+              )}
               <button type="button" onClick={() => zipInput.current?.click()} disabled={ds.busy}
                 title="Merge an existing training dataset into this one: a ZIP of images with kohya-style same-name .txt captions (any folder layout). Aspect kept, perceptual duplicates skipped."
                 className={MENU_ITEM}>
@@ -759,6 +769,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
       {settingsOpen && (
         <DatasetSettingsModal d={d} busy={ds.busy}
           onSave={ds.updateSettings} onClose={() => setSettingsOpen(false)} />
+      )}
+      {publishHfOpen && (
+        <PublishHfModal datasetId={d.id} onClose={() => setPublishHfOpen(false)} />
       )}
       {reviewQueue && reviewQueue.length > 0 && (
         <WatermarkReviewLightbox

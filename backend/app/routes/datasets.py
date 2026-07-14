@@ -9,9 +9,10 @@ import io
 import os
 import uuid
 
-from flask import Blueprint, request, jsonify, send_file, send_from_directory
+from flask import Blueprint, request, jsonify, send_file, send_from_directory, current_app
 
 from ..config import LOCAL_USER
+from .. import config as cfg
 from ..gpu_window import gpu_exclusive_vision_window
 from ..services import face_dataset_service as svc
 from ..services import lora_test_studio as lts
@@ -738,6 +739,63 @@ def dataset_backup_import():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'id': ds.id, 'name': ds.name})
+
+
+# ---------------------------------------------------------------------------
+# Publish to Hugging Face (export a dataset repo to the Hub — export only)
+# ---------------------------------------------------------------------------
+
+@bp.get('/dataset/<int:dataset_id>/publish-hf/whoami')
+def dataset_publish_hf_whoami(dataset_id):
+    """Prefill helper for the Publish modal: the token owner's username and the
+    suggested `<username>/<slug>` repo id. Best-effort — a missing/invalid token
+    just yields username=null (the modal degrades to a free-text field)."""
+    from ..services import hf_publish
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    if not ds:
+        return jsonify({'error': 'not found'}), 404
+    username = hf_publish.hf_namespace(cfg.secret('HF_TOKEN'))
+    return jsonify({'ok': True, 'username': username,
+                    'default_repo_id': hf_publish.default_repo_id(username, ds),
+                    'licenses': list(hf_publish.LICENSE_CHOICES)})
+
+
+@bp.post('/dataset/<int:dataset_id>/publish-hf')
+def dataset_publish_hf(dataset_id):
+    """Kick off the background upload of this dataset to the HF Hub. Server-side
+    guards: HF_TOKEN must exist, `consent` MUST be true (not merely a UI checkbox),
+    dataset must exist. The slow upload runs in a daemon thread; the UI polls the
+    status route. Structured preflight errors (read-only token, repo exists) also
+    surface via the status poll."""
+    from ..services import hf_publish
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    token = cfg.secret('HF_TOKEN')
+    if not token:
+        return jsonify({'error': 'no Hugging Face token configured — paste an '
+                        'HF_TOKEN in Settings ▸ API keys'}), 400
+    data = request.get_json(silent=True) or {}
+    if data.get('consent') is not True:
+        return jsonify({'error': 'you must confirm you have the right to share these '
+                        'images and the consent of any identifiable person'}), 400
+    repo_id = (data.get('repo_id') or '').strip()
+    if not repo_id:
+        return jsonify({'error': 'repo id is required'}), 400
+    license = (data.get('license') or '').strip().lower()
+    if license not in hf_publish.LICENSE_CHOICES:
+        return jsonify({'error': f'unsupported license: {license or "(empty)"}'}), 400
+    out = hf_publish.start_publish(
+        current_app._get_current_object(), dataset_id, repo_id,
+        private=bool(data.get('private', True)), nfaa=bool(data.get('nfaa', True)),
+        license=license, include_ref=bool(data.get('include_ref', False)), token=token)
+    return jsonify({'ok': True, **out})
+
+
+@bp.get('/dataset/<int:dataset_id>/publish-hf/status')
+def dataset_publish_hf_status(dataset_id):
+    """Poll: {state: idle|running|done|error, repo_url, error, error_code, count}."""
+    from ..services import hf_publish
+    return jsonify(hf_publish.publish_status(dataset_id))
 
 
 @bp.get('/dataset/<int:dataset_id>/img/<path:filename>')

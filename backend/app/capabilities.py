@@ -545,6 +545,10 @@ def probe(force=False) -> dict:
             'valid': aitoolkit['ok'],
         },
         'cloud_training': bool(cfg.secret('VAST_API_KEY')),
+        # Publish-to-HF is gated purely on the HF_TOKEN secret being present (the
+        # write-scope check is a live preflight at publish time, not here — probe()
+        # must stay network-free). The ⋯ More menu entry keys off this.
+        'hf_publish': bool(cfg.secret('HF_TOKEN')),
         'captioners': {
             'joycaption': aitoolkit['ok'] and (cfg.BACKEND_DIR / 'infer' / 'joycaption_infer.py').exists(),
             'ollama': ollama['ok'],
