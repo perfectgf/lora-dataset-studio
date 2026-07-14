@@ -1,12 +1,21 @@
 """Setup installer: run whitelisted, self-contained installs in a background
 thread and expose their live state for polling. Actions:
 
-  ml_extras          -> pip install -r backend/requirements-ml.txt (the app's own venv)
+  ml_extras          -> pip install -r backend/requirements-ml.txt (the app's own venv):
+                        installs ALL the ML extras at once — kept for a first-time setup
+  face_scoring       -> pip install JUST the face-scoring packages (insightface + onnx-
+                        runtime, versions read from requirements-ml.txt) into the inter-
+                        preter probe_face_scoring resolves — install/repair ONE feature
+  masks              -> pip install JUST the person-mask package (rembg) into the inter-
+                        preter probe_masks resolves — install/repair ONE feature
   watermark_inpaint  -> pip install JUST the watermark-inpainting package (simple-lama-
                         inpainting, version floor read from requirements-ml.txt) into the
                         interpreter the LaMa wrapper resolves — the scoped install shown
                         next to the Curate 🧽 tools, so a user who already has rembg/
                         insightface doesn't redo the whole ML extras step
+  (face_scoring/masks/watermark_inpaint all follow the same shape: ML interpreter resolved
+   per capability, requirements-ml.txt pinned as a -c constraint, probe cache invalidated
+   on success so the capability flips without a restart.)
   ollama_model       -> stream Ollama's /api/pull for the configured vision model
   klein_model        -> download the Klein fp8 diffusion model into <ComfyUI>/models/unet/klein/
                         (BFL repo is LICENSE-GATED: needs the agreement accepted on HF +
@@ -59,7 +68,7 @@ _KLEIN_DOWNLOADS = {
 }
 
 INSTALL_ACTIONS = ('ml_extras', 'scrape_extras', 'ollama_model',
-                   'watermark_inpaint') + tuple(_KLEIN_DOWNLOADS)
+                   'face_scoring', 'masks', 'watermark_inpaint') + tuple(_KLEIN_DOWNLOADS)
 
 _ML_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-ml.txt'
 _SCRAPE_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-scrape.txt'
@@ -70,10 +79,40 @@ _PIP_REQUIREMENTS = {'ml_extras': _ML_REQUIREMENTS, 'scrape_extras': _SCRAPE_REQ
 # here (an identifier), but the VERSION SPEC is parsed from requirements-ml.txt
 # so there's exactly one place a version floor is ever written.
 _WATERMARK_PKG = 'simple-lama-inpainting'
+
+# --- ML extras, split per capability -------------------------------------------
+# requirements-ml.txt is a FLAT pip file (not grouped by feature), so the
+# package->capability grouping lives HERE. The VERSIONS are never duplicated: each
+# package's exact requirement line is read from requirements-ml.txt via
+# _requirement_spec(), and that same file rides along as a `-c` constraint so a
+# scoped install can't bump numpy past insightface's <2 ABI ceiling. A dedicated
+# test (test_no_orphan_ml_package) asserts EVERY line in requirements-ml.txt is
+# owned by at least one capability below — a package added to the file but
+# forgotten here would silently never be installed by any scoped action.
+#
+#   face_scoring  insightface (face embeddings) + onnxruntime (its runtime). numpy
+#                 is pinned <2 *for insightface's* ABI; opencv-python-headless is
+#                 the server-safe cv2 that insightface & rembg both pull — listed so
+#                 the scoped install prefers the headless variant, matching the
+#                 monolithic `-r` install.
+#   masks         rembg (u2net background removal), + the same shared numpy /
+#                 headless-opencv floor.
+#   watermark_inpaint  simple-lama-inpainting (has its own dedicated worker below;
+#                 listed here only so the anti-orphan test sees its package covered).
+_CAPABILITY_PACKAGES = {
+    'face_scoring': ('insightface', 'onnxruntime', 'numpy', 'opencv-python-headless'),
+    'masks': ('rembg', 'numpy', 'opencv-python-headless'),
+    'watermark_inpaint': (_WATERMARK_PKG,),
+}
+# The capabilities served by the GENERIC per-capability pip worker
+# (_run_ml_capability). watermark_inpaint keeps its own worker, so it's excluded.
+_CAPABILITY_ML_ACTIONS = ('face_scoring', 'masks')
+
 # Actions whose success makes a NEW importable package appear -> the probe
 # import-cache must be dropped so the capability flips without waiting out the
-# 600 s TTL (ml_extras/scrape_extras via -r, watermark_inpaint via one package).
-_IMPORT_CACHE_ACTIONS = frozenset(_PIP_REQUIREMENTS) | {'watermark_inpaint'}
+# 600 s TTL (ml_extras/scrape_extras via -r, the scoped per-capability installs).
+_IMPORT_CACHE_ACTIONS = (frozenset(_PIP_REQUIREMENTS)
+                         | set(_CAPABILITY_ML_ACTIONS) | {'watermark_inpaint'})
 _LOG_MAX = 400  # ring-buffer the log so a chatty pip can't grow unbounded
 
 _lock = threading.Lock()
@@ -119,6 +158,11 @@ def _quote(p: str) -> str:
     return f'"{p}"' if ' ' in p else p
 
 
+def _canon(name: str) -> str:
+    """PEP 503 canonical form: -_. all fold to a single dash, case-insensitive."""
+    return re.sub(r'[-_.]+', '-', name).lower()
+
+
 def _requirement_spec(name: str, requirements=_ML_REQUIREMENTS) -> str:
     """The full requirement line for `name` as written in a requirements file
     (e.g. 'simple-lama-inpainting>=0.1.2') — the version floor lives in ONE place
@@ -126,18 +170,35 @@ def _requirement_spec(name: str, requirements=_ML_REQUIREMENTS) -> str:
     canonicalised (PEP 503: -_. all fold together, case-insensitive) and tolerant
     of version/marker/extras suffixes. Falls back to the bare name if the file or
     line is missing (an unpinned `pip install <name>` still works)."""
-    canon = re.sub(r'[-_.]+', '-', name).lower()
+    canon = _canon(name)
     try:
         for raw in requirements.read_text(encoding='utf-8').splitlines():
             line = raw.split('#', 1)[0].strip()   # drop comments / blank lines
             if not line:
                 continue
             token = re.split(r'[<>=!~;\[\s]', line, maxsplit=1)[0]   # name before any spec/marker
-            if re.sub(r'[-_.]+', '-', token).lower() == canon:
+            if _canon(token) == canon:
                 return line
     except OSError:
         pass
     return name
+
+
+def _ml_requirement_names(requirements=_ML_REQUIREMENTS) -> set:
+    """Canonical names of every package declared in a requirements file (comments
+    and blank lines dropped). Used by the anti-orphan test to prove each ML package
+    is mapped to a capability in _CAPABILITY_PACKAGES."""
+    names = set()
+    try:
+        for raw in requirements.read_text(encoding='utf-8').splitlines():
+            line = raw.split('#', 1)[0].strip()
+            if not line:
+                continue
+            token = re.split(r'[<>=!~;\[\s]', line, maxsplit=1)[0]
+            names.add(_canon(token))
+    except OSError:
+        pass
+    return names
 
 
 def _watermark_python() -> str:
@@ -146,6 +207,17 @@ def _watermark_python() -> str:
     target and the later import can never drift apart."""
     from .services import watermark_lama
     return watermark_lama.lama_python()
+
+
+def _capability_python(action) -> str:
+    """Interpreter a scoped ML install targets — MUST match the resolution its
+    matching probe uses, so the install target and the later import can't drift:
+      face_scoring -> face_scoring.python  (see capabilities.probe_face_scoring)
+      masks        -> masks.python         (see capabilities.probe_masks)
+      watermark_inpaint -> the wrapper chain (watermark.python > masks.python)."""
+    if action == 'watermark_inpaint':
+        return _watermark_python()
+    return cfg.get(f'{action}.python') or sys.executable
 
 
 def manual_command(action) -> str:
@@ -157,6 +229,14 @@ def manual_command(action) -> str:
     land in the wrong environment and the extras would never be importable)."""
     if action in _PIP_REQUIREMENTS:
         return f'{_quote(sys.executable)} -m pip install -r {_quote(str(_PIP_REQUIREMENTS[action]))}'
+    if action in _CAPABILITY_ML_ACTIONS:
+        # One scoped capability (face_scoring | masks): the exact version-pinned
+        # lines from requirements-ml.txt, quoted (the '>=' / '<' are shell
+        # redirection unquoted), plus that file as a -c constraint. Interpreter =
+        # the same one the capability's probe resolves.
+        specs = ' '.join(f'"{_requirement_spec(p)}"' for p in _CAPABILITY_PACKAGES[action])
+        return (f'{_quote(_capability_python(action))} -m pip install {specs} '
+                f'-c {_quote(str(_ML_REQUIREMENTS))}')
     if action == 'watermark_inpaint':
         # Quote the spec: the '>=' in 'simple-lama-inpainting>=0.1.2' is shell
         # redirection unquoted. Interpreter = the wrapper's resolved python.
@@ -316,6 +396,39 @@ def _run_watermark_inpaint(action) -> int:
     return proc.returncode
 
 
+def _run_ml_capability(action) -> int:
+    """Install JUST the packages ONE ML capability needs (face_scoring | masks)
+    into the interpreter that capability's probe resolves — so a user can install
+    or REPAIR a single feature without the monolithic `-r requirements-ml.txt`.
+    Versions come solely from requirements-ml.txt (via _requirement_spec) and that
+    file rides along as a `-c` constraint, so pulling insightface/rembg deps can
+    never bump numpy past the <2 ABI ceiling and break the other ML capabilities.
+    Same shape as _run_watermark_inpaint (resolved ML python, -c constraint)."""
+    python = _capability_python(action)
+    specs = [_requirement_spec(p) for p in _CAPABILITY_PACKAGES[action]]
+    # face_scoring pulls insightface, which only has wheels for Python 3.10–3.12.
+    # When targeting THIS interpreter (no dedicated env) and it's out of range,
+    # lead with the plain-English reason so the pip source-build failure below is
+    # already contextualised — same courtesy the monolithic ml_extras worker gives.
+    if action == 'face_scoring' and python == sys.executable:
+        ps = capabilities.python_ml_status()
+        if not ps['ml_supported']:
+            _append(action, f"NOTE: Python {ps['version']} is outside the ML wheel "
+                            f"range {ps['ml_range']} — insightface has no wheel here, "
+                            "so pip will try to build it and likely fail. Install into a "
+                            "separate 3.11/3.12 env and set face_scoring.python instead.")
+    _append(action, f'target interpreter: {python}')
+    _append(action, f"installing {', '.join(specs)}  (constraints: requirements-ml.txt)")
+    proc = subprocess.Popen(
+        [python, '-m', 'pip', 'install', *specs, '-c', str(_ML_REQUIREMENTS)],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+    )
+    for line in proc.stdout:
+        _append(action, line)
+    proc.wait()
+    return proc.returncode
+
+
 def _run_klein_download(action) -> int:
     """Stream one Klein asset into the validated ComfyUI tree. Writes to a .part
     file then renames (a killed download never leaves a half file the model
@@ -397,6 +510,7 @@ def _run_ollama_model(action) -> int:
 
 _WORKERS = {**{a: _run_ml_extras for a in _PIP_REQUIREMENTS},   # ml_extras + scrape_extras
             'ollama_model': _run_ollama_model,
+            **{a: _run_ml_capability for a in _CAPABILITY_ML_ACTIONS},  # face_scoring + masks
             'watermark_inpaint': _run_watermark_inpaint,
             **{a: _run_klein_download for a in _KLEIN_DOWNLOADS}}
 # Structural invariant: every whitelisted action MUST have a worker — a missing

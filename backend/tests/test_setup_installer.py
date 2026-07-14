@@ -562,3 +562,154 @@ def test_execute_watermark_inpaint_success_invalidates_probe_cache(app, monkeypa
         setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
         setup_installer._execute('watermark_inpaint')
     assert capabilities._import_cache == {}      # cache invalidated on success
+
+
+# --- ML extras split per capability (face_scoring / masks) ----------------
+# The monolithic `-r requirements-ml.txt` is now ALSO installable one capability
+# at a time, so a user can install or REPAIR a single feature. Each scoped action
+# targets the interpreter its own probe resolves and pins requirements-ml.txt as a
+# -c constraint (numpy stays <2). The package->capability grouping lives in
+# _CAPABILITY_PACKAGES; a test proves it covers every line in requirements-ml.txt.
+
+
+def test_install_actions_include_face_scoring_and_masks(app):
+    from app import setup_installer
+    for a in ('face_scoring', 'masks'):
+        assert a in setup_installer.INSTALL_ACTIONS
+        assert a in setup_installer._WORKERS
+        assert a in setup_installer._IMPORT_CACHE_ACTIONS   # flips the cap without a restart
+        with app.app_context():
+            assert setup_installer.manual_command(a)
+
+
+def test_no_orphan_ml_package():
+    """Anti-orphan invariant: EVERY package declared in requirements-ml.txt must be
+    owned by at least one capability in _CAPABILITY_PACKAGES — a line added to the
+    file but forgotten in the mapping would silently never be installed by any
+    scoped action. Also proves the reverse (no mapped package is a typo absent from
+    the file, which would install unpinned via the bare-name fallback)."""
+    from app import setup_installer
+    owned = {setup_installer._canon(p)
+             for pkgs in setup_installer._CAPABILITY_PACKAGES.values() for p in pkgs}
+    in_file = setup_installer._ml_requirement_names()
+    assert in_file, 'requirements-ml.txt parsed empty — the mapping cannot be validated'
+    orphans = in_file - owned
+    assert not orphans, f'requirements-ml.txt packages mapped to no capability: {orphans}'
+    phantom = owned - in_file
+    assert not phantom, f'_CAPABILITY_PACKAGES names absent from requirements-ml.txt: {phantom}'
+
+
+def test_run_face_scoring_targets_face_scoring_python(app, monkeypatch):
+    """face_scoring.python wins the interpreter resolution (matching
+    probe_face_scoring) and the pip target IS it, with insightface + onnxruntime
+    from the file and requirements-ml.txt pinned as a -c constraint."""
+    from app import setup_installer, config
+    seen = {}
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen',
+                        _fake_popen_capturing(seen, 0))
+    with app.app_context():
+        config.save_config({'face_scoring': {'python': '/fs/py'}})
+        setup_installer._runs['face_scoring'] = setup_installer._new_run()
+        rc = setup_installer._run_ml_capability('face_scoring')
+        insight = setup_installer._requirement_spec('insightface')
+        onnx = setup_installer._requirement_spec('onnxruntime')
+    assert rc == 0
+    cmd = seen['cmd']
+    assert cmd[0] == '/fs/py'                       # exact interpreter, not sys.executable
+    assert cmd[1:4] == ['-m', 'pip', 'install']
+    assert insight in cmd and onnx in cmd           # the version-pinned lines from the file
+    assert '-c' in cmd and any('requirements-ml.txt' in str(p) for p in cmd)
+
+
+def test_run_masks_targets_masks_python_and_installs_rembg(app, monkeypatch):
+    from app import setup_installer, config
+    seen = {}
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen',
+                        _fake_popen_capturing(seen, 0))
+    with app.app_context():
+        config.save_config({'masks': {'python': '/masks/py'}})
+        setup_installer._runs['masks'] = setup_installer._new_run()
+        setup_installer._run_ml_capability('masks')
+        rembg = setup_installer._requirement_spec('rembg')
+    cmd = seen['cmd']
+    assert cmd[0] == '/masks/py'
+    assert rembg in cmd
+    assert '-c' in cmd and any('requirements-ml.txt' in str(p) for p in cmd)
+
+
+def test_run_face_scoring_falls_back_to_sys_executable(app, monkeypatch):
+    """No dedicated face_scoring.python -> install into THIS interpreter (same
+    fallback probe_face_scoring uses)."""
+    import sys
+    from app import setup_installer, config
+    seen = {}
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen',
+                        _fake_popen_capturing(seen, 0))
+    with app.app_context():
+        config.save_config({})   # no face_scoring.python
+        setup_installer._runs['face_scoring'] = setup_installer._new_run()
+        setup_installer._run_ml_capability('face_scoring')
+    assert seen['cmd'][0] == sys.executable
+
+
+def test_run_ml_capability_nonzero_returncode_propagates(app, monkeypatch):
+    from app import setup_installer, config
+    seen = {}
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen',
+                        _fake_popen_capturing(seen, 1, lines=['ERROR: no wheel\n']))
+    with app.app_context():
+        config.save_config({'masks': {'python': '/masks/py'}})
+        setup_installer._runs['masks'] = setup_installer._new_run()
+        rc = setup_installer._run_ml_capability('masks')
+    assert rc == 1
+    assert any('no wheel' in l for l in setup_installer._runs['masks']['log'])
+
+
+@pytest.mark.parametrize('action', ['face_scoring', 'masks'])
+def test_execute_ml_capability_success_clears_import_cache(action, monkeypatch):
+    from app import setup_installer, capabilities
+    calls = []
+    monkeypatch.setattr(setup_installer, '_WORKERS', {action: lambda a: 0})
+    monkeypatch.setattr(capabilities, 'clear_import_cache', lambda: calls.append(1))
+    setup_installer._runs[action] = setup_installer._new_run()
+    setup_installer._execute(action)
+    assert setup_installer._runs[action]['state'] == 'success'
+    assert calls == [1]
+
+
+@pytest.mark.parametrize('action', ['face_scoring', 'masks'])
+def test_execute_ml_capability_error_skips_cache_clear(action, monkeypatch):
+    from app import setup_installer, capabilities
+    calls = []
+    monkeypatch.setattr(setup_installer, '_WORKERS', {action: lambda a: 1})
+    monkeypatch.setattr(capabilities, 'clear_import_cache', lambda: calls.append(1))
+    setup_installer._runs[action] = setup_installer._new_run()
+    setup_installer._execute(action)
+    assert setup_installer._runs[action]['state'] == 'error'
+    assert calls == []
+
+
+def test_manual_command_face_scoring_scoped_and_constrained(app):
+    """Copy-paste command targets face_scoring's interpreter, quotes each spec
+    ('>=' / '<' are shell redirection unquoted), and pins the -c constraint."""
+    from app import setup_installer, config
+    with app.app_context():
+        config.save_config({'face_scoring': {'python': r'C:\ml env\python.exe'}})
+        cmd = setup_installer.manual_command('face_scoring')
+        insight = setup_installer._requirement_spec('insightface')
+    assert '"C:\\ml env\\python.exe"' in cmd        # resolved interpreter, quoted for spaces
+    assert '-m pip install' in cmd
+    assert f'"{insight}"' in cmd                     # spec quoted whole
+    assert '-c ' in cmd and 'requirements-ml.txt' in cmd
+    assert not cmd.startswith('pip ')               # never bare pip
+
+
+def test_manual_command_masks_scoped(app):
+    from app import setup_installer, config
+    with app.app_context():
+        config.save_config({'masks': {'python': '/masks/py'}})
+        cmd = setup_installer.manual_command('masks')
+        rembg = setup_installer._requirement_spec('rembg')
+    assert '/masks/py' in cmd
+    assert f'"{rembg}"' in cmd
+    assert '-c ' in cmd and 'requirements-ml.txt' in cmd

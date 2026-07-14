@@ -50,13 +50,17 @@ function ollamaStep(caps) {
 }
 
 function qualityStep(caps) {
-  const ready = caps.face_scoring && caps.masks
-  const partial = caps.face_scoring || caps.masks
+  // Three scoped ML capabilities now (face scoring, masks, watermark inpainting) —
+  // each installs/repairs on its own. The step is ready only when all three are in.
+  const parts = [!!caps.face_scoring, !!caps.masks, !!caps.watermark_inpaint]
+  const ready = parts.every(Boolean)
+  const partial = parts.some(Boolean)
   return {
     id: 'quality', title: 'Quality tools (ML extras)', recommended: false,
-    unlocks: ['Face-similarity scoring', 'Person masks'],
+    unlocks: ['Face-similarity scoring', 'Person masks', 'Watermark inpainting'],
     status: ready ? 'ready' : (partial ? 'partial' : 'available'),
     faceScoring: !!caps.face_scoring, masks: !!caps.masks,
+    watermarkInpaint: !!caps.watermark_inpaint,
   }
 }
 
@@ -75,7 +79,9 @@ export function deriveSetupSteps(caps) {
   return [imageStep(c), comfyuiStep(c), ollamaStep(c), qualityStep(c), trainingStep(c)]
 }
 
-// The user's nine capabilities as a flat live checklist (Summary card).
+// The user's live capability checklist (Summary card). Watermark inpainting is a
+// distinct ML extra (simple-lama-inpainting) — an existing install that never ran
+// it must SEE it as still missing here, not be told "everything's ready".
 export function deriveCapabilitySummary(caps) {
   const c = caps || {}
   const e = c.engines || {}
@@ -89,6 +95,7 @@ export function deriveCapabilitySummary(caps) {
     { label: 'Auto-framing & head-crop', ok: !!(o.reachable && o.vision_model_ready) },
     { label: 'Face-similarity scoring', ok: !!c.face_scoring },
     { label: 'Person masks', ok: !!c.masks },
+    { label: 'Watermark inpainting', ok: !!c.watermark_inpaint },
     { label: 'LoRA training', ok: !!c.training_visible },
     { label: 'Test Studio', ok: !!c.studio_visible },
   ]

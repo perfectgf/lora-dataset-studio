@@ -41,6 +41,40 @@ export async function postJson(url, body, isForm) {
   }
 }
 
+/**
+ * Compose the 🧽 Clean summary toast from the server's counts — PURE (no React,
+ * no toast) so the honest-message logic is testable on its own.
+ * Response shape: {cropped, inpainted, needs_review, failed, skipped, error}.
+ *
+ * The old code fired TWO toasts at once: a "Nothing to clean" SUCCESS (it only
+ * looked at cropped/inpainted/needs_review/failed) AND a separate "N skipped"
+ * WARNING — so a run that skipped 64 images for inpainting showed a green
+ * "Nothing to clean" next to the amber warning. Now: one honest toast.
+ *   - nothing detected at all              -> "Nothing to clean" (success)
+ *   - anything skipped (needs the inpaint  -> single warning summary
+ *     install)
+ *   - otherwise                            -> single success summary
+ * `error` is a separate concern (why an attempted inpaint failed) and is
+ * surfaced by its own toast.error at the call site.
+ */
+export function summarizeClean(d) {
+  const cropped = d.cropped || 0;
+  const inpainted = d.inpainted || 0;
+  const skipped = d.skipped || 0;
+  const needsReview = d.needs_review || 0;
+  const failed = d.failed || 0;
+  if (!cropped && !inpainted && !skipped && !needsReview && !failed) {
+    return { severity: 'success', message: 'Nothing to clean' };
+  }
+  const parts = [];
+  if (cropped) parts.push(`${cropped} cropped`);
+  if (inpainted) parts.push(`${inpainted} inpainted`);
+  if (skipped) parts.push(`${skipped} waiting for inpainting (⬇ install it)`);
+  if (needsReview) parts.push(`${needsReview} need manual review`);
+  if (failed) parts.push(`${failed} failed`);
+  return { severity: skipped ? 'warning' : 'success', message: parts.join(' · ') };
+}
+
 export function useDataset() {
   const toast = useToast();
   const [datasets, setDatasets] = useState([]);
@@ -386,13 +420,9 @@ export function useDataset() {
           ? 'Watermark inpainting is not installed — use ⬇ Install inpainting next to the watermark tools.'
           : `Watermark inpainting failed: ${d.error.detail}`);
       }
-      const parts = [];
-      if (d.cropped) parts.push(`${d.cropped} cropped`);
-      if (d.inpainted) parts.push(`${d.inpainted} inpainted`);
-      if (d.needs_review) parts.push(`${d.needs_review} need manual review`);
-      if (d.failed) parts.push(`${d.failed} failed`);
-      toast.success(parts.length ? parts.join(' · ') : 'Nothing to clean');
-      if (d.skipped) toast.warning(`${d.skipped} skipped — use ⬇ Install inpainting next to the watermark tools`);
+      // ONE honest summary toast (no more "Nothing to clean" alongside "N skipped").
+      const { severity, message } = summarizeClean(d);
+      toast[severity](message);
       if (detectedIds.length) {
         setNonces((m) => {
           const next = { ...m };
