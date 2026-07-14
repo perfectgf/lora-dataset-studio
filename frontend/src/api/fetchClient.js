@@ -14,10 +14,65 @@ export function getCsrfToken() {
   return document.querySelector('meta[name="csrf-token"]')?.content || '';
 }
 
+/* The single human, actionable message shown when a CSRF 400 survives the
+   automatic retry — never the cryptic "HTTP 400". Shared so apiFetch and
+   useDataset's local postJson word it identically. */
+export const CSRF_EXPIRED_MESSAGE =
+  'Session token expired — refresh the page (Ctrl+Shift+R) and try again.';
+
+/* Flask-WTF rejects a stale/missing CSRF token with a 400 whose body is an HTML
+   page, NOT one of our JSON error envelopes (which are always application/json).
+   That content-type mismatch is the honest, body-safe signal to refresh + retry;
+   a genuine 400 from our own handlers is application/json and is left untouched. */
+function isCsrfRejection(res) {
+  if (res.status !== 400) return false;
+  const ct = res.headers.get('content-type') || '';
+  return !ct.includes('application/json');
+}
+
+// A request carries an X-CSRFToken header only when it mutates state (our
+// post/put/del/postForm helpers). Only those can be rejected for a stale token
+// and only those are meaningful to replay — a bare GET never enters the retry.
+function csrfHeaderName(headers) {
+  return Object.keys(headers || {}).find((k) => k.toLowerCase() === 'x-csrftoken');
+}
+
+// Rebuild request options with a freshly-read CSRF token: the header for JSON
+// bodies, plus the csrf_token field for FormData bodies (the generation path
+// sends the token both ways). FormData is mutable, so it is reused in place.
+function withFreshCsrf(options) {
+  const token = getCsrfToken();
+  const name = csrfHeaderName(options.headers) || 'X-CSRFToken';
+  if (typeof FormData !== 'undefined' && options.body instanceof FormData) {
+    options.body.set?.('csrf_token', token);
+  }
+  return { ...options, headers: { ...(options.headers || {}), [name]: token } };
+}
+
+/**
+ * fetch() with ONE automatic CSRF recovery, shared by every JSON and FormData
+ * caller. When a state-changing request comes back as a CSRF rejection (see
+ * isCsrfRejection — the classic "SPA left open past WTF_CSRF_TIME_LIMIT" case),
+ * refresh the token and replay the request exactly once with the fresh token.
+ * The backend re-plants a fresh cookie on every response (including the 400
+ * itself), and the light GET below is a belt-and-suspenders for any path that
+ * somehow didn't. Returns the raw Response so both parsed-JSON and raw-Response
+ * callers reuse the same recovery. Network errors propagate to the caller.
+ */
+export async function fetchWithCsrfRetry(url, options = {}) {
+  const opts = { credentials: 'include', ...options };
+  let res = await fetch(url, opts);
+  if (isCsrfRejection(res) && csrfHeaderName(opts.headers)) {
+    await refreshCsrfToken();
+    res = await fetch(url, { credentials: 'include', ...withFreshCsrf(opts) });
+  }
+  return res;
+}
+
 export async function apiFetch(url, options = {}) {
   let res;
   try {
-    res = await fetch(url, { credentials: 'include', ...options });
+    res = await fetchWithCsrfRetry(url, options);
   } catch {
     toastRef?.error('Connection lost. Please check your network.');
     throw new Error('Network error');
@@ -26,12 +81,19 @@ export async function apiFetch(url, options = {}) {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     let body = null;
+    let parsed = false;
     try {
       body = await res.json();
-      msg = body.error || body.detail || body.message || msg;
+      parsed = true;
+      msg = (body && (body.error || body.detail || body.message)) || msg;
     } catch {}
 
-    if (res.status === 401) {
+    if (res.status === 400 && !parsed) {
+      // A 400 whose body still isn't our JSON envelope after the retry above is
+      // an unrecoverable CSRF rejection — surface the actionable message, not
+      // the raw "HTTP 400".
+      msg = CSRF_EXPIRED_MESSAGE;
+    } else if (res.status === 401) {
       toastRef?.error('Session expired. Please log in again.');
     } else if (res.status === 429) {
       toastRef?.warning('Too many requests. Please wait a moment.');
@@ -101,35 +163,18 @@ export async function refreshCsrfToken() {
 }
 
 /**
- * POST a FormData body to a Flask endpoint that returns JSON, and treat a
- * 400 with an HTML body (Flask-WTF's default CSRF rejection page) as a
- * recoverable CSRF mismatch: refresh the token and retry once before
- * surfacing the failure. Returns the raw Response so callers can do their
- * own status-based handling (the existing /generate / /generate_edit
- * call sites need the Response, not just JSON).
+ * POST a FormData body to a Flask endpoint that returns JSON, with the same
+ * refresh-and-retry-once CSRF recovery as every other mutating call. Returns the
+ * raw Response so callers can do their own status-based handling (the /generate /
+ * /generate_edit call sites need the Response, not just JSON). Thin wrapper over
+ * the shared fetchWithCsrfRetry — kept as a named export for those call sites.
  */
 export async function postFormWithCsrfRetry(url, formData, { signal } = {}) {
-  const submit = async () => {
-    // Rebuild csrf_token on the body each attempt — `getCsrfToken()` reads
-    // the live cookie, so a refresh between attempts is automatically
-    // reflected here.
-    formData.set?.('csrf_token', getCsrfToken());
-    return fetch(url, {
-      method: 'POST',
-      headers: { 'X-CSRFToken': getCsrfToken() },
-      credentials: 'include',
-      body: formData,
-      signal,
-    });
-  };
-
-  let res = await submit();
-  if (res.status === 400) {
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('text/html')) {
-      await refreshCsrfToken();
-      res = await submit();
-    }
-  }
-  return res;
+  formData.set?.('csrf_token', getCsrfToken());
+  return fetchWithCsrfRetry(url, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': getCsrfToken() },
+    body: formData,
+    signal,
+  });
 }

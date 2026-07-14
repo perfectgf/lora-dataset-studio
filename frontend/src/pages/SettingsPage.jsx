@@ -122,6 +122,28 @@ export default function SettingsPage() {
     await refresh(true)
   }
 
+  // Persist ONE config section before a card's Test probe reads the SAVED value —
+  // the config counterpart of saveSecretIfPending. The /api/settings/test/<target>
+  // probes read config from disk, so testing a freshly-typed ComfyUI/Ollama/
+  // ai-toolkit path/URL without this always answered "not configured".
+  //  - No-op when that section is unchanged (nothing to save).
+  //  - PUTs ONLY this section, never the other still-being-edited sections — so a
+  //    Test click can't silently flush unrelated in-progress edits (mirrors how
+  //    SecretField persists only its own key).
+  //  - Reconciles just this section's local value + the saved snapshot with the
+  //    server's canonical result (the ComfyUI base_dir auto-correction may rewrite
+  //    what was typed) so the field shows what actually landed and the save bar's
+  //    dirty flag clears for this section without a redundant second save.
+  // Throws on failure so the Test button reports it (same contract as SecretField).
+  const saveConfigSection = async (section) => {
+    const current = config?.[section]
+    if (!current || JSON.stringify(current) === JSON.stringify(savedConfig?.[section])) return
+    const data = await putJson('/api/settings', { config: { [section]: current } })
+    setConfig((prev) => ({ ...prev, [section]: data.config[section] }))
+    setSavedConfig(data.config)
+    setRuntime(data.runtime || { host: null, port: null })
+  }
+
   const handleSave = async () => {
     setSaving(true)
     try {
@@ -180,7 +202,7 @@ export default function SettingsPage() {
 
   const sectionProps = {
     config, setField, secretsPresence, secretInputs, setSecretInputs,
-    testResults, recordTestResult, saveSecretIfPending, handleDeleteSecret,
+    testResults, recordTestResult, saveSecretIfPending, saveConfigSection, handleDeleteSecret,
     toggleEngine, handleSave, saving, runtime, caps, refreshCaps: refresh, toast,
   }
 

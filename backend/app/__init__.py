@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from flask import Flask, send_from_directory, jsonify
+from flask import Flask, send_from_directory, jsonify, request
 from sqlalchemy import event
 from .extensions import db, csrf
 from . import config as cfg
@@ -106,16 +106,39 @@ def create_app(config_object=None):
 
     @app.get('/')
     def index():
-        from flask_wtf.csrf import generate_csrf
         if not FRONTEND_DIST.exists():
             return jsonify({'error': 'frontend not built — run npm run build in frontend/'}), 503
-        resp = send_from_directory(FRONTEND_DIST, 'index.html')
-        resp.set_cookie('csrf_token', generate_csrf(), samesite='Lax')
-        return resp
+        # The csrf_token cookie is (re)planted by the after_request hook below —
+        # which covers '/' AND every /api response — so a SPA session can no longer
+        # outlive its token (see _refresh_csrf_cookie for the full rationale).
+        return send_from_directory(FRONTEND_DIST, 'index.html')
 
     @app.get('/assets/<path:filename>')
     def assets(filename):
         return send_from_directory(FRONTEND_DIST / 'assets', filename)
+
+    @app.after_request
+    def _refresh_csrf_cookie(resp):
+        # Flask-WTF's CSRF token is time-limited (WTF_CSRF_TIME_LIMIT, default 1 h).
+        # Historically the cookie was planted ONLY on GET / — so a SPA tab left open
+        # past that limit kept echoing a now-expired token, and every Save/Test POST
+        # came back as a cryptic HTML 400 that only a hard refresh cleared. Re-plant a
+        # freshly-timestamped token on the app shell and on every /api response (static
+        # assets are skipped — pure noise): any request the SPA makes keeps the cookie
+        # alive, and even the CSRF-rejection 400 itself carries a fresh cookie so the
+        # client's one-shot retry lands on a valid token with no reload. This also
+        # covers the Vite dev server, which proxies only /api (Flask never sees GET /,
+        # so the cookie was never planted there at all).
+        #
+        # httponly stays False (the default) so the SPA can read the cookie and echo
+        # it back in the X-CSRFToken header; samesite='Lax' mirrors the original
+        # GET / cookie; no `secure` flag (the app is reached over plain http on
+        # loopback/LAN). after_request runs BEFORE save_session, so a first-ever
+        # session gets its csrf secret persisted alongside this cookie.
+        if request.path == '/' or request.path.startswith('/api'):
+            from flask_wtf.csrf import generate_csrf
+            resp.set_cookie('csrf_token', generate_csrf(), samesite='Lax')
+        return resp
 
     if not app.config.get('TESTING'):
         _start_workers(app)

@@ -77,7 +77,7 @@ function OllamaStatus({ caps, refreshCaps, toast }) {
 }
 
 export default function LocalToolsSection(props) {
-  const { config, setField, testResults, recordTestResult, caps, refreshCaps, toast } = props
+  const { config, setField, testResults, recordTestResult, saveConfigSection, caps, refreshCaps, toast } = props
   return (
     <div className="space-y-6">
       <Card
@@ -95,7 +95,8 @@ export default function LocalToolsSection(props) {
             />
             <TestResult result={testResults.comfyui} />
           </div>
-          <TestButton target="comfyui" onResult={(r) => recordTestResult('comfyui', r)} />
+          <TestButton target="comfyui" beforeTest={() => saveConfigSection('comfyui')}
+            onResult={(r) => recordTestResult('comfyui', r)} />
         </div>
         <TextField
           id="comfyui-base-dir"
@@ -131,7 +132,8 @@ export default function LocalToolsSection(props) {
             />
             <TestResult result={testResults.ollama} />
           </div>
-          <TestButton target="ollama" onResult={(r) => recordTestResult('ollama', r)} />
+          <TestButton target="ollama" beforeTest={() => saveConfigSection('ollama')}
+            onResult={(r) => recordTestResult('ollama', r)} />
         </div>
       </Card>
 
@@ -150,7 +152,8 @@ export default function LocalToolsSection(props) {
             />
             <TestResult result={testResults.aitoolkit} />
           </div>
-          <TestButton target="aitoolkit" onResult={(r) => recordTestResult('aitoolkit', r)} />
+          <TestButton target="aitoolkit" beforeTest={() => saveConfigSection('aitoolkit')}
+            onResult={(r) => recordTestResult('aitoolkit', r)} />
         </div>
         <TextField
           id="aitoolkit-python"

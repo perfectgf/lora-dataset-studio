@@ -118,6 +118,69 @@ def test_test_connection_unknown_target(client):
     assert client.post('/api/settings/test/nope').status_code == 404
 
 
+# --- CSRF cookie freshness (long-lived SPA session) ---------------------------
+# Flask-WTF time-limits the CSRF token (WTF_CSRF_TIME_LIMIT). The cookie used to
+# be planted ONLY on GET /, so a tab left open past that limit kept echoing a
+# stale token and every Save/Test POST failed with a cryptic HTML 400 until a hard
+# refresh. An after_request hook now re-plants a fresh token on / and every /api
+# response — including the CSRF-rejection 400 itself, so the client's one-shot
+# retry can recover without a reload.
+
+def _csrf_cookies(resp):
+    """The Set-Cookie header(s) that (re)plant csrf_token, if any."""
+    return [c for c in resp.headers.getlist('Set-Cookie') if c.startswith('csrf_token=')]
+
+
+def test_after_request_plants_fresh_csrf_cookie_on_api(client):
+    """Any /api response re-plants the csrf_token cookie, JS-readable (not
+    HttpOnly, since the SPA must echo it back in the X-CSRFToken header)."""
+    r = client.get('/api/health')
+    assert r.status_code == 200
+    planted = _csrf_cookies(r)
+    assert planted, 'csrf_token cookie must be (re)planted on /api responses'
+    assert 'HttpOnly' not in planted[0]
+    assert 'SameSite=Lax' in planted[0]
+
+
+def test_static_assets_do_not_replant_csrf_cookie(client):
+    """The hook stays quiet on static assets (pure noise) — only / and /api."""
+    r = client.get('/assets/does-not-exist.js')
+    assert not _csrf_cookies(r)
+
+
+@pytest.fixture()
+def csrf_client(tmp_path, monkeypatch):
+    """A client on an app with CSRF actually enforced (the default fixture turns
+    it off). Mirrors conftest's app fixture env/cache isolation."""
+    monkeypatch.setenv('LDS_DATA_DIR', str(tmp_path / 'data'))
+    monkeypatch.setenv('LDS_CONFIG', str(tmp_path / 'config.json'))
+    monkeypatch.setenv('LDS_ENV', str(tmp_path / '.env'))
+    import app.config as _cfg
+    monkeypatch.setattr(_cfg, 'ENV_PATH', tmp_path / '.env')
+    monkeypatch.setattr(_cfg, '_cache', None)
+    from app import create_app
+    application = create_app({'TESTING': True, 'WTF_CSRF_ENABLED': True,
+                              'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:'})
+    return application.test_client()
+
+
+def test_csrf_rejection_carries_fresh_cookie_and_allows_retry(csrf_client):
+    """A mutating POST with no/stale token is still rejected (400) — but that very
+    rejection response re-plants a fresh csrf_token cookie, so the client can read
+    it and replay the request once and succeed, with no hard refresh."""
+    r = csrf_client.put('/api/settings', json={'config': {'ollama': {'url': 'http://x'}}})
+    assert r.status_code == 400                      # token missing -> Flask-WTF rejects
+    planted = _csrf_cookies(r)
+    assert planted, 'the CSRF-rejection response must still refresh the token cookie'
+    token = planted[0].split('csrf_token=', 1)[1].split(';', 1)[0]
+    # Replay WITH the fresh token in the header (the session cookie rode along on
+    # the test client's jar) -> accepted, no longer a 400.
+    r2 = csrf_client.put('/api/settings', json={'config': {'ollama': {'url': 'http://x'}}},
+                         headers={'X-CSRFToken': token})
+    assert r2.status_code == 200
+    assert r2.get_json()['config']['ollama']['url'] == 'http://x'
+
+
 @pytest.fixture()
 def _reset_update_cache():
     from app.routes import settings as sroutes

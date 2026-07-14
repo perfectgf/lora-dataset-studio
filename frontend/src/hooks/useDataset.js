@@ -5,14 +5,17 @@
  * classify/caption/status/caption-edit/crop/regenerate/export).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getCsrfToken } from '../api/fetchClient';
+import { getCsrfToken, fetchWithCsrfRetry, CSRF_EXPIRED_MESSAGE } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
 import { useJobs } from '../context/JobsContext';
 
 function post(url, body, isForm) {
-  return fetch(url, {
+  // Routes through the shared fetchWithCsrfRetry: a token that aged out mid-session
+  // (WTF_CSRF_TIME_LIMIT) is refreshed and the request replayed once, exactly like
+  // apiFetch — so a long-lived dataset page no longer starts failing every mutation
+  // with a cryptic HTML 400 until a hard refresh.
+  return fetchWithCsrfRetry(url, {
     method: 'POST',
-    credentials: 'include',
     headers: isForm
       ? { 'X-CSRFToken': getCsrfToken() }
       : { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
@@ -31,10 +34,17 @@ export async function postJson(url, body, isForm) {
   try {
     const r = await post(url, body, isForm);
     let d = null;
-    try { d = await r.json(); } catch { /* non-JSON body (proxy page, empty) */ }
+    let parsed = false;
+    try { d = await r.json(); parsed = true; } catch { /* non-JSON body (proxy page, empty) */ }
     // Preserve any structured fields the error body carries (e.g. `studio_missing`,
     // `klein_missing`) so callers can render an itemized banner, not just a toast.
-    if (!r.ok) return { ...(d || {}), ok: false, error: (d && d.error) || `Server error (${r.status})` };
+    if (!r.ok) {
+      // A 400 that STILL isn't our JSON envelope after the shared retry = a CSRF
+      // token that aged out mid-session → actionable message, not "Server error (400)".
+      const fallback = (!parsed && r.status === 400)
+        ? CSRF_EXPIRED_MESSAGE : `Server error (${r.status})`;
+      return { ...(d || {}), ok: false, error: (d && d.error) || fallback };
+    }
     return d || { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || 'Network error' };
