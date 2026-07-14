@@ -11,6 +11,17 @@ import PreflightModal from './PreflightModal';
 // (le preflight reste l'autorité ; ceci ne sert qu'à désactiver le bouton tôt).
 const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20], flux: [15, 20], flux2klein: [15, 20] };
 
+// « Custom weights… » : valeur-sentinelle de l'entrée du sélecteur de base qui
+// révèle le champ chemin. Les familles qui l'exposent + celles honorant VAE/TE
+// (miroir de CUSTOM_WEIGHTS_FAMILIES / VAE_TE_OVERRIDE_FAMILIES côté serveur ;
+// base-info les renvoie, ces défauts ne servent qu'avant son chargement).
+const CUSTOM_BASE_SENTINEL = '__custom_weights__';
+const DEFAULT_CUSTOM_FAMILIES = ['sdxl', 'krea', 'flux', 'flux2klein'];
+// Absolute path = the persisted custom-weights path (never a ComfyUI-relative
+// base name): Windows drive (C:\), UNC (\\), or POSIX (/…).
+const looksAbsolute = (p) => /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(String(p || ''));
+const baseName = (p) => String(p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(p || '');
+
 const fmtBytes = (b) => {
   if (b == null) return '';
   if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
@@ -43,6 +54,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Base d'entraînement (officielle ou merge custom) + variante + conversion.
   const [baseInfo, setBaseInfo] = useState(null);
   const [base, setBase] = useState('');
+  // « Custom weights… » (local-only) : quand actif, `base` porte un chemin ABSOLU
+  // vers un .safetensors de la même architecture (krea/flux/flux2klein/sdxl).
+  const [customBase, setCustomBase] = useState(false);
+  // Overrides SDXL UNIQUEMENT : chemin VAE + chemin/te repo-id du text-encoder.
+  const [vaePath, setVaePath] = useState('');
+  const [tePath, setTePath] = useState('');
   const [variant, setVariant] = useState('turbo');
   // Type de LoRA : 'zimage' (défaut, encodeur Qwen3-4B) ou 'sdxl' (checkpoints ComfyUI).
   const [trainType, setTrainType] = useState('zimage');
@@ -91,6 +108,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     ds.trainBaseInfo?.().then((info) => {
       if (alive && info) {
         setBaseInfo(info); setBase(info.base || '');
+        // A persisted ABSOLUTE base is the « Custom weights… » path → reopen that mode.
+        setCustomBase(looksAbsolute(info.base || ''));
+        setVaePath(info.vae_path || '');
+        setTePath(info.te_path || '');
         // Défaut family-aware : Krea sans variante persistée → Raw (reco officielle
         // « train on Raw, validate on Turbo ») ; FLUX.2 Klein → 4B (voie locale) —
         // y compris quand la variante PERSISTÉE vient d'une autre famille (un
@@ -127,8 +148,17 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Défaut true tant que baseInfo n'est pas chargé, pour ne pas flasher la CTA au montage.
   const comfyConfigured = baseInfo?.comfyui_configured !== false;
   const isCustomBase = !!base;
-  // La conversion diffusers ne concerne QUE Z-Image (SDXL = single-file direct).
-  const needsConversion = trainType === 'zimage' && isCustomBase;
+  // « Custom weights… » (local-only) : familles qui l'exposent + celles honorant
+  // VAE/TE (SDXL). base-info fait foi ; défauts avant chargement.
+  const customFamilies = baseInfo?.custom_weights_families || DEFAULT_CUSTOM_FAMILIES;
+  const customSupported = customFamilies.includes(trainType);
+  const vaeTeFamilies = baseInfo?.vae_te_families || ['sdxl'];
+  const vaeTeSupported = vaeTeFamilies.includes(trainType);
+  // Mode custom actif mais chemin vide → rien à entraîner (bloque le bouton).
+  const customWeightsEmpty = customBase && customSupported && !String(base).trim();
+  // La conversion diffusers ne concerne QUE Z-Image (SDXL = single-file direct) ;
+  // le mode « Custom weights… » (chemin absolu direct) ne convertit jamais.
+  const needsConversion = trainType === 'zimage' && isCustomBase && !customBase;
   const baseConverted = needsConversion && !!(baseInfo?.converted?.[base]);
   const convertRunning = needsConversion && baseInfo?.convert?.status === 'running' && baseInfo?.convert?.z_model === base;
   const convertError = (needsConversion && baseInfo?.convert?.status === 'error' && baseInfo?.convert?.z_model === base)
@@ -142,6 +172,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // regroupé se ré-trie et que le format de caption suive.
   const onTypeChange = (t) => {
     setTrainType(t);
+    // Switching family leaves custom-weights mode (the path is arch-specific).
+    setCustomBase(false);
     const list = baseInfo?.bases_by_type?.[t] || [];
     setBase(t === 'sdxl' ? (list[0]?.value || '') : '');
     // Krea → Raw par défaut (reco officielle « train on Raw, validate on Turbo »).
@@ -302,6 +334,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const CONFIRMABLE_REFUSALS = [
     ['MISMATCH_CAPTION: ', 'allow_caption_mismatch'],
     ['UNCAPTIONED: ', 'allow_uncaptioned'],
+    // Custom-weights arch sniff couldn't positively verify the file → the
+    // window.confirm IS the answer, retry carries allow_unverified_weights.
+    ['CUSTOM_WEIGHTS_UNVERIFIED: ', 'allow_unverified_weights'],
   ];
   const confirmableRetryFlag = (error, actionLabel) => {
     const s = String(error || '');
@@ -395,7 +430,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const enqueue = async () => {
     if (!(await preflightOk())) return;
     // Mise en file AVEC la base/variante choisie (sinon le job reprend la base persistée).
-    let body = { base_model: base, variant, train_type: trainType, masked, steps: stepsN };
+    let body = { base_model: base, variant, train_type: trainType, masked, steps: stepsN,
+                 ...(trainType === 'sdxl' ? { vae_path: vaePath, te_path: tePath } : {}) };
     let d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`, body);
     for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Queue anyway (force)')); ) {
       if (flag === 'declined') { d = null; break; }  // the confirm WAS the answer
@@ -431,7 +467,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const schedule = async () => {
     if (!schedAt) return;
     if (!(await preflightOk())) return;
-    let body = { at: schedAt, base_model: base, variant, train_type: trainType, masked, steps: stepsN };
+    let body = { at: schedAt, base_model: base, variant, train_type: trainType, masked, steps: stepsN,
+                 ...(trainType === 'sdxl' ? { vae_path: vaePath, te_path: tePath } : {}) };
     let d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`, body);
     for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Schedule anyway (force)')); ) {
       if (flag === 'declined') { d = null; break; }  // the confirm WAS the answer
@@ -516,7 +553,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     ? Math.max(2000, Math.min(12000, Math.round((475 * Math.sqrt(Math.max(keptCount, 1))) / 100) * 100))
     : Math.max(1500, Math.min(3500, Math.round((keptCount * 120) / 100) * 100));
   // Libellé lisible de la base sélectionnée (pour étiqueter les checkpoints de CE run).
-  const baseLabel = currentBases.find((b) => b.value === base)?.label || (base || 'Official');
+  // Custom weights → basename du fichier (jamais le chemin complet dans le résumé).
+  const baseLabel = customBase && base
+    ? `custom: ${baseName(base)}`
+    : (currentBases.find((b) => b.value === base)?.label || (base || 'Official'));
   const typeLabel = trainType === 'sdxl' ? 'SDXL' : trainType === 'krea' ? 'Krea 2' : trainType === 'flux' ? 'FLUX.1' : trainType === 'flux2klein' ? 'FLUX.2 Klein' : 'Z-Image';
   const lorasLabel = trainType === 'sdxl' ? 'loras/sdxl' : trainType === 'krea' ? 'loras/krea' : trainType === 'flux' ? 'loras/flux' : trainType === 'flux2klein' ? 'loras/flux2klein' : 'loras/z image';
 
@@ -687,8 +727,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <option value="flux">FLUX.1 (~20 img)</option>
           <option value="flux2klein">FLUX.2 Klein (~20 img)</option>
         </select>
-        <button type="button" disabled={!status.installed || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12) || status.in_progress || baseBlocksTrain || sdxlNeedsBase}
+        <button type="button" disabled={!status.installed || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12) || status.in_progress || baseBlocksTrain || sdxlNeedsBase || customWeightsEmpty}
           title={baseBlocksTrain ? 'Convert the custom base first'
+            : customWeightsEmpty ? 'Enter the path to your custom weights .safetensors'
             : sdxlNeedsBase ? 'Choose a base SDXL checkpoint'
             : keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12)
               ? `${keptCount} kept image(s) — the minimum for ${typeLabel} is ${TRAIN_MIN[trainType]?.[0] ?? 12}`
@@ -703,8 +744,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             const fresh = mode === 'fresh';
             // ds.train takes camelCase opts — map the confirmable force flags.
             const OPT_FOR_FLAG = { allow_caption_mismatch: 'allowCaptionMismatch',
-                                   allow_uncaptioned: 'allowUncaptioned' };
-            let opts = { baseModel: base, variant, trainType, masked, steps: stepsN, fresh };
+                                   allow_uncaptioned: 'allowUncaptioned',
+                                   allow_unverified_weights: 'allowUnverifiedWeights' };
+            let opts = { baseModel: base, variant, trainType, masked, steps: stepsN, fresh,
+                         vaePath, tePath };
             let d = await ds.train(opts);
             for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Train anyway (force)')); ) {
               if (flag === 'declined') break;        // the confirm WAS the answer
@@ -720,11 +763,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <button type="button"
             disabled={trainType === 'sdxl' || trainType === 'flux' || !!cloudActiveHere
               || actives.length >= (cloudStatus.limit || 1)
+              || customBase || !!vaePath || !!tePath
               || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12)}
             title={trainType === 'sdxl'
               ? 'SDXL needs a local base checkpoint — cloud supports Z-Image, Krea and FLUX.2 Klein'
               : trainType === 'flux'
               ? 'FLUX.1 is local-only for now — cloud supports Z-Image, Krea and FLUX.2 Klein'
+              : (customBase || vaePath || tePath)
+              ? 'Custom weights are local-only — cloud training uses the official Hugging Face bases'
               : cloudActiveHere ? 'This dataset already has an active cloud run'
               : actives.length >= (cloudStatus.limit || 1)
                 ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — raise it in Settings`
@@ -839,7 +885,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               <span className="text-content-muted text-[0.625rem] uppercase">
                 Base{status.in_progress ? ' (next queued job)' : ''}
               </span>
-              <select value={base} onChange={(e) => setBase(e.target.value)}
+              <select value={customBase ? CUSTOM_BASE_SENTINEL : base}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === CUSTOM_BASE_SENTINEL) { setCustomBase(true); setBase(''); }
+                  else { setCustomBase(false); setBase(v); }
+                }}
                 aria-label="Base model"
                 className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[230px]">
                 {(currentBases.length ? currentBases
@@ -848,6 +899,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                     {b.label}{b.value && baseInfo?.converted?.[b.value] ? ' ✓' : ''}
                   </option>
                 ))}
+                {/* Local-only: a free path to a .safetensors of the SAME architecture. */}
+                {customSupported && (
+                  <option value={CUSTOM_BASE_SENTINEL}>Custom weights… (local file)</option>
+                )}
               </select>
               {trainType === 'zimage' && isCustomBase && (
                 <select value={variant} onChange={(e) => setVariant(e.target.value)}
@@ -883,6 +938,25 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 </select>
               )}
             </div>
+            {/* « Custom weights… » : chemin local vers un .safetensors de la MÊME
+                architecture. Local-only (le cloud refuse), TE/VAE restent officiels
+                (sauf les overrides SDXL séparés plus bas). Vérifié au lancement. */}
+            {customBase && customSupported && (
+              <div className="flex flex-col gap-1">
+                <input type="text" value={base} onChange={(e) => setBase(e.target.value)}
+                  spellCheck={false}
+                  placeholder={trainType === 'sdxl'
+                    ? 'C:\\path\\to\\your-sdxl-checkpoint.safetensors'
+                    : `C:\\path\\to\\your-${typeLabel.toLowerCase().replace(/[^a-z0-9]+/g, '')}-model.safetensors`}
+                  aria-label="Custom weights path"
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] font-mono w-full max-w-[520px]" />
+                <span className="text-content-subtle text-[0.625rem] leading-relaxed">
+                  Local path to a <b className="text-content-muted font-medium">{typeLabel}</b> .safetensors
+                  (same architecture). The file is checked at launch (exists, valid, arch signature);
+                  an unrecognized file asks for confirmation. Local-only — cloud training refuses it.
+                </span>
+              </div>
+            )}
             {/* krea et flux2klein n'ont QUE des bases officielles fixes (rien à
                 lister depuis ComfyUI) → le warning « bases can't be listed » n'y
                 apporte que du bruit. */}
@@ -917,6 +991,35 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             )}
             {convertError && (
               <span className="text-red-300 text-[0.625rem] break-words">❌ Conversion failed: {convertError}</span>
+            )}
+            {/* SDXL-only: separate VAE / text-encoder overrides. SDXL is the one
+                family where ai-toolkit honours these top-level (every other family
+                bundles its TE/VAE) — the server refuses them elsewhere. Optional. */}
+            {vaeTeSupported && (
+              <div className="flex flex-col gap-1.5 mt-1 pt-2 border-t border-white/[0.07]">
+                <span className="text-content-muted text-[0.625rem] uppercase">
+                  SDXL overrides (optional)
+                </span>
+                <label className="flex flex-col gap-0.5">
+                  <span className="text-content text-[0.6875rem]">VAE path</span>
+                  <input type="text" value={vaePath} onChange={(e) => setVaePath(e.target.value)}
+                    spellCheck={false} placeholder="leave empty to use the checkpoint's own VAE"
+                    aria-label="SDXL VAE path"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] font-mono w-full max-w-[520px]" />
+                </label>
+                <label className="flex flex-col gap-0.5">
+                  <span className="text-content text-[0.6875rem]">Text encoder path or repo</span>
+                  <input type="text" value={tePath} onChange={(e) => setTePath(e.target.value)}
+                    spellCheck={false} placeholder="leave empty to use the checkpoint's own text encoders"
+                    aria-label="SDXL text encoder path or HF repo"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] font-mono w-full max-w-[520px]" />
+                </label>
+                <span className="text-content-subtle text-[0.625rem] leading-relaxed">
+                  Leave both empty to use the checkpoint's own VAE/text encoders. A VAE is a local
+                  .safetensors; the text encoder may be a local folder or a Hugging Face repo id.
+                  Checked at launch. These are SDXL-only and local-only (cloud training refuses them).
+                </span>
+              </div>
             )}
           </div>
 

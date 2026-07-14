@@ -619,6 +619,13 @@ export function useDataset() {
         // Images sans caption : plus un mur — confirm « train anyway » dans
         // TrainingPanel (marqueur UNCAPTIONED:), même flux que le mismatch.
         allow_uncaptioned: !!opts.allowUncaptioned,
+        // Custom-weights arch sniff non concluant → confirm « train anyway »
+        // (marqueur CUSTOM_WEIGHTS_UNVERIFIED:), même flux confirmable.
+        allow_unverified_weights: !!opts.allowUnverifiedWeights,
+        // Overrides SDXL uniquement (le backend refuse 400 hors SDXL) — envoyés
+        // seulement pour SDXL pour ne pas déclencher ce refus sur les autres.
+        ...(opts.trainType === 'sdxl'
+          ? { vae_path: opts.vaePath || '', te_path: opts.tePath || '' } : {}),
         // Masked training (fond à 10 %) — défaut ON, toggle dans TrainingPanel.
         masked: opts.masked !== false,
         // Cible de steps absolue (plafond choisi dans TrainingPanel) — omise si

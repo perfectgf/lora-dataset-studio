@@ -28,6 +28,12 @@ class FaceDataset(db.Model):
     # l'adapter de de-distillation. Isole aussi le run d'entraînement par base.
     train_base_model = db.Column(Text, nullable=True)
     train_variant = db.Column(String(20), nullable=True)
+    # « Custom weights… » (V1, local-only) : quand train_base_model est un chemin
+    # ABSOLU vers un .safetensors, c'est un poids custom de la MÊME architecture
+    # (krea/flux/flux2klein/sdxl). Overrides SDXL UNIQUEMENT (ai-toolkit ne les
+    # honore top-level que pour SDXL) : chemin VAE et chemin/te repo-id du TE.
+    train_vae_path = db.Column(Text, nullable=True)
+    train_te_path = db.Column(Text, nullable=True)
     # Réglages ai-toolkit avancés éditables par dataset (JSON) : rank, resolution,
     # save_every. NULL = défauts family-aware. Cf. lora_training._train_settings.
     train_settings = db.Column(Text, nullable=True)

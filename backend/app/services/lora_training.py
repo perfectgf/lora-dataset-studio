@@ -15,12 +15,14 @@ web UI, unused - this app drives the CLI) and the whole ownership subsystem
 dropped - single local user, cf. plan's Global Constraints.
 """
 from __future__ import annotations
+import hashlib
 import json
 import logging
 import math
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -278,6 +280,135 @@ def _sdxl_base_path(base_model: str) -> str:
         if base in files:
             return os.path.join(root, base)
     return name  # fallback (ne devrait pas arriver : base whitelistée + existante)
+
+
+# --- Custom weights (V1 « Custom weights… », local-only) ----------------------
+# A base VALUE that is a free ABSOLUTE local path to a .safetensors is the
+# opt-in custom-weights field: krea/flux/flux2klein/sdxl load it as name_or_path
+# (same architecture, TE/VAE still official for the non-sdxl families). It is
+# distinguished from a ComfyUI-relative base name (SDXL whitelist basename,
+# Z-Image merge value) purely by being ABSOLUTE — those are never absolute. Only
+# the families below expose it; Z-Image keeps its own conversion path untouched.
+CUSTOM_WEIGHTS_FAMILIES = ('sdxl', 'krea', 'flux', 'flux2klein')
+# SDXL is the ONLY family where ai-toolkit honours a top-level vae_path /
+# te_name_or_path override (stable_diffusion_model.py). Every other family
+# bundles its TE/VAE (Z-Image extras_name_or_path, Klein's hardcoded MISTRAL_PATH
+# → a silent no-op) so exposing them there would lie — strict per-family whitelist.
+VAE_TE_OVERRIDE_FAMILIES = ('sdxl',)
+
+
+def _is_custom_weights(value) -> bool:
+    """True when `value` is the opt-in custom-weights path (a free ABSOLUTE local
+    path), as opposed to a ComfyUI-relative base/merge name or the official base."""
+    return bool(value) and os.path.isabs(str(value))
+
+
+_SAFETENSORS_MAX_HEADER = 64 * 1024 * 1024   # 64 MB — a real header is < ~10 MB
+
+
+def _safetensors_tensor_keys(path) -> set:
+    """The tensor NAMES of a .safetensors file, read from its header WITHOUT
+    loading a single weight (8-byte LE length + JSON metadata block). Raises
+    ValueError when the file isn't a readable safetensors container."""
+    try:
+        with open(path, 'rb') as fh:
+            raw = fh.read(8)
+            if len(raw) != 8:
+                raise ValueError('file too short to be a safetensors container')
+            n = struct.unpack('<Q', raw)[0]
+            if n <= 0 or n > _SAFETENSORS_MAX_HEADER:
+                raise ValueError('implausible safetensors header length')
+            blob = fh.read(n)
+            if len(blob) != n:
+                raise ValueError('truncated safetensors header')
+            meta = json.loads(blob.decode('utf-8'))
+    except (OSError, ValueError, UnicodeDecodeError) as e:
+        raise ValueError(f'not a readable .safetensors file ({e})')
+    if not isinstance(meta, dict):
+        raise ValueError('not a readable .safetensors file (header is not an object)')
+    return {k for k in meta if k != '__metadata__'}
+
+
+def _detect_safetensors_arch(keys) -> str | None:
+    """Best-effort architecture family from tensor NAMES only. Returns one of
+    'sdxl' | 'sd15' | 'flux' | 'krea2', or None when undetectable. 'flux' covers
+    BOTH FLUX.1 and FLUX.2 Klein — their DiT stream blocks are named identically,
+    so a name-only sniff cannot tell them apart (an honest V1 limitation; a wrong
+    FLUX.1↔FLUX.2 file still fails loudly at load, on a shape mismatch)."""
+    def has(sub):
+        return any(sub in k for k in keys)
+    # SDXL LDM single-file checkpoint: the tell is the SECOND (OpenCLIP bigG) text
+    # encoder — SD1.5 has a single encoder under cond_stage_model.
+    if has('conditioner.embedders.1.'):
+        return 'sdxl'
+    if has('cond_stage_model.'):
+        return 'sd15'
+    # Krea2 SingleStreamDiT MMDiT: 'txtfusion' is unique to it.
+    if has('txtfusion.'):
+        return 'krea2'
+    # FLUX-family DiT (FLUX.1 / FLUX.2 Klein): double + single stream blocks
+    # (BFL layout) or the diffusers export naming.
+    if (has('double_blocks.') and has('single_blocks.')) \
+            or has('single_transformer_blocks.'):
+        return 'flux'
+    return None
+
+
+_FAMILY_EXPECTED_ARCH = {'sdxl': 'sdxl', 'krea': 'krea2',
+                         'flux': 'flux', 'flux2klein': 'flux'}
+_ARCH_LABEL = {'sdxl': 'an SDXL', 'sd15': 'a Stable Diffusion 1.5',
+               'flux': 'a FLUX', 'krea2': 'a Krea 2'}
+_FAMILY_LABEL = {'sdxl': 'SDXL', 'krea': 'Krea 2',
+                 'flux': 'FLUX.1', 'flux2klein': 'FLUX.2 Klein'}
+# Confirmable-refusal marker (mirrors UNCAPTIONED:/MISMATCH_CAPTION:): the UI
+# strips it, asks window.confirm, and retries with allow_unverified_weights.
+_UNVERIFIED_MARKER = 'CUSTOM_WEIGHTS_UNVERIFIED: '
+
+
+def _looks_like_local_path(s) -> bool:
+    """A te_name_or_path may be a HF repo id ('org/name') OR a local dir/file.
+    Treat it as LOCAL (and therefore existence-checkable) only when it is an
+    absolute path, already exists, or carries a Windows backslash — a bare
+    'org/name' repo id stays unverifiable (accepted as-is)."""
+    s = str(s)
+    return bool(s) and (os.path.isabs(s) or os.path.exists(s) or '\\' in s)
+
+
+def preflight_custom_paths(family, weights=None, vae_path=None, te_path=None,
+                           allow_unverified_weights=False) -> None:
+    """Validate the custom base/vae/te BEFORE any run dir or spawn (guardrail).
+
+    HARD failures (→ ValueError, mapped to 400): a provided path that does not
+    exist, or a .safetensors whose header can't be parsed. A file whose
+    architecture can't be POSITIVELY matched to `family` raises a CONFIRMABLE
+    ValueError (the _UNVERIFIED_MARKER) unless `allow_unverified_weights` — the
+    same confirm-and-retry contract as UNCAPTIONED. vae_path/te_path are only
+    ever passed for SDXL (the caller enforces the per-family whitelist)."""
+    fam_label = _FAMILY_LABEL.get(family, family)
+    if _is_custom_weights(weights):
+        if not os.path.isfile(weights):
+            raise ValueError(f'custom weights file not found: {weights}')
+        keys = _safetensors_tensor_keys(weights)   # raises on unreadable header
+        detected = _detect_safetensors_arch(keys)
+        expected = _FAMILY_EXPECTED_ARCH.get(family)
+        if expected is None or detected != expected:
+            if not allow_unverified_weights:
+                if detected and detected in _ARCH_LABEL:
+                    why = (f'this file looks like {_ARCH_LABEL[detected]} checkpoint, '
+                           f'not {fam_label}')
+                else:
+                    why = (f'cannot verify this file matches {fam_label} — it carries '
+                           f'no recognizable {fam_label} signature')
+                raise ValueError(f'{_UNVERIFIED_MARKER}{why}.')
+    # VAE override (SDXL): a local file/dir must exist; a .safetensors must parse.
+    if vae_path:
+        if not os.path.exists(vae_path):
+            raise ValueError(f'VAE file not found: {vae_path}')
+        if os.path.isfile(vae_path) and str(vae_path).endswith('.safetensors'):
+            _safetensors_tensor_keys(vae_path)     # raises on unreadable header
+    # TE override (SDXL): a LOCAL path must exist; a bare HF repo id is accepted.
+    if te_path and _looks_like_local_path(te_path) and not os.path.exists(te_path):
+        raise ValueError(f'text-encoder path not found: {te_path}')
 
 
 # Sentinelle « base non fournie » : distingue l'absence d'argument (→ base
@@ -596,6 +727,17 @@ def launch_settings_snapshot(ds, family=None) -> dict:
     }
     if fam != 'sdxl':
         snap['timestep_type'] = _timestep_type_eff(ds, _DEFAULT_TIMESTEP.get(fam, 'sigmoid'))
+    # Provenance: the ACTUAL custom paths that went to ai-toolkit (weights + the
+    # SDXL-only VAE/TE overrides). Surfaced in the Runs hub and the ⎘ Share config
+    # (both redact the home-dir prefix via redact_user_paths — no identity leaks).
+    _weights = getattr(ds, 'train_base_model', None)
+    if _is_custom_weights(_weights):
+        snap['base_weights'] = _weights
+    if fam in VAE_TE_OVERRIDE_FAMILIES:
+        if getattr(ds, 'train_vae_path', None):
+            snap['vae_path'] = ds.train_vae_path
+        if getattr(ds, 'train_te_path', None):
+            snap['te_name_or_path'] = ds.train_te_path
     s = _train_settings(ds)
     for k in ('dropout', 'lr_scheduler', 'warmup', 'grad_accum', 'sample_every'):
         if s.get(k):
@@ -927,7 +1069,24 @@ def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
     if not tag and _train_type(ds, family) == 'flux2klein':
         tag = _base_tag_for(
             FLUX2KLEIN_BASE_LABELS['9b' if _flux2klein_is_9b(ds) else '4b'])
-    return tag
+    return tag + _custom_combo_hash(ds, base_model, family)
+
+
+def _custom_combo_hash(ds, base_model=_PERSISTED, family=None) -> str:
+    """Short hash of the full (custom weights, VAE, TE) TRIPLET, appended to the
+    run tag so two different custom combos NEVER share a run folder (ai-toolkit
+    auto-resumes from the folder — a shared one would blend incompatible weights).
+    Empty when nothing custom is in play, so every official/whitelist run keeps
+    its exact historical folder name. VAE/TE only count for SDXL (the only family
+    that honours them) — a stale value on another family can't perturb its tag."""
+    fam = _train_type(ds, family)
+    weights = getattr(ds, 'train_base_model', None) if base_model is _PERSISTED else base_model
+    vae = getattr(ds, 'train_vae_path', None) if fam in VAE_TE_OVERRIDE_FAMILIES else None
+    te = getattr(ds, 'train_te_path', None) if fam in VAE_TE_OVERRIDE_FAMILIES else None
+    if not (_is_custom_weights(weights) or vae or te):
+        return ''
+    raw = f'{weights or ""}|{vae or ""}|{te or ""}'
+    return '_h' + hashlib.sha1(raw.encode('utf-8')).hexdigest()[:8]
 
 
 def _run_name(ds, base_model=_PERSISTED, family=None) -> str:
@@ -1222,9 +1381,13 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=
     trigger = _safe_trigger(ds)
     is_raw = _krea_is_raw(ds)
     _krank = _lora_rank(ds, 'krea')   # défaut 32/32 (recherche) ; éditable via train_settings
+    # Custom weights (local-only, same krea2 arch) override name_or_path; the TE/VAE
+    # stay official (Krea bundles them). The variant still drives the adapter/CFG.
+    _kbase = getattr(ds, 'train_base_model', None)
     model = {
         'arch': 'krea2',
-        'name_or_path': 'krea/Krea-2-Raw' if is_raw else 'krea/Krea-2-Turbo',
+        'name_or_path': (_kbase if _is_custom_weights(_kbase)
+                         else ('krea/Krea-2-Raw' if is_raw else 'krea/Krea-2-Turbo')),
         'quantize': True, 'quantize_te': True, 'low_vram': True, 'qtype': 'qfloat8',
     }
     # Adapter de dé-distillation : Turbo UNIQUEMENT (le Raw est déjà non distillé →
@@ -1304,9 +1467,13 @@ def _build_job_config_flux(ds, dataset_folder: str, steps: int, training_folder=
     options.ts — curseur basse-VRAM = la résolution 768 (cf. _train_res / KREA_TRAIN)."""
     trigger = _safe_trigger(ds)
     _frank = _lora_rank(ds, 'flux')   # défaut 16 (exemple flux officiel) ; éditable via train_settings
+    # Custom weights (local-only, same flux arch) override name_or_path; TE/VAE stay
+    # official (ai-toolkit's flux loader resolves them from the official repo).
+    _fbase = getattr(ds, 'train_base_model', None)
     model = {
         'arch': 'flux',
-        'name_or_path': 'black-forest-labs/FLUX.1-dev',
+        'name_or_path': (_fbase if _is_custom_weights(_fbase)
+                         else 'black-forest-labs/FLUX.1-dev'),
         'quantize': True, 'quantize_te': True, 'low_vram': True, 'qtype': 'qfloat8',
     }
     return {
@@ -1387,10 +1554,14 @@ def _build_job_config_flux2klein(ds, dataset_folder: str, steps: int, training_f
     trigger = _safe_trigger(ds)
     is_9b = _flux2klein_is_9b(ds)
     _fkrank = _lora_rank(ds, 'flux2klein')   # défaut 16 ; éditable via train_settings
+    # Custom weights (local-only, same flux2_klein arch) override name_or_path; the
+    # TE (Mistral, hardcoded MISTRAL_PATH in ai-toolkit) and VAE stay official.
+    _fkbase = getattr(ds, 'train_base_model', None)
     model = {
         'arch': 'flux2_klein_9b' if is_9b else 'flux2_klein_4b',
-        'name_or_path': ('black-forest-labs/FLUX.2-klein-base-9B' if is_9b
-                         else 'black-forest-labs/FLUX.2-klein-base-4B'),
+        'name_or_path': (_fkbase if _is_custom_weights(_fkbase)
+                         else ('black-forest-labs/FLUX.2-klein-base-9B' if is_9b
+                               else 'black-forest-labs/FLUX.2-klein-base-4B')),
         'quantize': True, 'quantize_te': True, 'low_vram': True, 'qtype': 'qfloat8',
         'model_kwargs': {'match_target_res': False},
     }
@@ -1453,8 +1624,21 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int, training_folder=
     base_model = getattr(ds, 'train_base_model', None)
     if not base_model:
         raise ValueError('SDXL: a base checkpoint is required')
-    model = {'arch': 'sdxl', 'name_or_path': _sdxl_base_path(base_model),
+    # A ComfyUI-whitelist basename resolves under models/checkpoints; a free
+    # ABSOLUTE path is the opt-in custom-weights file (validated by the launch
+    # preflight, so it bypasses the basename whitelist deliberately).
+    name_or_path = base_model if _is_custom_weights(base_model) else _sdxl_base_path(base_model)
+    model = {'arch': 'sdxl', 'name_or_path': name_or_path,
              'quantize': False, 'quantize_te': False}
+    # SDXL is the only family where ai-toolkit honours these top-level overrides
+    # (stable_diffusion_model.py). Emitted only when set; TE may be a local path
+    # or a HF repo id (AutoModel.from_pretrained accepts both).
+    _svae = getattr(ds, 'train_vae_path', None)
+    _ste = getattr(ds, 'train_te_path', None)
+    if _svae:
+        model['vae_path'] = _svae
+    if _ste:
+        model['te_name_or_path'] = _ste
     _srank = _lora_rank(ds, 'sdxl')   # défaut 32 ; alpha = rank/2 (demi-force, conservé)
     return {
         'job': 'extension',
@@ -2331,7 +2515,9 @@ def archive_previous_run(ds) -> str | None:
 def launch_training(user_id, dataset_id, steps: int | None = None, check_captions: bool = True,
                     base_model=None, variant: str | None = None, train_type: str | None = None,
                     allow_caption_mismatch: bool = False, masked: bool = True,
-                    fresh: bool = False, allow_uncaptioned: bool = False) -> dict:
+                    fresh: bool = False, allow_uncaptioned: bool = False,
+                    vae_path=_PERSISTED, te_path=_PERSISTED,
+                    allow_unverified_weights: bool = False) -> dict:
     """Export + config + pause ComfyUI (flag) + lance l'entraînement ai-toolkit
     en CLI headless (`run.py <config>`).
 
@@ -2382,9 +2568,34 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
         if not is_converted(base_model):
             raise ValueError('custom base not converted - prepare it first (button "Convert base")')
     # SDXL : la base vient brute du body → whitelist serveur (anti path-traversal,
-    # comme prepare-base le fait pour Z-Image). Refus immédiat si inconnue.
-    if base_model and _train_type(ds) == 'sdxl' and base_model not in _sdxl_base_choices():
+    # comme prepare-base le fait pour Z-Image). Refus immédiat si inconnue. Un
+    # chemin ABSOLU est le champ « Custom weights… » (validé par le preflight
+    # ci-dessous) → il contourne délibérément la whitelist de basenames.
+    if (base_model and _train_type(ds) == 'sdxl' and not _is_custom_weights(base_model)
+            and base_model not in _sdxl_base_choices()):
         raise ValueError('unknown SDXL checkpoint')
+    # --- Custom base/vae/te : whitelist STRICTE par famille + preflight avant spawn.
+    # VAE/TE ne sont honorés QUE par SDXL (ai-toolkit) → refuser explicitement pour
+    # toute autre famille (jamais d'ignore silencieux). `_PERSISTED` = « non fourni
+    # par l'appelant » → on garde la valeur persistée (continue/queue) ; une valeur
+    # explicite (même vide) remplace. Une famille non-SDXL n'emporte jamais de VAE/TE.
+    _prov_vae = vae_path is not _PERSISTED and (vae_path or '').strip()
+    _prov_te = te_path is not _PERSISTED and (te_path or '').strip()
+    if launch_fam not in VAE_TE_OVERRIDE_FAMILIES:
+        if _prov_vae or _prov_te:
+            raise ValueError('VAE / text-encoder overrides are SDXL-only')
+        eff_vae = eff_te = None
+    else:
+        eff_vae = (ds.train_vae_path if vae_path is _PERSISTED
+                   else ((vae_path or '').strip() or None))
+        eff_te = (ds.train_te_path if te_path is _PERSISTED
+                  else ((te_path or '').strip() or None))
+    # Preflight (fichier existe, header safetensors lisible, sniff d'arch) — un
+    # sniff non concluant lève un refus CONFIRMABLE (_UNVERIFIED_MARKER), levé par
+    # `allow_unverified_weights` exactement comme UNCAPTIONED.
+    preflight_custom_paths(launch_fam, weights=base_model, vae_path=eff_vae,
+                           te_path=eff_te,
+                           allow_unverified_weights=allow_unverified_weights)
     # Krea 2 : refuser TÔT si l'ai-toolkit installé n'a pas l'arch krea2 (sinon
     # fallback silencieux vers le loader SD legacy → mauvais modèle, plantage confus).
     if _train_type(ds) == 'krea' and not _aitoolkit_supports_krea():
@@ -2408,6 +2619,10 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
             f"to the same folder. Change the trigger_word of one of the two before training.")
     ds.train_base_model = base_model
     ds.train_variant = variant
+    # Persist the resolved SDXL VAE/TE overrides (None on every other family) so the
+    # run-dir tag, the config, and continue/queue replays all read the same triplet.
+    ds.train_vae_path = eff_vae
+    ds.train_te_path = eff_te
     fds.db.session.commit()
     # Repartir de zéro : écarter le run existant APRÈS la persistance base/variante
     # (_run_name lit les valeurs persistées → on archive bien LE run qui serait repris).
@@ -2487,9 +2702,12 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
     except (TypeError, ValueError):
         extra = 1000
     # Reprendre AVEC la base/variante ciblée - sinon launch_training les remettrait
-    # à l'officiel et ai-toolkit reprendrait depuis le mauvais run.
+    # à l'officiel et ai-toolkit reprendrait depuis le mauvais run. vae/te restent
+    # _PERSISTED (on garde le triplet du run). allow_unverified_weights=True : la
+    # base custom a DÉJÀ franchi le sniff au 1er lancement (un checkpoint existe) —
+    # ne pas re-buter sur le refus confirmable, que ce chemin ne saurait confirmer.
     res = launch_training(user_id, dataset_id, steps=latest + extra, check_captions=False,
-                          base_model=base, variant=var)
+                          base_model=base, variant=var, allow_unverified_weights=True)
     res['resumed_from'] = latest
     res['target_steps'] = latest + extra
     return res
@@ -2780,7 +2998,9 @@ def _save_queue(q: list) -> None:
 def enqueue_training(user_id, dataset_id, extra_steps=None,
                      base_model=_PERSISTED, variant=None, train_type=None,
                      allow_caption_mismatch=False, not_before=None, masked=True,
-                     steps=None, allow_uncaptioned=False) -> dict:
+                     steps=None, allow_uncaptioned=False,
+                     vae_path=_PERSISTED, te_path=_PERSISTED,
+                     allow_unverified_weights=False) -> dict:
     """Ajoute un dataset à la file (lancé à la fin du training courant).
 
     `base_model`/`variant` permettent de CHOISIR explicitement la base du job en
@@ -2812,9 +3032,32 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
         from .zimage_convert import is_converted
         if not is_converted(base):
             raise ValueError('custom base not converted - prepare it first (button "Convert base")')
-    # SDXL : whitelist serveur de la base (anti path-traversal).
-    if base and ttype == 'sdxl' and base not in _sdxl_base_choices():
+    # SDXL : whitelist serveur de la base (anti path-traversal). Un chemin ABSOLU
+    # = « Custom weights… » (validé par le preflight) → contourne la whitelist.
+    if base and ttype == 'sdxl' and not _is_custom_weights(base) and base not in _sdxl_base_choices():
         raise ValueError('unknown SDXL checkpoint')
+    # Custom vae/te : whitelist STRICTE par famille (SDXL-only), persistance et
+    # preflight — même contrat qu'au lancement, pour ne pas mettre en file un job
+    # voué à un refus 400 (ou à un chemin fantôme) au moment de son démarrage.
+    _q_prov_vae = vae_path is not _PERSISTED and (vae_path or '').strip()
+    _q_prov_te = te_path is not _PERSISTED and (te_path or '').strip()
+    if ttype not in VAE_TE_OVERRIDE_FAMILIES:
+        if _q_prov_vae or _q_prov_te:
+            raise ValueError('VAE / text-encoder overrides are SDXL-only')
+        eff_vae = eff_te = None
+    else:
+        eff_vae = (ds.train_vae_path if vae_path is _PERSISTED
+                   else ((vae_path or '').strip() or None))
+        eff_te = (ds.train_te_path if te_path is _PERSISTED
+                  else ((te_path or '').strip() or None))
+    if extra_steps is None:
+        preflight_custom_paths(ttype, weights=base, vae_path=eff_vae, te_path=eff_te,
+                               allow_unverified_weights=allow_unverified_weights)
+    # Persist vae/te so the deferred launch (and the continue path) read the same
+    # triplet the run-dir tag was computed with.
+    ds.train_vae_path = eff_vae
+    ds.train_te_path = eff_te
+    fds.db.session.commit()
     # Krea 2 : même garde qu'au lancement - pas de mise en file d'un job qui
     # tomberait dans le fallback SD legacy faute d'arch krea2 dans l'ai-toolkit.
     if ttype == 'krea' and not _aitoolkit_supports_krea():
@@ -2848,7 +3091,11 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
         steps_target = None
     q.append({'dataset_id': int(dataset_id), 'user_id': str(user_id), 'extra_steps': extra_steps,
               'base_model': base, 'variant': var, 'train_type': ttype,
-              'not_before': not_before, 'masked': bool(masked), 'steps': steps_target})
+              'not_before': not_before, 'masked': bool(masked), 'steps': steps_target,
+              # SDXL custom overrides ride along so the deferred launch reproduces
+              # the exact triplet (they're also persisted on ds above).
+              'vae_path': eff_vae, 'te_path': eff_te,
+              'allow_unverified_weights': bool(allow_unverified_weights)})
     _save_queue(q)
     return {'queued': True, 'position': len(q), 'not_before': not_before}
 
@@ -2890,7 +3137,12 @@ def _launch_queued_item(item) -> None:
                         # None → launch_training applique le défaut family-aware (Krea → Raw).
                         variant=item.get('variant'),
                         train_type=item.get('train_type'),
-                        masked=item.get('masked', True))
+                        masked=item.get('masked', True),
+                        # SDXL custom overrides snapshotted at enqueue time; the file
+                        # was already preflighted, so re-clear the confirmable gate.
+                        vae_path=item.get('vae_path', _PERSISTED),
+                        te_path=item.get('te_path', _PERSISTED),
+                        allow_unverified_weights=bool(item.get('allow_unverified_weights')))
 
 
 _queue_lock = threading.Lock()

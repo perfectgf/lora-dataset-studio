@@ -52,16 +52,26 @@ def dataset_train(dataset_id):
     try:
         # steps optionnel : None → adaptatif. base_model='' → officiel ; sinon merge
         # (doit être converti d'abord). variant règle l'adapter de de-distillation.
+        # base_model peut être un chemin ABSOLU (« Custom weights… », local-only).
+        # vae_path/te_path = overrides SDXL uniquement (le service refuse en 400
+        # pour toute autre famille). Présence-conditionnelle : absent → le service
+        # garde la valeur persistée (sentinelle _PERSISTED), jamais un reset muet.
+        kw = {}
+        if 'vae_path' in d:
+            kw['vae_path'] = d.get('vae_path')
+        if 'te_path' in d:
+            kw['te_path'] = d.get('te_path')
         res = lt.launch_training(LOCAL_USER, dataset_id, steps=d.get('steps'),
                                  base_model=d.get('base_model'),
                                  variant=d.get('variant', 'turbo'),
                                  train_type=d.get('train_type'),
                                  allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),
                                  allow_uncaptioned=bool(d.get('allow_uncaptioned')),
+                                 allow_unverified_weights=bool(d.get('allow_unverified_weights')),
                                  masked=d.get('masked', True),
                                  # fresh=True : écarte le run existant (archivé, pas
                                  # détruit) → repart de zéro au lieu de l'auto-resume.
-                                 fresh=bool(d.get('fresh')))
+                                 fresh=bool(d.get('fresh')), **kw)
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, **res})
@@ -123,6 +133,13 @@ def dataset_train_enqueue(dataset_id):
         kw['allow_caption_mismatch'] = True
     if d.get('allow_uncaptioned'):
         kw['allow_uncaptioned'] = True
+    if d.get('allow_unverified_weights'):
+        kw['allow_unverified_weights'] = True
+    # SDXL custom overrides (service refuses them 400 for any other family).
+    if 'vae_path' in d:
+        kw['vae_path'] = d.get('vae_path')
+    if 'te_path' in d:
+        kw['te_path'] = d.get('te_path')
     # steps = cible absolue choisie côté UI (None → adaptatif). Forwarding conditionnel.
     if d.get('steps') is not None:
         kw['steps'] = d.get('steps')
@@ -167,6 +184,12 @@ def dataset_train_schedule(dataset_id):
         kw['allow_caption_mismatch'] = True
     if d.get('allow_uncaptioned'):
         kw['allow_uncaptioned'] = True
+    if d.get('allow_unverified_weights'):
+        kw['allow_unverified_weights'] = True
+    if 'vae_path' in d:
+        kw['vae_path'] = d.get('vae_path')
+    if 'te_path' in d:
+        kw['te_path'] = d.get('te_path')
     if d.get('steps') is not None:
         kw['steps'] = d.get('steps')
     try:
@@ -377,6 +400,13 @@ def dataset_train_base_info(dataset_id):
         models_dir = None
     comfyui_configured = bool(models_dir) and os.path.isdir(str(models_dir))
     return jsonify({'bases': bases, 'base': ds.train_base_model or '',
+                    # « Custom weights… » (local-only) : chemin custom persisté +
+                    # overrides SDXL (VAE/TE). Le sélecteur les ressème ; la
+                    # whitelist par famille est ré-appliquée au lancement (400).
+                    'vae_path': ds.train_vae_path or '',
+                    'te_path': ds.train_te_path or '',
+                    'custom_weights_families': list(lt.CUSTOM_WEIGHTS_FAMILIES),
+                    'vae_te_families': list(lt.VAE_TE_OVERRIDE_FAMILIES),
                     # Défaut family-aware : Krea → Raw (reco officielle), FLUX.2 Klein
                     # → 4B, sinon Turbo. Déféré au service (_default_variant_for) pour
                     # que l'UI et le lancement (_krea_is_raw/_flux2klein_is_9b) s'accordent.

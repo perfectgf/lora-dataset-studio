@@ -84,6 +84,7 @@ def test_train_configured_forwards_kwargs(client, monkeypatch):
         'train_type': 'sdxl',
         'allow_caption_mismatch': True,
         'allow_uncaptioned': False,   # absent du body → False (confirm non donné)
+        'allow_unverified_weights': False,   # custom-weights confirm non donné
         'masked': False,
         'fresh': False,          # absent du body → False (resume historique)
     }

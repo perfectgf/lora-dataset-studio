@@ -231,11 +231,19 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         args=(current_app._get_current_object(),), daemon=True,
         name='cloud-reconcile-prelaunch').start()
     if base_model:
-        raise ValueError('Custom base models are local-only — cloud training '
+        raise ValueError('custom weights are local-only — cloud training '
                          'uses the official Hugging Face bases')
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
+    # A dataset carrying a PERSISTED custom base (absolute-path weights) or an
+    # SDXL VAE/TE override must not silently fall back to the official base in the
+    # cloud (the exact mute divergence the feature forbids) — refuse explicitly.
+    if (lt._is_custom_weights(getattr(ds, 'train_base_model', None))
+            or getattr(ds, 'train_vae_path', None)
+            or getattr(ds, 'train_te_path', None)):
+        raise ValueError('custom weights are local-only — cloud training '
+                         'uses the official Hugging Face bases')
     fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
     if fam == 'sdxl':
         raise ValueError('SDXL training needs a local base checkpoint — '
