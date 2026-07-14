@@ -2,7 +2,8 @@
 DEDIE (le paquet est absent du venv Flask). Meme pattern subprocess que
 face_score_infer.py / mask_infer.py.
 
-stdin  : {"image_path": path, "bbox": [x1, y1, x2, y2]}  (bbox normalise [0,1])
+stdin  : {"image_path": path, "bboxes": [[x1, y1, x2, y2], ...]}
+         ou l'ancien champ "bbox" (coordonnees normalisees [0,1])
 stdout : DERNIERE ligne = JSON {"ok": bool, "error"?: str}
 Logs -> stderr.
 
@@ -12,6 +13,7 @@ pour ne PAS entrer en concurrence GPU avec ComfyUI/un training — c'est l'appel
 garantit que LaMa tourne HORS de la fenetre vision.
 """
 import json
+import math
 import os
 import sys
 
@@ -25,14 +27,47 @@ def _log(msg):
     print(msg, file=sys.stderr, flush=True)
 
 
+def build_mask(size, bboxes):
+    """Construit un masque binaire unique couvrant tous les rectangles normalises."""
+    from PIL import Image, ImageDraw
+
+    width, height = size
+    mask = Image.new('L', size, 0)
+    draw = ImageDraw.Draw(mask)
+    for x1, y1, x2, y2 in bboxes:
+        left = max(0, min(width - 1, int(x1 * width)))
+        top = max(0, min(height - 1, int(y1 * height)))
+        right = max(left + 1, min(width, int(math.ceil(x2 * width))))
+        bottom = max(top + 1, min(height, int(math.ceil(y2 * height))))
+        draw.rectangle((left, top, right - 1, bottom - 1), fill=255)
+    return mask
+
+
+def _payload_bboxes(req):
+    raw_bboxes = req['bboxes'] if 'bboxes' in req else [req['bbox']]
+    if not isinstance(raw_bboxes, list) or not raw_bboxes:
+        raise ValueError('bboxes must be a non-empty list')
+
+    bboxes = []
+    for index, raw_bbox in enumerate(raw_bboxes):
+        if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
+            raise ValueError(f'bboxes[{index}] must have 4 values')
+        bbox = [float(value) for value in raw_bbox]
+        if not all(math.isfinite(value) for value in bbox):
+            raise ValueError(f'bboxes[{index}] values must be finite')
+        x1, y1, x2, y2 = bbox
+        if not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1):
+            raise ValueError(f'bboxes[{index}] must be normalized and ordered')
+        bboxes.append(bbox)
+    return bboxes
+
+
 def main() -> int:
     raw = sys.stdin.read()
     try:
         req = json.loads(raw) if raw.strip() else {}
         image_path = req['image_path']
-        bbox = [float(v) for v in req['bbox']]
-        if len(bbox) != 4:
-            raise ValueError('bbox must have 4 values')
+        bboxes = _payload_bboxes(req)
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"payload: {e}"}))
         return 1
@@ -40,7 +75,7 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": "image not found"}))
         return 1
     try:
-        from PIL import Image, ImageDraw
+        from PIL import Image
         from simple_lama_inpainting import SimpleLama
     except Exception as e:
         # import KO (paquet absent / torch casse) -> JSON propre, pas de traceback muet.
@@ -49,20 +84,10 @@ def main() -> int:
     try:
         img = Image.open(image_path).convert('RGB')
         W, H = img.size
-        x1, y1, x2, y2 = bbox
-        # normalise [0,1] -> px, clamp, coins ordonnes.
-        px1, px2 = sorted((int(round(x1 * W)), int(round(x2 * W))))
-        py1, py2 = sorted((int(round(y1 * H)), int(round(y2 * H))))
-        px1, px2 = max(0, px1), min(W, px2)
-        py1, py2 = max(0, py1), min(H, py2)
-        if px2 <= px1 or py2 <= py1:
-            print(json.dumps({"ok": False, "error": "empty mask box"}))
-            return 1
-        # Masque binaire 1 canal : 255 = a repeindre (contrat simple-lama).
-        mask = Image.new('L', (W, H), 0)
-        ImageDraw.Draw(mask).rectangle([px1, py1, px2 - 1, py2 - 1], fill=255)
-        _log(f"[lama] inpaint {W}x{H} box=({px1},{py1},{px2},{py2})")
-        result = SimpleLama()(img, mask)
+        mask = build_mask((W, H), bboxes)
+        _log(f"[lama] inpaint {W}x{H} boxes={len(bboxes)}")
+        lama = SimpleLama()
+        result = lama(img, mask)
         # Ecrit EN PLACE (l'appelant a deja preserve l'original). WEBP q92 comme le
         # reste du pipeline (normalize_to_webp / crop).
         result.convert('RGB').save(image_path, 'WEBP', quality=92)

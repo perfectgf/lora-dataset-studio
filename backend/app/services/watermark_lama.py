@@ -44,21 +44,17 @@ def _stderr_tail(proc) -> str:
                  if ln.strip()), '')
 
 
-def inpaint_watermark(image_path, bbox, timeout: int = 300):
-    """Repeint (LaMa) le rectangle `bbox` (normalise [x1,y1,x2,y2]) de `image_path`,
-    EN PLACE. Retourne (ok: bool, error|None) — meme contrat que score_dataset_faces :
-    `error` = None quand ca a tourne, sinon {'kind', 'detail'} : 'unavailable' (extra
-    ML absent) | 'failed' (subprocess/JSON casse ou inpaint KO — detail = derniere
-    ligne exploitable). NON-fatal mais JAMAIS muet (un inpaint casse doit dire POURQUOI,
-    pas passer pour un succes)."""
+def _run_lama_payload(payload, timeout: int = 300) -> tuple[bool, dict | None]:
+    """Execute le worker LaMa en preservant son protocole subprocess/JSON."""
+    image_path = payload.get('image_path')
     if not image_path or not os.path.isfile(image_path):
         return False, {'kind': 'failed', 'detail': 'image not found'}
     if not is_available():
         return False, {'kind': 'unavailable',
                        'detail': 'watermark inpainting is not installed (ML extras)'}
-    payload = json.dumps({"image_path": image_path, "bbox": list(bbox)})
+    payload_json = json.dumps(payload)
     try:
-        proc = subprocess.run([_lama_python(), _SCRIPT], input=payload,
+        proc = subprocess.run([_lama_python(), _SCRIPT], input=payload_json,
                               capture_output=True, text=True, encoding='utf-8',
                               errors='replace', timeout=timeout,
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -83,3 +79,19 @@ def inpaint_watermark(image_path, bbox, timeout: int = 300):
         logger.warning('watermark_lama: echec : %s', detail)
         return False, {'kind': 'failed', 'detail': detail}
     return True, None
+
+
+def inpaint_watermarks(image_path, bboxes, timeout: int = 300) -> tuple[bool, dict | None]:
+    """Repeint en une passe LaMa les rectangles normalises de ``bboxes``.
+
+    L'image est modifiee en place. Le retour ``(ok, error)`` conserve le contrat
+    historique : ``error`` vaut ``None`` en cas de succes, sinon contient ``kind``
+    et ``detail``.
+    """
+    payload = {'image_path': str(image_path), 'bboxes': bboxes}
+    return _run_lama_payload(payload, timeout=timeout)
+
+
+def inpaint_watermark(image_path, bbox, timeout: int = 300) -> tuple[bool, dict | None]:
+    """Adaptateur compatible pour l'ancien appel a un seul rectangle."""
+    return inpaint_watermarks(image_path, [bbox], timeout=timeout)

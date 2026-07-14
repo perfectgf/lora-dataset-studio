@@ -852,6 +852,64 @@ class _Proc:
         self.stderr = stderr
 
 
+def test_inpaint_watermarks_sends_one_composite_payload(app, monkeypatch, tmp_path):
+    from app.services import watermark_lama
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    calls = []
+
+    def _run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return _Proc(json.dumps({'ok': True}))
+
+    monkeypatch.setattr(watermark_lama.subprocess, 'run', _run)
+    image_path = tmp_path / 'x.webp'
+    image_path.write_bytes(_img_bytes())
+    bboxes = [[0.1, 0.1, 0.2, 0.2], [0.7, 0.7, 0.9, 0.9]]
+
+    ok, err = watermark_lama.inpaint_watermarks(image_path, bboxes)
+
+    assert ok is True and err is None
+    assert len(calls) == 1
+    assert json.loads(calls[0][1]['input']) == {
+        'image_path': str(image_path),
+        'bboxes': bboxes,
+    }
+
+
+def test_inpaint_watermark_legacy_wrapper_sends_one_item_list(app, monkeypatch, tmp_path):
+    from app.services import watermark_lama
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    payloads = []
+
+    def _run(*args, **kwargs):
+        payloads.append(json.loads(kwargs['input']))
+        return _Proc(json.dumps({'ok': True}))
+
+    monkeypatch.setattr(watermark_lama.subprocess, 'run', _run)
+    image_path = tmp_path / 'x.webp'
+    image_path.write_bytes(_img_bytes())
+    bbox = [0.1, 0.1, 0.2, 0.2]
+
+    ok, err = watermark_lama.inpaint_watermark(str(image_path), bbox)
+
+    assert ok is True and err is None
+    assert len(payloads) == 1
+    assert payloads[0]['bboxes'] == [bbox]
+
+
+def test_build_mask_marks_each_box_without_filling_space_between():
+    from infer.lama_infer import build_mask
+
+    mask = build_mask((100, 50), [
+        [0.1, 0.2, 0.2, 0.4],
+        [0.8, 0.6, 0.9, 0.8],
+    ])
+
+    assert mask.getpixel((15, 15)) == 255
+    assert mask.getpixel((85, 35)) == 255
+    assert mask.getpixel((50, 25)) == 0
+
+
 def test_inpaint_watermark_unavailable_never_shells_out(app, monkeypatch):
     from app.services import watermark_lama
     monkeypatch.setattr(watermark_lama, 'is_available', lambda: False)
