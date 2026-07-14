@@ -1,5 +1,6 @@
 // react-frontend/src/components/dataset/TrainingPanel.jsx
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { postJson } from '../../hooks/useDataset';
@@ -660,8 +661,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <span className="text-amber-300 text-[0.6875rem]">ai-toolkit not installed — run setup-aitoolkit.ps1</span>
         )}
         {status.in_progress
-          ? <span aria-live="polite" className="ml-auto text-indigo-300 text-[0.6875rem]">
-              <span aria-hidden>⏳</span> {status.current?.name ? `« ${status.current.name} » running` : 'running'} — ComfyUI paused
+          ? <span className="ml-auto flex items-center gap-2">
+              <span aria-live="polite" className="text-indigo-300 text-[0.6875rem]">
+                <span aria-hidden>⏳</span> {status.current?.name ? `« ${status.current.name} » running` : 'running'} — ComfyUI paused
+              </span>
+              {/* Full progress bar, loss curve and samples live on the Runs hub —
+                  this panel's own TrainingProgress only covers THIS dataset. */}
+              <Link to="/cloud" title="Open the Runs page — full progress, loss curve and samples"
+                className="px-1 py-0.5 text-indigo-300 hover:text-indigo-200 text-[0.6875rem] font-medium underline decoration-indigo-300/40">
+                View in Runs ↗
+              </Link>
             </span>
           : <span aria-live="polite" className="ml-auto text-content-subtle text-[0.6875rem]">{keptCount} image(s) kept</span>}
       </div>
@@ -716,7 +725,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             {cloudActiveHere.price_per_hour != null && (
               <span className="tabular-nums">${cloudActiveHere.price_per_hour}/h · ~${cloudActiveHere.cost_estimate} so far</span>
             )}
-            <button type="button" className="ml-auto px-2 py-0.5 rounded bg-red-600/80 text-white text-[0.6875rem] font-semibold"
+            {/* Full progress bar, loss curve and samples live on the Runs hub. */}
+            <Link to="/cloud" title="Open the Runs page — full progress, loss curve and samples"
+              className="ml-auto px-1 py-0.5 text-sky-300 hover:text-sky-200 font-medium underline decoration-sky-300/40">
+              View in Runs ↗
+            </Link>
+            <button type="button" className="px-2 py-0.5 rounded bg-red-600/80 text-white text-[0.6875rem] font-semibold"
               onClick={async () => { await postJson('/api/dataset/train/cloud/stop', { run_id: cloudActiveHere.run_id }); }}>
               Stop cloud run
             </button>
