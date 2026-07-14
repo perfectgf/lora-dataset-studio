@@ -10,6 +10,7 @@ croppees en PIL pur, sans ce module)."""
 from __future__ import annotations
 import json
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -94,7 +95,15 @@ def inpaint_watermarks(image_path, bboxes, timeout: int = 300) -> tuple[bool, di
 
 def inpaint_watermark(image_path, bbox, timeout: int = 300) -> tuple[bool, dict | None]:
     """Adaptateur compatible pour l'ancien appel a un seul rectangle."""
-    x1, y1, x2, y2 = (float(value) for value in bbox)
+    try:
+        bbox = [float(value) for value in bbox]
+        if len(bbox) != 4:
+            raise ValueError('bbox must have 4 values')
+        if not all(math.isfinite(value) for value in bbox):
+            raise ValueError('bbox values must be finite')
+    except Exception as e:
+        return False, {'kind': 'failed', 'detail': f'payload: {e}'}
+    x1, y1, x2, y2 = bbox
     left, right = sorted((x1, x2))
     top, bottom = sorted((y1, y2))
     normalized = [

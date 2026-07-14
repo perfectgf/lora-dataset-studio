@@ -48,9 +48,14 @@ def _payload_bboxes(req):
         raw_bboxes = req['bboxes']
     else:
         raw_bbox = req['bbox']
-        if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
+        if not isinstance(raw_bbox, (list, tuple)):
             raise ValueError('bbox must have 4 values')
-        x1, y1, x2, y2 = (float(value) for value in raw_bbox)
+        bbox = [float(value) for value in raw_bbox]
+        if len(bbox) != 4:
+            raise ValueError('bbox must have 4 values')
+        if not all(math.isfinite(value) for value in bbox):
+            raise ValueError('bbox values must be finite')
+        x1, y1, x2, y2 = bbox
         left, right = sorted((x1, x2))
         top, bottom = sorted((y1, y2))
         raw_bboxes = [[

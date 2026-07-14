@@ -907,6 +907,18 @@ def test_inpaint_worker_legacy_bbox_normalizes_coordinates(bbox, expected):
     assert _payload_bboxes({'bbox': bbox}) == [expected]
 
 
+@pytest.mark.parametrize('value', [
+    float('inf'),
+    float('-inf'),
+    float('nan'),
+], ids=['positive-infinity', 'negative-infinity', 'nan'])
+def test_inpaint_worker_legacy_bbox_rejects_non_finite_values(value):
+    from infer.lama_infer import _payload_bboxes
+
+    with pytest.raises(ValueError, match='bbox values must be finite'):
+        _payload_bboxes({'bbox': [0.1, 0.1, value, 0.9]})
+
+
 @pytest.mark.parametrize(('bbox', 'expected'), [
     ([0.8, 0.9, 0.2, 0.1], [0.2, 0.1, 0.8, 0.9]),
     ([-0.1, 0.1, 0.2, 1.2], [0.0, 0.1, 0.2, 1.0]),
@@ -932,6 +944,31 @@ def test_inpaint_watermark_legacy_wrapper_normalizes_coordinates(
         'image_path': str(image_path),
         'bboxes': [expected],
     }]
+
+
+@pytest.mark.parametrize(('bbox', 'detail'), [
+    ([0.1, 0.1, float('inf'), 0.9], 'payload: bbox values must be finite'),
+    ([0.1, 0.1, float('-inf'), 0.9], 'payload: bbox values must be finite'),
+    ([0.1, 0.1, float('nan'), 0.9], 'payload: bbox values must be finite'),
+    ([0.1, 0.1, 0.9], 'payload: bbox must have 4 values'),
+    ([0.1, 0.1, 'oops', 0.9], "payload: could not convert string to float: 'oops'"),
+], ids=['positive-infinity', 'negative-infinity', 'nan', 'wrong-arity', 'nonnumeric'])
+def test_inpaint_watermark_invalid_legacy_bbox_returns_structured_failure(
+        app, monkeypatch, tmp_path, bbox, detail):
+    from app.services import watermark_lama
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+
+    def _boom(*args, **kwargs):
+        raise AssertionError('invalid legacy bbox must not launch the worker')
+
+    monkeypatch.setattr(watermark_lama.subprocess, 'run', _boom)
+    image_path = tmp_path / 'x.webp'
+    image_path.write_bytes(_img_bytes())
+
+    assert watermark_lama.inpaint_watermark(image_path, bbox) == (
+        False,
+        {'kind': 'failed', 'detail': detail},
+    )
 
 
 def test_build_mask_marks_each_box_without_filling_space_between():
