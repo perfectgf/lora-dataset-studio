@@ -715,6 +715,131 @@ def test_link_completed_dataset_image_without_comfyui_configured(app, monkeypatc
         assert refreshed.status == 'failed'
 
 
+# --- 'generate' activity indicator (blocks ⚡ Generate for the whole batch) ----
+
+def test_api_batch_advertises_generate_activity_then_clears(app, monkeypatch):
+    """The API fan-out (Nano Banana / ChatGPT) advertises a 'generate' activity for
+    the WHOLE batch — kind + total up front, done growing per image — and clears it
+    when the pool drains (finally end()). This is what keeps ⚡ Generate disabled
+    past the launch request (busyLive = busy OR activity)."""
+    import concurrent.futures, os
+    from app.services import face_dataset_service as svc
+    from app.services import dataset_activity as da
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    monkeypatch.setattr(concurrent.futures, 'ThreadPoolExecutor', _SerialPool)
+    da.reset()
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Act', 'act')
+        os.makedirs(svc._dataset_dir(ds.id), exist_ok=True)
+        rows = [FaceDatasetImage(dataset_id=ds.id, status='pending', klein_model='nanobanana')
+                for _ in range(3)]
+        svc.db.session.add_all(rows); svc.db.session.commit()
+        items = [(r.id, 'p', '1:1') for r in rows]
+        seen = []
+        def gen(*a, **k):
+            seen.append(da.get(ds.id))   # live indicator captured MID-batch
+            return _png()
+        monkeypatch.setattr(svc, '_api_generate_fn', lambda engine: gen)
+        svc._run_nanobanana_batch(app, items, [_png()], engine='nanobanana', dataset_id=ds.id)
+        assert seen and seen[0]['kind'] == 'generate' and seen[0]['total'] == 3
+        assert seen[-1]['done'] >= 1                       # bumped per handled item
+        # After the batch: cleared (finally end()) — both directly and in the payload.
+        assert da.get(ds.id) is None
+        assert svc.dataset_payload(LOCAL_USER, ds.id)['activity'] is None
+
+
+def test_api_batch_generate_activity_cleared_on_pool_exception(app, monkeypatch):
+    """end() is guaranteed even if the pool itself raises — the indicator must never
+    strand a phantom 'in progress' that would keep Generate disabled forever."""
+    import concurrent.futures, os, pytest
+    from app.services import face_dataset_service as svc
+    from app.services import dataset_activity as da
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+
+    class _BoomPool:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def map(self, fn, items): raise RuntimeError('pool crashed')
+
+    monkeypatch.setattr(concurrent.futures, 'ThreadPoolExecutor', _BoomPool)
+    da.reset()
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Boom', 'boom')
+        os.makedirs(svc._dataset_dir(ds.id), exist_ok=True)
+        img = FaceDatasetImage(dataset_id=ds.id, status='pending', klein_model='nanobanana')
+        svc.db.session.add(img); svc.db.session.commit()
+        with pytest.raises(RuntimeError):
+            svc._run_nanobanana_batch(app, [(img.id, 'p', '1:1')], [_png()],
+                                      engine='nanobanana', dataset_id=ds.id)
+        assert da.get(ds.id) is None                       # finally end() ran anyway
+
+
+def test_klein_generate_activity_from_enqueue_to_last_completion(app, monkeypatch):
+    """Klein: enqueue advertises 'generate' with the batch total (pending-count
+    approximation); each job completion reconciles done; the LAST completion clears
+    the indicator. The payload exposes it throughout the batch."""
+    import os, itertools
+    from app.services import face_dataset_service as svc
+    from app.services import dataset_activity as da
+    from app.services import klein_edit_helper as keh
+    from app.config import LOCAL_USER
+    da.reset()
+    # Bypass the model preflight and stub the enqueue with deterministic job ids.
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda *a, **k: set())
+    counter = itertools.count(1)
+    monkeypatch.setattr(keh, 'enqueue_klein_edit', lambda **k: f'job-{next(counter)}')
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'K', 'k')
+        d = svc._dataset_dir(ds.id); os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'ref.webp'), 'wb') as fh:
+            fh.write(_png())
+        ds.ref_filename = 'ref.webp'; svc.db.session.commit()
+        vs = [{'label': 'a', 'framing': 'face', 'prompt': 'p1'},
+              {'label': 'b', 'framing': 'bust', 'prompt': 'p2'}]
+        svc.generate_variations(LOCAL_USER, ds.id, vs, 1, 'some_model')
+        act = svc.dataset_payload(LOCAL_USER, ds.id)['activity']
+        assert act and act['kind'] == 'generate' and act['total'] == 2 and act['done'] == 0
+        # One job finishes (failed path is hermetic — no output file needed).
+        svc.link_completed_dataset_image('job-1', 'x.webp', failed=True)
+        act = da.get(ds.id)
+        assert act and act['kind'] == 'generate' and act['total'] == 2 and act['done'] == 1
+        # Last job finishes -> indicator clears (Generate re-enables).
+        svc.link_completed_dataset_image('job-2', 'y.webp', failed=True)
+        assert da.get(ds.id) is None
+        assert svc.dataset_payload(LOCAL_USER, ds.id)['activity'] is None
+
+
+def test_klein_generate_activity_cleared_on_cancel(app, monkeypatch):
+    """Stop deletes the in-flight rows (their completion callbacks never fire), so
+    cancel_pending must clear the 'generate' indicator itself."""
+    import os, itertools
+    from app.services import face_dataset_service as svc
+    from app.services import dataset_activity as da
+    from app.services import klein_edit_helper as keh
+    from app.config import LOCAL_USER
+    da.reset()
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda *a, **k: set())
+    counter = itertools.count(1)
+    monkeypatch.setattr(keh, 'enqueue_klein_edit', lambda **k: f'jc-{next(counter)}')
+    # cancel_pending tries to cancel the queued job — stub the queue away.
+    with app.app_context():
+        import app.job_queue as jq
+        monkeypatch.setattr(jq.queue_manager, 'cancel_job', lambda *a, **k: None)
+        ds = svc.create_dataset(LOCAL_USER, 'KC', 'kc')
+        d = svc._dataset_dir(ds.id); os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'ref.webp'), 'wb') as fh:
+            fh.write(_png())
+        ds.ref_filename = 'ref.webp'; svc.db.session.commit()
+        svc.generate_variations(LOCAL_USER, ds.id,
+                                [{'label': 'a', 'framing': 'face', 'prompt': 'p'}], 2, 'm')
+        assert da.get(ds.id)['kind'] == 'generate' and da.get(ds.id)['total'] == 2
+        svc.cancel_pending(LOCAL_USER, ds.id)
+        assert da.get(ds.id) is None
+
+
 # --- Import d'un dataset existant (ZIP kohya) --------------------------------
 def _training_zip(entries):
     """entries: list of (arcname, bytes) — builds an in-memory zip."""

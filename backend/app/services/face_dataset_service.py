@@ -511,6 +511,10 @@ def cancel_pending(user_id, dataset_id):
         db.session.delete(img)
         n += 1
     db.session.commit()
+    # Stop deleted the in-flight rows: clear the Klein 'generate' indicator now
+    # (its completion callbacks won't fire for cancelled jobs). An API batch's own
+    # begin/end entry is untouched — its worker unwinds and end()s on its own.
+    _sync_generate_activity(dataset_id)
     return n
 
 
@@ -2207,6 +2211,22 @@ def clean_watermarks(user_id, dataset_id, image_ids=None):
 
 
 # --- Fan-out generation (Klein edit) ---------------------------------------
+def _sync_generate_activity(dataset_id):
+    """Reconcile the Klein 'generate' indicator with the dataset's live count of
+    in-flight Klein jobs (pending rows that still carry a job_id and have no file
+    yet). Klein completions arrive one-by-one on the job-queue monitor thread with
+    only a job_id — no batch handle — so we track the honest pending COUNT rather
+    than a per-batch job set (duplicated/cancelled completions would corrupt one).
+    Called on enqueue, on each completion, and on cancel; the registry TTL is the
+    last-resort net. API rows (job_id is NULL) are excluded — those batches own a
+    separate begin()/end() 'generate' entry from _run_nanobanana_batch."""
+    pending = (FaceDatasetImage.query
+               .filter_by(dataset_id=dataset_id, status='pending')
+               .filter(FaceDatasetImage.filename.is_(None))
+               .filter(FaceDatasetImage.job_id.isnot(None)).count())
+    dataset_activity.sync_pending(dataset_id, 'generate', pending)
+
+
 def generate_variations(user_id, dataset_id, variations, multiplier, klein_model,
                         lora_strength=None):
     """For each (variation x multiplier), enqueue a Klein edit of the reference
@@ -2247,34 +2267,41 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
     # côté Klein — mêmes fichiers que le chemin Nano Banana multi-réfs.
     extra_paths = [os.path.join(_dataset_dir(ds.id), fn) for fn in extra_ref_filenames(ds)]
     ids = []
-    for v in variations:
-        for _ in range(mult):
-            img = FaceDatasetImage(dataset_id=dataset_id, source='generated', status='pending',
-                                   variation_label=v.get('label'), framing=v.get('framing'),
-                                   variation_prompt=v['prompt'], klein_model=klein_model)
-            db.session.add(img)
-            db.session.commit()
-            # NSFW (flag explicite OU label du catalogue NSFW) : wrapper sans le
-            # clamp SFW — chemin Klein local uniquement, les moteurs API sont
-            # refusés en amont (route + generate_variations_nanobanana).
-            nsfw = bool(v.get('nsfw')) or is_nsfw_label(v.get('label'))
-            try:
-                job_id = enqueue_klein_edit(
-                    user_id=str(user_id), source_filename=ds.ref_filename,
-                    source_path=_ref_path(ds),
-                    edit_prompt=wrap_variation_klein(v['prompt'], nsfw=nsfw,
-                                                     framing=v.get('framing')),
-                    klein_model=klein_model,
-                    lora_strength=lora_strength, extra_ref_paths=extra_paths,
-                    extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
-                                    'variation_label': v.get('label')})
-            except Exception:
-                img.status = 'failed'
+    # try/finally: advertise the live 'generate' indicator even if an enqueue
+    # fails partway (the already-queued rows are still in flight). Each Klein job
+    # completes asynchronously; _sync_generate_activity keeps the count honest and
+    # link_completed_dataset_image clears it when the last one lands.
+    try:
+        for v in variations:
+            for _ in range(mult):
+                img = FaceDatasetImage(dataset_id=dataset_id, source='generated', status='pending',
+                                       variation_label=v.get('label'), framing=v.get('framing'),
+                                       variation_prompt=v['prompt'], klein_model=klein_model)
+                db.session.add(img)
                 db.session.commit()
-                raise
-            img.job_id = job_id
-            db.session.commit()
-            ids.append(img.id)
+                # NSFW (flag explicite OU label du catalogue NSFW) : wrapper sans le
+                # clamp SFW — chemin Klein local uniquement, les moteurs API sont
+                # refusés en amont (route + generate_variations_nanobanana).
+                nsfw = bool(v.get('nsfw')) or is_nsfw_label(v.get('label'))
+                try:
+                    job_id = enqueue_klein_edit(
+                        user_id=str(user_id), source_filename=ds.ref_filename,
+                        source_path=_ref_path(ds),
+                        edit_prompt=wrap_variation_klein(v['prompt'], nsfw=nsfw,
+                                                         framing=v.get('framing')),
+                        klein_model=klein_model,
+                        lora_strength=lora_strength, extra_ref_paths=extra_paths,
+                        extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
+                                        'variation_label': v.get('label')})
+                except Exception:
+                    img.status = 'failed'
+                    db.session.commit()
+                    raise
+                img.job_id = job_id
+                db.session.commit()
+                ids.append(img.id)
+    finally:
+        _sync_generate_activity(dataset_id)
     return ids
 
 
@@ -2364,39 +2391,50 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
         aspect = aspect_for_label(img.variation_label, img.framing)
         ref_bytes = _all_ref_bytes(ds)  # principale + extras (multi-références)
         if app is not None:
+            # Threaded path: _run_nanobanana_batch owns the 'generate' indicator
+            # (begin/bump/end) so a single API regenerate takes the same lock as a
+            # batch — every concurrent action stays disabled until it finishes.
             threading.Thread(target=_run_nanobanana_batch,
-                             args=(app, [(img.id, prompt, aspect)], ref_bytes, engine),
+                             args=(app, [(img.id, prompt, aspect)], ref_bytes, engine,
+                                   img.dataset_id),
                              daemon=True).start()
             return engine
-        gen_kwargs = {'aspect_ratio': aspect}
-        if engine == 'chatgpt':
-            from .chatgpt_image import _use_subscription
-            gen_kwargs['force_lane'] = 'subscription' if _use_subscription() else 'api'
+        # Synchronous path (legacy / no-app callers): guard the same 'generate'
+        # indicator directly so the payload advertises the regenerate too, and a
+        # raise never leaks the entry (finally end()).
+        token = dataset_activity.begin(img.dataset_id, 'generate', total=1)
         try:
-            out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=len(ref_bytes)),
-                               **gen_kwargs)
-        except SubscriptionQuotaExceeded:
-            out = None
-            img.status = 'failed'
-            img.fail_reason = _QUOTA_MSG
+            gen_kwargs = {'aspect_ratio': aspect}
+            if engine == 'chatgpt':
+                from .chatgpt_image import _use_subscription
+                gen_kwargs['force_lane'] = 'subscription' if _use_subscription() else 'api'
+            try:
+                out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=len(ref_bytes)),
+                                   **gen_kwargs)
+            except SubscriptionQuotaExceeded:
+                out = None
+                img.status = 'failed'
+                img.fail_reason = _QUOTA_MSG
+                db.session.commit()
+                return engine
+            except SubscriptionUnavailable as e:
+                out = None
+                img.status = 'failed'
+                img.fail_reason = f'chatgpt: {e}'
+                db.session.commit()
+                return engine
+            if out:
+                fn = f"{user_id}_{_ENGINE_FILE_TAG[engine]}_{uuid.uuid4().hex[:8]}.webp"
+                with open(os.path.join(_dataset_dir(img.dataset_id), fn), 'wb') as fh:
+                    fh.write(normalize_to_webp(out))
+                img.filename = fn
+            else:
+                img.status = 'failed'
+                img.fail_reason = f'{engine}: empty response (often a content-policy refusal or a transient API error - retry usually works)'
             db.session.commit()
             return engine
-        except SubscriptionUnavailable as e:
-            out = None
-            img.status = 'failed'
-            img.fail_reason = f'chatgpt: {e}'
-            db.session.commit()
-            return engine
-        if out:
-            fn = f"{user_id}_{_ENGINE_FILE_TAG[engine]}_{uuid.uuid4().hex[:8]}.webp"
-            with open(os.path.join(_dataset_dir(img.dataset_id), fn), 'wb') as fh:
-                fh.write(normalize_to_webp(out))
-            img.filename = fn
-        else:
-            img.status = 'failed'
-            img.fail_reason = f'{engine}: empty response (often a content-policy refusal or a transient API error - retry usually works)'
-        db.session.commit()
-        return engine
+        finally:
+            dataset_activity.end(token)
 
     try:
         from .klein_edit_helper import enqueue_klein_edit
@@ -2424,6 +2462,9 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     img.job_id = job_id
     img.fail_reason = None   # fresh attempt: drop the previous failure message
     db.session.commit()
+    # Advertise the in-flight Klein job so a single regenerate takes the same lock
+    # as a batch; link_completed_dataset_image clears it on completion.
+    _sync_generate_activity(img.dataset_id)
     return job_id
 
 
@@ -2450,11 +2491,18 @@ def _api_generate_fn(engine):
     return generate_variation
 
 
-def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
+def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana', dataset_id=None):
     """Worker body: generate each (image_id, prompt) via the selected API engine
     and link the result. Runs in a background thread (factored out so tests can
     call it synchronously). Each row commits independently; an API failure marks
-    that row 'failed' (visible + regenerable) without stopping the batch."""
+    that row 'failed' (visible + regenerable) without stopping the batch.
+
+    ``dataset_id`` (when known) drives the 'generate' activity indicator: one
+    begin() with total=len(items), a bump() per item handled (success OR fail),
+    and end() in a finally — so the ⚡ Generate button (and every concurrent
+    action) stays disabled for the WHOLE batch, and the indicator can never leak
+    even if a row raises. Also used for single-image API regenerate (items=1),
+    which therefore takes the same lock. ``None`` = no indicator (legacy callers)."""
     api_generate = _api_generate_fn(engine)
     from concurrent.futures import ThreadPoolExecutor
     # Guard d'identité adapté au nombre de références (multi = « use EVERY ref »).
@@ -2475,8 +2523,10 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
     # the batch fails fast instead of burning one call each.
     quota_exhausted = threading.Event()
     stop_msg = {'text': _QUOTA_MSG}   # set to the actual stop reason when it fires
+    token = dataset_activity.begin(dataset_id, 'generate', total=len(items)) \
+        if dataset_id is not None else None
 
-    def _one(item):
+    def _run_one(item):
         # item = (image_id, prompt, aspect) ; aspect optionnel (rétro-compat → '1:1').
         image_id, prompt = item[0], item[1]
         aspect = item[2] if len(item) > 2 else '1:1'
@@ -2545,9 +2595,21 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana'):
                 img.fail_reason = fail_reason
             db.session.commit()
 
+    def _one(item):
+        # Progress-tracking wrapper: bump the indicator once per item handled,
+        # whatever the outcome (a raised _run_one still counts as one handled and
+        # never strands the counter). No-op when token is None (bump(None)).
+        try:
+            return _run_one(item)
+        finally:
+            dataset_activity.bump(token)
+
     logger.info(f"{engine} batch: start ({len(items)} variation(s))")
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        list(pool.map(_one, items))
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            list(pool.map(_one, items))
+    finally:
+        dataset_activity.end(token)   # idempotent; end(None) is a no-op
     logger.info(f"{engine} batch: done ({len(items)} variation(s))")
 
 
@@ -2594,7 +2656,8 @@ def generate_variations_nanobanana(app, user_id, dataset_id, variations, multipl
             ids.append(img.id)
             items.append((img.id, v['prompt'], aspect_for_label(v.get('label'), v.get('framing'))))
 
-    threading.Thread(target=_run_nanobanana_batch, args=(app, items, ref_bytes, engine),
+    threading.Thread(target=_run_nanobanana_batch,
+                     args=(app, items, ref_bytes, engine, dataset_id),
                      daemon=True).start()
     return ids
 
@@ -2656,6 +2719,13 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
                                    '(not on disk, and the /view API fetch failed).')
                 logger.warning(f"dataset link: file not on disk and /view API fetch failed (job {job_id})")
     db.session.commit()
+    # This job just left the in-flight set: reconcile the Klein 'generate'
+    # indicator (clears it when this was the last job of the batch). Guarded — a
+    # bookkeeping hiccup must never break completion linking; the TTL is the net.
+    try:
+        _sync_generate_activity(img.dataset_id)
+    except Exception:
+        logger.exception(f"dataset link: generate-activity sync failed for job {job_id}")
 
 
 # --- Migration helper (run once manually after deploy) ---------------------

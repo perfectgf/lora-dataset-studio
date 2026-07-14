@@ -32,9 +32,11 @@ import time
 
 # Kinds the UI knows how to restore. Kept as a documented allow-list so a typo in a
 # begin() call is easy to spot (nothing enforces it — it's documentation + a guard
-# for tests).
+# for tests). 'generate' covers the ⚡ Generate-variations batch (Nano Banana /
+# ChatGPT / Klein) — it keeps the Generate button (and every concurrent action)
+# disabled for the WHOLE batch, not just the launch request.
 KINDS = ('watermark_detect', 'watermark_clean', 'caption', 'recaption',
-         'analyze_faces', 'classify')
+         'analyze_faces', 'classify', 'generate')
 
 # Safety TTL: an entry not touched for this long is purged on read even if end()
 # never ran (process alive but the batch thread died without unwinding). 30 min is
@@ -99,6 +101,48 @@ def end(token):
         bucket.pop(token, None)
         if not bucket:
             _active.pop(dsid, None)
+
+
+def sync_pending(dataset_id, kind, pending):
+    """Reconcile a COUNT-tracked indicator of ``kind`` against a live in-flight
+    total. Used where per-batch tracking isn't available — a Klein generate batch
+    completes one job at a time on the job-queue monitor thread, and each
+    completion callback holds only a ``job_id`` (no batch handle); completions can
+    also be duplicated (retry) or bypassed entirely (Stop deletes the rows without
+    a completion). So instead of a fragile per-batch job set we track the honest
+    "how many are still in flight" number read straight from the DB:
+
+    * ``pending > 0`` — ensure an entry exists, grow ``total`` to the high-water
+      mark of items ever seen in flight, and set ``done = total - pending``.
+    * ``pending <= 0`` — the batch is finished: clear the entry.
+
+    Only ever touches the entry IT created (tagged ``_synced``), so it can coexist
+    with a worker-owned ``begin``/``end`` entry of the same kind (e.g. an API batch)
+    without corrupting it. Idempotent — safe to call on every enqueue and every
+    completion. TTL purge (via ``get``) is the final safety net if a completion is
+    lost and ``pending`` never reaches 0."""
+    now = time.time()
+    with _lock:
+        bucket = _active.get(dataset_id) or {}
+        tok = next((t for t, e in bucket.items()
+                    if e['kind'] == kind and e.get('_synced')), None)
+        if pending <= 0:
+            if tok:
+                bucket.pop(tok, None)
+                if not bucket:
+                    _active.pop(dataset_id, None)
+            return
+        if tok is None:
+            bucket = _active.setdefault(dataset_id, {})
+            tok = f'{dataset_id}:{kind}:{next(_counter)}'
+            bucket[tok] = {'kind': kind, 'done': 0, 'total': int(pending),
+                           'started_at': now, '_touched': now,
+                           '_peak': int(pending), '_synced': True}
+        entry = bucket[tok]
+        entry['_peak'] = max(entry['_peak'], int(pending))
+        entry['total'] = entry['_peak']
+        entry['done'] = max(0, entry['_peak'] - int(pending))
+        entry['_touched'] = now
 
 
 def get(dataset_id):

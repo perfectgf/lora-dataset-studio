@@ -73,7 +73,7 @@ function GpuIcon({ className }) {
   );
 }
 
-export default function VariationCatalog({ onGenerate, busy, hasRef, composition, images = [], bodyFidelity = false }) {
+export default function VariationCatalog({ onGenerate, busy, generating = null, hasRef, composition, images = [], bodyFidelity = false }) {
   const toast = useToast();
   const { caps } = useCapabilities();
   const [catalog, setCatalog] = useState([]);
@@ -333,7 +333,8 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <button type="button" onClick={() => setGenerator('klein')} aria-pressed={isKlein}
-          disabled={!klAvailable}
+          disabled={!klAvailable || !!generating}
+          title={generating ? 'A generation batch is running — wait for it to finish before switching engine' : undefined}
           className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isKlein
             ? 'border-primary/60 bg-primary/15 ring-1 ring-primary/40'
             : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
@@ -358,7 +359,8 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
           </span>
         </button>
         <button type="button" onClick={() => setGenerator('nanobanana')} aria-pressed={isNB}
-          disabled={!nbAvailable}
+          disabled={!nbAvailable || !!generating}
+          title={generating ? 'A generation batch is running — wait for it to finish before switching engine' : undefined}
           className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isNB
             ? 'border-amber-400/60 bg-amber-500/15 ring-1 ring-amber-400/40'
             : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
@@ -382,7 +384,8 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
           </span>
         </button>
         <button type="button" onClick={() => setGenerator('chatgpt')} aria-pressed={isGPT}
-          disabled={!gptAvailable}
+          disabled={!gptAvailable || !!generating}
+          title={generating ? 'A generation batch is running — wait for it to finish before switching engine' : undefined}
           className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isGPT
             ? 'border-emerald-400/60 bg-emerald-500/15 ring-1 ring-emerald-400/40'
             : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
@@ -722,9 +725,18 @@ export default function VariationCatalog({ onGenerate, busy, hasRef, composition
         {!hasRef && (
           <span className="text-amber-300 text-[0.6875rem]">Set a reference photo first</span>
         )}
+        {/* Disabled for the WHOLE batch, not just the launch request: `busy` is the
+            hook's busyLive (local flag OR any server-side activity, restored on
+            reload), so a generation already in flight — Nano Banana / ChatGPT /
+            Klein alike — keeps this locked with a visible reason. */}
         <button type="button" onClick={go} disabled={busy || !selected.size || !hasRef || !currentAvailable}
+          title={generating ? 'A generation batch is already running' : undefined}
           className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-          {busy ? '…' : `⚡ Generate (${selected.size * multiplier})`}
+          {busy
+            ? (generating
+                ? `Generating…${generating.total ? ` ${generating.done}/${generating.total}` : ''}`
+                : '…')
+            : `⚡ Generate (${selected.size * multiplier})`}
         </button>
       </div>
     </div>

@@ -99,6 +99,48 @@ def test_get_returns_latest_started_and_end_targets_only_its_token():
     assert da.get(7) is None
 
 
+def test_sync_pending_tracks_count_and_clears():
+    """The Klein 'generate' reconcile: pending>0 keeps an entry whose total is the
+    high-water mark and done = total - pending; pending==0 clears it."""
+    from app.services import dataset_activity as da
+    da.reset()
+    da.sync_pending(9, 'generate', 3)
+    a = da.get(9)
+    assert a['kind'] == 'generate' and a['total'] == 3 and a['done'] == 0
+    da.sync_pending(9, 'generate', 1)          # two of the three finished
+    a = da.get(9)
+    assert a['total'] == 3 and a['done'] == 2
+    da.sync_pending(9, 'generate', 0)          # last one done -> indicator clears
+    assert da.get(9) is None
+
+
+def test_sync_pending_total_is_high_water_mark():
+    from app.services import dataset_activity as da
+    da.reset()
+    da.sync_pending(4, 'generate', 2)
+    da.sync_pending(4, 'generate', 5)          # a second wave piled on before draining
+    assert da.get(4)['total'] == 5
+    da.sync_pending(4, 'generate', 0)
+    assert da.get(4) is None
+
+
+def test_sync_pending_does_not_corrupt_a_begin_entry():
+    """A worker-owned begin() 'generate' entry (an API batch) and a sync_pending
+    'generate' entry (Klein) can momentarily coexist on one dataset: sync must only
+    ever touch its OWN (_synced) entry, and ending the worker's token must leave the
+    sync entry intact (distinct tokens)."""
+    from app.services import dataset_activity as da
+    da.reset()
+    t = da.begin(6, 'generate', total=10)
+    da.progress(t, done=4)
+    da.sync_pending(6, 'generate', 3)          # separate Klein-style entry
+    da.end(t)                                   # end the worker's entry only
+    a = da.get(6)
+    assert a is not None and a['kind'] == 'generate' and a['total'] == 3
+    da.sync_pending(6, 'generate', 0)
+    assert da.get(6) is None
+
+
 def test_ttl_purge_on_read():
     from app.services import dataset_activity as da
     da.reset()

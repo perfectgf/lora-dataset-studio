@@ -271,7 +271,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
     : (() => {
         if (act) {
           const prog = act.total ? ` ${act.done}/${act.total}` : '';
-          const cpu = act.kind === 'analyze_faces' || act.kind === 'watermark_clean';
+          // Passes that DON'T claim "ComfyUI is paused": the CPU ones, plus
+          // 'generate' (engine-dependent — Nano Banana / ChatGPT don't touch
+          // ComfyUI, and the Klein case is obvious from the tiles appearing).
+          const cpu = act.kind === 'analyze_faces' || act.kind === 'watermark_clean'
+            || act.kind === 'generate';
           const label = {
             watermark_detect: `Scanning for watermarks…${prog}`,
             watermark_clean: `Cleaning watermarks…${prog}`,
@@ -279,6 +283,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             recaption: `Re-captioning…${prog}`,
             analyze_faces: `Analyzing faces…${prog}`,
             classify: `Classifying framing…${prog}`,
+            generate: `Generating variations…${prog}`,
           }[act.kind];
           if (label) return `${label}${cpu ? '' : ' ComfyUI is paused during the pass.'}`;
         }
@@ -479,6 +484,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 help="generate AI variations of the reference — and mix in a few real photos if you have them">
                 <CompositionBar composition={d.composition} upscaled={d.composition_upscaled} bodyFidelity={bodyFid} />
                 <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}
+                  generating={act && act.kind === 'generate' ? act : null}
                   onGenerate={(...args) => {
                     // Guard-rail: a batch is already in flight — launching another one
                     // on top is usually an accidental double-click, not a plan.
