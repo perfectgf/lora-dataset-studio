@@ -5,9 +5,10 @@
  * classify/caption/status/caption-edit/crop/regenerate/export).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getCsrfToken, fetchWithCsrfRetry, CSRF_EXPIRED_MESSAGE } from '../api/fetchClient';
+import { getCsrfToken, fetchWithCsrfRetry, CSRF_EXPIRED_MESSAGE, putJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
 import { useJobs } from '../context/JobsContext';
+import { serializeWatermarkRegions } from '../utils/watermarkRegions';
 
 function post(url, body, isForm) {
   // Routes through the shared fetchWithCsrfRetry: a token that aged out mid-session
@@ -495,6 +496,16 @@ export function useDataset() {
     return d;
   }, [currentId, refresh]);
 
+  const saveWatermarkRegions = useCallback(async (imageId, regionsOrNull) => {
+    const regions = serializeWatermarkRegions(regionsOrNull);
+    const d = await putJson(
+      `/api/dataset/${currentId}/image/${imageId}/watermark-regions`,
+      { regions },
+    );
+    await refresh(currentId);
+    return d;
+  }, [currentId, refresh]);
+
   const setStatus = useCallback(async (imageId, status) => {
     const d = await postJson(`/api/dataset/image/${imageId}/status`, { status });
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -794,7 +805,7 @@ export function useDataset() {
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
-           findWatermarks, cleanWatermarks, cleanWatermarkImages, dismissWatermarks,
+           findWatermarks, cleanWatermarks, cleanWatermarkImages, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };
