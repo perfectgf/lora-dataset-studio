@@ -190,6 +190,31 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Keep the inspected image in sync with poll refreshes (label/status updates).
   const viewImgLive = viewImg ? (images.find((i) => i.id === viewImg.id) || viewImg) : null;
 
+  // Amber "in progress" banner text. Captioning keeps its richer live count (derived
+  // from the images themselves). Otherwise, when a server-side batch is running
+  // (restored from ds.activity after a reload too), name it and show done/total —
+  // e.g. "Scanning for watermarks… 12/64". CPU passes (face analysis, watermark
+  // clean) don't pause ComfyUI, so their note omits that claim.
+  const act = ds.activity;
+  const activityBanner = ds.captioning
+    ? `Captioning in progress — ${keptCaptioned}/${kept} captioned… ComfyUI is paused.`
+    : (() => {
+        if (act) {
+          const prog = act.total ? ` ${act.done}/${act.total}` : '';
+          const cpu = act.kind === 'analyze_faces' || act.kind === 'watermark_clean';
+          const label = {
+            watermark_detect: `Scanning for watermarks…${prog}`,
+            watermark_clean: `Cleaning watermarks…${prog}`,
+            caption: `Captioning…${prog}`,
+            recaption: `Re-captioning…${prog}`,
+            analyze_faces: `Analyzing faces…${prog}`,
+            classify: `Classifying framing…${prog}`,
+          }[act.kind];
+          if (label) return `${label}${cpu ? '' : ' ComfyUI is paused during the pass.'}`;
+        }
+        return 'GPU processing in progress (analysis / cropping / captioning)… ComfyUI is paused during the pass.';
+      })();
+
   return (
     <div className="flex flex-col gap-3">
       {/* ---- Header : identité du dataset + UNE action primaire (Export ZIP).
@@ -326,11 +351,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           {ds.busy && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2">
               <span className="inline-block w-4 h-4 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" aria-hidden />
-              <span className="text-content text-sm">
-                {ds.captioning
-                  ? `Captioning in progress — ${keptCaptioned}/${kept} captioned… ComfyUI is paused.`
-                  : 'GPU processing in progress (analysis / cropping / captioning)… ComfyUI is paused during the pass.'}
-              </span>
+              <span className="text-content text-sm">{activityBanner}</span>
             </div>
           )}
 
@@ -445,7 +466,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 <button type="button" onClick={ds.analyzeFaces} disabled={ds.busy || !d.ref_filename}
                   title={d.ref_filename ? "Scores each image's facial resemblance vs the reference (deletes nothing)" : "Set a reference photo first"}
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
-                  {ds.analyzing ? '🎭 Analyzing…' : '🎭 Analyze faces'}
+                  {ds.analyzing
+                    ? `🎭 Analyzing…${act?.kind === 'analyze_faces' && act.total ? ` ${act.done}/${act.total}` : ''}`
+                    : '🎭 Analyze faces'}
                 </button>
               )}
               {/* Watermark auto-correction (V1): find overlaid site logos/URLs/usernames on
@@ -454,7 +477,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
               <button type="button" onClick={ds.findWatermarks} disabled={ds.busy}
                 title="Scans the kept images for overlaid watermarks/logos/URLs added on top of the photo (deletes nothing)"
                 className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
-                {ds.watermarking ? '🧽 Scanning…' : '🧽 Find watermarks'}
+                {ds.watermarking
+                  ? `🧽 Scanning…${act?.kind === 'watermark_detect' && act.total ? ` ${act.done}/${act.total}` : ''}`
+                  : '🧽 Find watermarks'}
               </button>
               {watermarkDetected > 0 && (
                 <button type="button" onClick={ds.cleanWatermarks} disabled={ds.busy}

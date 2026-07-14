@@ -176,6 +176,22 @@ export function useDataset() {
     return () => clearInterval(id);
   }, [captioning, currentId, refresh]);
 
+  // Persistence layer: a server-side batch (watermark detect/clean, caption,
+  // re-caption, analyze faces, classify) advertises itself in the payload's
+  // `activity` field. Whenever it's non-null — INCLUDING after a page reload that
+  // dropped the local captioning/analyzing/watermarking flags — poll the dataset
+  // every ~3.5s to track progress and detect the end. Keyed on the boolean
+  // `hasActivity` (not the activity object, whose identity changes each fetch) so
+  // the interval isn't torn down and rebuilt on every poll; it stops the moment
+  // `activity` clears (the following refresh brings the final state; the completion
+  // toast can't be restored — accepted, only the visual state is).
+  const hasActivity = !!data?.activity;
+  useEffect(() => {
+    if (!hasActivity || !currentId) return undefined;
+    const id = setInterval(() => refresh(currentId), 3500);
+    return () => clearInterval(id);
+  }, [hasActivity, currentId, refresh]);
+
   const open = useCallback(async (id) => { setCurrentId(id); await refresh(id); }, [refresh]);
 
   const create = useCallback(async (name, trigger, kind, conceptDesc, trainType, fidelity) => {
@@ -740,11 +756,28 @@ export function useDataset() {
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 
-  return { datasets, currentId, data, busy, captioning, nonces, refNonce, create, open,
+  // Restoration layer: fold the server-side `activity` into the visual flags so a
+  // reloaded page (which lost the local captioning/analyzing/watermarking state)
+  // still shows the concerned button's spinner and disables concurrent actions —
+  // exactly as if the click had just happened. The local flags stay authoritative
+  // for the user who actually clicked (their fetch flow is untouched); this only
+  // ADDS the server truth on top. `busy` OR'd with any activity re-disables every
+  // concurrent action and shows the amber "in progress" banner after a reload.
+  const activity = data?.activity || null;
+  const actKind = activity?.kind || null;
+  const captioningLive = captioning || actKind === 'caption' || actKind === 'recaption';
+  const analyzingLive = analyzing || actKind === 'analyze_faces';
+  const watermarkingLive = watermarking
+    || actKind === 'watermark_detect' || actKind === 'watermark_clean';
+  const busyLive = busy || !!activity;
+
+  return { datasets, currentId, data, busy: busyLive, captioning: captioningLive,
+           analyzing: analyzingLive, watermarking: watermarkingLive, activity,
+           nonces, refNonce, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
-           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzing, analyzeFaces,
-           watermarking, findWatermarks, cleanWatermarks, cleanWatermarkImages, dismissWatermarks,
+           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
+           findWatermarks, cleanWatermarks, cleanWatermarkImages, dismissWatermarks,
            purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };

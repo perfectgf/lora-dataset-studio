@@ -20,6 +20,7 @@ from PIL import Image
 from ..extensions import db
 from ..models import FaceDataset, FaceDatasetImage
 from .. import config as cfg
+from . import dataset_activity
 
 # Garde le modèle vision chaud entre les images d'un même batch caption/classify
 # (sinon Ollama le recharge - cold start ~10s - à CHAQUE image). Déchargé en fin
@@ -864,6 +865,14 @@ def dataset_payload(user_id, dataset_id):
                 1 for i in imgs if i.status == 'keep' and caption_has_identity_leak(i.caption, body=body)),
             'captioned': sum(1 for i in imgs if i.status == 'keep' and i.caption),
         },
+        # Live server-side batch on this dataset (watermark detect/clean, caption/
+        # re-caption, face analysis, framing classify) as {kind, done, total,
+        # started_at} — or None. The front-end RESTORES the in-progress button state
+        # from this on reload and polls the payload until it clears (the indicator was
+        # React-local before, so a refresh mid-batch dropped it). In-memory registry:
+        # empty after a server restart, so a batch killed with the process leaves no
+        # phantom indicator.
+        'activity': dataset_activity.get(dataset_id),
     }
 
 
@@ -1380,8 +1389,12 @@ def classify_images(user_id, dataset_id):
     rows = FaceDatasetImage.query.filter_by(
         dataset_id=dataset_id, source='import', framing=None).all()
     n = 0
+    # Persistent progress indicator (survives a page reload): try/finally guarantees
+    # end() runs even if the batch raises → no phantom "Classifying…" spinner.
+    token = dataset_activity.begin(dataset_id, 'classify', total=len(rows))
     try:
-        for img in rows:
+        for i, img in enumerate(rows):
+            dataset_activity.progress(token, done=i + 1)
             path = _img_path(img) if img.filename else ''
             if not os.path.exists(path):
                 continue
@@ -1400,6 +1413,7 @@ def classify_images(user_id, dataset_id):
             n += 1
     finally:
         unload_vision_model()  # libère la VRAM pour ComfyUI en fin de batch
+        dataset_activity.end(token)
     return n
 
 
@@ -1629,7 +1643,7 @@ def _enforce_concept_omission(caption, leak_re, image_bytes, concept_desc, descr
     return caption
 
 
-def _caption_concept(ds, force, backend):
+def _caption_concept(ds, force, backend, token=None):
     """Concept caption pipeline (INVERTED logic): describe everything INCLUDING identity
     but OMIT the recurring act so it binds to the trigger. JoyCaption is literal (it NAMES
     the act/fluids/watermark) -> its drafts are REFINED by Qwen, then every caption passes
@@ -1646,6 +1660,8 @@ def _caption_concept(ds, force, backend):
     todo = [(img, p) for img, p in todo if p and os.path.exists(p)]
     if not todo:
         return 0
+    # Total for the persistent progress indicator (token owned by the caller).
+    dataset_activity.progress(token, total=len(todo))
     n = 0
     remaining = list(todo)
     refine_targets = []  # (img, p, joycap) -> Joy draft refined by Qwen
@@ -1675,6 +1691,7 @@ def _caption_concept(ds, force, backend):
     if backend == 'joycaption':
         leak_re = _concept_terms_re(_fallback_concept_terms(concept_desc))
         for img, p, joycap in refine_targets:
+            dataset_activity.bump(token)
             try:
                 with open(p, 'rb') as fh:
                     data = fh.read()
@@ -1699,6 +1716,7 @@ def _caption_concept(ds, force, backend):
                                                        describe=describe_image_ollama))
         try:
             for img, p, joycap in refine_targets:
+                dataset_activity.bump(token)
                 with open(p, 'rb') as fh:
                     data = fh.read()
                 refined = ''
@@ -1743,6 +1761,7 @@ def _caption_concept(ds, force, backend):
                 db.session.commit()
                 n += 1
             for img, p in remaining:
+                dataset_activity.bump(token)
                 with open(p, 'rb') as fh:
                     data = fh.read()
                 cap = describe_image_ollama(data, cap_prompt, num_predict=2000,
@@ -1786,8 +1805,14 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     # Dataset CONCEPT : logique INVERSÉE (décrire tout SAUF l'acte récurrent → il se lie
     # au trigger). Pipeline dédié Joy→Qwen + garantie d'omission (ban-list) : entièrement
     # à part du chemin character ci-dessous. Respecte le backend gating.
+    # The persistent indicator is owned HERE (begin/finally) so the concept body stays
+    # unindented; it only feeds progress via the passed token.
     if is_concept(ds):
-        return _caption_concept(ds, force, backend)
+        token = dataset_activity.begin(dataset_id, 'recaption' if force else 'caption')
+        try:
+            return _caption_concept(ds, force, backend, token=token)
+        finally:
+            dataset_activity.end(token)
     # Style de caption : prose (Z-Image) vs tags booru (SDXL booru-native type bigLove).
     # Défaut AUTO selon le type entraîné ; un mode explicite (UI) l'emporte.
     ttype = (getattr(ds, 'train_type', None) or 'zimage').lower()
@@ -1817,61 +1842,71 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     todo = [(img, p) for img, p in todo if p and os.path.exists(p)]
     if not todo:
         return 0
-    n = 0
-    remaining = todo
-    # 1) JoyCaption en BATCH (un seul chargement du 8B NF4, via le venv ai-toolkit) -
-    # sauté entièrement quand le backend force 'ollama'.
-    if backend in ('auto', 'joycaption'):
-        jc = {}
-        try:
-            from .joycaption import caption_images_joycaption, is_available
-            if is_available():
-                # Consigne « ne décris pas le visage » → les traits se lient au trigger,
-                # pas aux mots de la caption (deep-research 2026-06-14).
-                jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
-            elif backend == 'joycaption':
-                # Explicit choice, explicit failure: a user who forced 'joycaption' in
-                # Settings must be told it's unavailable, not get a silent 0 (only
-                # 'auto' is allowed to fall back to Ollama quietly).
-                raise RuntimeError('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
-        except RuntimeError:
-            raise
-        except Exception as e:
-            logger.warning('caption_images: JoyCaption indisponible (%s)', e)
-        still = []
-        for img, p in remaining:
-            cap = (jc.get(p) or '').strip().strip('"').strip()
-            if cap:
-                cleaned = cleaner(cap) or cap
-                img.caption = cleaned[:CAPTION_MAX_CHARS]
-                db.session.commit()
-                n += 1
-            else:
-                still.append((img, p))
-        remaining = still
-        if backend == 'joycaption':  # backend forcé JoyCaption -> pas de repli Ollama
-            return n
-    # 2) Ollama (Qwen3-VL) pour les images non couvertes par JoyCaption ('auto'),
-    # ou pour TOUT le lot si le backend force 'ollama'.
-    if remaining:
-        try:
-            from .vision_ollama import describe_image_ollama, unload_vision_model
-        except ImportError:
-            raise RuntimeError('vision (Ollama) service not configured/available yet')
-        try:
+    # Persistent progress indicator (survives a page reload): 'recaption' when force
+    # overwrites existing captions, else 'caption'. try/finally guarantees end() runs
+    # even if the vision pass raises → no phantom "Captioning…" spinner after a crash.
+    token = dataset_activity.begin(dataset_id, 'recaption' if force else 'caption',
+                                   total=len(todo))
+    try:
+        n = 0
+        remaining = todo
+        # 1) JoyCaption en BATCH (un seul chargement du 8B NF4, via le venv ai-toolkit) -
+        # sauté entièrement quand le backend force 'ollama'.
+        if backend in ('auto', 'joycaption'):
+            jc = {}
+            try:
+                from .joycaption import caption_images_joycaption, is_available
+                if is_available():
+                    # Consigne « ne décris pas le visage » → les traits se lient au trigger,
+                    # pas aux mots de la caption (deep-research 2026-06-14).
+                    jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
+                elif backend == 'joycaption':
+                    # Explicit choice, explicit failure: a user who forced 'joycaption' in
+                    # Settings must be told it's unavailable, not get a silent 0 (only
+                    # 'auto' is allowed to fall back to Ollama quietly).
+                    raise RuntimeError('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
+            except RuntimeError:
+                raise
+            except Exception as e:
+                logger.warning('caption_images: JoyCaption indisponible (%s)', e)
+            still = []
             for img, p in remaining:
-                with open(p, 'rb') as fh:
-                    cap = describe_image_ollama(fh.read(), cap_prompt, num_predict=2000,
-                                                keep_alive=_VISION_BATCH_KEEPALIVE)
-                cap = (cap or '').strip().strip('"').strip()
+                cap = (jc.get(p) or '').strip().strip('"').strip()
                 if cap:
                     cleaned = cleaner(cap) or cap
                     img.caption = cleaned[:CAPTION_MAX_CHARS]
                     db.session.commit()
                     n += 1
-        finally:
-            unload_vision_model()  # libère la VRAM pour ComfyUI en fin de batch
-    return n
+                    dataset_activity.bump(token)   # this image is captioned (done)
+                else:
+                    still.append((img, p))
+            remaining = still
+            if backend == 'joycaption':  # backend forcé JoyCaption -> pas de repli Ollama
+                return n
+        # 2) Ollama (Qwen3-VL) pour les images non couvertes par JoyCaption ('auto'),
+        # ou pour TOUT le lot si le backend force 'ollama'.
+        if remaining:
+            try:
+                from .vision_ollama import describe_image_ollama, unload_vision_model
+            except ImportError:
+                raise RuntimeError('vision (Ollama) service not configured/available yet')
+            try:
+                for img, p in remaining:
+                    with open(p, 'rb') as fh:
+                        cap = describe_image_ollama(fh.read(), cap_prompt, num_predict=2000,
+                                                    keep_alive=_VISION_BATCH_KEEPALIVE)
+                    cap = (cap or '').strip().strip('"').strip()
+                    if cap:
+                        cleaned = cleaner(cap) or cap
+                        img.caption = cleaned[:CAPTION_MAX_CHARS]
+                        db.session.commit()
+                        n += 1
+                    dataset_activity.bump(token)   # image handled (captioned or not)
+            finally:
+                unload_vision_model()  # libère la VRAM pour ComfyUI en fin de batch
+        return n
+    finally:
+        dataset_activity.end(token)
 
 
 # --- Face similarity scoring (InsightFace antelopev2, CPU subprocess) -------
@@ -1900,17 +1935,25 @@ def analyze_faces(user_id, dataset_id) -> dict:
         raise RuntimeError('face scoring service not configured/available yet')
     # scoring_error ({kind, detail} | None) remonte jusqu'au toast : un scorer
     # cassé doit dire POURQUOI, pas « 0 analyzed » en vert.
-    results, scoring_error = score_dataset_faces(ref_path, list(by_path.keys()))
-    counts = {}
-    for p, img in by_path.items():
-        r = results.get(p)
-        if not r:
-            continue
-        img.face_state = r.get('state')
-        img.face_score = r.get('sim')   # None si non-scorable
-        db.session.commit()
-        counts[img.face_state] = counts.get(img.face_state, 0) + 1
-    return counts, scoring_error
+    # Persistent indicator (survives reload). The scoring is a single CPU subprocess
+    # (opaque — done stays 0 during it, then fills as results are committed); try/
+    # finally clears the indicator even if scoring raises.
+    token = dataset_activity.begin(dataset_id, 'analyze_faces', total=len(by_path))
+    try:
+        results, scoring_error = score_dataset_faces(ref_path, list(by_path.keys()))
+        counts = {}
+        for p, img in by_path.items():
+            dataset_activity.bump(token)
+            r = results.get(p)
+            if not r:
+                continue
+            img.face_state = r.get('state')
+            img.face_score = r.get('sim')   # None si non-scorable
+            db.session.commit()
+            counts[img.face_state] = counts.get(img.face_state, 0) + 1
+        return counts, scoring_error
+    finally:
+        dataset_activity.end(token)
 
 
 # --- Watermark auto-correction (V1) ----------------------------------------
@@ -2010,8 +2053,12 @@ def detect_watermarks(user_id, dataset_id, *, include_dismissed=False):
     rows = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
             .filter(FaceDatasetImage.filename.isnot(None)).all())
     counts = {'detected': 0, 'none': 0, 'checked': 0}
+    # Persistent progress indicator (survives a page reload); try/finally clears it
+    # even if the vision pass raises → no phantom "Scanning…" spinner.
+    token = dataset_activity.begin(dataset_id, 'watermark_detect', total=len(rows))
     try:
-        for img in rows:
+        for i, img in enumerate(rows):
+            dataset_activity.progress(token, done=i + 1)
             # Dismissed = a confirmed false positive; don't waste a vision call re-asking
             # (and never silently re-flag it) unless the caller opts back in.
             if not include_dismissed and img.watermark_state == 'dismissed':
@@ -2041,6 +2088,7 @@ def detect_watermarks(user_id, dataset_id, *, include_dismissed=False):
             db.session.commit()
     finally:
         unload_vision_model()  # rend la VRAM a ComfyUI en fin de batch
+        dataset_activity.end(token)
     return counts
 
 
@@ -2098,56 +2146,64 @@ def clean_watermarks(user_id, dataset_id, image_ids=None):
     out = {'cropped': 0, 'inpainted': 0, 'needs_review': 0, 'failed': 0, 'skipped': 0}
     error = None
     lama_ok = watermark_lama.is_available()
-    for img in rows:
-        path = _img_path(img)
-        bbox = _safe_json(img.watermark_bbox)
-        if not os.path.exists(path) or not (isinstance(bbox, list) and len(bbox) == 4):
-            img.watermark_state = 'failed'
-            out['failed'] += 1
-            db.session.commit()
-            continue
-        try:
-            with Image.open(path) as im:
-                W, H = im.size
-        except (OSError, ValueError):
-            img.watermark_state = 'failed'
-            out['failed'] += 1
-            db.session.commit()
-            continue
-        route, box = _route_watermark(tuple(bbox), W, H)
-        if route == 'crop':
-            _preserve_original(path)
-            if _apply_watermark_crop(path, box):
-                # NOTE dHash: the perceptual hash used for import-dedupe is recomputed
-                # ON THE FLY from the file (_existing_dhashes / _dhash), NOT stored in a
-                # column -- there is no stored dHash to leave untouched. So after a crop
-                # the dedupe compares against the CLEANED pixels; re-importing the same
-                # watermarked visual is NOT guaranteed to dedupe against it (a border
-                # crop shifts the whole hash). Preserving the original-dHash behaviour the
-                # spec asks for would need a new stored column -> deferred (out of V1 scope).
-                img.watermark_state = 'cleaned'
-                out['cropped'] += 1
-            else:
+    # Persistent progress indicator (survives a page reload). CPU pass, but a page
+    # reload during a long clean must still show it running; try/finally clears it
+    # even if an edit raises.
+    token = dataset_activity.begin(dataset_id, 'watermark_clean', total=len(rows))
+    try:
+        for i, img in enumerate(rows):
+            dataset_activity.progress(token, done=i + 1)
+            path = _img_path(img)
+            bbox = _safe_json(img.watermark_bbox)
+            if not os.path.exists(path) or not (isinstance(bbox, list) and len(bbox) == 4):
                 img.watermark_state = 'failed'
                 out['failed'] += 1
-        elif route == 'lama':
-            if not lama_ok:
-                out['skipped'] += 1          # leave state='detected' (crop-only mode)
-            else:
+                db.session.commit()
+                continue
+            try:
+                with Image.open(path) as im:
+                    W, H = im.size
+            except (OSError, ValueError):
+                img.watermark_state = 'failed'
+                out['failed'] += 1
+                db.session.commit()
+                continue
+            route, box = _route_watermark(tuple(bbox), W, H)
+            if route == 'crop':
                 _preserve_original(path)
-                ok, err = watermark_lama.inpaint_watermark(path, bbox)
-                if ok:
-                    img.watermark_state = 'cleaned'  # see dHash note above (recomputed on the fly)
-                    out['inpainted'] += 1
+                if _apply_watermark_crop(path, box):
+                    # NOTE dHash: the perceptual hash used for import-dedupe is recomputed
+                    # ON THE FLY from the file (_existing_dhashes / _dhash), NOT stored in a
+                    # column -- there is no stored dHash to leave untouched. So after a crop
+                    # the dedupe compares against the CLEANED pixels; re-importing the same
+                    # watermarked visual is NOT guaranteed to dedupe against it (a border
+                    # crop shifts the whole hash). Preserving the original-dHash behaviour the
+                    # spec asks for would need a new stored column -> deferred (out of V1 scope).
+                    img.watermark_state = 'cleaned'
+                    out['cropped'] += 1
                 else:
                     img.watermark_state = 'failed'
                     out['failed'] += 1
-                    if err and err.get('kind') != 'unavailable':
-                        error = err   # surface WHY, never a silent inpaint failure
-        else:  # 'review' -> stays 'detected' so the badge/count keep flagging it
-            out['needs_review'] += 1
-        db.session.commit()
-    return out, error
+            elif route == 'lama':
+                if not lama_ok:
+                    out['skipped'] += 1          # leave state='detected' (crop-only mode)
+                else:
+                    _preserve_original(path)
+                    ok, err = watermark_lama.inpaint_watermark(path, bbox)
+                    if ok:
+                        img.watermark_state = 'cleaned'  # see dHash note above (recomputed on the fly)
+                        out['inpainted'] += 1
+                    else:
+                        img.watermark_state = 'failed'
+                        out['failed'] += 1
+                        if err and err.get('kind') != 'unavailable':
+                            error = err   # surface WHY, never a silent inpaint failure
+            else:  # 'review' -> stays 'detected' so the badge/count keep flagging it
+                out['needs_review'] += 1
+            db.session.commit()
+        return out, error
+    finally:
+        dataset_activity.end(token)
 
 
 # --- Fan-out generation (Klein edit) ---------------------------------------
