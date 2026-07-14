@@ -88,6 +88,12 @@ def create_app(config_object=None):
         from . import models  # noqa: F401
         db.create_all()
         _apply_additive_migrations()
+        # Vision requests are process-local, while their mutual-exclusion flag is
+        # persisted in SQLite. A killed captioning request therefore cannot still
+        # be running after boot; clear its stale flag immediately instead of
+        # leaving the restarted app stuck on "GPU busy" until the TTL expires.
+        from .gpu_window import recover_stale_vision_window
+        recover_stale_vision_window()
 
     from .routes import register_blueprints
     register_blueprints(app, csrf)

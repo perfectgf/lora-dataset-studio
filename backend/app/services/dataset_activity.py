@@ -49,7 +49,7 @@ _active: dict = {}
 _counter = itertools.count(1)
 
 
-def begin(dataset_id, kind, total=0):
+def begin(dataset_id, kind, total=0, detail=None):
     """Register a new in-progress batch on ``dataset_id`` and return an opaque token
     to pass to ``progress``/``bump``/``end``. ``total`` is the number of items the
     batch will process (0 when not enumerable up front)."""
@@ -60,10 +60,12 @@ def begin(dataset_id, kind, total=0):
             'kind': kind, 'done': 0, 'total': int(total or 0),
             'started_at': now, '_touched': now,
         }
+        if detail:
+            _active[dataset_id][token]['detail'] = str(detail)
     return token
 
 
-def progress(token, done=None, total=None):
+def progress(token, done=None, total=None, detail=None):
     """Set the item counter (and optionally the total) for a running batch.
     No-op on an unknown/None token (already ended or purged)."""
     now = time.time()
@@ -75,6 +77,8 @@ def progress(token, done=None, total=None):
             entry['done'] = int(done)
         if total is not None:
             entry['total'] = int(total)
+        if detail is not None:
+            entry['detail'] = str(detail)
         entry['_touched'] = now
 
 
@@ -162,8 +166,11 @@ def get(dataset_id):
             _active.pop(dataset_id, None)
             return None
         entry = max(bucket.values(), key=lambda e: e['started_at'])
-        return {'kind': entry['kind'], 'done': entry['done'],
-                'total': entry['total'], 'started_at': entry['started_at']}
+        result = {'kind': entry['kind'], 'done': entry['done'],
+                  'total': entry['total'], 'started_at': entry['started_at']}
+        if entry.get('detail'):
+            result['detail'] = entry['detail']
+        return result
 
 
 def _entry(token):

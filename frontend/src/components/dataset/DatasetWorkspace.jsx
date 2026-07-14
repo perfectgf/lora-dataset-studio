@@ -428,7 +428,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // clean) don't pause ComfyUI, so their note omits that claim.
   const act = ds.activity;
   const activityBanner = ds.captioning
-    ? `Captioning in progress — ${keptCaptioned}/${kept} captioned… ComfyUI is paused.`
+    ? `${act?.detail || `Captioning in progress — ${keptCaptioned}/${kept} captioned…`} ComfyUI is paused.`
     : (() => {
         if (act) {
           const prog = act.total ? ` ${act.done}/${act.total}` : '';
@@ -446,7 +446,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
             classify: `Classifying framing…${prog}`,
             generate: `Generating variations…${prog}`,
           }[act.kind];
-          if (label) return `${label}${cpu ? '' : ' ComfyUI is paused during the pass.'}`;
+          if (label) {
+            const detailed = act.detail || label;
+            return `${detailed}${cpu ? '' : ' ComfyUI is paused during the pass.'}`;
+          }
         }
         return 'GPU processing in progress (analysis / cropping / captioning)… ComfyUI is paused during the pass.';
       })();

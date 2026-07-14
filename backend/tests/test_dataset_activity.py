@@ -58,6 +58,18 @@ def test_begin_progress_end_lifecycle():
     assert da.get(5) is None
 
 
+def test_activity_detail_can_explain_a_long_running_stage():
+    from app.services import dataset_activity as da
+    da.reset()
+    t = da.begin(5, 'caption', total=12, detail='Preparing captioning…')
+    assert da.get(5)['detail'] == 'Preparing captioning…'
+    da.progress(t, detail='Loading JoyCaption model and captioning 12 images…')
+    a = da.get(5)
+    assert a['done'] == 0
+    assert a['detail'] == 'Loading JoyCaption model and captioning 12 images…'
+    da.end(t)
+
+
 def test_end_idempotent_and_unknown_token_is_noop():
     from app.services import dataset_activity as da
     da.reset()

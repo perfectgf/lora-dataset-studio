@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import uuid
 import zipfile
 
@@ -1728,7 +1729,8 @@ def _caption_concept(ds, force, backend, token=None):
     if not todo:
         return 0
     # Total for the persistent progress indicator (token owned by the caller).
-    dataset_activity.progress(token, total=len(todo))
+    dataset_activity.progress(token, total=len(todo),
+                              detail=f'Preparing {len(todo)} concept caption(s)…')
     n = 0
     remaining = list(todo)
     refine_targets = []  # (img, p, joycap) -> Joy draft refined by Qwen
@@ -1738,6 +1740,8 @@ def _caption_concept(ds, force, backend, token=None):
         try:
             from .joycaption import caption_images_joycaption, is_available
             if is_available():
+                dataset_activity.progress(
+                    token, detail=f'Loading JoyCaption model and captioning {len(todo)} images…')
                 jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
             elif backend == 'joycaption':
                 raise RuntimeError('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
@@ -1875,9 +1879,21 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     # The persistent indicator is owned HERE (begin/finally) so the concept body stays
     # unindented; it only feeds progress via the passed token.
     if is_concept(ds):
-        token = dataset_activity.begin(dataset_id, 'recaption' if force else 'caption')
+        token = dataset_activity.begin(
+            dataset_id, 'recaption' if force else 'caption',
+            detail='Preparing concept captioning…')
+        started = time.monotonic()
+        logger.info('captioning started: dataset=%s backend=%s force=%s kind=concept',
+                    dataset_id, backend, force)
         try:
-            return _caption_concept(ds, force, backend, token=token)
+            n = _caption_concept(ds, force, backend, token=token)
+            logger.info('captioning finished: dataset=%s backend=%s captioned=%s elapsed=%.1fs',
+                        dataset_id, backend, n, time.monotonic() - started)
+            return n
+        except Exception:
+            logger.exception('captioning failed: dataset=%s backend=%s kind=concept elapsed=%.1fs',
+                             dataset_id, backend, time.monotonic() - started)
+            raise
         finally:
             dataset_activity.end(token)
     # Style de caption : prose (Z-Image) vs tags booru (SDXL booru-native type bigLove).
@@ -1912,8 +1928,12 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     # Persistent progress indicator (survives a page reload): 'recaption' when force
     # overwrites existing captions, else 'caption'. try/finally guarantees end() runs
     # even if the vision pass raises → no phantom "Captioning…" spinner after a crash.
-    token = dataset_activity.begin(dataset_id, 'recaption' if force else 'caption',
-                                   total=len(todo))
+    token = dataset_activity.begin(
+        dataset_id, 'recaption' if force else 'caption', total=len(todo),
+        detail=f'Preparing to caption {len(todo)} image(s)…')
+    started = time.monotonic()
+    logger.info('captioning started: dataset=%s backend=%s mode=%s force=%s images=%s',
+                dataset_id, backend, mode, force, len(todo))
     try:
         n = 0
         remaining = todo
@@ -1924,6 +1944,9 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
             try:
                 from .joycaption import caption_images_joycaption, is_available
                 if is_available():
+                    dataset_activity.progress(
+                        token,
+                        detail=f'Loading JoyCaption model and captioning {len(todo)} images…')
                     # Consigne « ne décris pas le visage » → les traits se lient au trigger,
                     # pas aux mots de la caption (deep-research 2026-06-14).
                     jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
@@ -1948,7 +1971,11 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
                 else:
                     still.append((img, p))
             remaining = still
+            dataset_activity.progress(
+                token, detail=f'JoyCaption finished; {len(remaining)} image(s) remaining…')
             if backend == 'joycaption':  # backend forcé JoyCaption -> pas de repli Ollama
+                logger.info('captioning finished: dataset=%s backend=%s captioned=%s elapsed=%.1fs',
+                            dataset_id, backend, n, time.monotonic() - started)
                 return n
         # 2) Ollama (Qwen3-VL) pour les images non couvertes par JoyCaption ('auto'),
         # ou pour TOUT le lot si le backend force 'ollama'.
@@ -1958,7 +1985,10 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
             except ImportError:
                 raise RuntimeError('vision (Ollama) service not configured/available yet')
             try:
-                for img, p in remaining:
+                for index, (img, p) in enumerate(remaining, 1):
+                    dataset_activity.progress(
+                        token,
+                        detail=f'Captioning with Ollama — image {index}/{len(remaining)}…')
                     with open(p, 'rb') as fh:
                         cap = describe_image_ollama(fh.read(), cap_prompt, num_predict=2000,
                                                     keep_alive=_VISION_BATCH_KEEPALIVE)
@@ -1971,7 +2001,13 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
                     dataset_activity.bump(token)   # image handled (captioned or not)
             finally:
                 unload_vision_model()  # libère la VRAM pour ComfyUI en fin de batch
+        logger.info('captioning finished: dataset=%s backend=%s captioned=%s elapsed=%.1fs',
+                    dataset_id, backend, n, time.monotonic() - started)
         return n
+    except Exception:
+        logger.exception('captioning failed: dataset=%s backend=%s elapsed=%.1fs',
+                         dataset_id, backend, time.monotonic() - started)
+        raise
     finally:
         dataset_activity.end(token)
 

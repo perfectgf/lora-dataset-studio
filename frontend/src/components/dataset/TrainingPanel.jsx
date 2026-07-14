@@ -5,6 +5,12 @@ import { Link } from 'react-router-dom';
 import { getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { postJson } from '../../hooks/useDataset';
+import {
+  checkpointSelectionMatchesTraining,
+  defaultCheckpointBase,
+  loraFolderLabel,
+  trainFamilyLabel,
+} from '../../utils/checkpointBrowser';
 import { useToast } from '../common/Toast';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
@@ -76,6 +82,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const [variant, setVariant] = useState('turbo');
   // Type de LoRA : 'zimage' (défaut, encodeur Qwen3-4B) ou 'sdxl' (checkpoints ComfyUI).
   const [trainType, setTrainType] = useState('zimage');
+  // Navigateur de résultats indépendant : changer la configuration du PROCHAIN
+  // entraînement ne doit jamais faire disparaître les checkpoints que l'utilisateur
+  // est en train de consulter dans la section dédiée.
+  const [checkpointTrainType, setCheckpointTrainType] = useState('zimage');
+  const [checkpointBase, setCheckpointBase] = useState('');
+  const checkpointSelectionDataset = useRef(null);
+  const checkpointRequest = useRef(0);
   // Réglages ai-toolkit avancés éditables (rank / resolution / save_every /
   // sample_every / sample_prompts), chargés depuis base-info ; persistés par POST
   // /train/settings via ds.setTrainSettings.
@@ -156,6 +169,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           || (fam === 'krea' ? 'base' : fam === 'flux2klein' ? '4b' : 'turbo');
         setVariant(fam === 'flux2klein' && !['4b', '9b'].includes(v) ? '4b' : v);
         setTrainType(info.train_type || 'zimage');
+        // Initialiser le navigateur une seule fois par dataset. Les refreshs de
+        // base-info (conversion, réglages) ne doivent pas écraser son filtre.
+        if (checkpointSelectionDataset.current !== ds.currentId) {
+          checkpointSelectionDataset.current = ds.currentId;
+          setCheckpointTrainType(fam);
+          setCheckpointBase(info.base || '');
+        }
         setAdv(info.train_settings || null);
       }
     });
@@ -430,10 +450,18 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     resumeResolver.current?.(v);
     resumeResolver.current = null;
   };
-  const askResumeOrFresh = () => {
-    if (!checkpoints.length) return Promise.resolve('resume');   // pas de run → lancement normal
-    const latest = Math.max(...checkpoints.map((c) => c.step));
-    const final = checkpoints.some((c) => c.final);
+  const askResumeOrFresh = async () => {
+    // Ne pas lire la liste affichée dans le navigateur de résultats : elle peut
+    // volontairement pointer vers une autre famille/base. Le backend fait foi
+    // pour la configuration d'entraînement actuellement sélectionnée.
+    let existing = [];
+    try {
+      const data = await ds.listCheckpoints(base, trainType);
+      existing = Array.isArray(data?.checkpoints) ? data.checkpoints : [];
+    } catch { /* le lancement normal garde le preflight serveur comme autorité */ }
+    if (!existing.length) return 'resume';                     // pas de run → lancement normal
+    const latest = Math.max(...existing.map((c) => c.step));
+    const final = existing.some((c) => c.final);
     return new Promise((resolve) => {
       resumeResolver.current = resolve;
       setResumeAsk({ latest, final });
@@ -522,12 +550,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     refreshStatus();
   };
 
-  // Les checkpoints sont propres à la base SÉLECTIONNÉE (un run = dataset+base).
+  // Les checkpoints sont propres au filtre du NAVIGATEUR DE RÉSULTATS
+  // (un run = dataset+famille+base), indépendant du prochain entraînement.
   // Garde-fou : si appelé avec autre chose qu'une string (ex. onClick passe un
   // event), on retombe sur `base` au lieu d'envoyer [object Object] à l'API.
-  const loadCheckpoints = async (forBase) => {
-    const b = (typeof forBase === 'string') ? forBase : base;
-    const data = await ds.listCheckpoints(b, trainType);
+  const loadCheckpoints = async (forBase, forType) => {
+    const b = (typeof forBase === 'string') ? forBase : checkpointBase;
+    const t = (typeof forType === 'string') ? forType : checkpointTrainType;
+    const requestId = ++checkpointRequest.current;
+    const data = await ds.listCheckpoints(b, t);
+    if (requestId !== checkpointRequest.current) return;
     setCheckpoints(data.checkpoints || []);
     setImported(data.imported || []);
     // Provenance : dernière version enregistrée du dataset vs son état ACTUEL
@@ -535,24 +567,30 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     setDatasetState(data.dataset_state || null);
     setCloudCkpts(data.cloud_checkpoints || []);
     setDiskUsage(data.disk_usage || null);
-    // Rationale du barème adaptatif (backend = source de vérité) : affiché en tooltip
-    // du champ Steps pour que l'app EXPLIQUE le nombre au lieu de le décréter.
-    setStepsInfo(data.recommended_steps_info || null);
     setCkLoaded(true);
     onCheckpointsChange?.(
       (Array.isArray(data.checkpoints) ? data.checkpoints.length : 0)
       + (Array.isArray(data.imported) ? data.imported.length : 0),
     );
   };
-  // Recharge dès que la base change (sinon le panneau montrait les checkpoints du
-  // dernier run + un « Continuer » trompeur, quelle que soit la base choisie). On
+  // Recharge dès que le filtre de résultats change. On
   // attend baseInfo pour charger directement la BONNE base persistée (pas de flash
   // « Officiel » avant que la base du dataset soit appliquée).
   useEffect(() => {
     if (!caps.training_visible || !ds.currentId || !baseInfo) return;
-    loadCheckpoints(base);
-    // trainType dans les deps : changer de famille (Z-Image/SDXL/Krea) recharge la
-    // liste « IN COMFYUI » + les checkpoints pour CETTE famille (sinon liste figée).
+    setCkLoaded(false);
+    loadCheckpoints(checkpointBase, checkpointTrainType);
+  }, [checkpointBase, checkpointTrainType, ds.currentId, baseInfo, caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Le barème affiché dans Training suit uniquement la configuration Training,
+  // jamais le filtre indépendant du navigateur de résultats.
+  useEffect(() => {
+    if (!caps.training_visible || !ds.currentId || !baseInfo) return undefined;
+    let alive = true;
+    ds.listCheckpoints(base, trainType).then((data) => {
+      if (alive) setStepsInfo(data?.recommended_steps_info || null);
+    }).catch(() => { /* keep the last truthful rationale */ });
+    return () => { alive = false; };
   }, [base, trainType, ds.currentId, baseInfo, caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
   const removeImported = async (filename, label) => {
     // Guard-rail: this LoRA may be the one the Studio's ★ best settings point to —
@@ -562,9 +600,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       && String(best.lora_filename).split(/[\\/]/).pop() === String(filename).split(/[\\/]/).pop();
     const msg = isBest
       ? `⚠ « ${label} » is the LoRA saved as this dataset's ★ BEST SETTINGS in the Test Studio.\n\nDelete it anyway? The saved combo will stop working.`
-      : `Permanently delete « ${label} » from ComfyUI's ${lorasLabel} folder?`;
+      : `Permanently delete « ${label} » from ComfyUI's ${checkpointLorasLabel} folder?`;
     if (!window.confirm(msg)) return;
-    await ds.deleteCheckpoint(filename, trainType);
+    await ds.deleteCheckpoint(filename, checkpointTrainType);
     loadCheckpoints();
   };
   const doPrepareBase = async () => {
@@ -577,12 +615,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // the checkpoint closest to the best-scoring step. Result cleared on base change.
   const [bestEpoch, setBestEpoch] = useState(null);
   const [bestEpochBusy, setBestEpochBusy] = useState(false);
-  useEffect(() => { setBestEpoch(null); }, [base, trainType, ds.currentId]);
+  useEffect(() => { setBestEpoch(null); }, [checkpointBase, checkpointTrainType, ds.currentId]);
   const findBestEpoch = async () => {
     setBestEpochBusy(true);
     try {
       const d = await postTrain(`/api/dataset/${ds.currentId}/train/best-epoch`,
-        { base_model: base, train_type: trainType });
+        { base_model: checkpointBase, train_type: checkpointTrainType });
       if (d && d.ok === false) { toastTrainError(d, 'best-epoch scoring failed'); return; }
       setBestEpoch(d);
     } finally {
@@ -602,8 +640,22 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const baseLabel = customBase && base
     ? `custom: ${baseName(base)}`
     : (currentBases.find((b) => b.value === base)?.label || (base || 'Official'));
-  const typeLabel = trainType === 'sdxl' ? 'SDXL' : trainType === 'krea' ? 'Krea 2' : trainType === 'flux' ? 'FLUX.1' : trainType === 'flux2klein' ? 'FLUX.2 Klein' : 'Z-Image';
-  const lorasLabel = trainType === 'sdxl' ? 'loras/sdxl' : trainType === 'krea' ? 'loras/krea' : trainType === 'flux' ? 'loras/flux' : trainType === 'flux2klein' ? 'loras/flux2klein' : 'loras/z image';
+  const typeLabel = trainFamilyLabel(trainType);
+  const checkpointBasesRaw = baseInfo?.bases_by_type?.[checkpointTrainType] || baseInfo?.bases || [];
+  const checkpointBaseOptions = checkpointBase && !checkpointBasesRaw.some((item) => item.value === checkpointBase)
+    ? [{ value: checkpointBase, label: `custom: ${baseName(checkpointBase)}` }, ...checkpointBasesRaw]
+    : checkpointBasesRaw;
+  const checkpointBaseLabel = checkpointBaseOptions.find((item) => item.value === checkpointBase)?.label
+    || (checkpointBase ? baseName(checkpointBase) : 'Official');
+  const checkpointTypeLabel = trainFamilyLabel(checkpointTrainType);
+  const checkpointLorasLabel = loraFolderLabel(checkpointTrainType);
+  const checkpointMatchesTraining = checkpointSelectionMatchesTraining(
+    checkpointTrainType, checkpointBase, trainType, base);
+  const onCheckpointTypeChange = (nextType) => {
+    const choices = baseInfo?.bases_by_type?.[nextType] || [];
+    setCheckpointTrainType(nextType);
+    setCheckpointBase(defaultCheckpointBase(choices));
+  };
 
   // Panel gated off (ai-toolkit not configured): the workspace's checkpoint
   // count must not keep a stale value from a previous dataset/session.
@@ -1533,6 +1585,32 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           </span>
         </summary>
         <div className="px-3 pt-1 flex flex-col gap-2">
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-app px-3 py-2 flex-wrap">
+            <span className="text-content-muted text-[0.625rem] uppercase">Browse results</span>
+            <select value={checkpointTrainType} onChange={(event) => onCheckpointTypeChange(event.target.value)}
+              aria-label="LoRA family to browse"
+              className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+              <option value="zimage">Z-Image</option>
+              <option value="sdxl">SDXL</option>
+              <option value="krea">Krea 2</option>
+              <option value="flux">FLUX.1</option>
+              <option value="flux2klein">FLUX.2 Klein</option>
+            </select>
+            {checkpointBaseOptions.length > 0 ? (
+              <select value={checkpointBase} onChange={(event) => setCheckpointBase(event.target.value)}
+                aria-label="Training base to browse"
+                className="min-w-0 max-w-full px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                {checkpointBaseOptions.map((item) => (
+                  <option key={`${checkpointTrainType}-${item.value}`} value={item.value}>{item.label}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-content text-xs">{checkpointBaseLabel}</span>
+            )}
+            <span className="ml-auto text-content-subtle text-[0.625rem]">
+              Independent from the next Training configuration
+            </span>
+          </div>
           {/* Provenance du dataset : version courante + alerte si le dataset a
               changé depuis le dernier entraînement (les checkpoints listés ne
               reflètent alors PLUS l'état actuel). */}
@@ -1561,8 +1639,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <div className="flex items-center gap-2 flex-wrap">
             {/* () => … sinon React passe l'event en 1er arg → forBase = PointerEvent
                 → base_model=[object Object] → run inexistant → liste vide. */}
-            <button type="button" onClick={() => loadCheckpoints(base)}
-              title="Reload the checkpoint list for the selected base"
+            <button type="button" onClick={() => loadCheckpoints(checkpointBase, checkpointTrainType)}
+              title="Reload the checkpoint list for this results filter"
               className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
               ↻ Refresh checkpoints
             </button>
@@ -1570,14 +1648,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 loras = imports ComfyUI de la famille ; run = checkpoints bruts. */}
             <button type="button"
               onClick={() => postTrain(`/api/dataset/${ds.currentId}/train/open-folder`,
-                { target: 'loras', train_type: trainType })}
-              title={`Open the ComfyUI folder where imported ${typeLabel} LoRAs live (loras/${trainType === 'zimage' ? 'z image' : trainType})`}
+                { target: 'loras', train_type: checkpointTrainType })}
+              title={`Open the ComfyUI folder where imported ${checkpointTypeLabel} LoRAs live`}
               className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
               📂 LoRA folder
             </button>
             <button type="button"
               onClick={() => postTrain(`/api/dataset/${ds.currentId}/train/open-folder`,
-                { target: 'run', train_type: trainType, base_model: base })}
+                { target: 'run', train_type: checkpointTrainType, base_model: checkpointBase })}
               title="Open this run's output folder (raw checkpoints, samples, training log)"
               className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
               📂 Run folder
@@ -1591,7 +1669,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-content-muted text-[0.625rem] uppercase">
-                  Checkpoints — base « {baseLabel} » (pick the earliest one that holds the identity)
+                  {checkpointTypeLabel} checkpoints — base « {checkpointBaseLabel} » (pick the earliest one that holds the identity)
                 </span>
                 <button type="button" disabled={bestEpochBusy}
                   onClick={findBestEpoch}
@@ -1599,14 +1677,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-[0.6875rem] font-semibold disabled:opacity-40">
                   {bestEpochBusy ? '🏆 Scoring samples…' : '🏆 Find best epoch'}
                 </button>
-                <button type="button" disabled={status.in_progress || baseBlocksTrain}
+                <button type="button" disabled={status.in_progress || !checkpointMatchesTraining}
                   onClick={async () => {
                     const last = Math.max(...checkpoints.map((c) => c.step));
-                    if (window.confirm(`Resume training « ${baseLabel} » from step ${last} and continue for +1000 steps (→ ${last + 1000})?`)) {
-                      await ds.continueTraining(1000, base, variant); refreshStatus(); loadCheckpoints(base);
+                    if (window.confirm(`Resume training « ${checkpointBaseLabel} » from step ${last} and continue for +1000 steps (→ ${last + 1000})?`)) {
+                      await ds.continueTraining(1000, checkpointBase, variant); refreshStatus(); loadCheckpoints(checkpointBase, checkpointTrainType);
                     }
                   }}
-                  title={baseBlocksTrain ? 'Convert the custom base first' : 'Resumes from this base’s last checkpoint and trains 1000 more steps'}
+                  title={!checkpointMatchesTraining
+                    ? 'To continue this run, select the same LoRA family and base in Training first'
+                    : 'Resumes from this base’s last checkpoint and trains 1000 more steps'}
                   className="ml-auto px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-[0.6875rem] font-semibold disabled:opacity-40">
                   ▶ Continue training (+1000)
                 </button>
@@ -1644,19 +1724,19 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                       // without a manual Refresh click (user-observed). finally:
                       // the list refreshes even if the import failed (the error
                       // toast comes from the hook).
-                      try { await ds.importCheckpoint(c.filename, base, trainType); }
-                      finally { loadCheckpoints(base); }
+                      try { await ds.importCheckpoint(c.filename, checkpointBase, checkpointTrainType); }
+                      finally { loadCheckpoints(checkpointBase, checkpointTrainType); }
                     }}
                     className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
-                    Import → {lorasLabel}
+                    Import → {checkpointLorasLabel}
                   </button>
                   <button type="button"
                     onClick={async () => {
                       if (!window.confirm(`Move « ${c.filename} » to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
                       const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
-                        { filename: c.filename, base_model: base, train_type: trainType });
+                        { filename: c.filename, base_model: checkpointBase, train_type: checkpointTrainType });
                       if (d.ok === false) toastTrainError(d, 'Delete failed');
-                      loadCheckpoints(base);
+                      loadCheckpoints(checkpointBase, checkpointTrainType);
                     }}
                     title="Move this checkpoint to the trash (recoverable until the trash is emptied in Settings)"
                     className="px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">
@@ -1679,9 +1759,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                     if (!removed) return;
                     if (!window.confirm(`Clean up this run?\n\nKeeps ${keep.length} checkpoint(s) (${keep.join(', ')}) and moves ${removed} to the trash — recoverable until you empty the trash in Settings.`)) return;
                     const d = await postTrain(`/api/dataset/${ds.currentId}/train/checkpoints/cleanup`,
-                      { keep_filenames: keep, base_model: base, train_type: trainType });
+                      { keep_filenames: keep, base_model: checkpointBase, train_type: checkpointTrainType });
                     if (d.ok === false) toastTrainError(d, 'Cleanup failed');
-                    loadCheckpoints(base);
+                    loadCheckpoints(checkpointBase, checkpointTrainType);
                   }}
                   title="Keep the final (+ the 🏆 best-epoch pick if scored) and move every other checkpoint of this run to the trash"
                   className="px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-200 text-[0.6875rem] font-semibold">
@@ -1711,16 +1791,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   <button type="button"
                     onClick={async () => {
                       const d = await postTrain(`/api/dataset/${ds.currentId}/train/import`,
-                        { filename: c.filename, train_type: trainType, cloud_run_id: c.run_id });
+                        { filename: c.filename, train_type: checkpointTrainType, cloud_run_id: c.run_id });
                       // Success must be VISIBLE: without the toast a working
                       // import looked like a dead button (user-observed).
                       if (d.ok === false) toastTrainError(d, 'Import failed');
                       else toast.success(`LoRA imported: ${d.dest || c.filename}`);
-                      loadCheckpoints(base);
+                      loadCheckpoints(checkpointBase, checkpointTrainType);
                     }}
                     title={c.active ? 'Import the latest synced save — the run keeps training' : 'Import this cloud checkpoint into ComfyUI'}
                     className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
-                    Import → {lorasLabel}
+                    Import → {checkpointLorasLabel}
                   </button>
                   {!c.active && (
                     <button type="button"
@@ -1729,7 +1809,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                         const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
                           { filename: c.filename, cloud_run_id: c.run_id });
                         if (d.ok === false) toastTrainError(d, 'Delete failed');
-                        loadCheckpoints(base);
+                        loadCheckpoints(checkpointBase, checkpointTrainType);
                       }}
                       title="Move this cloud save to the trash"
                       className="px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">
@@ -1743,14 +1823,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
           {ckLoaded && checkpoints.length === 0 && cloudCkpts.length === 0 && !status.in_progress && (
             <p className="m-0 text-content-subtle text-[0.625rem]">
-              No checkpoint for base « {baseLabel} » — run a training on this base first.
+              No {checkpointTypeLabel} checkpoint for base « {checkpointBaseLabel} » — run a training on this base first.
             </p>
           )}
 
           {imported.length > 0 && (
             <div className="flex flex-col gap-1">
               <span className="text-content-muted text-[0.625rem] uppercase">
-                In ComfyUI ({lorasLabel}) — delete the ones you no longer need
+                In ComfyUI ({checkpointLorasLabel}) — delete the ones you no longer need
               </span>
               {imported.map((c) => (
                 <div key={c.filename} className="flex items-center gap-2 text-[0.6875rem]">
@@ -1760,13 +1840,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                       would test as a silent no-op. No auto-move; just flag it. */}
                   {c.arch_mismatch && (
                     <span
-                      title={`This file is a ${c.arch_label || c.arch_mismatch} LoRA, not ${lorasLabel} — testing it here has NO effect (ComfyUI silently drops it). Delete it and re-import under the ${c.arch_label || c.arch_mismatch} family.`}
+                      title={`This file is a ${c.arch_label || c.arch_mismatch} LoRA, not ${checkpointLorasLabel} — testing it here has NO effect (ComfyUI silently drops it). Delete it and re-import under the ${c.arch_label || c.arch_mismatch} family.`}
                       className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300 whitespace-nowrap">
                       ⚠ {c.arch_label || c.arch_mismatch} LoRA
                     </span>
                   )}
                   <button type="button" onClick={() => removeImported(c.filename, c.label)}
-                    title={`Delete this LoRA from ComfyUI's ${lorasLabel} folder`}
+                    title={`Delete this LoRA from ComfyUI's ${checkpointLorasLabel} folder`}
                     className="ml-auto px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">
                     🗑 Delete
                   </button>

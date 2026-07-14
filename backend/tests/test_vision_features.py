@@ -81,6 +81,20 @@ def test_window_ownership_prevents_flag_stomp_on_re_acquisition(app, monkeypatch
         queue_manager._set_system_state('vision_in_progress', None)
 
 
+def test_boot_recovery_clears_persisted_vision_lock(app):
+    """A request dies with the server process, but its DB flag survives unless
+    startup explicitly removes it. Restarting must never strand "GPU busy"."""
+    from app.gpu_window import recover_stale_vision_window
+    from app.job_queue import queue_manager
+
+    with app.app_context():
+        queue_manager._set_system_state('vision_in_progress', 'dead-process-token',
+                                        ttl_seconds=1800)
+        assert recover_stale_vision_window() is True
+        assert queue_manager._get_system_state('vision_in_progress') is None
+        assert recover_stale_vision_window() is False
+
+
 # --- import_images(crop=True) head-crop ---------------------------------
 def test_import_images_crop_true_produces_square_output(app, monkeypatch):
     from app.services import face_dataset_service as svc

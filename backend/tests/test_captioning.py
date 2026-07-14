@@ -160,6 +160,31 @@ def test_caption_images_backend_joycaption_skips_ollama_fallback(app, monkeypatc
         assert refreshed.caption == 'a joycaption result'
 
 
+def test_caption_images_exposes_joycaption_stage_while_batch_runs(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import dataset_activity as da
+    import app.services.joycaption as jc_mod
+    from app.config import LOCAL_USER, save_config
+
+    seen = []
+    with app.app_context():
+        save_config({'captioning': {'backend': 'joycaption'}})
+        ds, img = _dataset_with_kept_image(svc, LOCAL_USER)
+        path = svc._img_path(img)
+        monkeypatch.setattr(jc_mod, 'is_available', lambda: True)
+
+        def _caption(paths, **kwargs):
+            seen.append(da.get(ds.id))
+            return {path: 'a joycaption result'}
+
+        monkeypatch.setattr(jc_mod, 'caption_images_joycaption', _caption)
+        assert svc.caption_images(LOCAL_USER, ds.id) == 1
+
+    assert seen and seen[0]['kind'] == 'caption'
+    assert seen[0]['done'] == 0 and seen[0]['total'] == 1
+    assert 'JoyCaption' in seen[0]['detail']
+
+
 def test_caption_images_backend_joycaption_unavailable_raises(app, monkeypatch):
     """backend='joycaption' is an explicit user choice in Settings -- if the
     ai-toolkit venv isn't there (is_available() False), the caller must get a

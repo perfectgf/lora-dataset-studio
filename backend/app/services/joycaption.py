@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import subprocess
+import time
 
 from .. import config as cfg
 
@@ -39,14 +40,21 @@ def caption_images_joycaption(paths, prompt: str | None = None,
     script = str(_SCRIPT)
     # HF_HOME = même cache que l'entraînement (modèle déjà téléchargé là).
     env = dict(os.environ, HF_HOME=str(cfg.aitoolkit_path('hf_home')), PYTHONIOENCODING='utf-8')
+    started = time.monotonic()
+    logger.info('joycaption: starting batch (%d image(s), timeout=%ss)', len(paths), timeout)
     try:
         proc = subprocess.run(
             [venv_python, script], input=payload, env=env,
             cwd=os.path.dirname(script), capture_output=True, text=True,
             encoding='utf-8', errors='replace', timeout=timeout,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    except (subprocess.TimeoutExpired, OSError) as e:
-        logger.warning('joycaption: subprocess échec : %s', e)
+    except subprocess.TimeoutExpired:
+        logger.error('joycaption: timed out after %.1fs while processing %d image(s)',
+                     time.monotonic() - started, len(paths))
+        return {}
+    except OSError as e:
+        logger.error('joycaption: could not start subprocess after %.1fs: %s',
+                     time.monotonic() - started, e)
         return {}
     out = (proc.stdout or '').strip()
     # La sortie JSON est la dernière ligne `{…}` (les logs vont sur stderr).
@@ -63,4 +71,7 @@ def caption_images_joycaption(paths, prompt: str | None = None,
     if data.get('errors'):
         logger.info('joycaption: %d erreur(s) image : %s',
                     len(data['errors']), list(data['errors'].values())[:3])
-    return {k: (v or '').strip() for k, v in (data.get('captions') or {}).items() if v}
+    captions = {k: (v or '').strip() for k, v in (data.get('captions') or {}).items() if v}
+    logger.info('joycaption: batch finished (%d/%d captioned, elapsed=%.1fs)',
+                len(captions), len(paths), time.monotonic() - started)
+    return captions
