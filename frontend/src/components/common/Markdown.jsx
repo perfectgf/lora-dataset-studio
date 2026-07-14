@@ -93,15 +93,17 @@ function parseBlocks(md) {
   return blocks;
 }
 
-export default function Markdown({ source }) {
-  const blocks = parseBlocks(source || '');
-  return (
-    <div className="flex flex-col gap-3 max-w-none">
-      {blocks.map((b, idx) => {
-        const key = `b${idx}`;
-        switch (b.t) {
+export const markdownHeadingId = (text) => String(text || '')
+  .replace(/[`*_]/g, '')
+  .toLocaleLowerCase()
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-|-$/g, '');
+
+function renderBlock(b, idx, guide = false) {
+  const key = `b${idx}`;
+  switch (b.t) {
           case 'h1': return <h1 key={key} className="m-0 mt-2 text-content font-bold text-2xl">{renderInline(b.body, key)}</h1>;
-          case 'h2': return <h2 key={key} className="m-0 mt-4 text-content font-bold text-lg border-b border-border pb-1.5">{renderInline(b.body, key)}</h2>;
+          case 'h2': return <h2 key={key} id={guide ? undefined : markdownHeadingId(b.body)} className={`${guide ? 'text-xl' : 'mt-4 border-b border-border pb-1.5 text-lg'} m-0 scroll-mt-24 text-content font-bold`}>{renderInline(b.body, key)}</h2>;
           case 'h3': return <h3 key={key} className="m-0 mt-2 text-content font-semibold text-base">{renderInline(b.body, key)}</h3>;
           case 'hr': return <hr key={key} className="border-border my-2" />;
           case 'quote': return (
@@ -137,7 +139,7 @@ export default function Markdown({ source }) {
           case 'list': {
             const Tag = b.ordered ? 'ol' : 'ul';
             return (
-              <Tag key={key} className={`m-0 pl-5 flex flex-col gap-1.5 text-sm text-content-muted ${b.ordered ? 'list-decimal' : 'list-disc'}`}>
+              <Tag key={key} className={`m-0 flex flex-col text-sm text-content-muted ${guide && b.ordered ? 'list-none gap-2 p-0' : `gap-1.5 pl-5 ${b.ordered ? 'list-decimal' : 'list-disc'}`}`}>
                 {b.items.map((it, ii) => {
                   const task = it.match(/^\[([ xX])\]\s+(.*)$/);
                   if (task) {
@@ -148,14 +150,58 @@ export default function Markdown({ source }) {
                       </li>
                     );
                   }
+                  if (guide && b.ordered) {
+                    return (
+                      <li key={ii} className="flex gap-3 rounded-lg border border-border bg-app px-3 py-3 leading-relaxed">
+                        <span aria-hidden className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-indigo-500/15 font-mono text-[0.6875rem] font-bold text-indigo-300">{String(ii + 1).padStart(2, '0')}</span>
+                        <span>{renderInline(it, `${key}i${ii}`)}</span>
+                      </li>
+                    );
+                  }
                   return <li key={ii}>{renderInline(it, `${key}i${ii}`)}</li>;
                 })}
               </Tag>
             );
           }
           default: return <p key={key} className="m-0 text-sm text-content-muted leading-relaxed">{renderInline(b.body, key)}</p>;
-        }
-      })}
-    </div>
-  );
+  }
+}
+
+export default function Markdown({ source, variant = 'default' }) {
+  const blocks = parseBlocks(source || '');
+  if (variant === 'guide') {
+    const visible = blocks.filter((block, index) => !(index === 0 && block.t === 'h1'));
+    const intro = [];
+    const sections = [];
+    let section = null;
+    visible.forEach((block, index) => {
+      if (block.t === 'h2') {
+        section = { heading: block, blocks: [], index };
+        sections.push(section);
+      } else if (section) section.blocks.push({ block, index });
+      else if (block.t !== 'hr') intro.push({ block, index });
+    });
+    return (
+      <div className="flex max-w-none flex-col gap-4">
+        {intro.length > 0 && (
+          <div className="flex flex-col gap-3 rounded-xl border border-indigo-400/20 bg-gradient-to-br from-indigo-500/10 via-surface to-surface px-4 py-4 sm:px-5">
+            {intro.map(({ block, index }) => renderBlock(block, index, true))}
+          </div>
+        )}
+        {sections.map(({ heading, blocks: sectionBlocks, index }) => (
+          <section key={`section-${index}`} id={markdownHeadingId(heading.body)}
+            className="scroll-mt-24 rounded-xl border border-border bg-surface px-4 py-4 shadow-sm shadow-black/10 sm:px-5 sm:py-5">
+            <div className="mb-4 flex items-start gap-3 border-b border-border pb-3">
+              <span aria-hidden className="mt-1 h-5 w-1 shrink-0 rounded-full bg-gradient-primary" />
+              {renderBlock(heading, index, true)}
+            </div>
+            <div className="flex flex-col gap-3">
+              {sectionBlocks.map(({ block, index: blockIndex }) => renderBlock(block, blockIndex, true))}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
+  return <div className="flex max-w-none flex-col gap-3">{blocks.map((b, idx) => renderBlock(b, idx))}</div>;
 }

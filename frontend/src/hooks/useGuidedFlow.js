@@ -33,7 +33,10 @@ export function deriveSteps(d, caps, checkpointCount = 0) {
         done: checkpointCount > 0, subtitle: checkpointCount ? `${checkpointCount} checkpoint(s)` : '' }
     : { id: 'finish', label: 'Export', targetId: 'gf-export', done: false, subtitle: 'ZIP',
         unavailable: false });
-  steps.push({ id: 'studio', label: 'Studio', targetId: 'gf-training',
+  if (trainMode) steps.push({ id: 'checkpoints', label: 'Checkpoints & LoRAs', targetId: 'gf-checkpoints',
+    done: checkpointCount > 0,
+    subtitle: checkpointCount ? `${checkpointCount} available` : 'after training' });
+  steps.push({ id: 'studio', label: 'Studio', targetId: 'gf-studio',
     done: !!(d && d.best_settings),
     unavailable: !(caps && caps.studio_visible),
     hint: caps && caps.studio_visible ? '' : 'Configure ComfyUI in Settings' });

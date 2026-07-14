@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import Markdown from '../components/common/Markdown'
+import Markdown, { markdownHeadingId } from '../components/common/Markdown'
 import DiagnosticReport from '../components/common/DiagnosticReport'
 // Vite inlines every chapter as a string at build time (?raw) → the guide
 // lives in the bundle, no fetch, nothing extra to ship in the portable build.
@@ -16,12 +16,14 @@ import gettingHelp from '../../../docs/guide/getting-help.md?raw'
    intended order, not decoration. `extra` mounts a live component under the
    markdown (the diagnostic button on the help chapter). */
 const CHAPTERS = [
-  { id: 'getting-started', num: '01', title: 'Getting started', source: gettingStarted },
-  { id: 'using-the-app', num: '02', title: 'Using the app', source: usingTheApp },
-  { id: 'dataset-guide', num: '03', title: 'Building a good dataset', source: datasetGuide },
-  { id: 'troubleshooting', num: '04', title: 'Troubleshooting', source: troubleshooting },
-  { id: 'getting-help', num: '05', title: 'Getting help', source: gettingHelp, extra: 'diagnostic' },
+  { id: 'getting-started', num: '01', title: 'Getting started', description: 'Install the app, connect the tools you need, and understand the workspace.', source: gettingStarted },
+  { id: 'using-the-app', num: '02', title: 'Using the app', description: 'Follow the complete workflow for character, concept, and style datasets.', source: usingTheApp },
+  { id: 'dataset-guide', num: '03', title: 'Building a good dataset', description: 'Make stronger choices about images, captions, settings, and checkpoints.', source: datasetGuide },
+  { id: 'troubleshooting', num: '04', title: 'Troubleshooting', description: 'Find a symptom, understand the cause, and apply the shortest reliable fix.', source: troubleshooting },
+  { id: 'getting-help', num: '05', title: 'Getting help', description: 'Create a useful report and share the details needed to solve a problem.', source: gettingHelp, extra: 'diagnostic' },
 ]
+
+const cleanHeading = (heading) => heading.replace(/[`*_]/g, '')
 
 export default function GuidePage() {
   const { section } = useParams()
@@ -30,6 +32,11 @@ export default function GuidePage() {
   const chapter = CHAPTERS[idx]
   const prev = idx > 0 ? CHAPTERS[idx - 1] : null
   const next = idx < CHAPTERS.length - 1 ? CHAPTERS[idx + 1] : null
+  const headings = [...chapter.source.matchAll(/^##\s+(.+)$/gm)].map((match) => ({
+    title: cleanHeading(match[1]), id: markdownHeadingId(match[1]),
+  }))
+  const readingMinutes = Math.max(1, Math.ceil(chapter.source.trim().split(/\s+/).length / 210))
+  const jumpToHeading = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   // A chapter switch is a new "page" — land the reader at its top, not at the
   // scroll depth of the previous chapter.
@@ -55,7 +62,7 @@ export default function GuidePage() {
   }
 
   return (
-    <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start lg:gap-8">
+    <div className="lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:items-start lg:gap-7 xl:grid-cols-[210px_minmax(0,1fr)_190px]">
       <aside>
         {/* Mobile: horizontal chapter chips */}
         <nav aria-label="Guide chapters" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
@@ -70,8 +77,34 @@ export default function GuidePage() {
         </nav>
       </aside>
 
-      <div className="mt-2 max-w-3xl pb-10 lg:mt-0">
-        <Markdown source={chapter.source} />
+      <main className="mt-2 min-w-0 max-w-4xl pb-10 lg:mt-0">
+        <header className="relative mb-4 overflow-hidden rounded-2xl border border-border bg-surface px-5 py-5 sm:px-6 sm:py-6">
+          <div aria-hidden className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-indigo-500/10 blur-3xl" />
+          <div className="relative">
+            <div className="mb-3 flex flex-wrap items-center gap-2 font-mono text-[0.6875rem] uppercase tracking-[0.14em] text-content-subtle">
+              <span className="rounded-md border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-indigo-300">Chapter {chapter.num}</span>
+              <span>{readingMinutes} min read</span>
+              <span aria-hidden>·</span>
+              <span>{idx + 1} of {CHAPTERS.length}</span>
+            </div>
+            <h1 className="m-0 max-w-2xl text-2xl font-bold tracking-tight text-content sm:text-3xl">{chapter.title}</h1>
+            <p className="mb-0 mt-2 max-w-2xl text-sm leading-relaxed text-content-muted sm:text-base">{chapter.description}</p>
+          </div>
+        </header>
+
+        {headings.length > 0 && (
+          <nav aria-label="On this page" className="mb-4 rounded-xl border border-border bg-surface p-3 xl:hidden">
+            <p className="m-0 mb-2 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-content-subtle">On this page</p>
+            <div className="flex gap-2 overflow-x-auto pb-0.5">
+              {headings.map((item) => (
+                <button key={item.id} type="button" onClick={() => jumpToHeading(item.id)}
+                  className="shrink-0 rounded-full border border-border bg-transparent px-2.5 py-1 text-xs text-content-muted hover:border-border-strong hover:text-content">{item.title}</button>
+              ))}
+            </div>
+          </nav>
+        )}
+
+        <Markdown source={chapter.source} variant="guide" />
 
         {chapter.extra === 'diagnostic' && (
           <div className="mt-6">
@@ -79,23 +112,33 @@ export default function GuidePage() {
           </div>
         )}
 
-        <div className="mt-10 flex items-center justify-between gap-4 border-t border-border pt-4">
+        <div className="mt-6 grid grid-cols-2 gap-3 border-t border-border pt-4">
           {prev ? (
-            <Link to={`/guide/${prev.id}`} className="group flex items-baseline gap-2 no-underline">
+            <Link to={`/guide/${prev.id}`} className="group flex min-w-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 no-underline hover:bg-surface-raised">
               <span aria-hidden className="text-content-subtle">←</span>
-              <span className="font-mono text-[11px] text-content-subtle">{prev.num}</span>
-              <span className="text-sm font-medium text-content-muted group-hover:text-content">{prev.title}</span>
+              <span className="min-w-0"><span className="block font-mono text-[0.625rem] uppercase tracking-wider text-content-subtle">Previous</span><span className="block truncate text-sm font-medium text-content-muted group-hover:text-content">{prev.title}</span></span>
             </Link>
           ) : <span />}
           {next ? (
-            <Link to={`/guide/${next.id}`} className="group flex items-baseline gap-2 text-right no-underline">
-              <span className="font-mono text-[11px] text-content-subtle">{next.num}</span>
-              <span className="text-sm font-medium text-content-muted group-hover:text-content">{next.title}</span>
+            <Link to={`/guide/${next.id}`} className="group flex min-w-0 items-center justify-end gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-right no-underline hover:bg-surface-raised">
+              <span className="min-w-0"><span className="block font-mono text-[0.625rem] uppercase tracking-wider text-content-subtle">Next</span><span className="block truncate text-sm font-medium text-content-muted group-hover:text-content">{next.title}</span></span>
               <span aria-hidden className="text-content-subtle">→</span>
             </Link>
           ) : <span />}
         </div>
-      </div>
+      </main>
+
+      <aside className="hidden xl:block">
+        <nav aria-label="On this page" className="sticky top-20 border-l border-border pl-4">
+          <p className="m-0 mb-2 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-content-subtle">On this page</p>
+          <div className="flex flex-col gap-0.5">
+            {headings.map((item) => (
+              <button key={item.id} type="button" onClick={() => jumpToHeading(item.id)}
+                className="rounded-md bg-transparent px-2 py-1.5 text-left text-xs leading-snug text-content-subtle hover:bg-surface hover:text-content">{item.title}</button>
+            ))}
+          </div>
+        </nav>
+      </aside>
     </div>
   )
 }

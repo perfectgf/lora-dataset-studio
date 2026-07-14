@@ -51,8 +51,16 @@ export const WORKSPACE_SECTIONS = [
       { id: 'launch', title: 'Training status & launch', targetId: 'ds-training-launch', when: 'always' },
       { id: 'advanced', title: 'Advanced options', targetId: 'ds-training-advanced', when: 'trainingVisible', reveal: 'training-advanced' },
       { id: 'queue', title: 'Training queue', targetId: 'ds-training-queue', when: 'trainingQueue' },
-      { id: 'checkpoints', title: 'Checkpoints & LoRAs', targetId: 'ds-training-checkpoints', when: 'trainingVisible', reveal: 'training-checkpoints' },
-      { id: 'studio', title: 'LoRA testing studio', targetId: 'ds-training-studio', when: 'studioVisible' },
+    ] },
+  { id: 'checkpoints', title: 'Checkpoints & LoRAs', icon: '📦', eyebrow: 'results',
+    description: 'Review training saves, pick an epoch, import LoRAs into ComfyUI, and clean up old files.',
+    panels: [
+      { id: 'manager', title: 'Checkpoint manager', targetId: 'ds-checkpoints-manager', when: 'trainingVisible' },
+    ] },
+  { id: 'studio', title: 'Studio', icon: '🎛️', eyebrow: 'test',
+    description: 'Test the trained LoRA with saved winning settings in the dedicated Studio.',
+    panels: [
+      { id: 'launcher', title: 'LoRA testing studio', targetId: 'ds-studio-launcher', when: 'studioVisible' },
     ] },
 ];
 
@@ -68,6 +76,8 @@ export const SECTION_FOR_TARGET = {
   'gf-captions': 'captions',
   'gf-export': 'export',
   'gf-training': 'training',
+  'gf-checkpoints': 'checkpoints',
+  'gf-studio': 'studio',
 };
 
 export function isWorkspaceSection(id) {

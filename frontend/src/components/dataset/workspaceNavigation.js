@@ -50,10 +50,16 @@ export function getWorkspacePanels(sectionId, context) {
 
 export function resolveWorkspaceLocation(searchParams, context) {
   const requestedSection = searchParams.get('section');
+  const requestedPanel = searchParams.get('panel');
+  if (requestedSection === 'training' && requestedPanel === 'checkpoints') {
+    return { section: 'checkpoints', panel: 'manager', pending: false, needsNormalization: true };
+  }
+  if (requestedSection === 'training' && requestedPanel === 'studio') {
+    return { section: 'studio', panel: 'launcher', pending: false, needsNormalization: true };
+  }
   if (!isWorkspaceSection(requestedSection)) {
     return { section: 'images', panel: null, pending: false, needsNormalization: true };
   }
-  const requestedPanel = searchParams.get('panel');
   if (!requestedPanel) {
     return { section: requestedSection, panel: null, pending: false, needsNormalization: false };
   }

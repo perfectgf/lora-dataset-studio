@@ -124,6 +124,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
   const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
   const [checkpointCount, setCheckpointCount] = useState(0);
+  const [checkpointHost, setCheckpointHost] = useState(null);
   const [trainingNavigation, setTrainingNavigation] = useState({ ready: false, queueCount: 0 });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [publishHfOpen, setPublishHfOpen] = useState(false);
@@ -183,11 +184,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
   useEffect(() => {
     if (!d || workspaceLocation.pending || !workspaceLocation.needsNormalization) return;
     setSearchParams(
-      (previous) => withWorkspaceLocation(previous, workspaceLocation.section, null),
+      (previous) => withWorkspaceLocation(previous, workspaceLocation.section, workspaceLocation.panel),
       { replace: true },
     );
   }, [d, workspaceLocation.pending, workspaceLocation.needsNormalization,
-      workspaceLocation.section, setSearchParams]);
+      workspaceLocation.section, workspaceLocation.panel, setSearchParams]);
 
   useEffect(() => {
     const destination = panel ? getWorkspacePanel(section, panel) : null;
@@ -1189,7 +1190,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             </div>
           </div>
 
-          {/* ============ 🎓 Training — readiness, panneau complet, Studio de test. */}
+          {/* ============ 🎓 Training — readiness, launch, progress and options. */}
           <div className={sectionCls('training')}>
             {heading('training')}
             <div id="gf-training" className="scroll-mt-20 flex flex-col gap-2">
@@ -1204,20 +1205,32 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 )}
                 <TrainingPanel ds={ds} keptCount={kept} kind={d.kind}
                   onCheckpointsChange={setCheckpointCount}
-                  navigationPanel={section === 'training' && (panel === 'advanced' || panel === 'checkpoints')
-                    ? panel : null}
+                  checkpointHost={checkpointHost}
+                  navigationPanel={section === 'training' && panel === 'advanced' ? panel : null}
                   onNavigationStateChange={setTrainingNavigation}
                   onPanelOpenChange={(panelId, open) => {
                     if (!open && section === 'training' && panel === panelId) clearActivePanel();
                   }} />
               </div>
+            </div>
+          </div>
 
-              {/* Lanceur du Studio de test LoRA : page dédiée plein écran /studio?dataset=
-                  (le LoRA du dataset y est pré-coché). Le dataset ouvert est persisté
-                  (useDataset) → « ← Retour au Dataset Maker » rouvre ce workspace.
-                  Hidden when ComfyUI isn't reachable — the Studio needs it to generate. */}
-              {caps.studio_visible && (
-                <button id="ds-training-studio" type="button" data-workspace-focus
+          {/* The TrainingPanel stays mounted exactly once; its checkpoint manager
+              portals into this first-class stage so the queue poller is not duplicated. */}
+          <div className={sectionCls('checkpoints')}>
+            {heading('checkpoints')}
+            <div id="gf-checkpoints" className="scroll-mt-20 flex flex-col gap-2">
+              <div id="ds-checkpoints-manager" ref={setCheckpointHost} tabIndex={-1}
+                className="scroll-mt-20" />
+            </div>
+          </div>
+
+          {/* ============ 🎛️ Studio — final stage and dedicated-page launcher. */}
+          <div className={sectionCls('studio')}>
+            {heading('studio')}
+            <div id="gf-studio" className="scroll-mt-20 flex flex-col gap-2">
+              {caps.studio_visible ? (
+                <button id="ds-studio-launcher" type="button" data-workspace-focus
                   onClick={() => navigate(`/studio?dataset=${d.id}`)}
                   className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/5 px-3 py-2.5 text-left hover:bg-purple-500/10 transition-colors scroll-mt-20">
                   <span aria-hidden>🎛️</span>
@@ -1231,6 +1244,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     ⤢ Open Studio
                   </span>
                 </button>
+              ) : (
+                <p className="m-0 rounded-lg border border-border bg-surface px-3 py-2 text-content-muted text-sm">
+                  Configure ComfyUI in Settings to use the LoRA testing Studio.
+                </p>
               )}
             </div>
           </div>

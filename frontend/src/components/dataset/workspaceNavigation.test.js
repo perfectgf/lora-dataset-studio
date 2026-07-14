@@ -23,6 +23,13 @@ const BASE = Object.freeze({
   studioVisible: false,
 });
 
+test('workspace ends with separate training, checkpoints and studio sections', () => {
+  assert.deepEqual(WORKSPACE_SECTIONS.slice(-3).map((section) => section.id),
+    ['training', 'checkpoints', 'studio']);
+  assert.deepEqual(WORKSPACE_SECTIONS.find((section) => section.id === 'training').panels.map((panel) => panel.id),
+    ['launch', 'advanced', 'queue']);
+});
+
 const ids = (section, overrides = {}) =>
   getWorkspacePanels(section, { ...BASE, ...overrides }).map((panel) => panel.id);
 
@@ -56,8 +63,18 @@ test('data and capability predicates expose only destinations that currently exi
   assert.deepEqual(ids('captions', { hasKeptImages: false, hasCaptionedKept: false }), ['generate']);
   assert.deepEqual(ids('export', { hfPublish: true, hasKeptImages: true }),
     ['import', 'training-zip', 'backup', 'hugging-face']);
-  assert.deepEqual(ids('training', { studioVisible: true }),
-    ['launch', 'advanced', 'checkpoints', 'studio']);
+  assert.deepEqual(ids('training', { studioVisible: true }), ['launch', 'advanced']);
+  assert.deepEqual(ids('checkpoints'), ['manager']);
+  assert.deepEqual(ids('studio', { studioVisible: true }), ['launcher']);
+});
+
+test('legacy training checkpoint and studio links normalize to their new sections', () => {
+  assert.deepEqual(resolveWorkspaceLocation(
+    new URLSearchParams('section=training&panel=checkpoints'), BASE,
+  ), { section: 'checkpoints', panel: 'manager', pending: false, needsNormalization: true });
+  assert.deepEqual(resolveWorkspaceLocation(
+    new URLSearchParams('section=training&panel=studio'), { ...BASE, studioVisible: true },
+  ), { section: 'studio', panel: 'launcher', pending: false, needsNormalization: true });
 });
 
 test('queue availability remains pending until the first truthful status response', () => {

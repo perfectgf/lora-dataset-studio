@@ -1,5 +1,6 @@
 // react-frontend/src/components/dataset/TrainingPanel.jsx
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
@@ -30,10 +31,15 @@ const fmtBytes = (b) => {
   return `${Math.max(1, Math.round(b / 1e3))} KB`;
 };
 
+function CheckpointPortal({ host, children }) {
+  return host ? createPortal(children, host) : children;
+}
+
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
  * Poll régulier : c'est ce poll qui fait avancer la file (fin du courant → suivant). */
 export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange,
+                                        checkpointHost = null,
                                         navigationPanel = null,
                                         onNavigationStateChange,
                                         onPanelOpenChange }) {
@@ -533,7 +539,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     // du champ Steps pour que l'app EXPLIQUE le nombre au lieu de le décréter.
     setStepsInfo(data.recommended_steps_info || null);
     setCkLoaded(true);
-    onCheckpointsChange?.(Array.isArray(data.checkpoints) ? data.checkpoints.length : 0);
+    onCheckpointsChange?.(
+      (Array.isArray(data.checkpoints) ? data.checkpoints.length : 0)
+      + (Array.isArray(data.imported) ? data.imported.length : 0),
+    );
   };
   // Recharge dès que la base change (sinon le panneau montrait les checkpoints du
   // dernier run + un « Continuer » trompeur, quelle que soit la base choisie). On
@@ -1508,10 +1517,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
       {/* --- Résultats : checkpoints du run + LoRA déjà importés dans ComfyUI.
            Repliés par défaut ; le résumé du summary donne les comptes sans ouvrir. */}
-      <details id="ds-training-checkpoints" open={checkpointsOpen}
+      <CheckpointPortal host={checkpointHost}>
+      <details id="ds-training-checkpoints" open={Boolean(checkpointHost) || checkpointsOpen}
         className="rounded-lg border border-border bg-surface open:pb-2.5 scroll-mt-20">
         <summary data-workspace-focus
-          onClick={togglePanel('checkpoints', checkpointsOpen, setCheckpointsOpen)}
+          onClick={checkpointHost
+            ? (event) => event.preventDefault()
+            : togglePanel('checkpoints', checkpointsOpen, setCheckpointsOpen)}
           className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
           📦 Checkpoints &amp; trained LoRAs
           <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
@@ -1764,6 +1776,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           )}
         </div>
       </details>
+      </CheckpointPortal>
 
       {preflightReport && (
         <PreflightModal report={preflightReport} datasetId={ds.currentId} ds={ds}

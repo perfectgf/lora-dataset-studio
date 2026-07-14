@@ -6,6 +6,14 @@ import { useCapabilities } from '../../context/CapabilitiesContext';
 import { apiFetch } from '../../api/fetchClient';
 import ShotIllustration, { contextEmoji } from './ShotIllustration';
 import { displayLabel } from '../../utils/labels';
+import {
+  applyShotPreset,
+  deleteShotPreset,
+  loadShotPresets,
+  persistShotPresets,
+  renameShotPreset,
+  saveShotPreset,
+} from '../../utils/shotPresets';
 
 const FRAMING_LABEL = { face: 'Face', bust: 'Bust', body: 'Body', back: 'Back' };
 // Framing accent colors — shared by the section headers, the preset composition
@@ -103,6 +111,11 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     try { localStorage.setItem('datasetCustomShots', JSON.stringify(customShots)); }
     catch { /* ignore */ }
   }, [customShots]);
+  const [customPresets, setCustomPresets] = useState(() => loadShotPresets());
+  useEffect(() => {
+    try { persistShotPresets(localStorage, customPresets); }
+    catch { /* private browsing / full storage: keep the in-memory preset usable */ }
+  }, [customPresets]);
 
   const addCustomShot = () => {
     const p = customPrompt.trim();
@@ -253,6 +266,23 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     return entry ? entry[0] : null;
   }, [presets, selected]);
 
+  const activeCustomPreset = useMemo(() => customPresets.find((preset) =>
+    preset.selectedIds.length === selected.size
+      && preset.selectedIds.every((id) => selected.has(id)))?.id || null,
+  [customPresets, selected]);
+
+  const customPresetStats = useMemo(() => {
+    const framingById = new Map([
+      ...catalog, ...nsfwCatalog, ...customShots,
+      ...customPresets.flatMap((preset) => preset.customShots || []),
+    ].map((shot) => [shot.id, shot.framing]));
+    return Object.fromEntries(customPresets.map((preset) => {
+      const counts = { face: 0, bust: 0, body: 0, back: 0 };
+      preset.selectedIds.forEach((id) => { const fr = framingById.get(id); if (fr) counts[fr] += 1; });
+      return [preset.id, { counts, total: preset.selectedIds.length }];
+    }));
+  }, [catalog, nsfwCatalog, customShots, customPresets]);
+
   const toggle = (id) => setSelected((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
   });
@@ -264,6 +294,38 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     const ids = presets[key];
     if (!ids?.length) return;
     setSelected(activePreset === key ? new Set() : new Set(ids));
+  };
+
+  const saveCurrentPreset = () => {
+    const name = window.prompt('Name this shot preset:');
+    if (name == null) return;
+    try {
+      const next = saveShotPreset(customPresets, name, selected, customShots);
+      setCustomPresets(next);
+      toast.success(`Preset saved: ${next.at(-1).name}`);
+    } catch (error) { toast.error(error.message || 'Could not save preset'); }
+  };
+
+  const applyCustomPreset = (preset) => {
+    if (activeCustomPreset === preset.id) {
+      setSelected(new Set());
+      return;
+    }
+    const restored = applyShotPreset(preset, customShots);
+    setCustomShots(restored.customShots);
+    setSelected(new Set(restored.selectedIds));
+  };
+
+  const renameCustomPreset = (preset) => {
+    const name = window.prompt('Rename shot preset:', preset.name);
+    if (name == null) return;
+    try { setCustomPresets((items) => renameShotPreset(items, preset.id, name)); }
+    catch (error) { toast.error(error.message || 'Could not rename preset'); }
+  };
+
+  const removeCustomPreset = (preset) => {
+    if (!window.confirm(`Delete the preset “${preset.name}”?`)) return;
+    setCustomPresets((items) => deleteShotPreset(items, preset.id));
   };
 
   const go = () => {
@@ -414,9 +476,14 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
 
       {/* Preset cards with their framing-mix bar. */}
       <div>
-        <div className="flex items-center gap-2 mb-1.5">
+        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
           <span className="text-content-muted text-[0.6875rem] uppercase">Presets</span>
-          <span className="ml-auto flex items-center gap-2 text-[0.625rem] text-content-subtle" aria-hidden="true">
+          <button type="button" onClick={saveCurrentPreset} disabled={!selected.size}
+            aria-label="Save the current shot selection as a custom preset"
+            className="rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[0.625rem] font-semibold text-indigo-200 hover:bg-primary/20 disabled:opacity-40">
+            ＋ Save preset
+          </button>
+          <span className="ml-auto flex items-center gap-2 flex-wrap text-[0.625rem] text-content-subtle" aria-hidden="true">
             {['face', 'bust', 'body', 'back'].map((fr) => (
               <span key={fr} className="flex items-center gap-1">
                 <span className={`w-2 h-2 rounded-full ${FRAMING_COLOR[fr]}`} />{FRAMING_LABEL[fr]}
@@ -440,6 +507,36 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                 </span>
                 <CompositionMiniBar counts={st?.counts || {}} total={st?.total || 0} />
               </button>
+            );
+          })}
+          {customPresets.map((preset) => {
+            const active = activeCustomPreset === preset.id;
+            const st = customPresetStats[preset.id];
+            return (
+              <div key={preset.id}
+                className={`relative min-w-0 rounded-lg border transition-colors ${active
+                  ? 'border-primary/60 bg-primary/15 ring-1 ring-primary/40'
+                  : 'border-border bg-app/40 hover:bg-surface-raised'}`}>
+                <button type="button" onClick={() => applyCustomPreset(preset)} aria-pressed={active}
+                  aria-label={`Apply custom preset ${preset.name}`}
+                  className="flex w-full min-w-0 flex-col gap-1.5 p-2 pr-12 text-left">
+                  <span className="flex w-full min-w-0 items-baseline gap-1">
+                    <span className={`truncate text-[0.6875rem] font-semibold ${active ? 'text-white' : 'text-content'}`}>
+                      ✨ {preset.name}
+                    </span>
+                    <span className="ml-auto shrink-0 text-[0.625rem] text-content-subtle">{st?.total || 0}</span>
+                  </span>
+                  <CompositionMiniBar counts={st?.counts || {}} total={st?.total || 0} />
+                </button>
+                <div className="absolute right-1 top-1 flex gap-0.5">
+                  <button type="button" onClick={() => renameCustomPreset(preset)}
+                    aria-label={`Rename custom preset ${preset.name}`} title="Rename preset"
+                    className="grid h-5 w-5 place-items-center rounded text-[0.625rem] text-content-subtle hover:bg-white/10 hover:text-content">✎</button>
+                  <button type="button" onClick={() => removeCustomPreset(preset)}
+                    aria-label={`Delete custom preset ${preset.name}`} title="Delete preset"
+                    className="grid h-5 w-5 place-items-center rounded text-[0.625rem] text-content-subtle hover:bg-red-500/15 hover:text-red-300">✕</button>
+                </div>
+              </div>
             );
           })}
         </div>
