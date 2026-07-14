@@ -44,7 +44,21 @@ def build_mask(size, bboxes):
 
 
 def _payload_bboxes(req):
-    raw_bboxes = req['bboxes'] if 'bboxes' in req else [req['bbox']]
+    if 'bboxes' in req:
+        raw_bboxes = req['bboxes']
+    else:
+        raw_bbox = req['bbox']
+        if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
+            raise ValueError('bbox must have 4 values')
+        x1, y1, x2, y2 = (float(value) for value in raw_bbox)
+        left, right = sorted((x1, x2))
+        top, bottom = sorted((y1, y2))
+        raw_bboxes = [[
+            max(0.0, min(1.0, left)),
+            max(0.0, min(1.0, top)),
+            max(0.0, min(1.0, right)),
+            max(0.0, min(1.0, bottom)),
+        ]]
     if not isinstance(raw_bboxes, list) or not raw_bboxes:
         raise ValueError('bboxes must be a non-empty list')
 

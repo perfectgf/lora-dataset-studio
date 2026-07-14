@@ -94,4 +94,13 @@ def inpaint_watermarks(image_path, bboxes, timeout: int = 300) -> tuple[bool, di
 
 def inpaint_watermark(image_path, bbox, timeout: int = 300) -> tuple[bool, dict | None]:
     """Adaptateur compatible pour l'ancien appel a un seul rectangle."""
-    return inpaint_watermarks(image_path, [bbox], timeout=timeout)
+    x1, y1, x2, y2 = (float(value) for value in bbox)
+    left, right = sorted((x1, x2))
+    top, bottom = sorted((y1, y2))
+    normalized = [
+        max(0.0, min(1.0, left)),
+        max(0.0, min(1.0, top)),
+        max(0.0, min(1.0, right)),
+        max(0.0, min(1.0, bottom)),
+    ]
+    return inpaint_watermarks(image_path, [normalized], timeout=timeout)

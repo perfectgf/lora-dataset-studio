@@ -897,6 +897,43 @@ def test_inpaint_watermark_legacy_wrapper_sends_one_item_list(app, monkeypatch, 
     assert payloads[0]['bboxes'] == [bbox]
 
 
+@pytest.mark.parametrize(('bbox', 'expected'), [
+    ([0.8, 0.9, 0.2, 0.1], [0.2, 0.1, 0.8, 0.9]),
+    ([-0.1, 0.1, 0.2, 1.2], [0.0, 0.1, 0.2, 1.0]),
+], ids=['swapped', 'partially-out-of-range'])
+def test_inpaint_worker_legacy_bbox_normalizes_coordinates(bbox, expected):
+    from infer.lama_infer import _payload_bboxes
+
+    assert _payload_bboxes({'bbox': bbox}) == [expected]
+
+
+@pytest.mark.parametrize(('bbox', 'expected'), [
+    ([0.8, 0.9, 0.2, 0.1], [0.2, 0.1, 0.8, 0.9]),
+    ([-0.1, 0.1, 0.2, 1.2], [0.0, 0.1, 0.2, 1.0]),
+], ids=['swapped', 'partially-out-of-range'])
+def test_inpaint_watermark_legacy_wrapper_normalizes_coordinates(
+        app, monkeypatch, tmp_path, bbox, expected):
+    from app.services import watermark_lama
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    payloads = []
+
+    def _run(*args, **kwargs):
+        payloads.append(json.loads(kwargs['input']))
+        return _Proc(json.dumps({'ok': True}))
+
+    monkeypatch.setattr(watermark_lama.subprocess, 'run', _run)
+    image_path = tmp_path / 'x.webp'
+    image_path.write_bytes(_img_bytes())
+
+    ok, err = watermark_lama.inpaint_watermark(image_path, bbox)
+
+    assert ok is True and err is None
+    assert payloads == [{
+        'image_path': str(image_path),
+        'bboxes': [expected],
+    }]
+
+
 def test_build_mask_marks_each_box_without_filling_space_between():
     from infer.lama_infer import build_mask
 
