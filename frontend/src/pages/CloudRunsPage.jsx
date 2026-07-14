@@ -12,6 +12,11 @@ import TrainingProgress from '../components/dataset/TrainingProgress';
 const POLL_MS = 5000;
 const FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein' };
 
+// "Recent" history collapse: a UI preference, not run data — persisted globally
+// (same lazy-init + effect pattern as `datasetGridTileSize` in DatasetGrid.jsx /
+// `datasetGenerator` in VariationCatalog.jsx). Default open = today's behavior.
+const RECENT_COLLAPSED_KEY = 'cloudRunsRecentCollapsed';
+
 const STATUS_STYLE = {
   done: 'text-emerald-300 border-emerald-400/40 bg-emerald-500/10',
   error: 'text-rose-300 border-rose-400/40 bg-rose-500/10',
@@ -68,6 +73,12 @@ export default function CloudRunsPage() {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [stopping, setStopping] = useState({});     // run_id -> bool
+  const [recentCollapsed, setRecentCollapsed] = useState(() => {
+    try { return localStorage.getItem(RECENT_COLLAPSED_KEY) === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(RECENT_COLLAPSED_KEY, recentCollapsed ? '1' : '0'); } catch { /* ignore — private mode */ }
+  }, [recentCollapsed]);
 
   const poll = useCallback(async () => {
     try {
@@ -346,20 +357,29 @@ export default function CloudRunsPage() {
       {recent.length > 0 && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
-            <h2 className="m-0 text-content-muted text-xs font-semibold uppercase tracking-wide">
-              Recent
+            <h2 className="m-0">
+              <button type="button" onClick={() => setRecentCollapsed((v) => !v)}
+                aria-expanded={!recentCollapsed}
+                className="flex items-center gap-1.5 text-content-muted hover:text-content text-xs font-semibold uppercase tracking-wide">
+                <span aria-hidden className="text-[0.625rem] leading-none">{recentCollapsed ? '▸' : '▾'}</span>
+                Recent{recent.length ? ` (${recent.length})` : ''}
+                <span className="sr-only">{recentCollapsed ? ' — collapsed' : ' — expanded'}</span>
+              </button>
             </h2>
-            <button type="button"
-              onClick={async () => {
-                if (!window.confirm('Move the staging folders of all FINISHED runs to the trash?\n\nDataset copies, samples and checkpoint duplicates already imported. Active runs and pods kept for recovery are spared. Recoverable until you empty the trash in Settings.')) return;
-                const d = await postJson('/api/dataset/train/cloud/purge', {});
-                if (d.ok) toast.info(`Cleaned ${d.purged_runs} run(s) — ${(d.freed_bytes / 1e9).toFixed(1)} GB moved to the trash.`);
-                poll();
-              }}
-              className="ml-auto px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold">
-              🧹 Clean finished runs
-            </button>
+            {!recentCollapsed && (
+              <button type="button"
+                onClick={async () => {
+                  if (!window.confirm('Move the staging folders of all FINISHED runs to the trash?\n\nDataset copies, samples and checkpoint duplicates already imported. Active runs and pods kept for recovery are spared. Recoverable until you empty the trash in Settings.')) return;
+                  const d = await postJson('/api/dataset/train/cloud/purge', {});
+                  if (d.ok) toast.info(`Cleaned ${d.purged_runs} run(s) — ${(d.freed_bytes / 1e9).toFixed(1)} GB moved to the trash.`);
+                  poll();
+                }}
+                className="ml-auto px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold">
+                🧹 Clean finished runs
+              </button>
+            )}
           </div>
+          {!recentCollapsed && (
           <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
             {recent.map((run, i) => (
               <div key={run.run_id ? `c${run.run_id}` : `l${run.dataset_id}-${run.created_at || i}`}
@@ -423,6 +443,7 @@ export default function CloudRunsPage() {
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
     </section>
