@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   MIN_WATERMARK_REGION_SIZE,
+  buildWatermarkReviewState,
   clamp,
+  deleteSelectedWatermarkRegion,
   ensureMinimumRegion,
   moveRegion,
   normalizeRegion,
@@ -129,4 +131,71 @@ test('serializeWatermarkRegions rounds only a cloned API payload and preserves n
   assert.notStrictEqual(payload, regions);
   assert.notStrictEqual(payload[0], regions[0]);
   assert.equal(serializeWatermarkRegions(null), null);
+});
+
+test('buildWatermarkReviewState clones effective regions without mutating the frozen queue', () => {
+  const queue = [
+    {
+      id: 7,
+      watermark_bbox: [0.1, 0.1, 0.2, 0.2],
+      watermark_regions: null,
+      effective_watermark_regions: [[0.1, 0.1, 0.2, 0.2]],
+    },
+    {
+      id: 8,
+      watermark_bbox: [0.3, 0.3, 0.4, 0.4],
+      watermark_regions: [],
+      effective_watermark_regions: [],
+    },
+  ];
+  const snapshot = structuredClone(queue);
+
+  const state = buildWatermarkReviewState(queue);
+
+  assert.deepEqual(queue, snapshot);
+  assert.deepEqual(state.regionsById, {
+    7: [[0.1, 0.1, 0.2, 0.2]],
+    8: [],
+  });
+  assert.deepEqual(state.detectionRegionsById, {
+    7: [[0.1, 0.1, 0.2, 0.2]],
+    8: [[0.3, 0.3, 0.4, 0.4]],
+  });
+  assert.deepEqual(state.manualById, { 7: false, 8: true });
+  assert.deepEqual(state.selectedById, { 7: 0, 8: null });
+  assert.deepEqual(state.addModeById, { 7: false, 8: false });
+  assert.deepEqual(state.saveStateById, {
+    7: { status: 'saved', error: null },
+    8: { status: 'saved', error: null },
+  });
+
+  state.regionsById[7][0][0] = 0.9;
+  assert.deepEqual(queue, snapshot);
+});
+
+test('deleteSelectedWatermarkRegion removes only the selected zone and reclamps selection', () => {
+  const regions = [
+    [0.1, 0.1, 0.2, 0.2],
+    [0.3, 0.3, 0.4, 0.4],
+    [0.5, 0.5, 0.6, 0.6],
+  ];
+  const snapshot = structuredClone(regions);
+
+  assert.deepEqual(deleteSelectedWatermarkRegion(regions, 1), {
+    regions: [regions[0], regions[2]],
+    selectedIndex: 1,
+  });
+  assert.deepEqual(deleteSelectedWatermarkRegion(regions, 2), {
+    regions: [regions[0], regions[1]],
+    selectedIndex: 1,
+  });
+  assert.deepEqual(deleteSelectedWatermarkRegion([regions[0]], 0), {
+    regions: [],
+    selectedIndex: null,
+  });
+  assert.deepEqual(deleteSelectedWatermarkRegion(regions, null), {
+    regions,
+    selectedIndex: null,
+  });
+  assert.deepEqual(regions, snapshot);
 });

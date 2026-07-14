@@ -37,7 +37,9 @@ export default function WatermarkRegionEditor({
   regions,
   disabled = false,
   addMode = false,
+  selectedIndex: controlledSelectedIndex,
   onAddModeChange,
+  onSelectedIndexChange,
   onCommit,
   children,
 }) {
@@ -47,23 +49,41 @@ export default function WatermarkRegionEditor({
   );
   const propRegionsKey = JSON.stringify(propRegions);
   const [draftRegions, setDraftRegions] = useState(() => cloneRegions(propRegions));
-  const [selectedIndex, setSelectedIndex] = useState(() => (propRegions.length ? 0 : null));
+  const [internalSelectedIndex, setInternalSelectedIndex] = useState(() => (
+    propRegions.length ? 0 : null
+  ));
+  const selectionControlled = controlledSelectedIndex !== undefined;
+  const selectedIndex = selectionControlled ? controlledSelectedIndex : internalSelectedIndex;
   const imageRef = useRef(null);
   const draftRegionsRef = useRef(draftRegions);
+  const selectedIndexRef = useRef(selectedIndex);
   const dragRef = useRef(null);
   const lastSrcRef = useRef(src);
   const lastPropRegionsKeyRef = useRef(propRegionsKey);
   const onCommitRef = useRef(onCommit);
   const onAddModeChangeRef = useRef(onAddModeChange);
+  const onSelectedIndexChangeRef = useRef(onSelectedIndexChange);
   const countId = useId();
 
   onCommitRef.current = onCommit;
   onAddModeChangeRef.current = onAddModeChange;
+  onSelectedIndexChangeRef.current = onSelectedIndexChange;
+  selectedIndexRef.current = selectedIndex;
 
   const updateDraft = useCallback((nextRegions) => {
     draftRegionsRef.current = nextRegions;
     setDraftRegions(nextRegions);
   }, []);
+
+  const updateSelectedIndex = useCallback((nextOrUpdater) => {
+    const next = typeof nextOrUpdater === 'function'
+      ? nextOrUpdater(selectedIndexRef.current)
+      : nextOrUpdater;
+    if (next === selectedIndexRef.current) return;
+    selectedIndexRef.current = next;
+    if (!selectionControlled) setInternalSelectedIndex(next);
+    onSelectedIndexChangeRef.current?.(next);
+  }, [selectionControlled]);
 
   const abortInteraction = useCallback(() => {
     const drag = dragRef.current;
@@ -71,8 +91,8 @@ export default function WatermarkRegionEditor({
     dragRef.current = null;
     releasePointer(drag);
     updateDraft(cloneRegions(drag.startRegions));
-    setSelectedIndex(drag.startSelectedIndex);
-  }, [updateDraft]);
+    updateSelectedIndex(drag.startSelectedIndex);
+  }, [updateDraft, updateSelectedIndex]);
 
   // Dataset refreshes replace the region arrays. Keep a live drag isolated from
   // stale renders, but cancel it if genuinely new image/region props arrive.
@@ -85,12 +105,12 @@ export default function WatermarkRegionEditor({
     lastSrcRef.current = src;
     lastPropRegionsKeyRef.current = propRegionsKey;
     updateDraft(cloneRegions(propRegions));
-    setSelectedIndex((current) => {
+    updateSelectedIndex((current) => {
       if (!propRegions.length) return null;
       if (sourceChanged || current == null) return 0;
       return Math.min(current, propRegions.length - 1);
     });
-  }, [abortInteraction, propRegions, propRegionsKey, src, updateDraft]);
+  }, [abortInteraction, propRegions, propRegionsKey, src, updateDraft, updateSelectedIndex]);
 
   useEffect(() => {
     if (disabled) abortInteraction();
@@ -127,7 +147,7 @@ export default function WatermarkRegionEditor({
       nextIndex = startRegions.length;
       updateDraft([...startRegions, regionFromPoints(point, point)]);
     }
-    setSelectedIndex(nextIndex);
+    updateSelectedIndex(nextIndex);
 
     try { event.currentTarget.setPointerCapture?.(event.pointerId); } catch { /* optional API */ }
     dragRef.current = {
@@ -141,7 +161,7 @@ export default function WatermarkRegionEditor({
       startSelectedIndex,
       changed: kind === 'add',
     };
-  }, [disabled, normalizedPoint, selectedIndex, updateDraft]);
+  }, [disabled, normalizedPoint, selectedIndex, updateDraft, updateSelectedIndex]);
 
   const moveInteraction = useCallback((event) => {
     const drag = dragRef.current;
@@ -201,9 +221,9 @@ export default function WatermarkRegionEditor({
 
     event.preventDefault();
     const next = removeRegion(draftRegionsRef.current, selectedIndex);
-    setSelectedIndex(next.length ? Math.min(selectedIndex, next.length - 1) : null);
+    updateSelectedIndex(next.length ? Math.min(selectedIndex, next.length - 1) : null);
     emitCommit(next);
-  }, [disabled, emitCommit, selectedIndex]);
+  }, [disabled, emitCommit, selectedIndex, updateSelectedIndex]);
 
   const selectedText = selectedIndex == null
     ? 'No zone selected.'
@@ -264,8 +284,8 @@ export default function WatermarkRegionEditor({
               aria-pressed={selected}
               className="absolute inset-0 min-h-0 min-w-0 cursor-move bg-transparent disabled:cursor-default"
               style={{ touchAction: disabled ? undefined : 'none' }}
-              onFocus={() => setSelectedIndex(index)}
-              onClick={(event) => { event.stopPropagation(); setSelectedIndex(index); }}
+              onFocus={() => updateSelectedIndex(index)}
+              onClick={(event) => { event.stopPropagation(); updateSelectedIndex(index); }}
               onPointerDown={(event) => beginInteraction(event, 'move', index)}
             />
 

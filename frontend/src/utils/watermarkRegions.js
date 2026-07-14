@@ -1,6 +1,54 @@
 export const MIN_WATERMARK_REGION_SIZE = 0.005;
 export const MAX_WATERMARK_REGIONS = 32;
 
+export function cloneWatermarkRegions(regions) {
+  return (Array.isArray(regions) ? regions : []).map((region) => [...region]);
+}
+
+function automaticDetectionRegions(item) {
+  return Array.isArray(item?.watermark_bbox) && item.watermark_bbox.length === 4
+    ? [[...item.watermark_bbox]]
+    : [];
+}
+
+export function buildWatermarkReviewState(queue) {
+  const state = {
+    regionsById: {},
+    detectionRegionsById: {},
+    manualById: {},
+    selectedById: {},
+    addModeById: {},
+    saveStateById: {},
+  };
+
+  for (const item of queue || []) {
+    const detectionRegions = automaticDetectionRegions(item);
+    const effectiveRegions = Array.isArray(item?.effective_watermark_regions)
+      ? item.effective_watermark_regions
+      : detectionRegions;
+    state.regionsById[item.id] = cloneWatermarkRegions(effectiveRegions);
+    state.detectionRegionsById[item.id] = cloneWatermarkRegions(detectionRegions);
+    state.manualById[item.id] = Array.isArray(item?.watermark_regions);
+    state.selectedById[item.id] = effectiveRegions.length ? 0 : null;
+    state.addModeById[item.id] = false;
+    state.saveStateById[item.id] = { status: 'saved', error: null };
+  }
+
+  return state;
+}
+
+export function deleteSelectedWatermarkRegion(regions, selectedIndex) {
+  const source = cloneWatermarkRegions(regions);
+  if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= source.length) {
+    return { regions: source, selectedIndex: null };
+  }
+  const next = removeRegion(source, selectedIndex);
+  return {
+    regions: next,
+    selectedIndex: next.length ? Math.min(selectedIndex, next.length - 1) : null,
+  };
+}
+
 export function clamp(value, min = 0, max = 1) {
   return Math.min(max, Math.max(min, value));
 }
