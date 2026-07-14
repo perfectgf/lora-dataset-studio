@@ -36,6 +36,27 @@ const STATUS_META = {
   available: { glyph: '○', label: 'Not set up', cls: 'text-content-subtle' },
 }
 
+// Map each capability in the "What's unlocked" review list (deriveCapabilitySummary,
+// useSetupSteps.js) back to the wizard step that installs/configures it, so clicking a
+// row jumps straight to that step. Most entries match a step's own `unlocks` wording
+// 1:1 (Captioning, Face-similarity scoring, Person masks, LoRA training, Test Studio).
+// Two don't, and are set by where the control actually lives: "Klein (local)" is
+// downloaded from the comfyui step's body (toolBody('comfyui') has the one-click
+// installers), not the image step — the image step only has the API-key fields and a
+// note pointing at ComfyUI. "Auto-framing & head-crop" is the ollama step's other two
+// unlocks (Auto-classify framing / Auto head-crop), just phrased differently here.
+const CAPABILITY_STEP_ID = {
+  'Nano Banana (Gemini)': 'image',
+  'ChatGPT (gpt-image-2)': 'image',
+  'Klein (local)': 'comfyui',
+  'Captioning': 'ollama',
+  'Auto-framing & head-crop': 'ollama',
+  'Face-similarity scoring': 'quality',
+  'Person masks': 'quality',
+  'LoRA training': 'training',
+  'Test Studio': 'comfyui',
+}
+
 export default function SetupPage() {
   const toast = useToast()
   const { caps, refresh } = useCapabilities()
@@ -618,14 +639,16 @@ export default function SetupPage() {
     // ready — you can build a dataset from your own photos + API engines and export
     // to train elsewhere. They render neutral (grey ○ + "optional"), not amber/✗.
     const triState = (reachable, complete) => reachable ? (complete ? 'ready' : 'partial') : 'missing'
+    // stepId: which wizard step (SETUP_STEP_IDS) installs/configures this capability —
+    // each row is a direct link to that step's screen, whether or not it's ready yet.
     const scanRows = [
-      { label: 'Local generation — ComfyUI', optional: true,
+      { label: 'Local generation — ComfyUI', optional: true, stepId: 'comfyui',
         state: triState(stepById.comfyui.reachable, stepById.comfyui.hasKlein),
         partial: 'running — Klein model optional' },
-      { label: 'Captioning — Ollama + vision model',
+      { label: 'Captioning — Ollama + vision model', stepId: 'ollama',
         state: triState(stepById.ollama.reachable, stepById.ollama.visionModelReady),
         partial: 'running — pull the vision model' },
-      { label: 'LoRA training — ai-toolkit',
+      { label: 'LoRA training — ai-toolkit', stepId: 'training',
         state: stepById.training.valid ? 'ready'
           : (detected && detected.aitoolkit && detected.aitoolkit.dir ? 'partial' : 'missing'),
         partial: 'found on disk — one click to use' },
@@ -660,7 +683,7 @@ export default function SetupPage() {
                   className="text-xs text-primary underline">Re-scan</button>
               )}
           </div>
-          <ul className="mt-4 space-y-2">
+          <ul className="mt-4 space-y-1">
             {scanRows.map((r) => {
               const soft = r.optional && r.state !== 'ready'   // optional + not ready → neutral, not a warning
               const m = soft ? { ...SCAN_META[r.state], ...NEUTRAL } : SCAN_META[r.state]
@@ -668,19 +691,36 @@ export default function SetupPage() {
                 : r.state === 'missing' ? (r.optional ? 'optional' : m.word)
                 : m.word
               return (
-                <li key={r.label} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="flex items-center gap-2">
-                    <span aria-hidden="true" className={detecting ? 'text-content-subtle' : m.cls}>
-                      {detecting ? '…' : m.glyph}
+                <li key={r.label}>
+                  {/* Whole row navigates to the wizard step that installs this capability —
+                      ready ones stay clickable too (revisit/change it), the chevron just
+                      stays subtle for those. Disabled mid-scan: the state is still shifting. */}
+                  <button type="button" disabled={detecting}
+                    onClick={() => setScreen(screenOf(r.stepId))}
+                    className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 -mx-2 text-left text-sm
+                      cursor-pointer transition-colors hover:bg-surface-raised focus:outline-none focus-visible:ring-2
+                      focus-visible:ring-primary disabled:cursor-default disabled:hover:bg-transparent">
+                    <span className="flex items-center gap-2">
+                      <span aria-hidden="true" className={detecting ? 'text-content-subtle' : m.cls}>
+                        {detecting ? '…' : m.glyph}
+                      </span>
+                      <span className={r.state === 'ready' ? 'text-content' : 'text-content-muted'}>{r.label}</span>
+                      {r.optional && (
+                        <span className="rounded bg-surface-raised px-1.5 py-px text-[10px] font-medium text-content-subtle">optional</span>
+                      )}
                     </span>
-                    <span className={r.state === 'ready' ? 'text-content' : 'text-content-muted'}>{r.label}</span>
-                    {r.optional && (
-                      <span className="rounded bg-surface-raised px-1.5 py-px text-[10px] font-medium text-content-subtle">optional</span>
-                    )}
-                  </span>
-                  <span className={`truncate text-right font-mono text-xs ${detecting ? 'text-content-subtle' : m.cls}`}>
-                    {detecting ? '' : word}
-                  </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className={`truncate text-right font-mono text-xs ${detecting ? 'text-content-subtle' : m.cls}`}>
+                        {detecting ? '' : word}
+                      </span>
+                      {!detecting && (
+                        <span aria-hidden="true"
+                          className={`text-xs ${r.state === 'ready' ? 'text-content-subtle/60' : 'text-content-subtle'}`}>
+                          ›
+                        </span>
+                      )}
+                    </span>
+                  </button>
                 </li>
               )
             })}
@@ -714,13 +754,34 @@ export default function SetupPage() {
         </div>
         <section className="rounded-xl border border-border bg-surface p-5">
           <h2 className="text-base font-semibold text-content">What's unlocked</h2>
-          <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">
-            {summary.map((s) => (
-              <li key={s.label} className={`flex items-center gap-2 text-sm ${s.ok ? 'text-content' : 'text-content-subtle'}`}>
-                <span aria-hidden="true" className={s.ok ? 'text-emerald-400' : 'text-content-subtle'}>{s.ok ? '✓' : '✗'}</span>
-                {s.label}
-              </li>
-            ))}
+          <ul className="mt-3 grid gap-1 sm:grid-cols-2">
+            {summary.map((s) => {
+              const targetStep = CAPABILITY_STEP_ID[s.label]
+              // Every current capability maps to a wizard step (see CAPABILITY_STEP_ID above);
+              // this guard is defensive only — an unmapped label just renders inert, as before.
+              if (!targetStep) {
+                return (
+                  <li key={s.label} className={`flex items-center gap-2 px-2 py-1 text-sm ${s.ok ? 'text-content' : 'text-content-subtle'}`}>
+                    <span aria-hidden="true" className={s.ok ? 'text-emerald-400' : 'text-content-subtle'}>{s.ok ? '✓' : '✗'}</span>
+                    {s.label}
+                  </li>
+                )
+              }
+              return (
+                <li key={s.label}>
+                  <button type="button" onClick={() => setScreen(screenOf(targetStep))}
+                    className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-sm
+                      cursor-pointer transition-colors hover:bg-surface-raised focus:outline-none focus-visible:ring-2
+                      focus-visible:ring-primary ${s.ok ? 'text-content' : 'text-content-subtle'}`}>
+                    <span className="flex items-center gap-2">
+                      <span aria-hidden="true" className={s.ok ? 'text-emerald-400' : 'text-content-subtle'}>{s.ok ? '✓' : '✗'}</span>
+                      {s.label}
+                    </span>
+                    <span aria-hidden="true" className={`text-xs ${s.ok ? 'text-content-subtle/60' : 'text-content-subtle'}`}>›</span>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </section>
         <div className="flex items-center justify-between">
