@@ -201,6 +201,7 @@ def test_watermark_regions_column_added_to_legacy_database(tmp_path, monkeypatch
 @pytest.mark.parametrize('regions', [
     [[0.1, 0.2, 0.1, 0.3]],          # zero width
     [[0.1, 0.2, 0.104, 0.3]],        # below minimum width
+    [[0.1, 0.2, 0.1049, 0.3]],       # still below minimum width
     [[-0.1, 0.2, 0.3, 0.4]],         # outside image
     [[0.1, 0.2, float('nan'), 0.4]],  # non-finite
     [[True, 0.2, 0.3, 0.4]],         # bool is not a coordinate
@@ -219,6 +220,13 @@ def test_normalize_watermark_regions_rounds_and_preserves_separate_boxes():
         [0.10004, 0.20004, 0.30006, 0.40006],
         [0.7, 0.7, 0.9, 0.9],
     ]) == [[0.1, 0.2, 0.3001, 0.4001], [0.7, 0.7, 0.9, 0.9]]
+
+
+def test_normalize_watermark_regions_accepts_exact_minimum_side():
+    from app.services import face_dataset_service as svc
+    assert svc.normalize_watermark_regions([
+        [0.1, 0.2, 0.105, 0.205],
+    ]) == [[0.1, 0.2, 0.105, 0.205]]
 
 
 def test_normalize_watermark_regions_controls_null_acceptance():

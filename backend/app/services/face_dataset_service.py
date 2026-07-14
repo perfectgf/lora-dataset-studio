@@ -5,6 +5,7 @@ route) is responsible for wrapping them in the GPU-exclusive window. The ComfyUI
 output dir is resolved via `cfg.comfyui_dir('output')` so tests can monkeypatch cfg.
 """
 from __future__ import annotations
+from decimal import Decimal
 import io
 import json
 import logging
@@ -2046,7 +2047,9 @@ def normalize_watermark_regions(value, *, allow_null=True) -> list[list[float]] 
         x1, y1, x2, y2 = map(float, box)
         if not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1):
             raise ValueError('region coordinates must be ordered within [0,1]')
-        if x2 - x1 < WATERMARK_REGION_MIN_SIDE or y2 - y1 < WATERMARK_REGION_MIN_SIDE:
+        min_side = Decimal(str(WATERMARK_REGION_MIN_SIDE))
+        if (Decimal(str(x2)) - Decimal(str(x1)) < min_side
+                or Decimal(str(y2)) - Decimal(str(y1)) < min_side):
             raise ValueError('region is too small')
         out.append([round(v, 4) for v in (x1, y1, x2, y2)])
     return out
