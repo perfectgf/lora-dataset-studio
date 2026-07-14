@@ -712,6 +712,16 @@ export default function SetupPage() {
     // ready — you can build a dataset from your own photos + API engines and export
     // to train elsewhere. They render neutral (grey ○ + "optional"), not amber/✗.
     const triState = (reachable, complete) => reachable ? (complete ? 'ready' : 'partial') : 'missing'
+    // Ollama now has THREE scan outcomes: running (ready, or amber "pull the model"),
+    // installed-but-STOPPED (amber "installed — not running" → the ollama step's ▶ Start
+    // button fixes it), and genuinely absent (✗). The old triState collapsed the stopped
+    // case into "✗ not found", which read as "you don't have Ollama".
+    const oll = stepById.ollama
+    const ollamaScan = oll.reachable
+      ? { state: oll.visionModelReady ? 'ready' : 'partial', partial: 'running — pull the vision model' }
+      : oll.installed
+        ? { state: 'partial', partial: 'installed — not running' }
+        : { state: 'missing', partial: '' }
     // stepId: which wizard step (SETUP_STEP_IDS) installs/configures this capability —
     // each row is a direct link to that step's screen, whether or not it's ready yet.
     const scanRows = [
@@ -719,8 +729,7 @@ export default function SetupPage() {
         state: triState(stepById.comfyui.reachable, stepById.comfyui.hasKlein),
         partial: 'running — Klein model optional' },
       { label: 'Captioning — Ollama + vision model', stepId: 'ollama',
-        state: triState(stepById.ollama.reachable, stepById.ollama.visionModelReady),
-        partial: 'running — pull the vision model' },
+        state: ollamaScan.state, partial: ollamaScan.partial },
       { label: 'LoRA training — ai-toolkit', stepId: 'training',
         state: stepById.training.valid ? 'ready'
           : (detected && detected.aitoolkit && detected.aitoolkit.dir ? 'partial' : 'missing'),

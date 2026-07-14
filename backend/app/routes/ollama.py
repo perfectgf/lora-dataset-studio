@@ -14,7 +14,9 @@ bp = Blueprint('ollama', __name__, url_prefix='/api/ollama')
 @bp.post('/start')
 def start_ollama():
     """Start the local Ollama server (idempotent: a running server → no-op ok).
-    502 on failure so the client can distinguish a genuine start from a no-op —
-    the body carries {ok, reachable, error?, stderr?} either way."""
+    Always HTTP 200 — 'not installed' / 'did not start' are handled OUTCOMES,
+    not server faults, and a 5xx would make apiFetch throw AND auto-toast a
+    generic error on top of the specific one. The body carries
+    {ok, reachable, error?, stderr?} either way; clients read `ok`."""
     result = ollama_control.start_ollama()
-    return jsonify(result), (200 if result.get('ok') else 502)
+    return jsonify(result), 200
