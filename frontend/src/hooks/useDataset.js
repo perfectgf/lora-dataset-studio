@@ -436,6 +436,39 @@ export function useDataset() {
     }
   }), [wrap, currentId, data, refresh, toast]);
 
+  // Review mode (per-image watermark control). These deliberately do NOT use `wrap`
+  // (no global busy flag) nor fire a toast: the review lightbox drives them one image
+  // at a time and renders the outcome inline, then advances. They RETURN the parsed
+  // result so the caller can show per-image success/failure and tally the recap.
+
+  // Clean ONE (or a few) detected image(s) by id — same crop/LaMa/review routing as
+  // cleanWatermarks, scoped to a subset. Cache-busts the touched thumbnails (crop/
+  // inpaint edit the file IN PLACE, same filename) so the cleaned pixels show.
+  const cleanWatermarkImages = useCallback(async (ids) => {
+    const list = (ids || []).filter((v) => v != null);
+    if (!list.length) return { ok: true, cropped: 0, inpainted: 0, needs_review: 0, failed: 0, skipped: 0 };
+    const d = await postJson(`/api/dataset/${currentId}/watermarks/clean`, { image_ids: list });
+    if (d.ok) {
+      setNonces((m) => {
+        const next = { ...m };
+        list.forEach((id) => { next[id] = (next[id] || 0) + 1; });
+        return next;
+      });
+    }
+    await refresh();
+    return d;
+  }, [currentId, refresh]);
+
+  // Mark flagged image(s) as NOT a watermark (false positive) — badge clears and
+  // future 🧽 Find passes skip them.
+  const dismissWatermarks = useCallback(async (ids) => {
+    const list = (ids || []).filter((v) => v != null);
+    if (!list.length) return { ok: true, dismissed: 0 };
+    const d = await postJson(`/api/dataset/${currentId}/watermarks/dismiss`, { image_ids: list });
+    await refresh();
+    return d;
+  }, [currentId, refresh]);
+
   const setStatus = useCallback(async (imageId, status) => {
     const d = await postJson(`/api/dataset/image/${imageId}/status`, { status });
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -711,7 +744,7 @@ export function useDataset() {
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzing, analyzeFaces,
-           watermarking, findWatermarks, cleanWatermarks,
+           watermarking, findWatermarks, cleanWatermarks, cleanWatermarkImages, dismissWatermarks,
            purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };

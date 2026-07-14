@@ -774,6 +774,27 @@ def recrop_reference_auto(user_id, dataset_id):
     return True, detected
 
 
+def _payload_watermark_route(img):
+    """The route Clean WOULD take for a 'detected' image ('crop' | 'lama' | 'review'),
+    or None. It needs the pixel dims (the grid doesn't carry them), so it opens the
+    file -- but ONLY for 'detected' rows (a bounded subset), so the single-dataset
+    payload never reads every image header. Lets the review lightbox and the 🚩 tooltip
+    name the EXACT planned action without duplicating _route_watermark in JS. Defensive:
+    any read/parse error yields None and the UI falls back to the generic hint."""
+    if img.watermark_state != 'detected':
+        return None
+    bbox = _safe_json(img.watermark_bbox)
+    if not (isinstance(bbox, list) and len(bbox) == 4):
+        return None
+    try:
+        with Image.open(_img_path(img)) as im:
+            W, H = im.size
+    except (OSError, ValueError):
+        return None
+    route, _box = _route_watermark(tuple(bbox), W, H)
+    return route
+
+
 def dataset_payload(user_id, dataset_id):
     ds = get_dataset(user_id, dataset_id)
     if not ds:
@@ -828,10 +849,13 @@ def dataset_payload(user_id, dataset_id):
                     'leak': bool(not concept and i.status == 'keep'
                                  and caption_has_identity_leak(i.caption, body=body)),
                     'face_score': i.face_score, 'face_state': i.face_state,
-                    # Watermark V1: state drives the tile badge (🚩 detected / ✨ cleaned
-                    # / ⚠ failed) and the "Clean (N)" count; bbox lets the UI hint the route.
+                    # Watermark V1: state drives the tile badge (🚩 detected / ⊘ dismissed
+                    # / ✨ cleaned / ⚠ failed) and the "Clean (N)" count; bbox lets the UI
+                    # draw the detected box (review lightbox); watermark_route names the
+                    # EXACT planned action ('crop'|'lama'|'review') for detected images.
                     'watermark_state': i.watermark_state,
-                    'watermark_bbox': _safe_json(i.watermark_bbox)} for i in imgs],
+                    'watermark_bbox': _safe_json(i.watermark_bbox),
+                    'watermark_route': _payload_watermark_route(i)} for i in imgs],
         # Dataset CONCEPT : décrire l'identité est VOULU (le concept, pas le visage,
         # se lie au trigger) → le badge « fuite d'identité » n'a aucun sens, on le zéro.
         # Fidélité corps : les marques corporelles comptent aussi comme fuite.
@@ -1966,11 +1990,16 @@ def _apply_watermark_crop(path, box) -> bool:
     return True
 
 
-def detect_watermarks(user_id, dataset_id):
+def detect_watermarks(user_id, dataset_id, *, include_dismissed=False):
     """Scan the KEPT images for an overlaid watermark via Qwen3-VL and persist
     watermark_state ('detected'|'none') + watermark_bbox (JSON normalized box).
     CALLER holds the GPU-exclusive vision window (same as classify/caption). Returns
-    {'detected': n, 'none': n, 'checked': n}."""
+    {'detected': n, 'none': n, 'checked': n}.
+
+    Images the user already judged NOT a watermark ('dismissed', a false positive
+    ruled out in the review lightbox) are SKIPPED so a re-run never re-flags them --
+    that's the anti-frustration point. Pass include_dismissed=True to re-examine them
+    (a deliberate "check everything again")."""
     try:
         from .vision_ollama import describe_image_ollama, unload_vision_model
     except ImportError:
@@ -1983,6 +2012,10 @@ def detect_watermarks(user_id, dataset_id):
     counts = {'detected': 0, 'none': 0, 'checked': 0}
     try:
         for img in rows:
+            # Dismissed = a confirmed false positive; don't waste a vision call re-asking
+            # (and never silently re-flag it) unless the caller opts back in.
+            if not include_dismissed and img.watermark_state == 'dismissed':
+                continue
             path = _img_path(img)
             if not os.path.exists(path):
                 continue
@@ -2011,7 +2044,32 @@ def detect_watermarks(user_id, dataset_id):
     return counts
 
 
-def clean_watermarks(user_id, dataset_id):
+def dismiss_watermarks(user_id, dataset_id, image_ids):
+    """Mark 'detected' images as 'dismissed' -- the user ruled, in the review lightbox,
+    that the flag is a FALSE positive. Dismissed images drop the 🚩 badge, leave the
+    Clean batch, and are skipped by future detect passes (see detect_watermarks) so
+    they're never re-flagged. Only 'detected' rows of THIS dataset transition (ids that
+    don't belong / aren't detected are silently ignored, like batch_image_action).
+    Returns the number of rows dismissed. The bbox is kept (harmless, and a later
+    include_dismissed re-scan overwrites it)."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return 0
+    ids = [int(i) for i in (image_ids or [])
+           if isinstance(i, (int, float, str)) and str(i).lstrip('-').isdigit()]
+    if not ids:
+        return 0
+    rows = (FaceDatasetImage.query
+            .filter_by(dataset_id=dataset_id, watermark_state='detected')
+            .filter(FaceDatasetImage.id.in_(ids)).all())
+    for img in rows:
+        img.watermark_state = 'dismissed'
+    if rows:
+        db.session.commit()
+    return len(rows)
+
+
+def clean_watermarks(user_id, dataset_id, image_ids=None):
     """Apply the crop/LaMa/review routing to every image marked 'detected'. Returns
     ({'cropped', 'inpainted', 'needs_review', 'failed', 'skipped'}, error|None) -- same
     tuple contract as score_dataset_faces: `error` is None unless a LaMa inpaint that
@@ -2019,14 +2077,24 @@ def clean_watermarks(user_id, dataset_id):
     subprocess) -> NO GPU window; LaMa runs OUTSIDE the vision window on purpose.
 
     LaMa absent (probe False) is NOT an error: LaMa-routed images are counted as
-    `skipped` (crop still runs) so the UI can nudge "install the ML extras"."""
+    `skipped` (crop still runs) so the UI can nudge "install the ML extras".
+
+    image_ids (optional): restrict the pass to this subset -- the review lightbox cleans
+    ONE image at a time. The filter still requires watermark_state='detected' AND
+    dataset ownership, so a stale/foreign id is a no-op (never touches another dataset,
+    never re-edits an already-cleaned image). None = every detected image (bulk button)."""
     from . import watermark_lama
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
-    rows = (FaceDatasetImage.query
-            .filter_by(dataset_id=dataset_id, watermark_state='detected')
-            .filter(FaceDatasetImage.filename.isnot(None)).all())
+    q = (FaceDatasetImage.query
+         .filter_by(dataset_id=dataset_id, watermark_state='detected')
+         .filter(FaceDatasetImage.filename.isnot(None)))
+    if image_ids is not None:
+        ids = [int(i) for i in (image_ids or [])
+               if isinstance(i, (int, float, str)) and str(i).lstrip('-').isdigit()]
+        q = q.filter(FaceDatasetImage.id.in_(ids or [-1]))   # empty subset -> match nothing
+    rows = q.all()
     out = {'cropped': 0, 'inpainted': 0, 'needs_review': 0, 'failed': 0, 'skipped': 0}
     error = None
     lama_ok = watermark_lama.is_available()

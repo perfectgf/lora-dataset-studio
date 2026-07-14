@@ -442,12 +442,16 @@ def dataset_analyze_faces(dataset_id):
 @bp.post('/dataset/<int:dataset_id>/watermarks/detect')
 def dataset_watermarks_detect(dataset_id):
     """Scan kept images for overlaid watermarks (Qwen3-VL) — GPU-exclusive vision
-    window like classify/caption. Persists watermark_state/bbox; deletes nothing."""
+    window like classify/caption. Persists watermark_state/bbox; deletes nothing.
+    Skips images already dismissed as false positives unless {include_dismissed:true}."""
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    include_dismissed = bool(data.get('include_dismissed'))
     try:
         with gpu_exclusive_vision_window(flag_ttl=1800):
-            counts = svc.detect_watermarks(LOCAL_USER, dataset_id)
+            counts = svc.detect_watermarks(LOCAL_USER, dataset_id,
+                                           include_dismissed=include_dismissed)
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, **counts})
@@ -456,14 +460,35 @@ def dataset_watermarks_detect(dataset_id):
 @bp.post('/dataset/<int:dataset_id>/watermarks/clean')
 def dataset_watermarks_clean(dataset_id):
     """Apply crop/LaMa/review routing to the 'detected' images. CPU only (crop = PIL,
-    LaMa = CPU subprocess) -> NO GPU window. Returns per-route counts + LaMa error."""
+    LaMa = CPU subprocess) -> NO GPU window. Returns per-route counts + LaMa error.
+    Optional {image_ids:[...]} scopes the pass to a subset (the review lightbox cleans
+    one image at a time); omitted → every detected image (the bulk 🧽 Clean button)."""
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    image_ids = data.get('image_ids')
+    if image_ids is not None and not isinstance(image_ids, list):
+        return jsonify({'error': "'image_ids' must be a list"}), 400
     try:
-        counts, error = svc.clean_watermarks(LOCAL_USER, dataset_id)
+        counts, error = svc.clean_watermarks(LOCAL_USER, dataset_id, image_ids=image_ids)
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, 'error': error, **counts})
+
+
+@bp.post('/dataset/<int:dataset_id>/watermarks/dismiss')
+def dataset_watermarks_dismiss(dataset_id):
+    """Mark flagged images as NOT a watermark (a false positive ruled out in the review
+    lightbox). Body: {image_ids:[...]}. Dismissed images drop the 🚩 badge and are
+    skipped by future detect passes. CPU only, no GPU window."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    image_ids = data.get('image_ids')
+    if not isinstance(image_ids, list) or not image_ids:
+        return jsonify({'error': "'image_ids' must be a non-empty list"}), 400
+    n = svc.dismiss_watermarks(LOCAL_USER, dataset_id, image_ids)
+    return jsonify({'ok': True, 'dismissed': n})
 
 
 @bp.post('/dataset/image/<int:image_id>/status')

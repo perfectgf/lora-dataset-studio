@@ -34,15 +34,25 @@ function faceBadge(img, thresholds) {
   return { border: 'border-4 border-red-500', icon: '⚠', cls: 'text-red-300', label: `${s.toFixed(2)} low` };
 }
 
-// Watermark V1 badge from watermark_state (🚩 detected / ✨ cleaned / ⚠ failed), or
-// null when never scanned ('none' is also silent — nothing to show). The tooltip names
-// what Clean will do; the exact crop-vs-inpaint route needs the image dims, which the
-// grid doesn't have, so it lists the possibilities rather than pre-deciding.
+// Watermark V1 badge from watermark_state (🚩 detected / ⊘ dismissed / ✨ cleaned /
+// ⚠ failed), or null when never scanned ('none' is also silent — nothing to show).
+// `dismissed` shows a DISCREET grey ⊘ (not nothing): it confirms the user's "not a
+// watermark" ruling took effect and explains why a re-scan won't re-flag it — silence
+// would read as "did my dismiss work?". The tooltip names what Clean will do; when the
+// payload carries the exact route (watermark_route, computed backend-side from the
+// dims) the detected tooltip names the precise action, else it lists the possibilities.
+const WATERMARK_ROUTE_HINT = {
+  crop: 'Overlaid watermark on the border — Clean will crop it off',
+  lama: 'Small off-center watermark — Clean will inpaint it (LaMa)',
+  review: 'Watermark on the subject — Clean flags it for manual review (auto crop/inpaint would damage the photo); reject or crop manually',
+};
 const WATERMARK_BADGE = {
-  detected: { icon: '🚩', cls: 'text-amber-300',
+  detected: { icon: '🚩', cls: 'text-amber-300', text: 'watermark',
     label: 'Overlaid watermark detected — Clean will crop the border, inpaint a small mark, or flag it for manual review (V2 handles on-subject watermarks)' },
-  cleaned: { icon: '✨', cls: 'text-emerald-300', label: 'Watermark removed (original kept as a .orig backup)' },
-  failed: { icon: '⚠', cls: 'text-red-300', label: 'Watermark removal failed' },
+  dismissed: { icon: '⊘', cls: 'text-content-subtle', text: 'not a watermark',
+    label: 'You marked this “not a watermark” — future 🧽 Find passes skip it' },
+  cleaned: { icon: '✨', cls: 'text-emerald-300', text: 'watermark', label: 'Watermark removed (original kept as a .orig backup)' },
+  failed: { icon: '⚠', cls: 'text-red-300', text: 'watermark', label: 'Watermark removal failed' },
 };
 
 export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, onCrop, onDelete,
@@ -119,8 +129,8 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
         )}
         {wb && (
           <span className={`absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-[10px] bg-black/70 ${wb.cls} flex items-center gap-0.5`}
-            title={wb.label}>
-            {wb.icon} watermark
+            title={(img.watermark_state === 'detected' && WATERMARK_ROUTE_HINT[img.watermark_route]) || wb.label}>
+            {wb.icon} {wb.text}
           </span>
         )}
         <div className="absolute top-1 right-1 flex gap-1">

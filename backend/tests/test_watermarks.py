@@ -299,7 +299,7 @@ def test_detect_route_returns_counts(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'detect_watermarks',
-                        lambda u, d: {'detected': 1, 'none': 2, 'checked': 3})
+                        lambda u, d, include_dismissed=False: {'detected': 1, 'none': 2, 'checked': 3})
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/detect')
     assert resp.status_code == 200
     body = resp.get_json()
@@ -319,7 +319,7 @@ def test_clean_route_lama_present(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d: ({'cropped': 2, 'inpainted': 1, 'needs_review': 0,
+                        lambda u, d, image_ids=None: ({'cropped': 2, 'inpainted': 1, 'needs_review': 0,
                                        'failed': 0, 'skipped': 0}, None))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
     assert resp.status_code == 200
@@ -331,7 +331,7 @@ def test_clean_route_lama_absent_reports_skipped(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d: ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
+                        lambda u, d, image_ids=None: ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
                                        'failed': 0, 'skipped': 3}, None))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
     body = resp.get_json()
@@ -342,7 +342,7 @@ def test_clean_route_surfaces_error(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d: ({'cropped': 0, 'inpainted': 0, 'needs_review': 0,
+                        lambda u, d, image_ids=None: ({'cropped': 0, 'inpainted': 0, 'needs_review': 0,
                                        'failed': 1, 'skipped': 0},
                                       {'kind': 'failed', 'detail': 'boom'}))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
@@ -367,6 +367,163 @@ def test_dataset_payload_exposes_watermark_fields(app):
         img = payload['images'][0]
         assert img['watermark_state'] == 'detected'
         assert img['watermark_bbox'] == [0.1, 0.1, 0.2, 0.15]
+
+
+def test_payload_exposes_watermark_route_for_detected_only(app):
+    """The review lightbox and the 🚩 tooltip read the exact planned action from the
+    payload (no _route_watermark duplicated in JS). Only 'detected' rows carry it."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'P', 'p')
+        # a full-width top band → 'crop'
+        _kept_image(svc, ds.id, 'band.webp', size=(1024, 1024),
+                    state='detected', bbox=[0.0, 0.0, 1.0, 0.05])
+        # a small off-center mark → 'lama'
+        _kept_image(svc, ds.id, 'small.webp', size=(1024, 1024),
+                    state='detected', bbox=[0.35, 0.35, 0.45, 0.45])
+        # not detected → no route
+        _kept_image(svc, ds.id, 'clean.webp', state='none')
+        by_name = {i['filename']: i for i in svc.dataset_payload(LOCAL_USER, ds.id)['images']}
+        assert by_name['band.webp']['watermark_route'] == 'crop'
+        assert by_name['small.webp']['watermark_route'] == 'lama'
+        assert by_name['clean.webp']['watermark_route'] is None
+
+
+# --- dismiss (false positive) ----------------------------------------------
+
+def test_dismiss_watermarks_transitions_detected_only(app):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'D', 'd')
+        a = _kept_image(svc, ds.id, 'a.webp', state='detected', bbox=[0.1, 0.1, 0.2, 0.2])
+        b = _kept_image(svc, ds.id, 'b.webp', state='none')       # not detected → ignored
+        n = svc.dismiss_watermarks(LOCAL_USER, ds.id, [a.id, b.id])
+        assert n == 1
+        assert svc.db.session.get(FaceDatasetImage, a.id).watermark_state == 'dismissed'
+        assert svc.db.session.get(FaceDatasetImage, b.id).watermark_state == 'none'
+
+
+def test_dismiss_watermarks_ignores_foreign_ids(app):
+    """A stale/foreign id (another dataset) must never transition — same scoping as
+    batch_image_action (ownership enforced on the dataset)."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    with app.app_context():
+        d1 = svc.create_dataset(LOCAL_USER, 'One', 'one')
+        d2 = svc.create_dataset(LOCAL_USER, 'Two', 'two')
+        foreign = _kept_image(svc, d2.id, 'x.webp', state='detected', bbox=[0.1, 0.1, 0.2, 0.2])
+        assert svc.dismiss_watermarks(LOCAL_USER, d1.id, [foreign.id]) == 0
+        assert svc.db.session.get(FaceDatasetImage, foreign.id).watermark_state == 'detected'
+
+
+def test_detect_skips_dismissed_and_include_dismissed_reexamines(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    import app.services.vision_ollama as vo
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    # Vision would flag anything it's asked about.
+    monkeypatch.setattr(vo, 'describe_image_ollama',
+                        lambda *a, **k: '{"present":true,"x1":0,"y1":0,"x2":100,"y2":50}')
+    monkeypatch.setattr(vo, 'unload_vision_model', lambda *a, **k: True)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'W', 'w')
+        fresh = _kept_image(svc, ds.id, 'a.webp', state=None)
+        dismissed = _kept_image(svc, ds.id, 'b.webp', state='dismissed')
+        counts = svc.detect_watermarks(LOCAL_USER, ds.id)
+        # only the fresh image is examined; the dismissed one is skipped entirely
+        assert counts == {'detected': 1, 'none': 0, 'checked': 1}
+        assert svc.db.session.get(FaceDatasetImage, dismissed.id).watermark_state == 'dismissed'
+        # explicit opt-in re-examines it → re-flagged
+        counts2 = svc.detect_watermarks(LOCAL_USER, ds.id, include_dismissed=True)
+        assert counts2['checked'] == 2
+        assert svc.db.session.get(FaceDatasetImage, dismissed.id).watermark_state == 'detected'
+
+
+# --- clean subset (image_ids) ----------------------------------------------
+
+def test_clean_watermarks_subset_by_image_ids(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'C', 'c')
+        a = _kept_image(svc, ds.id, 'a.webp', size=(1024, 1024), bbox=[0.0, 0.0, 1.0, 0.05])
+        b = _kept_image(svc, ds.id, 'b.webp', size=(1024, 1024), bbox=[0.0, 0.0, 1.0, 0.05])
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, image_ids=[a.id])
+        assert err is None and counts['cropped'] == 1
+        assert svc.db.session.get(FaceDatasetImage, a.id).watermark_state == 'cleaned'
+        # b was NOT in the subset → left detected, untouched on disk
+        assert svc.db.session.get(FaceDatasetImage, b.id).watermark_state == 'detected'
+
+
+def test_clean_watermarks_empty_image_ids_cleans_nothing(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'C', 'c')
+        a = _kept_image(svc, ds.id, 'a.webp', bbox=[0.0, 0.0, 1.0, 0.05])
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, image_ids=[])
+        assert err is None and sum(counts.values()) == 0
+        assert svc.db.session.get(FaceDatasetImage, a.id).watermark_state == 'detected'
+
+
+# --- new routes -------------------------------------------------------------
+
+def test_dismiss_route_marks_and_validates(client, app):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    ds_id = _create(client, 'R', 'r').get_json()['id']
+    with app.app_context():
+        img_id = _kept_image(svc, ds_id, 'a.webp', state='detected', bbox=[0.1, 0.1, 0.2, 0.2]).id
+    # missing / empty list → 400
+    assert client.post(f'/api/dataset/{ds_id}/watermarks/dismiss', json={}).status_code == 400
+    assert client.post(f'/api/dataset/{ds_id}/watermarks/dismiss', json={'image_ids': []}).status_code == 400
+    r = client.post(f'/api/dataset/{ds_id}/watermarks/dismiss', json={'image_ids': [img_id]})
+    assert r.status_code == 200 and r.get_json()['dismissed'] == 1
+    with app.app_context():
+        assert svc.db.session.get(FaceDatasetImage, img_id).watermark_state == 'dismissed'
+
+
+def test_dismiss_route_404_when_dataset_missing(client):
+    assert client.post('/api/dataset/999999/watermarks/dismiss',
+                       json={'image_ids': [1]}).status_code == 404
+
+
+def test_clean_route_accepts_image_ids(client, app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'R', 'r').get_json()['id']
+    seen = {}
+    monkeypatch.setattr(svc, 'clean_watermarks',
+                        lambda u, d, image_ids=None: (seen.update(ids=image_ids)
+                                                      or ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
+                                                           'failed': 0, 'skipped': 0}, None)))
+    resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'image_ids': [7, 8]})
+    assert resp.status_code == 200 and resp.get_json()['cropped'] == 1
+    assert seen['ids'] == [7, 8]
+    # a non-list image_ids is rejected
+    assert client.post(f'/api/dataset/{ds_id}/watermarks/clean',
+                       json={'image_ids': 'nope'}).status_code == 400
+
+
+def test_detect_route_forwards_include_dismissed(client, app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'R', 'r').get_json()['id']
+    seen = {}
+    monkeypatch.setattr(svc, 'detect_watermarks',
+                        lambda u, d, include_dismissed=False: (seen.update(inc=include_dismissed)
+                                                               or {'detected': 0, 'none': 0, 'checked': 0}))
+    client.post(f'/api/dataset/{ds_id}/watermarks/detect', json={'include_dismissed': True})
+    assert seen.get('inc') is True
 
 
 # --- LaMa service contract (subprocess mocked) -----------------------------

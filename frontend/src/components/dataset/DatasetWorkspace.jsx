@@ -12,6 +12,8 @@ import CaptionToolsBar from './CaptionToolsBar';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
 import DatasetSettingsModal from './DatasetSettingsModal';
+import WatermarkReviewLightbox, { buildWatermarkRecap } from './WatermarkReviewLightbox';
+import { useToast } from '../common/Toast';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import InstallRunner from '../setup/InstallRunner';
 import GuidedChecklist from './GuidedChecklist';
@@ -75,9 +77,12 @@ const MENU_ITEM = 'w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounde
 
 export default function DatasetWorkspace({ ds, onBack }) {
   const navigate = useNavigate();
+  const toast = useToast();
   const { caps, refresh: refreshCaps } = useCapabilities();
   const d = ds.data;
   const [cropImg, setCropImg] = useState(null);
+  // Frozen snapshot of the flagged queue when review mode opens (null = closed).
+  const [reviewQueue, setReviewQueue] = useState(null);
   const zipInput = useRef(null);   // hidden input for "Import dataset (ZIP)"
   const [refCrop, setRefCrop] = useState(false);
   const [viewImg, setViewImg] = useState(null);
@@ -460,6 +465,18 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   🧽 Clean ({watermarkDetected})
                 </button>
               )}
+              {/* Per-image control: step through the flagged images full-screen, see each
+                  detected box, and Clean / dismiss (false positive) / reject one by one.
+                  The auto-detect has false positives, so this hands the final call to the
+                  user (crucial after the "64/75 flagged" real-dataset run). */}
+              {watermarkDetected > 0 && (
+                <button type="button" disabled={ds.busy}
+                  onClick={() => setReviewQueue(images.filter((i) => i.watermark_state === 'detected'))}
+                  title="Step through the flagged images one by one — see each detected box and Clean, dismiss a false positive, or reject"
+                  className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
+                  🔍 Review flagged ({watermarkDetected})
+                </button>
+              )}
               {/* Watermark inpainting (LaMa) needs one extra ML package (simple-lama-
                   inpainting). Show a scoped installer RIGHT HERE — where the lack is
                   met — instead of sending the user back to Setup's whole ML-extras
@@ -632,6 +649,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
       {settingsOpen && (
         <DatasetSettingsModal d={d} busy={ds.busy}
           onSave={ds.updateSettings} onClose={() => setSettingsOpen(false)} />
+      )}
+      {reviewQueue && reviewQueue.length > 0 && (
+        <WatermarkReviewLightbox
+          datasetId={d.id}
+          queue={reviewQueue}
+          caps={caps}
+          nonces={ds.nonces}
+          onClean={(id) => ds.cleanWatermarkImages([id])}
+          onDismiss={(id) => ds.dismissWatermarks([id])}
+          onReject={(id) => ds.setStatus(id, 'reject')}
+          onClose={(recap) => {
+            setReviewQueue(null);
+            const summary = recap || buildWatermarkRecap({});
+            if (summary) toast.success(`Review done — ${summary}`);
+          }} />
       )}
     </div>
   );
