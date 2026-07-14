@@ -75,6 +75,12 @@ function apiErrorText(error, fallback = 'Could not save correction zones') {
   return fallback;
 }
 
+function isInteractiveShortcutTarget(target) {
+  return Boolean(target?.closest?.(
+    'button, input, select, textarea, [contenteditable="true"], [role="button"], [role="slider"]',
+  ));
+}
+
 export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces = {},
                                                   onSaveRegions, onClean, onDismiss,
                                                   onReject, onClose }) {
@@ -286,7 +292,8 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
 
   const doClean = useCallback(() => {
     if (!item || outcome === 'cleaned' || !regions.length || manualLamaMissing) return;
-    if (saveJobsRef.current[item.id]?.status === 'failed') return;
+    const activeSave = saveJobsRef.current[item.id];
+    if (activeSave && activeSave.status !== 'saved') return;
     return run('clean', async (it) => {
       if (!await waitForLatestSave(it.id)) {
         return { note: { tone: 'err', text: 'Correction zones could not be saved. Retry or reset them before cleaning.' } };
@@ -334,6 +341,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   // Keyboard: ← → navigate · Esc close · c Clean · d Dismiss · x Reject.
   useEffect(() => {
     const onKey = (e) => {
+      if (isInteractiveShortcutTarget(e.target)) return;
       if (e.key === 'Escape') { e.preventDefault(); close(); return; }
       if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); return; }
       if (e.key === 'ArrowRight') { e.preventDefault(); go(1); return; }
