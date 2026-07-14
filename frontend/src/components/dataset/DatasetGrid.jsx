@@ -191,7 +191,12 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   }, [tileSize]);
 
   if (!images || !images.length) {
-    return <p className="text-content-subtle text-xs">No images — generate variations or import photos.</p>;
+    return (
+      <p id="ds-images-review" tabIndex={-1} data-workspace-focus
+        className="text-content-subtle text-xs scroll-mt-20">
+        No images — generate variations or import photos.
+      </p>
+    );
   }
   const selectable = images.filter((i) => i.filename);
   const ids = [...selected];
@@ -209,16 +214,19 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   const batchBtn = 'px-2.5 py-1 rounded-lg text-xs font-semibold disabled:opacity-40';
 
   return (
-    <div className="flex flex-col gap-2">
+    <div id="ds-images-review" tabIndex={-1} data-workspace-focus
+      className="flex flex-col gap-2 scroll-mt-20">
       {onBatch && (
         <AutoTriageBar images={images} datasetId={datasetId} faceThresholds={faceThresholds} onBatch={onBatch} busy={busy} />
       )}
-      <div className="flex items-center gap-2 flex-wrap text-xs">
+      <div id="ds-images-bulk" tabIndex={-1}
+        className="flex items-center gap-2 flex-wrap text-xs scroll-mt-20">
         {onBatch && (
           selected.size === 0 ? (
             <>
               <span className="text-content-subtle">Tick images to curate them in bulk —</span>
-              <button type="button" onClick={() => setSelected(new Set(selectable.map((i) => i.id)))}
+              <button type="button" data-workspace-focus
+                onClick={() => setSelected(new Set(selectable.map((i) => i.id)))}
                 className="text-content-muted underline hover:text-content">select all ({selectable.length})</button>
             </>
           ) : (

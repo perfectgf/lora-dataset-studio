@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import CompositionBar from './CompositionBar';
 import ReferencePanel from './ReferencePanel';
@@ -22,16 +22,26 @@ import NextStepCard from './NextStepCard';
 import TrainingReadiness from './TrainingReadiness';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
 import { filterImages, normalizeTag } from '../../utils/tagFilter';
-import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET, isWorkspaceSection } from './workspaceSections';
+import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET } from './workspaceSections';
+import {
+  PANEL_STATUS,
+  getWorkspacePanel,
+  getWorkspacePanelStatus,
+  getWorkspacePanels,
+  resolveWorkspaceLocation,
+  withWorkspaceLocation,
+} from './workspaceNavigation';
+
+const EMPTY_IMAGES = Object.freeze([]);
 
 // Style partagé des items du menu « ⋯ More » du header (actions secondaires).
 const MENU_ITEM = 'w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-md text-sm text-content hover:bg-surface-raised disabled:opacity-40';
 
 /* En-tête de section (miroir visuel du SectionHeader de Settings, en h2 : le h1
    de la page reste le nom du dataset) : eyebrow mono + titre + description. */
-function SectionHeading({ eyebrow, title, description }) {
+function SectionHeading({ id, eyebrow, title, description }) {
   return (
-    <div>
+    <div id={id} tabIndex={-1}>
       <p className="m-0 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">{eyebrow}</p>
       <h2 className="m-0 mt-0.5 text-content text-base font-semibold">{title}</h2>
       {description && <p className="m-0 mt-0.5 text-content-muted text-[0.75rem] leading-relaxed">{description}</p>}
@@ -110,34 +120,178 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [viewImg, setViewImg] = useState(null);
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
   const [showLeaks, setShowLeaks] = useState(false);       // liste dépliée des captions qui fuient
+  const [scraperOpen, setScraperOpen] = useState(false);
+  const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
   const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
   const [checkpointCount, setCheckpointCount] = useState(0);
+  const [trainingNavigation, setTrainingNavigation] = useState({ ready: false, queueCount: 0 });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [publishHfOpen, setPublishHfOpen] = useState(false);
   // Grid tag-filter (session-only): tags whose images are hidden (exclude) or the
   // ONLY tags allowed through (include). Both are normalized (trim+lowercase).
   const [excludeTags, setExcludeTags] = useState([]);
   const [includeTags, setIncludeTags] = useState([]);
-  // ── Section active de la sidebar — persistée dans la query du hash
-  //    (#/datasets?section=captions) pour survivre au reload, comme les pages
-  //    Settings/Guide persistent la leur dans le path. Valeur inconnue → défaut.
   const [searchParams, setSearchParams] = useSearchParams();
-  const rawSection = searchParams.get('section');
-  const section = isWorkspaceSection(rawSection) ? rawSection : 'images';
-  const setSection = (id) => {
-    if (id === section) return;
-    setSearchParams((prev) => {
-      const p = new URLSearchParams(prev);
-      p.set('section', id);
-      return p;
-    });
-  };
+  const navImages = d?.images || EMPTY_IMAGES;
+  const navContext = useMemo(() => ({
+    kind: d?.kind || 'character',
+    hasSelectableImages: navImages.some((image) => Boolean(image.filename)),
+    hasKeptImages: navImages.some((image) => image.status === 'keep'),
+    hasCaptionedKept: navImages.some(
+      (image) => image.status === 'keep' && Boolean((image.caption || '').trim()),
+    ),
+    hasLeakMetadata: Boolean(d?.caption_leak),
+    watermarkDetected: navImages.filter((image) => image.watermark_state === 'detected').length,
+    unused: navImages.filter((image) => image.status === 'reject' || image.status === 'failed').length,
+    hfPublish: Boolean(caps.hf_publish),
+    trainingVisible: Boolean(caps.training_visible),
+    trainingStatusReady: !caps.training_visible || trainingNavigation.ready,
+    trainingQueueCount: trainingNavigation.queueCount,
+    studioVisible: Boolean(caps.studio_visible),
+  }), [d, navImages, caps.hf_publish, caps.training_visible, caps.studio_visible, trainingNavigation]);
+  const workspaceLocation = resolveWorkspaceLocation(searchParams, navContext);
+  const section = workspaceLocation.section;
+  const panel = workspaceLocation.panel;
+
+  const writeWorkspaceLocation = useCallback((sectionId, panelId = null, replace = false) => {
+    setSearchParams(
+      (previous) => withWorkspaceLocation(previous, sectionId, panelId),
+      { replace },
+    );
+  }, [setSearchParams]);
+
+  const focusRequestedRef = useRef(false);
+  const [landingRequest, setLandingRequest] = useState(0);
+
+  const setSection = useCallback((sectionId) => {
+    focusRequestedRef.current = false;
+    writeWorkspaceLocation(sectionId, null, false);
+  }, [writeWorkspaceLocation]);
+
+  const navigateToPanel = useCallback((sectionId, panelId) => {
+    if (getWorkspacePanelStatus(sectionId, panelId, navContext) !== PANEL_STATUS.AVAILABLE) return;
+    focusRequestedRef.current = true;
+    setLandingRequest((value) => value + 1);
+    writeWorkspaceLocation(sectionId, panelId, false);
+  }, [navContext, writeWorkspaceLocation]);
+
+  const clearActivePanel = useCallback(() => {
+    focusRequestedRef.current = false;
+    writeWorkspaceLocation(section, null, true);
+  }, [section, writeWorkspaceLocation]);
+
+  useEffect(() => {
+    if (!d || workspaceLocation.pending || !workspaceLocation.needsNormalization) return;
+    setSearchParams(
+      (previous) => withWorkspaceLocation(previous, workspaceLocation.section, null),
+      { replace: true },
+    );
+  }, [d, workspaceLocation.pending, workspaceLocation.needsNormalization,
+      workspaceLocation.section, setSearchParams]);
+
+  useEffect(() => {
+    const destination = panel ? getWorkspacePanel(section, panel) : null;
+    if (destination?.reveal === 'scraper') setScraperOpen(true);
+    if (destination?.reveal === 'caption-leak') setShowLeaks(true);
+    if (destination?.reveal === 'caption-tools') setCaptionToolsOpen(true);
+  }, [section, panel]);
+
+  const onRevealOpenChange = useCallback((panelId, nextOpen, setter) => {
+    setter(nextOpen);
+    if (!nextOpen && panel === panelId) clearActivePanel();
+  }, [panel, clearActivePanel]);
   // Hooks must run unconditionally on every render — deriveSteps() null-guards `d`,
   // so this is safe to call before the loading early-return below.
   const { steps, nextStep } = useGuidedFlow(d, caps, checkpointCount);
   // Filters are per-dataset & transient — drop them when switching datasets so they
   // never leak from one dataset to the next.
   useEffect(() => { setExcludeTags([]); setIncludeTags([]); }, [d?.id]);
+
+  useEffect(() => {
+    if (!d || !panel || workspaceLocation.pending) return undefined;
+    const destination = getWorkspacePanel(section, panel);
+    if (!destination) return undefined;
+    const revealReady = destination.reveal === 'scraper' && d.kind === 'character'
+      ? scraperOpen
+      : destination.reveal === 'caption-leak'
+        ? showLeaks
+        : destination.reveal === 'caption-tools'
+          ? captionToolsOpen
+          : true;
+    if (!revealReady) return undefined;
+    let finished = false;
+    let observer;
+    let timer;
+
+    const land = () => {
+      const target = document.getElementById(destination.targetId);
+      if (!target || target.getClientRects().length === 0) return false;
+      if ((destination.reveal === 'training-advanced'
+          || destination.reveal === 'training-checkpoints') && !target.open) return false;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      target.classList.remove('gf-highlight');
+      void target.offsetWidth;
+      target.classList.add('gf-highlight');
+      window.setTimeout(() => target.classList.remove('gf-highlight'), 1500);
+      if (focusRequestedRef.current) {
+        const preferred = destination.focusSelector
+          ? target.querySelector(destination.focusSelector)
+          : target.querySelector('[data-workspace-focus]');
+        const fallback = target.querySelector(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary',
+        );
+        const focusTarget = preferred || fallback || target;
+        if (focusTarget === target && !target.hasAttribute('tabindex')) target.tabIndex = -1;
+        focusTarget.focus({ preventScroll: true });
+        focusRequestedRef.current = false;
+      }
+      finished = true;
+      observer?.disconnect();
+      if (timer) window.clearTimeout(timer);
+      return true;
+    };
+
+    if (!land()) {
+      observer = new MutationObserver(land);
+      observer.observe(document.body, {
+        childList: true, subtree: true, attributes: true,
+        attributeFilter: ['class', 'open'],
+      });
+      requestAnimationFrame(land);
+      timer = window.setTimeout(() => {
+        if (finished) return;
+        observer.disconnect();
+        const shouldFocus = focusRequestedRef.current;
+        focusRequestedRef.current = false;
+        writeWorkspaceLocation(section, null, true);
+        if (shouldFocus) {
+          document.getElementById(`ds-section-${section}-heading`)?.focus({ preventScroll: true });
+        }
+      }, 2000);
+    }
+
+    return () => {
+      observer?.disconnect();
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [d, section, panel, workspaceLocation.pending, landingRequest,
+      scraperOpen, showLeaks, captionToolsOpen, writeWorkspaceLocation]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const parentChip = document.querySelector(`[data-mobile-section="${section}"]`);
+      const childChip = panel
+        ? document.querySelector(`[data-mobile-panel="${panel}"]`)
+        : null;
+      for (const chip of [parentChip, childChip]) {
+        if (chip?.getClientRects().length) {
+          chip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        }
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [section, panel]);
+
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
   const images = d.images || [];
@@ -185,6 +339,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
     excludes: excludeTags, includes: includeTags, mode: effCaptionMode });
   const pending = images.filter((i) => i.status === 'pending' && !i.filename).length;
   const triage = images.filter((i) => i.status === 'pending' && i.filename).length;   // generated, awaiting ✓/✕
+
+  const toggleLeakReview = () => {
+    onRevealOpenChange('leak-review', !showLeaks, setShowLeaks);
+  };
 
   /* Saut vers une ancre gf-* (checklist, NextStep, « Fix → » du preflight) :
      on bascule d'abord la sidebar sur la section qui l'héberge, puis on scrolle
@@ -289,6 +447,33 @@ export default function DatasetWorkspace({ ds, onBack }) {
     training: null,
   };
 
+  const activePanels = getWorkspacePanels(section, navContext);
+
+  const panelNavItem = (sectionId, destination, chip = false) => {
+    const isActive = sectionId === section && destination.id === panel;
+    const className = chip
+      ? `shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs ${
+          isActive
+            ? 'border-indigo-400/60 bg-indigo-500/15 text-indigo-100'
+            : 'border-border text-content-subtle hover:text-content'}`
+      : `relative w-full rounded-md py-1.5 pl-8 pr-3 text-left text-xs ${
+          isActive
+            ? 'bg-indigo-500/10 text-indigo-200'
+            : 'text-content-subtle hover:bg-surface hover:text-content-muted'}`;
+    return (
+      <button type="button"
+        onClick={() => navigateToPanel(sectionId, destination.id)}
+        aria-current={isActive ? 'location' : undefined}
+        data-mobile-panel={chip ? destination.id : undefined}
+        className={className}>
+        {!chip && isActive && (
+          <span aria-hidden className="absolute bottom-1.5 left-4 top-1.5 w-px rounded bg-indigo-400" />
+        )}
+        {destination.title}
+      </button>
+    );
+  };
+
   // Un item de la sidebar : rail vertical desktop (chip=false) ou chip du bandeau
   // horizontal mobile (chip=true) — mêmes classes que la sidebar de Settings.
   const navItem = (s, chip) => {
@@ -299,14 +484,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
       : `relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium ${
           isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:bg-surface hover:text-content'}`;
     return (
-      <button key={s.id} type="button" onClick={() => setSection(s.id)}
-        aria-current={isActive ? 'page' : undefined} className={base}>
+      <button type="button" onClick={() => setSection(s.id)}
+        aria-current={isActive ? 'page' : undefined}
+        aria-expanded={isActive}
+        aria-controls={isActive
+          ? `${chip ? 'dataset-mobile-panels' : 'dataset-nav-panels'}-${s.id}`
+          : undefined}
+        data-mobile-section={chip ? s.id : undefined}
+        className={base}>
         {!chip && isActive && (
           <span aria-hidden className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded bg-gradient-primary" />
         )}
         <span aria-hidden>{s.icon}</span>
         <span>{s.title}</span>
         <NavBadge badge={navBadges[s.id]} />
+        {!chip && <span aria-hidden className="text-content-subtle text-[0.625rem]">{isActive ? '▾' : '▸'}</span>}
       </button>
     );
   };
@@ -314,7 +506,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const sectionMeta = Object.fromEntries(WORKSPACE_SECTIONS.map((s) => [s.id, s]));
   const heading = (id) => {
     const s = sectionMeta[id];
-    return <SectionHeading eyebrow={s.eyebrow} title={s.title}
+    return <SectionHeading id={`ds-section-${id}-heading`} eyebrow={s.eyebrow} title={s.title}
       description={concept && s.conceptDescription ? s.conceptDescription : s.description} />;
   };
   // Sections inactives : montées mais masquées (display:none) — les polls et
@@ -393,16 +585,44 @@ export default function DatasetWorkspace({ ds, onBack }) {
       <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-4 lg:items-start">
         <aside>
           {/* Mobile: horizontal chip rail */}
-          <nav aria-label="Dataset sections" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
-            {WORKSPACE_SECTIONS.map((s) => navItem(s, true))}
+          <nav aria-label="Dataset sections" className="-mx-4 overflow-x-auto px-4 pb-2 lg:hidden">
+            <ul className="m-0 flex list-none gap-2 p-0">
+              {WORKSPACE_SECTIONS.map((s) => <li key={s.id}>{navItem(s, true)}</li>)}
+            </ul>
           </nav>
+          {activePanels.length > 0 && (
+            <nav aria-label={`${sectionMeta[section].title} destinations`}
+              className="-mx-4 -mt-1 overflow-x-auto px-4 pb-3 lg:hidden">
+              <ul id={`dataset-mobile-panels-${section}`} className="m-0 flex list-none gap-2 p-0">
+                {activePanels.map((destination) => (
+                  <li key={destination.id}>{panelNavItem(section, destination, true)}</li>
+                ))}
+              </ul>
+            </nav>
+          )}
           {/* Desktop: sticky rail + guided progress below it */}
           <div className="hidden lg:sticky lg:top-20 lg:flex lg:flex-col lg:gap-3">
             <nav aria-label="Dataset sections">
               <p className="m-0 px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">Dataset</p>
-              <div className="flex flex-col gap-0.5">
-                {WORKSPACE_SECTIONS.map((s) => navItem(s, false))}
-              </div>
+              <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+                {WORKSPACE_SECTIONS.map((s) => {
+                  const isActive = s.id === section;
+                  const destinations = isActive ? getWorkspacePanels(s.id, navContext) : [];
+                  return (
+                    <li key={s.id}>
+                      {navItem(s, false)}
+                      {isActive && (
+                        <ul id={`dataset-nav-panels-${s.id}`}
+                          className="m-0 ml-4 flex list-none flex-col gap-0.5 border-l border-border/70 py-1 pl-1 p-0">
+                          {destinations.map((destination) => (
+                            <li key={destination.id}>{panelNavItem(s.id, destination, false)}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             </nav>
             {!concept && (
               <GuidedChecklist steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
@@ -486,45 +706,61 @@ export default function DatasetWorkspace({ ds, onBack }) {
               // Concept : pas de photo de référence ni de générateur — on peuple le dataset
               // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
               <div id="gf-reference" className="scroll-mt-20 flex flex-col gap-2">
-                <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
-                <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
+                <div id="ds-add-scraper" tabIndex={-1} className="scroll-mt-20">
+                  <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
+                </div>
+                <div id="ds-add-import" tabIndex={-1} className="scroll-mt-20">
+                  <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
+                </div>
               </div>
             ) : (
               <>
-                <div id="gf-reference" className="scroll-mt-20 flex flex-col gap-1">
-                  <span className="text-content-subtle text-[0.6875rem]">
-                    one clear photo of the face — every generated variation starts from it
-                  </span>
-                  <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
-                    onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
-                    extraRefs={d.ref_extra_filenames || []}
-                    onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
+                <div id="gf-reference" className="scroll-mt-20">
+                  <div id="ds-add-reference" tabIndex={-1} className="scroll-mt-20 flex flex-col gap-1">
+                    <span className="text-content-subtle text-[0.6875rem]">
+                      one clear photo of the face — every generated variation starts from it
+                    </span>
+                    <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
+                      onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
+                      extraRefs={d.ref_extra_filenames || []}
+                      onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
+                  </div>
                 </div>
 
                 <div id="gf-generate" className="scroll-mt-20 flex flex-col gap-2">
                   <CompositionBar composition={d.composition} upscaled={d.composition_upscaled} bodyFidelity={bodyFid} />
-                  <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}
-                    generating={act && act.kind === 'generate' ? act : null}
-                    onGenerate={(...args) => {
-                      // Guard-rail: a batch is already in flight — launching another one
-                      // on top is usually an accidental double-click, not a plan.
-                      if (pending > 0 && !window.confirm(
-                        `A generation batch is already running (${pending} in flight).\n\nLaunch another one anyway?`)) return;
-                      ds.generate(...args);
-                    }}
-                    hasRef={!!d.ref_filename} composition={d.composition} images={images}
-                    bodyFidelity={bodyFid} />
+                  <div id="ds-add-generate" tabIndex={-1} className="scroll-mt-20">
+                    <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}
+                      generating={act && act.kind === 'generate' ? act : null}
+                      onGenerate={(...args) => {
+                        // Guard-rail: a batch is already in flight — launching another one
+                        // on top is usually an accidental double-click, not a plan.
+                        if (pending > 0 && !window.confirm(
+                          `A generation batch is already running (${pending} in flight).\n\nLaunch another one anyway?`)) return;
+                        ds.generate(...args);
+                      }}
+                      hasRef={!!d.ref_filename} composition={d.composition} images={images}
+                      bodyFidelity={bodyFid} />
+                  </div>
                   {/* Head-crop optional: ON tags framing='face' at import (I2); OFF keeps
                       the original framing so bust/body photos import as-is. Body-fidelity
                       datasets default OFF (full frames are the point) — key remounts the
                       dropzone so the default follows a fidelity switch. */}
-                  <ImportDropzone key={`${d.id}-${bodyFid}`} onImport={(f, o) => ds.importFiles(f, o)}
-                    busy={ds.busy} cropOption defaultCrop={!bodyFid} />
+                  <div id="ds-add-import" tabIndex={-1} className="scroll-mt-20">
+                    <ImportDropzone key={`${d.id}-${bodyFid}`} onImport={(f, o) => ds.importFiles(f, o)}
+                      busy={ds.busy} cropOption defaultCrop={!bodyFid} />
+                  </div>
                   {/* Scraper (character datasets too): scan a gallery URL → pick → import
                       full-frame — then crop each tile manually (✂ on the card). Collapsed
                       by default to keep the reference/generate flow prominent. */}
-                  <details className="rounded-lg border border-border bg-surface open:pb-3">
-                    <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
+                  <details id="ds-add-scraper" open={scraperOpen}
+                    className="rounded-lg border border-border bg-surface open:pb-3 scroll-mt-20">
+                    <summary data-workspace-focus
+                      onClick={(event) => {
+                        event.preventDefault();
+                        onRevealOpenChange('scraper', !scraperOpen, setScraperOpen);
+                      }}
+                      className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
                       🕸 Scrape images from the web
                       <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
                         scan a gallery URL, pick images, import full-frame — crop them afterwards
@@ -546,18 +782,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
             <div id="gf-curation" className="scroll-mt-20 flex flex-col gap-2">
               <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
                 {!concept && (
-                  <button type="button" onClick={ds.analyzeFaces} disabled={ds.busy || !d.ref_filename}
+                  <button id="ds-curation-face-analysis" type="button" data-workspace-focus
+                    onClick={ds.analyzeFaces} disabled={ds.busy || !d.ref_filename}
                     title={d.ref_filename ? "Scores each image's facial resemblance vs the reference (deletes nothing)" : "Set a reference photo first"}
-                    className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
+                    className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border scroll-mt-20">
                     {ds.analyzing
                       ? `🎭 Analyzing…${act?.kind === 'analyze_faces' && act.total ? ` ${act.done}/${act.total}` : ''}`
                       : '🎭 Analyze faces'}
                   </button>
                 )}
+                <div id="ds-curation-watermarks" tabIndex={-1}
+                  className="flex items-center gap-2 flex-wrap scroll-mt-20">
                 {/* Watermark auto-correction (V1): find overlaid site logos/URLs/usernames on
                     the kept images, then Clean them (border → crop, small off-center → LaMa
                     inpaint, on-subject → manual review). Applies to any dataset kind. */}
-                <button type="button" onClick={ds.findWatermarks} disabled={ds.busy}
+                <button type="button" data-workspace-focus onClick={ds.findWatermarks} disabled={ds.busy}
                   title="Scans the kept images for overlaid watermarks/logos/URLs added on top of the photo (deletes nothing)"
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
                   {ds.watermarking
@@ -578,10 +817,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     The auto-detect has false positives, so this hands the final call to the
                     user (crucial after the "64/75 flagged" real-dataset run). */}
                 {watermarkDetected > 0 && (
-                  <button type="button" disabled={ds.busy}
+                  <button id="ds-curation-review-flagged" type="button" data-workspace-focus
+                    disabled={ds.busy}
                     onClick={() => setReviewQueue(images.filter((i) => i.watermark_state === 'detected'))}
                     title="Step through the flagged images one by one — see each detected box and Clean, dismiss a false positive, or reject"
-                    className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
+                    className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40 scroll-mt-20">
                     🔍 Review flagged ({watermarkDetected})
                   </button>
                 )}
@@ -601,6 +841,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     <span aria-hidden className="text-content-subtle text-xs">{installInpaintOpen ? '▴' : '▾'}</span>
                   </button>
                 )}
+                </div>
               </div>
 
               {/* Scoped watermark-inpainting installer. Reuses the Setup InstallRunner
@@ -632,8 +873,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
               {/* Nettoyage définitif des rejetées/échouées (ex-item du menu ⋯ More :
                   c'est une action de curation, elle vit avec les autres). */}
               {unused > 0 && (
-                <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
-                  <button type="button" disabled={ds.busy}
+                <div id="ds-curation-rejected-cleanup" tabIndex={-1}
+                  className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2 scroll-mt-20">
+                  <button type="button" data-workspace-focus disabled={ds.busy}
                     onClick={() => {
                       if (window.confirm(`Permanently delete the ${unused} rejected/failed image(s) (files included)?`)) ds.purgeUnused();
                     }}
@@ -654,7 +896,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <div className={sectionCls('captions')}>
             {heading('captions')}
             <div id="gf-captions" className="scroll-mt-20 flex flex-col gap-2">
-              <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
+              <div id="ds-captions-generate" tabIndex={-1}
+                className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2 scroll-mt-20">
                 {!concept && (
                   <select value={effCaptionMode} onChange={(e) => setCaptionMode(e.target.value)} disabled={ds.busy}
                     title="Caption style — Prose (Z-Image) or Booru tags (SDXL booru-native, e.g. bigLove). Defaults to auto based on the dataset's type."
@@ -663,7 +906,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     <option value="booru">🏷️ Booru tags</option>
                   </select>
                 )}
-                <button type="button" onClick={() => ds.caption(effCaptionMode)} disabled={ds.busy}
+                <button type="button" data-workspace-focus
+                  onClick={() => ds.caption(effCaptionMode)} disabled={ds.busy}
                   className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
                   {ds.captioning ? `✨ ${keptCaptioned}/${kept} captioned…` : '✨ Caption the kept ones'}
                 </button>
@@ -688,7 +932,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   </span>
                 ) : d.caption_leak && (
                   d.caption_leak.captioned > 0 ? (
-                    <button type="button" onClick={() => setShowLeaks((v) => !v)}
+                    <button id="ds-captions-leak-review" type="button" data-workspace-focus
+                      onClick={toggleLeakReview}
                       aria-expanded={showLeaks}
                       title={d.caption_leak.leaking === 0
                         ? (isConcept
@@ -697,7 +942,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                         : (isConcept
                             ? "These captions name the concept → it won't bind to the trigger. Click to see what's watched and fix them here."
                             : "These captions mention hair/face/skin → identity won't bind to the trigger. Click to see what's watched and fix them here.")}
-                      className={`ml-auto text-[0.8125rem] underline decoration-dashed ${
+                      className={`ml-auto text-[0.8125rem] underline decoration-dashed scroll-mt-20 ${
                         d.caption_leak.leaking === 0
                           ? 'text-emerald-400 decoration-emerald-400/40'
                           : 'text-amber-400 decoration-amber-400/50'}`}>
@@ -707,10 +952,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       {' '}{showLeaks ? '▴' : '▾'}
                     </button>
                   ) : kept > 0 ? (
-                    <button type="button" onClick={() => setShowLeaks((v) => !v)}
+                    <button id="ds-captions-leak-review" type="button" data-workspace-focus
+                      onClick={toggleLeakReview}
                       aria-expanded={showLeaks}
                       title={`The ${isConcept ? 'concept' : 'identity'}-leak scan runs on captions. Caption the kept images first. Click to learn what it checks.`}
-                      className="ml-auto text-content-subtle text-[0.8125rem] underline decoration-dashed decoration-border">
+                      className="ml-auto text-content-subtle text-[0.8125rem] underline decoration-dashed decoration-border scroll-mt-20">
                       {isConcept ? 'concept' : 'identity'}-leak scan: no captions yet {showLeaks ? '▴' : '▾'}
                     </button>
                   ) : null
@@ -750,7 +996,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                         </p>
                       )}
                     </div>
-                    <button type="button" onClick={() => setShowLeaks(false)}
+                    <button type="button" onClick={toggleLeakReview}
                       className="ml-auto shrink-0 text-content-subtle hover:text-content text-sm" aria-label="Close">✕</button>
                   </div>
 
@@ -830,11 +1076,16 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 </div>
               )}
 
-              <CaptionToolsBar images={images} trainType={d.train_type} mode={effCaptionMode}
-                excludes={excludeTags} includes={includeTags}
-                onExclude={toggleExclude} onInclude={toggleInclude}
-                onReplace={ds.replaceCaptions}
-                onWriteFiles={ds.writeCaptionFiles} onOpenFolder={ds.openDatasetFolder} busy={ds.busy} />
+              <div id="ds-captions-tools" tabIndex={-1} className="scroll-mt-20">
+                <CaptionToolsBar images={images} trainType={d.train_type} mode={effCaptionMode}
+                  excludes={excludeTags} includes={includeTags}
+                  onExclude={toggleExclude} onInclude={toggleInclude}
+                  onReplace={ds.replaceCaptions}
+                  onWriteFiles={ds.writeCaptionFiles} onOpenFolder={ds.openDatasetFolder}
+                  busy={ds.busy}
+                  open={captionToolsOpen}
+                  onOpenChange={(open) => onRevealOpenChange('tools', open, setCaptionToolsOpen)} />
+              </div>
               {filtersActive && (
                 <p className="m-0 text-content-subtle text-[0.6875rem]">
                   🔎 A tag filter is active — the filtered grid lives in{' '}
@@ -852,8 +1103,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
             {heading('export')}
             <div id="gf-export" className="scroll-mt-20 flex flex-col gap-2">
               <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Bring images in</span>
-              <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
-                <button type="button" onClick={() => zipInput.current?.click()} disabled={ds.busy}
+              <div id="ds-export-import" tabIndex={-1}
+                className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2 scroll-mt-20">
+                <button type="button" data-workspace-focus
+                  onClick={() => zipInput.current?.click()} disabled={ds.busy}
                   title="Merge an existing training dataset into this one: a ZIP of images with kohya-style same-name .txt captions (any folder layout). Aspect kept, perceptual duplicates skipped."
                   className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
                   📦 Import dataset (ZIP)
@@ -876,8 +1129,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
 
               <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Get this dataset out</span>
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button type="button" disabled={!kept} onClick={exportZipGuarded}
+                <div id="ds-export-training-zip" tabIndex={-1}
+                  className="flex items-center gap-2 flex-wrap scroll-mt-20">
+                  <button type="button" data-workspace-focus={kept ? '' : undefined}
+                    disabled={!kept} onClick={exportZipGuarded}
                     className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
                     ⬇ Export ZIP ({kept})
                   </button>
@@ -885,8 +1140,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     kept images + captions, training-ready (kohya layout)
                   </span>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button type="button" onClick={ds.exportBackup}
+                <div id="ds-export-backup" tabIndex={-1}
+                  className="flex items-center gap-2 flex-wrap scroll-mt-20">
+                  <button type="button" data-workspace-focus onClick={ds.exportBackup}
                     title="Full portable backup: all images with statuses, captions, scores and settings — restore it on any machine from the Datasets page."
                     className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
                     💾 Backup
@@ -896,8 +1152,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   </span>
                 </div>
                 {caps.hf_publish && kept > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button type="button" onClick={() => setPublishHfOpen(true)}
+                  <div id="ds-export-hugging-face" tabIndex={-1}
+                    className="flex items-center gap-2 flex-wrap scroll-mt-20">
+                    <button type="button" data-workspace-focus
+                      onClick={() => setPublishHfOpen(true)}
                       title="Publish this dataset (kept images + captions) as a dataset repo on the Hugging Face Hub. Private by default; you choose the license and confirm you have the right to share."
                       className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
                       🤗 Publish to Hugging Face
@@ -915,22 +1173,33 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <div className={sectionCls('training')}>
             {heading('training')}
             <div id="gf-training" className="scroll-mt-20 flex flex-col gap-2">
-              {/* Pastille de préparation (miroir du preflight) : refreshKey borné aux
-                  compteurs pertinents → pas de re-fetch à chaque poll du dataset. */}
-              {caps.training_visible && (
-                <TrainingReadiness datasetId={d.id} trainType={d.train_type}
-                  refreshKey={`${kept}|${keptCaptioned}|${pending}|${triage}|${d.caption_leak?.leaking ?? ''}`}
-                  onJump={(targetId) => jumpTo({ targetId })} />
-              )}
-              <TrainingPanel ds={ds} keptCount={kept} kind={d.kind} onCheckpointsChange={setCheckpointCount} />
+              <div id="ds-training-launch" tabIndex={-1}
+                className="flex flex-col gap-2 scroll-mt-20">
+                {/* Pastille de préparation (miroir du preflight) : refreshKey borné aux
+                    compteurs pertinents → pas de re-fetch à chaque poll du dataset. */}
+                {caps.training_visible && (
+                  <TrainingReadiness datasetId={d.id} trainType={d.train_type}
+                    refreshKey={`${kept}|${keptCaptioned}|${pending}|${triage}|${d.caption_leak?.leaking ?? ''}`}
+                    onJump={(targetId) => jumpTo({ targetId })} />
+                )}
+                <TrainingPanel ds={ds} keptCount={kept} kind={d.kind}
+                  onCheckpointsChange={setCheckpointCount}
+                  navigationPanel={section === 'training' && (panel === 'advanced' || panel === 'checkpoints')
+                    ? panel : null}
+                  onNavigationStateChange={setTrainingNavigation}
+                  onPanelOpenChange={(panelId, open) => {
+                    if (!open && section === 'training' && panel === panelId) clearActivePanel();
+                  }} />
+              </div>
 
               {/* Lanceur du Studio de test LoRA : page dédiée plein écran /studio?dataset=
                   (le LoRA du dataset y est pré-coché). Le dataset ouvert est persisté
                   (useDataset) → « ← Retour au Dataset Maker » rouvre ce workspace.
                   Hidden when ComfyUI isn't reachable — the Studio needs it to generate. */}
               {caps.studio_visible && (
-                <button type="button" onClick={() => navigate(`/studio?dataset=${d.id}`)}
-                  className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/5 px-3 py-2.5 text-left hover:bg-purple-500/10 transition-colors">
+                <button id="ds-training-studio" type="button" data-workspace-focus
+                  onClick={() => navigate(`/studio?dataset=${d.id}`)}
+                  className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/5 px-3 py-2.5 text-left hover:bg-purple-500/10 transition-colors scroll-mt-20">
                   <span aria-hidden>🎛️</span>
                   <span className="text-content font-semibold text-sm">LoRA testing studio</span>
                   {d.best_settings && (

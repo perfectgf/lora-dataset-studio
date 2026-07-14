@@ -10,8 +10,15 @@ import { useMemo, useState } from 'react';
    the images on disk, same text as the export ZIP) + 📂 open that folder. */
 export default function CaptionToolsBar({ images, trainType, mode = 'booru',
                                           excludes = [], includes = [], onExclude, onInclude,
-                                          onReplace, onWriteFiles, onOpenFolder, busy }) {
-  const [open, setOpen] = useState(false);
+                                          onReplace, onWriteFiles, onOpenFolder, busy,
+                                          open: controlledOpen, onOpenChange }) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen === undefined ? internalOpen : controlledOpen;
+  const setOpen = (next) => {
+    const value = typeof next === 'function' ? next(open) : next;
+    if (controlledOpen === undefined) setInternalOpen(value);
+    onOpenChange?.(value);
+  };
   const [find, setFind] = useState('');
   const [replace, setReplace] = useState('');
   const [filterInput, setFilterInput] = useState('');
@@ -50,7 +57,8 @@ export default function CaptionToolsBar({ images, trainType, mode = 'booru',
 
   return (
     <div className="rounded-lg border border-border bg-surface px-3 py-2">
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
+      <button type="button" data-workspace-focus
+        onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex items-center gap-2 w-full text-left text-content text-sm font-semibold">
         <span aria-hidden>📝</span> Caption tools
         <span className="text-content-subtle text-[0.6875rem] font-normal">

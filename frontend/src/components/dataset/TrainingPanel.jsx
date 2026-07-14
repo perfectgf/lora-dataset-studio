@@ -33,11 +33,17 @@ const fmtBytes = (b) => {
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
  * Poll régulier : c'est ce poll qui fait avancer la file (fin du courant → suivant). */
-export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange }) {
+export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange,
+                                        navigationPanel = null,
+                                        onNavigationStateChange,
+                                        onPanelOpenChange }) {
   const concept = kind === 'concept' || kind === 'style';  // style: même chemin UI
   const { caps } = useCapabilities();
   const toast = useToast();
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
+  const [statusLoaded, setStatusLoaded] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [checkpointsOpen, setCheckpointsOpen] = useState(false);
   const [checkpoints, setCheckpoints] = useState([]);
   const [ckLoaded, setCkLoaded] = useState(false);
   // {registered, version, changed, diff} — provenance du dataset (registre).
@@ -90,17 +96,38 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       setStatus(d && d.available === false
         ? { in_progress: false, installed: false, queue: [], current: null }
         : d);
-    } catch { /* ignore */ }
+      setStatusLoaded(true);
+    } catch { /* keep the last truthful status */ }
   };
   // Poll toutes les 10 s : avance la file côté serveur + maj de l'UI. Skipped
   // entirely while training is hidden (ai-toolkit not configured) — no point
   // hitting endpoints the backend doesn't expose in that state.
   useEffect(() => {
+    setStatusLoaded(false);
     if (!caps.training_visible) return undefined;
     refreshStatus();
     const id = setInterval(refreshStatus, 10000);
     return () => clearInterval(id);
   }, [caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    onNavigationStateChange?.({
+      ready: !caps.training_visible || statusLoaded,
+      queueCount: Array.isArray(status.queue) ? status.queue.length : 0,
+    });
+  }, [caps.training_visible, statusLoaded, status.queue, onNavigationStateChange]);
+
+  useEffect(() => {
+    if (navigationPanel === 'advanced') setAdvancedOpen(true);
+    if (navigationPanel === 'checkpoints') setCheckpointsOpen(true);
+  }, [navigationPanel]);
+
+  const togglePanel = (panelId, current, setter) => (event) => {
+    event.preventDefault();
+    const next = !current;
+    setter(next);
+    onPanelOpenChange?.(panelId, next);
+  };
 
   // Charge les bases + la base/variante du dataset au montage.
   useEffect(() => {
@@ -868,8 +895,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         </p>
       )}
 
-      <details className="rounded-lg border border-border bg-surface open:pb-2.5">
-        <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
+      <details id="ds-training-advanced" open={advancedOpen}
+        className="rounded-lg border border-border bg-surface open:pb-2.5 scroll-mt-20">
+        <summary data-workspace-focus
+          onClick={togglePanel('advanced', advancedOpen, setAdvancedOpen)}
+          className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
           ⚙️ Advanced options
           <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
             base &amp; variant · rank · resolution · masked · steps · scheduling · presets
@@ -1438,7 +1468,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       </details>
 
       {Array.isArray(status.queue) && status.queue.length > 0 && (
-        <div className="flex flex-col gap-1 rounded-lg border border-indigo-400/30 bg-indigo-500/5 px-3 py-2">
+        <div id="ds-training-queue" tabIndex={-1} data-workspace-focus
+          className="flex flex-col gap-1 rounded-lg border border-indigo-400/30 bg-indigo-500/5 px-3 py-2 scroll-mt-20">
           <span className="text-content-muted text-[0.625rem] uppercase">Training queue ({status.queue.length})</span>
           {status.queue.map((q, i) => (
             <div key={q.dataset_id} className="flex items-center gap-2 text-[0.6875rem]">
@@ -1477,8 +1508,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
       {/* --- Résultats : checkpoints du run + LoRA déjà importés dans ComfyUI.
            Repliés par défaut ; le résumé du summary donne les comptes sans ouvrir. */}
-      <details className="rounded-lg border border-border bg-surface open:pb-2.5">
-        <summary className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
+      <details id="ds-training-checkpoints" open={checkpointsOpen}
+        className="rounded-lg border border-border bg-surface open:pb-2.5 scroll-mt-20">
+        <summary data-workspace-focus
+          onClick={togglePanel('checkpoints', checkpointsOpen, setCheckpointsOpen)}
+          className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
           📦 Checkpoints &amp; trained LoRAs
           <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
             {ckLoaded
