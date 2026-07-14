@@ -71,6 +71,7 @@ export default function SetupPage() {
   const [scanned, setScanned] = useState(false)     // the on-load scan has completed at least once
   const [screen, setScreen] = useState(0)           // index into SCREENS
   const [advancing, setAdvancing] = useState(false) // Next is mid save-&-recheck
+  const [startingOllama, setStartingOllama] = useState(false) // "Start Ollama" in flight
   const autodetectedRef = useRef(false)             // run the on-load autodetect only once
   // Last SERVER-acknowledged config (JSON) — dirty = user edits not yet saved.
   const savedConfigRef = useRef(null)
@@ -174,6 +175,22 @@ export default function SetupPage() {
       r.ok ? toast.success(r.detail) : toast.warning(r.detail)
       await refresh(true)
     } catch (e) { toast.error(e.message) }
+  }
+
+  // One-click start for an ALREADY-INSTALLED Ollama that just isn't running
+  // (caps.ollama.installed true, reachable false). The backend starts `ollama
+  // serve` detached and polls readiness (~15s); refresh(true) then flips the step
+  // to ready with no app restart. A failure returns 502 -> apiFetch throws (and
+  // auto-toasts the generic 5xx notice); the catch adds the specific reason,
+  // matching the existing saveSecretThenTest pattern.
+  const startOllama = async () => {
+    setStartingOllama(true)
+    try {
+      const r = await postJson('/api/ollama/start', {})
+      if (r.reachable) { toast.success('Ollama started.'); await refresh(true) }
+      else { toast.error(r.error || 'Ollama did not become ready.') }
+    } catch (e) { toast.error(e.message || 'Could not start Ollama.') }
+    finally { setStartingOllama(false) }
   }
 
   if (!config) {
@@ -413,6 +430,29 @@ export default function SetupPage() {
           </div>
         )
       }
+      // Installed but not running → a one-click Start beats sending the user back
+      // to the install guide (the binary is detected independently of the server).
+      if (step.installed) {
+        return (
+          <div className="space-y-4">
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+              <p className="mb-1 text-sm font-medium text-content">
+                Ollama is installed{step.binaryPath && (
+                  <> at <span className="font-mono">{step.binaryPath}</span></>
+                )} but not running.
+              </p>
+              <p className="mb-2 text-xs text-content-muted">
+                Start it (it listens on port 11434) to unlock captioning and auto-framing — no restart needed.
+              </p>
+              <button type="button" onClick={startOllama} disabled={startingOllama}
+                className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                {startingOllama ? 'Starting…' : '▶ Start Ollama'}
+              </button>
+            </div>
+            {fields}
+          </div>
+        )
+      }
       return (
         <GuidedSteps
           intro="Ollama runs local models for captioning and auto-framing. Installing it is not enough — you also need to pull a vision model."
@@ -580,7 +620,11 @@ export default function SetupPage() {
   // capabilities after a save (not just the render-time snapshot).
   const ollamaGateReason = (s) => {
     if (!s || s.status === 'ready') return null
-    if (!s.reachable) return "Ollama isn't detected — Z-Image captioning needs it. Install it and start it (port 11434) to continue."
+    if (!s.reachable) {
+      // Installed-but-stopped gets a Start nudge; genuinely absent gets install.
+      if (!s.installed) return "Ollama isn't installed — download it and start it (port 11434) to continue."
+      return 'Ollama is installed but not running — click ▶ Start Ollama below to continue.'
+    }
     if (!s.visionModelReady) return 'Pull the vision model below to continue — Z-Image captioning needs it (JoyCaption only covers SDXL).'
     return 'Finish this step to continue.'
   }

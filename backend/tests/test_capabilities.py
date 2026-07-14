@@ -480,6 +480,62 @@ def test_probe_aitoolkit_accepts_dot_venv_and_explicit_python(app, tmp_path, mon
         assert 'Python interpreter' in probe['detail']
 
 
+# --- ollama install detection (execution-independent) ---------------------
+
+def test_ollama_binary_found_on_path(app, monkeypatch):
+    """shutil.which hit is the primary signal — works whether or not the server runs."""
+    from app import capabilities
+    monkeypatch.setattr(capabilities.shutil, 'which', lambda name: r'C:\bin\ollama.exe')
+    assert capabilities._ollama_binary() == r'C:\bin\ollama.exe'
+
+
+def test_ollama_binary_windows_localappdata_fallback(app, tmp_path, monkeypatch):
+    """Not on PATH (stale shell) but present at the official per-user install
+    location %LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe -> still detected."""
+    from app import capabilities
+    monkeypatch.setattr(capabilities.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(capabilities.os, 'name', 'nt')
+    exe = tmp_path / 'Programs' / 'Ollama' / 'ollama.exe'
+    exe.parent.mkdir(parents=True)
+    exe.touch()
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
+    assert capabilities._ollama_binary() == str(exe)
+
+
+def test_ollama_binary_absent_returns_empty(app, monkeypatch):
+    from app import capabilities
+    monkeypatch.setattr(capabilities.shutil, 'which', lambda name: None)
+    monkeypatch.setattr(capabilities.os, 'name', 'nt')
+    monkeypatch.setenv('LOCALAPPDATA', r'C:\nope-nonexistent-xyz')
+    assert capabilities._ollama_binary() == ''
+    assert capabilities.probe_ollama_installed()['ok'] is False
+
+
+def test_probe_exposes_ollama_installed_independent_of_reachable(app, monkeypatch):
+    """installed can be True while reachable is False — the whole point: an
+    installed-but-stopped Ollama must NOT read as absent."""
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': 'qwen3-vl:8b'}})
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: False)   # server down
+        monkeypatch.setattr(capabilities, '_ollama_binary', lambda: r'C:\bin\ollama.exe')
+        caps = capabilities.probe(force=True)
+    o = caps['ollama']
+    assert o['installed'] is True
+    assert o['reachable'] is False
+    assert o['binary_path'] == r'C:\bin\ollama.exe'
+
+
+def test_probe_ollama_installed_false_when_binary_missing(app, monkeypatch):
+    with app.app_context():
+        from app import capabilities
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: False)
+        monkeypatch.setattr(capabilities, '_ollama_binary', lambda: '')
+        caps = capabilities.probe(force=True)
+    assert caps['ollama']['installed'] is False
+    assert caps['ollama']['binary_path'] == ''
+
+
 def test_is_comfyui_dir_accepts_desktop_layout(tmp_path):
     """The ComfyUI Desktop app's basedir has models/ + custom_nodes/ but NO
     main.py (a user had to symlink one to pass the old check)."""

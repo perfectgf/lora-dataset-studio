@@ -6,7 +6,9 @@ every reachability probe goes through it so tests can patch one symbol.
 `_import_ok` is the equivalent seam for the slow subprocess import-probes.
 """
 import copy
+import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -94,6 +96,47 @@ def probe_ollama() -> dict:
         return {'ok': False, 'detail': 'ollama.url not configured'}
     ok = _http_ok(f'{url}/api/tags')
     return {'ok': ok, 'detail': url if ok else f'unreachable: {url}'}
+
+
+# Ollama install detection, EXECUTION-INDEPENDENT: it must answer "installed"
+# even when the server is stopped. probe_ollama() above only sees a RUNNING
+# server (HTTP probe), which made an installed-but-stopped Ollama read as absent
+# — misleading. This pair lets the UI tell 'not installed' from 'installed but
+# stopped' (→ offer a Start button) from 'running'.
+_OLLAMA_WIN_BINARY = ('Programs', 'Ollama', 'ollama.exe')   # under %LOCALAPPDATA%
+
+
+def _ollama_binary() -> str:
+    """Absolute path to the Ollama CLI binary if installed, else ''. Two signals,
+    neither of which needs the server running:
+      1. ``shutil.which('ollama')`` — the official installer adds Ollama to PATH
+         (Windows per-user, macOS/Linux /usr/local/bin), so this is the primary hit.
+      2. Windows fallback: the per-user location the official installer writes to,
+         ``%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe`` (verified against
+         docs.ollama.com/windows) — covers a shell whose PATH was not refreshed
+         since the install. First hit wins; never raises."""
+    exe = shutil.which('ollama')
+    if exe:
+        return exe
+    if os.name == 'nt':
+        local = os.environ.get('LOCALAPPDATA')
+        if local:
+            cand = Path(local).joinpath(*_OLLAMA_WIN_BINARY)
+            try:
+                if cand.is_file():
+                    return str(cand)
+            except OSError:
+                pass
+    return ''
+
+
+def probe_ollama_installed() -> dict:
+    """Is the Ollama binary present on disk (independent of the server running)?
+    The `installed` capability the UI reads alongside `reachable` to pick between
+    an install guide (not installed) and a Start button (installed but stopped)."""
+    path = _ollama_binary()
+    return {'ok': bool(path), 'binary_path': path,
+            'detail': path or 'ollama binary not found (PATH or default install location)'}
 
 
 def _ollama_tags(url, timeout=3) -> list:
@@ -450,6 +493,7 @@ def probe(force=False) -> dict:
 
     comfy = probe_comfyui()
     ollama = probe_ollama()
+    ollama_installed = probe_ollama_installed()
     aitoolkit = probe_aitoolkit()
     gemini = probe_gemini()
     openai_ = probe_openai()
@@ -487,6 +531,11 @@ def probe(force=False) -> dict:
         },
         'ollama': {
             'reachable': ollama['ok'],
+            # Installed = binary on disk, even when the server is stopped. The UI
+            # reads (installed, reachable) as three states: not installed /
+            # installed-but-stopped (→ "Start Ollama" button) / running.
+            'installed': ollama_installed['ok'],
+            'binary_path': ollama_installed['binary_path'],   # local-only; drives the Start route
             'url': cfg.get('ollama.url') or '',
             'vision_model': cfg.get('ollama.vision_model') or '',
             'vision_model_ready': probe_ollama_model(reachable=ollama['ok'])['ok'],

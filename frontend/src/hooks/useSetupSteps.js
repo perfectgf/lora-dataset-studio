@@ -46,6 +46,9 @@ function ollamaStep(caps) {
     unlocks: ['Captioning', 'Auto-classify framing', 'Auto head-crop'],
     status, reachable: !!o.reachable, visionModelReady: !!o.vision_model_ready,
     url: o.url || '', visionModel: o.vision_model || '',
+    // Execution-independent install signal (binary on disk) vs `reachable` (server
+    // answering): installed && !reachable -> "installed but stopped", offer a Start.
+    installed: !!o.installed, binaryPath: o.binary_path || '',
   }
 }
 
