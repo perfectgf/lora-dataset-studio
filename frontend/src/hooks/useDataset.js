@@ -383,7 +383,7 @@ export function useDataset() {
       // A LaMa inpaint that was attempted and failed surfaces WHY (never silent).
       if (d.error) {
         toast.error(d.error.kind === 'unavailable'
-          ? 'Watermark inpainting is not installed — install the ML extras.'
+          ? 'Watermark inpainting is not installed — use ⬇ Install inpainting next to the watermark tools.'
           : `Watermark inpainting failed: ${d.error.detail}`);
       }
       const parts = [];
@@ -392,7 +392,7 @@ export function useDataset() {
       if (d.needs_review) parts.push(`${d.needs_review} need manual review`);
       if (d.failed) parts.push(`${d.failed} failed`);
       toast.success(parts.length ? parts.join(' · ') : 'Nothing to clean');
-      if (d.skipped) toast.warning(`${d.skipped} skipped — install the ML extras for inpainting`);
+      if (d.skipped) toast.warning(`${d.skipped} skipped — use ⬇ Install inpainting next to the watermark tools`);
       if (detectedIds.length) {
         setNonces((m) => {
           const next = { ...m };

@@ -22,10 +22,16 @@ logger = logging.getLogger(__name__)
 _SCRIPT = str(cfg.BACKEND_DIR / 'infer' / 'lama_infer.py')
 
 
-def _lama_python() -> str:
+def lama_python() -> str:
     # Cle dediee, sinon on reutilise le python ML existant (rembg/insightface), sinon
     # l'interpreteur courant. simple-lama vit dans le MEME extra ML (requirements-ml.txt).
+    # PUBLIC : le bouton « Install inpainting » (setup_installer) cible CE meme
+    # resolveur, pour que l'install atterrisse la ou le wrapper importe ensuite.
     return cfg.get('watermark.python') or cfg.get('masks.python') or sys.executable
+
+
+# Back-compat alias (le nom prive etait le point d'entree historique).
+_lama_python = lama_python
 
 
 def is_available() -> bool:

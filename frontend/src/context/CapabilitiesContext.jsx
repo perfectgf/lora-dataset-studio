@@ -17,6 +17,7 @@ const EMPTY_CAPS = {
   captioners: { joycaption: false, ollama: false },
   face_scoring: false,
   masks: false,
+  watermark_inpaint: false,
   training_visible: false,
   cloud_training: false,
   studio_visible: false,

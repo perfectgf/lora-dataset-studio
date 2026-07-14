@@ -13,6 +13,7 @@ import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
 import DatasetSettingsModal from './DatasetSettingsModal';
 import { useCapabilities } from '../../context/CapabilitiesContext';
+import InstallRunner from '../setup/InstallRunner';
 import GuidedChecklist from './GuidedChecklist';
 import NextStepCard from './NextStepCard';
 import TrainingReadiness from './TrainingReadiness';
@@ -74,7 +75,7 @@ const MENU_ITEM = 'w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounde
 
 export default function DatasetWorkspace({ ds, onBack }) {
   const navigate = useNavigate();
-  const { caps } = useCapabilities();
+  const { caps, refresh: refreshCaps } = useCapabilities();
   const d = ds.data;
   const [cropImg, setCropImg] = useState(null);
   const zipInput = useRef(null);   // hidden input for "Import dataset (ZIP)"
@@ -83,6 +84,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [showImages, setShowImages] = useState(true);
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
   const [showLeaks, setShowLeaks] = useState(false);       // liste dépliée des captions qui fuient
+  const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
   const [checkpointCount, setCheckpointCount] = useState(0);
   // Repli des cartes d'étape : override manuel par section id (gf-*). Vide au
   // départ → chaque carte suit son défaut (repliée si terminée & non-courante).
@@ -453,9 +455,25 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 <button type="button" onClick={ds.cleanWatermarks} disabled={ds.busy}
                   title={caps.watermark_inpaint
                     ? 'Removes them: border marks are cropped, small off-center marks are inpainted (LaMa), on-subject marks are flagged for manual review'
-                    : 'Removes border marks by cropping. Inpainting (LaMa) needs the ML extras — off-center marks will be skipped until then'}
+                    : 'Removes border marks by cropping. Inpainting (LaMa) needs a one-time install — use ⬇ Install inpainting next to this button; off-center marks are skipped until then'}
                   className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold disabled:opacity-40">
                   🧽 Clean ({watermarkDetected})
+                </button>
+              )}
+              {/* Watermark inpainting (LaMa) needs one extra ML package (simple-lama-
+                  inpainting). Show a scoped installer RIGHT HERE — where the lack is
+                  met — instead of sending the user back to Setup's whole ML-extras
+                  step. Toggles a panel below (InstallRunner does the polling +
+                  progress + manual-command fallback); on success caps re-fetch and
+                  this affordance disappears. */}
+              {!caps.watermark_inpaint && (
+                <button type="button" onClick={() => setInstallInpaintOpen((v) => !v)}
+                  aria-expanded={installInpaintOpen}
+                  title="Install the watermark-inpainting package (LaMa) so off-center marks can be repainted instead of only cropped. One-time download (~hundreds of MB)."
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-amber-400/50 bg-amber-500/5 text-amber-200/90 text-sm hover:bg-amber-500/10">
+                  ⬇ Install inpainting
+                  <span className="text-content-subtle text-[0.625rem] font-normal">one-time · ~hundreds of MB</span>
+                  <span aria-hidden className="text-content-subtle text-xs">{installInpaintOpen ? '▴' : '▾'}</span>
                 </button>
               )}
               {!concept && d.caption_leak && d.caption_leak.captioned > 0 && (
@@ -474,6 +492,32 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 )
               )}
             </div>
+
+            {/* Scoped watermark-inpainting installer. Reuses the Setup InstallRunner
+                (same polling / live progress / manual-command fallback). onDone
+                force-refreshes capabilities → watermark_inpaint flips true without a
+                restart or the 600 s probe TTL (the backend drops the import cache on
+                success), and the affordance above unmounts on its own. */}
+            {installInpaintOpen && !caps.watermark_inpaint && (
+              <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 p-3 flex flex-col gap-2">
+                <div className="flex items-start gap-2">
+                  <span aria-hidden className="text-lg leading-none">🧽</span>
+                  <div className="flex flex-col">
+                    <span className="text-amber-200 text-sm font-semibold">Install watermark inpainting (LaMa)</span>
+                    <span className="text-content-subtle text-[0.6875rem]">
+                      Adds the <code className="text-amber-200/90">simple-lama-inpainting</code> package
+                      (pulls a CPU torch — one-time download, ~hundreds of MB). No restart, no GPU:
+                      once done, ⬇ inpaints small off-center marks instead of skipping them.
+                    </span>
+                  </div>
+                  <button type="button" onClick={() => setInstallInpaintOpen(false)}
+                    className="ml-auto shrink-0 text-content-subtle hover:text-content text-sm"
+                    aria-label="Close the inpainting installer">✕</button>
+                </div>
+                <InstallRunner action="watermark_inpaint" buttonLabel="⬇ Download & install"
+                  onDone={() => refreshCaps(true)} />
+              </div>
+            )}
 
             {/* Identity-leak triage list: every leaking caption editable IN PLACE
                 (saves on blur, like the grid) — no more hunting through the tiles. */}

@@ -2,6 +2,11 @@
 thread and expose their live state for polling. Actions:
 
   ml_extras          -> pip install -r backend/requirements-ml.txt (the app's own venv)
+  watermark_inpaint  -> pip install JUST the watermark-inpainting package (simple-lama-
+                        inpainting, version floor read from requirements-ml.txt) into the
+                        interpreter the LaMa wrapper resolves — the scoped install shown
+                        next to the Curate 🧽 tools, so a user who already has rembg/
+                        insightface doesn't redo the whole ML extras step
   ollama_model       -> stream Ollama's /api/pull for the configured vision model
   klein_model        -> download the Klein fp8 diffusion model into <ComfyUI>/models/unet/klein/
                         (BFL repo is LICENSE-GATED: needs the agreement accepted on HF +
@@ -14,6 +19,7 @@ No shell, no client-supplied arguments: each action's command/URL/destination is
 """
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -52,13 +58,22 @@ _KLEIN_DOWNLOADS = {
     },
 }
 
-INSTALL_ACTIONS = ('ml_extras', 'scrape_extras', 'ollama_model') + tuple(_KLEIN_DOWNLOADS)
+INSTALL_ACTIONS = ('ml_extras', 'scrape_extras', 'ollama_model',
+                   'watermark_inpaint') + tuple(_KLEIN_DOWNLOADS)
 
 _ML_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-ml.txt'
 _SCRAPE_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-scrape.txt'
 # pip -r installers share one worker; both target THIS interpreter (the scrape
 # stack runs in-process, so any other environment would be invisible to the app).
 _PIP_REQUIREMENTS = {'ml_extras': _ML_REQUIREMENTS, 'scrape_extras': _SCRAPE_REQUIREMENTS}
+# The single package the watermark-inpaint scoped install adds. The NAME lives
+# here (an identifier), but the VERSION SPEC is parsed from requirements-ml.txt
+# so there's exactly one place a version floor is ever written.
+_WATERMARK_PKG = 'simple-lama-inpainting'
+# Actions whose success makes a NEW importable package appear -> the probe
+# import-cache must be dropped so the capability flips without waiting out the
+# 600 s TTL (ml_extras/scrape_extras via -r, watermark_inpaint via one package).
+_IMPORT_CACHE_ACTIONS = frozenset(_PIP_REQUIREMENTS) | {'watermark_inpaint'}
 _LOG_MAX = 400  # ring-buffer the log so a chatty pip can't grow unbounded
 
 _lock = threading.Lock()
@@ -104,6 +119,35 @@ def _quote(p: str) -> str:
     return f'"{p}"' if ' ' in p else p
 
 
+def _requirement_spec(name: str, requirements=_ML_REQUIREMENTS) -> str:
+    """The full requirement line for `name` as written in a requirements file
+    (e.g. 'simple-lama-inpainting>=0.1.2') — the version floor lives in ONE place
+    (requirements-ml.txt), never duplicated in this module. Package-name match is
+    canonicalised (PEP 503: -_. all fold together, case-insensitive) and tolerant
+    of version/marker/extras suffixes. Falls back to the bare name if the file or
+    line is missing (an unpinned `pip install <name>` still works)."""
+    canon = re.sub(r'[-_.]+', '-', name).lower()
+    try:
+        for raw in requirements.read_text(encoding='utf-8').splitlines():
+            line = raw.split('#', 1)[0].strip()   # drop comments / blank lines
+            if not line:
+                continue
+            token = re.split(r'[<>=!~;\[\s]', line, maxsplit=1)[0]   # name before any spec/marker
+            if re.sub(r'[-_.]+', '-', token).lower() == canon:
+                return line
+    except OSError:
+        pass
+    return name
+
+
+def _watermark_python() -> str:
+    """Interpreter the watermark LaMa wrapper resolves. Reuse the wrapper's OWN
+    resolver (watermark.python > masks.python > sys.executable) so the install
+    target and the later import can never drift apart."""
+    from .services import watermark_lama
+    return watermark_lama.lama_python()
+
+
 def manual_command(action) -> str:
     """The exact command that reproduces an install BY HAND, scoped to THIS app's
     own interpreter (sys.executable). A copy-paste then targets the SAME
@@ -113,6 +157,10 @@ def manual_command(action) -> str:
     land in the wrong environment and the extras would never be importable)."""
     if action in _PIP_REQUIREMENTS:
         return f'{_quote(sys.executable)} -m pip install -r {_quote(str(_PIP_REQUIREMENTS[action]))}'
+    if action == 'watermark_inpaint':
+        # Quote the spec: the '>=' in 'simple-lama-inpainting>=0.1.2' is shell
+        # redirection unquoted. Interpreter = the wrapper's resolved python.
+        return f'{_quote(_watermark_python())} -m pip install "{_requirement_spec(_WATERMARK_PKG)}"'
     if action == 'ollama_model':
         model = (cfg.get('ollama.vision_model') or '').strip() or '<vision-model>'
         return f'ollama pull {model}'
@@ -188,12 +236,12 @@ def _execute(action):
         rc = _WORKERS[action](action)
         _runs[action]['returncode'] = rc
         _runs[action]['state'] = 'success' if rc == 0 else 'error'
-        if action in _PIP_REQUIREMENTS and rc == 0:
+        if action in _IMPORT_CACHE_ACTIONS and rc == 0:
             try:
                 capabilities.clear_import_cache()
             except Exception:
                 # never downgrade a successful install; surface at debug only
-                logger.debug('clear_import_cache failed after ml_extras', exc_info=True)
+                logger.debug('clear_import_cache failed after %s', action, exc_info=True)
         if action in _KLEIN_DOWNLOADS and rc == 0:
             # The training-base/model listers cache their scans 5 min — a freshly
             # downloaded model must show up on the next probe, not in 5 minutes.
@@ -237,6 +285,29 @@ def _run_ml_extras(action) -> int:
     proc = subprocess.Popen(
         [sys.executable, '-m', 'pip', 'install', '-r',
          str(_PIP_REQUIREMENTS.get(action, _ML_REQUIREMENTS))],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+    )
+    for line in proc.stdout:
+        _append(action, line)
+    proc.wait()
+    return proc.returncode
+
+
+def _run_watermark_inpaint(action) -> int:
+    """Install JUST the watermark-inpainting package (simple-lama-inpainting, plus
+    its torch/opencv deps) into the interpreter the LaMa wrapper resolves — NOT
+    necessarily this app's venv (the ML extras can live in a separate 3.10–3.12
+    env pointed to by watermark.python/masks.python). A user who already ran the
+    ML extras step keeps rembg/insightface: pip skips the already-satisfied ones.
+    The version floor is READ from requirements-ml.txt (single source of truth),
+    and that file rides along as a CONSTRAINT (-c) so pulling torch can never bump
+    numpy past insightface's <2 ceiling and silently break face scoring."""
+    python = _watermark_python()
+    spec = _requirement_spec(_WATERMARK_PKG)
+    _append(action, f'target interpreter: {python}')
+    _append(action, f'installing {spec}  (constraints: requirements-ml.txt)')
+    proc = subprocess.Popen(
+        [python, '-m', 'pip', 'install', spec, '-c', str(_ML_REQUIREMENTS)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
     )
     for line in proc.stdout:
@@ -326,6 +397,7 @@ def _run_ollama_model(action) -> int:
 
 _WORKERS = {**{a: _run_ml_extras for a in _PIP_REQUIREMENTS},   # ml_extras + scrape_extras
             'ollama_model': _run_ollama_model,
+            'watermark_inpaint': _run_watermark_inpaint,
             **{a: _run_klein_download for a in _KLEIN_DOWNLOADS}}
 # Structural invariant: every whitelisted action MUST have a worker — a missing
 # entry surfaces as a cryptic "error: '<action>'" KeyError at runtime (live

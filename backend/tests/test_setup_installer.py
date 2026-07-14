@@ -403,3 +403,162 @@ def test_execute_klein_success_clears_model_caches(monkeypatch):
     setup_installer._execute('klein_lora')
     assert setup_installer._runs['klein_lora']['state'] == 'success'
     assert calls == [1]
+
+
+# --- watermark inpainting: scoped one-package install --------------------
+# Installs JUST simple-lama-inpainting (the version floor read from
+# requirements-ml.txt) into the SAME interpreter the LaMa wrapper resolves, so a
+# user who already has the ML extras doesn't redo the whole step. Shown next to
+# the Curate 🧽 tools; a success drops the probe import-cache (no restart).
+
+
+def test_install_actions_include_watermark_inpaint(app):
+    from app import setup_installer
+    assert 'watermark_inpaint' in setup_installer.INSTALL_ACTIONS
+    assert 'watermark_inpaint' in setup_installer._WORKERS
+    with app.app_context():
+        assert setup_installer.manual_command('watermark_inpaint')
+
+
+def test_requirement_spec_reads_version_from_requirements_ml():
+    """The version floor is the ONE written in requirements-ml.txt — parsed, never
+    duplicated in the installer module (edit the file, the installer follows)."""
+    from app import setup_installer
+    import re
+    spec = setup_installer._requirement_spec('simple-lama-inpainting')
+    assert spec.replace(' ', '').startswith('simple-lama-inpainting')
+    # Whatever the pin is, it must be the SAME text as in the requirements file.
+    line = next(
+        l.split('#', 1)[0].strip()
+        for l in setup_installer._ML_REQUIREMENTS.read_text(encoding='utf-8').splitlines()
+        if re.match(r'\s*simple[-_]lama[-_]inpainting', l, re.IGNORECASE)
+    )
+    assert spec == line
+
+
+def test_requirement_spec_canonicalises_name_and_falls_back(tmp_path):
+    """PEP 503 name folding (-_. + case) matches; an absent package returns the
+    bare name (an unpinned install still works, it just isn't version-floored)."""
+    from app import setup_installer
+    # underscore/case variant still resolves to the file's dashed line
+    assert setup_installer._requirement_spec('Simple_Lama_Inpainting') \
+        == setup_installer._requirement_spec('simple-lama-inpainting')
+    # missing line -> bare name fallback
+    req = tmp_path / 'reqs.txt'
+    req.write_text('numpy>=1.26,<2\n# a comment\n', encoding='utf-8')
+    assert setup_installer._requirement_spec('nothere', requirements=req) == 'nothere'
+    # and it reads the spec straight from an arbitrary file (single-source proof)
+    req.write_text('foo-bar==1.2.3  # inline\n', encoding='utf-8')
+    assert setup_installer._requirement_spec('foo_bar', requirements=req) == 'foo-bar==1.2.3'
+
+
+def test_manual_command_watermark_inpaint_scoped_and_quoted(app):
+    """Copy-paste command must target the WRAPPER's interpreter and quote the
+    spec ('>=' is shell redirection unquoted). The version reflects the file."""
+    from app import setup_installer, config
+    with app.app_context():
+        config.save_config({'watermark': {'python': r'C:\ml env\python.exe'}})
+        cmd = setup_installer.manual_command('watermark_inpaint')
+        spec = setup_installer._requirement_spec('simple-lama-inpainting')
+    assert '"C:\\ml env\\python.exe"' in cmd     # resolved interpreter, quoted for spaces
+    assert '-m pip install' in cmd
+    assert f'"{spec}"' in cmd                     # spec quoted whole
+    assert not cmd.startswith('pip ')             # never bare pip
+
+
+def _fake_popen_capturing(seen, returncode=0, lines=()):
+    class FakeProc:
+        stdout = iter(lines)
+        def wait(self): return returncode
+    FakeProc.returncode = returncode
+    def fake_popen(cmd, **kw):
+        seen['cmd'] = cmd
+        return FakeProc()
+    return fake_popen
+
+
+def test_run_watermark_inpaint_targets_watermark_python(app, monkeypatch):
+    """watermark.python wins the interpreter resolution and the pip target IS it,
+    with the parsed spec and requirements-ml.txt pinned as a constraint (-c)."""
+    from app import setup_installer, config
+    seen = {}
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen',
+                        _fake_popen_capturing(seen, 0))
+    with app.app_context():
+        config.save_config({'watermark': {'python': '/wm/py'},
+                            'masks': {'python': '/masks/py'}})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+        spec = setup_installer._requirement_spec('simple-lama-inpainting')
+    assert rc == 0
+    cmd = seen['cmd']
+    assert cmd[0] == '/wm/py'                      # exact interpreter, not sys.executable
+    assert cmd[1:4] == ['-m', 'pip', 'install']
+    assert spec in cmd
+    assert '-c' in cmd and any('requirements-ml.txt' in str(p) for p in cmd)
+
+
+def test_run_watermark_inpaint_falls_back_to_masks_python(app, monkeypatch):
+    """No dedicated watermark.python -> reuse the ML env (masks.python), matching
+    the wrapper's own fallback chain."""
+    from app import setup_installer, config
+    seen = {}
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen',
+                        _fake_popen_capturing(seen, 0))
+    with app.app_context():
+        config.save_config({'masks': {'python': '/masks/py'}})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        setup_installer._run_watermark_inpaint('watermark_inpaint')
+    assert seen['cmd'][0] == '/masks/py'
+
+
+def test_run_watermark_inpaint_nonzero_returncode_propagates(app, monkeypatch):
+    """A failing pip surfaces its non-zero return code (→ _execute marks 'error',
+    the front shows the pip log tail — never a silent success)."""
+    from app import setup_installer, config
+    seen = {}
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen',
+                        _fake_popen_capturing(seen, 1, lines=['ERROR: could not build\n']))
+    with app.app_context():
+        config.save_config({'watermark': {'python': '/wm/py'}})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+    assert rc == 1
+    assert any('could not build' in l for l in
+               setup_installer._runs['watermark_inpaint']['log'])
+
+
+def test_execute_watermark_inpaint_success_clears_import_cache(monkeypatch):
+    from app import setup_installer, capabilities
+    calls = []
+    monkeypatch.setattr(setup_installer, '_WORKERS', {'watermark_inpaint': lambda a: 0})
+    monkeypatch.setattr(capabilities, 'clear_import_cache', lambda: calls.append(1))
+    setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+    setup_installer._execute('watermark_inpaint')
+    assert setup_installer._runs['watermark_inpaint']['state'] == 'success'
+    assert calls == [1]
+
+
+def test_execute_watermark_inpaint_error_skips_cache_clear(monkeypatch):
+    from app import setup_installer, capabilities
+    calls = []
+    monkeypatch.setattr(setup_installer, '_WORKERS', {'watermark_inpaint': lambda a: 1})
+    monkeypatch.setattr(capabilities, 'clear_import_cache', lambda: calls.append(1))
+    setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+    setup_installer._execute('watermark_inpaint')
+    assert setup_installer._runs['watermark_inpaint']['state'] == 'error'
+    assert calls == []
+
+
+def test_execute_watermark_inpaint_success_invalidates_probe_cache(app, monkeypatch):
+    """End-to-end: a successful install drops capabilities' import cache so the
+    watermark_inpaint probe re-checks a freshly installed package NOW, not after
+    the 600 s TTL (uses the REAL clear_import_cache, not a stub)."""
+    from app import setup_installer, capabilities
+    with app.app_context():
+        # Poison the cache with a stale 'not installed' entry, then prove it's gone.
+        capabilities._import_cache['watermark:x:import simple_lama_inpainting'] = (1e18, False)
+        monkeypatch.setattr(setup_installer, '_WORKERS', {'watermark_inpaint': lambda a: 0})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        setup_installer._execute('watermark_inpaint')
+    assert capabilities._import_cache == {}      # cache invalidated on success
