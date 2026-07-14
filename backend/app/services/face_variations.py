@@ -5,6 +5,7 @@ the presets target a balanced training composition (see the design spec).
 """
 from __future__ import annotations
 
+import json
 import re
 
 # Verrou d'identité renforcé (deep-research 2026-06-14, source primaire Google AI) :
@@ -671,6 +672,199 @@ def drop_identity_sentences(caption, body=False) -> str:
     kept = [s for s in parts if s.strip() and not _DROP_SENT.search(s)
             and not (body and _BODY_LEAK.search(s))]
     return ' '.join(kept).strip()
+
+
+# --- CONCEPT leak detection (kind=concept) ----------------------------------
+# A concept LoRA teaches a recurring element (a pose, an act, an effect) that must bind
+# to the TRIGGER word, never to caption words. A caption "leaks" when it NAMES that
+# element. Unlike identity (a FIXED vocabulary: hair/skin/eyes), the concept vocabulary is
+# PER-DATASET, so the lexicon is DERIVED from the dataset's own concept_desc — never a
+# hard-coded list:
+#   1. the meaningful words of concept_desc itself (singular/plural tolerated by the regex);
+#   2. the cached LLM ban-list (ds.concept_terms), when present;
+#   3. the basic lexical FIELD of any body region the description ANCHORS — and only then.
+#      "leg behind head position" anchors the lower-limb family, so the periphrases a
+#      captioner reaches for ("knees lifted", "feet raised", "thighs") are caught even
+#      though the description never spells them out. A concept about "a mirror selfie"
+#      anchors NO body family, so leg words are never added: the field is scoped to the
+#      anchors actually present, not sprayed onto every concept.
+# This is exactly why the leg_behind incident leaked: the ban-list was the 4 words of the
+# description; "knees/feet/thighs/lifted/raised" were never listed, so the omission net
+# had nothing to catch — and the aggregate badge FORCED 0 for concept datasets, hiding it.
+_CONCEPT_LEAK_STOP = frozenset((
+    'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'by', 'with', 'to', 'from',
+    'that', 'this', 'as', 'is', 'are', 'his', 'her', 'their', 'its', 'it', 'one', 'both',
+    'act', 'shown', 'worn', 'being', 'person', 'subject', 'focal', 'point', 'visible',
+    'bare', 'exposed', 'full', 'close', 'closeup', 'wearing', 'showing'))
+
+# (anchor tokens that may appear in concept_desc) -> (lexical field added to the lexicon,
+#  human label for the omission hint). A family fires only if >=1 anchor is a TOKEN of the
+#  description, so the field is scoped to the body region the concept is actually about.
+_BODY_FAMILIES = (
+    (frozenset({'leg', 'legs', 'knee', 'knees', 'thigh', 'thighs', 'foot', 'feet',
+                'calf', 'calves', 'shin', 'shins', 'ankle', 'ankles', 'hamstring'}),
+     ('leg', 'legs', 'knee', 'knees', 'thigh', 'thighs', 'foot', 'feet',
+      'calf', 'calves', 'shin', 'shins', 'ankle', 'ankles'),
+     'the legs, knees, thighs, feet or ankles'),
+    (frozenset({'arm', 'arms', 'elbow', 'elbows', 'wrist', 'wrists', 'hand', 'hands',
+                'forearm', 'forearms', 'palm', 'palms'}),
+     ('arm', 'arms', 'elbow', 'elbows', 'wrist', 'wrists', 'hand', 'hands',
+      'forearm', 'forearms'),
+     'the arms, elbows, wrists or hands'),
+    (frozenset({'head', 'neck', 'nape', 'chin'}),
+     ('head', 'neck', 'nape'),
+     'the head or neck'),
+    (frozenset({'hip', 'hips', 'waist', 'torso', 'back', 'spine', 'pelvis'}),
+     ('hip', 'hips', 'waist', 'torso', 'spine'),
+     'the hips, waist or torso'),
+)
+
+# Posture verbs: a POSE concept binds the ARRANGEMENT, not merely the body part, so these
+# are added when a body family fires OR the description itself names a pose/position. Kept
+# to unambiguous posture verbs — recall matters far more than a rare over-scrub here: an
+# UNDER-detected pose (the incident) binds the concept to words and kills the LoRA, while
+# an over-scrubbed clause only trims a caption the trigger already carries.
+_POSE_ANCHOR = frozenset({
+    'pose', 'posed', 'poses', 'position', 'positions', 'positioned', 'positioning',
+    'posture', 'postured', 'arranged', 'contorted', 'contortion', 'bent', 'folded',
+    'raised', 'lifted', 'extended', 'spread', 'split', 'splits', 'stretched', 'curled',
+    'arched', 'crossed', 'tucked', 'elevated', 'splayed', 'kneeling', 'squatting'})
+_POSE_FIELD = ('lifted', 'raised', 'extended', 'bent', 'folded', 'crossed', 'tucked',
+               'splayed', 'elevated', 'spread', 'straightened', 'curled', 'arched',
+               'positioned')
+
+
+def _concept_desc_tokens(text) -> list:
+    return [w for w in re.split(r'[^a-z]+', (text or '').lower()) if w]
+
+
+def concept_lexical_field(concept_desc) -> list:
+    """The derived body/pose lexical field for a concept: the union of every body family
+    the description ANCHORS, plus the posture-verb field when the concept is a pose.
+    Empty for a concept that names no body region (e.g. a photographic 'mirror selfie').
+    Pure & deterministic — never a per-all-concepts hard-coded vocabulary."""
+    toks = set(_concept_desc_tokens(concept_desc))
+    if not toks:
+        return []
+    field, limb_fired = set(), False
+    for anchors, terms, _label in _BODY_FAMILIES:
+        if toks & anchors:
+            field.update(terms)
+            limb_fired = True
+    if limb_fired or (toks & _POSE_ANCHOR):
+        field.update(_POSE_FIELD)
+    return sorted(field)
+
+
+def _norm_concept_terms(concept_terms) -> list:
+    """Accept a list, a JSON string (as stored on ds.concept_terms), or None -> clean
+    list of strings."""
+    if not concept_terms:
+        return []
+    if isinstance(concept_terms, str):
+        try:
+            concept_terms = json.loads(concept_terms)
+        except (ValueError, TypeError):
+            return []
+    return [t for t in concept_terms if isinstance(t, str)] if isinstance(concept_terms, list) else []
+
+
+def concept_leak_terms(concept_desc, concept_terms=None) -> list:
+    """The full concept-leak lexicon: meaningful words of concept_desc + the cached LLM
+    ban-list (concept_terms) + the derived body/pose field. Deterministic; the detection
+    counterpart of the identity regex."""
+    terms = {w for w in _concept_desc_tokens(concept_desc)
+             if len(w) >= 3 and w not in _CONCEPT_LEAK_STOP}
+    for t in _norm_concept_terms(concept_terms):
+        t = t.strip().lower()
+        if len(t) >= 3 and t not in _CONCEPT_LEAK_STOP:
+            terms.add(t)
+    terms.update(concept_lexical_field(concept_desc))
+    return sorted(terms)
+
+
+def _concept_leak_re(terms):
+    """Leak regex over a term list: word boundaries, space/hyphen interchangeable,
+    plural/-s/-es/-ing/-ed tolerated. None if the list is empty."""
+    pats = []
+    for t in terms or []:
+        t = (t or '').strip().lower()
+        if len(t) < 3:
+            continue
+        p = re.escape(t).replace(r'\ ', r'[\s-]+').replace(r'\-', r'[\s-]+')
+        pats.append(p)
+    if not pats:
+        return None
+    return re.compile(r'\b(?:' + '|'.join(pats) + r')(?:e?s|ing|ed)?\b', re.I)
+
+
+def caption_concept_leaks(caption, concept_desc, concept_terms=None) -> list:
+    """The forbidden concept terms actually PRESENT in `caption` (deduped, sorted). Empty
+    = clean. Drives the honest badge, the per-image flag, and the targeted-rewrite
+    feedback. Pure — no model, no I/O."""
+    if not caption:
+        return []
+    leak_re = _concept_leak_re(concept_leak_terms(concept_desc, concept_terms))
+    if not leak_re:
+        return []
+    return sorted({m.group(0).lower() for m in leak_re.finditer(caption)})
+
+
+def caption_has_concept_leak(caption, concept_desc, concept_terms=None) -> bool:
+    """True if `caption` names the concept (kind=concept). Detector SEUL (badge), the
+    concept-side twin of caption_has_identity_leak."""
+    return bool(caption_concept_leaks(caption, concept_desc, concept_terms))
+
+
+def drop_concept_sentences(caption, concept_desc, concept_terms=None) -> str:
+    """Concept analogue of drop_identity_sentences: drop whole sentences that name the
+    concept. Sentence-level safety mirror (the service clause-scrub is finer-grained)."""
+    leak_re = _concept_leak_re(concept_leak_terms(concept_desc, concept_terms))
+    if not leak_re:
+        return (caption or '').strip()
+    parts = re.split(r'(?<=[.!?])\s+', caption or '')
+    kept = [s for s in parts if s.strip() and not leak_re.search(s)]
+    return ' '.join(kept).strip()
+
+
+def concept_omission_hint(concept_desc) -> str:
+    """A SPECIFIC negative clause for the caption prompt, derived from the concept. The
+    generic 'describe their pose and body position' instruction CONTRADICTS a pose concept
+    (the pose IS the concept), so we name the exact body regions to leave unstated. Empty
+    when the concept anchors no body region — the base prompt's 'leave {concept}
+    unmentioned' already suffices, and the historical prompt stays byte-identical."""
+    toks = set(_concept_desc_tokens(concept_desc))
+    if not toks:
+        return ''
+    labels = [label for anchors, _terms, label in _BODY_FAMILIES if toks & anchors]
+    if not labels:
+        return ''
+    parts = labels[0] if len(labels) == 1 else ', nor of '.join(labels)
+    return (' In particular, do NOT describe the position or arrangement of ' + parts +
+            ': never say they are lifted, raised, extended, bent, folded, crossed, spread '
+            'or in any specific position - that exact pose is captured by the trigger word '
+            'ALONE. Describe the person, clothing, expression and setting normally, but '
+            'leave how the body is positioned entirely unstated.')
+
+
+def caption_prompt_for_concept(concept_desc) -> str:
+    """The concept caption prompt with a dynamic, concept-specific omission clause folded
+    into the opening instruction. For a non-body concept the clause is empty and the
+    prompt is byte-identical to the historical CAPTION_PROMPT_CONCEPT.format()."""
+    desc = (concept_desc or '').strip()
+    base = CAPTION_PROMPT_CONCEPT.format(concept=desc)
+    hint = concept_omission_hint(desc)
+    if not hint:
+        return base
+    # Splice the specific negative right after the opening omission sentence ("…never
+    # describe the act, object, device or surface that shows it.") so it sits beside the
+    # general rule and OVERRIDES the later generic "describe their pose" line.
+    anchor = 'that shows it.'
+    idx = base.find(anchor)
+    if idx == -1:
+        return base + '\n\n' + hint.strip()
+    cut = idx + len(anchor)
+    return base[:cut] + hint + base[cut:]
 
 
 # --- Mode BOORU (datasets SDXL booru-native type bigLove) --------------------

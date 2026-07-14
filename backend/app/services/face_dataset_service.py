@@ -26,13 +26,15 @@ from . import dataset_activity
 # (sinon Ollama le recharge - cold start ~10s - à CHAQUE image). Déchargé en fin
 # de batch pour rendre la VRAM à ComfyUI. ComfyUI est déjà en pause pendant la passe.
 _VISION_BATCH_KEEPALIVE = '5m'
-from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU, CAPTION_PROMPT_CONCEPT,
+from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU,
                               CAPTION_REFINE_CONCEPT_PROMPT, CAPTION_LEAK_FIX_PROMPT,
                               EXPAND_CONCEPT_TERMS_PROMPT,
                               CLASSIFY_PROMPT, HEAD_BBOX_PROMPT, WATERMARK_BBOX_PROMPT,
                               JOYCAPTION_PROMPT, aspect_for_label, caption_prompt_for,
-                              caption_prompt_for_style,
-                              caption_has_identity_leak, drop_identity_sentences, drop_identity_tags,
+                              caption_prompt_for_style, caption_prompt_for_concept,
+                              caption_has_identity_leak, caption_has_concept_leak,
+                              concept_lexical_field,
+                              drop_identity_sentences, drop_identity_tags,
                               is_nsfw_label, prompt_by_label, wrap_variation,
                               wrap_variation_klein)
 
@@ -820,11 +822,31 @@ def dataset_payload(user_id, dataset_id):
             comp[i.framing] += 1
             if (i.upscale_ratio or 0) >= UPSCALE_WARN_THRESHOLD:
                 comp_upscaled[i.framing] += 1
-    # concept OU style : la fuite d'identité est une heuristique de LoRA PERSONNAGE —
-    # un style décrit librement ses sujets, un concept son contexte. Sans ce
-    # regroupement, chaque caption de style lèverait un faux badge « leak ».
+    # concept OU style : le champ `fidelity`/`concept_desc` du payload est gouverné par
+    # is_conceptual (character-only). La DÉTECTION de fuite, elle, est spécifique au KIND :
+    #   - character : fuite d'IDENTITÉ (hair/skin/eyes)  → caption_has_identity_leak
+    #   - concept   : fuite de CONCEPT (le set nomme le concept au lieu du trigger) →
+    #                 caption_has_concept_leak — on ne force PLUS 0 (le badge « 0 leak »
+    #                 faussement rassurant de l'incident leg_behind)
+    #   - style     : rien (la description des sujets EST le contenu contrôlable) → 0 honnête
     concept = is_conceptual(ds)
+    kind_concept = is_concept(ds)
+    kind_style = is_style(ds)
     body = is_body_fidelity(ds)
+    # Cached concept ban-list (JSON on the row) → the concept-leak detector unions it with
+    # concept_desc + the derived body/pose field, so the badge and the caption-time
+    # enforcement agree on what "leaking" means. Ignored for non-concept kinds.
+    _concept_terms = ds.concept_terms if kind_concept else None
+
+    def _img_leaks(i):
+        if i.status != 'keep' or not i.caption:
+            return False
+        if kind_concept:
+            return caption_has_concept_leak(i.caption, ds.concept_desc, _concept_terms)
+        if kind_style:
+            return False
+        return caption_has_identity_leak(i.caption, body=body)
+
     return {
         'id': ds.id, 'name': ds.name, 'trigger_word': ds.trigger_word,
         'train_type': (ds.train_type or 'zimage'),
@@ -848,11 +870,10 @@ def dataset_payload(user_id, dataset_id):
                     # Core creative prompt (generated tiles) → seeds the ✏️ edit
                     # bubble so the user edits the real prompt, not a blank box.
                     'variation_prompt': i.variation_prompt,
-                    # Per-image identity-leak flag: lets the UI LIST the offending
-                    # captions for quick manual treatment (the aggregate badge
-                    # alone forced a hunt through the grid).
-                    'leak': bool(not concept and i.status == 'keep'
-                                 and caption_has_identity_leak(i.caption, body=body)),
+                    # Per-image leak flag (identity for character, concept for concept,
+                    # never for style): lets the UI LIST the offending captions for quick
+                    # manual treatment (the aggregate badge alone forced a grid hunt).
+                    'leak': _img_leaks(i),
                     'face_score': i.face_score, 'face_state': i.face_state,
                     # Watermark V1: state drives the tile badge (🚩 detected / ⊘ dismissed
                     # / ✨ cleaned / ⚠ failed) and the "Clean (N)" count; bbox lets the UI
@@ -861,12 +882,12 @@ def dataset_payload(user_id, dataset_id):
                     'watermark_state': i.watermark_state,
                     'watermark_bbox': _safe_json(i.watermark_bbox),
                     'watermark_route': _payload_watermark_route(i)} for i in imgs],
-        # Dataset CONCEPT : décrire l'identité est VOULU (le concept, pas le visage,
-        # se lie au trigger) → le badge « fuite d'identité » n'a aucun sens, on le zéro.
-        # Fidélité corps : les marques corporelles comptent aussi comme fuite.
+        # Kind-specific leak count (see _img_leaks): character = identity, concept = the
+        # caption naming the concept (NEVER forced 0 any more), style = 0 (not applicable).
+        # `captioned` bounds the badge ("N leaking / M checked") so a 0 reads as a real
+        # result on M captions, not a check that never ran.
         'caption_leak': {
-            'leaking': 0 if concept else sum(
-                1 for i in imgs if i.status == 'keep' and caption_has_identity_leak(i.caption, body=body)),
+            'leaking': sum(1 for i in imgs if _img_leaks(i)),
             'captioned': sum(1 for i in imgs if i.status == 'keep' and i.caption),
         },
         # Live server-side batch on this dataset (watermark detect/clean, caption/
@@ -1502,13 +1523,18 @@ _CAPTURE_LEXICON = frozenset((
 def _fallback_concept_terms(desc) -> list:
     """Minimal ban-list WITHOUT the LLM: the meaningful words of concept_desc itself
     (always included, even when the LLM expansion succeeds - the user's words are the
-    ground truth), PLUS the capture lexicon when the concept is photographic."""
+    ground truth), PLUS the capture lexicon when the concept is photographic, PLUS the
+    derived body/pose lexical field (so a POSE concept's periphrases - "knees lifted",
+    "feet raised", "thighs" for "leg behind head position" - are scrubbed even though the
+    description never spells them, and the LLM expansion is FORBIDDEN from listing pose
+    words). Deterministic, reproducible from a fresh clone - the leg_behind fix."""
     d = (desc or '').lower()
     words = re.split(r'[^a-zA-Z-]+', d)
     terms = {w.strip('-') for w in words
              if len(w.strip('-')) >= 3 and w.strip('-') not in _TERMS_STOP}
     if any(k in d for k in _CAPTURE_TRIGGERS):
         terms |= _CAPTURE_LEXICON
+    terms |= set(concept_lexical_field(desc))
     return sorted(terms)
 
 
@@ -1656,7 +1682,12 @@ def _caption_concept(ds, force, backend, token=None):
       - 'ollama'     -> Joy skipped, every image direct-Qwen + enforcement;
       - 'auto'       -> Joy drafts refined by Qwen, no-Joy images direct-Qwen, all enforced."""
     concept_desc = (ds.concept_desc or '').strip()
-    cap_prompt = CAPTION_PROMPT_CONCEPT.format(concept=concept_desc)
+    # Dynamic omission clause: for a POSE concept the generic "describe their pose and
+    # body position" line would instruct the VLM to describe the very concept - the
+    # builder folds in a concept-specific negative ("do NOT describe the position of the
+    # legs/knees/feet…") that overrides it. Byte-identical to the old prompt for non-body
+    # concepts. This is the generation-side half of the leg_behind fix.
+    cap_prompt = caption_prompt_for_concept(concept_desc)
     q = FaceDatasetImage.query.filter_by(dataset_id=ds.id, status='keep')
     if not force:
         q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))

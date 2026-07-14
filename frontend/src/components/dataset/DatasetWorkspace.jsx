@@ -170,6 +170,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // 'style' suit le même chemin UI que concept : pas de référence/visage/composition,
   // juste import brut → curation → caption (contenu pur, optionnelle) → entraînement.
   const concept = d.kind === 'concept' || d.kind === 'style';
+  // Leak check is KIND-specific (see the caption-leak panel): character flags identity,
+  // concept flags the caption NAMING the concept (must bind to the trigger), style never
+  // (its subjects' description IS the content). `concept` above stays "concept OR style"
+  // for the shared layout gating.
+  const isConcept = d.kind === 'concept';
+  const isStyle = d.kind === 'style';
   // Fidélité corps : captions bannissent aussi les marques corporelles, composition
   // cible plus de bustes/corps, import plein cadre par défaut.
   const bodyFid = d.fidelity === 'body';
@@ -602,32 +608,43 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <span aria-hidden className="text-content-subtle text-xs">{installInpaintOpen ? '▴' : '▾'}</span>
                 </button>
               )}
-              {/* Identity-leak badge. BOTH states are clickable → the same explainer
-                  panel (what a leak is, what was checked, why 0 is normal, offenders to
-                  fix). The count is spelled out ("N captions checked") so a green 0 reads
-                  as a REAL result on N captions, not a check that never ran. */}
-              {!concept && d.caption_leak && (
+              {/* Caption-leak badge — KIND-aware. character: identity words
+                  (hair/face/skin); concept: the caption NAMING the concept (must bind to
+                  the trigger, not the words); style: not applicable (the subjects'
+                  description IS the content). BOTH count states are clickable → the same
+                  explainer panel; the count is spelled out ("N checked") so a green 0
+                  reads as a REAL result, not a scan that never ran. */}
+              {isStyle ? (
+                <span className="ml-auto text-content-subtle text-[0.8125rem]"
+                  title="A style LoRA describes its subjects freely — those words are the controllable content, not a leak. No leak check applies to a style set.">
+                  leak check: not applicable to a style set
+                </span>
+              ) : d.caption_leak && (
                 d.caption_leak.captioned > 0 ? (
                   <button type="button" onClick={() => setShowLeaks((v) => !v)}
                     aria-expanded={showLeaks}
                     title={d.caption_leak.leaking === 0
-                      ? "0 captions describe hair/face/skin — identity binds to the trigger. Click for what was checked and why."
-                      : "These captions mention hair/face/skin → identity won't bind to the trigger. Click to see what's watched and fix them here."}
+                      ? (isConcept
+                          ? "0 captions name the concept — it binds to the trigger. Click for what was checked and why."
+                          : "0 captions describe hair/face/skin — identity binds to the trigger. Click for what was checked and why.")
+                      : (isConcept
+                          ? "These captions name the concept → it won't bind to the trigger. Click to see what's watched and fix them here."
+                          : "These captions mention hair/face/skin → identity won't bind to the trigger. Click to see what's watched and fix them here.")}
                     className={`ml-auto text-[0.8125rem] underline decoration-dashed ${
                       d.caption_leak.leaking === 0
                         ? 'text-emerald-400 decoration-emerald-400/40'
                         : 'text-amber-400 decoration-amber-400/50'}`}>
                     {d.caption_leak.leaking === 0
-                      ? `✅ 0 identity leaks · ${d.caption_leak.captioned} captions checked`
-                      : `⚠️ ${d.caption_leak.leaking}/${d.caption_leak.captioned} captions leak identity`}
+                      ? `✅ 0 ${isConcept ? 'concept' : 'identity'} leaks · ${d.caption_leak.captioned} captions checked`
+                      : `⚠️ ${d.caption_leak.leaking}/${d.caption_leak.captioned} captions leak ${isConcept ? 'the concept' : 'identity'}`}
                     {' '}{showLeaks ? '▴' : '▾'}
                   </button>
                 ) : kept > 0 ? (
                   <button type="button" onClick={() => setShowLeaks((v) => !v)}
                     aria-expanded={showLeaks}
-                    title="The identity-leak scan runs on captions. Caption the kept images first. Click to learn what it checks."
+                    title={`The ${isConcept ? 'concept' : 'identity'}-leak scan runs on captions. Caption the kept images first. Click to learn what it checks.`}
                     className="ml-auto text-content-subtle text-[0.8125rem] underline decoration-dashed decoration-border">
-                    identity-leak scan: no captions yet {showLeaks ? '▴' : '▾'}
+                    {isConcept ? 'concept' : 'identity'}-leak scan: no captions yet {showLeaks ? '▴' : '▾'}
                   </button>
                 ) : null
               )}
@@ -659,24 +676,38 @@ export default function DatasetWorkspace({ ds, onBack }) {
               </div>
             )}
 
-            {/* Identity-leak explainer + triage. Opened from the badge in EITHER state:
-                it says what a leak is, WHAT was checked (so a green 0 is a real result,
-                not a check that never ran), which word categories are watched, why 0 is
-                normal on a character set — and, when there ARE leaks, the offending
-                captions editable IN PLACE (saves on blur, like the grid). */}
-            {showLeaks && !concept && (
+            {/* Caption-leak explainer + triage. Opened from the badge in EITHER state:
+                it says what a leak is (kind-specific: identity vs the concept itself),
+                WHAT was checked (so a green 0 is a real result, not a check that never
+                ran), why 0 is normal — and, when there ARE leaks, the offending captions
+                editable IN PLACE (saves on blur, like the grid). Style sets have no leak
+                concept, so the panel only opens for character/concept. */}
+            {showLeaks && !isStyle && (
               <div className="rounded-lg border border-border bg-surface-raised/60 p-3 flex flex-col gap-3 text-[0.75rem]">
                 <div className="flex items-start gap-2">
                   <span aria-hidden className="text-base leading-none">🎭</span>
                   <div className="flex flex-col gap-1">
-                    <span className="text-content font-semibold text-sm">Identity-leak check</span>
-                    <p className="m-0 text-content-muted leading-relaxed">
-                      An <strong className="text-content">identity leak</strong> is a word in a caption
-                      that describes <em>who the person is</em> — hair, eye or skin colour, facial
-                      features. On a character LoRA these words must stay OUT of the captions: they
-                      dilute the identity into the text instead of binding it to your trigger word{' '}
-                      <code className="text-indigo-300">{d.trigger_word || 'your trigger'}</code>.
-                    </p>
+                    <span className="text-content font-semibold text-sm">{isConcept ? 'Concept-leak check' : 'Identity-leak check'}</span>
+                    {isConcept ? (
+                      <p className="m-0 text-content-muted leading-relaxed">
+                        A <strong className="text-content">concept leak</strong> is a word in a caption
+                        that names <em>the concept itself</em> — the recurring element every image in
+                        the set shares. On a concept LoRA these words must stay OUT of the captions:
+                        they bind the concept to the text instead of to your trigger word{' '}
+                        <code className="text-indigo-300">{d.trigger_word || 'your trigger'}</code>.
+                        Describe the person and scene freely, but leave the concept
+                        {d.concept_desc ? <> (<em className="text-content-muted">{d.concept_desc}</em>)</> : null}
+                        {' '}unspoken so it binds to the trigger, not the caption.
+                      </p>
+                    ) : (
+                      <p className="m-0 text-content-muted leading-relaxed">
+                        An <strong className="text-content">identity leak</strong> is a word in a caption
+                        that describes <em>who the person is</em> — hair, eye or skin colour, facial
+                        features. On a character LoRA these words must stay OUT of the captions: they
+                        dilute the identity into the text instead of binding it to your trigger word{' '}
+                        <code className="text-indigo-300">{d.trigger_word || 'your trigger'}</code>.
+                      </p>
+                    )}
                   </div>
                   <button type="button" onClick={() => setShowLeaks(false)}
                     className="ml-auto shrink-0 text-content-subtle hover:text-content text-sm" aria-label="Close">✕</button>
@@ -691,16 +722,27 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <span className="text-content-subtle/70">re-scanned live on every caption change</span>
                 </div>
 
-                {/* Categories the detector watches (mirrors the backend regex). */}
+                {/* Words the detector watches. Concept: derived from the description
+                    (its words + their basic lexical field); character: the fixed regex. */}
                 <div className="flex flex-col gap-1">
                   <span className="text-content-subtle">Words watched for:</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {['hair', 'eye colour', 'skin · complexion · freckles',
-                      'jawline · eyebrows · facial features', 'face shape',
-                      ...(bodyFid ? ['tattoos · scars · piercings (body fidelity)'] : [])].map((c) => (
-                      <span key={c} className="rounded-full bg-surface border border-border px-2 py-0.5 text-content-muted text-[0.6875rem]">{c}</span>
-                    ))}
-                  </div>
+                  {isConcept ? (
+                    <p className="m-0 text-content-muted leading-relaxed">
+                      The words of the concept description
+                      {d.concept_desc ? <> (<em className="text-content-muted">{d.concept_desc}</em>)</> : null}
+                      {' '}and their basic lexical field — the body parts and positions it refers to
+                      (e.g. a leg pose also watches <em>knees, feet, thighs, lifted, raised</em>), so a
+                      periphrase can’t sneak the concept back into the caption.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {['hair', 'eye colour', 'skin · complexion · freckles',
+                        'jawline · eyebrows · facial features', 'face shape',
+                        ...(bodyFid ? ['tattoos · scars · piercings (body fidelity)'] : [])].map((c) => (
+                        <span key={c} className="rounded-full bg-surface border border-border px-2 py-0.5 text-content-muted text-[0.6875rem]">{c}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Why a green 0 is expected, not suspicious. */}
@@ -710,16 +752,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   </p>
                 ) : d.caption_leak?.leaking === 0 ? (
                   <p className="m-0 text-emerald-400/90 leading-relaxed">
-                    ✅ All clear — and this is expected. The app's captioner is built to describe pose,
-                    clothing, setting and framing but never the person's identity, so a clean character
-                    set genuinely reads 0. It's a real result on {d.caption_leak?.captioned} caption(s),
-                    not a check that didn't run.
+                    {isConcept
+                      ? <>✅ All clear — every caption describes the scene while leaving the concept
+                        unspoken, so it will bind to your trigger. It’s a real result on {d.caption_leak?.captioned} caption(s),
+                        not a check that didn’t run.</>
+                      : <>✅ All clear — and this is expected. The app’s captioner is built to describe pose,
+                        clothing, setting and framing but never the person’s identity, so a clean character
+                        set genuinely reads 0. It’s a real result on {d.caption_leak?.captioned} caption(s),
+                        not a check that didn’t run.</>}
                   </p>
                 ) : (
                   <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 p-2.5 flex flex-col gap-2">
                     <span className="text-amber-300 text-[0.8125rem] font-semibold">
-                      Captions leaking identity ({d.caption_leak?.leaking}) — remove the highlighted
-                      words, or 🔄 Re-caption. Edits save when you click away.
+                      {isConcept
+                        ? <>Captions naming the concept ({d.caption_leak?.leaking}) — remove the concept words, or 🔄 Re-caption. Edits save when you click away.</>
+                        : <>Captions leaking identity ({d.caption_leak?.leaking}) — remove the highlighted words, or 🔄 Re-caption. Edits save when you click away.</>}
                     </span>
                     {images.filter((i) => i.leak).map((img) => (
                       <div key={img.id} className="flex gap-2 items-start">
