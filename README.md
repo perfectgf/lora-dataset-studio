@@ -504,7 +504,7 @@ Do not use this software to:
 
 ### No warranty & limitation of liability
 
-This software is provided **"as is", without warranty of any kind**, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement (see the [MIT License](LICENSE) for the full text). To the maximum extent permitted by law, **the authors and contributors accept no liability** for any claim, damage, or other liability — including any legal consequence arising from datasets, models, or images you create with it. By using this software you accept that responsibility yourself.
+This software is provided **"as is", without warranty of any kind**, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement (see the [PolyForm Noncommercial License 1.0.0](LICENSE) for the full terms). As far as the law allows, **the licensor accepts no liability** for damages — including any legal consequence arising from datasets, models, or images you create with it. By using this software you accept that responsibility yourself.
 
 ## Contributing
 
@@ -512,4 +512,4 @@ Issues, ideas and pull requests are welcome. For anything bigger than a small fi
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Licensed under the **PolyForm Noncommercial License 1.0.0** — see [LICENSE](LICENSE). Noncommercial use is permitted; commercial use requires separate permission from the licensor.
