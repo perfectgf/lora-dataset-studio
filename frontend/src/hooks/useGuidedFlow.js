@@ -20,18 +20,18 @@ export function deriveSteps(d, caps, checkpointCount = 0) {
     { id: 'curate', label: 'Curate', targetId: 'gf-images',
       done: live.length > 0 && triage.length === 0 && kept.length > 0,
       subtitle: triage.length ? `${triage.length} to triage` : `${kept.length} kept` },
-    { id: 'caption', label: 'Caption', targetId: 'gf-images',
+    { id: 'caption', label: 'Caption', targetId: 'gf-captions',
       done: kept.length > 0 && captioned.length === kept.length,
       subtitle: `${captioned.length}/${kept.length} captioned` },
   ];
   if (caps && caps.face_scoring) {
-    steps.push({ id: 'score', label: 'Score', targetId: 'gf-images', optional: true,
+    steps.push({ id: 'score', label: 'Score', targetId: 'gf-curation', optional: true,
       done: kept.length > 0 && scored.length === kept.length, subtitle: 'optional' });
   }
   steps.push(trainMode
     ? { id: 'finish', label: 'Train', targetId: 'gf-training',
         done: checkpointCount > 0, subtitle: checkpointCount ? `${checkpointCount} checkpoint(s)` : '' }
-    : { id: 'finish', label: 'Export', targetId: 'gf-images', done: false, subtitle: 'ZIP',
+    : { id: 'finish', label: 'Export', targetId: 'gf-export', done: false, subtitle: 'ZIP',
         unavailable: false });
   steps.push({ id: 'studio', label: 'Studio', targetId: 'gf-training',
     done: !!(d && d.best_settings),
