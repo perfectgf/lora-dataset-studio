@@ -746,6 +746,23 @@ def dataset_train_cloud_runs():
     return jsonify(ct.all_runs(limit=request.args.get('limit', default=20, type=int)))
 
 
+@bp.get('/dataset/train/runs/<run_key>/share')
+def dataset_train_run_share(run_key):
+    """⎘ Share configuration: a paste-safe .txt of EVERYTHING this launch sent
+    to ai-toolkit (family/variant/base + the full settings snapshot) plus the
+    run's outcome — for sharing a recipe or asking for help on Discord/GitHub.
+    `run_key` is 'cloud-<id>' (any cloud run) or 'rec-<id>' (a local run).
+    Open like the other Runs-hub reads (no gate): unknown key -> 404."""
+    from flask import Response
+    from ..services import run_share
+    out = run_share.build_run_config_text(run_key)
+    if out is None:
+        return jsonify({'error': 'unknown run'}), 404
+    return Response(
+        out['text'], mimetype='text/plain; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{out["filename"]}"'})
+
+
 @bp.get('/dataset/<int:dataset_id>/train/cloud/progress')
 def dataset_train_cloud_progress(dataset_id):
     try:

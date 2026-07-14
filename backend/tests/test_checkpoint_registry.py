@@ -344,6 +344,7 @@ def test_launch_settings_snapshot_reflects_effective_values(app, ds_with_images)
         ds = fds.get_dataset(LOCAL_USER, ds_id)
         snap = lt.launch_settings_snapshot(ds, 'krea')
         assert snap['rank'] == 32 and snap['alpha'] == 32   # Krea researched defaults
+        assert snap['trigger'] == 'prov'                    # recipe: trigger word
         assert snap['resolution'] == [768, 1024]
         assert snap['save_every'] == 250
         assert snap['timestep_type'] == 'linear'            # Krea family default

@@ -1267,6 +1267,10 @@ def _dataset_name(dataset_id):
 
 def _run_payload(run) -> dict:
     return {'run_id': run.id, 'dataset_id': run.dataset_id, 'status': run.status,
+            # Stable id for the per-run "Share configuration" download. Every
+            # cloud row (active/finished/legacy) addresses by its pod row id;
+            # local rows use 'rec-<record id>' (set in all_runs).
+            'share_key': f'cloud-{run.id}',
             'run_name': run.run_name, 'dataset_name': _dataset_name(run.dataset_id),
             'vast_instance_id': run.vast_instance_id,   # for the per-run "console ↗" tooltip
             'phase_detail': run.phase_detail, 'gpu': run.gpu_name,
@@ -1337,6 +1341,9 @@ def all_runs(limit: int = 20) -> dict:
                'steps': rec.steps, 'masked': bool(rec.masked),
                'variant': rec.variant, 'base_model': rec.base_model or '',
                'settings': settings,
+               # local rows live only in the registry -> addressed by record id;
+               # a cloud row overrides this with 'cloud-<id>' via _run_payload.
+               'share_key': f'rec-{rec.id}',
                'created_at': rec.created_at.isoformat() if rec.created_at else None}
         if crun is not None:
             # cloud enrichment wins on shared keys (status/cost/checkpoint/...)
@@ -1362,7 +1369,10 @@ def all_runs(limit: int = 20) -> dict:
         cur_ds = local['current']['dataset_id']
         for i, r in enumerate(recent):
             if r['source'] == 'local' and r['dataset_id'] == cur_ds:
-                recent.pop(i)
+                # its freshly-registered history row is dropped to avoid the
+                # double — carry its share_key onto the live card so it too can
+                # produce a "Share configuration" file.
+                local_active['share_key'] = recent.pop(i).get('share_key')
                 break
     return {'configured': bool(cfg.secret('VAST_API_KEY')),
             'limit': max(1, int((c.get('max_concurrent_runs') or 1))),

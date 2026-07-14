@@ -145,6 +145,28 @@ export default function CloudRunsPage() {
     }
   };
 
+  // ⎘ Share config: download a paste-safe .txt of every setting this launch
+  // sent to ai-toolkit (recipe sharing / help threads). Fetch-then-blob so a
+  // 404/500 surfaces as a toast instead of navigating to an error page.
+  const shareConfig = async (run) => {
+    if (!run.share_key) return;
+    try {
+      const r = await fetch(`/api/dataset/train/runs/${encodeURIComponent(run.share_key)}/share`,
+        { credentials: 'include' });
+      if (!r.ok) { toast.error('Could not build the config file — please retry.'); return; }
+      const blob = await r.blob();
+      const cd = r.headers.get('Content-Disposition') || '';
+      const m = /filename="?([^"]+)"?/.exec(cd);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = m ? m[1] : 'lds-config.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      toast.error('Could not download the config file.');
+    }
+  };
+
   const configured = data?.configured;
   const actives = data?.actives || [];
   const recent = data?.recent || [];
@@ -217,10 +239,19 @@ export default function CloudRunsPage() {
               {data.local_active.error && (
                 <span className="text-rose-300 text-[0.625rem]">{data.local_active.error}</span>
               )}
-              <button type="button" onClick={() => openDataset(data.local_active.current.dataset_id)}
-                className="ml-auto px-2 py-1 rounded-lg text-content-muted hover:text-content text-xs">
-                Open dataset ↗
-              </button>
+              <span className="ml-auto flex items-center gap-2">
+                {data.local_active.share_key && (
+                  <button type="button" onClick={() => shareConfig(data.local_active)}
+                    title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-xs font-semibold">
+                    ⎘ Share config
+                  </button>
+                )}
+                <button type="button" onClick={() => openDataset(data.local_active.current.dataset_id)}
+                  className="px-2 py-1 rounded-lg text-content-muted hover:text-content text-xs">
+                  Open dataset ↗
+                </button>
+              </span>
             </div>
             <TrainingProgress datasetId={data.local_active.current.dataset_id} />
           </div>
@@ -274,6 +305,13 @@ export default function CloudRunsPage() {
                     className="px-3 py-1.5 rounded-lg border border-emerald-400/40 bg-emerald-500/10 text-emerald-200 text-xs font-semibold no-underline">
                     ⬇ Download the LoRA
                   </a>
+                )}
+                {run.share_key && (
+                  <button type="button" onClick={() => shareConfig(run)}
+                    title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
+                    className="px-2 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-xs font-semibold">
+                    ⎘ Share config
+                  </button>
                 )}
                 <span className="ml-auto flex items-center gap-2">
                   {/* Per-run escape hatch to this pod's provider console (billing,
@@ -367,6 +405,13 @@ export default function CloudRunsPage() {
                     title="Resume training from this run's last checkpoint for more steps, on a fresh pod"
                     className="px-2 py-1 rounded-lg border border-sky-400/40 bg-sky-500/10 text-sky-200 text-xs font-semibold disabled:opacity-50">
                     {continuing[run.run_id] ? '▶ Continuing…' : '▶ Continue (+1000)'}
+                  </button>
+                )}
+                {run.share_key && (
+                  <button type="button" onClick={() => shareConfig(run)}
+                    title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
+                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-xs font-semibold">
+                    ⎘ Share config
                   </button>
                 )}
                 {settingsLine(run) && (

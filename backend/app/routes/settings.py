@@ -1,33 +1,14 @@
 """Settings API: config/secrets CRUD + capability probes."""
-import re
-
 from flask import Blueprint, current_app, jsonify, request
 
 from .. import capabilities
 from .. import config as cfg
+# The path-redaction helper moved to a shared util so services (run_share) can
+# reuse it without a route<-service back-import. Kept under its historical
+# private name here for the diagnostic call site below.
+from ..utils.redact import redact_user_paths as _redact_user_paths
 
 bp = Blueprint('settings', __name__, url_prefix='/api')
-
-# Windows home dir, single OR double backslash (some exception reprs escape
-# them): `C:\Users\<name>\...` / `C:\\Users\\<name>\\...`. Case-insensitive
-# (drive letter, "users").
-_WIN_HOME_RE = re.compile(r'[A-Za-z]:\\{1,2}Users\\{1,2}[^\\/:*?"<>|\r\n]+', re.IGNORECASE)
-# POSIX home dir: `/home/<name>` or `/Users/<name>` (macOS).
-_POSIX_HOME_RE = re.compile(r'/(?:home|Users)/[^/\r\n]+', re.IGNORECASE)
-
-
-def _redact_user_paths(line):
-    """Strip the OS account name out of an absolute home-dir path in a log
-    line. The diagnostic payload is meant to be pasted into a public GitHub
-    issue/Discord thread as-is — a raw `C:\\Users\\<realname>\\...` (or
-    `/home/<realname>/...`) path leaks the Windows account / Unix username.
-    Only the drive+Users+<segment> (or /home|Users/<segment>) prefix is
-    swapped for `~`; the rest of the path is kept, it carries no identity."""
-    if not line:
-        return line
-    line = _WIN_HOME_RE.sub('~', line)
-    line = _POSIX_HOME_RE.sub('~', line)
-    return line
 
 
 _TEST_TARGETS = {

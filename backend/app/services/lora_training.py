@@ -582,6 +582,10 @@ def launch_settings_snapshot(ds, family=None) -> dict:
     fam = family or _train_type(ds)
     rank = _lora_rank(ds, fam)
     snap = {
+        # trigger_word is part of the reproducible RECIPE (someone re-running
+        # the LoRA needs it) and is not a secret — it already appears in the
+        # run name. The Share-config file surfaces it; settingsLine ignores it.
+        'trigger': _safe_trigger(ds),
         'rank': rank,
         'alpha': _lora_alpha_eff(ds, rank, fam),
         'resolution': _train_res(ds),
