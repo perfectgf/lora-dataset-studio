@@ -371,6 +371,12 @@ def dataset_list_stats(user_id):
     return stats
 
 
+def _clear_watermark_metadata(img):
+    img.watermark_state = None
+    img.watermark_bbox = None
+    img.watermark_regions = None
+
+
 def set_image_status(user_id, image_id, status):
     if status not in _VALID_STATUS:
         raise ValueError('invalid status')
@@ -380,6 +386,8 @@ def set_image_status(user_id, image_id, status):
     ds = db.session.get(FaceDataset, img.dataset_id)
     if not ds or str(ds.user_id) != str(user_id):
         return False
+    if status == 'reject':
+        _clear_watermark_metadata(img)
     img.status = status
     db.session.commit()
     return True
@@ -439,6 +447,7 @@ def crop_image(user_id, image_id, x, y, w, h):
         return False
     ok, scale = _crop_resize_file(_img_path(img), x, y, w, h)
     if ok:
+        _clear_watermark_metadata(img)
         img.upscale_ratio = scale
         db.session.commit()
     return ok
@@ -567,7 +576,8 @@ _BACKUP_NAME_RE = re.compile(r'^[\w.-]+\.(webp|jpg|jpeg|png)$', re.IGNORECASE)
 # Champs snapshotés tels quels par ligne image (job_id/klein_model exclus : liés
 # à la machine source — un backup restauré ne peut pas « regénérer »).
 _BACKUP_IMG_FIELDS = ('filename', 'source', 'framing', 'variation_label', 'status',
-                      'caption', 'variation_prompt', 'face_score', 'face_state')
+                      'caption', 'variation_prompt', 'face_score', 'face_state',
+                      'watermark_regions')
 
 
 def build_backup_zip(user_id, dataset_id) -> bytes:
@@ -756,6 +766,8 @@ def batch_image_action(user_id, dataset_id, image_ids, action):
             # no file; regenerate is the only way out of 'failed'.
             if img.status == 'failed':
                 continue
+            if action == 'reject':
+                _clear_watermark_metadata(img)
             img.status = action
         n += 1
     db.session.commit()
@@ -2189,6 +2201,7 @@ def detect_watermarks(user_id, dataset_id, *, include_dismissed=False):
                 # classify_images): leave the state UNTOUCHED (retry possible) instead
                 # of falsely marking every image clean when Ollama is just down.
                 continue
+            img.watermark_regions = None
             bbox = _parse_watermark_bbox(raw)
             if bbox:
                 img.watermark_state = 'detected'
@@ -2226,6 +2239,7 @@ def dismiss_watermarks(user_id, dataset_id, image_ids):
             .filter(FaceDatasetImage.id.in_(ids)).all())
     for img in rows:
         img.watermark_state = 'dismissed'
+        img.watermark_regions = None
     if rows:
         db.session.commit()
     return len(rows)
@@ -2268,6 +2282,43 @@ def clean_watermarks(user_id, dataset_id, image_ids=None):
         for i, img in enumerate(rows):
             dataset_activity.progress(token, done=i + 1)
             path = _img_path(img)
+            if img.watermark_regions is not None:
+                try:
+                    regions = normalize_watermark_regions(
+                        _safe_json(img.watermark_regions), allow_null=False,
+                    )
+                except ValueError as e:
+                    out['failed'] += 1
+                    error = {'kind': 'failed',
+                             'detail': f'invalid watermark regions: {e}'}
+                    db.session.commit()
+                    continue
+                if not regions:
+                    out['needs_review'] += 1
+                    db.session.commit()
+                    continue
+                if not os.path.exists(path):
+                    out['failed'] += 1
+                    db.session.commit()
+                    continue
+                if not lama_ok:
+                    out['skipped'] += 1
+                    db.session.commit()
+                    continue
+                _preserve_original(path)
+                ok, err = watermark_lama.inpaint_watermarks(path, regions)
+                if ok:
+                    img.watermark_state = 'cleaned'
+                    img.watermark_regions = None
+                    out['inpainted'] += 1
+                elif err and err.get('kind') == 'unavailable':
+                    out['skipped'] += 1
+                else:
+                    out['failed'] += 1
+                    if err:
+                        error = err
+                db.session.commit()
+                continue
             bbox = _safe_json(img.watermark_bbox)
             if not os.path.exists(path) or not (isinstance(bbox, list) and len(bbox) == 4):
                 img.watermark_state = 'failed'
@@ -2468,6 +2519,7 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
         if enabled and target not in enabled:
             default = cfg.get('engines.default')
             target = default if default in enabled else enabled[0]
+    _clear_watermark_metadata(img)
     if img.status == 'pending' and not img.filename and img.job_id:  # still generating
         try:
             from ..job_queue import queue_manager

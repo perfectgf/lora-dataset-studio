@@ -20,7 +20,8 @@ def _create(client, name='Lola', trigger='lola'):
     return client.post('/api/dataset/create', json={'name': name, 'trigger_word': trigger})
 
 
-def _kept_image(svc, ds_id, filename, *, size=(1024, 1024), state='detected', bbox=None):
+def _kept_image(svc, ds_id, filename, *, size=(1024, 1024), state='detected', bbox=None,
+                regions=None):
     """A kept FaceDatasetImage backed by a REAL file on disk (routing/clean open it)."""
     from app.models import FaceDatasetImage
     d = svc._dataset_dir(ds_id)
@@ -30,7 +31,8 @@ def _kept_image(svc, ds_id, filename, *, size=(1024, 1024), state='detected', bb
     img = FaceDatasetImage(dataset_id=ds_id, source='import', status='keep',
                            filename=filename, framing='body',
                            watermark_state=state,
-                           watermark_bbox=json.dumps(bbox) if bbox is not None else None)
+                           watermark_bbox=json.dumps(bbox) if bbox is not None else None,
+                           watermark_regions=json.dumps(regions) if regions is not None else None)
     svc.db.session.add(img)
     svc.db.session.commit()
     return img
@@ -279,6 +281,89 @@ def test_detect_watermarks_skips_on_empty_vision(app, monkeypatch):
         assert svc.db.session.get(FaceDatasetImage, a.id).watermark_state is None
 
 
+def test_completed_detection_clears_manual_regions_but_empty_vision_preserves_them(
+        app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    import app.services.vision_ollama as vo
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+
+    raws = [
+        '{"present":true,"x1":10,"y1":10,"x2":20,"y2":20}',
+        '{"present":false}',
+        '',
+    ]
+    monkeypatch.setattr(vo, 'describe_image_ollama', lambda *a, **k: raws.pop(0))
+    monkeypatch.setattr(vo, 'unload_vision_model', lambda *a, **k: True)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Detection lifecycle', 'detect')
+        old_regions = [[0.3, 0.3, 0.4, 0.4]]
+        detected = _kept_image(
+            svc, ds.id, 'detected.webp', bbox=[0.3, 0.3, 0.4, 0.4], regions=old_regions,
+        )
+        none = _kept_image(
+            svc, ds.id, 'none.webp', bbox=[0.3, 0.3, 0.4, 0.4], regions=old_regions,
+        )
+        unavailable = _kept_image(
+            svc, ds.id, 'unavailable-detect.webp', bbox=[0.3, 0.3, 0.4, 0.4],
+            regions=old_regions,
+        )
+
+        counts = svc.detect_watermarks(LOCAL_USER, ds.id)
+
+        assert counts == {'detected': 1, 'none': 1, 'checked': 2}
+        assert svc.db.session.get(FaceDatasetImage, detected.id).watermark_regions is None
+        assert svc.db.session.get(FaceDatasetImage, none.id).watermark_regions is None
+        skipped = svc.db.session.get(FaceDatasetImage, unavailable.id)
+        assert skipped.watermark_state == 'detected'
+        assert json.loads(skipped.watermark_regions) == old_regions
+
+
+def test_dismiss_clears_manual_regions_but_retains_legacy_bbox(app):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Dismiss lifecycle', 'dismiss')
+        bbox = [0.1, 0.1, 0.2, 0.2]
+        img = _kept_image(svc, ds.id, 'dismiss.webp', bbox=bbox, regions=[bbox])
+
+        assert svc.dismiss_watermarks(LOCAL_USER, ds.id, [img.id]) == 1
+
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.watermark_state == 'dismissed'
+        assert json.loads(row.watermark_bbox) == bbox
+        assert row.watermark_regions is None
+
+
+@pytest.mark.parametrize('via_batch', [False, True], ids=['single-status', 'batch-action'])
+def test_reject_clears_all_watermark_metadata_before_restore(app, via_batch):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Reject lifecycle', 'reject')
+        bbox = [0.1, 0.1, 0.2, 0.2]
+        img = _kept_image(svc, ds.id, 'reject.webp', bbox=bbox, regions=[bbox])
+
+        if via_batch:
+            assert svc.batch_image_action(LOCAL_USER, ds.id, [img.id], 'reject') == 1
+        else:
+            assert svc.set_image_status(LOCAL_USER, img.id, 'reject') is True
+
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.status == 'reject'
+        assert (row.watermark_state, row.watermark_bbox, row.watermark_regions) == (
+            None, None, None,
+        )
+        assert svc.set_image_status(LOCAL_USER, img.id, 'keep') is True
+        restored = svc.db.session.get(FaceDatasetImage, img.id)
+        assert (restored.watermark_state, restored.watermark_bbox,
+                restored.watermark_regions) == (None, None, None)
+
+
 # --- clean_watermarks routing (LaMa mocked) --------------------------------
 
 def test_clean_crops_border_and_preserves_original(app, monkeypatch):
@@ -383,6 +468,151 @@ def test_clean_large_mark_needs_review_no_edit(app, monkeypatch):
         stem, ext = os.path.splitext(path)
         assert not os.path.exists(f'{stem}.orig{ext}')  # nothing preserved (nothing changed)
         assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'detected'
+
+
+def test_clean_manual_regions_force_one_composite_inpaint_at_edge_and_clear_on_success(
+        app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+
+    calls = []
+    regions = [[0.0, 0.0, 0.2, 0.05], [0.75, 0.8, 0.95, 0.9]]
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    monkeypatch.setattr(
+        watermark_lama, 'inpaint_watermarks',
+        lambda path, bboxes, timeout=300: (calls.append((path, bboxes)) or (True, None)),
+    )
+    monkeypatch.setattr(
+        watermark_lama, 'inpaint_watermark',
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError('manual regions must use the composite LaMa entry point')),
+    )
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Manual clean', 'manual')
+        legacy_bbox = [0.0, 0.0, 1.0, 0.05]  # would take the legacy crop route
+        img = _kept_image(svc, ds.id, 'manual.webp', bbox=legacy_bbox, regions=regions)
+        path = svc._img_path(img)
+        before = open(path, 'rb').read()
+
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, image_ids=[img.id])
+
+        assert err is None
+        assert counts == {
+            'cropped': 0, 'inpainted': 1, 'needs_review': 0, 'failed': 0, 'skipped': 0,
+        }
+        assert calls == [(path, regions)]
+        stem, ext = os.path.splitext(path)
+        assert open(f'{stem}.orig{ext}', 'rb').read() == before
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.watermark_state == 'cleaned'
+        assert json.loads(row.watermark_bbox) == legacy_bbox
+        assert row.watermark_regions is None
+
+
+def test_clean_empty_manual_override_needs_review_without_touching_pixels(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    monkeypatch.setattr(
+        watermark_lama, 'inpaint_watermarks',
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError('empty override must not inpaint')),
+    )
+    monkeypatch.setattr(
+        watermark_lama, 'inpaint_watermark',
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError('empty override must not inpaint')),
+    )
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Empty manual clean', 'empty')
+        img = _kept_image(
+            svc, ds.id, 'empty.webp', bbox=[0.0, 0.0, 1.0, 0.05], regions=[],
+        )
+        path = svc._img_path(img)
+        before = open(path, 'rb').read()
+
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, image_ids=[img.id])
+
+        assert err is None
+        assert counts == {
+            'cropped': 0, 'inpainted': 0, 'needs_review': 1, 'failed': 0, 'skipped': 0,
+        }
+        assert open(path, 'rb').read() == before
+        stem, ext = os.path.splitext(path)
+        assert not os.path.exists(f'{stem}.orig{ext}')
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.watermark_state == 'detected'
+        assert row.watermark_regions == '[]'
+
+
+def test_clean_manual_regions_unavailable_preserves_retry_metadata(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+
+    regions = [[0.1, 0.1, 0.2, 0.2]]
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: False)
+    monkeypatch.setattr(
+        watermark_lama, 'inpaint_watermarks',
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError('unavailable LaMa must not be invoked')),
+    )
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Unavailable manual clean', 'unavailable')
+        img = _kept_image(svc, ds.id, 'unavailable.webp', bbox=[0.1, 0.1, 0.2, 0.2],
+                          regions=regions)
+        path = svc._img_path(img)
+        before = open(path, 'rb').read()
+
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, image_ids=[img.id])
+
+        assert err is None and counts['skipped'] == 1 and counts['inpainted'] == 0
+        assert open(path, 'rb').read() == before
+        stem, ext = os.path.splitext(path)
+        assert not os.path.exists(f'{stem}.orig{ext}')
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.watermark_state == 'detected'
+        assert json.loads(row.watermark_regions) == regions
+
+
+def test_clean_manual_regions_failure_preserves_retry_metadata(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+
+    regions = [[0.1, 0.1, 0.2, 0.2], [0.7, 0.7, 0.8, 0.8]]
+    failure = {'kind': 'failed', 'detail': 'RuntimeError: composite boom'}
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    monkeypatch.setattr(
+        watermark_lama, 'inpaint_watermarks',
+        lambda path, bboxes, timeout=300: (False, failure),
+    )
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Failed manual clean', 'failed')
+        img = _kept_image(svc, ds.id, 'failed.webp', bbox=[0.1, 0.1, 0.2, 0.2],
+                          regions=regions)
+        path = svc._img_path(img)
+        before = open(path, 'rb').read()
+
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, image_ids=[img.id])
+
+        assert counts['failed'] == 1 and counts['inpainted'] == 0
+        assert err == failure
+        assert open(path, 'rb').read() == before
+        stem, ext = os.path.splitext(path)
+        assert open(f'{stem}.orig{ext}', 'rb').read() == before
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.watermark_state == 'detected'
+        assert json.loads(row.watermark_regions) == regions
 
 
 # --- routes -----------------------------------------------------------------

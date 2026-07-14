@@ -1,4 +1,4 @@
-import io, zipfile
+import io, json, zipfile
 from PIL import Image
 
 
@@ -235,6 +235,35 @@ def test_crop_image_preserves_box_aspect(app):
             assert im.size == (1024, 1024)
 
 
+def test_manual_crop_clears_all_watermark_metadata_after_pixel_change(app):
+    import os
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Crop lifecycle', 'crop')
+        d = svc._dataset_dir(ds.id)
+        os.makedirs(d, exist_ok=True)
+        buf = io.BytesIO()
+        Image.new('RGB', (1200, 900), (90, 30, 30)).save(buf, 'PNG')
+        open(os.path.join(d, 'crop.webp'), 'wb').write(buf.getvalue())
+        img = FaceDatasetImage(
+            dataset_id=ds.id, filename='crop.webp', status='keep',
+            watermark_state='detected', watermark_bbox='[0.1, 0.1, 0.2, 0.2]',
+            watermark_regions='[[0.1, 0.1, 0.2, 0.2]]',
+        )
+        svc.db.session.add(img)
+        svc.db.session.commit()
+
+        assert svc.crop_image(LOCAL_USER, img.id, 0, 0, 800, 600) is True
+
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert (row.watermark_state, row.watermark_bbox, row.watermark_regions) == (
+            None, None, None,
+        )
+
+
 # --- Full backup / restore -----------------------------------------------------
 
 def test_backup_roundtrip_restores_everything(app):
@@ -266,6 +295,49 @@ def test_backup_roundtrip_restores_everything(app):
         assert (r.filename, r.status, r.framing, r.caption) == ('a.webp', 'keep', 'bust', 'a green coat')
         assert r.face_score == 0.61 and r.face_state == 'scorable'
         assert os.path.isfile(os.path.join(svc._dataset_dir(restored.id), 'a.webp'))
+
+
+def test_backup_roundtrip_preserves_optional_watermark_regions_and_accepts_legacy(app):
+    import os
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Watermark backup', 'wmbackup')
+        d = svc._dataset_dir(ds.id)
+        os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, 'marked.webp'), 'wb').write(_png())
+        regions = '[[0.1, 0.1, 0.2, 0.2], [0.7, 0.7, 0.8, 0.8]]'
+        svc.db.session.add(FaceDatasetImage(
+            dataset_id=ds.id, filename='marked.webp', status='keep',
+            watermark_regions=regions,
+        ))
+        svc.db.session.commit()
+
+        data = svc.build_backup_zip(LOCAL_USER, ds.id)
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            exported = json.loads(z.read('images.json'))
+        assert exported[0]['watermark_regions'] == regions
+
+        restored = svc.import_backup_zip(LOCAL_USER, data)
+        restored_img = FaceDatasetImage.query.filter_by(dataset_id=restored.id).one()
+        assert restored_img.watermark_regions == regions
+
+        # Version-1 backups created before the optional field existed remain valid.
+        legacy = io.BytesIO()
+        with zipfile.ZipFile(legacy, 'w') as z:
+            z.writestr('manifest.json', json.dumps({
+                'format': svc.BACKUP_FORMAT, 'version': 1,
+                'name': 'Legacy watermark backup', 'trigger_word': 'legacywm',
+            }))
+            z.writestr('images.json', json.dumps([
+                {'filename': 'legacy.webp', 'status': 'keep'},
+            ]))
+            z.writestr('images/legacy.webp', _png((0, 0, 255)))
+        legacy_restored = svc.import_backup_zip(LOCAL_USER, legacy.getvalue())
+        legacy_img = FaceDatasetImage.query.filter_by(dataset_id=legacy_restored.id).one()
+        assert legacy_img.watermark_regions is None
 
 
 def test_backup_import_rejects_garbage_and_traversal(app):
@@ -484,6 +556,36 @@ def test_regenerate_with_edited_prompt_persists_and_reaches_engine(app, monkeypa
         assert 'a candid mirror selfie' in seen['prompt']         # reached the engine
         assert IDENTITY_GUARD in seen['prompt']                   # face lock still applied
         assert row.filename                                        # a new file was written
+
+
+def test_regeneration_clears_all_watermark_metadata(app, monkeypatch):
+    import os
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+
+    monkeypatch.setattr(
+        svc, '_api_generate_fn',
+        lambda engine: (lambda refs, prompt, aspect_ratio=None: _png((0, 200, 0))),
+    )
+    with app.app_context():
+        ds, img = _ds_with_ref_and_generated(svc, FaceDatasetImage, LOCAL_USER)
+        old_path = os.path.join(svc._dataset_dir(ds.id), 'old.webp')
+        open(old_path, 'wb').write(_png())
+        img.filename = 'old.webp'
+        img.watermark_state = 'detected'
+        img.watermark_bbox = '[0.1, 0.1, 0.2, 0.2]'
+        img.watermark_regions = '[[0.1, 0.1, 0.2, 0.2]]'
+        svc.db.session.commit()
+
+        svc.regenerate_image(LOCAL_USER, img.id)
+
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.filename and row.filename != 'old.webp'
+        assert not os.path.exists(old_path)
+        assert (row.watermark_state, row.watermark_bbox, row.watermark_regions) == (
+            None, None, None,
+        )
 
 
 def test_regenerate_without_prompt_keeps_existing(app, monkeypatch):
