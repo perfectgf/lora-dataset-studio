@@ -595,6 +595,40 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // any family, preserving the previous behavior.
   const cloudActiveHere = actives.find((a) => a.dataset_id === ds.currentId
     && (!a.train_type || a.train_type === trainType));
+  // Any active cloud run on THIS dataset, WHATEVER its family. Two cloud runs of
+  // DIFFERENT families on the same dataset are NOT safe in parallel: each launch
+  // persists ds.train_type / ds.train_variant PER DATASET, and every run's
+  // monitor rebuilds its job config from the FRESH dataset row at boot
+  // (build_job_config reads ds.train_type) — so launching a second family
+  // silently rewrites the first, still-provisioning run's config. Until the
+  // backend keys that config off the run's own stamped family, the UI refuses a
+  // second cloud run on a dataset that already has one (verdict of the
+  // parallel-runs audit). Kept SEPARATE from cloudActiveHere, which stays
+  // per-family so the progress panel / download link below track the selected
+  // family only.
+  const cloudActiveOnDataset = actives.find((a) => a.dataset_id === ds.currentId);
+  // Single source of truth for WHY « ☁ Train in cloud » is disabled — most
+  // fundamental cause first (family unsupported > custom weights > too few
+  // images > a run already active here > global limit). Drives BOTH the tooltip
+  // AND the always-visible reason line below: a disabled button must state its
+  // reason without a hover (the owner lost time guessing on a greyed SDXL button
+  // whose only explanation lived in a title attribute).
+  const cloudTooFewImages = keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12);
+  const cloudLimitReached = actives.length >= (cloudStatus.limit || 1);
+  const cloudDisabledReason =
+    trainType === 'sdxl'
+      ? 'SDXL trains locally only — the cloud lane covers Z-Image, Krea 2 and FLUX.2 Klein'
+    : trainType === 'flux'
+      ? 'FLUX.1 trains locally only — the cloud lane covers Z-Image, Krea 2 and FLUX.2 Klein'
+    : (customBase || vaePath || tePath)
+      ? 'Custom weights are local-only — cloud training uses the official Hugging Face bases'
+    : cloudTooFewImages
+      ? `Only ${keptCount} image(s) kept — the cloud minimum for ${typeLabel} is ${TRAIN_MIN[trainType]?.[0] ?? 12}`
+    : cloudActiveOnDataset
+      ? 'A cloud run is already active on this dataset'
+    : cloudLimitReached
+      ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — stop one or raise the limit in Settings`
+    : null;
 
   // Launch-time GPU speed picker: the ☁️ button opens a dialog that lists live
   // vast.ai offers by speed (price/h + approx time + cost); the chosen class is
@@ -761,20 +795,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         </button>
         {caps.cloud_training && (
           <button type="button"
-            disabled={trainType === 'sdxl' || trainType === 'flux' || !!cloudActiveHere
-              || actives.length >= (cloudStatus.limit || 1)
-              || customBase || !!vaePath || !!tePath
-              || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12)}
-            title={trainType === 'sdxl'
-              ? 'SDXL needs a local base checkpoint — cloud supports Z-Image, Krea and FLUX.2 Klein'
-              : trainType === 'flux'
-              ? 'FLUX.1 is local-only for now — cloud supports Z-Image, Krea and FLUX.2 Klein'
-              : (customBase || vaePath || tePath)
-              ? 'Custom weights are local-only — cloud training uses the official Hugging Face bases'
-              : cloudActiveHere ? 'This dataset already has an active cloud run'
-              : actives.length >= (cloudStatus.limit || 1)
-                ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — raise it in Settings`
-              : `Rents a vast.ai GPU for this run (~$1-2), auto-terminated`}
+            disabled={!!cloudDisabledReason}
+            title={cloudDisabledReason
+              || 'Rents a vast.ai GPU for this run (~$1-2), auto-terminated'}
             onClick={() => setCloudDialog(true)}
             className="px-3 py-1.5 rounded-lg border border-sky-500/50 bg-sky-500/10 text-sky-200 text-sm font-semibold disabled:opacity-40">
             <span aria-hidden>☁️</span> Train in cloud
@@ -802,6 +825,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           base « {baseLabel} » · {maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : 'adaptive steps'}
         </span>
       </div>
+
+      {/* A disabled ☁ Train-in-cloud button always states WHY, right under the
+          button row — the tooltip alone was invisible until hovered, so a greyed
+          SDXL cloud button read as an unexplained limit (owner-reported). */}
+      {caps.cloud_training && cloudDisabledReason && (
+        <p className="m-0 text-sky-300/90 text-[0.6875rem]">
+          ☁ Cloud training unavailable — {cloudDisabledReason}
+        </p>
+      )}
 
       {actives.length > 0 && (
         <p className="m-0 text-content-subtle text-[0.625rem]">
