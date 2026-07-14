@@ -407,7 +407,7 @@ def test_klein_fanout_nsfw_uses_uncensored_wrapper(app, tmp_path, monkeypatch):
             {'label': '🔞 custom', 'framing': 'body', 'prompt': 'custom pose', 'nsfw': True},
             {'label': 'Corps debout face', 'framing': 'body', 'prompt': 'full body shot'},
         ], 1, None)
-        texts = [c['workflow_data']['145']['inputs']['text1'] for c in captured]
+        texts = [c['workflow_data']['6']['inputs']['text'] for c in captured]
         assert 'nudity is allowed' in texts[0] and 'SFW' not in texts[0]   # catalog label
         assert 'nudity is allowed' in texts[1]                             # explicit flag
         assert 'SFW' in texts[2]                                           # SFW entry untouched
@@ -455,8 +455,8 @@ def test_wrap_variation_klein_is_instruction_first(app):
 
 
 def test_klein_fanout_uses_instruction_wrapper(app, tmp_path, monkeypatch):
-    """The Klein fan-out must feed the workflow's prompt node (145) the
-    instruction-style wrapper, not the API engines' preservation-first guard."""
+    """The Klein fan-out must feed the workflow's prompt node (6, CLIPTextEncode)
+    the instruction-style wrapper, not the API engines' preservation-first guard."""
     from app import config as cfg
     from app.services import face_dataset_service as svc
     from app.config import LOCAL_USER
@@ -476,7 +476,7 @@ def test_klein_fanout_uses_instruction_wrapper(app, tmp_path, monkeypatch):
         svc.generate_variations(LOCAL_USER, ds.id,
                                 [{'label': 'x', 'framing': 'face', 'prompt': 'left profile view'}],
                                 1, klein_model=None)
-        text = captured[0]['workflow_data']['145']['inputs']['text1']
+        text = captured[0]['workflow_data']['6']['inputs']['text']
         assert 'left profile view' in text
         assert 'do not copy the composition' in text
         assert text.startswith('Create a new photograph')
@@ -491,3 +491,190 @@ def test_generate_unconfigured_comfyui_says_configure_first(app, client, tmp_pat
     assert resp.status_code == 409
     assert 'ComfyUI install folder' in resp.get_json()['error']
     assert started == []   # nothing to download into -> nothing started
+
+
+# --- Custom-node de-dependency + node preflight ------------------------------
+# The shipped 'improve skin.json' historically needed two custom-node packs the
+# Setup never installed (TextBox1 from RES4LYF, Any Switch (rgthree) from
+# rgthree-comfy) -> a fresh install's FIRST generation died on a raw ComfyUI 400
+# 'missing_node_type'. Strategy: (A) the workflow is rewritten to core +
+# comfy_extras nodes only, and (B) the generate routes preflight the workflow's
+# class_types against /object_info (fail-open) so any future/reverted custom
+# node surfaces as one actionable 409.
+
+def _shipped_classes(keh):
+    import json
+    with open(str(keh.WORKFLOW_IMPROVE_SKIN_PATH), encoding='utf-8') as f:
+        return {n['class_type'] for n in json.load(f).values()}
+
+
+def test_workflow_uses_only_core_nodes_and_is_fully_linked():
+    """(A) No custom-node class_type may remain in improve skin.json, every link
+    must reference an existing node, and no node may be orphaned. Pins the
+    de-dependency so a re-export from the developer's ComfyUI can't silently
+    reintroduce RES4LYF / rgthree nodes."""
+    import json
+    from app.services import klein_edit_helper as keh
+    with open(str(keh.WORKFLOW_IMPROVE_SKIN_PATH), encoding='utf-8') as f:
+        wf = json.load(f)
+    classes = {n['class_type'] for n in wf.values()}
+    assert not classes & set(keh.KLEIN_NODE_PACKS), classes & set(keh.KLEIN_NODE_PACKS)
+    ids = set(wf)
+    referenced = set()
+    for nid, node in wf.items():
+        for v in node.get('inputs', {}).values():
+            if isinstance(v, list) and len(v) == 2 and isinstance(v[0], str):
+                assert v[0] in ids, f'node {nid} references missing node {v[0]}'
+                referenced.add(v[0])
+    orphans = [nid for nid, n in wf.items()
+               if nid not in referenced and n['class_type'] != 'SaveImage']
+    assert orphans == [], orphans
+    # The prompt now lives in the CLIPTextEncode widget itself (a literal string,
+    # not a link to the removed TextBox1), and the latent/sampling size wiring
+    # reads the PrimitiveInt nodes directly (rgthree switches removed).
+    assert wf['6']['class_type'] == 'CLIPTextEncode'
+    assert isinstance(wf['6']['inputs']['text'], str)
+    for nid in ('91', '102'):
+        assert wf[nid]['inputs']['width'] == ['119', 0]
+        assert wf[nid]['inputs']['height'] == ['120', 0]
+
+
+def test_klein_missing_nodes_maps_pack_and_url(app, monkeypatch):
+    """(B) A class_type absent from /object_info is reported with the pack that
+    ships it + the GitHub link (known packs), or pack/url None (unknown)."""
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: {'CLIPTextEncode'})
+        wf = {'1': {'class_type': 'TextBox1', 'inputs': {}},
+              '2': {'class_type': 'SomeOtherCustomNode', 'inputs': {}},
+              '3': {'class_type': 'CLIPTextEncode', 'inputs': {}}}
+        out = keh.klein_missing_nodes(wf)
+        assert out == [
+            {'class_type': 'SomeOtherCustomNode', 'pack': None, 'url': None},
+            {'class_type': 'TextBox1', 'pack': 'RES4LYF',
+             'url': 'https://github.com/ClownsharkBatwing/RES4LYF'},
+        ]
+        msg = keh.format_missing_nodes_message(out)
+        assert 'RES4LYF' in msg and 'github.com/ClownsharkBatwing/RES4LYF' in msg
+        assert 'ComfyUI-Manager' in msg and 'restart ComfyUI' in msg
+
+
+def test_klein_missing_nodes_fails_open_when_object_info_down(app, monkeypatch):
+    """(B) /object_info unreachable (fetch returns None) must NEVER block
+    generation — returns [] (the per-job ComfyUI error still surfaces later)."""
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: None)
+        assert keh.klein_missing_nodes({'1': {'class_type': 'TextBox1', 'inputs': {}}}) == []
+        monkeypatch.setattr(keh, '_nodes_ok_until', 0.0)
+        assert keh.klein_missing_nodes() == []   # shipped-workflow path too
+
+
+def test_klein_missing_nodes_caches_only_the_all_present_verdict(app, monkeypatch):
+    """The multi-MB /object_info probe is cached ONLY when everything is present:
+    a satisfied install stops re-fetching per tile, while a missing-node verdict
+    keeps re-probing so 'install the pack, restart, retry' works immediately."""
+    from app.services import klein_edit_helper as keh
+    calls = []
+    with app.app_context():
+        # All present -> verdict cached -> second call doesn't re-fetch.
+        monkeypatch.setattr(keh, '_nodes_ok_until', 0.0)
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: (calls.append(1), _shipped_classes(keh))[1])
+        assert keh.klein_missing_nodes() == []
+        assert keh.klein_missing_nodes() == []
+        assert len(calls) == 1
+        # Missing -> NOT cached -> every call re-probes.
+        calls.clear()
+        monkeypatch.setattr(keh, '_nodes_ok_until', 0.0)
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: (calls.append(1), {'SaveImage'})[1])
+        assert keh.klein_missing_nodes() != []
+        assert keh.klein_missing_nodes() != []
+        assert len(calls) == 2
+
+
+def test_generate_missing_nodes_409_names_pack_and_link(app, client, tmp_path, monkeypatch):
+    """(B) Route contract: models all present but the workflow needs a custom node
+    this ComfyUI lacks -> ONE 409 through the existing Klein-missing handler, with
+    the itemized `klein_nodes_missing` payload and an error string naming the pack
+    + GitHub link + the ComfyUI-Manager instruction (rendered by the existing
+    toast, no new frontend component)."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        _comfy(tmp_path, cfg, lora=True)   # every model file present
+    # Simulate a reverted/edited workflow that still carries TextBox1.
+    monkeypatch.setattr(keh, 'load_workflow_local',
+                        lambda p: {'145': {'class_type': 'TextBox1', 'inputs': {'text1': ''}},
+                                   '9': {'class_type': 'SaveImage', 'inputs': {}}})
+    monkeypatch.setattr(keh, '_nodes_ok_until', 0.0)
+    monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                        lambda *a, **k: {'SaveImage'})
+    ds_id = _make_ds(client)
+    resp = client.post(f'/api/dataset/{ds_id}/generate', json=_KLEIN_BODY)
+    assert resp.status_code == 409
+    body = resp.get_json()
+    assert body['ok'] is False
+    assert body['klein_nodes_missing'] == [
+        {'class_type': 'TextBox1', 'pack': 'RES4LYF',
+         'url': 'https://github.com/ClownsharkBatwing/RES4LYF'}]
+    assert body['klein_missing'] == []              # models are NOT the problem
+    assert 'RES4LYF' in body['error'] and 'ComfyUI-Manager' in body['error']
+    # No doomed rows were created (the preflight blocked before the fan-out).
+    payload = client.get(f'/api/dataset/{ds_id}').get_json()
+    assert payload['images'] == []
+
+
+def test_generate_proceeds_when_object_info_unreachable(app, client, tmp_path, monkeypatch):
+    """(B) Fail-open at the route: /object_info down + all models present must
+    still enqueue (never block on a transient probe failure)."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    from app.job_queue import queue_manager
+    monkeypatch.setattr(queue_manager, 'add_job', lambda **kw: kw['job_id'])
+    with app.app_context():
+        _comfy(tmp_path, cfg, lora=True)
+    monkeypatch.setattr(keh, '_nodes_ok_until', 0.0)
+    monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                        lambda *a, **k: None)
+    ds_id = _make_ds(client)
+    resp = client.post(f'/api/dataset/{ds_id}/generate', json=_KLEIN_BODY)
+    assert resp.status_code == 200
+    assert resp.get_json()['created'] == 1
+
+
+def test_regenerate_missing_nodes_409(app, client, tmp_path, monkeypatch):
+    """(B) The single-tile regenerate path preflights nodes too (same 409 shape),
+    instead of resetting the row to pending and letting ComfyUI 400 it."""
+    from app import config as cfg
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper as keh
+    from app.config import LOCAL_USER
+    with app.app_context():
+        _comfy(tmp_path, cfg, lora=True)
+        ds = svc.create_dataset(LOCAL_USER, 'Regen', 'regen')
+        d = svc._dataset_dir(ds.id)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'ref.webp'), 'wb') as fh:
+            fh.write(_png())
+        ds.ref_filename = 'ref.webp'
+        img = svc.FaceDatasetImage(dataset_id=ds.id, source='generated',
+                                   status='finished', variation_prompt='p')
+        svc.db.session.add(img)
+        svc.db.session.commit()
+        img_id = img.id
+    monkeypatch.setattr(keh, 'load_workflow_local',
+                        lambda p: {'145': {'class_type': 'TextBox1', 'inputs': {'text1': ''}}})
+    monkeypatch.setattr(keh, '_nodes_ok_until', 0.0)
+    monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                        lambda *a, **k: {'SaveImage'})
+    resp = client.post(f'/api/dataset/image/{img_id}/regenerate', json={})
+    assert resp.status_code == 409
+    body = resp.get_json()
+    assert body['klein_nodes_missing'][0]['pack'] == 'RES4LYF'
+    with app.app_context():
+        row = svc.db.session.get(svc.FaceDatasetImage, img_id)
+        assert row.status == 'finished'   # untouched — blocked before any reset

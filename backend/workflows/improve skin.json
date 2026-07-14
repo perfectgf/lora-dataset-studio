@@ -1,10 +1,7 @@
 {
   "6": {
     "inputs": {
-      "text": [
-        "145",
-        0
-      ],
+      "text": "Turn a scene into a realistic photograph.\n",
       "clip": [
         "90",
         0
@@ -122,11 +119,11 @@
   "91": {
     "inputs": {
       "width": [
-        "178",
+        "119",
         0
       ],
       "height": [
-        "179",
+        "120",
         0
       ],
       "batch_size": 1
@@ -170,11 +167,11 @@
       "max_shift": 1.15,
       "base_shift": 0.6,
       "width": [
-        "178",
+        "119",
         0
       ],
       "height": [
-        "179",
+        "120",
         0
       ],
       "model": [
@@ -251,15 +248,6 @@
       "title": "LoraLoaderModelOnly"
     }
   },
-  "145": {
-    "inputs": {
-      "text1": "Turn a scene into a realistic photograph.\n"
-    },
-    "class_type": "TextBox1",
-    "_meta": {
-      "title": "Postive"
-    }
-  },
   "174": {
     "inputs": {
       "upscale_method": "lanczos",
@@ -285,30 +273,6 @@
     "class_type": "GetImageSize",
     "_meta": {
       "title": "Obtenir la taille de l'image"
-    }
-  },
-  "178": {
-    "inputs": {
-      "any_02": [
-        "119",
-        0
-      ]
-    },
-    "class_type": "Any Switch (rgthree)",
-    "_meta": {
-      "title": "Any Switch (rgthree)"
-    }
-  },
-  "179": {
-    "inputs": {
-      "any_02": [
-        "120",
-        0
-      ]
-    },
-    "class_type": "Any Switch (rgthree)",
-    "_meta": {
-      "title": "Any Switch (rgthree)"
     }
   }
 }

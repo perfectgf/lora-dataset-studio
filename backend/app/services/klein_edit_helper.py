@@ -2,9 +2,18 @@
 
 Reused by the face-dataset fan-out. Builds a minimal job from the same
 single-edit workflow /generate_edit uses in single mode (WORKFLOW_IMPROVE_SKIN_PATH,
-nodes 52=LoadImage, 145=TextBox1 prompt, 77=KSampler seed, 9=SaveImage,
+nodes 52=LoadImage, 6=CLIPTextEncode prompt, 77=KSampler seed, 9=SaveImage,
 114=UNETLoader Klein). Deliberately a small focused helper rather than a refactor
 of the large live generate_edit route.
+
+Node preflight: the shipped 'improve skin.json' is written to use ONLY core +
+comfy_extras nodes (the prompt text goes straight into the CLIPTextEncode widget,
+and the image-size wiring skips the rgthree 'Any Switch' passthroughs) so a stock
+ComfyUI with zero custom-node packs can run it. `klein_missing_nodes()` re-checks
+this against the live /object_info as a safety net — if a reverted/edited workflow
+or a future change reintroduces a custom node the target ComfyUI lacks, the route
+answers one actionable "install pack X, restart ComfyUI" 409 instead of ComfyUI's
+raw 400 'missing_node_type'.
 
 Lifted from the parent project's app/services/klein_edit_helper.py for LoRA
 Dataset Studio: SRC's module-level COMFYUI_INPUT_DIR/COMFYUI_OUTPUT_DIR constants
@@ -18,6 +27,7 @@ import logging
 import os
 import random
 import shutil
+import time
 import uuid
 
 from .. import config as cfg
@@ -30,7 +40,10 @@ WORKFLOW_IMPROVE_SKIN_PATH = cfg.BACKEND_DIR / 'workflows' / 'improve skin.json'
 
 # Nodes this helper rewires — fail LOUDLY if the workflow file changes shape
 # instead of silently enqueuing a job with the wrong source/prompt/model.
-_REQUIRED_NODES = ('52', '145', '77', '9', '114', '10', '90')
+# Node 6 = CLIPTextEncode: the per-job prompt is written straight into its `text`
+# widget (the RES4LYF TextBox1 node 145 that used to hold it was removed so the
+# graph needs no custom-node packs).
+_REQUIRED_NODES = ('52', '6', '77', '9', '114', '10', '90')
 
 # The Klein pipeline's model dependencies, keyed by the setup_installer download
 # action that provides each. REQUIRED = the graph is invalid without it (block +
@@ -186,6 +199,78 @@ def klein_missing_assets():
     return missing
 
 
+# --- Custom-node preflight -------------------------------------------------
+# The class_types the shipped 'improve skin.json' historically pulled from custom
+# packs, mapped to the pack that ships each + its GitHub page. Setup installs
+# neither, and no doc mentioned them, so a fresh install hit a raw ComfyUI 400
+# 'missing_node_type' on the first generation. The workflow no longer references
+# these (strategy A), so this map is the safety net for a reverted/edited
+# workflow — and the generic fallback (pack/url = None) covers any OTHER custom
+# node a future change might introduce.
+KLEIN_NODE_PACKS = {
+    'TextBox1': ('RES4LYF', 'https://github.com/ClownsharkBatwing/RES4LYF'),
+    'Any Switch (rgthree)': ('rgthree-comfy', 'https://github.com/rgthree/rgthree-comfy'),
+}
+
+
+def _workflow_class_types(workflow):
+    return {n.get('class_type') for n in (workflow or {}).values()
+            if isinstance(n, dict) and n.get('class_type')}
+
+
+# Success-only TTL cache for the node preflight on the SHIPPED workflow:
+# /object_info is a multi-MB payload, so don't re-fetch it for every tile
+# regenerate click. Only an "all nodes present" verdict is cached (node packs
+# don't uninstall mid-session); a miss or an unreachable probe is NEVER cached,
+# so the "install the pack, restart ComfyUI, retry" flow re-probes immediately.
+_NODES_OK_TTL_S = 300
+_nodes_ok_until = 0.0
+
+
+def klein_missing_nodes(workflow=None):
+    """[{class_type, pack, url}] for every node class the Klein edit workflow needs
+    that the target ComfyUI does NOT expose (i.e. absent from its /object_info
+    keys). Loads the shipped 'improve skin.json' when no `workflow` is given.
+
+    FAIL-OPEN: returns [] when /object_info can't be fetched (fetch returns None)
+    — a transient probe failure must never block generation (mirrors the Test
+    Studio node preflight in lora_test_studio.preflight_family)."""
+    global _nodes_ok_until
+    shipped = workflow is None
+    if shipped:
+        if time.time() < _nodes_ok_until:
+            return []
+        workflow = load_workflow_local(str(WORKFLOW_IMPROVE_SKIN_PATH)) or {}
+    from ..utils.comfyui import fetch_object_info_classes
+    available = fetch_object_info_classes()
+    if available is None:
+        return []
+    out = []
+    for ct in sorted(_workflow_class_types(workflow) - available):
+        pack, url = KLEIN_NODE_PACKS.get(ct, (None, None))
+        out.append({'class_type': ct, 'pack': pack, 'url': url})
+    if shipped and not out:
+        _nodes_ok_until = time.time() + _NODES_OK_TTL_S
+    return out
+
+
+def format_missing_nodes_message(missing_nodes):
+    """Human sentence for a Klein node-missing 409: each missing class_type with the
+    pack that provides it + its GitHub link, then the fix instruction. Reused by
+    the datasets route's existing Klein-missing error path."""
+    bits = []
+    for n in missing_nodes:
+        ct, pack, url = n.get('class_type'), n.get('pack'), n.get('url')
+        if pack and url:
+            bits.append(f"{ct} (from {pack}: {url})")
+        elif pack:
+            bits.append(f"{ct} (from {pack})")
+        else:
+            bits.append(str(ct))
+    return ("Your ComfyUI is missing custom node(s) this Klein workflow needs: "
+            + '; '.join(bits) + ". Install via ComfyUI-Manager, then restart ComfyUI.")
+
+
 def _bypass_node(workflow, node_id, passthrough_input):
     """Delete node_id and reconnect every consumer of its output slot 0 to the
     node's own `passthrough_input` upstream. Used to drop a LoRA loader whose file
@@ -264,7 +349,10 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     shutil.copy2(source_path, os.path.join(comfy_input_dir, comfy_input))
 
     workflow["52"]["inputs"]["image"] = comfy_input
-    workflow["145"]["inputs"]["text1"] = edit_prompt
+    # Prompt into the CLIPTextEncode widget directly (node 6). The old RES4LYF
+    # TextBox1 (node 145) that used to carry it was dropped to de-depend the graph
+    # from custom-node packs; node 6's `text` is a plain STRING input.
+    workflow["6"]["inputs"]["text"] = edit_prompt
     workflow["77"]["inputs"]["seed"] = random.randint(0, 2 ** 64 - 1)
     # UNIQUE prefix per job: SaveImage numbers files from what's currently in
     # ComfyUI's output folder, and the app MOVES each result out right after

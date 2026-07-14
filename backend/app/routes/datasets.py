@@ -271,29 +271,43 @@ def _autostart_klein_downloads(missing):
     return started, ('klein_model' in missing and not has_token)
 
 
-def _klein_missing_response(missing):
-    """Turn a KleinModelsMissing into a (body, 409): auto-start the missing
-    downloads into the validated ComfyUI tree and tell the user to retry. When
-    ComfyUI itself isn't a real install, there's nowhere to place the files —
-    return the 'configure ComfyUI first' message instead. Shared by the batch
-    generate and the single-tile regenerate paths."""
+def _klein_missing_response(missing, missing_nodes=None):
+    """Turn a Klein preflight miss into a (body, 409): auto-start any missing model
+    downloads into the validated ComfyUI tree and/or list the custom nodes the
+    target ComfyUI lacks, and tell the user to retry. When ComfyUI itself isn't a
+    real install there's nowhere to place model files — return the 'configure
+    ComfyUI first' message instead. Shared by the batch generate and the
+    single-tile regenerate paths; `missing_nodes` = [{class_type, pack, url}] from
+    klein_edit_helper.klein_missing_nodes (empty for the common models-only case)."""
     from .. import capabilities, config as cfg
-    if not capabilities.resolve_comfyui_base(cfg.get('comfyui.base_dir') or '')['valid']:
+    from ..services import klein_edit_helper as keh
+    missing = missing or []
+    missing_nodes = missing_nodes or []
+    # The invalid-base short-circuit only applies when model files need a home to
+    # download into; a node-only miss just needs a "install pack, restart" message.
+    if missing and not capabilities.resolve_comfyui_base(cfg.get('comfyui.base_dir') or '')['valid']:
         return jsonify({'ok': False,
                         'error': 'Point the app at your ComfyUI install folder in '
                                  'Setup ▸ ComfyUI first, so the Klein models can be '
                                  'downloaded into it.'}), 409
-    started, needs_token = _autostart_klein_downloads(missing)
-    names = ', '.join(_KLEIN_ASSET_LABELS.get(m, m) for m in missing)
-    it = 'them' if len(missing) > 1 else 'it'
-    msg = (f"Klein needs {names}. I've started downloading {it} into your ComfyUI "
-           "folder — watch progress in Setup ▸ ComfyUI, then retry generation.")
-    if needs_token:
-        msg += (" ⚠ The Klein model is license-gated: accept the licence on its "
-                "Hugging Face page and paste an HF_TOKEN in Settings ▸ API keys, "
-                "otherwise it can't download.")
-    return jsonify({'ok': False, 'error': msg, 'klein_missing': missing,
-                    'downloading': started, 'needs_token': needs_token}), 409
+    parts, started, needs_token = [], [], False
+    if missing:
+        started, needs_token = _autostart_klein_downloads(missing)
+        names = ', '.join(_KLEIN_ASSET_LABELS.get(m, m) for m in missing)
+        it = 'them' if len(missing) > 1 else 'it'
+        parts.append(f"Klein needs {names}. I've started downloading {it} into your "
+                     "ComfyUI folder — watch progress in Setup ▸ ComfyUI, then retry "
+                     "generation.")
+        if needs_token:
+            parts.append("⚠ The Klein model is license-gated: accept the licence on its "
+                         "Hugging Face page and paste an HF_TOKEN in Settings ▸ API keys, "
+                         "otherwise it can't download.")
+    if missing_nodes:
+        parts.append(keh.format_missing_nodes_message(missing_nodes))
+    return jsonify({'ok': False, 'error': ' '.join(parts),
+                    'klein_missing': missing, 'downloading': started,
+                    'needs_token': needs_token,
+                    'klein_nodes_missing': missing_nodes}), 409
 
 
 def _autostart_optional_klein():
@@ -329,6 +343,17 @@ def dataset_generate(dataset_id):
                 data.get('variations') or [], data.get('multiplier', 1),
                 engine=generator)
         else:
+            # Klein node preflight (once per request — /object_info is large, so
+            # never per-tile): if the workflow needs a custom node this ComfyUI
+            # lacks, answer one actionable 409 instead of a grid of tiles each
+            # failing ComfyUI validation. Fail-open when /object_info is
+            # unreachable. Combined with the model scan so a fresh install gets
+            # ONE 409 covering both (and the model downloads start in parallel
+            # with the user's node-pack install).
+            from ..services import klein_edit_helper as keh
+            missing_nodes = keh.klein_missing_nodes()
+            if missing_nodes:
+                return _klein_missing_response(keh.klein_missing_assets(), missing_nodes)
             ids = svc.generate_variations(LOCAL_USER, dataset_id,
                                           data.get('variations') or [], data.get('multiplier', 1),
                                           data.get('klein_model'),
@@ -534,6 +559,15 @@ def dataset_image_regenerate(image_id):
     klein_model = (data.get('klein_model') or '').strip() or None
     try:
         from flask import current_app
+        # Klein node preflight (skip when the user explicitly picked an API engine,
+        # which doesn't touch ComfyUI): surface a missing custom node as one 409
+        # instead of a silent failed re-roll. Fail-open if /object_info is down;
+        # combined with the model scan (same rationale as the batch generate).
+        if engine not in svc.API_ENGINES:
+            from ..services import klein_edit_helper as keh
+            missing_nodes = keh.klein_missing_nodes()
+            if missing_nodes:
+                return _klein_missing_response(keh.klein_missing_assets(), missing_nodes)
         job_id = svc.regenerate_image(LOCAL_USER, image_id,
                                       lora_strength=data.get('lora_strength'),
                                       prompt=edited_prompt,
