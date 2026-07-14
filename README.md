@@ -19,10 +19,10 @@ The whole pipeline, grouped by stage — every item links to the section that de
 
 | Stage | What you get |
 | :-- | :-- |
-| 🏗️ **Build** | 🎭 **[3 dataset types](#1-three-dataset-types-character--concept--style)** — character, concept or style; each rewires captioning, masking and step-scaling to match.<br>🖼️ **[3 image sources](#2-three-ways-to-source-images)** — generate from a reference photo, import your own, or scrape the web.<br>🧭 **[Guided workspace](#3-the-guided-workspace)** — a progress rail unlocks each step and shows what's blocking Train.<br>✏️ **[Edit & regenerate](#7-edit-the-prompt-regenerate-the-shot)** — tweak any tile's prompt in place and re-shoot it, identity preserved. |
-| 🎯 **Curate & caption** | 📐 **[Auto-framing + meter](#5-auto-framing-classification)** — auto-tags each shot face/bust/body and scores the set against a 12/6/6/1 target.<br>👤 **[Face scoring](#4-face-similarity-scoring)** — InsightFace flags off-identity shots before they poison training.<br>📝 **[Model-matched captions](#6-captioning-that-matches-the-model)** — prose or booru tags, picked for the model and written by JoyCaption or Ollama. |
-| 🎓 **Train** | 🎛️ **[No-hand-tune training](#8-training-you-dont-hand-tune)** — click Train: adaptive steps, a GPU queue and auto rembg masks, no config file.<br>🧬 **[5 model families](#8-training-you-dont-hand-tune)** — Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein, presets built in.<br>📑 **[Training presets](#8-training-you-dont-hand-tune)** — save named recipes (3 ship read-only), import/export as shareable JSON.<br>☁️ **[Cloud training](#cloud-training-vastai--experimental)** — no GPU? rent a vast.ai pod (~$1–2/run) with retry and continue.<br>🏋️ **[Runs hub](#8-training-you-dont-hand-tune)** — cloud and local runs in one tab: live progress, checkpoint trash and cap. |
-| 🚀 **Test & ship** | 🧪 **[Test Studio](#9-test-studio--pick-the-best-checkpoint)** — grid-test checkpoint × strength, vote, and rank epochs by face match.<br>📦 **[Export ZIP](#10-export)** — leave with image + `.txt` caption pairs that train in any ai-toolkit. |
+| 🏗️ **Build** | 🎭 **[3 dataset types](#1-three-dataset-types-character--concept--style)** — character, concept or style; each rewires captioning, masking and step-scaling to match.<br>🖼️ **[3 image sources](#2-three-ways-to-source-images)** — generate from a reference photo, import your own, or scrape the web.<br>🧭 **[Guided workspace](#3-the-guided-workspace)** — a progress rail unlocks each step and shows what's blocking Train.<br>✏️ **[Edit & regenerate](#8-edit-the-prompt-regenerate-the-shot)** — tweak any tile's prompt in place and re-shoot it, identity preserved. |
+| 🎯 **Curate & caption** | 📐 **[Auto-framing + meter](#5-auto-framing-classification)** — auto-tags each shot face/bust/body and scores the set against a 12/6/6/1 target.<br>👤 **[Face scoring](#4-face-similarity-scoring)** — InsightFace flags off-identity shots before they poison training.<br>📝 **[Model-matched captions](#6-captioning-that-matches-the-model)** — prose or booru tags, picked for the model and written by JoyCaption or Ollama.<br>🧽 **[Watermark cleanup](#7-auto-clean-scraped-watermarks)** — finds overlaid logos/URLs on scraped shots, then Clean crops or LaMa-inpaints them (or review one by one). |
+| 🎓 **Train** | 🎛️ **[No-hand-tune training](#9-training-you-dont-hand-tune)** — click Train: adaptive steps, a GPU queue and auto rembg masks, no config file.<br>🧬 **[5 model families](#9-training-you-dont-hand-tune)** — Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein, presets built in.<br>📑 **[Training presets](#9-training-you-dont-hand-tune)** — save named recipes (3 ship read-only), import/export as shareable JSON.<br>☁️ **[Cloud training](#cloud-training-vastai--experimental)** — no GPU? rent a vast.ai pod (~$1–2/run) with retry and continue.<br>🏋️ **[Runs hub](#9-training-you-dont-hand-tune)** — cloud and local runs in one tab: live progress, checkpoint trash and cap, and ⎘ share any run's exact recipe. |
+| 🚀 **Test & ship** | 🧪 **[Test Studio](#10-test-studio--pick-the-best-checkpoint)** — grid-test checkpoint × strength, vote, and rank epochs by face match.<br>📦 **[Export ZIP](#11-export)** — leave with image + `.txt` caption pairs that train in any ai-toolkit. |
 | 🌐 **Comfort & access** | 📱 **[Phone access](#exposing-the-app-beyond-localhost)** — scan a QR to open the app on your phone over LAN or Tailscale.<br>🧰 **[Setup wizard](#setup--install)** — scans your machine and installs only what's missing.<br>📖 **[Guide + diagnostics](#troubleshooting)** — a 5-chapter in-app manual and a one-click, paste-safe diagnostic report. |
 
 ---
@@ -38,10 +38,11 @@ The whole pipeline, grouped by stage — every item links to the section that de
   - [4. Face-similarity scoring](#4-face-similarity-scoring)
   - [5. Auto-framing classification](#5-auto-framing-classification)
   - [6. Captioning that matches the model](#6-captioning-that-matches-the-model)
-  - [7. Edit the prompt, regenerate the shot](#7-edit-the-prompt-regenerate-the-shot)
-  - [8. Training you don't hand-tune](#8-training-you-dont-hand-tune)
-  - [9. Test Studio — pick the best checkpoint](#9-test-studio--pick-the-best-checkpoint)
-  - [10. Export](#10-export)
+  - [7. Auto-clean scraped watermarks](#7-auto-clean-scraped-watermarks)
+  - [8. Edit the prompt, regenerate the shot](#8-edit-the-prompt-regenerate-the-shot)
+  - [9. Training you don't hand-tune](#9-training-you-dont-hand-tune)
+  - [10. Test Studio — pick the best checkpoint](#10-test-studio--pick-the-best-checkpoint)
+  - [11. Export](#11-export)
 - [Why this instead of driving ai-toolkit directly?](#why-this-instead-of-driving-ai-toolkit-directly)
 - [Feature matrix by backend](#feature-matrix-by-backend)
 - [Two run modes](#two-run-modes)
@@ -137,7 +138,7 @@ The scraper can reach adult communities as well — this is an NSFW-capable tool
 
 ### 3. The guided workspace
 
-The composition meter is the quiet workhorse: as you keep and reject, it tracks your framing mix against the **12 / 6 / 6 / 1** target and tells you what the set is still missing (*"needs more full-body shots"*) — the difference between a dataset that renders faces well and one that also knows the body. The progress rail on the left keeps the whole pipeline legible: what's done, what's next, what's blocking Train.
+The composition meter is the quiet workhorse: as you keep and reject, it tracks your framing mix against the **12 / 6 / 6 / 1** target and tells you what the set is still missing (*"needs more full-body shots"*) — the difference between a dataset that renders faces well and one that also knows the body. The progress rail on the left keeps the whole pipeline legible: what's done, what's next, what's blocking Train. Long server-side batches — captioning, face analysis, framing classify, watermark scan/clean — show a live progress indicator that **survives a page reload**: refresh mid-run and the button picks the batch back up instead of looking idle.
 
 ### 4. Face-similarity scoring
 
@@ -156,7 +157,21 @@ Captions are what training actually reads, and the right *form* depends on the b
 - **Concept datasets invert** the caption: it names everything *but* the concept, and runs an **identity-leak check** so a stray "a woman with brown hair" doesn't quietly compete with the trigger.
 - A **find/replace + tag-frequency** panel lets you sweep the whole set at once.
 
-### 7. Edit the prompt, regenerate the shot
+### 7. Auto-clean scraped watermarks
+
+Real images pulled off the web carry **overlaid watermarks** — a site logo, a URL, an `@username`, studio text stamped on top of the photo. Left in, the LoRA learns them. This tool finds and removes them in a **Find → Review → Clean** flow (it lives on scraped concept/style sets, where the marks actually show up):
+
+- **🧽 Find watermarks** runs a local vision pass (Qwen3-VL) over the kept images and flags each overlaid mark with a 🚩 badge and a stored bounding box. It *deletes nothing* — it targets logos/URLs/usernames added on top of the photo, not scene text like signs or clothing prints.
+- **🧽 Clean (N)** routes each flagged image by cost and risk, no generative guesswork:
+  - a mark sitting in an outer **border band** is **cropped off** (pure pixel crop — it invents nothing, and never cuts a side below 768 px);
+  - a small **off-centre** mark is **inpainted with LaMa** — a *non-generative* fill where only the masked pixels change, run on CPU outside the GPU/ComfyUI window;
+  - anything large or sitting on the subject is left for **manual review** rather than risking a bad auto-edit.
+  Every edited image keeps its watermarked original as a sibling `.orig` backup, and Clean reports one honest summary (cropped / inpainted / need review / failed).
+- **🔍 Review flagged (N)** opens a lightbox that steps through the flagged images one at a time: you see the **detected box drawn** on the shot and the tool's planned action, then Clean it (and see the **cleaned result** before moving on), **dismiss** it as a false positive (the 🚩 clears and future Find passes never re-flag it), or reject it outright.
+
+LaMa inpainting is an ML extra: without it installed, Clean still crops border marks and simply *skips* the off-centre ones — a one-click **⬇ Install inpainting** button sits right next to the tools to add it (a CPU-only package, one-time download). On-subject watermark removal is a planned V2; V1 deliberately never repaints over the subject.
+
+### 8. Edit the prompt, regenerate the shot
 
 Every generated tile carries a ✏️ button next to crop and delete. Click it and the exact prompt that produced the image opens in an inline bubble — tweak the wording (*"soft window light,"* *"three-quarter view"*), hit **OK**, and the tile regenerates through the same engine with your edit, re-wrapped in the identity guard so the face is preserved. The edited prompt is saved with the image, so the next regenerate starts from where you left off.
 
@@ -165,7 +180,7 @@ Every generated tile carries a ✏️ button next to crop and delete. Click it a
 </p>
 <p align="center"><em>Fix a shot's framing or lighting by editing its prompt in place — no re-typing, no losing the rest of the set.</em></p>
 
-### 8. Training you don't hand-tune
+### 9. Training you don't hand-tune
 
 Click **Train** and ai-toolkit runs underneath — but you don't touch a config file:
 
@@ -175,14 +190,16 @@ Click **Train** and ai-toolkit runs underneath — but you don't touch a config 
 - **Continue +N steps** to extend a run, and **auto-import** of the finished LoRA into ComfyUI's `models/loras/<family>` so it's ready to test immediately.
 - **Named presets** — save the whole ⚙️ Advanced panel as a named recipe, apply it to any dataset, and import/export it as a shareable JSON. Three recommended presets ship read-only (★): *Krea character*, *Concept*, and *Style*.
 - **Checkpoint housekeeping** — a **Saves kept** cap lets ai-toolkit trim older intermediate checkpoints during the run (default 4, so a long Krea run no longer piles up ~10 GB of snapshots), and everything the app deletes goes to an app-wide **Trash** (Settings → Maintenance) that you empty on your own terms.
-- **One place for every run** — a **🏋️ Runs** tab collects all training, cloud *and* local: live progress, the exact settings each launch used (and which dataset version, v1/v2/…, it trained on), **↻ Retry** a failed run on a fresh pod, **▶ Continue** a finished cloud run from its last checkpoint, and a one-click download of the resulting LoRA.
+- **One place for every run** — a **🏋️ Runs** tab collects all training, cloud *and* local: live progress, the exact settings each launch used (and which dataset version, v1/v2/…, it trained on), **↻ Retry** a failed run on a fresh pod, **▶ Continue** a finished cloud run from its last checkpoint, a one-click download of the resulting LoRA, and **⎘ Share config** — a paste-safe `.txt` of everything that launch sent to ai-toolkit (family/variant/base + the full parameter snapshot) plus the run's outcome, with local paths and keys stripped, ready to drop into a Discord or GitHub help thread.
 - Model families: **Z-Image**, **SDXL**, **Krea 2**, **FLUX.1**, **FLUX.2 Klein** — each with its own base/variant presets.
 
-### 9. Test Studio — pick the best checkpoint
+### 10. Test Studio — pick the best checkpoint
 
 A LoRA that's trained isn't a LoRA that's *good*. Test Studio grid-tests **checkpoint × strength** through ComfyUI, lets you **vote** on the outputs (Wilson-ranked so a few votes don't overfit), and **ranks checkpoints by face similarity** — so you can pick the epoch that nails the identity *before* it overcooks, instead of guessing from sample images.
 
-### 10. Export
+Before it launches a grid it **preflights the family** (Z-Image / SDXL / Krea 2): if your ComfyUI is missing a required model file or a custom node the workflow needs, you get **one actionable message naming exactly what's missing and where to put it**, instead of a grid of silently empty cells. If an individual cell still fails, its tile shows **⚠ with the reason on hover** (missing model, node error, timeout…) rather than failing blind — and failed cells are excluded from the ranking.
+
+### 11. Export
 
 At any point, **Export ZIP** gives you the curated, captioned set as a standard ai-toolkit dataset — pairs of `image` + `.txt` caption — that you can train anywhere. Nothing here locks your data in.
 
@@ -219,6 +236,8 @@ Not every feature needs every backend. The app degrades gracefully — API keys 
 | Auto-classify framing / auto head-crop | Ollama (vision model) |
 | Face-similarity scoring | `backend/requirements-ml.txt` (insightface + onnxruntime) |
 | Person masks | `backend/requirements-ml.txt` (rembg) |
+| Watermark detection (scraped datasets) | Ollama (vision model) |
+| Watermark inpainting (LaMa) | `backend/requirements-ml.txt` (simple-lama-inpainting) — without it, Clean crops border marks only |
 | Scrape images into a concept dataset (Reddit keyword search + gallery URLs) | `backend/requirements-scrape.txt` (gallery-dl + curl_cffi) |
 | Concept-caption inversion (identity-leak-aware) | Ollama **or** ai-toolkit (JoyCaption) |
 | LoRA training | ai-toolkit installed and configured |
@@ -258,6 +277,8 @@ ai-toolkit configuration as a local run, downloads the resulting
 ## Setup & install
 
 On first launch the **Setup** wizard scans your machine, tells you what's already installed, and walks you through the rest — but you can skip it and start building a dataset from your own photos right now, no setup required.
+
+The machine scan lists each capability as a **clickable row** that jumps straight to its install step, and the local ML extras install **per capability** rather than all-or-nothing: face scoring, person masks and watermark inpainting each have their own one-click install, with an **↻ Reinstall** to repair or update just that one — so a machine that's missing a single extra (say, watermark inpainting on an older install) fixes it without redoing the whole ML step.
 
 <p align="center">
   <img src="docs/screenshots/05-setup.png" alt="Setup wizard scanning the machine for ComfyUI, Ollama, and ai-toolkit" width="820">
@@ -336,7 +357,9 @@ None of these are bundled — each one is optional, installed separately, and th
 
 Trained LoRAs land in `models/loras/<family>` automatically after training. Generated images are pulled back over the ComfyUI API, so a custom ComfyUI output directory is fine — it doesn't need to match the install dir.
 
-**Ollama** — used as the lightweight local vision backend. Any vision-capable model works; the default the app looks for is `qwen3-vl:8b-instruct` (the **Instruct** variant — the *Thinking* variant reasons out loud instead of captioning, so avoid it). If you run a different one, set its exact tag in **Settings → Ollama vision model**. If Ollama (or the model) is missing, the app degrades gracefully: imports fall back to a centered crop and captioning falls back to JoyCaption or manual captions.
+**No custom nodes required.** The Klein generation and Test Studio workflows run on a **stock ComfyUI** using only its core and built-in `comfy_extras` nodes — nothing from ComfyUI-Manager to install. As a safety net, if a graph ever references a node your ComfyUI doesn't expose, the app answers one clear "install pack X, restart ComfyUI" message instead of a raw ComfyUI validation error.
+
+**Ollama** — used as the lightweight local vision backend (auto-captioning, framing classify, head-crop, and watermark detection). Any vision-capable model works; the default the app looks for is `qwen3-vl:8b-instruct` (the **Instruct** variant — the *Thinking* variant reasons out loud instead of captioning, so avoid it). If you run a different one, set its exact tag in **Settings → Ollama vision model**. The app detects Ollama in **three states** — not installed, installed-but-stopped, or running — and when it's installed but the server isn't up, Settings/Setup show a **▶ Start Ollama** button that launches it for you (no terminal needed). If Ollama (or the model) is missing entirely, the app degrades gracefully: imports fall back to a centered crop and captioning falls back to JoyCaption or manual captions.
 
 ### Getting API keys
 
@@ -359,7 +382,7 @@ The app scales from "no GPU at all" to a full local training rig — each capabi
 | **LoRA training — Z-Image / SDXL** (ai-toolkit) | 16 GB+ recommended | 10 GB+ free enforced per run | Quantized (qfloat8) + low-VRAM mode |
 | **LoRA training — Krea 2** (ai-toolkit) | **24 GB VRAM** at 1024px (enforced warning) | ~24 GB base download (Raw) + 10 GB+ free | 12B model. Under 24 GB, set **Resolution → 768 only** in ⚙️ Advanced options — the main VRAM lever |
 | **LoRA training — FLUX.2 Klein** (ai-toolkit) | 4B: **16–24 GB VRAM** · 9B: **32–48 GB** (cloud lane) | base download + 10 GB+ free | Both bases gated on Hugging Face (HF token required). Train the 9B via ☁️ cloud |
-| **Face scoring / person masks** (ML extras) | none (CPU) | ~3 GB | Python **3.10–3.12 required** (no wheels beyond) |
+| **Face scoring / person masks / watermark inpaint** (ML extras) | none (CPU) | ~3 GB (+ a CPU torch for LaMa inpaint) | Python **3.10–3.12 required** (no wheels beyond); installable per capability from Setup |
 
 - **OS**: Windows 10/11 for the full local stack (`start.bat`). Linux/macOS work for API-only + manual venv.
 - **Python**: 3.10–3.12 — but not required up front: `start.bat` fetches a self-contained CPython 3.12 if your machine has none. 3.13+ (already installed) runs the core app but can't install the ML extras.
@@ -398,6 +421,7 @@ Copy `config.example.json` to `config.json` (git-ignored) and adjust. Every key:
 | `face_scoring.green` | Similarity score threshold (0–1) above which an image is flagged "green" (strong match). |
 | `face_scoring.orange` | Similarity score threshold (0–1) above which an image is flagged "orange" (borderline match). |
 | `masks.python` | Python interpreter used to run the rembg subprocess (empty = current interpreter). |
+| `watermark.python` | Python interpreter used to run the LaMa watermark-inpainting subprocess (empty = reuse `masks.python`, then the current interpreter). |
 | `klein.consistency_lora` | Filename of the Klein consistency LoRA, relative to ComfyUI's LoRA folder. |
 | `klein.consistency_strength` | Strength (0–1) applied to the Klein consistency LoRA. |
 
@@ -427,6 +451,9 @@ This is normal — ai-toolkit's stdout is block-buffered during model load and l
 
 **ComfyUI shows as unreachable**
 Check `comfyui.api_url` in Settings, confirm ComfyUI is actually running, and check that nothing (firewall, a different bind interface) is blocking the connection between this app and ComfyUI.
+
+**Ollama isn't detected (or shows as installed but stopped)**
+The app reports Ollama in three states. *Installed but stopped* — the binary is on disk but the server isn't answering — shows a **▶ Start Ollama** button in Settings/Setup; click it to launch the server (it stays running independently of this app, so it survives a restart). *Not installed* means no binary was found on your PATH or in Ollama's default install location — install it from [ollama.com](https://ollama.com/download), then reopen Settings. Once it's running, pull the vision model (`ollama pull qwen3-vl:8b-instruct`, the **Instruct** variant) so captioning, framing and watermark detection light up.
 
 **Port 5000 conflicts with AirPlay Receiver on macOS**
 macOS reserves port 5000 for AirPlay Receiver by default. Change `server.port` in `config.json` to something else (e.g. `5050`) and restart.
