@@ -29,6 +29,9 @@ export default function RunSetupPanel({ d, studio, form, datasetId }) {
   // Manques de modèles/nodes remontés par un 409 `studio_missing` au lancement
   // (P0-a) → bandeau actionnable listant les fichiers/nodes absents.
   const [preflight, setPreflight] = useState(null);
+  // 409 `studio_arch_mismatch` : un checkpoint sélectionné dont l'arch RÉELLE
+  // contredit la famille du Studio (déploiement mal classé) → bandeau distinct.
+  const [archMismatch, setArchMismatch] = useState(null);
 
   const canLaunch = form.total > 0 && !d.pending && !d.gpu_busy && !studio.launching;
   // Axe ⚖ batch (Always-on LoRA cochés batch) : chaque config tourne SANS puis
@@ -44,12 +47,14 @@ export default function RunSetupPanel({ d, studio, form, datasetId }) {
     // Persist the itemized manques (toast is transient) — cleared on the next
     // launch that isn't blocked on missing assets.
     setPreflight(res && res.studio_missing ? res.studio_missing : null);
+    setArchMismatch(res && res.studio_arch_mismatch ? res.studio_arch_mismatch : null);
   };
 
   return (
     <>
-      {/* --- Preflight : modèles/nodes manquants (P0-a) ----------------- */}
-      <StudioPreflightBanner missing={preflight} onDismiss={() => setPreflight(null)} />
+      {/* --- Preflight : modèles/nodes manquants (P0-a) + arch mismatch -- */}
+      <StudioPreflightBanner missing={preflight} archMismatch={archMismatch}
+        onDismiss={() => { setPreflight(null); setArchMismatch(null); }} />
 
       {/* --- Garde-fous ------------------------------------------------- */}
       {d.gpu_busy && (

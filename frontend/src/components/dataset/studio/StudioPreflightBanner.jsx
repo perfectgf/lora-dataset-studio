@@ -8,10 +8,35 @@
  * en silence. Dismissable (le prochain lancement le réémet si le manque persiste).
  *
  * `missing` = { family, files: [{path, kind}], nodes: [class_type] } | null.
+ * `archMismatch` = { family, detected, checkpoint } | null — a selected checkpoint
+ * whose REAL architecture (read from its header) isn't this Studio's family, so
+ * ComfyUI would silently drop it and every tile would render as if the LoRA were
+ * off. A distinct, higher-priority stop than a missing asset.
  */
-const FAMILY_LABELS = { zimage: 'Z-Image', sdxl: 'SDXL', krea: 'Krea 2 Turbo' };
+const FAMILY_LABELS = { zimage: 'Z-Image', sdxl: 'SDXL', krea: 'Krea 2 Turbo',
+  flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein' };
 
-export default function StudioPreflightBanner({ missing, onDismiss }) {
+export default function StudioPreflightBanner({ missing, archMismatch, onDismiss }) {
+  if (archMismatch) {
+    const fam = FAMILY_LABELS[archMismatch.family] || archMismatch.family || 'this';
+    const det = FAMILY_LABELS[archMismatch.detected] || archMismatch.detected || 'a different';
+    const name = (archMismatch.checkpoint || '').replace(/\\/g, '/').split('/').pop();
+    return (
+      <div role="alert"
+        className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-sm text-amber-200 flex items-start gap-2">
+        <span aria-hidden className="text-base leading-none">⚠</span>
+        <p className="m-0">
+          <b className="font-semibold">“{name}” is a {det} LoRA</b>, but this is the {fam} Studio —
+          ComfyUI would silently drop it and every tile would render as if the LoRA were off.
+          Test it in the {det} Studio, or re-deploy it under the {det} family.
+        </p>
+        {onDismiss && (
+          <button type="button" onClick={onDismiss} aria-label="Dismiss"
+            className="ml-auto px-1.5 leading-none text-amber-200/70 hover:text-amber-100">×</button>
+        )}
+      </div>
+    );
+  }
   if (!missing) return null;
   const files = missing.files || [];
   const nodes = missing.nodes || [];

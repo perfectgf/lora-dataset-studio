@@ -46,6 +46,7 @@ from ..extensions import db
 from ..gpu_window import GpuBusyError
 from ..models import FaceDataset, LoraTestImage
 from . import face_dataset_service as fds
+from . import lora_training as lt
 from ..job_queue import queue_manager
 from ..utils.comfyui import (FAMILY_LABELS, KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS,
                              KREA_ALLOWED_WEIGHT_DTYPES, apply_optimal_sampler_params,
@@ -247,8 +248,17 @@ def _trigger_match_checkpoints(ds, family=None) -> list[dict]:
         if norm.startswith('lora_'):  # tolère le préfixe brut ai-toolkit
             norm = norm[len('lora_'):]
         if _trigger_token_match(norm, trigger):
-            out.append({'filename': lora['filename'],
-                        'label': format_trained_lora_label(lora['filename'], fam) or stem})
+            entry = {'filename': lora['filename'],
+                     'label': format_trained_lora_label(lora['filename'], fam) or stem}
+            # Discreet retrofit badge for a mislabelled deploy: read the file's
+            # REAL arch and flag it when it contradicts the folder's family, so a
+            # wrong-family checkpoint is visible in the picker (not silently no-op).
+            _p = _resolve_lora_abs_path(lora['filename'])
+            _detected = lt.detect_lora_arch(_p) if _p else None
+            if lt.lora_arch_conflicts(_detected, fam):
+                entry['arch_mismatch'] = _detected
+                entry['arch_label'] = lt._LORA_ARCH_LABEL.get(_detected, _detected)
+            out.append(entry)
     return out
 
 
@@ -759,6 +769,75 @@ class StudioAssetsMissing(Exception):
         super().__init__(f'{family} studio assets missing: {n_f} file(s), {n_n} node(s)')
 
 
+class StudioArchMismatch(Exception):
+    """A selected checkpoint's REAL architecture (read from its safetensors header)
+    contradicts the family whose pipeline the Studio would run it under. ComfyUI
+    silently drops every incompatible LoRA key, so the entire grid renders as if
+    the LoRA were off (strength 0) with no error anywhere — the 2026-07-13
+    incident (a Z-Image LoRA mislabelled Krea produced 117 no-op tiles). Raised
+    BEFORE any row/job is created so the caller answers one actionable 409 (same
+    spirit as StudioAssetsMissing).
+
+    `.family` = the Studio's pipeline key; `.detected` = the checkpoint's real
+    family; `.checkpoint` = the LoraLoader-form path that mismatched."""
+    def __init__(self, family, detected, checkpoint):
+        self.family = family
+        self.detected = detected
+        self.checkpoint = checkpoint
+        super().__init__(f'{checkpoint} is a {detected} LoRA, not {family}')
+
+
+def _resolve_lora_abs_path(checkpoint) -> str | None:
+    """Absolute path of a LoraLoader-form checkpoint ('<subfolder>\\name.safetensors',
+    relative to models/loras), resolved case-INSENSITIVELY (the workflow paths
+    carry mixed casing — 'z image', 'Krea' — and a case-sensitive cloud FS must
+    still find the file). None when ComfyUI's loras dir isn't configured or the
+    file can't be located."""
+    try:
+        loras = cfg.comfyui_dir('loras')
+    except Exception:
+        loras = None
+    if not loras:
+        return None
+    rel = str(checkpoint or '').replace('\\', os.sep).replace('/', os.sep).lstrip(os.sep)
+    if not rel:
+        return None
+    direct = os.path.join(str(loras), rel)
+    if os.path.isfile(direct):
+        return direct
+    cur = str(loras)
+    for part in rel.split(os.sep):
+        if not part or part == '.':
+            continue
+        nxt = os.path.join(cur, part)
+        if os.path.exists(nxt):
+            cur = nxt
+            continue
+        try:
+            match = next((e for e in os.listdir(cur) if e.lower() == part.lower()), None)
+        except OSError:
+            return None
+        if match is None:
+            return None
+        cur = os.path.join(cur, match)
+    return cur if os.path.isfile(cur) else None
+
+
+def _preflight_checkpoint_arch(run_family, checkpoints):
+    """Raise StudioArchMismatch if any selected checkpoint's REAL arch (safetensors
+    header) contradicts `run_family`. family_of_lora keys off the FOLDER, which is
+    exactly the blind spot a mislabelled deploy exploits — so we read the header
+    here. Undetectable/foreign headers pass (no false block); only a POSITIVE
+    cross-namespace contradiction stops the run."""
+    for cp in checkpoints:
+        p = _resolve_lora_abs_path(cp)
+        if not p:
+            continue
+        detected = lt.detect_lora_arch(p)
+        if lt.lora_arch_conflicts(detected, run_family):
+            raise StudioArchMismatch(run_family, detected, cp)
+
+
 # ComfyUI loader class_type -> (input keys carrying a model FILENAME, the models/
 # subfolders that loader lists files from, human kind). A loader lists files
 # relative to ONE of these subfolders; the file counts as present if it resolves
@@ -1047,6 +1126,11 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     # Prompt custom optionnel ; sinon prompt d'identité par défaut (trigger).
     prompt = (prompt or '').strip() or identity_prompt(ds)
 
+    # Arch guard : la famille est dérivée du DOSSIER (family_of_lora) — un LoRA
+    # mal classé (ex. un Z-Image déployé dans loras/krea) passerait ce filtre et
+    # tournerait comme un no-op silencieux. On lit l'arch RÉELLE de chaque
+    # checkpoint sélectionné dans son en-tête AVANT toute ligne → 409 actionnable.
+    _preflight_checkpoint_arch(run_family, cps_in)
     # Preflight : le ComfyUI cible a-t-il RÉELLEMENT chaque modèle + custom node
     # dont le workflow de la famille a besoin ? On construit le graphe représentatif
     # (par base) et on le vérifie AVANT de créer la moindre ligne → un utilisateur
@@ -1191,6 +1275,12 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         detail_amount=detail_amount, resolution_tier=resolution_tier,
         init_image=init_image, denoise=denoise)
 
+    # Arch guard (même contrat que create_run) : l'arch RÉELLE de chaque
+    # checkpoint sélectionné, lue dans son en-tête, doit correspondre à la famille
+    # du run — sinon ComfyUI le droppe en silence (grille no-op). Vérifié AVANT
+    # toute ligne → 409 actionnable.
+    _preflight_checkpoint_arch(run_type,
+                               [s.get('checkpoint') for s in selections if s.get('checkpoint')])
     # Preflight (même contrat que create_run) : le ComfyUI cible peut-il vraiment
     # exécuter le workflow de cette famille ? On vérifie sur la 1re sélection valable
     # (le run est mono-famille) AVANT de créer les lignes → un seul 409 actionnable.

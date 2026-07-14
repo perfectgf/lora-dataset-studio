@@ -58,6 +58,8 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
   const [launching, setLaunching] = useState(false);
   // 409 `studio_missing` au lancement (P0-a) → bandeau des modèles/nodes manquants.
   const [preflight, setPreflight] = useState(null);
+  // 409 `studio_arch_mismatch` : checkpoint dont l'arch RÉELLE contredit la famille.
+  const [archMismatch, setArchMismatch] = useState(null);
   // Réglages de génération GLOBAUX (parité Generate) remontés par StudioGenerationSettings.
   // Objet snake_case déjà prêt à fusionner dans le POST /run (voir launch()).
   const [genSettings, setGenSettings] = useState({});
@@ -117,9 +119,12 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
       setRunId(dResp.run_id);
       setSeed(rollSeed());
       setPreflight(null);
+      setArchMismatch(null);
     } catch (e) {
-      // apiFetch throws on non-2xx; a 409 carries the itemized manques on e.body (P0-a).
+      // apiFetch throws on non-2xx; a 409 carries the itemized manques on e.body (P0-a)
+      // or a wrong-arch checkpoint on e.body.studio_arch_mismatch.
       setPreflight(e?.body?.studio_missing || null);
+      setArchMismatch(e?.body?.studio_arch_mismatch || null);
       toast.error(e.message || 'Error on launch');
     } finally {
       setLaunching(false);
@@ -181,7 +186,8 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
       </aside>
 
       <main id="st-results" className="flex flex-col gap-3 min-w-0 scroll-mt-16">
-        <StudioPreflightBanner missing={preflight} onDismiss={() => setPreflight(null)} />
+        <StudioPreflightBanner missing={preflight} archMismatch={archMismatch}
+          onDismiss={() => { setPreflight(null); setArchMismatch(null); }} />
         {data?.pending > 0 && (
           <div className="flex items-center gap-2 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2" role="status">
             <span className="inline-block w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />

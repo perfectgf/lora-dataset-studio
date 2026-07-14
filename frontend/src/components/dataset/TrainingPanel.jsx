@@ -1660,6 +1660,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               {imported.map((c) => (
                 <div key={c.filename} className="flex items-center gap-2 text-[0.6875rem]">
                   <span className="text-content break-all">{c.label}</span>
+                  {/* Retrofit signal: the file's REAL arch (read from its header)
+                      contradicts this folder's family — a mislabelled deploy that
+                      would test as a silent no-op. No auto-move; just flag it. */}
+                  {c.arch_mismatch && (
+                    <span
+                      title={`This file is a ${c.arch_label || c.arch_mismatch} LoRA, not ${lorasLabel} — testing it here has NO effect (ComfyUI silently drops it). Delete it and re-import under the ${c.arch_label || c.arch_mismatch} family.`}
+                      className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300 whitespace-nowrap">
+                      ⚠ {c.arch_label || c.arch_mismatch} LoRA
+                    </span>
+                  )}
                   <button type="button" onClick={() => removeImported(c.filename, c.label)}
                     title={`Delete this LoRA from ComfyUI's ${lorasLabel} folder`}
                     className="ml-auto px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">

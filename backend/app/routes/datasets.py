@@ -19,7 +19,8 @@ from ..services import lora_test_studio as lts
 from ..services.face_variations import (NSFW_VARIATION_CATALOG, VARIATION_CATALOG,
                                         is_nsfw_label, select_preset)
 from ..utils.comfyui import KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS, get_krea_loras
-from ._common import _map_error, _require_comfyui, _studio_missing_response
+from ._common import (_map_error, _require_comfyui, _studio_arch_mismatch_response,
+                      _studio_missing_response)
 
 bp = Blueprint('datasets', __name__, url_prefix='/api')
 
@@ -845,7 +846,9 @@ def lora_test_run(dataset_id):
                              resolution_tier=d.get('resolution_tier'),
                              init_image=d.get('init_image'), denoise=d.get('denoise'))
     except Exception as e:
-        from ..services.lora_test_studio import StudioAssetsMissing
+        from ..services.lora_test_studio import StudioArchMismatch, StudioAssetsMissing
+        if isinstance(e, StudioArchMismatch):   # wrong-arch checkpoint → actionable 409
+            return _studio_arch_mismatch_response(e)
         if isinstance(e, StudioAssetsMissing):  # models/nodes absent → actionable 409
             return _studio_missing_response(e)
         return _map_error(e)

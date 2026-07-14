@@ -306,10 +306,12 @@ def _is_custom_weights(value) -> bool:
 _SAFETENSORS_MAX_HEADER = 64 * 1024 * 1024   # 64 MB — a real header is < ~10 MB
 
 
-def _safetensors_tensor_keys(path) -> set:
-    """The tensor NAMES of a .safetensors file, read from its header WITHOUT
-    loading a single weight (8-byte LE length + JSON metadata block). Raises
-    ValueError when the file isn't a readable safetensors container."""
+def _read_safetensors_header(path):
+    """(`__metadata__` dict, tensor-NAME set) of a .safetensors file, read from
+    its header WITHOUT loading a single weight (8-byte LE length + JSON metadata
+    block). Raises ValueError when the file isn't a readable safetensors
+    container. The metadata block is where ai-toolkit stamps ss_base_model_version
+    (the strongest architecture signal); the tensor names are the fallback sniff."""
     try:
         with open(path, 'rb') as fh:
             raw = fh.read(8)
@@ -326,7 +328,17 @@ def _safetensors_tensor_keys(path) -> set:
         raise ValueError(f'not a readable .safetensors file ({e})')
     if not isinstance(meta, dict):
         raise ValueError('not a readable .safetensors file (header is not an object)')
-    return {k for k in meta if k != '__metadata__'}
+    md = meta.get('__metadata__')
+    if not isinstance(md, dict):
+        md = {}
+    return md, {k for k in meta if k != '__metadata__'}
+
+
+def _safetensors_tensor_keys(path) -> set:
+    """The tensor NAMES of a .safetensors file, read from its header WITHOUT
+    loading a single weight. Raises ValueError when the file isn't a readable
+    safetensors container."""
+    return _read_safetensors_header(path)[1]
 
 
 def _detect_safetensors_arch(keys) -> str | None:
@@ -352,6 +364,122 @@ def _detect_safetensors_arch(keys) -> str | None:
             or has('single_transformer_blocks.'):
         return 'flux'
     return None
+
+
+# --- Trained-LoRA architecture detector (the deploy/Studio guardrail) ---------
+# The base sniff above targets full UNET checkpoints (a BASE); a TRAINED LoRA has
+# a different, prefixed key layout (lora_A/lora_B, lokr_w*, kohya lora_unet_*). A
+# wrong-arch LoRA is invisible to ComfyUI: it drops every incompatible key
+# SILENTLY, so the whole grid renders as if the LoRA were off (the 2026-07-13
+# incident — a Z-Image LoRA mislabelled Krea produced 117 no-op tiles). We read
+# the real arch from the header and check it wherever a LoRA is deployed or run.
+#
+# Verdict = FAMILY key ('zimage'|'sdxl'|'krea'|'flux'|'flux2klein') or None
+# (undetectable → callers MUST NOT block; the guarantee is simply absent).
+_LORA_ARCH_LABEL = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2',
+                    'flux': 'FLUX.1', 'flux2klein': 'FLUX.2 Klein'}
+# Key-namespace GROUP: two families in the SAME group share the tensor namespace,
+# so a wrong file loads its keys (a version mismatch then fails LOUDLY on a shape
+# error, not silently). Different groups = disjoint names = SILENT drop = the
+# danger we block. FLUX.1 and FLUX.2 Klein share the double/single-stream layout,
+# so they're one group (a name-only sniff can't tell them apart anyway).
+_LORA_ARCH_NAMESPACE = {'zimage': 'zimage', 'sdxl': 'sdxl', 'krea': 'krea',
+                        'flux': 'flux', 'flux2klein': 'flux'}
+
+
+def _family_from_base_model_version(value) -> str | None:
+    """Map ai-toolkit's ss_base_model_version metadata to a FAMILY key. Real
+    values observed on deployed LoRAs (C:\\ai-toolkit: toolkit/metadata.py stamps
+    'sdxl_1.0'/'sd_1.5'/'sd_2.1'; each newer arch's get_base_model_version returns
+    'zimage' / 'krea2' / 'flux' / 'flux2_klein_4b' / 'flux2_klein_9b'). SD1.5/2.1
+    and any foreign value → None (not one of our trainable families)."""
+    v = str(value or '').strip().lower()
+    if not v:
+        return None
+    if v.startswith(('flux2_klein', 'flux2klein')):
+        return 'flux2klein'
+    if v.startswith('flux'):
+        return 'flux'
+    if 'zimage' in v or 'z_image' in v or 'z-image' in v:
+        return 'zimage'
+    if 'krea' in v:                      # 'krea2'
+        return 'krea'
+    if v.startswith(('sdxl', 'sd_xl')):
+        return 'sdxl'
+    return None
+
+
+def _lora_arch_from_keys(keys) -> str | None:
+    """Best-effort FAMILY from a trained LoRA's tensor NAMES (fallback when the
+    metadata is absent/foreign). Signatures verified against real deployed LoRAs:
+      - kohya SD/SDXL: 'lora_unet_*' / 'lora_te*' prefixes                → sdxl
+      - FLUX-family DiT: 'double_blocks.'/'single_blocks.' (BFL) or the
+        diffusers 'single_transformer_blocks.' — FLUX.1 AND FLUX.2 Klein  → flux
+      - Krea2 SingleStreamDiT: 'txtfusion' is unique to it (present even
+        in a header-only stub); or diffusion_model.blocks.*.attn.{wk,wq,gate} → krea
+      - Z-Image NextDiT: 'diffusion_model.layers.*' (adaLN / attention.to_*) → zimage
+    A name-only sniff can't separate FLUX.1 from FLUX.2 Klein → 'flux' for both."""
+    def has(sub):
+        return any(sub in k for k in keys)
+    if has('lora_unet_') or has('lora_te'):
+        return 'sdxl'
+    if has('double_blocks.') or has('single_blocks.') \
+            or has('single_transformer_blocks.'):
+        return 'flux'
+    if has('txtfusion') or (has('diffusion_model.blocks.')
+                            and (has('.attn.wk') or has('.attn.wq')
+                                 or has('.attn.gate'))):
+        return 'krea'
+    if has('diffusion_model.layers.'):
+        return 'zimage'
+    return None
+
+
+# Header reads are pure functions of the file bytes; a deployed LoRA never mutates
+# in place. Cache the verdict by (abspath, mtime_ns, size) so repeated listing /
+# preflight passes read each header at most once.
+_LORA_ARCH_CACHE: dict = {}
+
+
+def detect_lora_arch(path) -> str | None:
+    """The real FAMILY of a trained LoRA .safetensors, read from its header
+    WITHOUT loading a single weight. Returns 'zimage'|'sdxl'|'krea'|'flux'|
+    'flux2klein', or None when undetectable (unreadable/foreign header, or a
+    layout we don't recognize) — callers treat None as 'no guarantee, do not
+    block'. Never raises. Metadata (ss_base_model_version) wins over the tensor
+    sniff; only the sniff can appear when the metadata was stripped."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
+    if key in _LORA_ARCH_CACHE:
+        return _LORA_ARCH_CACHE[key]
+    fam = None
+    try:
+        md, keys = _read_safetensors_header(path)
+        fam = _family_from_base_model_version(md.get('ss_base_model_version'))
+        if fam is None:
+            fam = _lora_arch_from_keys(keys)
+    except ValueError:
+        fam = None
+    _LORA_ARCH_CACHE[key] = fam
+    return fam
+
+
+def lora_arch_conflicts(detected, family) -> bool:
+    """True only when a POSITIVELY-detected LoRA arch cannot be loaded by
+    `family`'s pipeline (different key namespace → ComfyUI drops every key
+    SILENTLY → the LoRA is a no-op). None/unknown on either side → False (never a
+    false block). flux vs flux2klein share a namespace (a wrong version fails
+    LOUDLY on a shape error) → not a conflict."""
+    if not detected:
+        return False
+    dg = _LORA_ARCH_NAMESPACE.get(detected)
+    fg = _LORA_ARCH_NAMESPACE.get((family or '').lower())
+    if dg is None or fg is None:
+        return False
+    return dg != fg
 
 
 _FAMILY_EXPECTED_ARCH = {'sdxl': 'sdxl', 'krea': 'krea2',
@@ -1824,6 +1952,19 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
         allowed = {c['filename'] for c in list_checkpoints(user_id, dataset_id, base_model, family)}
     if filename not in allowed:
         raise ValueError('unknown checkpoint')
+    # Arch guard: read the LoRA's REAL family from its header and refuse a deploy
+    # that would land it in the wrong ComfyUI folder. ComfyUI silently drops every
+    # incompatible key, so a Z-Image LoRA copied under loras/krea/ tests as a pure
+    # no-op with no error anywhere (the 2026-07-13 incident). Undetectable header →
+    # pass (no false block); only a POSITIVE cross-namespace mismatch stops here.
+    fam_target = _train_type(ds, family)
+    detected = detect_lora_arch(os.path.join(run_dir, filename))
+    if lora_arch_conflicts(detected, fam_target):
+        det_lbl = _LORA_ARCH_LABEL.get(detected, detected)
+        tgt_lbl = _LORA_ARCH_LABEL.get(fam_target, fam_target)
+        raise ValueError(
+            f'this file is a {det_lbl} LoRA — deploy it under the {det_lbl} '
+            f'family, not {tgt_lbl}.')
     # Déploiement routé par famille : sdxl → loras/sdxl, krea → loras/krea, sinon
     # « z image » (ne pollue pas le Test Studio Z-Image ; un LoRA Krea atterrit
     # directement dans le dossier lu par le menu de génération Krea).
@@ -1924,8 +2065,16 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
                 and fn not in cloud_names and stem not in cloud_names \
                 and not any(fn.startswith(p) for p in cloud_prefixes):
             continue
-        out.append({'filename': os.path.join(subfolder, fn),
-                    'label': format_trained_lora_label(fn, fam) or fn})
+        entry = {'filename': os.path.join(subfolder, fn),
+                 'label': format_trained_lora_label(fn, fam) or fn}
+        # Retrofit signal for already-deployed files: if the header's real arch
+        # contradicts THIS folder's family, flag it (mislabelled imports from the
+        # pre-6952b11 wrong-arch bug) so the panel can badge it. No file is moved.
+        detected = detect_lora_arch(os.path.join(dest_dir, fn))
+        if lora_arch_conflicts(detected, fam):
+            entry['arch_mismatch'] = detected
+            entry['arch_label'] = _LORA_ARCH_LABEL.get(detected, detected)
+        out.append(entry)
     return out
 
 

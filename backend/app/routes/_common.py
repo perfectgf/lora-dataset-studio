@@ -27,7 +27,8 @@ def _require_comfyui():
     return None
 
 
-_STUDIO_FAMILY_LABELS = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2 Turbo'}
+_STUDIO_FAMILY_LABELS = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2 Turbo',
+                         'flux': 'FLUX.1', 'flux2klein': 'FLUX.2 Klein'}
 
 
 def _studio_missing_response(e):
@@ -56,3 +57,22 @@ def _studio_missing_response(e):
                     'studio_missing': {'family': e.family,
                                        'files': e.missing_files,
                                        'nodes': e.missing_nodes}}), 409
+
+
+def _studio_arch_mismatch_response(e):
+    """Turn a StudioArchMismatch into a structured 409 (same spirit as
+    _studio_missing_response): a selected checkpoint's REAL architecture, read
+    from its header, is not the Studio family's — ComfyUI would silently drop it
+    and render every tile as if the LoRA were off. Tell the user WHICH Studio /
+    family the file actually belongs to instead of letting the grid run blank."""
+    fam = _STUDIO_FAMILY_LABELS.get(e.family, e.family)
+    det = _STUDIO_FAMILY_LABELS.get(e.detected, e.detected)
+    name = (e.checkpoint or '').replace('\\', '/').rsplit('/', 1)[-1]
+    msg = (f"“{name}” is a {det} LoRA, but this is the {fam} Studio — "
+           f"ComfyUI would silently drop it and every tile would render as if the "
+           f"LoRA were off. Test it in the {det} Studio, or re-deploy it under the "
+           f"{det} family.")
+    return jsonify({'ok': False, 'error': msg,
+                    'studio_arch_mismatch': {'family': e.family,
+                                             'detected': e.detected,
+                                             'checkpoint': e.checkpoint}}), 409
