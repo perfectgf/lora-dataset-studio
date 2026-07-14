@@ -156,3 +156,30 @@ def test_default_steps_matches_launch_training_logic(app, client):
         ds = fds.get_dataset('local', ds_id)
         n = lt.default_steps(ds)
         assert isinstance(n, int) and n > 0
+
+
+def test_run_config_dataset_overrides_without_mutating(app, client):
+    """The monitor's config view forces a run's stamped family/variant onto the
+    dataset it hands build_job_config, WITHOUT touching the real row — the seam
+    that keeps two concurrent multi-family cloud runs isolated (incident
+    2026-07-14)."""
+    from app.services import cloud_training as ct
+    from app.services import face_dataset_service as fds
+    ds_id = _mkds(client)
+    with app.app_context():
+        ds = fds.get_dataset('local', ds_id)
+        ds.train_type = 'zimage'
+        ds.train_variant = 'turbo'
+        view = ct._run_config_dataset(ds, {'train_type': 'krea', 'variant': 'base'})
+        assert view.train_type == 'krea'                # overridden
+        assert view.train_variant == 'base'
+        assert view.trigger_word == ds.trigger_word     # every other attr delegates
+        assert view.id == ds.id
+        assert ds.train_type == 'zimage'                # real row untouched
+        assert ds.train_variant == 'turbo'
+        # A legacy run that stamped neither falls back to the real dataset as-is.
+        assert ct._run_config_dataset(ds, {}) is ds
+        # A partial override (family only) still delegates the missing one.
+        v2 = ct._run_config_dataset(ds, {'train_type': 'krea'})
+        assert v2.train_type == 'krea'
+        assert v2.train_variant == 'turbo'

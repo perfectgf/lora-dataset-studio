@@ -553,6 +553,24 @@ def test_launch_allows_two_families_on_same_dataset(ct, app, seeded_dataset, mon
         r2 = ct.launch_cloud_training('local', seeded_dataset, train_type='krea')
         assert r1['run_id'] != r2['run_id']
         assert len(ct.get_active_runs()) == 2
+        # The dataset row now reads krea — the SECOND launch was the last writer.
+        from app.services import face_dataset_service as fds
+        ds = fds.get_dataset('local', seeded_dataset)
+        assert ds.train_type == 'krea'
+        # Each run must still build ITS family's config from its stamped params,
+        # not from the shared (now-krea) dataset row — the root of the 2026-07-14
+        # parallel multi-family incident (the audit noted this test only checked
+        # ids). Build through the real config path + the monitor's config view.
+        run1 = ct.CloudTrainingRun.query.get(r1['run_id'])
+        run2 = ct.CloudTrainingRun.query.get(r2['run_id'])
+        cfg1 = ct.lt.build_job_config(
+            ct._run_config_dataset(ds, json.loads(run1.train_params)),
+            '/staging/ds', steps=500, training_folder='__POD__')
+        cfg2 = ct.lt.build_job_config(
+            ct._run_config_dataset(ds, json.loads(run2.train_params)),
+            '/staging/ds', steps=500, training_folder='__POD__')
+        assert cfg1['config']['process'][0]['model']['arch'] == 'zimage'
+        assert cfg2['config']['process'][0]['model']['arch'] == 'krea2'
 
 
 def test_launch_refuses_same_family_on_same_dataset(ct, app, seeded_dataset, monkeypatch):

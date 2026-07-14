@@ -82,6 +82,57 @@ def _run_family(run):
     return _run_param(run, 'train_type')
 
 
+class _RunConfigDataset:
+    """Read-only view of a dataset whose ``train_type`` / ``train_variant`` are
+    forced to a run's STAMPED launch params; every other attribute delegates to
+    the real dataset row.
+
+    The cloud monitor builds the pod job through this view so the job's
+    architecture/variant come from what the run was LAUNCHED with — never from
+    the dataset's *current* row. Each launch persists ds.train_type /
+    ds.train_variant (last writer wins) and the monitor rebuilds the config
+    minutes later, at pod boot; a second launch on the same dataset (or a
+    /train-type change) between this run's launch and its boot would otherwise
+    retarget its architecture. Incident 2026-07-14: a Krea run launched first, a
+    Z-Image run 28 min later persisted 'zimage', and the Krea pod — booting after
+    that — would have been rebuilt as Z-Image under a Krea name (wrong arch on a
+    rented GPU). build_job_config only READS the dataset, so a view is enough:
+    no DB mutation, nothing to restore, and both concurrent runs stay isolated."""
+
+    def __init__(self, ds, train_type, train_variant):
+        self._ds = ds
+        self._train_type = train_type
+        self._train_variant = train_variant
+
+    @property
+    def train_type(self):
+        return (self._train_type if self._train_type is not None
+                else getattr(self._ds, 'train_type', None))
+
+    @property
+    def train_variant(self):
+        return (self._train_variant if self._train_variant is not None
+                else getattr(self._ds, 'train_variant', None))
+
+    def __getattr__(self, name):
+        # Reached only for attributes not resolved normally (i.e. everything
+        # except _ds / _train_* / the two properties) -> delegate to the real ds.
+        return getattr(self._ds, name)
+
+
+def _run_config_dataset(ds, params):
+    """Wrap ``ds`` so build_job_config reads THIS run's stamped family/variant
+    instead of the dataset's current selection. A legacy row that stamped
+    neither (pre-feature) falls back to the dataset unchanged (historical
+    behaviour), so only runs that actually recorded a family/variant get the
+    override."""
+    fam = params.get('train_type')
+    var = params.get('variant')
+    if fam is None and var is None:
+        return ds
+    return _RunConfigDataset(ds, fam, var)
+
+
 def latest_run_for(dataset_id, train_type=None):
     """Newest run of the dataset; with train_type, the newest run OF THAT
     FAMILY. Falls back to the plain newest when none matches (or the filter
@@ -300,11 +351,12 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         # 'Launching…' for a minute (user-observed).
         _set(run, vast_label=f'lds-{run.id}',
              job_name=f'lds{run.id}_{lt._run_name(ds, family=fam)}')
-        # Mirror the LOCAL launch (launch_training persists train_type/variant
-        # before building): build_job_config() runs later in the MONITOR thread
-        # and reads the PERSISTED dataset values — without this, the cloud
-        # dialog's family/variant selectors never drove the actual training
-        # (it only worked when they matched what was already persisted).
+        # Mirror the LOCAL launch: persist this dataset's family/variant as its
+        # remembered selection (launch_training does the same; two launch tests
+        # assert it). This is now ONLY the dataset's default selection — the
+        # monitor builds the pod job from the run's STAMPED params (see
+        # _run_config_dataset at the build site), so a later launch overwriting
+        # this row can no longer retarget an already-provisioning run's arch.
         variant = (variant or '').strip().lower()
         # Enum PAR FAMILLE (flux2klein : '4b'/'9b') — même validation que le
         # lancement local, hors-liste → défaut family-aware (jamais d'erreur).
@@ -748,17 +800,30 @@ def _monitor(app, run_id):
         max_seconds = int(c.get('max_runtime_minutes') or 480) * 60
         # The runtime cap must survive restarts: anchor it to the run's durable
         # created_at (backdate the local clock by the run's age), not to this
-        # thread's start. The boot-wait timeout keeps its own fresh anchor —
-        # a resumed monitor legitimately gets a new 15-min readiness window.
+        # thread's start.
         run_age = max(0.0, (datetime.utcnow() - (run.created_at or datetime.utcnow())).total_seconds())
         cap_anchor = _now() - run_age
-        boot_started = _now()
+        # Whether we ENTER the monitor already owning a pod (app restarted while
+        # it was still booting) — captured BEFORE _provision, which sets
+        # vast_instance_id on a fresh launch. It decides the boot-readiness
+        # anchor below.
+        resuming_existing_pod = bool(run.vast_instance_id)
         try:
             # -- heavy launch work, moved off the HTTP path (see launch) ----
             _prepare_staging(run)
             # -- provision (if resuming, the instance may already exist) ----
             if not run.vast_instance_id:
                 _provision(run)
+            # Boot-readiness timeout anchor. A FRESH launch measures from now
+            # (post-provision) so dataset staging / offer search never eat into
+            # the pod's boot budget. A RESUME must NOT get a brand-new window on
+            # every restart: that let a pod whose UI never answered survive
+            # 37 min across two restarts instead of the 15-min READY_TIMEOUT
+            # (incident 2026-07-14). On resume we anchor to the DURABLE
+            # created_at (cap_anchor), so readiness measures the TOTAL time since
+            # launch across every restart — the intended behaviour even for a pod
+            # that was honestly still booting.
+            boot_started = cap_anchor if resuming_existing_pod else _now()
 
             # -- wait until the pod's UI answers ----------------------------
             # Readiness is checked BEFORE the elapsed-time read: an
@@ -855,10 +920,18 @@ def _monitor(app, run_id):
                     remote.upload_dataset(run.job_name + '_masks', masks_dir)
 
                 # -- build + submit the job -----------------------------------
+                # Build from the run's STAMPED family/variant, NEVER the dataset's
+                # current train_type/train_variant: a later launch on the same
+                # dataset (or a /train-type change) may have moved that row since
+                # this run launched, and this rebuild happens minutes later at pod
+                # boot. _run_config_dataset presents the run's own launch params
+                # so two concurrent multi-family runs each get their own arch
+                # (incident 2026-07-14 — see _RunConfigDataset).
                 params = json.loads(run.train_params or '{}')
                 ds = fds.get_dataset('local', run.dataset_id)
                 job_config = lt.build_job_config(
-                    ds, staging_dataset, steps=params.get('steps') or 3000,
+                    _run_config_dataset(ds, params),
+                    staging_dataset, steps=params.get('steps') or 3000,
                     training_folder='__POD__')
                 job_config = _cloudify_job_config(job_config, run.job_name,
                                                   staging_dataset, pod_settings)

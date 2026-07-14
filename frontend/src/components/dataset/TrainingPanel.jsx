@@ -595,18 +595,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // any family, preserving the previous behavior.
   const cloudActiveHere = actives.find((a) => a.dataset_id === ds.currentId
     && (!a.train_type || a.train_type === trainType));
-  // Any active cloud run on THIS dataset, WHATEVER its family. Two cloud runs of
-  // DIFFERENT families on the same dataset are NOT safe in parallel: each launch
-  // persists ds.train_type / ds.train_variant PER DATASET, and every run's
-  // monitor rebuilds its job config from the FRESH dataset row at boot
-  // (build_job_config reads ds.train_type) — so launching a second family
-  // silently rewrites the first, still-provisioning run's config. Until the
-  // backend keys that config off the run's own stamped family, the UI refuses a
-  // second cloud run on a dataset that already has one (verdict of the
-  // parallel-runs audit). Kept SEPARATE from cloudActiveHere, which stays
-  // per-family so the progress panel / download link below track the selected
-  // family only.
-  const cloudActiveOnDataset = actives.find((a) => a.dataset_id === ds.currentId);
+  // Multi-family parallelism is safe again: each cloud run's monitor builds its
+  // job config from its OWN stamped family/variant, not the shared dataset row
+  // (backend _run_config_dataset — fix for the 2026-07-14 incident). So a Krea
+  // run and a Z-Image run may train the same dataset at once; the button is
+  // blocked only when a run of the SAME family is already active here.
   // Single source of truth for WHY « ☁ Train in cloud » is disabled — most
   // fundamental cause first (family unsupported > custom weights > too few
   // images > a run already active here > global limit). Drives BOTH the tooltip
@@ -624,8 +617,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       ? 'Custom weights are local-only — cloud training uses the official Hugging Face bases'
     : cloudTooFewImages
       ? `Only ${keptCount} image(s) kept — the cloud minimum for ${typeLabel} is ${TRAIN_MIN[trainType]?.[0] ?? 12}`
-    : cloudActiveOnDataset
-      ? 'A cloud run is already active on this dataset'
+    : cloudActiveHere
+      ? `A ${typeLabel} cloud run is already active on this dataset`
     : cloudLimitReached
       ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — stop one or raise the limit in Settings`
     : null;

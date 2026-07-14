@@ -594,3 +594,157 @@ def test_progressing_run_never_trips_stall_watchdog(ct, app, client, monkeypatch
         run = ct.CloudTrainingRun.query.get(run_id)
         assert run.status == 'done'                  # not 'error'/'stall'
         assert destroyed == ['777']                  # normal terminate at completion
+
+
+# --- Multi-family parallelism: each run builds from its OWN stamped params ------
+# Root fix for the 2026-07-14 incident (a Krea run's pod would have been rebuilt
+# as Z-Image after a later Z-Image launch overwrote ds.train_type). The monitor
+# now builds via _run_config_dataset(run params), never the current dataset row.
+
+def _echo_family_build(ct, monkeypatch):
+    """build_job_config replacement that ECHOES the family/variant of whatever
+    ds-view it is handed into the config, so the captured job_config proves which
+    family/variant the monitor actually built from."""
+    monkeypatch.setattr(ct.lt, 'build_job_config',
+        lambda ds, folder, steps=3000, training_folder=None: {
+            'job': 'extension', 'config': {'name': 'x', 'process': [{
+                'type': 'sd_trainer', 'training_folder': training_folder,
+                'device': 'cuda:0', 'datasets': [{'folder_path': folder}],
+                'model': {'arch': ds.train_type}, 'variant': ds.train_variant}]}})
+
+
+def test_two_families_each_build_own_config_despite_ds_change(ct, app, client, monkeypatch):
+    """Two cloud runs of DIFFERENT families on the SAME dataset. Each launch
+    persists ds.train_type/ds.train_variant (last writer wins), so by boot time
+    the row no longer matches the FIRST run — yet each monitor must still build
+    ITS OWN family/variant, or the first run's pod trains the wrong architecture
+    on a rented GPU (incident 2026-07-14)."""
+    r_zimage = FakeRemote(polls_to_complete=3)
+    ds_id, run1 = _launch(ct, app, client, monkeypatch, r_zimage, [])   # zimage default
+    r_krea = FakeRemote(polls_to_complete=3)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
+    with app.app_context():
+        run2 = ct.launch_cloud_training('local', ds_id,
+                                        train_type='krea', variant='base')['run_id']
+    _echo_family_build(ct, monkeypatch)
+    remotes = {run1: r_zimage, run2: r_krea}
+    monkeypatch.setattr(ct, '_make_remote', lambda run: remotes[run.id])
+    with app.app_context():
+        # Adversary: the dataset row currently says krea (run2 was the last
+        # writer) — mutate it AGAIN to prove NEITHER run reads it.
+        ds = ct.fds.get_dataset('local', ds_id)
+        ds.train_type = 'zimage'
+        ds.train_variant = 'deturbo'
+        ct.db.session.commit()
+        ct._monitor(app, run1)
+        ct._monitor(app, run2)
+        assert ct.CloudTrainingRun.query.get(run1).status == 'done'
+        assert ct.CloudTrainingRun.query.get(run2).status == 'done'
+    p1 = r_zimage.job_config['config']['process'][0]
+    p2 = r_krea.job_config['config']['process'][0]
+    assert (p1['model']['arch'], p1['variant']) == ('zimage', 'turbo')
+    assert (p2['model']['arch'], p2['variant']) == ('krea', 'base')
+
+
+def test_run_config_immune_to_ds_change_while_booting(ct, app, client, monkeypatch):
+    """A /train-type change (or a second launch) on the dataset WHILE a run boots
+    must not alter that run's architecture. Launch a Krea run, flip the dataset
+    to Z-Image, then run its monitor: the built config stays Krea."""
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
+    remote = FakeRemote(polls_to_complete=3)
+    ds_id, _ = _launch(ct, app, client, monkeypatch, remote, [])       # zimage run (inert)
+    with app.app_context():
+        run_id = ct.launch_cloud_training('local', ds_id,
+                                          train_type='krea', variant='base')['run_id']
+    _echo_family_build(ct, monkeypatch)
+    with app.app_context():
+        ds = ct.fds.get_dataset('local', ds_id)
+        ds.train_type = 'zimage'
+        ds.train_variant = 'turbo'
+        ct.db.session.commit()
+        ct._monitor(app, run_id)
+        assert ct.CloudTrainingRun.query.get(run_id).status == 'done'
+    proc = remote.job_config['config']['process'][0]
+    assert proc['model']['arch'] == 'krea'
+    assert proc['variant'] == 'base'
+
+
+def test_harvest_imports_with_run_family_not_current_ds(ct, app, client, monkeypatch, tmp_path):
+    """Deploy/import at harvest routes by the RUN's family, never the dataset's
+    current row (which a later launch / train-type change may have moved)."""
+    ct.cfg.save_config({'comfyui': {'loras_dir': str(tmp_path)}})
+    remote = FakeRemote(polls_to_complete=3)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, [])  # a zimage run
+    captured = {}
+
+    def fake_import(*a, **kw):
+        captured['family'] = kw.get('family')
+        return 'x'
+
+    monkeypatch.setattr(ct.lt, 'import_checkpoint', fake_import)
+    with app.app_context():
+        # Flip the dataset to krea AFTER launch — this run's harvest must still
+        # deploy as zimage (its stamped family).
+        ds = ct.fds.get_dataset('local', ds_id)
+        ds.train_type = 'krea'
+        ds.train_variant = 'base'
+        ct.db.session.commit()
+        ct._monitor(app, run_id)
+        assert ct.CloudTrainingRun.query.get(run_id).status == 'done'
+    assert captured['family'] == 'zimage'
+
+
+def test_boot_timeout_anchored_to_created_at_on_resume(ct, app, client, monkeypatch):
+    """A resumed run (app restarted while the pod was still booting) must NOT get
+    a brand-new readiness window: the boot timeout anchors to the durable
+    created_at, so a pod whose UI never answers is given up at the FIRST poll
+    once total time since launch exceeds READY_TIMEOUT. Before the fix each
+    restart reset the window (incident 2026-07-14: 37 min instead of 15)."""
+    from datetime import datetime, timedelta
+    destroyed = []
+    remote = FakeRemote()
+    remote.is_ready = lambda: False                   # UI never answers
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    # Constant clock: only the durable anchor (run age), never elapsed monitor
+    # time, can trip the boot timeout here.
+    monkeypatch.setattr(ct, '_now', lambda: 0.0)
+    with app.app_context():
+        run = ct.CloudTrainingRun.query.get(run_id)
+        ct._set(run, vast_instance_id='777', staging_dir='/tmp/x',
+                base_url='http://1.2.3.4:40123',
+                created_at=datetime.utcnow() - timedelta(minutes=30))   # > 15 min
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'error'
+        assert 'ready' in (run.error or '').lower()   # 'did not become ready in time'
+        assert destroyed == ['777']
+
+
+def test_boot_timeout_fresh_run_not_charged_for_stale_created_at(ct, app, client, monkeypatch):
+    """A FRESH launch (no pod yet at monitor entry) must NOT be charged the
+    staging/provision time — nor a stale created_at — against its boot budget:
+    its readiness window starts post-provision. With an old created_at and a UI
+    that answers only after a couple of polls, the run must still reach the pod
+    and complete. A durable-always anchor (the resume behaviour applied to a
+    fresh run) would instead kill it on the FIRST poll, its age already past
+    READY_TIMEOUT — so this test fails if the fresh/resume distinction is lost."""
+    from datetime import datetime, timedelta
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=3)
+    ready_calls = {'n': 0}
+
+    def slow_ready():
+        ready_calls['n'] += 1
+        return ready_calls['n'] >= 3                   # not ready for the first two polls
+
+    remote.is_ready = slow_ready
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    clock = {'t': 0.0}
+    monkeypatch.setattr(ct, '_now',
+                        lambda: clock.__setitem__('t', clock['t'] + 60.0) or clock['t'])
+    with app.app_context():
+        run = ct.CloudTrainingRun.query.get(run_id)    # fresh, no pod yet
+        ct._set(run, created_at=datetime.utcnow() - timedelta(minutes=30))
+        ct._monitor(app, run_id)
+        assert ct.CloudTrainingRun.query.get(run_id).status == 'done'
+        assert destroyed == ['777']
