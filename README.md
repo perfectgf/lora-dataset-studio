@@ -54,6 +54,7 @@ The whole pipeline, grouped by stage — every item links to the section that de
 - [Known limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
 - [Legal & responsible use](#legal--responsible-use)
+- [Contributing](#contributing)
 - [License](#license)
 
 ---
@@ -504,6 +505,10 @@ Do not use this software to:
 ### No warranty & limitation of liability
 
 This software is provided **"as is", without warranty of any kind**, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement (see the [MIT License](LICENSE) for the full text). To the maximum extent permitted by law, **the authors and contributors accept no liability** for any claim, damage, or other liability — including any legal consequence arising from datasets, models, or images you create with it. By using this software you accept that responsibility yourself.
+
+## Contributing
+
+Issues, ideas and pull requests are welcome. For anything bigger than a small fix, say hello first — on [Discord](https://discord.gg/j6hnJBFtXE) (**#help** for questions, **#roadmap** for ideas) or in a [GitHub issue](https://github.com/perfectgf/lora-dataset-studio/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, tests, and PR conventions, and the [Code of Conduct](CODE_OF_CONDUCT.md) for how we treat each other. Found a security issue? Report it privately — see [SECURITY.md](SECURITY.md).
 
 ## License
 
