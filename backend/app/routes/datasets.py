@@ -486,8 +486,9 @@ def dataset_watermarks_detect(dataset_id):
 
 @bp.post('/dataset/<int:dataset_id>/watermarks/clean')
 def dataset_watermarks_clean(dataset_id):
-    """Apply crop/LaMa/review routing to the 'detected' images. CPU only (crop = PIL,
-    LaMa = CPU subprocess) -> NO GPU window. Returns per-route counts + LaMa error.
+    """Apply crop/LaMa/review routing to the 'detected' images. Crop uses PIL and
+    LaMa follows Settings > Captioning & quality (Auto/GPU/CPU). GPU mode pauses
+    ComfyUI through the exclusive vision window. Returns counts + LaMa error.
     Optional {image_ids:[...]} scopes the pass to a subset (the review lightbox cleans
     one image at a time); omitted → every detected image (the bulk 🧽 Clean button)."""
     if not svc.get_dataset(LOCAL_USER, dataset_id):
@@ -497,7 +498,13 @@ def dataset_watermarks_clean(dataset_id):
     if image_ids is not None and not isinstance(image_ids, list):
         return jsonify({'error': "'image_ids' must be a list"}), 400
     try:
-        counts, error = svc.clean_watermarks(LOCAL_USER, dataset_id, image_ids=image_ids)
+        from contextlib import nullcontext
+        from ..services import watermark_lama
+        device = watermark_lama.resolve_device()
+        window = gpu_exclusive_vision_window(flag_ttl=1800) if device == 'cuda' else nullcontext()
+        with window:
+            counts, error = svc.clean_watermarks(
+                LOCAL_USER, dataset_id, image_ids=image_ids, device=device)
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, 'error': error, **counts})

@@ -431,7 +431,8 @@ export function useDataset() {
   }), [wrap, currentId, refresh, toast]);
 
   // Clean the detected watermarks: border marks are CROPPED, small off-center ones
-  // INPAINTED (LaMa), the rest flagged for manual review. CPU only (no ComfyUI pause).
+  // INPAINTED (LaMa), the rest flagged for manual review. The backend resolves the
+  // configured Auto/GPU/CPU device and reserves ComfyUI only for an actual GPU pass.
   const cleanWatermarks = useCallback(() => wrap(async () => {
     setWatermarking(true);
     // Capture the ids whose file may change IN PLACE so we can cache-bust their

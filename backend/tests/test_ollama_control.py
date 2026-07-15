@@ -126,3 +126,15 @@ def test_spawn_detached_uses_detached_flags(monkeypatch, tmp_path):
         assert kw['start_new_session'] is True
     assert proc.stderr_path                      # log path recorded for a later tail read
     os.path.isfile(proc.stderr_path) and os.remove(proc.stderr_path)
+
+
+def test_caption_ready_never_starts_local_process_for_remote_url(app, monkeypatch):
+    from app.services import ollama_control
+    from app import config
+    with app.app_context():
+        config.save_config({'ollama': {'url': 'http://remote-box:11434'}})
+        monkeypatch.setattr(ollama_control, '_reachable', lambda url: False)
+        monkeypatch.setattr(ollama_control, 'start_ollama',
+                            lambda: (_ for _ in ()).throw(AssertionError('must not spawn')))
+        result = ollama_control.ensure_captioning_ready()
+    assert result['ok'] is False and 'remote' in result['error'].lower()

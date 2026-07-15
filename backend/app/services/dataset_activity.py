@@ -18,10 +18,10 @@ Design notes
   batch that raises never leaves a phantom entry. As a belt-and-braces safety net a
   per-entry TTL is purged on every read: even if ``end`` were somehow skipped, the
   indicator can never outlive ``_TTL_SECONDS``.
-* **One indicator per dataset.** The GPU-exclusive vision window serializes the
-  GPU passes (watermark_detect / caption / recaption / classify), and the two
-  CPU passes (analyze_faces / watermark_clean) are guarded client-side by the
-  hook's single-flight ``wrap`` on this single-local-user app — so overlapping
+* **One indicator per dataset.** The GPU-exclusive vision window serializes GPU
+  passes (including watermark cleaning when CUDA is selected); CPU passes are
+  guarded client-side by the hook's single-flight ``wrap`` on this
+  single-local-user app — so overlapping
   kinds don't happen in normal use. Should two ever overlap (e.g. two browser
   tabs firing a GPU and a CPU pass at once), ``get`` returns the most recently
   STARTED one; the UI restores a single indicator, which is acceptable.

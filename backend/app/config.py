@@ -82,7 +82,7 @@ DEFAULTS = {
     # Watermark inpainting (simple-lama-inpainting, extra ML). Dedicated key so a
     # user can override it, but defaults empty -> reuse the same ML interpreter as
     # rembg/insightface (masks.python) then sys.executable. Never imported in-process.
-    'watermark': {'python': ''},
+    'watermark': {'python': '', 'device': 'auto'},  # auto|cuda|cpu
     # consistency_strength: the dx8152 LoRA anchors STRUCTURE (composition/
     # background), not the face — its own guide says start at 0.5 and that
     # 0.8-1.0 "can prevent edits from applying". 0.9 made every variation a

@@ -1795,7 +1795,8 @@ def _caption_concept(ds, force, backend, token=None):
                     refined = describe_image_ollama(
                         data, CAPTION_REFINE_CONCEPT_PROMPT.format(existing=joycap,
                                                                    concept=concept_desc),
-                        num_predict=5000, keep_alive=_VISION_BATCH_KEEPALIVE)
+                        num_predict=5000, keep_alive=_VISION_BATCH_KEEPALIVE,
+                        timeout=(10, 300))
                 except Exception as e:  # noqa: BLE001 - refine best-effort
                     logger.warning('caption concept: Qwen refine failed (%s)', e)
                 refined = (refined or '').strip().strip('"').strip()
@@ -1808,7 +1809,8 @@ def _caption_concept(ds, force, backend, token=None):
                     alt = ''
                     try:
                         alt = describe_image_ollama(data, cap_prompt, num_predict=2000,
-                                                    keep_alive=_VISION_BATCH_KEEPALIVE)
+                                                    keep_alive=_VISION_BATCH_KEEPALIVE,
+                                                    timeout=(10, 300))
                     except Exception:  # noqa: BLE001
                         alt = ''
                     alt = (alt or '').strip().strip('"').strip()
@@ -1835,8 +1837,10 @@ def _caption_concept(ds, force, backend, token=None):
                 dataset_activity.bump(token)
                 with open(p, 'rb') as fh:
                     data = fh.read()
-                cap = describe_image_ollama(data, cap_prompt, num_predict=2000,
-                                            keep_alive=_VISION_BATCH_KEEPALIVE)
+                cap = describe_image_ollama(
+                    data, cap_prompt, num_predict=2000,
+                    keep_alive=_VISION_BATCH_KEEPALIVE,
+                    auto_start_local=True, timeout=(10, 300))
                 cap = (cap or '').strip().strip('"').strip()
                 if cap:
                     cap = _enforce_concept_omission(cap, leak_re, data, concept_desc,
@@ -1990,8 +1994,10 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
                         token,
                         detail=f'Captioning with Ollama — image {index}/{len(remaining)}…')
                     with open(p, 'rb') as fh:
-                        cap = describe_image_ollama(fh.read(), cap_prompt, num_predict=2000,
-                                                    keep_alive=_VISION_BATCH_KEEPALIVE)
+                        cap = describe_image_ollama(
+                            fh.read(), cap_prompt, num_predict=2000,
+                            keep_alive=_VISION_BATCH_KEEPALIVE,
+                            auto_start_local=(index == 1), timeout=(10, 300))
                     cap = (cap or '').strip().strip('"').strip()
                     if cap:
                         cleaned = cleaner(cap) or cap
@@ -2281,12 +2287,12 @@ def dismiss_watermarks(user_id, dataset_id, image_ids):
     return len(rows)
 
 
-def clean_watermarks(user_id, dataset_id, image_ids=None):
+def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu'):
     """Apply the crop/LaMa/review routing to every image marked 'detected'. Returns
     ({'cropped', 'inpainted', 'needs_review', 'failed', 'skipped'}, error|None) -- same
     tuple contract as score_dataset_faces: `error` is None unless a LaMa inpaint that
-    was ATTEMPTED failed (never a silent swallow). CPU only (crop = PIL, LaMa = CPU
-    subprocess) -> NO GPU window; LaMa runs OUTSIDE the vision window on purpose.
+    was ATTEMPTED failed (never a silent swallow). Crop stays in PIL; LaMa uses the
+    resolved CPU/GPU device. GPU mode is protected by the route's exclusive window.
 
     LaMa absent (probe False) is NOT an error: LaMa-routed images are counted as
     `skipped` (crop still runs) so the UI can nudge "install the ML extras".
@@ -2310,10 +2316,13 @@ def clean_watermarks(user_id, dataset_id, image_ids=None):
     out = {'cropped': 0, 'inpainted': 0, 'needs_review': 0, 'failed': 0, 'skipped': 0}
     error = None
     lama_ok = watermark_lama.is_available()
-    # Persistent progress indicator (survives a page reload). CPU pass, but a page
-    # reload during a long clean must still show it running; try/finally clears it
-    # even if an edit raises.
-    token = dataset_activity.begin(dataset_id, 'watermark_clean', total=len(rows))
+    lama_pending = []  # (img, path, bboxes, manual_regions)
+    # Persistent progress indicator (survives a page reload). The device is included
+    # so the UI can honestly state whether ComfyUI is paused for the GPU pass.
+    device_label = 'GPU' if device == 'cuda' else 'CPU'
+    token = dataset_activity.begin(
+        dataset_id, 'watermark_clean', total=len(rows),
+        detail=f'Cleaning watermarks on {device_label}…')
     try:
         for i, img in enumerate(rows):
             dataset_activity.progress(token, done=i + 1)
@@ -2342,18 +2351,7 @@ def clean_watermarks(user_id, dataset_id, image_ids=None):
                     db.session.commit()
                     continue
                 _preserve_original(path)
-                ok, err = watermark_lama.inpaint_watermarks(path, regions)
-                if ok:
-                    img.watermark_state = 'cleaned'
-                    img.watermark_regions = None
-                    out['inpainted'] += 1
-                elif err and err.get('kind') == 'unavailable':
-                    out['skipped'] += 1
-                else:
-                    out['failed'] += 1
-                    if err:
-                        error = err
-                db.session.commit()
+                lama_pending.append((img, path, regions, True))
                 continue
             bbox = _safe_json(img.watermark_bbox)
             if not os.path.exists(path) or not (isinstance(bbox, list) and len(bbox) == 4):
@@ -2390,18 +2388,44 @@ def clean_watermarks(user_id, dataset_id, image_ids=None):
                     out['skipped'] += 1          # leave state='detected' (crop-only mode)
                 else:
                     _preserve_original(path)
-                    ok, err = watermark_lama.inpaint_watermark(path, bbox)
-                    if ok:
-                        img.watermark_state = 'cleaned'  # see dHash note above (recomputed on the fly)
-                        out['inpainted'] += 1
-                    else:
-                        img.watermark_state = 'failed'
-                        out['failed'] += 1
-                        if err and err.get('kind') != 'unavailable':
-                            error = err   # surface WHY, never a silent inpaint failure
+                    lama_pending.append((img, path, [bbox], False))
             else:  # 'review' -> stays 'detected' so the badge/count keep flagging it
                 out['needs_review'] += 1
             db.session.commit()
+        if lama_pending:
+            if len(lama_pending) == 1:
+                img, path, boxes, manual = lama_pending[0]
+                if manual:
+                    ok, err = watermark_lama.inpaint_watermarks(
+                        path, boxes, **({'device': device} if device != 'cpu' else {}))
+                else:
+                    ok, err = watermark_lama.inpaint_watermark(
+                        path, boxes[0], **({'device': device} if device != 'cpu' else {}))
+                results = {path: (ok, err)}
+            else:
+                results = watermark_lama.inpaint_batch(
+                    [{'image_path': path, 'bboxes': boxes}
+                     for _img, path, boxes, _manual in lama_pending],
+                    device=device,
+                )
+            for img, path, _boxes, manual in lama_pending:
+                ok, err = results.get(path, (False, {'kind': 'failed', 'detail': 'missing inpaint result'}))
+                if ok:
+                    img.watermark_state = 'cleaned'
+                    if manual:
+                        img.watermark_regions = None
+                    out['inpainted'] += 1
+                elif err and err.get('kind') == 'unavailable':
+                    out['skipped'] += 1
+                else:
+                    # Manual correction regions are user-authored retry metadata. Keep
+                    # the image detected when LaMa fails so Clean can be retried.
+                    if not manual:
+                        img.watermark_state = 'failed'
+                    out['failed'] += 1
+                    if err:
+                        error = err
+                db.session.commit()
         return out, error
     finally:
         dataset_activity.end(token)

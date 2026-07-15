@@ -7,21 +7,13 @@ stdin  : {"image_path": path, "bboxes": [[x1, y1, x2, y2], ...]}
 stdout : DERNIERE ligne = JSON {"ok": bool, "error"?: str}
 Logs -> stderr.
 
-LaMa est NON-generatif : seuls les pixels du rectangle masque changent, le reste de
-l'image est bit-pour-bit conserve. Tourne sur CPU (CUDA_VISIBLE_DEVICES vide ci-dessous)
-pour ne PAS entrer en concurrence GPU avec ComfyUI/un training — c'est l'appelant qui
-garantit que LaMa tourne HORS de la fenetre vision.
+LaMa est NON-generatif : seuls les pixels du rectangle masque changent. Le device
+est fourni par l'appelant, qui prend la fenetre GPU exclusive quand CUDA est choisi.
 """
 import json
 import math
 import os
 import sys
-
-# Forcer le CPU AVANT tout import torch : SimpleLama() choisit cuda si torch.cuda.
-# is_available(), or on veut rester CPU (hors fenetre GPU). Vider la variable rend le
-# GPU invisible a torch -> is_available() False -> device cpu.
-os.environ['CUDA_VISIBLE_DEVICES'] = ''
-
 
 def _log(msg):
     print(msg, file=sys.stderr, flush=True)
@@ -85,32 +77,59 @@ def main() -> int:
     raw = sys.stdin.read()
     try:
         req = json.loads(raw) if raw.strip() else {}
-        image_path = req['image_path']
-        bboxes = _payload_bboxes(req)
+        requested_device = str(req.get('device') or 'cpu').lower()
+        if requested_device not in ('cpu', 'cuda', 'auto'):
+            raise ValueError('device must be auto, cuda or cpu')
+        raw_jobs = req.get('jobs')
+        if raw_jobs is None:
+            raw_jobs = [{'image_path': req['image_path'], 'bboxes': _payload_bboxes(req)}]
+            batch = False
+        else:
+            if not isinstance(raw_jobs, list) or not raw_jobs:
+                raise ValueError('jobs must be a non-empty list')
+            raw_jobs = [{'image_path': job['image_path'], 'bboxes': _payload_bboxes(job)} for job in raw_jobs]
+            batch = True
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"payload: {e}"}))
         return 1
-    if not image_path or not os.path.isfile(image_path):
-        print(json.dumps({"ok": False, "error": "image not found"}))
-        return 1
+    if requested_device == 'cpu':
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
     try:
         from PIL import Image
+        import torch
         from simple_lama_inpainting import SimpleLama
     except Exception as e:
         # import KO (paquet absent / torch casse) -> JSON propre, pas de traceback muet.
         print(json.dumps({"ok": False, "error": f"import: {type(e).__name__}: {e}"}))
         return 1
     try:
-        img = Image.open(image_path).convert('RGB')
-        W, H = img.size
-        mask = build_mask((W, H), bboxes)
-        _log(f"[lama] inpaint {W}x{H} boxes={len(bboxes)}")
+        cuda = bool(torch.cuda.is_available())
+        if requested_device == 'cuda' and not cuda:
+            raise RuntimeError('CUDA requested but torch.cuda.is_available() is false')
+        actual_device = 'cuda' if requested_device in ('auto', 'cuda') and cuda else 'cpu'
         lama = SimpleLama()
-        result = lama(img, mask)
-        # Ecrit EN PLACE (l'appelant a deja preserve l'original). WEBP q92 comme le
-        # reste du pipeline (normalize_to_webp / crop).
-        result.convert('RGB').save(image_path, 'WEBP', quality=92)
-        print(json.dumps({"ok": True}))
+        results = []
+        for job in raw_jobs:
+            image_path = job['image_path']
+            try:
+                if not image_path or not os.path.isfile(image_path):
+                    raise FileNotFoundError('image not found')
+                img = Image.open(image_path).convert('RGB')
+                W, H = img.size
+                mask = build_mask((W, H), job['bboxes'])
+                _log(f"[lama] inpaint {W}x{H} boxes={len(job['bboxes'])} device={actual_device}")
+                result = lama(img, mask)
+                result.convert('RGB').save(image_path, 'WEBP', quality=92)
+                results.append({'image_path': image_path, 'ok': True})
+            except Exception as e:
+                results.append({'image_path': image_path, 'ok': False,
+                                'error': f'{type(e).__name__}: {e}'})
+        if batch:
+            print(json.dumps({'ok': True, 'device': actual_device, 'results': results}))
+        elif results[0]['ok']:
+            print(json.dumps({'ok': True, 'device': actual_device}))
+        else:
+            print(json.dumps({'ok': False, 'error': results[0]['error']}))
         return 0
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"}))

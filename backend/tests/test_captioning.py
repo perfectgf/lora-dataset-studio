@@ -62,6 +62,53 @@ def test_describe_image_ollama_returns_empty_on_connection_error(app, monkeypatc
     assert out == ''
 
 
+def test_describe_image_ollama_starts_local_server_and_retries_once(app, monkeypatch):
+    from app.services import vision_ollama, ollama_control
+    calls = []
+
+    def _post(*args, **kwargs):
+        calls.append(args[0])
+        if len(calls) == 1:
+            raise ConnectionError('server stopped')
+        return _Resp({'response': 'caption after start'})
+
+    monkeypatch.setattr(vision_ollama.requests, 'post', _post)
+    monkeypatch.setattr(ollama_control, 'ensure_captioning_ready',
+                        lambda: {'ok': True, 'reachable': True})
+    with app.app_context():
+        out = vision_ollama.describe_image_ollama(
+            _png(), 'describe this', auto_start_local=True)
+    assert out == 'caption after start' and len(calls) == 2
+
+
+def test_describe_image_ollama_surfaces_failure_after_successful_start(app, monkeypatch):
+    from app.services import vision_ollama, ollama_control
+
+    monkeypatch.setattr(vision_ollama.requests, 'post',
+                        lambda *a, **k: (_ for _ in ()).throw(ConnectionError('still down')))
+    monkeypatch.setattr(ollama_control, 'ensure_captioning_ready',
+                        lambda: {'ok': True, 'reachable': True})
+    with app.app_context(), pytest.raises(RuntimeError, match='did not return a caption'):
+        vision_ollama.describe_image_ollama(
+            _png(), 'describe this', auto_start_local=True)
+
+
+def test_caption_images_surfaces_ollama_start_failure(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama, ollama_control
+    from app.config import LOCAL_USER, save_config
+
+    monkeypatch.setattr(vision_ollama.requests, 'post',
+                        lambda *a, **k: (_ for _ in ()).throw(ConnectionError('down')))
+    monkeypatch.setattr(ollama_control, 'ensure_captioning_ready',
+                        lambda: {'ok': False, 'error': 'Ollama could not start'})
+    with app.app_context():
+        save_config({'captioning': {'backend': 'ollama'}})
+        ds, _ = _dataset_with_kept_image(svc, LOCAL_USER)
+        with pytest.raises(RuntimeError, match='Ollama could not start'):
+            svc.caption_images(LOCAL_USER, ds.id)
+
+
 def test_vision_ollama_never_raises_when_config_returns_none(app, monkeypatch):
     """cfg.get() returning None for every key (missing/corrupted config section)
     must never surface as an AttributeError from the url.rstrip('/') call --
@@ -110,6 +157,27 @@ def test_caption_images_backend_ollama_writes_and_truncates(app, monkeypatch):
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
         assert refreshed.caption
         assert len(refreshed.caption) <= svc.CAPTION_MAX_CHARS
+
+
+def test_caption_images_allows_slow_local_inference(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    from app.config import LOCAL_USER, save_config
+
+    seen = []
+
+    def _describe(*args, **kwargs):
+        seen.append(kwargs)
+        return 'a caption'
+
+    monkeypatch.setattr(vision_ollama, 'describe_image_ollama', _describe)
+    monkeypatch.setattr(vision_ollama, 'unload_vision_model', lambda **kwargs: True)
+    with app.app_context():
+        save_config({'captioning': {'backend': 'ollama'}})
+        ds, _ = _dataset_with_kept_image(svc, LOCAL_USER)
+        assert svc.caption_images(LOCAL_USER, ds.id) == 1
+    assert seen[0]['timeout'] == (10, 300)
+    assert seen[0]['auto_start_local'] is True
 
 
 def test_caption_images_backend_ollama_never_touches_joycaption(app, monkeypatch):

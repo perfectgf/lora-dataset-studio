@@ -5,6 +5,7 @@ import io
 import json
 import os
 import sqlite3
+from contextlib import contextmanager
 
 import pytest
 from PIL import Image
@@ -411,6 +412,27 @@ def test_clean_inpaints_small_offcenter(app, monkeypatch):
         assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'cleaned'
 
 
+def test_clean_batches_multiple_lama_images_in_one_worker(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    from app.config import LOCAL_USER
+    calls = []
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+
+    def _batch(jobs, *, device, timeout=900):
+        calls.append((jobs, device))
+        return {job['image_path']: (True, None) for job in jobs}
+
+    monkeypatch.setattr(watermark_lama, 'inpaint_batch', _batch)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Batch', 'batch')
+        _kept_image(svc, ds.id, 'a.webp', bbox=[0.7, 0.7, 0.8, 0.8])
+        _kept_image(svc, ds.id, 'b.webp', bbox=[0.6, 0.6, 0.7, 0.7])
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, device='cuda')
+    assert err is None and counts['inpainted'] == 2
+    assert len(calls) == 1 and calls[0][1] == 'cuda' and len(calls[0][0]) == 2
+
+
 def test_clean_inpaint_failure_surfaces_error_tuple(app, monkeypatch):
     from app.services import face_dataset_service as svc
     from app.services import watermark_lama
@@ -641,7 +663,7 @@ def test_clean_route_lama_present(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None: ({'cropped': 2, 'inpainted': 1, 'needs_review': 0,
+                        lambda u, d, image_ids=None, device=None: ({'cropped': 2, 'inpainted': 1, 'needs_review': 0,
                                        'failed': 0, 'skipped': 0}, None))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
     assert resp.status_code == 200
@@ -653,7 +675,7 @@ def test_clean_route_lama_absent_reports_skipped(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None: ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
+                        lambda u, d, image_ids=None, device=None: ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
                                        'failed': 0, 'skipped': 3}, None))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
     body = resp.get_json()
@@ -664,7 +686,7 @@ def test_clean_route_surfaces_error(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None: ({'cropped': 0, 'inpainted': 0, 'needs_review': 0,
+                        lambda u, d, image_ids=None, device=None: ({'cropped': 0, 'inpainted': 0, 'needs_review': 0,
                                        'failed': 1, 'skipped': 0},
                                       {'kind': 'failed', 'detail': 'boom'}))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
@@ -1051,7 +1073,7 @@ def test_clean_route_accepts_image_ids(client, app, monkeypatch):
     ds_id = _create(client, 'R', 'r').get_json()['id']
     seen = {}
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None: (seen.update(ids=image_ids)
+                        lambda u, d, image_ids=None, device=None: (seen.update(ids=image_ids)
                                                       or ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
                                                            'failed': 0, 'skipped': 0}, None)))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'image_ids': [7, 8]})
@@ -1060,6 +1082,31 @@ def test_clean_route_accepts_image_ids(client, app, monkeypatch):
     # a non-list image_ids is rejected
     assert client.post(f'/api/dataset/{ds_id}/watermarks/clean',
                        json={'image_ids': 'nope'}).status_code == 400
+
+
+def test_clean_route_uses_gpu_window_only_for_cuda(client, app, monkeypatch):
+    from app.routes import datasets as routes
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    ds_id = _create(client, 'R', 'r').get_json()['id']
+    entered = []
+
+    @contextmanager
+    def _window(**kwargs):
+        entered.append(kwargs)
+        yield
+
+    monkeypatch.setattr(routes, 'gpu_exclusive_vision_window', _window)
+    monkeypatch.setattr(svc, 'clean_watermarks',
+                        lambda u, d, image_ids=None, device=None: (
+                            {'cropped': 0, 'inpainted': 0, 'needs_review': 0,
+                             'failed': 0, 'skipped': 0}, None))
+    monkeypatch.setattr(watermark_lama, 'resolve_device', lambda requested=None: 'cpu')
+    assert client.post(f'/api/dataset/{ds_id}/watermarks/clean').status_code == 200
+    assert entered == []
+    monkeypatch.setattr(watermark_lama, 'resolve_device', lambda requested=None: 'cuda')
+    assert client.post(f'/api/dataset/{ds_id}/watermarks/clean').status_code == 200
+    assert len(entered) == 1
 
 
 def test_detect_route_forwards_include_dismissed(client, app, monkeypatch):
@@ -1103,7 +1150,49 @@ def test_inpaint_watermarks_sends_one_composite_payload(app, monkeypatch, tmp_pa
     assert json.loads(calls[0][1]['input']) == {
         'image_path': str(image_path),
         'bboxes': bboxes,
+        'device': 'cpu',
     }
+
+
+def test_resolve_watermark_device_auto_and_explicit_cuda(app, monkeypatch):
+    from app.services import watermark_lama
+    monkeypatch.setattr(watermark_lama, '_cuda_available', lambda: True)
+    assert watermark_lama.resolve_device('auto') == 'cuda'
+    assert watermark_lama.resolve_device('cuda') == 'cuda'
+    assert watermark_lama.resolve_device('cpu') == 'cpu'
+
+    monkeypatch.setattr(watermark_lama, '_cuda_available', lambda: False)
+    assert watermark_lama.resolve_device('auto') == 'cpu'
+    with pytest.raises(RuntimeError, match='CUDA.*not available'):
+        watermark_lama.resolve_device('cuda')
+
+
+def test_inpaint_batch_uses_one_worker_and_propagates_device(app, monkeypatch, tmp_path):
+    from app.services import watermark_lama
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    first = tmp_path / 'a.webp'
+    second = tmp_path / 'b.webp'
+    first.write_bytes(_img_bytes())
+    second.write_bytes(_img_bytes())
+    seen = []
+
+    def _run(*args, **kwargs):
+        seen.append(json.loads(kwargs['input']))
+        return _Proc(json.dumps({'ok': True, 'results': [
+            {'image_path': str(first), 'ok': True},
+            {'image_path': str(second), 'ok': True},
+        ]}))
+
+    monkeypatch.setattr(watermark_lama.subprocess, 'run', _run)
+    results = watermark_lama.inpaint_batch([
+        {'image_path': str(first), 'bboxes': [[0.1, 0.1, 0.2, 0.2]]},
+        {'image_path': str(second), 'bboxes': [[0.3, 0.3, 0.4, 0.4]]},
+    ], device='cuda')
+
+    assert len(seen) == 1
+    assert seen[0]['device'] == 'cuda' and len(seen[0]['jobs']) == 2
+    assert results[str(first)] == (True, None)
+    assert results[str(second)] == (True, None)
 
 
 def test_inpaint_watermark_legacy_wrapper_sends_one_item_list(app, monkeypatch, tmp_path):
@@ -1173,6 +1262,7 @@ def test_inpaint_watermark_legacy_wrapper_normalizes_coordinates(
     assert payloads == [{
         'image_path': str(image_path),
         'bboxes': [expected],
+        'device': 'cpu',
     }]
 
 

@@ -19,6 +19,7 @@ import os
 import subprocess
 import tempfile
 import time
+from urllib.parse import urlparse
 
 from .. import capabilities
 from .. import config as cfg
@@ -121,3 +122,30 @@ def start_ollama(*, wait_timeout: float = _READY_TIMEOUT,
     if tail:
         out['stderr'] = tail
     return out
+
+
+def _is_loopback_url(url: str) -> bool:
+    host = (urlparse(url).hostname or '').lower()
+    return host == 'localhost' or host == '::1' or host.startswith('127.')
+
+
+def ensure_captioning_ready() -> dict:
+    """Start a stopped local Ollama on demand and verify the configured model.
+
+    A remote configured URL is never replaced by a local process. The caller is an
+    explicit caption action, not a passive capability probe.
+    """
+    url = _url()
+    if not _reachable(url):
+        if not _is_loopback_url(url):
+            return {'ok': False, 'reachable': False,
+                    'error': f'Remote Ollama server is unreachable: {url}' }
+        started = start_ollama()
+        if not started.get('ok') or not started.get('reachable'):
+            return {'ok': False, 'reachable': False,
+                    'error': started.get('error') or 'Ollama could not start'}
+    model = capabilities.probe_ollama_model(reachable=True)
+    if not model.get('ok'):
+        return {'ok': False, 'reachable': True,
+                'error': model.get('detail') or 'Configured Ollama vision model is not available'}
+    return {'ok': True, 'reachable': True, 'model_ready': True}

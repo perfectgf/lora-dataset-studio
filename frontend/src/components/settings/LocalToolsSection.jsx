@@ -128,7 +128,7 @@ export default function LocalToolsSection(props) {
               label="Ollama vision model"
               value={config.ollama.vision_model}
               onChange={(v) => setField('ollama', 'vision_model', v)}
-              placeholder="huihui_ai/qwen3-vl-abliterated:8b"
+              placeholder="huihui_ai/qwen3-vl-abliterated:8b-instruct"
             />
             <TestResult result={testResults.ollama} />
           </div>

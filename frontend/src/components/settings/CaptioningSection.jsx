@@ -28,6 +28,21 @@ export default function CaptioningSection({ config, setField }) {
       </Card>
 
       <Card
+        title="Watermark inpainting"
+        help="Choose where LaMa removes small off-center watermarks. Auto uses CUDA when the configured ML Python supports it and otherwise falls back to CPU."
+      >
+        <div>
+          <label htmlFor="watermark-device" className="block text-sm font-medium text-content">Processing device</label>
+          <select id="watermark-device" value={config.watermark?.device || 'auto'}
+            onChange={(e) => setField('watermark', 'device', e.target.value)} className={INPUT_CLASS}>
+            <option value="auto">Auto (GPU when available, otherwise CPU)</option>
+            <option value="cuda">GPU (CUDA required; pauses ComfyUI while cleaning)</option>
+            <option value="cpu">CPU (keeps the GPU free)</option>
+          </select>
+        </div>
+      </Card>
+
+      <Card
         title="Face similarity"
         help="Every image is scored against the reference face (InsightFace). These thresholds set where the badges flip."
       >

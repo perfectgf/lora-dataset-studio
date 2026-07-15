@@ -1,8 +1,9 @@
 """Shared Ollama vision captioning helper.
 
-Single responsibility: run one robust vision pass on an image via the local
-Ollama server and return the caption text, or "" on any failure (non-fatal for
-callers). Lifted from the parent project's seedance_routes extraction so both
+Single responsibility: run one robust vision pass on an image via Ollama and
+return the caption text. Ordinary best-effort calls return "" on failure;
+caption batches that request local auto-start receive a clear exception if the
+server still cannot caption. Lifted from the parent project's seedance_routes extraction so both
 the classify/caption passes of the face-dataset service can reuse it without
 duplicating the Qwen3-VL quirks.
 """
@@ -51,9 +52,12 @@ def describe_image_ollama(image_bytes: bytes, prompt: str, *,
                           prefer_json: bool = False,
                           fmt: str | None = None,
                           keep_alive: str | int = 0,
+                          auto_start_local: bool = False,
                           timeout: tuple[float, float] | float = (10, 120)) -> str:
     """Describe an image via Ollama vision. Returns the caption text, or "" on
-    any failure (Ollama down, timeout, empty output) -- never raises.
+    failure for ordinary best-effort calls. With ``auto_start_local=True``, a
+    stopped local server is started once and a persistent failure raises a
+    user-facing RuntimeError.
 
     `timeout` is a (connect, read) tuple by default: fail fast (10s) when Ollama
     is unreachable so a caller never hangs, but allow a long read (120s) for a
@@ -125,6 +129,21 @@ def describe_image_ollama(image_bytes: bytes, prompt: str, *,
             return parts[-1]
         return ''
     except Exception as e:
+        if auto_start_local:
+            from . import ollama_control
+            ready = ollama_control.ensure_captioning_ready()
+            if not ready.get('ok'):
+                raise RuntimeError(ready.get('error') or 'Ollama is unavailable') from e
+            retried = describe_image_ollama(
+                image_bytes, prompt, ollama_url=ollama_url, model=model,
+                num_predict=num_predict, num_ctx=num_ctx,
+                repeat_penalty=repeat_penalty, prefer_json=prefer_json, fmt=fmt,
+                keep_alive=keep_alive, auto_start_local=False, timeout=timeout)
+            if not retried:
+                raise RuntimeError(
+                    'Ollama did not return a caption after restart — check the configured '
+                    'vision model and the application log.') from e
+            return retried
         logger.warning('vision_ollama: describe skipped: %s', e)
         return ''
 

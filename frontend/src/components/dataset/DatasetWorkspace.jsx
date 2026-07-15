@@ -435,7 +435,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
           // Passes that DON'T claim "ComfyUI is paused": the CPU ones, plus
           // 'generate' (engine-dependent — Nano Banana / ChatGPT don't touch
           // ComfyUI, and the Klein case is obvious from the tiles appearing).
-          const cpu = act.kind === 'analyze_faces' || act.kind === 'watermark_clean'
+          const cpu = act.kind === 'analyze_faces'
+            || (act.kind === 'watermark_clean' && !String(act.detail || '').includes('GPU'))
             || act.kind === 'generate';
           const label = {
             watermark_detect: `Scanning for watermarks…${prog}`,
@@ -575,7 +576,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm cursor-pointer select-none">
               ⋯ More
             </summary>
-            <div className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-border bg-surface shadow-xl p-1.5 flex flex-col gap-0.5">
+            <div className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
               <button type="button" onClick={() => setSettingsOpen(true)}
                 title="Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list."
                 className={MENU_ITEM}>

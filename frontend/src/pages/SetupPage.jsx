@@ -22,7 +22,7 @@ const KEY_FIELDS = [
 // ABLITERATED Qwen3-VL is required — vanilla qwen3-vl refuses to caption the NSFW
 // concept datasets this app targets. VRAM figures are approximate minimums for the
 // fp8/q4 builds (Klein 9B fp8 fits a 24 GB RTX 4090; the 8B vision model ~8 GB).
-const DEFAULT_VISION_MODEL = 'huihui_ai/qwen3-vl-abliterated:8b'
+const DEFAULT_VISION_MODEL = 'huihui_ai/qwen3-vl-abliterated:8b-instruct'
 const VISION_MODEL_VRAM = '≈ 8 GB VRAM'
 const KLEIN_MODEL_VRAM = '≈ 16 GB VRAM (fp8; ~29 GB at bf16)'
 
@@ -473,14 +473,14 @@ export default function SetupPage() {
         { action: 'masks', cap: 'masks', icon: '🧍', title: 'Person masks',
           body: 'Isolates the subject from the background for masked training: the décor is weighted down so the LoRA binds the identity to the person, not the room. A training without masks is still valid.' },
         { action: 'watermark_inpaint', cap: 'watermark_inpaint', icon: '🧽', title: 'Watermark inpainting',
-          body: 'Repaints small off-center watermarks (LaMa) during 🧽 Clean instead of only cropping border marks. Pulls a CPU torch (one-time, ~hundreds of MB). Without it, off-center marks are skipped.' },
+          body: 'Repaints small off-center watermarks (LaMa) during 🧽 Clean instead of only cropping border marks. It can use CUDA or CPU from Settings. Without it, off-center marks are skipped.' },
       ]
       return (
         <div className="space-y-3">
           <p className="text-sm text-content-muted">
-            Optional helpers installed into this app's own Python environment. They run on CPU — they never
-            touch the GPU or ComfyUI — and the app works fully without them; they just make curation and
-            training cleaner. Install each on its own below, or all at once at the bottom. Already installed?
+            Optional helpers installed into this app's own Python environment. Face scoring and masks run on
+            CPU; watermark inpainting can use CUDA or CPU. The app works fully without them; they just make
+            curation and training cleaner. Install each on its own below, or all at once at the bottom. Already installed?
             Use <span className="font-medium text-content">↻ Reinstall</span> to repair or update it.
           </p>
           {caps.python && !caps.python.ml_supported && (
