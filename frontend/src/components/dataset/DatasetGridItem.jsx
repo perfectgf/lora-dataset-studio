@@ -1,6 +1,7 @@
 /** One curation tile: image + keep/reject + source/framing badges + caption + crop. */
 import { useEffect, useRef, useState } from 'react';
 import { displayLabel } from '../../utils/labels';
+import CaptionEditorDialog from './CaptionEditorDialog';
 import PromptEditPopover from './PromptEditPopover';
 
 const STATUS_CLS = {
@@ -59,6 +60,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
                                           onRegenerate, onView, nonce = 0, faceThresholds,
                                           selected = false, onToggleSelect, tileSize = 'M' }) {
   const [cap, setCap] = useState(img.caption || '');
+  const [captionEditorOpen, setCaptionEditorOpen] = useState(false);
   // ✏️ edit-prompt bubble open state (regenerate this tile with an edited prompt).
   const [editingPrompt, setEditingPrompt] = useState(false);
   // While the textarea has focus, a poll-driven refresh must never overwrite
@@ -192,15 +194,23 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
       </div>
       {img.status === 'keep' && (
         <div className="m-1.5 mt-0 flex flex-col gap-1">
-          {cap && (
-            <button type="button"
-              onClick={() => { editingRef.current = false; setCap(''); onCaption(img.id, ''); }}
-              title="Delete this image's caption (then “Caption” regenerates it via JoyCaption)"
-              aria-label="Delete this image's caption"
-              className="self-end px-1.5 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300 text-[10px] hover:bg-red-500/25">
-              🗑 Caption
+          <div className="flex items-center justify-end gap-1">
+            <button type="button" onClick={() => setCaptionEditorOpen(true)}
+              title="Open a larger caption editor"
+              aria-label="Expand caption editor"
+              className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-content-muted hover:text-content">
+              ⛶ Expand
             </button>
-          )}
+            {cap && (
+              <button type="button"
+                onClick={() => { editingRef.current = false; setCap(''); onCaption(img.id, ''); }}
+                title="Delete this image's caption (then “Caption” regenerates it via JoyCaption)"
+                aria-label="Delete this image's caption"
+                className="rounded border border-red-500/40 bg-red-500/15 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-500/25">
+                🗑 Caption
+              </button>
+            )}
+          </div>
           <textarea value={cap} onChange={(e) => setCap(e.target.value)}
             onFocus={() => { editingRef.current = true; }}
             onBlur={() => {
@@ -211,6 +221,17 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
             rows={2} placeholder="caption (without the face)…" aria-label="Image caption"
             className="text-[11px] bg-app/60 border border-border rounded p-1 text-content resize-none" />
         </div>
+      )}
+      {captionEditorOpen && (
+        <CaptionEditorDialog initialCaption={cap} imageUrl={url}
+          imageLabel={displayLabel(img.variation_label)}
+          onClose={() => setCaptionEditorOpen(false)}
+          onSave={(nextCaption) => {
+            editingRef.current = false;
+            setCap(nextCaption);
+            if (nextCaption !== (img.caption || '')) onCaption(img.id, nextCaption);
+            setCaptionEditorOpen(false);
+          }} />
       )}
     </div>
   );
