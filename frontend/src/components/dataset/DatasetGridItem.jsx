@@ -1,6 +1,7 @@
 /** One curation tile: image + keep/reject + source/framing badges + caption + crop. */
 import { useEffect, useRef, useState } from 'react';
 import { displayLabel } from '../../utils/labels';
+import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
 import CaptionEditorDialog from './CaptionEditorDialog';
 import PromptEditPopover from './PromptEditPopover';
 
@@ -75,7 +76,13 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
     : null;
   // Regenerate applies to generated tiles that are not mid-generation —
   // finished AND failed ones (failure recovery path) (F2).
-  const canRegenerate = img.source === 'generated' && !(img.status === 'pending' && !img.filename);
+  const isRescueDerived = isSmallImageRescueRow(img);
+  // A manual Klein improvement is derived from THIS image, not the dataset's
+  // main reference. Sending it through the generic regenerate route would lose
+  // that source and silently make an unrelated variation instead.
+  const isImageImproveCandidate = img.derivation_kind === 'klein_image_improve';
+  const canRegenerate = !isRescueDerived && !isImageImproveCandidate && img.source === 'generated'
+    && !(img.status === 'pending' && !img.filename);
 
   const fb = faceBadge(img, faceThresholds);
   const wb = WATERMARK_BADGE[img.watermark_state];
@@ -128,7 +135,13 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
           </div>
         )}
         <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[10px] bg-black/60 text-white pointer-events-none">
-          {img.source === 'import' ? 'real' : 'generated'}{img.framing ? ` · ${img.framing}` : ''}
+          {img.derivation_kind === 'klein_small_image'
+            ? 'Klein rescue'
+            : img.derivation_kind === 'small_image_source'
+              ? 'rescue original'
+              : isImageImproveCandidate
+                ? 'Klein improve'
+              : img.source === 'import' ? 'real' : 'generated'}{img.framing ? ` · ${img.framing}` : ''}
         </span>
         {fb && (
           <span className={`absolute top-6 left-1 px-1.5 py-0.5 rounded text-[10px] bg-black/70 ${fb.cls} pointer-events-none flex items-center gap-0.5`}
@@ -162,10 +175,12 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               title="Crop" aria-label="Crop"
               className="px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px]">✂</button>
           )}
-          <button type="button"
-            onClick={(e) => { e.stopPropagation(); if (window.confirm('Permanently delete this image?')) onDelete(img.id); }}
-            title="Delete permanently" aria-label="Delete permanently"
-            className="px-1.5 py-0.5 rounded bg-red-700/80 text-white text-[10px]">🗑</button>
+          {!isRescueDerived && (
+            <button type="button"
+              onClick={(e) => { e.stopPropagation(); if (window.confirm('Permanently delete this image?')) onDelete(img.id); }}
+              title="Delete permanently" aria-label="Delete permanently"
+              className="px-1.5 py-0.5 rounded bg-red-700/80 text-white text-[10px]">🗑</button>
+          )}
         </div>
         {editingPrompt && (
           <PromptEditPopover
@@ -174,24 +189,32 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
             onClose={() => setEditingPrompt(false)} />
         )}
       </div>
-      <div className="flex gap-1 p-1.5">
-        <button type="button" onClick={() => onStatus(img.id, img.status === 'keep' ? 'pending' : 'keep')}
-          title="Keep" aria-label="Keep" aria-pressed={img.status === 'keep'}
-          className={`flex-1 py-1 rounded text-[11px] ${img.status === 'keep' ? 'bg-green-600 text-white' : 'bg-surface text-content-muted'}`}>✓</button>
-        <button type="button"
-          onClick={() => {
-            // Rejecting a GENERATED image offers an immediate retry of the same
-            // variation (in place, new seed) so the composition stays on target.
-            if (img.status !== 'reject' && img.source === 'generated' && img.filename && onRegenerate
-                && window.confirm('Photo rejected — regenerate a new attempt of this variation?\n(OK = replace with a new attempt · Cancel = reject only)')) {
-              onRegenerate(img.id);
-              return;
-            }
-            onStatus(img.id, img.status === 'reject' ? 'pending' : 'reject');
-          }}
-          title="Reject (offers a regeneration)" aria-label="Reject" aria-pressed={img.status === 'reject'}
-          className={`flex-1 py-1 rounded text-[11px] ${img.status === 'reject' ? 'bg-red-600 text-white' : 'bg-surface text-content-muted'}`}>✕</button>
-      </div>
+      {isRescueDerived ? (
+        <p className="m-1.5 rounded border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-center text-[0.625rem] text-indigo-200"
+          title="This winner was chosen atomically with its provenance pair. Caption and crop remain available.">
+          ✓ Chosen in Klein rescue review
+        </p>
+      ) : (
+        <div className="flex gap-1 p-1.5">
+          <button type="button" onClick={() => onStatus(img.id, img.status === 'keep' ? 'pending' : 'keep')}
+            title="Keep" aria-label="Keep" aria-pressed={img.status === 'keep'}
+            className={`flex-1 py-1 rounded text-[11px] ${img.status === 'keep' ? 'bg-green-600 text-white' : 'bg-surface text-content-muted'}`}>✓</button>
+          <button type="button"
+            onClick={() => {
+              // Rejecting a GENERATED image offers an immediate retry of the same
+              // variation (in place, new seed) so the composition stays on target.
+              if (!isImageImproveCandidate && img.status !== 'reject'
+                  && img.source === 'generated' && img.filename && onRegenerate
+                  && window.confirm('Photo rejected — regenerate a new attempt of this variation?\n(OK = replace with a new attempt · Cancel = reject only)')) {
+                onRegenerate(img.id);
+                return;
+              }
+              onStatus(img.id, img.status === 'reject' ? 'pending' : 'reject');
+            }}
+            title="Reject (offers a regeneration)" aria-label="Reject" aria-pressed={img.status === 'reject'}
+            className={`flex-1 py-1 rounded text-[11px] ${img.status === 'reject' ? 'bg-red-600 text-white' : 'bg-surface text-content-muted'}`}>✕</button>
+        </div>
+      )}
       {img.status === 'keep' && (
         <div className="m-1.5 mt-0 flex flex-col gap-1">
           <div className="flex items-center justify-end gap-1">

@@ -13,6 +13,7 @@ const AVAILABILITY = {
   always: () => PANEL_STATUS.AVAILABLE,
   hasSelectableImages: (c) => boolStatus(c.hasSelectableImages),
   character: (c) => boolStatus(c.kind === 'character'),
+  smallImageRescue: (c) => boolStatus(c.smallImageRescue > 0),
   watermarkDetected: (c) => boolStatus(c.watermarkDetected > 0),
   unused: (c) => boolStatus(c.unused > 0),
   leakReview: (c) => boolStatus(c.kind !== 'style' && c.hasKeptImages && c.hasLeakMetadata),

@@ -25,6 +25,7 @@ export const WORKSPACE_SECTIONS = [
   { id: 'curation', title: 'Curation', icon: '🧹', eyebrow: 'quality',
     description: 'Quality passes over the kept images — face resemblance, watermark find & clean, cleanup.',
     panels: [
+      { id: 'small-image-rescue', title: 'Klein rescue review', targetId: 'ds-curation-small-image-rescue', when: 'smallImageRescue' },
       { id: 'face-analysis', title: 'Face analysis', targetId: 'ds-curation-face-analysis', when: 'character' },
       { id: 'watermarks', title: 'Watermarks', targetId: 'ds-curation-watermarks', when: 'always' },
       { id: 'review-flagged', title: 'Review flagged', targetId: 'ds-curation-review-flagged', when: 'watermarkDetected' },

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import DatasetGridItem from './DatasetGridItem';
+import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
 
 const DEFAULT_GREEN = 0.50;
 
@@ -172,7 +173,9 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   // Prune ids that vanished (deleted / poll refresh) so stale selections can't act.
   useEffect(() => {
     setSelected((prev) => {
-      const alive = new Set(images.filter((i) => i.filename).map((i) => i.id));
+      const alive = new Set(images
+        .filter((i) => i.filename && !isSmallImageRescueRow(i))
+        .map((i) => i.id));
       const next = new Set([...prev].filter((id) => alive.has(id)));
       return next.size === prev.size ? prev : next;
     });
@@ -198,7 +201,9 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
       </p>
     );
   }
-  const selectable = images.filter((i) => i.filename);
+  // Rescue winners remain editable one-by-one (caption/crop), but their paired
+  // provenance makes generic bulk status/delete unsafe. Never select them here.
+  const selectable = images.filter((i) => i.filename && !isSmallImageRescueRow(i));
   const ids = [...selected];
   const toggle = (id) => setSelected((prev) => {
     const next = new Set(prev);
@@ -217,7 +222,8 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
     <div id="ds-images-review" tabIndex={-1} data-workspace-focus
       className="flex flex-col gap-2 scroll-mt-20">
       {onBatch && (
-        <AutoTriageBar images={images} datasetId={datasetId} faceThresholds={faceThresholds} onBatch={onBatch} busy={busy} />
+        <AutoTriageBar images={images.filter((image) => !isSmallImageRescueRow(image))}
+          datasetId={datasetId} faceThresholds={faceThresholds} onBatch={onBatch} busy={busy} />
       )}
       <div id="ds-images-bulk" tabIndex={-1}
         className="flex items-center gap-2 flex-wrap text-xs scroll-mt-20">
@@ -259,7 +265,8 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
         {images.map((img) => (
           <DatasetGridItem key={img.id} img={img} datasetId={datasetId} onStatus={onStatus} onCaption={onCaption}
             onCrop={onCrop} onDelete={onDelete} onRegenerate={onRegenerate} onView={onView}
-            selected={selected.has(img.id)} onToggleSelect={onBatch ? toggle : undefined}
+            selected={selected.has(img.id)}
+            onToggleSelect={onBatch && !isSmallImageRescueRow(img) ? toggle : undefined}
             nonce={(nonces && nonces[img.id]) || 0} faceThresholds={faceThresholds} tileSize={tileSize} />
         ))}
       </div>

@@ -1,4 +1,4 @@
-import { Card, SecretField } from './primitives'
+import { Card, INPUT_CLASS, SecretField } from './primitives'
 
 /* Reddit rides an anonymous OAuth token minted with gallery-dl's PUBLIC shared
    client id by default. Reddit's ~1000 requests / 10 min quota is attached to
@@ -59,6 +59,8 @@ const SCRAPE_SECRETS = [
 ]
 
 export default function ScrapingSection(props) {
+  const prompt = props.config?.klein?.small_image_prompt ?? ''
+
   return (
     <div className="space-y-6">
       <Card
@@ -66,6 +68,28 @@ export default function ScrapingSection(props) {
         help="Optional keys used when scanning image sources for concept datasets. Everything works without them — they lift per-source limits. Keys are write-only: fields stay blank even when a key is already saved."
       >
         {SCRAPE_SECRETS.map((f) => <SecretField key={f.key} field={f} {...props} />)}
+      </Card>
+      <Card
+        title="Klein image improvement"
+        help="Optional instruction shared by automatic rescue of scraped images under 768 px and the manual Upscale & improve action in each image lightbox. Klein creates a separate 2 MP version to validate and leaves the original intact."
+      >
+        <div>
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="klein-small-image-prompt" className="text-sm font-medium text-content">
+              Klein instruction
+            </label>
+            <span className="text-xs text-content-subtle">optional</span>
+          </div>
+          <p className="mb-1 text-xs leading-relaxed text-content-muted">
+            Leave this empty to let Klein use the reference image alone. Add a short instruction only
+            when you want to guide scraper rescue or a manual lightbox improvement; Klein remains
+            generative and may change details.
+          </p>
+          <textarea id="klein-small-image-prompt" rows={4} value={prompt}
+            onChange={(e) => props.setField('klein', 'small_image_prompt', e.target.value)}
+            placeholder="Empty — reference image only"
+            className={`${INPUT_CLASS} min-h-24 resize-y`} />
+        </div>
       </Card>
     </div>
   )

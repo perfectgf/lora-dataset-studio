@@ -15,6 +15,7 @@ const BASE = Object.freeze({
   hasCaptionedKept: true,
   hasLeakMetadata: true,
   watermarkDetected: 0,
+  smallImageRescue: 0,
   unused: 0,
   hfPublish: false,
   trainingVisible: true,
@@ -60,6 +61,8 @@ test('data and capability predicates expose only destinations that currently exi
   assert.deepEqual(ids('images', { hasSelectableImages: false }), ['review']);
   assert.deepEqual(ids('curation', { watermarkDetected: 2, unused: 3 }),
     ['face-analysis', 'watermarks', 'review-flagged', 'rejected-cleanup']);
+  assert.deepEqual(ids('curation', { smallImageRescue: 2 }),
+    ['small-image-rescue', 'face-analysis', 'watermarks']);
   assert.deepEqual(ids('captions', { hasKeptImages: false, hasCaptionedKept: false }), ['generate']);
   assert.deepEqual(ids('export', { hfPublish: true, hasKeptImages: true }),
     ['import', 'training-zip', 'backup', 'hugging-face']);

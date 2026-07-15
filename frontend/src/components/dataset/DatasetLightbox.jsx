@@ -7,8 +7,22 @@ import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { displayLabel } from '../../utils/labels';
 
-export default function DatasetLightbox({ img, datasetId, nonce = 0, onClose, onCrop }) {
+const IMPROVE_HELP = 'Klein creates a new 2 MP version to validate and leaves the original intact.';
+
+export default function DatasetLightbox({
+  img,
+  datasetId,
+  nonce = 0,
+  onClose,
+  onCrop,
+  onImprove,
+  busy = false,
+  improvePending = false,
+  improveReady = false,
+  kleinAvailable = false,
+}) {
   const [full, setFull] = useState(false); // false = fit screen, true = 100 %
+  const [improving, setImproving] = useState(false);
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
 
@@ -26,6 +40,26 @@ export default function DatasetLightbox({ img, datasetId, nonce = 0, onClose, on
   if (!img || !img.filename) return null;
   const url = `/api/dataset/${datasetId}/img/${encodeURIComponent(img.filename)}${nonce ? `?v=${nonce}` : ''}`;
   const alt = displayLabel(img.variation_label) || 'dataset image';
+  const improvementActive = improving || improvePending;
+  const improveDisabled = busy || improvementActive || improveReady || !kleinAvailable;
+  const improveTitle = !kleinAvailable
+    ? `Klein is not available in this setup. ${IMPROVE_HELP}`
+    : improveReady
+      ? `A new version is waiting for validation. ${IMPROVE_HELP}`
+    : improvePending
+      ? `An improvement is already running for this image. ${IMPROVE_HELP}`
+      : IMPROVE_HELP;
+
+  const improve = async (event) => {
+    event.stopPropagation();
+    if (!onImprove || improveDisabled) return;
+    setImproving(true);
+    try {
+      await onImprove(img.id);
+    } finally {
+      setImproving(false);
+    }
+  };
 
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Inspect — ${alt}`}
@@ -63,6 +97,15 @@ export default function DatasetLightbox({ img, datasetId, nonce = 0, onClose, on
             title="Open the crop editor for this image (stretchable box, any ratio)"
             className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold">
             ✂ Crop
+          </button>
+        )}
+        {onImprove && (
+          <button type="button" onClick={improve} disabled={improveDisabled}
+            aria-busy={improvementActive} title={improveTitle}
+            className="min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            {improveReady
+              ? '✓ Review improvement first'
+              : improvementActive ? '✨ Improving…' : '✨ Upscale & improve'}
           </button>
         )}
       </div>

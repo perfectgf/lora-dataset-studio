@@ -8,6 +8,7 @@ import { fmt } from '../../utils/studioFormat';
 import ImportDropzone from './ImportDropzone';
 import ConceptSourcesPanel from './ConceptSourcesPanel';
 import DatasetGrid from './DatasetGrid';
+import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
 import { recaptionConfirmation } from './captionCategory';
 import CropModal from './CropModal';
@@ -23,6 +24,11 @@ import NextStepCard from './NextStepCard';
 import TrainingReadiness from './TrainingReadiness';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
 import { filterImages, normalizeTag } from '../../utils/tagFilter';
+import {
+  buildSmallImageRescuePairs,
+  filterSmallImageRescueGrid,
+  isSmallImageRescueRow,
+} from '../../utils/smallImageRescue';
 import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET } from './workspaceSections';
 import {
   PANEL_STATUS,
@@ -137,14 +143,17 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const navImages = d?.images || EMPTY_IMAGES;
   const navContext = useMemo(() => ({
     kind: d?.kind || 'character',
-    hasSelectableImages: navImages.some((image) => Boolean(image.filename)),
+    hasSelectableImages: filterSmallImageRescueGrid(navImages)
+      .some((image) => Boolean(image.filename)),
     hasKeptImages: navImages.some((image) => image.status === 'keep'),
     hasCaptionedKept: navImages.some(
       (image) => image.status === 'keep' && Boolean((image.caption || '').trim()),
     ),
     hasLeakMetadata: Boolean(d?.caption_leak),
     watermarkDetected: navImages.filter((image) => image.watermark_state === 'detected').length,
-    unused: navImages.filter((image) => image.status === 'reject' || image.status === 'failed').length,
+    smallImageRescue: buildSmallImageRescuePairs(navImages).filter((pair) => !pair.resolved).length,
+    unused: navImages.filter((image) => (image.status === 'reject' || image.status === 'failed')
+      && !isSmallImageRescueRow(image)).length,
     hfPublish: Boolean(caps.hf_publish),
     trainingVisible: Boolean(caps.training_visible),
     trainingStatusReady: !caps.training_visible || trainingNavigation.ready,
@@ -317,6 +326,16 @@ export default function DatasetWorkspace({ ds, onBack }) {
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
   const images = d.images || [];
+  const rescuePairs = buildSmallImageRescuePairs(images);
+  const unresolvedRescuePairs = rescuePairs.filter((pair) => !pair.resolved);
+  // An unresolved pair is intentionally absent from the generic grid/bulk
+  // controls: only the atomic side-by-side resolver may decide it. Once resolved,
+  // the chosen keep + rejected counterpart return to the regular dataset view.
+  const unresolvedRescueIds = new Set(unresolvedRescuePairs.flatMap(
+    (pair) => [pair.original.id, pair.candidate.id],
+  ));
+  const rescueGridImages = filterSmallImageRescueGrid(images);
+  const rescueReviewCount = unresolvedRescuePairs.length;
   // Dataset CONCEPT : on masque tout ce qui est identité/visage (référence, générateur
   // de variations, analyse faciale, badge de fuite, composition, flux guidé) — il ne
   // reste que import brut → curation → caption (inversée) → entraînement.
@@ -333,7 +352,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // cible plus de bustes/corps, import plein cadre par défaut.
   const bodyFid = d.fidelity === 'body';
   const kept = images.filter((i) => i.status === 'keep').length;
-  const unused = images.filter((i) => i.status === 'reject' || i.status === 'failed').length;
+  const unused = images.filter((i) => (i.status === 'reject' || i.status === 'failed')
+    && !isSmallImageRescueRow(i)).length;
   const keptUncaptioned = images.filter((i) => i.status === 'keep' && !i.caption).length;
   const keptCaptioned = kept - keptUncaptioned;
   // Overlaid watermarks still awaiting removal → drives the "🧽 Clean (N)" button.
@@ -357,10 +377,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // The list actually rendered by the grid. Filtering here means select-all,
   // auto-triage and every bulk action operate ONLY on the visible images. The
   // Caption-tools counts keep using the full `images` list (global, never lies).
-  const gridImages = filterImages(images, {
-    excludes: excludeTags, includes: includeTags, mode: effCaptionMode });
-  const pending = images.filter((i) => i.status === 'pending' && !i.filename).length;
-  const triage = images.filter((i) => i.status === 'pending' && i.filename).length;   // generated, awaiting ✓/✕
+  const gridImages = filterImages(rescueGridImages, {
+    excludes: excludeTags, includes: includeTags, mode: effCaptionMode,
+  });
+  const pending = images.filter((i) => i.status === 'pending' && !i.filename
+    && !unresolvedRescueIds.has(i.id)).length;
+  const triage = images.filter((i) => i.status === 'pending' && i.filename
+    && !unresolvedRescueIds.has(i.id)).length;   // generated/imported, awaiting ✓/✕
 
   const toggleLeakReview = () => {
     onRevealOpenChange('leak-review', !showLeaks, setShowLeaks);
@@ -404,7 +427,25 @@ export default function DatasetWorkspace({ ds, onBack }) {
     studio: '🎛️ Open Studio',
   }[nextStep.id];
   // Keep the inspected image in sync with poll refreshes (label/status updates).
-  const viewImgLive = viewImg ? (images.find((i) => i.id === viewImg.id) || viewImg) : null;
+  const viewImgLive = viewImg ? {
+    ...(images.find((i) => i.id === viewImg.id) || viewImg),
+    _rescueReviewPreview: !!viewImg._rescueReviewPreview,
+  } : null;
+  const viewImgImproving = viewImgLive ? images.some((image) => (
+    image.derivation_kind === 'klein_image_improve'
+      && image.parent_image_id === viewImgLive.id
+      && image.status === 'pending'
+  )) : false;
+  const viewImgImprovementReady = viewImgLive ? images.some((image) => (
+    image.derivation_kind === 'klein_image_improve'
+      && image.parent_image_id === viewImgLive.id
+      && image.status === 'pending'
+      && !!image.filename
+  )) : false;
+  const canImproveViewImg = !!viewImgLive
+    && !viewImgLive._rescueReviewPreview
+    && !isSmallImageRescueRow(viewImgLive)
+    && viewImgLive.derivation_kind !== 'klein_image_improve';
 
   // Export ZIP — shared by the header CTA and the Import & export row.
   // Guard-rails: untriaged images are silently EXCLUDED from the zip,
@@ -463,8 +504,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
       ? { n: triage, tone: 'amber', srLabel: `${triage} image(s) awaiting keep/reject` } : null,
     add: pending > 0
       ? { n: pending, tone: 'indigo', pulse: true, srLabel: `${pending} generation(s) in progress` } : null,
-    curation: watermarkDetected > 0
-      ? { n: watermarkDetected, tone: 'amber', srLabel: `${watermarkDetected} watermark(s) to review` } : null,
+    curation: watermarkDetected + rescueReviewCount > 0
+      ? {
+          n: watermarkDetected + rescueReviewCount,
+          tone: 'amber',
+          srLabel: `${watermarkDetected} watermark(s) and ${rescueReviewCount} Klein rescue pair(s) to review`,
+        } : null,
     captions: (!isStyle && (d.caption_leak?.leaking ?? 0) > 0)
       ? { n: d.caption_leak.leaking, tone: 'amber', srLabel: `${d.caption_leak.leaking} caption(s) leaking` }
       : keptUncaptioned > 0
@@ -694,15 +739,18 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <div className={sectionCls('images')}>
             {heading('images')}
             <p className="m-0 text-content-subtle text-[0.75rem] tabular-nums">
-              {images.length} image(s) · {kept} kept
+              {rescueGridImages.length} image(s) · {kept} kept
               {triage > 0 ? <> · <span className="text-amber-300">{triage} awaiting ✓/✕</span></> : ''}
+              {rescueReviewCount > 0
+                ? <> · <span className="text-indigo-300">{rescueReviewCount} Klein rescue pair(s) in Curation</span></>
+                : ''}
               {kept > 0 ? ` · ${keptCaptioned}/${kept} captioned` : ''}
               {watermarkDetected > 0 ? ` · ${watermarkDetected} watermark(s) flagged` : ''}
             </p>
             <div id="gf-images" className="scroll-mt-20 flex flex-col gap-2">
               {filtersActive && (
                 <GridFilterBar excludes={excludeTags} includes={includeTags}
-                  shown={gridImages.length} total={images.length}
+                  shown={gridImages.length} total={rescueGridImages.length}
                   onRemoveExclude={toggleExclude} onRemoveInclude={toggleInclude}
                   onClearAll={clearFilters} />
               )}
@@ -806,6 +854,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <div className={sectionCls('curation')}>
             {heading('curation')}
             <div id="gf-curation" className="scroll-mt-20 flex flex-col gap-2">
+              <SmallImageRescueReview images={images} datasetId={d.id}
+                onResolve={ds.resolveSmallImageRescue}
+                onPreview={(image) => setViewImg({ ...image, _rescueReviewPreview: true })}
+                nonces={ds.nonces} />
               <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
                 {!concept && (
                   <button id="ds-curation-face-analysis" type="button" data-workspace-focus
@@ -1284,7 +1336,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
         <DatasetLightbox img={viewImgLive} datasetId={d.id}
           nonce={(ds.nonces && ds.nonces[viewImgLive.id]) || 0}
           onClose={() => setViewImg(null)}
-          onCrop={(img) => { setViewImg(null); setCropImg(img); }} />
+          onImprove={canImproveViewImg ? ds.improveImage : undefined}
+          improvePending={viewImgImproving}
+          improveReady={viewImgImprovementReady}
+          busy={ds.busy}
+          kleinAvailable={Boolean(caps.engines?.klein)}
+          onCrop={viewImgLive._rescueReviewPreview
+            ? undefined
+            : (img) => { setViewImg(null); setCropImg(img); }} />
       )}
       {settingsOpen && (
         <DatasetSettingsModal d={d} busy={ds.busy}

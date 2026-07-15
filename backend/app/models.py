@@ -78,6 +78,11 @@ class FaceDatasetImage(db.Model):
     job_id = db.Column(String(36), nullable=True, index=True)
     variation_prompt = db.Column(String(500), nullable=True)    # RAW catalog prompt (regenerate)
     klein_model = db.Column(String(255), nullable=True)         # UNET used (regenerate)
+    # Provenance for derived dataset images. Small scraped sources rescued through
+    # Klein keep their own row/file and the generated candidate points back to it;
+    # both stay outside training until the user resolves the pair explicitly.
+    parent_image_id = db.Column(Integer, nullable=True)
+    derivation_kind = db.Column(String(32), nullable=True)
     # Ressemblance faciale vs la reference (face analyzer Lot A). face_score = cosinus
     # ArcFace brut (NULL si non note) ; face_state = scorable|no_face|low_det|too_small|
     # extreme_pose|unreadable|error. Score brut persiste -> seuils recalibrables cote UI.

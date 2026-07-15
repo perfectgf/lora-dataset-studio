@@ -418,12 +418,36 @@ def dataset_scrape_import(dataset_id):
         return jsonify({'error': 'not found'}), 404
     data = request.get_json(silent=True) or {}
     items = data.get('items') or []
+    rescue_small = data.get('rescue_small', False)
+    if not isinstance(rescue_small, bool):
+        return jsonify({'error': 'rescue_small must be a boolean'}), 400
     if not isinstance(items, list) or not items:
         return jsonify({'error': 'no items'}), 400
     if len(items) > svc.SCRAPE_IMPORT_MAX:
         return jsonify({'error': f'max {svc.SCRAPE_IMPORT_MAX} images per import'}), 400
-    res = svc.scrape_import_urls(LOCAL_USER, dataset_id, items)
+    try:
+        res = svc.scrape_import_urls(LOCAL_USER, dataset_id, items,
+                                     rescue_small=rescue_small)
+    except Exception as e:
+        from ..services.klein_edit_helper import KleinModelsMissing
+        if isinstance(e, KleinModelsMissing):
+            return _klein_missing_response(e.missing)
+        return _map_error(e)
     return jsonify({'ok': True, **res})
+
+
+@bp.post('/dataset/<int:dataset_id>/small-image-rescue/<int:candidate_id>/resolve')
+def dataset_small_image_rescue_resolve(dataset_id, candidate_id):
+    """Atomically choose the original, the Klein result, or neither."""
+    data = request.get_json(silent=True) or {}
+    try:
+        result = svc.resolve_small_image_rescue(
+            LOCAL_USER, dataset_id, candidate_id, data.get('choice'))
+    except Exception as e:
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
 
 
 @bp.post('/dataset/<int:dataset_id>/classify')
@@ -567,8 +591,28 @@ def dataset_cancel(dataset_id):
 
 @bp.post('/dataset/image/<int:image_id>/delete')
 def dataset_image_delete(image_id):
-    ok = svc.delete_image(LOCAL_USER, image_id)
+    try:
+        ok = svc.delete_image(LOCAL_USER, image_id)
+    except Exception as e:
+        return _map_error(e)
     return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
+
+
+@bp.post('/dataset/image/<int:image_id>/improve')
+def dataset_image_improve(image_id):
+    """Create a regular Klein-upscaled candidate without touching the source."""
+    try:
+        result = svc.improve_existing_image(LOCAL_USER, image_id)
+    except Exception as e:
+        from ..services.klein_edit_helper import KleinModelsMissing
+        if isinstance(e, svc.KleinNodesMissing):
+            return _klein_missing_response(e.missing, e.missing_nodes)
+        if isinstance(e, KleinModelsMissing):
+            return _klein_missing_response(e.missing)
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
 
 
 @bp.post('/dataset/image/<int:image_id>/regenerate')
@@ -698,7 +742,10 @@ def dataset_images_batch(dataset_id):
         return jsonify({'error': "'ids' must be a non-empty list"}), 400
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
-    n = svc.batch_image_action(LOCAL_USER, dataset_id, ids, action)
+    try:
+        n = svc.batch_image_action(LOCAL_USER, dataset_id, ids, action)
+    except Exception as e:
+        return _map_error(e)
     return jsonify({'ok': True, 'affected': n})
 
 

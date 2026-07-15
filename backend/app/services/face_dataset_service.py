@@ -84,6 +84,26 @@ def _ref_path(ds) -> str:
 
 _VALID_STATUS = ('pending', 'keep', 'reject', 'failed')
 MAX_FANOUT = 60
+SMALL_IMAGE_SOURCE = 'small_image_source'
+KLEIN_SMALL_IMAGE = 'klein_small_image'
+KLEIN_IMAGE_IMPROVE = 'klein_image_improve'
+_SMALL_IMAGE_DERIVATIONS = (SMALL_IMAGE_SOURCE, KLEIN_SMALL_IMAGE)
+# A striped in-process lock is sufficient for LDS's single local server process
+# and makes the active-candidate check + row creation + enqueue one critical
+# section.  In particular, a second simultaneous lightbox click waits until the
+# first row has its job_id, then takes the idempotent return path below.
+_IMAGE_IMPROVE_LOCKS = tuple(threading.Lock() for _ in range(64))
+
+
+class KleinNodesMissing(Exception):
+    """Klein graph preflight failure carried from the service to the HTTP mapper."""
+
+    def __init__(self, missing, missing_nodes):
+        self.missing = list(missing or [])
+        self.missing_nodes = list(missing_nodes or [])
+        super().__init__('Klein custom nodes are missing')
+
+
 # Références ADDITIONNELLES par dataset (au-delà de la principale) : servent
 # UNIQUEMENT Nano Banana (multi-images d'entrée) - Klein/crop/scoring restent
 # sur la principale. Cap bas pour garder des payloads API légers.
@@ -387,6 +407,8 @@ def set_image_status(user_id, image_id, status):
     ds = db.session.get(FaceDataset, img.dataset_id)
     if not ds or str(ds.user_id) != str(user_id):
         return False
+    if img.derivation_kind in _SMALL_IMAGE_DERIVATIONS:
+        raise ValueError('resolve small-image rescue pairs with the dedicated review action')
     if status == 'reject':
         _clear_watermark_metadata(img)
     img.status = status
@@ -400,6 +422,107 @@ def _owned_image(user_id, image_id):
         return None
     ds = db.session.get(FaceDataset, img.dataset_id)
     return img if ds and str(ds.user_id) == str(user_id) else None
+
+
+def resolve_small_image_rescue(user_id, dataset_id, candidate_id, choice):
+    """Resolve an original/Klein rescue pair in one DB commit.
+
+    The pair is deliberately not mutable through the generic single/batch status
+    paths: exactly one of these three decisions is the source of truth.
+    Returns None when the owned dataset/candidate does not exist.
+    """
+    if choice not in ('original', 'klein', 'reject'):
+        raise ValueError('choice must be original, klein, or reject')
+
+    def _load_pair():
+        ds = get_dataset(user_id, dataset_id)
+        if not ds:
+            return None, None
+        candidate = (FaceDatasetImage.query
+                     .filter_by(id=candidate_id, dataset_id=dataset_id).first())
+        if not candidate:
+            return None, None
+        if candidate.derivation_kind != KLEIN_SMALL_IMAGE or not candidate.parent_image_id:
+            raise ValueError('image is not a Klein small-image rescue candidate')
+        source = (FaceDatasetImage.query
+                  .filter_by(id=candidate.parent_image_id, dataset_id=dataset_id,
+                             derivation_kind=SMALL_IMAGE_SOURCE).first())
+        if not source:
+            raise ValueError('small-image rescue source is missing or invalid')
+        return source, candidate
+
+    def _resolved_as(source, candidate):
+        states = (source.status, candidate.status)
+        return {('keep', 'reject'): 'original',
+                ('reject', 'keep'): 'klein',
+                ('reject', 'reject'): 'reject'}.get(states)
+
+    def _payload(source, candidate):
+        return {'choice': choice,
+                'source': {'id': source.id, 'status': source.status},
+                'candidate': {'id': candidate.id, 'status': candidate.status}}
+
+    # Cancel before touching pair statuses: queue_manager uses the same scoped DB
+    # session and commits its job row, so calling it after mutations would split
+    # the supposedly atomic source/candidate decision.
+    source, candidate = _load_pair()
+    if source is None:
+        return None
+    already = _resolved_as(source, candidate)
+    if already:
+        result = _payload(source, candidate)
+        db.session.rollback()
+        if already != choice:
+            raise RuntimeError(f'small-image rescue was already resolved as {already}')
+        return result  # idempotent retry
+    job_id = (candidate.job_id if choice != 'klein' and not candidate.filename else None)
+    db.session.rollback()  # close the preflight read transaction before queue cancellation
+    if job_id:
+        try:
+            from ..job_queue import queue_manager
+            queue_manager.cancel_job(job_id, str(user_id), 'image')
+        except Exception:
+            logger.exception('small-image rescue: failed to cancel job %s', job_id)
+    db.session.rollback()
+
+    # SQLite's BEGIN IMMEDIATE serializes competing resolutions before either one
+    # reads the transition state. The second caller therefore observes the first
+    # committed choice and follows the idempotent/conflict branch.
+    from sqlalchemy import text
+    try:
+        db.session.execute(text('BEGIN IMMEDIATE'))
+        source, candidate = _load_pair()
+        if source is None:
+            db.session.rollback()
+            return None
+        already = _resolved_as(source, candidate)
+        if already:
+            if already != choice:
+                raise RuntimeError(f'small-image rescue was already resolved as {already}')
+            result = _payload(source, candidate)
+            db.session.rollback()
+            return result
+        if source.status != 'pending' or candidate.status not in ('pending', 'failed'):
+            raise RuntimeError('small-image rescue is not in a resolvable state')
+        if choice == 'klein':
+            if candidate.status == 'failed' or not candidate.filename:
+                raise ValueError('Klein rescue result is not ready')
+            source.status, candidate.status = 'reject', 'keep'
+            _clear_watermark_metadata(source)
+        elif choice == 'original':
+            source.status, candidate.status = 'keep', 'reject'
+            _clear_watermark_metadata(candidate)
+        else:
+            source.status = candidate.status = 'reject'
+            _clear_watermark_metadata(source)
+            _clear_watermark_metadata(candidate)
+        db.session.commit()
+        result = _payload(source, candidate)
+    except Exception:
+        db.session.rollback()
+        raise
+    _sync_generate_activity(dataset_id)
+    return result
 
 
 def set_image_caption(user_id, image_id, caption):
@@ -460,7 +583,9 @@ def delete_image(user_id, image_id):
     img = _owned_image(user_id, image_id)
     if not img:
         return False
-    if img.status == 'pending' and not img.filename and img.job_id:  # still generating
+    if img.derivation_kind in _SMALL_IMAGE_DERIVATIONS:
+        raise ValueError('resolve the small-image rescue pair before cleanup')
+    if img.status == 'pending' and not img.filename and img.job_id:
         try:
             from ..job_queue import queue_manager
             queue_manager.cancel_job(img.job_id, str(user_id), 'image')
@@ -539,7 +664,13 @@ def cancel_pending(user_id, dataset_id):
                 queue_manager.cancel_job(img.job_id, str(user_id), 'image')
             except Exception:
                 pass
-        db.session.delete(img)
+        if img.derivation_kind == KLEIN_SMALL_IMAGE:
+            # Preserve the review pair and its original file. A cancelled rescue
+            # is equivalent to an engine failure: the original can still be kept.
+            img.status = 'failed'
+            img.fail_reason = 'Klein small-image rescue was cancelled.'
+        else:
+            db.session.delete(img)
         n += 1
     db.session.commit()
     # Stop deleted the in-flight rows: clear the Klein 'generate' indicator now
@@ -557,7 +688,9 @@ def purge_unused(user_id, dataset_id):
         return 0
     rows = (FaceDatasetImage.query
             .filter_by(dataset_id=dataset_id)
-            .filter(FaceDatasetImage.status.in_(('reject', 'failed'))).all())
+            .filter(FaceDatasetImage.status.in_(('reject', 'failed')))
+            .filter(FaceDatasetImage.derivation_kind.notin_(_SMALL_IMAGE_DERIVATIONS)
+                    | FaceDatasetImage.derivation_kind.is_(None)).all())
     n = 0
     for img in rows:
         if delete_image(user_id, img.id):
@@ -571,6 +704,7 @@ def purge_unused(user_id, dataset_id):
 BACKUP_FORMAT = 'lds-dataset-backup'
 BACKUP_VERSION = 1
 _BACKUP_MAX_FILES = 600
+_BACKUP_MAX_ROWS = 600
 _BACKUP_MAX_BYTES = 2 * 1024 * 1024 * 1024   # 2 GB uncompressed (zip-bomb guard)
 _BACKUP_NAME_RE = re.compile(r'^[\w.-]+\.(webp|jpg|jpeg|png)$', re.IGNORECASE)
 
@@ -578,19 +712,24 @@ _BACKUP_NAME_RE = re.compile(r'^[\w.-]+\.(webp|jpg|jpeg|png)$', re.IGNORECASE)
 # à la machine source — un backup restauré ne peut pas « regénérer »).
 _BACKUP_IMG_FIELDS = ('filename', 'source', 'framing', 'variation_label', 'status',
                       'caption', 'variation_prompt', 'face_score', 'face_state',
-                      'watermark_regions')
+                      'watermark_regions', 'parent_image_id', 'derivation_kind',
+                      'fail_reason')
 
 
 def build_backup_zip(user_id, dataset_id) -> bytes:
     """Self-contained backup of one dataset: manifest.json (settings) +
-    images.json (rows) + ref/ + images/ files. Skips rows without a file
-    (in-flight/failed generations are not restorable)."""
+    images.json (rows) + ref/ + images/ files. Ordinary rows without a file are
+    skipped, but small-image rescue metadata rows are retained so their pair can
+    never become orphaned after restore."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
     dsdir = _dataset_dir(dataset_id)
+    from sqlalchemy import or_
     rows = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id)
-            .filter(FaceDatasetImage.filename.isnot(None)).all())
+            .filter(or_(FaceDatasetImage.filename.isnot(None),
+                        FaceDatasetImage.derivation_kind.in_(_SMALL_IMAGE_DERIVATIONS)))
+            .all())
     manifest = {
         'format': BACKUP_FORMAT, 'version': BACKUP_VERSION,
         'name': ds.name, 'trigger_word': ds.trigger_word,
@@ -601,7 +740,11 @@ def build_backup_zip(user_id, dataset_id) -> bytes:
         'ref_filename': ds.ref_filename, 'ref_original_filename': ds.ref_original_filename,
         'ref_extra_filenames': ds.ref_extra_filenames,
     }
-    images_meta = [{f: getattr(img, f) for f in _BACKUP_IMG_FIELDS} for img in rows]
+    # backup_image_id is archive-local only. It lets restore remap parent_image_id
+    # to the newly allocated row ids instead of retaining ids from the source DB.
+    images_meta = [dict({'backup_image_id': img.id},
+                        **{f: getattr(img, f) for f in _BACKUP_IMG_FIELDS})
+                   for img in rows]
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         z.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=1))
@@ -616,6 +759,8 @@ def build_backup_zip(user_id, dataset_id) -> bytes:
             if os.path.isfile(p):
                 z.write(p, f'ref/{n}')
         for img in rows:
+            if not img.filename:
+                continue   # metadata-only small-rescue candidate
             p = os.path.join(dsdir, img.filename)
             if os.path.isfile(p):
                 z.write(p, f'images/{img.filename}')
@@ -640,6 +785,40 @@ def import_backup_zip(user_id, zip_bytes):
         raise ValueError('not a dataset backup')
     if int(manifest.get('version') or 0) > BACKUP_VERSION:
         raise ValueError('backup made by a newer version of the app - update first')
+    if not isinstance(images_meta, list):
+        raise ValueError('invalid backup image metadata')
+    if len(images_meta) > _BACKUP_MAX_ROWS:
+        raise ValueError(f'too many image rows in backup (max {_BACKUP_MAX_ROWS})')
+    seen_backup_ids = set()
+    rescue_sources = set()
+    rescue_parent_counts = {}
+    for meta in images_meta:
+        if not isinstance(meta, dict):
+            raise ValueError('invalid backup image metadata')
+        backup_id = meta.get('backup_image_id')
+        if backup_id is not None:
+            if isinstance(backup_id, bool) or not isinstance(backup_id, int) or backup_id <= 0:
+                raise ValueError('invalid backup image id')
+            if backup_id in seen_backup_ids:
+                raise ValueError('duplicate backup image id')
+            seen_backup_ids.add(backup_id)
+        derivation = meta.get('derivation_kind')
+        if derivation not in (None, SMALL_IMAGE_SOURCE, KLEIN_SMALL_IMAGE,
+                              KLEIN_IMAGE_IMPROVE):
+            raise ValueError('invalid image derivation in backup')
+        if derivation == SMALL_IMAGE_SOURCE:
+            if backup_id is None or meta.get('parent_image_id') is not None:
+                raise ValueError('invalid small-image source provenance')
+            rescue_sources.add(backup_id)
+        elif derivation == KLEIN_SMALL_IMAGE:
+            parent_id = meta.get('parent_image_id')
+            if backup_id is None or isinstance(parent_id, bool) or not isinstance(parent_id, int):
+                raise ValueError('invalid Klein rescue provenance')
+            rescue_parent_counts[parent_id] = rescue_parent_counts.get(parent_id, 0) + 1
+            if rescue_parent_counts[parent_id] > 1:
+                raise ValueError('multiple Klein rescue candidates for one source')
+    if any(parent_id not in rescue_sources for parent_id in rescue_parent_counts):
+        raise ValueError('Klein rescue candidate has no valid source')
     infos = [i for i in z.infolist() if i.filename.startswith(('ref/', 'images/'))]
     if len(infos) > _BACKUP_MAX_FILES:
         raise ValueError(f'too many files in backup (max {_BACKUP_MAX_FILES})')
@@ -664,15 +843,47 @@ def import_backup_zip(user_id, zip_bytes):
             shutil.copyfileobj(src, dst, 1024 * 1024)
         extracted.add(base)
     n_rows = 0
+    restored_rows = []
+    valid_source_ids = {
+        meta.get('backup_image_id') for meta in images_meta
+        if isinstance(meta, dict)
+        and meta.get('derivation_kind') == SMALL_IMAGE_SOURCE
+        and meta.get('filename') in extracted
+    }
     for meta in images_meta:
+        if not isinstance(meta, dict):
+            continue
         fn = meta.get('filename')
-        if not fn or fn not in extracted:
-            continue   # metadata without its file -> drop the row, not the import
+        derivation = meta.get('derivation_kind')
+        is_candidate = derivation == KLEIN_SMALL_IMAGE
+        if fn and fn not in extracted:
+            continue
+        if not fn and not is_candidate:
+            continue   # only rescue candidates have meaningful metadata-only rows
+        if is_candidate and meta.get('parent_image_id') not in valid_source_ids:
+            continue   # never restore an orphaned candidate
+        values = {f: meta.get(f) for f in _BACKUP_IMG_FIELDS
+                  if f not in ('filename', 'parent_image_id')}
+        if is_candidate and not fn and values.get('status') in ('pending', 'keep'):
+            values['status'] = 'failed'
+            values['fail_reason'] = (
+                'Klein rescue was in flight when this backup was created; '
+                'the original image is preserved, but the job must be started again.'
+            )
         img = FaceDatasetImage(dataset_id=ds.id,
-                               **{f: meta.get(f) for f in _BACKUP_IMG_FIELDS if f != 'filename'},
+                               **values,
                                filename=fn)
         db.session.add(img)
+        restored_rows.append((img, meta))
         n_rows += 1
+    # Allocate new ids first, then restore the graph strictly within this backup.
+    # A missing/skipped parent clears the relationship rather than pointing at an
+    # unrelated row that happens to reuse the old numeric id.
+    db.session.flush()
+    id_map = {meta.get('backup_image_id'): img.id for img, meta in restored_rows
+              if meta.get('backup_image_id') is not None}
+    for img, meta in restored_rows:
+        img.parent_image_id = id_map.get(meta.get('parent_image_id'))
     # Refs referenced by the manifest but absent from the zip -> clear (no dangling).
     if ds.ref_filename and ds.ref_filename not in extracted:
         ds.ref_filename = None
@@ -753,6 +964,9 @@ def batch_image_action(user_id, dataset_id, image_ids, action):
             .filter_by(dataset_id=dataset_id)
             .filter(FaceDatasetImage.id.in_(ids)).all())
     n = 0
+    if action != 'clear_caption' and any(
+            img.derivation_kind in _SMALL_IMAGE_DERIVATIONS for img in rows):
+        raise ValueError('resolve small-image rescue pairs with the dedicated review action')
     if action == 'delete':
         # Per-image path: reuses delete_image (file removal + pending-job cancel).
         for img in rows:
@@ -898,6 +1112,8 @@ def dataset_payload(user_id, dataset_id):
                     'framing': i.framing, 'variation_label': i.variation_label,
                     'status': i.status, 'caption': i.caption,
                     'fail_reason': i.fail_reason,
+                    'parent_image_id': i.parent_image_id,
+                    'derivation_kind': i.derivation_kind,
                     'upscale_ratio': i.upscale_ratio,
                     # Core creative prompt (generated tiles) → seeds the ✏️ edit
                     # bubble so the user edits the real prompt, not a blank box.
@@ -1349,15 +1565,17 @@ def _existing_dhashes(dataset_id) -> list:
     return out
 
 
-def _accept_scrape_bytes(raw, seen_hashes, skipped):
+def _accept_scrape_bytes(raw, seen_hashes, skipped, rescue_small=False):
     """Filtre une image téléchargée : résolution / ratio / dedup perceptuel.
     Retourne les bytes si acceptée (et enregistre son dHash dans seen_hashes),
-    sinon None en incrémentant le compteur skipped adéquat."""
+    sinon None en incrémentant le compteur skipped adéquat. Quand rescue_small
+    est vrai, une petite image continue vers ratio+dedup au lieu d'être rejetée;
+    elle ne sera jamais importée directement dans l'entraînement."""
     try:
         with Image.open(io.BytesIO(raw)) as im:
             im.load()
             w, h = im.size
-            if min(w, h) < SCRAPE_IMPORT_MIN_SIDE:
+            if min(w, h) < SCRAPE_IMPORT_MIN_SIDE and not rescue_small:
                 skipped['low_res'] += 1
                 return None
             if max(w, h) > SCRAPE_IMPORT_MAX_RATIO * min(w, h):
@@ -1372,6 +1590,73 @@ def _accept_scrape_bytes(raw, seen_hashes, skipped):
         return None
     seen_hashes.append(fp)
     return raw
+
+
+def _scrape_resolution_key(downloaded):
+    """Sort key for rescue batches: the best-resolution duplicate must win."""
+    reason, raw = downloaded
+    if reason != 'ok' or not raw:
+        return (0, 0)
+    try:
+        with Image.open(io.BytesIO(raw)) as im:
+            return (min(im.size), im.width * im.height)
+    except (OSError, ValueError):
+        return (0, 0)
+
+
+def _save_small_scrape_pair(user_id, dataset_id, raw, prompt):
+    """Persist the untouched scrape source and enqueue one Klein candidate.
+
+    Returns True when queued, False when enqueue failed. The original and result
+    rows are committed before enqueue so a failed queue operation never loses the
+    source file or leaves an untracked job.
+    """
+    from .klein_edit_helper import enqueue_klein_edit
+
+    with Image.open(io.BytesIO(raw)) as im:
+        ext = {'JPEG': '.jpg', 'PNG': '.png', 'WEBP': '.webp'}.get(im.format)
+    if not ext:
+        raise ValueError('unsupported scrape image format')
+    filename = f"{user_id}_scrape_small_{uuid.uuid4().hex[:8]}{ext}"
+    source_path = os.path.join(_dataset_dir(dataset_id), filename)
+    with open(source_path, 'wb') as fh:
+        fh.write(raw)
+
+    source = FaceDatasetImage(
+        dataset_id=dataset_id, source='import', status='pending', filename=filename,
+        derivation_kind=SMALL_IMAGE_SOURCE,
+        variation_label='Small scraped image · original',
+    )
+    db.session.add(source)
+    db.session.flush()
+    label = 'Klein rescue · small scraped image'
+    candidate = FaceDatasetImage(
+        dataset_id=dataset_id, source='generated', status='pending',
+        parent_image_id=source.id, derivation_kind=KLEIN_SMALL_IMAGE,
+        variation_label=label, variation_prompt=prompt,
+    )
+    db.session.add(candidate)
+    db.session.commit()
+
+    try:
+        job_id = enqueue_klein_edit(
+            user_id=str(user_id), source_filename=filename, source_path=source_path,
+            edit_prompt=prompt,
+            extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
+                            'variation_label': label,
+                            'derivation_kind': KLEIN_SMALL_IMAGE,
+                            'parent_image_id': source.id},
+        )
+    except Exception as exc:
+        candidate.status = 'failed'
+        candidate.fail_reason = f'Klein small-image rescue could not be queued: {exc}'
+        db.session.commit()
+        logger.exception('small-image rescue enqueue failed for dataset %s source %s',
+                         dataset_id, source.id)
+        return False
+    candidate.job_id = job_id
+    db.session.commit()
+    return True
 
 
 def _download_scrape_item(item):
@@ -1394,33 +1679,83 @@ def _download_scrape_item(item):
     return ('ok', data)
 
 
-def scrape_import_urls(user_id, dataset_id, items):
+def scrape_import_urls(user_id, dataset_id, items, rescue_small=False):
     """Télécharge les images scannées SÉLECTIONNÉES directement dans le dataset
     concept — flux AUTONOME. `items` = [{'url','title'}]. Download parallélisé
     (borné), puis filtre + dedup séquentiels (état partagé), puis import brut
     aspect-kept via import_images(crop=False). Renvoie
-    {'imported': n, 'skipped': {duplicates, low_res, extreme_ratio, not_image, errors}}."""
+    {'imported': n, 'rescue_queued': n, 'rescue_failed': n,
+     'skipped': {duplicates, low_res, extreme_ratio, not_image, errors}}."""
     from concurrent.futures import ThreadPoolExecutor
     skipped = {'duplicates': 0, 'low_res': 0, 'extreme_ratio': 0,
                'not_image': 0, 'errors': 0}
     items = [it for it in (items or []) if isinstance(it, dict) and it.get('url')]
     if not items:
-        return {'imported': 0, 'skipped': skipped}
+        return {'imported': 0, 'rescue_queued': 0, 'rescue_failed': 0,
+                'skipped': skipped}
     with ThreadPoolExecutor(max_workers=_SCRAPE_DL_WORKERS) as pool:
         downloaded = list(pool.map(_download_scrape_item, items))
 
+    # In rescue mode a low-resolution duplicate must never claim the dHash first
+    # and make the usable HD source look like the duplicate. The legacy path keeps
+    # request order exactly as before.
+    if rescue_small:
+        downloaded.sort(key=_scrape_resolution_key, reverse=True)
+
     seen_hashes = _existing_dhashes(dataset_id)
-    accepted = []
+    accepted, rescue_candidates = [], []
     for reason, data in downloaded:
         if reason != 'ok':
             skipped[reason] = skipped.get(reason, 0) + 1
             continue
-        ok_bytes = _accept_scrape_bytes(data, seen_hashes, skipped)
+        ok_bytes = _accept_scrape_bytes(data, seen_hashes, skipped,
+                                        rescue_small=rescue_small)
         if ok_bytes is not None:
-            accepted.append(ok_bytes)
+            if rescue_small:
+                try:
+                    with Image.open(io.BytesIO(ok_bytes)) as im:
+                        is_small = min(im.size) < SCRAPE_IMPORT_MIN_SIDE
+                except (OSError, ValueError):
+                    skipped['errors'] += 1
+                    continue
+                (rescue_candidates if is_small else accepted).append(ok_bytes)
+            else:
+                accepted.append(ok_bytes)
+
+    # Capacity and model preflight happen once, after every quality/dedup filter,
+    # but before creating a source/result pair. No small candidate => no Klein scan.
+    if rescue_candidates:
+        in_flight = (FaceDatasetImage.query
+                     .filter_by(dataset_id=dataset_id, status='pending')
+                     .filter(FaceDatasetImage.filename.is_(None)).count())
+        if in_flight + len(rescue_candidates) > MAX_FANOUT:
+            raise ValueError(f'too many generations in flight ({in_flight}), wait or cancel')
+        from .klein_edit_helper import (KLEIN_REQUIRED, KleinModelsMissing,
+                                        klein_missing_assets)
+        missing = klein_missing_assets()
+        if any(asset in missing for asset in KLEIN_REQUIRED):
+            raise KleinModelsMissing(missing)
+
     ids, failed = import_images(user_id, dataset_id, accepted, crop=False)
     skipped['errors'] += failed
-    return {'imported': len(ids), 'skipped': skipped}
+    raw_prompt = cfg.get('klein.small_image_prompt', '')
+    prompt = '' if raw_prompt is None else str(raw_prompt)
+    rescue_queued = rescue_failed = 0
+    for raw in rescue_candidates:
+        try:
+            queued = _save_small_scrape_pair(user_id, dataset_id, raw, prompt)
+        except Exception:
+            rescue_failed += 1
+            logger.exception('small-image rescue save failed for dataset %s', dataset_id)
+            continue
+        if queued:
+            rescue_queued += 1
+        else:
+            rescue_failed += 1
+    if rescue_candidates:
+        _sync_generate_activity(dataset_id)
+    return {'imported': len(ids), 'rescue_queued': rescue_queued,
+            'rescue_failed': rescue_failed, 'skipped': skipped}
 
 
 def _parse_classify(raw):
@@ -2526,6 +2861,112 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
     return ids
 
 
+def improve_existing_image(user_id, image_id):
+    """Serialize one source's improve request, including the queue hand-off."""
+    lock = _IMAGE_IMPROVE_LOCKS[hash((str(user_id), image_id))
+                                % len(_IMAGE_IMPROVE_LOCKS)]
+    with lock:
+        return _improve_existing_image_locked(user_id, image_id)
+
+
+def _improve_existing_image_locked(user_id, image_id):
+    """Queue one non-destructive Klein upscale/improvement of an existing image.
+
+    The source row and file are deliberately never modified.  The result is a
+    regular generated dataset image linked back to the source only for
+    provenance; unlike the small-scrape review pair it remains compatible with
+    the ordinary keep/reject/delete actions.
+
+    Returns ``{'candidate_id', 'job_id'}``, ``None`` for an image not owned by
+    ``user_id``, and returns the already-active candidate idempotently when the
+    same source is clicked twice.
+    """
+    img = _owned_image(user_id, image_id)
+    if not img:
+        return None
+    if img.derivation_kind in _SMALL_IMAGE_DERIVATIONS:
+        raise ValueError(
+            'resolve the small-image rescue pair before improving either image')
+    if img.derivation_kind == KLEIN_IMAGE_IMPROVE:
+        raise ValueError('an upscale & improve candidate cannot be improved again')
+    if not img.filename:
+        raise ValueError('image file required')
+    source_path = _img_path(img)
+    if not os.path.isfile(source_path):
+        raise ValueError('image file missing')
+
+    # A completed Klein job remains status=pending until the user curates it, so
+    # both an in-flight candidate (no filename yet) and an unreviewed result are
+    # active.  Repeated clicks return that same job instead of consuming the GPU
+    # or producing visually indistinguishable duplicates.
+    active = (FaceDatasetImage.query
+              .filter_by(dataset_id=img.dataset_id, parent_image_id=img.id,
+                         derivation_kind=KLEIN_IMAGE_IMPROVE, status='pending')
+              .order_by(FaceDatasetImage.id.desc()).first())
+    if active:
+        if active.job_id:
+            return {'candidate_id': active.id, 'job_id': active.job_id}
+        # This tiny state exists only between the row commit and queue enqueue.
+        # Refuse a concurrent click rather than creating a second candidate.
+        raise RuntimeError('this image improvement is already being queued')
+
+    from . import klein_edit_helper as keh
+    missing = keh.klein_missing_assets()
+    missing_nodes = keh.klein_missing_nodes()
+    if missing_nodes:
+        raise KleinNodesMissing(missing, missing_nodes)
+    if any(asset in missing for asset in keh.KLEIN_REQUIRED):
+        raise keh.KleinModelsMissing(missing)
+
+    in_flight = (FaceDatasetImage.query
+                 .filter_by(dataset_id=img.dataset_id, status='pending')
+                 .filter(FaceDatasetImage.filename.is_(None)).count())
+    if in_flight + 1 > MAX_FANOUT:
+        raise ValueError(
+            f'too many generations in flight ({in_flight}), wait or cancel')
+
+    raw_prompt = cfg.get('klein.small_image_prompt', '')
+    prompt = '' if raw_prompt is None else str(raw_prompt)
+    stored_prompt = prompt[:500]
+    base_label = 'Klein upscale & improve'
+    source_label = (img.variation_label or '').strip()
+    label = (f'{base_label} · {source_label}' if source_label else base_label)[:120]
+    candidate = FaceDatasetImage(
+        dataset_id=img.dataset_id, source='generated', status='pending',
+        parent_image_id=img.id, derivation_kind=KLEIN_IMAGE_IMPROVE,
+        framing=img.framing, caption=img.caption,
+        variation_label=label, variation_prompt=stored_prompt,
+    )
+    db.session.add(candidate)
+    db.session.commit()
+
+    try:
+        job_id = keh.enqueue_klein_edit(
+            user_id=str(user_id), source_filename=img.filename,
+            source_path=source_path, edit_prompt=prompt,
+            extra_metadata={
+                'is_dataset': True,
+                'dataset_id': img.dataset_id,
+                'variation_label': label,
+                'derivation_kind': KLEIN_IMAGE_IMPROVE,
+                'parent_image_id': img.id,
+                'source_image_id': img.id,
+                'action': 'upscale_improve',
+            },
+        )
+    except Exception:
+        # No broken tile: the original is still untouched and the user can retry
+        # as soon as the queue/ComfyUI issue is fixed.
+        db.session.delete(candidate)
+        db.session.commit()
+        raise
+
+    candidate.job_id = job_id
+    db.session.commit()
+    _sync_generate_activity(img.dataset_id)
+    return {'candidate_id': candidate.id, 'job_id': job_id}
+
+
 def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=None,
                      engine=None, klein_model=None):
     """Re-enqueue a single generated variation IN PLACE (same row id): cancel any
@@ -2554,6 +2995,10 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     img = _owned_image(user_id, image_id)
     if not img or img.source != 'generated':
         return None
+    if img.derivation_kind == KLEIN_SMALL_IMAGE:
+        raise ValueError('small-image rescue candidates cannot be regenerated; re-import the source')
+    if img.derivation_kind == KLEIN_IMAGE_IMPROVE:
+        raise ValueError('upscale & improve candidates cannot be regenerated from the dataset reference')
     ds = db.session.get(FaceDataset, img.dataset_id)
     if not ds.ref_filename:
         raise ValueError('reference image required')
@@ -2902,10 +3347,32 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
     if img is None:
         logger.warning(f"dataset link: no FaceDatasetImage row for job {job_id}")
         return
+    if img.derivation_kind == KLEIN_SMALL_IMAGE and img.status in ('keep', 'reject'):
+        # The user already resolved the pair while this job/callback was racing.
+        # The terminal review decision wins: do not attach
+        # a late file and do not turn reject into failed. Remove a local Comfy output
+        # when possible so ignored results do not accumulate outside the dataset.
+        output_dir = _comfy_output_dir()
+        late_output = os.path.join(output_dir, filename) if output_dir and filename else None
+        if late_output and os.path.isfile(late_output):
+            try:
+                os.remove(late_output)
+            except OSError:
+                pass
+        try:
+            _sync_generate_activity(img.dataset_id)
+        except Exception:
+            logger.exception(
+                'dataset link: terminal rescue activity sync failed for job %s', job_id)
+        return
     if failed:
-        img.status = 'failed'
-        img.fail_reason = (img.fail_reason or reason
-                           or 'Klein generation failed (see 🪵 Server log in Settings for the ComfyUI error)')
+        # A cancel racing with the worker dispatches a failure callback. Never let
+        # that callback overwrite an already-resolved rescue choice (keep/reject).
+        if not (img.derivation_kind == KLEIN_SMALL_IMAGE
+                and img.status in ('keep', 'reject')):
+            img.status = 'failed'
+            img.fail_reason = (img.fail_reason or reason
+                               or 'Klein generation failed (see 🪵 Server log in Settings for the ComfyUI error)')
     else:
         output_dir = _comfy_output_dir()
         src = os.path.join(output_dir, filename) if output_dir else None

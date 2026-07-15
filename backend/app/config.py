@@ -88,7 +88,11 @@ DEFAULTS = {
     # 0.8-1.0 "can prevent edits from applying". 0.9 made every variation a
     # near-copy of the reference. 0 disables the LoRA entirely.
     'klein': {'consistency_lora': 'klein/Flux2-Klein-9B-consistency-V2.safetensors',
-              'consistency_strength': 0.5},
+              'consistency_strength': 0.5,
+              # Optional instruction shared by small scraped-image rescue and
+              # the manual lightbox "Upscale & improve" action.
+              # Empty is intentional: never invent a restoration prompt for the user.
+              'small_image_prompt': ''},
     'updates': {'repo': 'perfectgf/lora-dataset-studio'},      # GitHub repo for the release feed
 }
 

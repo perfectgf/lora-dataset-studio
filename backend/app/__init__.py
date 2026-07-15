@@ -22,6 +22,8 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset', 'train_vae_path', 'TEXT'),
     ('face_dataset', 'train_te_path', 'TEXT'),
     ('face_dataset_image', 'fail_reason', 'TEXT'),
+    ('face_dataset_image', 'parent_image_id', 'INTEGER'),
+    ('face_dataset_image', 'derivation_kind', 'VARCHAR(32)'),
     ('face_dataset_image', 'upscale_ratio', 'REAL'),
     ('face_dataset_image', 'watermark_state', 'VARCHAR(16)'),
     ('face_dataset_image', 'watermark_bbox', 'TEXT'),

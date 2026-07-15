@@ -9,6 +9,7 @@ import { getCsrfToken, fetchWithCsrfRetry, CSRF_EXPIRED_MESSAGE, putJson } from 
 import { useToast } from '../components/common/Toast';
 import { useJobs } from '../context/JobsContext';
 import { serializeWatermarkRegions } from '../utils/watermarkRegions';
+import { summarizeScrapeImport } from '../utils/smallImageRescue';
 
 function post(url, body, isForm) {
   // Routes through the shared fetchWithCsrfRetry: a token that aged out mid-session
@@ -328,32 +329,73 @@ export function useDataset() {
   // « Select all » sur un gros scan s'importe en un clic au lieu d'un rejet 400.
   // La dédup perceptuelle est côté dataset, donc les doublons inter-lots sont
   // attrapés. Retourne {ok} pour que le panneau vide sa sélection sur succès.
-  const scrapeImport = useCallback((items) => wrap(async () => {
+  const scrapeImport = useCallback((items, { rescueSmall = false } = {}) => wrap(async () => {
     const BATCH = 60;                       // = svc.SCRAPE_IMPORT_MAX côté serveur
     let imported = 0;
+    let rescueQueued = 0;
+    let rescueFailed = 0;
     const skipped = {};
     for (let i = 0; i < items.length; i += BATCH) {
       if (items.length > BATCH) {
         toast.info(`Importing ${i + 1}–${Math.min(i + BATCH, items.length)} of ${items.length}…`);
       }
       const d = await postJson(`/api/dataset/${currentId}/scrape-import`,
-        { items: items.slice(i, i + BATCH) });
+        { items: items.slice(i, i + BATCH), rescue_small: !!rescueSmall });
       if (!d.ok) {
         toast.error(d.error || 'Unexpected error');
-        if (imported) {
-          toast.warning(`${imported} image(s) were imported before the failure.`);
+        if (imported || rescueQueued || rescueFailed) {
+          const partial = summarizeScrapeImport({ imported, rescueQueued, rescueFailed, skipped });
+          toast.warning(`${partial.message} before the failure.`);
           await refresh();
         }
         return d;
       }
       imported += d.imported || 0;
+      rescueQueued += d.rescue_queued || 0;
+      rescueFailed += d.rescue_failed || 0;
       for (const [k, v] of Object.entries(d.skipped || {})) skipped[k] = (skipped[k] || 0) + v;
     }
-    const skips = Object.entries(skipped).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
-    toast.success(`${imported} imported${skips ? ` · skipped ${skips}` : ''}`);
+    const summary = summarizeScrapeImport({ imported, rescueQueued, rescueFailed, skipped });
+    toast[summary.severity](summary.message);
     await refresh();
-    return { ok: true, imported, skipped };
+    return { ok: true, imported, rescue_queued: rescueQueued, rescue_failed: rescueFailed, skipped };
   }), [wrap, currentId, refresh, toast]);
+
+  // Resolve a Klein rescue pair in ONE transaction so a network failure can
+  // never leave both versions kept (or both half-updated). The candidate id is
+  // the stable pair handle; the server finds its original through parent_image_id.
+  const resolveSmallImageRescue = useCallback(async (candidateId, choice) => {
+    const d = await postJson(
+      `/api/dataset/${currentId}/small-image-rescue/${candidateId}/resolve`,
+      { choice },
+    );
+    if (!d.ok) {
+      toast.error(d.error || 'Could not save the rescue choice');
+      return d;
+    }
+    const labels = {
+      original: 'Original kept · Klein result rejected',
+      klein: 'Klein result kept · original rejected',
+      reject: 'Both versions rejected',
+    };
+    toast.success(labels[choice] || 'Rescue choice saved');
+    await refresh();
+    return d;
+  }, [currentId, refresh, toast]);
+
+  // Manually improve an existing dataset image with Klein. The backend always
+  // creates a separate candidate row: the source pixels and their current
+  // keep/reject state remain untouched until the user reviews the new version.
+  const improveImage = useCallback(async (imageId) => {
+    const d = await postJson(`/api/dataset/image/${imageId}/improve`, {});
+    if (!d.ok) {
+      toast.error(d.error || 'Could not start image improvement');
+      return d;
+    }
+    toast.success('Improvement started — the original stays intact while a separate 2 MP candidate is generated for validation.');
+    await refresh();
+    return d;
+  }, [refresh, toast]);
 
   const classify = useCallback(() => wrap(async () => {
     const d = await postJson(`/api/dataset/${currentId}/classify`);
@@ -804,7 +846,7 @@ export function useDataset() {
            analyzing: analyzingLive, watermarking: watermarkingLive, activity,
            nonces, refNonce, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
-           generate, importFiles, scrapeImport, classify, caption, recaption,
+           generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
            findWatermarks, cleanWatermarks, cleanWatermarkImages, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,

@@ -11,6 +11,7 @@ racine d'images via la fixture `app`, route sous app.routes.datasets.
 import io
 from unittest.mock import patch
 
+import pytest
 from PIL import Image
 
 from app.models import FaceDatasetImage
@@ -125,6 +126,234 @@ def test_scrape_import_ignores_itemless(app):
         assert res['imported'] == 0
 
 
+def test_small_rescue_is_opt_in_and_does_not_preflight_when_disabled(app):
+    with app.app_context():
+        c = _concept()
+        data = _img_bytes(700, 500)
+        with patch.object(svc, '_download_scrape_item',
+                          _fake_downloader({'http://x/small.jpg': data})), \
+             patch('app.services.klein_edit_helper.klein_missing_assets') as preflight:
+            res = svc.scrape_import_urls(
+                LOCAL_USER, c.id, [_item('http://x/small.jpg')])
+        assert res['imported'] == 0
+        assert res['rescue_queued'] == res['rescue_failed'] == 0
+        assert res['skipped']['low_res'] == 1
+        preflight.assert_not_called()
+        assert FaceDatasetImage.query.filter_by(dataset_id=c.id).count() == 0
+
+
+def test_small_rescue_preserves_original_and_queues_empty_prompt(app):
+    with app.app_context():
+        c = _concept()
+        data = _img_bytes(700, 500)
+        calls = []
+
+        def enqueue(**kwargs):
+            calls.append(kwargs)
+            return 'small-rescue-job'
+
+        real_get = svc.cfg.get
+
+        def config_get(key, default=None):
+            return '' if key == 'klein.small_image_prompt' else real_get(key, default)
+
+        with patch.object(svc, '_download_scrape_item',
+                          _fake_downloader({'http://x/small.jpg': data})), \
+             patch('app.services.klein_edit_helper.klein_missing_assets', return_value=[]), \
+             patch('app.services.klein_edit_helper.enqueue_klein_edit', side_effect=enqueue), \
+             patch.object(svc.cfg, 'get', side_effect=config_get):
+            res = svc.scrape_import_urls(
+                LOCAL_USER, c.id, [_item('http://x/small.jpg')], rescue_small=True)
+
+        assert res['imported'] == 0
+        assert res['rescue_queued'] == 1 and res['rescue_failed'] == 0
+        assert res['skipped']['low_res'] == 0
+        source = FaceDatasetImage.query.filter_by(
+            dataset_id=c.id, derivation_kind=svc.SMALL_IMAGE_SOURCE).one()
+        candidate = FaceDatasetImage.query.filter_by(
+            dataset_id=c.id, derivation_kind=svc.KLEIN_SMALL_IMAGE).one()
+        assert source.status == candidate.status == 'pending'
+        assert source.filename and candidate.filename is None
+        assert candidate.parent_image_id == source.id
+        assert candidate.job_id == 'small-rescue-job'
+        assert candidate.variation_prompt == ''
+        assert calls[0]['edit_prompt'] == ''
+        assert calls[0]['source_path'] == svc._img_path(source)
+        with open(svc._img_path(source), 'rb') as fh:
+            assert fh.read() == data
+
+
+def test_small_rescue_enqueue_failure_keeps_original_and_failed_candidate(app):
+    with app.app_context():
+        c = _concept()
+        data = _img_bytes(700, 500)
+        with patch.object(svc, '_download_scrape_item',
+                          _fake_downloader({'http://x/small.jpg': data})), \
+             patch('app.services.klein_edit_helper.klein_missing_assets', return_value=[]), \
+             patch('app.services.klein_edit_helper.enqueue_klein_edit',
+                   side_effect=RuntimeError('ComfyUI offline')):
+            res = svc.scrape_import_urls(
+                LOCAL_USER, c.id, [_item('http://x/small.jpg')], rescue_small=True)
+        assert res['rescue_queued'] == 0 and res['rescue_failed'] == 1
+        source = FaceDatasetImage.query.filter_by(
+            dataset_id=c.id, derivation_kind=svc.SMALL_IMAGE_SOURCE).one()
+        candidate = FaceDatasetImage.query.filter_by(
+            dataset_id=c.id, derivation_kind=svc.KLEIN_SMALL_IMAGE).one()
+        assert source.status == 'pending' and source.filename
+        assert candidate.status == 'failed'
+        assert 'ComfyUI offline' in candidate.fail_reason
+        resolved = svc.resolve_small_image_rescue(
+            LOCAL_USER, c.id, candidate.id, 'original')
+        assert resolved['source']['status'] == 'keep'
+        assert resolved['candidate']['status'] == 'reject'
+
+
+def test_small_rescue_hd_duplicate_wins_before_klein_preflight(app):
+    with app.app_context():
+        c = _concept()
+        low = _img_bytes(700, 500, grad='ltr')
+        high = _img_bytes(1280, 960, grad='ltr')
+        by_url = {'http://x/low.jpg': low, 'http://x/high.jpg': high}
+        with patch.object(svc, '_download_scrape_item', _fake_downloader(by_url)), \
+             patch('app.services.klein_edit_helper.klein_missing_assets') as preflight:
+            res = svc.scrape_import_urls(
+                LOCAL_USER, c.id,
+                [_item('http://x/low.jpg'), _item('http://x/high.jpg')],
+                rescue_small=True)
+        assert res['imported'] == 1 and res['rescue_queued'] == 0
+        assert res['skipped']['duplicates'] == 1
+        preflight.assert_not_called()
+
+
+def test_resolve_small_rescue_is_atomic_idempotent_and_non_reversible(app):
+    with app.app_context():
+        c = _concept()
+        source = FaceDatasetImage(
+            dataset_id=c.id, source='import', filename='source.jpg', status='pending',
+            derivation_kind=svc.SMALL_IMAGE_SOURCE)
+        svc.db.session.add(source)
+        svc.db.session.flush()
+        candidate = FaceDatasetImage(
+            dataset_id=c.id, source='generated', filename='result.png', status='pending',
+            derivation_kind=svc.KLEIN_SMALL_IMAGE, parent_image_id=source.id)
+        svc.db.session.add(candidate)
+        svc.db.session.commit()
+
+        first = svc.resolve_small_image_rescue(
+            LOCAL_USER, c.id, candidate.id, 'klein')
+        assert first['source']['status'] == 'reject'
+        assert first['candidate']['status'] == 'keep'
+        same = svc.resolve_small_image_rescue(
+            LOCAL_USER, c.id, candidate.id, 'klein')
+        assert same == first
+        with pytest.raises(RuntimeError, match='already resolved as klein'):
+            svc.resolve_small_image_rescue(
+                LOCAL_USER, c.id, candidate.id, 'original')
+
+
+def test_late_rescue_callbacks_cannot_overwrite_rejected_choice(app):
+    with app.app_context():
+        c = _concept()
+        source = FaceDatasetImage(
+            dataset_id=c.id, source='import', filename='source.jpg', status='pending',
+            derivation_kind=svc.SMALL_IMAGE_SOURCE)
+        svc.db.session.add(source)
+        svc.db.session.flush()
+        candidate = FaceDatasetImage(
+            dataset_id=c.id, source='generated', status='pending', job_id='late-job',
+            derivation_kind=svc.KLEIN_SMALL_IMAGE, parent_image_id=source.id)
+        svc.db.session.add(candidate)
+        svc.db.session.commit()
+
+        svc.resolve_small_image_rescue(LOCAL_USER, c.id, candidate.id, 'original')
+        svc.link_completed_dataset_image('late-job', None, failed=True,
+                                         reason='cancel raced')
+        svc.db.session.refresh(candidate)
+        assert candidate.status == 'reject' and candidate.filename is None
+
+
+def test_late_rescue_callback_ignores_activity_sync_failure(app, monkeypatch):
+    with app.app_context():
+        c = _concept()
+        source = FaceDatasetImage(
+            dataset_id=c.id, source='import', filename='source.jpg', status='keep',
+            derivation_kind=svc.SMALL_IMAGE_SOURCE)
+        svc.db.session.add(source)
+        svc.db.session.flush()
+        candidate = FaceDatasetImage(
+            dataset_id=c.id, source='generated', status='reject', job_id='late-sync-job',
+            derivation_kind=svc.KLEIN_SMALL_IMAGE, parent_image_id=source.id)
+        svc.db.session.add(candidate)
+        svc.db.session.commit()
+
+        def broken_sync(_dataset_id):
+            raise RuntimeError('activity registry unavailable')
+
+        monkeypatch.setattr(svc, '_sync_generate_activity', broken_sync)
+        # Must not propagate to job_queue._dispatch_completion and must not alter
+        # either terminal status.
+        svc.link_completed_dataset_image(
+            'late-sync-job', 'ignored-result.png', failed=False)
+        svc.db.session.refresh(source)
+        svc.db.session.refresh(candidate)
+        assert source.status == 'keep'
+        assert candidate.status == 'reject' and candidate.filename is None
+        svc.link_completed_dataset_image('late-job', 'late-result.png', failed=False)
+        svc.db.session.refresh(candidate)
+        assert candidate.status == 'reject' and candidate.filename is None
+
+
+def test_backup_restores_all_small_rescue_pair_states_and_remaps_parents(app):
+    with app.app_context():
+        c = _concept()
+        pairs = {}
+        for label, source_status, candidate_status, ready in (
+                ('queued', 'pending', 'pending', False),
+                ('failed', 'pending', 'failed', False),
+                ('ready', 'pending', 'pending', True),
+                ('resolved', 'keep', 'reject', False)):
+            source_name = f'{label}-source.jpg'
+            with open(f'{svc._dataset_dir(c.id)}/{source_name}', 'wb') as fh:
+                fh.write(_img_bytes(700, 500))
+            source = FaceDatasetImage(
+                dataset_id=c.id, source='import', filename=source_name,
+                status=source_status, derivation_kind=svc.SMALL_IMAGE_SOURCE,
+                variation_label=f'{label}-source')
+            svc.db.session.add(source)
+            svc.db.session.flush()
+            candidate_name = f'{label}-result.png' if ready else None
+            if candidate_name:
+                with open(f'{svc._dataset_dir(c.id)}/{candidate_name}', 'wb') as fh:
+                    fh.write(_img_bytes(1024, 1024, fmt='PNG'))
+            candidate = FaceDatasetImage(
+                dataset_id=c.id, source='generated', filename=candidate_name,
+                status=candidate_status, derivation_kind=svc.KLEIN_SMALL_IMAGE,
+                parent_image_id=source.id, variation_label=label,
+                job_id=f'{label}-machine-job',
+                fail_reason='boom' if label == 'failed' else None)
+            svc.db.session.add(candidate)
+            pairs[label] = (source, candidate)
+        svc.db.session.commit()
+
+        restored = svc.import_backup_zip(
+            LOCAL_USER, svc.build_backup_zip(LOCAL_USER, c.id))
+        rows = FaceDatasetImage.query.filter_by(dataset_id=restored.id).all()
+        assert len(rows) == 8
+        by_label = {row.variation_label: row for row in rows}
+        for label in pairs:
+            source = by_label[f'{label}-source']
+            candidate = by_label[label]
+            assert candidate.parent_image_id == source.id
+            assert candidate.job_id is None
+        assert by_label['queued'].status == 'failed'
+        assert 'in flight when this backup was created' in by_label['queued'].fail_reason
+        assert by_label['failed'].status == 'failed'
+        assert by_label['failed'].fail_reason == 'boom'
+        assert by_label['ready'].status == 'pending' and by_label['ready'].filename
+        assert by_label['resolved-source'].status == 'keep'
+        assert by_label['resolved'].status == 'reject'
+
+
 # --- Downloader (SSRF + type) ------------------------------------------------
 def test_download_scrape_item_rejects_private_host(app):
     with app.app_context():
@@ -172,3 +401,45 @@ def test_route_happy_path_reports_counters(client, app):
     body = resp.get_json()
     assert body['ok'] is True and body['imported'] == 2 and body['skipped']['duplicates'] == 1
     m.assert_called_once()
+
+
+def test_route_forwards_rescue_small_and_rejects_non_boolean(client, app):
+    with app.app_context():
+        c = _concept()
+        did = c.id
+    items = [{'url': 'http://x/a.jpg'}]
+    fake = {'imported': 0, 'rescue_queued': 1, 'rescue_failed': 0,
+            'skipped': {'duplicates': 0, 'low_res': 0, 'extreme_ratio': 0,
+                        'not_image': 0, 'errors': 0}}
+    with patch('app.routes.datasets.svc.scrape_import_urls', return_value=fake) as mocked:
+        resp = client.post(f'/api/dataset/{did}/scrape-import',
+                           json={'items': items, 'rescue_small': True})
+    assert resp.status_code == 200 and resp.get_json()['rescue_queued'] == 1
+    mocked.assert_called_once_with(LOCAL_USER, did, items, rescue_small=True)
+    bad = client.post(f'/api/dataset/{did}/scrape-import',
+                      json={'items': items, 'rescue_small': 'yes'})
+    assert bad.status_code == 400
+
+
+def test_route_resolves_small_image_pair(client, app):
+    with app.app_context():
+        c = _concept()
+        source = FaceDatasetImage(
+            dataset_id=c.id, source='import', filename='source.jpg', status='pending',
+            derivation_kind=svc.SMALL_IMAGE_SOURCE)
+        svc.db.session.add(source)
+        svc.db.session.flush()
+        candidate = FaceDatasetImage(
+            dataset_id=c.id, source='generated', filename='result.png', status='pending',
+            derivation_kind=svc.KLEIN_SMALL_IMAGE, parent_image_id=source.id)
+        svc.db.session.add(candidate)
+        svc.db.session.commit()
+        did, cid = c.id, candidate.id
+    resp = client.post(
+        f'/api/dataset/{did}/small-image-rescue/{cid}/resolve',
+        json={'choice': 'original'})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['ok'] is True
+    assert body['source']['status'] == 'keep'
+    assert body['candidate']['status'] == 'reject'

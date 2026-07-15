@@ -8,7 +8,8 @@
  *
  * Guidance surfaced in the UI: aim for 20-50 varied images, keep at most ~10 per
  * gallery (one gallery ≈ one shoot). Server-side filters (dedup, min side < 768px,
- * ratio > 3:1) run at import — the counts are reported in the toast.
+ * ratio > 3:1) run at import — low-resolution images can optionally be preserved
+ * as reviewable Klein rescue pairs instead of being skipped.
  */
 import { useState, useCallback } from 'react';
 import { useToast } from '../common/Toast';
@@ -32,6 +33,9 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
   // Gallery-listing scans (PornPics category/tag/search): OFF = one cover per
   // matched gallery (the keyword-relevant shot), ON = every photo of each gallery.
   const [fullAlbums, setFullAlbums] = useState(false);
+  // Generative rescue is deliberately opt-in for every import. The source and
+  // Klein result both stay out of training until the side-by-side review.
+  const [rescueSmall, setRescueSmall] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   // URLs whose thumbnail failed to load (dead/expired source links). Hidden from
   // the grid so you only ever see & pick live images — dead galleries are common.
@@ -114,7 +118,7 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
     const chosen = items.filter((it) => selected.has(it.url))
       .map((it) => ({ url: it.url, title: it.title || '' }));
     if (chosen.length === 0) return;
-    const d = await onImport?.(chosen);
+    const d = await onImport?.(chosen, { rescueSmall });
     if (d?.ok) setSelected(new Set());
   };
 
@@ -158,6 +162,27 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
           ⬇ Import {selected.size || ''}
         </button>
       </form>
+
+      <label className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-[0.75rem] ${
+        rescueSmall
+          ? 'border-indigo-400/50 bg-indigo-500/10 text-content'
+          : 'border-border bg-white/[0.03] text-content-muted'} ${
+        caps.engines?.klein === false ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+        <input type="checkbox" checked={rescueSmall}
+          disabled={busy || caps.engines?.klein === false}
+          onChange={(e) => setRescueSmall(e.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0 rounded border-border-strong accent-indigo-500" />
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="font-semibold text-content">
+            Rescue images under 768 px with Klein (generative)
+          </span>
+          <span className="text-[0.6875rem] leading-relaxed text-content-subtle">
+            Off by default. Only small images are sent to Klein. The original is preserved,
+            and neither version enters training until you choose one in Curation.
+            {caps.engines?.klein === false ? ' Klein is not ready in this setup.' : ''}
+          </span>
+        </span>
+      </label>
 
       {/* Gallery-listing option — only meaningful for PornPics category/tag/search
           URLs (a direct /galleries/... URL always returns its full album). */}
@@ -239,7 +264,9 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
                 aria-label="Preview size"
                 className="w-24 sm:w-32 accent-indigo-500 cursor-pointer" />
             </label>
-            <span className="ml-auto">Filters at import: duplicates, short side &lt; 768px, ratio &gt; 3:1</span>
+            <span className="ml-auto">
+              Filters at import: duplicates, {rescueSmall ? 'Klein review for' : 'skip'} short side &lt; 768px, ratio &gt; 3:1
+            </span>
           </div>
 
           <div className="grid gap-1.5 overflow-y-auto max-h-[34rem] pr-1"
