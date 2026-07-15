@@ -20,18 +20,19 @@ const CHAPTERS = [
   { id: 'using-the-app', num: '02', title: 'Using the app', description: 'Follow the complete workflow for character, concept, and style datasets.', source: usingTheApp },
   { id: 'dataset-guide', num: '03', title: 'Building a good dataset', description: 'Make stronger choices about images, captions, settings, and checkpoints.', source: datasetGuide },
   { id: 'troubleshooting', num: '04', title: 'Troubleshooting', description: 'Find a symptom, understand the cause, and apply the shortest reliable fix.', source: troubleshooting },
-  { id: 'getting-help', num: '05', title: 'Getting help', description: 'Create a useful report and share the details needed to solve a problem.', source: gettingHelp, extra: 'diagnostic' },
 ]
+const HELP_CHAPTER = { id: 'getting-help', num: '05', title: 'Getting help', description: 'Create a useful report and share the details needed to solve a problem.', source: gettingHelp, extra: 'diagnostic' }
 
 const cleanHeading = (heading) => heading.replace(/[`*_]/g, '')
 
-export default function GuidePage() {
+export default function GuidePage({ helpOnly = false }) {
   const { section } = useParams()
   const navigate = useNavigate()
-  const idx = Math.max(0, CHAPTERS.findIndex((c) => c.id === section))
-  const chapter = CHAPTERS[idx]
-  const prev = idx > 0 ? CHAPTERS[idx - 1] : null
-  const next = idx < CHAPTERS.length - 1 ? CHAPTERS[idx + 1] : null
+  const chapters = helpOnly ? [HELP_CHAPTER] : CHAPTERS
+  const idx = helpOnly ? 0 : Math.max(0, chapters.findIndex((c) => c.id === section))
+  const chapter = chapters[idx]
+  const prev = idx > 0 ? chapters[idx - 1] : null
+  const next = idx < chapters.length - 1 ? chapters[idx + 1] : null
   const headings = [...chapter.source.matchAll(/^##\s+(.+)$/gm)].map((match) => ({
     title: cleanHeading(match[1]), id: markdownHeadingId(match[1]),
   }))
@@ -62,8 +63,10 @@ export default function GuidePage() {
   }
 
   return (
-    <div className="lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:items-start lg:gap-7 xl:grid-cols-[210px_minmax(0,1fr)_190px]">
-      <aside>
+    <div className={helpOnly
+      ? 'mx-auto max-w-5xl xl:grid xl:grid-cols-[minmax(0,1fr)_190px] xl:items-start xl:gap-7'
+      : 'lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:items-start lg:gap-7 xl:grid-cols-[210px_minmax(0,1fr)_190px]'}>
+      {!helpOnly && <aside>
         {/* Mobile: horizontal chapter chips */}
         <nav aria-label="Guide chapters" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
           {CHAPTERS.map((c) => navItem(c, true))}
@@ -75,17 +78,18 @@ export default function GuidePage() {
             {CHAPTERS.map((c) => navItem(c, false))}
           </div>
         </nav>
-      </aside>
+      </aside>}
 
-      <main className="mt-2 min-w-0 max-w-4xl pb-10 lg:mt-0">
+      <main className={`min-w-0 max-w-4xl pb-10 ${helpOnly ? 'mx-auto' : 'mt-2 lg:mt-0'}`}>
         <header className="relative mb-4 overflow-hidden rounded-2xl border border-border bg-surface px-5 py-5 sm:px-6 sm:py-6">
           <div aria-hidden className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-indigo-500/10 blur-3xl" />
           <div className="relative">
             <div className="mb-3 flex flex-wrap items-center gap-2 font-mono text-[0.6875rem] uppercase tracking-[0.14em] text-content-subtle">
-              <span className="rounded-md border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-indigo-300">Chapter {chapter.num}</span>
+              <span className="rounded-md border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-indigo-300">
+                {helpOnly ? 'Support' : `Chapter ${chapter.num}`}
+              </span>
               <span>{readingMinutes} min read</span>
-              <span aria-hidden>·</span>
-              <span>{idx + 1} of {CHAPTERS.length}</span>
+              {!helpOnly && <><span aria-hidden>·</span><span>{idx + 1} of {chapters.length}</span></>}
             </div>
             <h1 className="m-0 max-w-2xl text-2xl font-bold tracking-tight text-content sm:text-3xl">{chapter.title}</h1>
             <p className="mb-0 mt-2 max-w-2xl text-sm leading-relaxed text-content-muted sm:text-base">{chapter.description}</p>
@@ -112,7 +116,7 @@ export default function GuidePage() {
           </div>
         )}
 
-        <div className="mt-6 grid grid-cols-2 gap-3 border-t border-border pt-4">
+        {!helpOnly && <div className="mt-6 grid grid-cols-2 gap-3 border-t border-border pt-4">
           {prev ? (
             <Link to={`/guide/${prev.id}`} className="group flex min-w-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 no-underline hover:bg-surface-raised">
               <span aria-hidden className="text-content-subtle">←</span>
@@ -125,7 +129,7 @@ export default function GuidePage() {
               <span aria-hidden className="text-content-subtle">→</span>
             </Link>
           ) : <span />}
-        </div>
+        </div>}
       </main>
 
       <aside className="hidden xl:block">

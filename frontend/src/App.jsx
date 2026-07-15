@@ -125,6 +125,7 @@ function NavBar() {
         </span>
       </NavLink>
       <NavLink to="/settings" className={navItemClass} onClick={() => setOpen(false)}>Settings</NavLink>
+      <NavLink to="/help" className={navItemClass} onClick={() => setOpen(false)}>Help</NavLink>
     </>
   )
   return (
@@ -321,7 +322,9 @@ function AppInner() {
             <Route path="/" element={<Navigate to="/datasets" replace />} />
             <Route path="/datasets" element={<DatasetPage />} />
             <Route path="/guide" element={<GuidePage />} />
+            <Route path="/guide/getting-help" element={<Navigate to="/help" replace />} />
             <Route path="/guide/:section" element={<GuidePage />} />
+            <Route path="/help" element={<GuidePage helpOnly />} />
             <Route path="/studio" element={<StudioPage />} />
             <Route path="/dataset/studio/:id" element={<StudioPage />} />
             <Route path="/cloud" element={<CloudRunsPage />} />
