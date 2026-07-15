@@ -13,6 +13,21 @@ The useful part of LoRA training isn't the training — it's building a clean, b
 
 ---
 
+## Recent improvements
+
+- **Klein rescue for small scraper imports** — optionally send selected images below 768 px to Klein instead of discarding them, then compare the untouched original and generated candidate side by side before choosing either one or rejecting both.
+- **Upscale & improve from every image lightbox** — create a separate **2 MP** Klein candidate for an existing dataset image. The source pixels and keep/reject state remain untouched until the result is validated.
+- **Shared Klein instruction** — both improvement flows use **Settings → Scraping & sources → Klein image improvement**; the instruction is empty by default, so the image is sent without an invented restoration prompt.
+- **Reusable generation presets** — custom presets save selected built-in shots together with selected custom shots, then can be applied, renamed or deleted.
+- **Better caption editing** — expand any caption into a larger editor with a character count and **Ctrl/⌘ + Enter** save. Frequency tools and re-caption guidance now adapt to character, concept or style datasets and to prose vs booru captions.
+- **Editable watermark corrections** — move/resize detected boxes or add missed zones in **Review flagged**. LaMa cleanup can use **Auto, GPU (CUDA), or CPU** from Settings.
+- **Captioning recovery** — interrupted/stale caption jobs recover cleanly, progress/logging is more explicit, and local Ollama starts automatically when available but stopped.
+- **Independent checkpoint browser** — **📦 Checkpoints & LoRAs** is a separate workspace destination between Train and Studio, with selectors independent from the next training configuration.
+- **Guide and Help polish** — Help is available from the main navigation, guide content is split into more readable cards, and contact links render as real links.
+
+Klein restoration is generative and may alter fine details, which is why improved images never enter training without explicit validation.
+
+---
 ## Everything it does, at a glance
 
 The whole pipeline, grouped by stage — every item links to the section that details it.
@@ -129,7 +144,7 @@ What it does on your behalf:
 
 - **SSRF-hardened** — the fetcher refuses internal/loopback/link-local targets, so a hostile URL can't turn the scraper into a request proxy into your network.
 - **Perceptual de-duplication** — near-identical frames are dropped so the same shot doesn't get counted five times.
-- **Quality filters at import** — anything under 768px on the short side, or wider than a 3:1 ratio, is rejected before it lands.
+- **Quality filters at import** — images wider than a 3:1 ratio are rejected. Images under 768 px on the short side are rejected by default, or can be sent to the optional Klein rescue flow instead.
 - **Dead-link hygiene** — source links whose thumbnails fail to load are hidden from the grid, so you only ever pick live images.
 - **Sensible guidance baked in** — the panel nudges you toward 20–50 varied images, at most ~10 per gallery (one gallery ≈ one shoot), which is what actually trains well.
 
@@ -170,7 +185,7 @@ Real images pulled off the web carry **overlaid watermarks** — a site logo, a 
   Every edited image keeps its watermarked original as a sibling `.orig` backup, and Clean reports one honest summary (cropped / inpainted / need review / failed).
 - **🔍 Review flagged (N)** opens a lightbox that steps through the flagged images one at a time: you see the **detected box drawn** on the shot and the tool's planned action, then Clean it (and see the **cleaned result** before moving on), **dismiss** it as a false positive (the 🚩 clears and future Find passes never re-flag it), or reject it outright.
 
-LaMa inpainting is an ML extra: without it installed, Clean still crops border marks and simply *skips* the off-centre ones — a one-click **⬇ Install inpainting** button sits right next to the tools to add it (a CPU-only package, one-time download). On-subject watermark removal is a planned V2; V1 deliberately never repaints over the subject.
+LaMa inpainting is an ML extra: without it installed, Clean still crops border marks and simply *skips* the off-centre ones — a one-click **⬇ Install inpainting** button sits right next to the tools to add it. On-subject watermark removal is a planned V2; V1 deliberately never repaints over the subject.
 
 ### 8. Edit the prompt, regenerate the shot
 
@@ -232,7 +247,7 @@ Not every feature needs every backend. The app degrades gracefully — API keys 
 |---|---|
 | API image generation (Nano Banana Pro) | `GEMINI_API_KEY` |
 | API image generation (ChatGPT / `gpt-image-2`) | `OPENAI_API_KEY` |
-| Klein image generation | ComfyUI reachable + Klein model installed |
+| Klein image generation / 2 MP image improvement | ComfyUI reachable + Klein model installed |
 | Captioning | Ollama **or** ai-toolkit (JoyCaption) |
 | Auto-classify framing / auto head-crop | Ollama (vision model) |
 | Face-similarity scoring | `backend/requirements-ml.txt` (insightface + onnxruntime) |
@@ -423,8 +438,10 @@ Copy `config.example.json` to `config.json` (git-ignored) and adjust. Every key:
 | `face_scoring.orange` | Similarity score threshold (0–1) above which an image is flagged "orange" (borderline match). |
 | `masks.python` | Python interpreter used to run the rembg subprocess (empty = current interpreter). |
 | `watermark.python` | Python interpreter used to run the LaMa watermark-inpainting subprocess (empty = reuse `masks.python`, then the current interpreter). |
+| watermark.device | LaMa processing device: uto (CUDA when available, otherwise CPU), cuda, or cpu. |
 | `klein.consistency_lora` | Filename of the Klein consistency LoRA, relative to ComfyUI's LoRA folder. |
 | `klein.consistency_strength` | Strength (0–1) applied to the Klein consistency LoRA. |
+| klein.small_image_prompt | Optional shared instruction for scraper rescue and manual lightbox improvement (empty = reference image only). |
 
 Secrets (`GEMINI_API_KEY`, `OPENAI_API_KEY`) live in `.env`, not `config.json` — copy `.env.example` to `.env`, or paste keys into Settings and let the app write them for you.
 
