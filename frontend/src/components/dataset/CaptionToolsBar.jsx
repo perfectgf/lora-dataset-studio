@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
+import { captionCategoryCopy, captionFrequencyEntries } from './captionCategory';
 
 /* Bulk caption tools (collapsible): find/replace across the kept images'
-   captions + a tag-frequency panel. The frequency list is derived client-side
-   from the payload the workspace already polls (captions split on commas) —
-   it's mainly useful for booru tags (SDXL), where one stray recurring tag
-   pollutes the whole training. Clicking a tag pre-fills "find" in tag mode;
-   leaving "replace" empty removes the tag cleanly (no dangling commas).
+   captions + a category-aware frequency panel. Booru counts exact comma tags;
+   prose counts useful whole words by caption. Guidance changes for character,
+   concept and style sets. Clicking an entry pre-fills the matching edit mode;
+   leaving "replace" empty removes it from every caption.
    Also hosts 💾 Write .txt files (kohya-style sidecar captions written next to
    the images on disk, same text as the export ZIP) + 📂 open that folder. */
-export default function CaptionToolsBar({ images, trainType, mode = 'booru',
+export default function CaptionToolsBar({ images, kind = 'character', mode = 'booru',
                                           excludes = [], includes = [], onExclude, onInclude,
                                           onReplace, onWriteFiles, onOpenFolder, busy,
                                           open: controlledOpen, onOpenChange }) {
@@ -22,20 +22,14 @@ export default function CaptionToolsBar({ images, trainType, mode = 'booru',
   const [find, setFind] = useState('');
   const [replace, setReplace] = useState('');
   const [filterInput, setFilterInput] = useState('');
-  const [tagMode, setTagMode] = useState(trainType === 'sdxl');
+  const [tagMode, setTagMode] = useState(mode === 'booru');
   const captioned = useMemo(
     () => images.filter((i) => i.status === 'keep' && (i.caption || '').trim()),
     [images]);
-  const freq = useMemo(() => {
-    const counts = new Map();
-    for (const img of captioned) {
-      for (const raw of (img.caption || '').split(',')) {
-        const t = raw.trim().toLowerCase();
-        if (t) counts.set(t, (counts.get(t) || 0) + 1);
-      }
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30);
-  }, [captioned]);
+  const freq = useMemo(
+    () => captionFrequencyEntries(captioned.map((img) => img.caption), mode),
+    [captioned, mode]);
+  const categoryCopy = useMemo(() => captionCategoryCopy(kind, mode), [kind, mode]);
   if (!captioned.length) return null;
 
   const apply = async () => {
@@ -62,7 +56,7 @@ export default function CaptionToolsBar({ images, trainType, mode = 'booru',
         className="flex items-center gap-2 w-full text-left text-content text-sm font-semibold">
         <span aria-hidden>📝</span> Caption tools
         <span className="text-content-subtle text-[0.6875rem] font-normal">
-          find/replace · tag frequency ({captioned.length} captioned)
+          find/replace · {categoryCopy.frequencyTitle.toLowerCase()} ({captioned.length} captioned)
         </span>
         <span aria-hidden className="ml-auto text-content-subtle">{open ? '▾' : '▸'}</span>
       </button>
@@ -106,7 +100,9 @@ export default function CaptionToolsBar({ images, trainType, mode = 'booru',
               what's left to do (community's #1 request). Multi-exclusions cumulate;
               active filters show as loud chips above the grid. Session-only (they
               reset on reload / dataset switch — a transient view, not dataset state). */}
-          <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Filter the grid by tag</span>
+          <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">
+            Filter the grid by {categoryCopy.frequencyItem}
+          </span>
           <p className="m-0 text-content-subtle text-[0.6875rem] leading-relaxed">
             <span className="text-content-muted font-medium">Exclude</span> hides images already tagged with a
             word — walk a captioning checklist without re-checking what's done.{' '}
@@ -116,7 +112,8 @@ export default function CaptionToolsBar({ images, trainType, mode = 'booru',
           <div className="flex items-center gap-2 flex-wrap">
             <input value={filterInput} onChange={(e) => setFilterInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitFilter(onExclude); } }}
-              placeholder="tag to filter by…" aria-label="Tag to filter the grid by"
+              placeholder={categoryCopy.filterPlaceholder}
+              aria-label={`${categoryCopy.frequencyItem} to filter the grid by`}
               className="px-2 py-1 rounded bg-app/60 border border-border text-content text-xs w-44" />
             <button type="button" onClick={() => submitFilter(onExclude)} disabled={!onExclude || !filterInput.trim()}
               title="Hide every image that already carries this tag from the grid"
@@ -133,15 +130,16 @@ export default function CaptionToolsBar({ images, trainType, mode = 'booru',
           </div>
           {freq.length > 0 && (
             <div className="flex flex-col gap-1">
-              <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Most frequent tags</span>
+              <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">
+                {categoryCopy.frequencyTitle}
+              </span>
               <p className="m-0 text-content-subtle text-[0.6875rem] leading-relaxed">
-                A word in many captions gets strongly tied to your trigger. If it's something you'd rather
-                keep <span className="text-content-muted font-medium">prompt-controllable</span> (an outfit,
-                a pose, a setting), remove it here so it doesn't bake into the character. Click a tag to load
-                it into Find (tag mode); leave Replace empty to strip it from every caption. The{' '}
-                <span className="text-rose-300 font-medium">⊘</span> hides every image already tagged with it.
+                {categoryCopy.frequencyHelp}{' '}
+                Click a {categoryCopy.frequencyItem} to load it into Find
+                {mode === 'booru' ? ' (tag mode)' : ' (text mode)'}; leave Replace empty to strip it from every caption. The{' '}
+                <span className="text-rose-300 font-medium">⊘</span> hides every image whose caption contains it.
               </p>
-              <div className="flex flex-wrap gap-1" aria-label="Most frequent caption tags">
+              <div className="flex flex-wrap gap-1" aria-label={`Most frequent caption ${categoryCopy.frequencyItem}s`}>
                 {freq.map(([tag, n]) => {
                   const isExcluded = excludes.includes(tag);
                   const isIncluded = includes.includes(tag);
@@ -150,8 +148,8 @@ export default function CaptionToolsBar({ images, trainType, mode = 'booru',
                       className={`inline-flex items-stretch rounded border overflow-hidden ${
                         isExcluded ? 'border-rose-400/60' : isIncluded ? 'border-indigo-400/60' : 'border-border'}`}>
                       <button type="button"
-                        onClick={() => { setFind(tag); setTagMode(true); }}
-                        title={`"${tag}" appears in ${n} caption(s) — click to fill Find (tag mode)`}
+                        onClick={() => { setFind(tag); setTagMode(mode === 'booru'); }}
+                        title={`"${tag}" appears in ${n} caption(s) — click to fill Find (${mode === 'booru' ? 'tag' : 'text'} mode)`}
                         className="px-1.5 py-0.5 bg-app/60 text-[0.6875rem] text-content-muted hover:text-content hover:bg-surface-raised">
                         {tag} <span className="text-content-subtle">×{n}</span>
                       </button>

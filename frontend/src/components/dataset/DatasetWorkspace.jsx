@@ -9,6 +9,7 @@ import ImportDropzone from './ImportDropzone';
 import ConceptSourcesPanel from './ConceptSourcesPanel';
 import DatasetGrid from './DatasetGrid';
 import CaptionToolsBar from './CaptionToolsBar';
+import { recaptionConfirmation } from './captionCategory';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
 import DatasetSettingsModal from './DatasetSettingsModal';
@@ -938,9 +939,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 </button>
                 <button type="button" disabled={ds.busy || !keptCaptioned}
                   onClick={() => {
-                    if (window.confirm(`Re-captioning overwrites the ${keptCaptioned} existing caption(s) (new prompt, no face description). Continue?`)) ds.recaption(effCaptionMode);
+                    if (window.confirm(recaptionConfirmation(d.kind || 'character', keptCaptioned))) ds.recaption(effCaptionMode);
                   }}
-                  title="Re-generates all captions with the prompt that doesn't describe identity (face/hair)"
+                  title={isConcept
+                    ? "Re-generates every caption while keeping the recurring concept unspoken"
+                    : isStyle
+                      ? "Re-generates every caption as content-only text without naming the aesthetic"
+                      : "Re-generates every caption without describing identity (face/hair)"}
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
                   🔄 Re-caption
                 </button>
@@ -952,8 +957,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     reads as a REAL result, not a scan that never ran. */}
                 {isStyle ? (
                   <span className="ml-auto text-content-subtle text-[0.8125rem]"
-                    title="A style LoRA describes its subjects freely — those words are the controllable content, not a leak. No leak check applies to a style set.">
-                    leak check: not applicable to a style set
+                    title="Style captions describe controllable content but should not name the aesthetic, medium or artist. The caption prompt enforces this rule; there is no automatic style-term scanner yet.">
+                    style captions: content only · aesthetic terms stay unspoken
                   </span>
                 ) : d.caption_leak && (
                   d.caption_leak.captioned > 0 ? (
@@ -1102,7 +1107,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
               )}
 
               <div id="ds-captions-tools" tabIndex={-1} className="scroll-mt-20">
-                <CaptionToolsBar images={images} trainType={d.train_type} mode={effCaptionMode}
+                <CaptionToolsBar images={images} kind={d.kind || 'character'} mode={effCaptionMode}
                   excludes={excludeTags} includes={includeTags}
                   onExclude={toggleExclude} onInclude={toggleInclude}
                   onReplace={ds.replaceCaptions}
