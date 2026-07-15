@@ -7,6 +7,7 @@ import TrainingPanel from './TrainingPanel';
 import { fmt } from '../../utils/studioFormat';
 import ImportDropzone from './ImportDropzone';
 import ConceptSourcesPanel from './ConceptSourcesPanel';
+import { isScraperImportBlocked } from './scraperState';
 import DatasetGrid from './DatasetGrid';
 import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
@@ -469,6 +470,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // e.g. "Scanning for watermarks… 12/64". CPU passes (face analysis, watermark
   // clean) don't pause ComfyUI, so their note omits that claim.
   const act = ds.activity;
+  const scraperBusy = isScraperImportBlocked({ busy: ds.busy, activity: act });
   const activityBanner = ds.captioning
     ? `${act?.detail || `Captioning in progress — ${keptCaptioned}/${kept} captioned…`} ComfyUI is paused.`
     : (() => {
@@ -781,7 +783,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
               // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
               <div id="gf-reference" className="scroll-mt-20 flex flex-col gap-2">
                 <div id="ds-add-scraper" tabIndex={-1} className="scroll-mt-20">
-                  <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
+                  <ConceptSourcesPanel key={`scraper-${d.id}`} datasetId={d.id}
+                    onImport={ds.scrapeImport} busy={scraperBusy} />
                 </div>
                 <div id="ds-add-import" tabIndex={-1} className="scroll-mt-20">
                   <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
@@ -841,7 +844,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       </span>
                     </summary>
                     <div className="px-3">
-                      <ConceptSourcesPanel onImport={ds.scrapeImport} busy={ds.busy} />
+                      <ConceptSourcesPanel key={`scraper-${d.id}`} datasetId={d.id}
+                        onImport={ds.scrapeImport} busy={scraperBusy} />
                     </div>
                   </details>
                 </div>

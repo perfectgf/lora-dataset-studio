@@ -7,12 +7,23 @@ from app.services.face_variations import (VARIATION_CATALOG, NSFW_VARIATION_CATA
 
 
 def test_catalog_shape():
-    assert len(VARIATION_CATALOG) == 45          # 36 + 9 body-emphasis entries
+    assert len(VARIATION_CATALOG) == 53          # 45 existing + 8 profile variations
     frames = [e['framing'] for e in VARIATION_CATALOG]
-    assert frames.count('face') == 17 and frames.count('bust') == 10
+    assert frames.count('face') == 25 and frames.count('bust') == 10
     assert frames.count('body') == 17 and frames.count('back') == 1
     for e in VARIATION_CATALOG:
         assert set(e) >= {'id', 'axis', 'framing', 'label', 'prompt'}
+
+
+def test_left_and_right_profile_variations_are_symmetric():
+    by_id = {e['id']: e for e in VARIATION_CATALOG}
+    for suffix in ('smile', 'serious', 'look_up', 'rim_light'):
+        left = by_id[f'face_profile_l_{suffix}']
+        right = by_id[f'face_profile_r_{suffix}']
+        assert left['framing'] == right['framing'] == 'face'
+        assert left['axis'] == right['axis']
+        assert 'left profile view' in left['prompt']
+        assert 'right profile view' in right['prompt']
 
 
 def test_presets():

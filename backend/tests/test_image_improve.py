@@ -41,7 +41,7 @@ def _source(svc, image_cls, user_id, *, filename='source.png', derivation_kind=N
     '',
     'Restore natural detail while preserving the person and composition.',
 ])
-def test_improve_existing_image_is_non_destructive_and_uses_config_prompt(
+def test_improve_existing_image_is_non_destructive_and_uses_metadata_profile(
         app, monkeypatch, configured_prompt):
     from app.config import LOCAL_USER
     from app.models import FaceDatasetImage
@@ -89,12 +89,15 @@ def test_improve_existing_image_is_non_destructive_and_uses_config_prompt(
         assert candidate.derivation_kind not in svc._SMALL_IMAGE_DERIVATIONS
         assert candidate.framing == source.framing
         assert candidate.caption == source.caption
-        assert candidate.variation_prompt == configured_prompt
+        assert candidate.variation_prompt == svc.KLEIN_IMAGE_IMPROVE_PROMPT
         assert candidate.variation_label.startswith('Klein upscale & improve')
         assert candidate.job_id == 'improve-job-1'
         assert queued[0]['source_filename'] == source.filename
         assert queued[0]['source_path'] == svc._img_path(source)
-        assert queued[0]['edit_prompt'] == configured_prompt
+        assert queued[0]['edit_prompt'] == svc.KLEIN_IMAGE_IMPROVE_PROMPT
+        assert queued[0]['lora_strength'] == 0.0
+        assert queued[0]['sampler_steps'] == 4
+        assert queued[0]['base_lora_strength'] == 0.0
         assert queued[0]['extra_metadata']['source_image_id'] == source_id
         assert queued[0]['extra_metadata']['derivation_kind'] == svc.KLEIN_IMAGE_IMPROVE
         assert syncs == [ds.id]

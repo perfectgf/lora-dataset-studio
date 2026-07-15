@@ -70,6 +70,18 @@ def test_activity_detail_can_explain_a_long_running_stage():
     da.end(t)
 
 
+def test_generate_activity_exposes_its_engine():
+    from app.services import dataset_activity as da
+    da.reset()
+    t = da.begin(5, 'generate', total=2, engine='chatgpt')
+    assert da.get(5)['engine'] == 'chatgpt'
+    da.end(t)
+
+    da.sync_pending(5, 'generate', 2, engine='klein')
+    assert da.get(5)['engine'] == 'klein'
+    da.sync_pending(5, 'generate', 0, engine='klein')
+
+
 def test_end_idempotent_and_unknown_token_is_noop():
     from app.services import dataset_activity as da
     da.reset()

@@ -11,32 +11,49 @@
  * ratio > 3:1) run at import — low-resolution images can optionally be preserved
  * as reviewable Klein rescue pairs instead of being skipped.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useToast } from '../common/Toast';
 import { postJson } from '../../hooks/useDataset';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import InstallRunner from '../setup/InstallRunner';
+import { clearScraperScanState, loadScraperScanState, saveScraperScanState } from './scraperState';
 
 const thumbFor = (it) =>
   `/api/scrape/thumb?url=${encodeURIComponent(it.thumbnail || it.url)}`;
 
-export default function ConceptSourcesPanel({ onImport, busy }) {
+const SOURCE_GROUPS = [
+  { label: 'SFW', tone: 'emerald', sources: [
+    ['Reddit', 'https://www.reddit.com/'], ['Instagram', 'https://www.instagram.com/'],
+    ['X / Twitter', 'https://x.com/'], ['Civitai images', 'https://civitai.com/images'],
+  ] },
+  { label: 'NSFW', tone: 'rose', sources: [
+    ['PornPics', 'https://www.pornpics.com/'], ['Sex.com', 'https://www.sex.com/'],
+    ['Picazor', 'https://picazor.com/'], ['Erome', 'https://www.erome.com/'],
+    ['Fapello', 'https://fapello.com/'], ['Coomer', 'https://coomer.st/'],
+    ['Kemono', 'https://kemono.cr/'], ['Cyberdrop', 'https://cyberdrop.me/'],
+    ['Bunkr', 'https://bunkr.cr/'],
+  ] },
+];
+
+export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
   const toast = useToast();
   const { caps, refresh } = useCapabilities();
-  const [url, setUrl] = useState('');
-  const [kw, setKw] = useState('');       // Reddit keyword search
-  const [sub, setSub] = useState('');     // optional subreddit scope
-  const [items, setItems] = useState([]);
-  const [page, setPage] = useState(0);
-  const [paginated, setPaginated] = useState(false);
+  const [restoredScan] = useState(() => loadScraperScanState(datasetId));
+  const [url, setUrl] = useState(restoredScan.url);
+  const [kw, setKw] = useState(restoredScan.kw);       // Reddit keyword search
+  const [sub, setSub] = useState(restoredScan.sub);     // optional subreddit scope
+  const [items, setItems] = useState(restoredScan.items);
+  const [page, setPage] = useState(restoredScan.page);
+  const [paginated, setPaginated] = useState(restoredScan.paginated);
   const [scanning, setScanning] = useState(false);
   // Gallery-listing scans (PornPics category/tag/search): OFF = one cover per
   // matched gallery (the keyword-relevant shot), ON = every photo of each gallery.
-  const [fullAlbums, setFullAlbums] = useState(false);
+  const [fullAlbums, setFullAlbums] = useState(restoredScan.fullAlbums);
   // Generative rescue is deliberately opt-in for every import. The source and
   // Klein result both stay out of training until the side-by-side review.
-  const [rescueSmall, setRescueSmall] = useState(false);
-  const [selected, setSelected] = useState(() => new Set());
+  const [rescueSmall, setRescueSmall] = useState(restoredScan.rescueSmall);
+  const [selected, setSelected] = useState(() => new Set(restoredScan.selected));
+  const [importing, setImporting] = useState(false);
   // URLs whose thumbnail failed to load (dead/expired source links). Hidden from
   // the grid so you only ever see & pick live images — dead galleries are common.
   const [broken, setBroken] = useState(() => new Set());
@@ -50,6 +67,11 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
     setTile(v);
     try { localStorage.setItem('conceptTileSize', String(v)); } catch { /* ignore */ }
   };
+
+  useEffect(() => {
+    saveScraperScanState(datasetId, { url, kw, sub, items, page, paginated,
+      fullAlbums, rescueSmall, selected });
+  }, [datasetId, url, kw, sub, items, page, paginated, fullAlbums, rescueSmall, selected]);
 
   // `explicitUrl` lets the Reddit keyword search scan a freshly-built URL without
   // waiting for the `url` state to flush; "Load more" omits it and reuses `url`.
@@ -117,9 +139,21 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
   const handleImport = async () => {
     const chosen = items.filter((it) => selected.has(it.url))
       .map((it) => ({ url: it.url, title: it.title || '' }));
-    if (chosen.length === 0) return;
-    const d = await onImport?.(chosen, { rescueSmall });
-    if (d?.ok) setSelected(new Set());
+    if (chosen.length === 0 || importing) return;
+    setImporting(true);
+    try {
+      const d = await onImport?.(chosen, { rescueSmall });
+      if (d?.ok) setSelected(new Set());
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const resetScan = () => {
+    clearScraperScanState(datasetId);
+    setUrl(''); setKw(''); setSub(''); setItems([]); setPage(0);
+    setPaginated(false); setFullAlbums(false); setRescueSmall(false);
+    setSelected(new Set()); setBroken(new Set());
   };
 
   return (
@@ -130,6 +164,26 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
           title="Research-backed: 20-50 curated images beat hundreds of mixed ones; keep at most ~10 per gallery (one gallery ≈ one shoot).">
           aim for 20-50 varied images
         </span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Compatible scraper sites">
+        {SOURCE_GROUPS.map((group) => (
+          <div key={group.label}
+            className={`rounded-lg border px-2.5 py-2 ${group.tone === 'emerald'
+              ? 'border-emerald-400/30 bg-emerald-500/5'
+              : 'border-rose-400/30 bg-rose-500/5'}`}>
+            <span className={`mr-2 text-[0.6875rem] font-bold ${group.tone === 'emerald'
+              ? 'text-emerald-300' : 'text-rose-300'}`}>{group.label}</span>
+            <span className="inline-flex flex-wrap gap-x-2 gap-y-1">
+              {group.sources.map(([name, href]) => (
+                <a key={name} href={href} target="_blank" rel="noreferrer"
+                  className="text-[0.6875rem] text-content-muted underline decoration-white/20 underline-offset-2 hover:text-content">
+                  {name} ↗
+                </a>
+              ))}
+            </span>
+          </div>
+        ))}
       </div>
 
       {/* Scrape extras (curl_cffi, gallery-dl, cloudscraper…) live in the
@@ -157,9 +211,9 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
           className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40">
           {scanning && page === 0 ? 'Scanning…' : 'Scan'}
         </button>
-        <button type="button" onClick={handleImport} disabled={busy || selected.size === 0}
+        <button type="button" onClick={handleImport} disabled={busy || importing || selected.size === 0}
           className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-          ⬇ Import {selected.size || ''}
+          {importing ? 'Importing…' : `⬇ Import ${selected.size || ''}`}
         </button>
       </form>
 
@@ -169,7 +223,7 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
           : 'border-border bg-white/[0.03] text-content-muted'} ${
         caps.engines?.klein === false ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
         <input type="checkbox" checked={rescueSmall}
-          disabled={busy || caps.engines?.klein === false}
+          disabled={busy || importing || caps.engines?.klein === false}
           onChange={(e) => setRescueSmall(e.target.checked)}
           className="mt-0.5 h-4 w-4 shrink-0 rounded border-border-strong accent-indigo-500" />
         <span className="flex min-w-0 flex-col gap-0.5">
@@ -264,6 +318,10 @@ export default function ConceptSourcesPanel({ onImport, busy }) {
                 aria-label="Preview size"
                 className="w-24 sm:w-32 accent-indigo-500 cursor-pointer" />
             </label>
+            <button type="button" onClick={resetScan} disabled={scanning || importing}
+              className="px-2 py-0.5 rounded border border-border hover:text-content disabled:opacity-40">
+              Reset scan
+            </button>
             <span className="ml-auto">
               Filters at import: duplicates, {rescueSmall ? 'Klein review for' : 'skip'} short side &lt; 768px, ratio &gt; 3:1
             </span>

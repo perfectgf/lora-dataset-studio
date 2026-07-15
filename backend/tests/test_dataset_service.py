@@ -845,6 +845,7 @@ def test_api_batch_advertises_generate_activity_then_clears(app, monkeypatch):
         monkeypatch.setattr(svc, '_api_generate_fn', lambda engine: gen)
         svc._run_nanobanana_batch(app, items, [_png()], engine='nanobanana', dataset_id=ds.id)
         assert seen and seen[0]['kind'] == 'generate' and seen[0]['total'] == 3
+        assert seen[0]['engine'] == 'nanobanana'
         assert seen[-1]['done'] >= 1                       # bumped per handled item
         # After the batch: cleared (finally end()) — both directly and in the payload.
         assert da.get(ds.id) is None
@@ -904,6 +905,7 @@ def test_klein_generate_activity_from_enqueue_to_last_completion(app, monkeypatc
         svc.generate_variations(LOCAL_USER, ds.id, vs, 1, 'some_model')
         act = svc.dataset_payload(LOCAL_USER, ds.id)['activity']
         assert act and act['kind'] == 'generate' and act['total'] == 2 and act['done'] == 0
+        assert act['engine'] == 'klein'
         # One job finishes (failed path is hermetic — no output file needed).
         svc.link_completed_dataset_image('job-1', 'x.webp', failed=True)
         act = da.get(ds.id)

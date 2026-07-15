@@ -49,7 +49,7 @@ _active: dict = {}
 _counter = itertools.count(1)
 
 
-def begin(dataset_id, kind, total=0, detail=None):
+def begin(dataset_id, kind, total=0, detail=None, engine=None):
     """Register a new in-progress batch on ``dataset_id`` and return an opaque token
     to pass to ``progress``/``bump``/``end``. ``total`` is the number of items the
     batch will process (0 when not enumerable up front)."""
@@ -62,6 +62,8 @@ def begin(dataset_id, kind, total=0, detail=None):
         }
         if detail:
             _active[dataset_id][token]['detail'] = str(detail)
+        if engine:
+            _active[dataset_id][token]['engine'] = str(engine).lower()
     return token
 
 
@@ -107,7 +109,7 @@ def end(token):
             _active.pop(dsid, None)
 
 
-def sync_pending(dataset_id, kind, pending):
+def sync_pending(dataset_id, kind, pending, engine=None):
     """Reconcile a COUNT-tracked indicator of ``kind`` against a live in-flight
     total. Used where per-batch tracking isn't available — a Klein generate batch
     completes one job at a time on the job-queue monitor thread, and each
@@ -143,6 +145,8 @@ def sync_pending(dataset_id, kind, pending):
                            'started_at': now, '_touched': now,
                            '_peak': int(pending), '_synced': True}
         entry = bucket[tok]
+        if engine:
+            entry['engine'] = str(engine).lower()
         entry['_peak'] = max(entry['_peak'], int(pending))
         entry['total'] = entry['_peak']
         entry['done'] = max(0, entry['_peak'] - int(pending))
@@ -170,6 +174,8 @@ def get(dataset_id):
                   'total': entry['total'], 'started_at': entry['started_at']}
         if entry.get('detail'):
             result['detail'] = entry['detail']
+        if entry.get('engine'):
+            result['engine'] = entry['engine']
         return result
 
 

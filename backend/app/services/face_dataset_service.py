@@ -87,6 +87,8 @@ MAX_FANOUT = 60
 SMALL_IMAGE_SOURCE = 'small_image_source'
 KLEIN_SMALL_IMAGE = 'klein_small_image'
 KLEIN_IMAGE_IMPROVE = 'klein_image_improve'
+KLEIN_IMAGE_IMPROVE_PROMPT = (
+    'add detailed texture, add sharp details, add candid shot, add soft focus effect')
 _SMALL_IMAGE_DERIVATIONS = (SMALL_IMAGE_SOURCE, KLEIN_SMALL_IMAGE)
 # A striped in-process lock is sufficient for LDS's single local server process
 # and makes the active-candidate check + row creation + enqueue one critical
@@ -2780,7 +2782,7 @@ def _sync_generate_activity(dataset_id):
                .filter_by(dataset_id=dataset_id, status='pending')
                .filter(FaceDatasetImage.filename.is_(None))
                .filter(FaceDatasetImage.job_id.isnot(None)).count())
-    dataset_activity.sync_pending(dataset_id, 'generate', pending)
+    dataset_activity.sync_pending(dataset_id, 'generate', pending, engine='klein')
 
 
 def generate_variations(user_id, dataset_id, variations, multiplier, klein_model,
@@ -2925,8 +2927,9 @@ def _improve_existing_image_locked(user_id, image_id):
         raise ValueError(
             f'too many generations in flight ({in_flight}), wait or cancel')
 
-    raw_prompt = cfg.get('klein.small_image_prompt', '')
-    prompt = '' if raw_prompt is None else str(raw_prompt)
+    # Profile reproduced from the user-provided ComfyUI PNG metadata.
+    # Keep the selected/default Klein model; override only prompt/sampling/LoRA.
+    prompt = KLEIN_IMAGE_IMPROVE_PROMPT
     stored_prompt = prompt[:500]
     base_label = 'Klein upscale & improve'
     source_label = (img.variation_label or '').strip()
@@ -2944,6 +2947,7 @@ def _improve_existing_image_locked(user_id, image_id):
         job_id = keh.enqueue_klein_edit(
             user_id=str(user_id), source_filename=img.filename,
             source_path=source_path, edit_prompt=prompt,
+            lora_strength=0.0, sampler_steps=4, base_lora_strength=0.0,
             extra_metadata={
                 'is_dataset': True,
                 'dataset_id': img.dataset_id,
@@ -3069,7 +3073,7 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
         # Synchronous path (legacy / no-app callers): guard the same 'generate'
         # indicator directly so the payload advertises the regenerate too, and a
         # raise never leaks the entry (finally end()).
-        token = dataset_activity.begin(img.dataset_id, 'generate', total=1)
+        token = dataset_activity.begin(img.dataset_id, 'generate', total=1, engine=engine)
         try:
             gen_kwargs = {'aspect_ratio': aspect}
             if engine == 'chatgpt':
@@ -3190,7 +3194,7 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana', dataset_id
     # the batch fails fast instead of burning one call each.
     quota_exhausted = threading.Event()
     stop_msg = {'text': _QUOTA_MSG}   # set to the actual stop reason when it fires
-    token = dataset_activity.begin(dataset_id, 'generate', total=len(items)) \
+    token = dataset_activity.begin(dataset_id, 'generate', total=len(items), engine=engine) \
         if dataset_id is not None else None
 
     def _run_one(item):

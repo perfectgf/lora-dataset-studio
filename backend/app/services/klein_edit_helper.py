@@ -303,7 +303,8 @@ def _comfy_output_dir():
 
 def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
                        extra_metadata=None, lora_strength=None, source_path=None,
-                       extra_ref_paths=None):
+                       extra_ref_paths=None, sampler_steps=None,
+                       base_lora_strength=None):
     """Copy the source into ComfyUI input, configure the single Klein edit
     workflow, and enqueue it. Returns the app job_id. Raises ValueError on a
     missing source / unloadable workflow / missing required node, RuntimeError
@@ -354,6 +355,10 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     # from custom-node packs; node 6's `text` is a plain STRING input.
     workflow["6"]["inputs"]["text"] = edit_prompt
     workflow["77"]["inputs"]["seed"] = random.randint(0, 2 ** 64 - 1)
+    if sampler_steps is not None:
+        workflow["77"]["inputs"]["steps"] = max(1, int(sampler_steps))
+    if base_lora_strength is not None and "139" in workflow:
+        workflow["139"]["inputs"]["strength_model"] = float(base_lora_strength)
     # UNIQUE prefix per job: SaveImage numbers files from what's currently in
     # ComfyUI's output folder, and the app MOVES each result out right after
     # completion — with a shared prefix the counter kept re-issuing the same
