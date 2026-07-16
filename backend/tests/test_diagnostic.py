@@ -47,6 +47,22 @@ def test_diagnostic_includes_log_tail(client, app, tmp_path, monkeypatch):
     assert j['log_tail'][-1] == 'line two'
 
 
+def test_diagnostic_exposes_ollama_vision_model_and_tags(client, app, monkeypatch):
+    """The report carries the configured vision-model string AND the tags Ollama
+    actually reports, so a 'vision_model=no' report can be triaged without a round
+    trip: a truly-missing model vs one listed under a different identifier (issue #7)."""
+    from app import capabilities, config
+    with app.app_context():
+        config.save_config({'ollama': {'url': 'http://o',
+                                       'vision_model': 'huihui_ai/qwen3-vl-abliterated:8b-instruct'}})
+    monkeypatch.setattr(capabilities, '_ollama_tags',
+                        lambda *a, **k: ['gemma4:e2b-it-q4_K_M', 'qwen3-vl:8b-instruct',
+                                         'huihui_ai/qwen3-vl-abliterated:8b-instruct'])
+    j = client.get('/api/diagnostic').get_json()
+    assert j['ollama']['vision_model'] == 'huihui_ai/qwen3-vl-abliterated:8b-instruct'
+    assert 'huihui_ai/qwen3-vl-abliterated:8b-instruct' in j['ollama']['tags_seen']
+
+
 def test_diagnostic_redacts_user_paths_in_log_tail(client, app):
     """The log tail can legitimately cite absolute paths (e.g. "Checkpoint
     model directories not found: C:\\Users\\somebody\\ComfyUI\\models") — but

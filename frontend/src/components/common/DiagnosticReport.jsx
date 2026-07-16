@@ -9,12 +9,18 @@ export function formatDiagnostic(d) {
   const c = d.capabilities || {}
   const e = c.engines || {}
   const cf = d.config || {}
+  const o = d.ollama || {}
+  const tags = (o.tags_seen || [])
   return [
     '```',
     `LoRA Dataset Studio diagnostic — v${d.app_version}${d.git_sha ? ` (${d.git_sha})` : ''}`,
     `OS: ${d.os} · Python ${d.python}`,
     `Engines: nanobanana=${yn(e.nanobanana)} chatgpt=${yn(e.chatgpt)} klein=${yn(e.klein)} (default: ${cf.default_engine})`,
     `ComfyUI: reachable=${yn(c.comfyui_reachable)} klein_model=${yn(c.klein_model)} · Ollama: reachable=${yn(c.ollama_reachable)} vision_model=${yn(c.vision_model_ready)}`,
+    // The configured model + the tags Ollama actually reports: when vision_model=no
+    // this line shows whether the model is truly missing or just listed under a
+    // different identifier (issue #7).
+    `Ollama vision model: ${o.vision_model || '(none configured)'} · tags seen: ${tags.length ? tags.join(', ') : '(none)'}`,
     `ai-toolkit: ${yn(c.aitoolkit_valid)} · face scoring: ${yn(c.face_scoring)} · masks: ${yn(c.masks)} · cloud: ${yn(c.cloud_training)}`,
     `Captioning: ${cf.captioning_backend} · default family: ${cf.training_default_family} · LAN: ${yn(cf.lan_enabled)}`,
     `Keys set: ${Object.entries(d.secrets_present || {}).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none'}`,

@@ -137,6 +137,23 @@ def test_test_connection_unknown_target(client):
     assert client.post('/api/settings/test/nope').status_code == 404
 
 
+def test_test_connection_ollama_checks_model_not_just_reachability(client, monkeypatch):
+    """POST /api/settings/test/ollama runs the unified probe (reachable AND vision
+    model pulled), so the Test button can't be green while the diagnostic says the
+    model isn't pulled (issue #7)."""
+    from app import capabilities
+    monkeypatch.setattr(capabilities, 'probe_ollama', lambda: {'ok': True, 'detail': 'http://o'})
+    # reachable but model absent -> honest failure through the SAME model probe
+    monkeypatch.setattr(capabilities, 'probe_ollama_model',
+                        lambda **k: {'ok': False, 'detail': 'model not pulled'})
+    r = client.post('/api/settings/test/ollama').get_json()
+    assert r['ok'] is False and 'not pulled' in r['detail']
+    # reachable + present -> green
+    monkeypatch.setattr(capabilities, 'probe_ollama_model',
+                        lambda **k: {'ok': True, 'detail': 'ready'})
+    assert client.post('/api/settings/test/ollama').get_json()['ok'] is True
+
+
 # --- CSRF cookie freshness (long-lived SPA session) ---------------------------
 # Flask-WTF time-limits the CSRF token (WTF_CSRF_TIME_LIMIT). The cookie used to
 # be planted ONLY on GET /, so a tab left open past that limit kept echoing a

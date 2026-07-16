@@ -487,6 +487,107 @@ def test_probe_ollama_model_uses_passed_reachability(app, monkeypatch):
     assert down['ok'] is False       # short-circuited without fetching tags
 
 
+# --- issue #7: /api/tags shape robustness + honest, unified probe ----------
+# boorad64 had huihui_ai/qwen3-vl-abliterated:8b-instruct genuinely pulled (LDS
+# pulled it in Setup step 3, `describe` worked) yet the diagnostic read
+# vision_model=no. The model IS present in /api/tags; the probe just couldn't
+# recognise it once the /api/tags entry differed from a byte-exact `name` match.
+
+_ABLIT = 'huihui_ai/qwen3-vl-abliterated:8b-instruct'
+
+
+class _FakeResp:
+    def __init__(self, payload, status=200):
+        self._payload, self.status_code = payload, status
+    def json(self):
+        return self._payload
+
+
+def test_ollama_tags_reads_name_and_model_fields(app, monkeypatch):
+    """Some Ollama builds populate `model` but leave `name` blank. Reading a single
+    field turned a pulled model into a blank -> 'not pulled'. Both fields are read
+    now, de-duplicated."""
+    with app.app_context():
+        from app import capabilities
+        payload = {'models': [
+            {'name': '', 'model': 'gemma4:e2b-it-q4_K_M'},
+            {'name': '', 'model': 'qwen3-vl:8b-instruct'},
+            {'name': '', 'model': _ABLIT},
+        ]}
+        monkeypatch.setattr(capabilities.requests, 'get', lambda *a, **k: _FakeResp(payload))
+        tags = capabilities._ollama_tags('http://o')
+    assert _ABLIT in tags
+    assert capabilities._model_present(_ABLIT, tags) is True
+
+
+def test_model_present_namespaced_exact_boorad_list(app):
+    """boorad's exact 3-model list, spec-compliant shape: the namespaced model is
+    recognised (this is the shape that already worked — the regression guard)."""
+    with app.app_context():
+        from app import capabilities
+        names = ['gemma4:e2b-it-q4_K_M', 'qwen3-vl:8b-instruct', _ABLIT]
+        assert capabilities._model_present(_ABLIT, names) is True
+
+
+def test_model_present_registry_host_prefixed(app):
+    """/api/tags entries carrying a registry host prefix
+    (registry.ollama.ai/…) must still match the namespaced config string."""
+    with app.app_context():
+        from app import capabilities
+        names = [f'registry.ollama.ai/{_ABLIT}', 'registry.ollama.ai/library/qwen3-vl:8b-instruct']
+        assert capabilities._model_present(_ABLIT, names) is True
+
+
+def test_model_present_no_false_positive_vanilla_vs_abliterated(app):
+    """Probes never lie the OTHER way: the vanilla qwen3-vl must NOT satisfy a config
+    that asks for the abliterated build — the difference is in the model NAME, which
+    normalization preserves."""
+    with app.app_context():
+        from app import capabilities
+        assert capabilities._model_present(_ABLIT, ['qwen3-vl:8b-instruct']) is False
+        # different publisher of a same-suffix name never collides either
+        assert capabilities._model_present(_ABLIT, ['someoneelse/qwen3-vl:8b-instruct']) is False
+
+
+def test_model_present_implicit_latest_tag(app):
+    """':latest' is implicit both ways: config 'x' matches tag 'x:latest' and back."""
+    with app.app_context():
+        from app import capabilities
+        assert capabilities._model_present('llava', ['llava:latest']) is True
+        assert capabilities._model_present('llava:latest', ['llava']) is True
+
+
+def test_probe_ollama_connection_unifies_test_button_with_model_probe(app, monkeypatch):
+    """The Settings 'Test' target now shares probe_ollama_model, so it can no longer
+    show green while the Setup/diagnostic say the model isn't pulled (issue #7)."""
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': _ABLIT}})
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: True)
+        # reachable but model absent -> the Test button is HONEST (not green)
+        monkeypatch.setattr(capabilities, '_ollama_tags', lambda *a, **k: ['llama3:8b'])
+        assert capabilities.probe_ollama_connection()['ok'] is False
+        # reachable + present -> green, and it's the model probe that said so
+        monkeypatch.setattr(capabilities, '_ollama_tags', lambda *a, **k: [_ABLIT])
+        assert capabilities.probe_ollama_connection()['ok'] is True
+        # unreachable -> surfaces the reachability failure verbatim
+        monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: False)
+        assert capabilities.probe_ollama_connection()['ok'] is False
+
+
+def test_ollama_diagnostic_exposes_configured_and_seen_tags(app, monkeypatch):
+    """The diagnostic snapshot carries the configured model string AND the tags the
+    probe actually sees, so a 'vision_model=no' report is self-diagnosing."""
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': 'http://o', 'vision_model': _ABLIT}})
+        monkeypatch.setattr(capabilities, '_ollama_tags',
+                            lambda *a, **k: ['gemma4:e2b-it-q4_K_M', 'qwen3-vl:8b-instruct', _ABLIT])
+        diag = capabilities.ollama_diagnostic()
+    assert diag['vision_model'] == _ABLIT
+    assert _ABLIT in diag['tags_seen']
+
+
 # --- Task 5: probe_openai() matrix + chatgpt_subscription payload ---------
 
 def _sub(connected, email=None):

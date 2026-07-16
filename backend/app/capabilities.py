@@ -144,23 +144,76 @@ def probe_ollama_installed() -> dict:
 
 
 def _ollama_tags(url, timeout=3) -> list:
-    """Model names Ollama reports at /api/tags. Network seam (patched in tests)."""
+    """Model identifiers Ollama reports at /api/tags. Each entry is read from BOTH
+    the `name` and `model` fields: across Ollama versions either one can be the field
+    that carries the (namespaced) identifier, and builds exist that populate `model`
+    while leaving `name` blank — reading a single field made a genuinely-pulled model
+    read as absent (issue #7: a namespaced model present in the list, yet
+    vision_model=no). Blanks are dropped and order is preserved. Network seam
+    (patched in tests)."""
     try:
         resp = requests.get(f'{url}/api/tags', timeout=timeout)
         if resp.status_code >= 400:
             return []
-        return [m.get('name', '') for m in (resp.json().get('models') or [])]
+        out, seen = [], set()
+        for m in (resp.json().get('models') or []):
+            if not isinstance(m, dict):
+                continue
+            for key in ('name', 'model'):
+                v = (m.get(key) or '').strip()
+                if v and v not in seen:
+                    seen.add(v)
+                    out.append(v)
+        return out
     except Exception:
         return []
+
+
+def _normalize_model_ref(ref: str) -> tuple:
+    """Split an Ollama model reference into (repo, tag) for comparison, folding away
+    only the two purely-transport differences that make the SAME model look different
+    across `/api/tags` shapes:
+
+      * a leading registry-host segment — `registry.ollama.ai/huihui_ai/x:t` or
+        `localhost:5000/org/x:t` — is stripped (first path segment containing a '.'
+        or a ':' is the host);
+      * an implicit tag defaults to 'latest'.
+
+    The publisher namespace and model name are PRESERVED ('huihui_ai/qwen3-vl-
+    abliterated'), so an abliterated build never matches the vanilla one and two
+    different publishers of the same name never collide. ('', '') for an empty ref.
+    """
+    ref = (ref or '').strip()
+    if not ref:
+        return ('', '')
+    # The tag is the text after the LAST ':' — unless that ':' belongs to a host:port
+    # (there's a '/' after it) or there is no ':' at all -> implicit 'latest'.
+    repo, sep, tag = ref.rpartition(':')
+    if not sep or '/' in tag:
+        repo, tag = ref, 'latest'
+    tag = tag or 'latest'
+    segs = repo.split('/')
+    if len(segs) > 1 and ('.' in segs[0] or ':' in segs[0]):   # leading registry host
+        segs = segs[1:]
+    return ('/'.join(segs), tag)
 
 
 def _model_present(configured: str, names: list) -> bool:
     if not configured:
         return False
-    if configured in names:
+    if configured in names:                            # fast path: byte-exact match
         return True
-    base = configured.split(':')[0]                    # config w/o :tag matches any tag
-    return any((n or '').split(':')[0] == base for n in names)
+    cfg_repo, cfg_tag = _normalize_model_ref(configured)
+    if not cfg_repo:
+        return False
+    # A config value WITHOUT an explicit tag matches ANY tag of that repo (unchanged
+    # semantics) — detected on the model segment so 'localhost:5000/x' isn't misread.
+    cfg_has_tag = ':' in configured.rsplit('/', 1)[-1]
+    for n in names:
+        n_repo, n_tag = _normalize_model_ref(n)
+        if n_repo and n_repo == cfg_repo and (not cfg_has_tag or n_tag == cfg_tag):
+            return True
+    return False
 
 
 def probe_ollama_model(reachable=None) -> dict:
@@ -179,6 +232,36 @@ def probe_ollama_model(reachable=None) -> dict:
         return {'ok': False, 'detail': f'ollama unreachable: {url}'}
     ok = _model_present(model, _ollama_tags(url))
     return {'ok': ok, 'detail': f'{model} ready' if ok else f'{model} not pulled'}
+
+
+def probe_ollama_connection() -> dict:
+    """The Settings 'Test' button for the Ollama card: an HONEST end-to-end check —
+    the server is reachable AND the configured vision model is actually pulled.
+
+    The old test target was probe_ollama (reachability only), so the green check
+    disagreed with the Setup step / diagnostic model probe on the very same machine
+    (issue #7: Test ✓ green while vision_model=no). This delegates to the SAME
+    probe_ollama_model the Setup and diagnostic use, so all three now resolve through
+    one seam and can never contradict — the same 'is_available() defers to the probe'
+    unification as JoyCaption."""
+    reach = probe_ollama()
+    if not reach['ok']:
+        return reach                              # not configured / unreachable — as-is
+    return probe_ollama_model(reachable=True)
+
+
+def ollama_diagnostic() -> dict:
+    """Paste-safe Ollama snapshot for /api/diagnostic: the configured vision-model
+    string alongside the model tags the probe actually sees at /api/tags. This is the
+    pair a bug report needs to tell a genuine 'not pulled' from a name/shape mismatch
+    (issue #7) — without it, a report can only say vision_model=no with no way to see
+    that the model IS listed under a slightly different identifier. Model names are
+    not secrets; the list is de-duplicated and capped (count + per-entry length) so a
+    large local library can't bloat the pasted report."""
+    url = (cfg.get('ollama.url') or '').rstrip('/')
+    configured = cfg.get('ollama.vision_model') or ''
+    tags = _ollama_tags(url) if url else []
+    return {'vision_model': configured, 'tags_seen': [t[:80] for t in tags[:20]]}
 
 
 def clear_import_cache() -> None:

@@ -322,6 +322,17 @@ def _execute(action):
             except Exception:
                 # never downgrade a successful install; surface at debug only
                 logger.debug('clear_import_cache failed after %s', action, exc_info=True)
+        if action == 'ollama_model' and rc == 0:
+            # A successful vision-model pull must flip the Setup step / diagnostic
+            # 'vision model ready' probe NOW, not after the 30 s probe-cache TTL —
+            # otherwise the Setup keeps saying "the vision model isn't pulled yet"
+            # right after the pull the user just watched finish (issue #7).
+            # clear_import_cache() also resets the main probe cache, so it's the one
+            # call that forces a fresh /api/tags check on the next probe.
+            try:
+                capabilities.clear_import_cache()
+            except Exception:
+                logger.debug('probe-cache clear failed after ollama_model', exc_info=True)
         if action in _KLEIN_DOWNLOADS and rc == 0:
             # The training-base/model listers cache their scans 5 min — a freshly
             # downloaded model must show up on the next probe, not in 5 minutes.

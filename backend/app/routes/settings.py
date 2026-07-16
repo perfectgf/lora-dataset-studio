@@ -15,7 +15,12 @@ _TEST_TARGETS = {
     'gemini': capabilities.probe_gemini,
     'openai': capabilities.probe_openai,
     'comfyui': capabilities.probe_comfyui,
-    'ollama': capabilities.probe_ollama,
+    # End-to-end (reachable + vision model pulled), NOT reachability alone: the old
+    # reachability-only target returned a green check while the Setup/diagnostic model
+    # probe said the model wasn't pulled on the SAME machine (issue #7). Shares
+    # probe_ollama_model so the Test button, the Setup step and the diagnostic are one
+    # source of truth.
+    'ollama': capabilities.probe_ollama_connection,
     'aitoolkit': capabilities.probe_aitoolkit,
     'face_scoring': capabilities.probe_face_scoring,
     'masks': capabilities.probe_masks,
@@ -379,6 +384,12 @@ def diagnostic():
             'aitoolkit_dir_set': bool((conf.get('aitoolkit') or {}).get('dir')),
             'lan_enabled': (conf.get('server') or {}).get('host') not in (None, '', '127.0.0.1', 'localhost', '::1'),
         },
+        # The configured vision-model string + the tags the probe actually sees at
+        # /api/tags. This is what makes a 'vision_model=no' report self-diagnosing:
+        # a reader can tell a truly-missing model from one that IS listed under a
+        # slightly different identifier (namespace/registry/field variance, issue #7).
+        # Model names are not secrets; paths are still absent from this block.
+        'ollama': capabilities.ollama_diagnostic(),
         'log_tail': log_lines,
         'generated_at': int(time.time()),
     })

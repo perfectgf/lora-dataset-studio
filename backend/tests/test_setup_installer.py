@@ -136,8 +136,12 @@ def test_start_ollama_model_precondition(app):
             setup_installer.start('ollama_model')
 
 
-def test_execute_ollama_model_success_does_not_clear_cache(monkeypatch):
-    """Verify ollama_model runs never trigger clear_import_cache, even on success."""
+def test_execute_ollama_model_success_clears_probe_cache(monkeypatch):
+    """A successful vision-model pull invalidates the probe cache so the Setup step /
+    diagnostic flip to 'vision model ready' immediately, not after the 30 s TTL
+    (issue #7: Setup kept saying 'not pulled' right after the pull finished).
+    clear_import_cache() also resets the main probe cache — the one call that forces a
+    fresh /api/tags check next probe."""
     from app import setup_installer, capabilities
     calls = []
     monkeypatch.setattr(setup_installer, '_WORKERS', {'ollama_model': lambda a: 0})
@@ -146,7 +150,20 @@ def test_execute_ollama_model_success_does_not_clear_cache(monkeypatch):
     setup_installer._execute('ollama_model')
     assert setup_installer._runs['ollama_model']['state'] == 'success'
     assert setup_installer._runs['ollama_model']['returncode'] == 0
-    assert calls == []  # clear_import_cache never called
+    assert calls == [1]  # probe cache cleared exactly once on success
+
+
+def test_execute_ollama_model_error_skips_cache_clear(monkeypatch):
+    """A FAILED pull (non-zero rc) must not invalidate the probe cache — nothing new
+    became available, so the previous verdict stands."""
+    from app import setup_installer, capabilities
+    calls = []
+    monkeypatch.setattr(setup_installer, '_WORKERS', {'ollama_model': lambda a: 1})
+    monkeypatch.setattr(capabilities, 'clear_import_cache', lambda: calls.append(1))
+    setup_installer._runs['ollama_model'] = setup_installer._new_run()
+    setup_installer._execute('ollama_model')
+    assert setup_installer._runs['ollama_model']['state'] == 'error'
+    assert calls == []
 
 
 def test_append_respects_log_ring_buffer(monkeypatch):
