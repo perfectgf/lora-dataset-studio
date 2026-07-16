@@ -15,6 +15,7 @@ The useful part of LoRA training isn't only the training — it's building a cle
 
 ## Recent improvements
 
+- **Researched built-in training presets for every family and kind** — the presets dropdown now ships a **Built-in (researched)** group: a Character, Style and Concept/Composition preset for each of the five families (Z-Image, SDXL, Krea 2, FLUX.1-dev, FLUX.2 Klein). Every value — rank/alpha, timestep, resolution, save cadence — is sourced from ai-toolkit's own defaults, vendor guidance or documented community consensus, each preset explains *why* in one line, and the few extrapolated values say so honestly. One click applies the whole recipe through the normal validation.
 - **Research-backed Style recipes** — Style is now explicitly always-on, with no activation trigger. Training combines five family-specific presets with content-only caption rules, family/variant-aware step limits, and launch guards for missing, trigger-only or identical captions.
 - **Bulk Klein improvement** — multi-select eligible images and queue separate **2 MP** Klein candidates in one pass. Progress and failures are reported for the batch, existing candidates are skipped, and every original remains untouched until review.
 - **Safer training launches** — family, base and variant recipes are revalidated for local, queued, continued and cloud runs. The Runs hub can stop an identified local run as well as a cloud run while preserving checkpoints already written.
@@ -95,7 +96,7 @@ The app is a **guided flow**: each stage stays folded until the one before it is
 7. **Caption** — prose for Z-Image/Krea/FLUX or booru tags for SDXL. Style captions describe image content only and never contain an activation trigger.
 8. **Score face similarity** against the reference (InsightFace, green/orange thresholds).
 9. **Generate person masks** (rembg) for masked training.
-10. **Train a LoRA** via ai-toolkit — preflight checks, adaptive steps, compatible presets, advanced controls, a queue and scheduling.
+10. **Train a LoRA** via ai-toolkit — preflight checks, adaptive steps, researched built-in presets per family and kind, advanced controls, a queue and scheduling.
 11. **Test Studio** — compare checkpoints or multiple LoRAs from one supported family across strengths, then vote and rank the results.
 12. **Take the dataset with you** — export a training ZIP, create a portable backup, merge an existing dataset, or publish kept pairs to Hugging Face.
 
