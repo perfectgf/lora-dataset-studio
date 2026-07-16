@@ -849,8 +849,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       ? 'SDXL trains locally only — the cloud lane covers Z-Image, Krea 2 and FLUX.2 Klein'
     : trainType === 'flux'
       ? 'FLUX.1 trains locally only — the cloud lane covers Z-Image, Krea 2 and FLUX.2 Klein'
-    : (isCustomBase || vaePath || tePath)
-      ? 'Custom weights are local-only — cloud training uses the official Hugging Face bases'
+    : (vaePath || tePath)
+      ? 'Custom VAE/text-encoder overrides are local-only — clear them in Advanced options to train in the cloud'
+    : customWeightsEmpty
+      ? 'Enter the path to your custom weights .safetensors first'
+    : baseBlocksTrain
+      ? 'Convert the custom base first — the cloud lane pushes the converted copy to your Hugging Face account'
     : cloudTooFewImages
       ? `Only ${keptCount} image(s) kept — the cloud minimum for ${typeLabel} is ${TRAIN_MIN[trainType]?.[0] ?? 12}`
     : cloudActiveHere
@@ -2104,7 +2108,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
       {cloudDialog && (
         <CloudLaunchDialog
-          datasetId={ds.currentId} trainType={trainType} steps={stepsN}
+          datasetId={ds.currentId} trainType={trainType} variant={variant}
+          base={base} steps={stepsN}
           keptCount={keptCount} cloudStatus={cloudStatus}
           onClose={() => setCloudDialog(false)} onLaunch={launchCloud} />
       )}
@@ -2157,16 +2162,164 @@ function _fmtDuration(min) {
   return m ? `~${h} h ${m} min` : `~${h} h`;
 }
 
+/* Custom-base gate inside the cloud dialog: a custom base trains from a
+   PRIVATE repo on the user's Hugging Face account (lds-base-<hash>). This
+   section checks whether that repo already carries the base (cache-hit →
+   launch straight away) and otherwise offers the ONE-TIME push — uploaded
+   once, reused by every future cloud run, never public. */
+function CustomBasePushSection({ datasetId, trainType, variant, base, onReadyChange }) {
+  const [state, setState] = useState(null);      // last GET /custom-base payload
+  const [checkError, setCheckError] = useState(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState(null);
+  const [pollNonce, setPollNonce] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    let timer;
+    const tick = async () => {
+      let d = null;
+      try {
+        const qs = new URLSearchParams({ train_type: trainType, base_model: base });
+        if (variant) qs.set('variant', variant);
+        const r = await fetch(`/api/dataset/${datasetId}/train/cloud/custom-base?${qs.toString()}`,
+          { credentials: 'include' });
+        d = await r.json().catch(() => ({}));
+        if (!alive) return;
+        if (!r.ok || d.ok === false) {
+          setCheckError(d.error || `Could not check the custom base (HTTP ${r.status})`);
+          d = null;
+        } else {
+          setCheckError(null);
+          setState(d);
+        }
+      } catch {
+        if (alive) setCheckError('Network error while checking the custom base');
+      }
+      // Keep polling while the background push is running (multi-GB upload).
+      if (alive && d?.job?.state === 'running') timer = setTimeout(tick, 3000);
+    };
+    tick();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [datasetId, trainType, variant, base, pollNonce]);
+
+  const ready = !!state?.ready;
+  useEffect(() => { onReadyChange(ready); }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startPush = async (allowUnverified = false) => {
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      const d = await postJson(`/api/dataset/${datasetId}/train/cloud/custom-base/push`, {
+        train_type: trainType, variant, base_model: base,
+        ...(allowUnverified ? { allow_unverified_weights: true } : {}),
+      });
+      if (d && d.ok === false) {
+        const msg = String(d.error || 'Push failed');
+        const marker = 'CUSTOM_WEIGHTS_UNVERIFIED: ';
+        if (!allowUnverified && msg.includes(marker)) {
+          const detail = msg.slice(msg.indexOf(marker) + marker.length);
+          if (window.confirm(`${detail}\n\nPush anyway (force)?`)) return startPush(true);
+        } else {
+          setPushError(msg);
+        }
+        return;
+      }
+      setPollNonce((n) => n + 1);        // job started — begin polling its state
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const job = state?.job || {};
+  const pushing = pushBusy || job.state === 'running';
+  const sizeLabel = state?.local_size_bytes != null ? ` (~${fmtBytes(state.local_size_bytes)})` : '';
+  let body;
+  if (checkError) {
+    body = <p className="m-0 text-red-300 text-[0.75rem]">⚠ {checkError}</p>;
+  } else if (!state) {
+    body = <p className="m-0 text-content-muted text-[0.75rem]">Checking your custom base on Hugging Face…</p>;
+  } else if (ready) {
+    body = (
+      <p className="m-0 text-emerald-300 text-[0.75rem]">
+        ✓ Custom base found in your private repo <span className="font-mono">{state.repo_id}</span> —
+        the pod downloads it with your HF token. Nothing to upload again.
+      </p>
+    );
+  } else if (state.reason === 'no_token') {
+    body = (
+      <p className="m-0 text-amber-300 text-[0.75rem]">
+        ⚠ Add your Hugging Face token (HF_TOKEN) in Settings ▸ API keys first — your custom
+        base rides in a private repo on your account, and the pod needs the token to read it.
+      </p>
+    );
+  } else if (state.reason === 'token_invalid') {
+    body = (
+      <p className="m-0 text-amber-300 text-[0.75rem]">
+        ⚠ Your Hugging Face token was rejected — paste a valid HF_TOKEN in Settings ▸ API keys.
+      </p>
+    );
+  } else if (pushing) {
+    body = (
+      <p className="m-0 text-sky-200 text-[0.75rem]">
+        ⬆ Uploading your custom base{sizeLabel} to the private repo
+        {state.repo_id ? <> <span className="font-mono">{state.repo_id}</span></> : null}…
+        One-time upload — every future cloud run reuses it. Keep the app running.
+      </p>
+    );
+  } else {
+    const why = state.reason === 'size_mismatch'
+      ? 'Your local custom base changed since it was pushed — push it again to update the private copy.'
+      : state.reason === 'file_missing'
+        ? 'The private repo exists but is missing the file this variant needs — push again to add it.'
+        : 'This run uses custom weights the pod cannot download yet.';
+    body = (
+      <div className="flex flex-col gap-1.5">
+        <p className="m-0 text-content-muted text-[0.75rem]">
+          {why} Pushing uploads your custom base{sizeLabel} to a <b className="text-content">PRIVATE</b> repo
+          on your Hugging Face account — one time; future cloud runs reuse it. It is never made public.
+        </p>
+        {!state.local_available && (
+          <p className="m-0 text-amber-300 text-[0.75rem]">
+            ⚠ The local file is unavailable ({state.local_reason || 'missing'}) — restore it to push.
+          </p>
+        )}
+        {(pushError || job.state === 'error') && (
+          <p className="m-0 text-red-300 text-[0.75rem]">⚠ {pushError || job.error}</p>
+        )}
+        <button type="button" onClick={() => startPush(false)}
+          disabled={!state.local_available || pushBusy}
+          className="w-fit px-3 py-1.5 rounded-lg border border-sky-500/50 bg-sky-500/10 text-sky-200 text-sm font-semibold disabled:opacity-40">
+          ⬆ Push custom base to Hugging Face (one-time)
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-border bg-surface px-3 py-2">
+      <p className="m-0 mb-1 text-content text-[0.75rem] font-semibold">
+        Custom base: <span className="font-mono font-normal">{baseName(base)}</span>
+      </p>
+      {body}
+    </div>
+  );
+}
+
 /* Launch-time GPU speed picker. Fetches live vast.ai offers grouped by GPU
    class (slowest→fastest), each with price/h and an APPROXIMATE training time
    and total run cost for this dataset+family. Picking a tier rents the cheapest
-   live offer of that class; the price cap in Settings still bounds what's shown. */
-function CloudLaunchDialog({ datasetId, trainType, steps, keptCount, cloudStatus, onClose, onLaunch }) {
+   live offer of that class; the price cap in Settings still bounds what's shown.
+   A custom base adds the push gate above the tiers (see CustomBasePushSection). */
+function CloudLaunchDialog({ datasetId, trainType, variant, base, steps, keptCount, cloudStatus, onClose, onLaunch }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);     // {tiers, steps, family, max_price_per_hour}
   const [selected, setSelected] = useState(null);
   const [launching, setLaunching] = useState(false);
+  // Custom base ('' = official): the launch stays blocked until the private
+  // repo on the user's HF account carries the base (pushed once, reused).
+  const isCustomBase = !!String(base || '').trim();
+  const [customBaseReady, setCustomBaseReady] = useState(!isCustomBase);
 
   useEffect(() => {
     let alive = true;
@@ -2217,6 +2370,12 @@ function CloudLaunchDialog({ datasetId, trainType, steps, keptCount, cloudStatus
           <span aria-hidden>☁️</span> Choose GPU speed for this run
         </h3>
 
+        {isCustomBase && (
+          <CustomBasePushSection
+            datasetId={datasetId} trainType={trainType} variant={variant}
+            base={base} onReadyChange={setCustomBaseReady} />
+        )}
+
         {loading && <p className="m-0 text-content-muted text-sm">Loading live GPU offers…</p>}
         {error && <p className="m-0 text-red-300 text-sm">⚠ {error}</p>}
         {!loading && !error && tiers.length === 0 && (
@@ -2266,7 +2425,8 @@ function CloudLaunchDialog({ datasetId, trainType, steps, keptCount, cloudStatus
         </p>
 
         <div className="flex items-center gap-2">
-          <button type="button" onClick={go} disabled={!selected || launching}
+          <button type="button" onClick={go} disabled={!selected || launching || !customBaseReady}
+            title={!customBaseReady ? 'Push the custom base to your Hugging Face account first' : undefined}
             className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             {launching ? 'Launching…' : '☁️ Rent & train'}
           </button>

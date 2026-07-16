@@ -1148,10 +1148,69 @@ def dataset_train_cloud(dataset_id):
             allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),
             allow_uncaptioned=bool(d.get('allow_uncaptioned')),
             allow_caption_quality=bool(d.get('allow_caption_quality')),
+            allow_unverified_weights=bool(d.get('allow_unverified_weights')),
             gpu_name=d.get('gpu_name'))
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, **res})
+
+
+@bp.get('/dataset/<int:dataset_id>/train/cloud/custom-base')
+def dataset_train_cloud_custom_base(dataset_id):
+    """Readiness of a CUSTOM base for cloud training: is it already pushed to
+    the private `lds-base-<hash>` repo on the user's Hugging Face account
+    (cache-hit → launch straight away), or does it need the one-time push?
+    Also reports the background push job's state (poll-friendly, never 500s
+    on a missing repo — that is just ready=false)."""
+    gate = _require_cloud()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    from ..services import hf_base_push
+    try:
+        state = hf_base_push.base_push_state(
+            LOCAL_USER, dataset_id,
+            request.args.get('train_type'), request.args.get('variant'),
+            (request.args.get('base_model') or '').strip(),
+            cfg.secret('HF_TOKEN'))
+    except hf_base_push.HfPublishError as e:
+        return jsonify({'error': e.message, 'error_code': e.code}), 400
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **state})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/cloud/custom-base/push')
+def dataset_train_cloud_custom_base_push(dataset_id):
+    """One-time background upload of the custom base to a PRIVATE repo on the
+    user's Hugging Face account (private is forced server-side — no toggle).
+    Multi-GB → daemon thread; the UI polls the custom-base route above. The
+    confirmable CUSTOM_WEIGHTS_UNVERIFIED arch sniff answers synchronously so
+    the dialog can confirm-and-retry."""
+    gate = _require_cloud()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    token = cfg.secret('HF_TOKEN')
+    if not token:
+        return jsonify({'error': 'no Hugging Face token configured — paste an '
+                        'HF_TOKEN in Settings ▸ API keys'}), 400
+    d = request.get_json(silent=True) or {}
+    from ..services import hf_base_push
+    try:
+        out = hf_base_push.start_push(
+            current_app._get_current_object(), dataset_id,
+            d.get('train_type'), d.get('variant'),
+            (d.get('base_model') or '').strip(), token,
+            allow_unverified_weights=bool(d.get('allow_unverified_weights')))
+    except hf_base_push.HfPublishError as e:
+        return jsonify({'error': e.message, 'error_code': e.code}), 400
+    except ValueError as e:
+        # preflight_custom_paths' confirmable marker (CUSTOM_WEIGHTS_UNVERIFIED)
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, **out})
 
 
 @bp.post('/dataset/train/cloud/retry')

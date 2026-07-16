@@ -49,6 +49,10 @@ _CONFIRMATION_FLAGS = (
     'allow_caption_mismatch',
     'allow_uncaptioned',
     'allow_caption_quality',
+    # Custom-weights arch confirm (CUSTOM_WEIGHTS_UNVERIFIED contract): replayed
+    # on retry/continue like the caption flags — the base_model is replayed
+    # verbatim too, so a confirmed file stays confirmed.
+    'allow_unverified_weights',
 )
 
 
@@ -369,6 +373,7 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                           variant=None, train_type=None, masked=True,
                           allow_caption_mismatch=False, allow_uncaptioned=False,
                           allow_caption_quality=False,
+                          allow_unverified_weights=False,
                           gpu_name=None, resume_ckpt_path=None, resume_step=None,
                           auto_retry_count=0, auto_retry_of=None,
                           strict_gpu=False, train_settings_snapshot=_UNSET) -> dict:
@@ -404,10 +409,14 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
     else:
         selected_base = base_model
     base_model = str(selected_base or '').strip()
-    if base_model:
+    # Custom weights ride the cloud through a PRIVATE Hugging Face repo on the
+    # user's account (one-time push, hf_base_push) — but only for the three
+    # cloud families. Everything else keeps the historical refusal verbatim.
+    from . import hf_base_push
+    if base_model and fam not in hf_base_push.CLOUD_CUSTOM_BASE_FAMILIES:
         raise ValueError('custom weights are local-only — cloud training '
                          'uses the official Hugging Face bases')
-    # These fields are local-only too.  Unlike ``train_base_model`` they have no
+    # These fields are local-only.  Unlike ``train_base_model`` they have no
     # supported cloud-family meaning (SDXL itself is rejected below), so retain
     # the historical fail-fast instead of silently accepting a selected override.
     if getattr(ds, 'train_vae_path', None) or getattr(ds, 'train_te_path', None):
@@ -427,17 +436,36 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
         'allow_caption_mismatch': bool(allow_caption_mismatch),
         'allow_uncaptioned': bool(allow_uncaptioned),
         'allow_caption_quality': bool(allow_caption_quality),
+        'allow_unverified_weights': bool(allow_unverified_weights),
     }
     recipe = None
     if fam == 'zimage':
         # Authoritative recipe validation happens before the reservation row and
         # therefore before a monitor can provision/rent a GPU.  build_job_config
-        # validates again when the pod job is assembled.
+        # validates again when the pod job is assembled. A custom base resolves
+        # to the custom recipe (extras from the official Turbo pipeline), same
+        # as the local path.
         recipe = lt.zimage_training_recipe(
-            variant or lt._default_variant_for(fam), base_model=None)
+            variant or lt._default_variant_for(fam), base_model=base_model or None)
         variant = recipe['variant']
     elif variant not in lt._valid_variants_for(fam):
         variant = lt._default_variant_for(fam)
+    # Custom base: local-parity guardrails first (the confirmable arch sniff on
+    # a still-present file; the distillation confirm for a custom Z-Image
+    # declared Base/De-Turbo), then the pre-rent repo check — the pod downloads
+    # the base from a PRIVATE repo on the user's HF account (hf_base_push), so
+    # the launch fails HERE, with an actionable message, never after renting.
+    base_repo = None
+    if base_model:
+        if fam == 'zimage':
+            lt.assert_zimage_custom_recipe_confirmed(
+                fam, base_model, variant, allow_unverified_weights)
+        elif os.path.isfile(base_model):
+            lt.preflight_custom_paths(
+                fam, weights=base_model,
+                allow_unverified_weights=allow_unverified_weights)
+        base_repo = hf_base_push.require_base_repo(
+            ds, fam, variant, base_model, cfg.secret('HF_TOKEN'))
     # Cheap fast-fail before the image/caption preflight below. This read is
     # intentionally advisory: another Flask request can reserve a slot after
     # it, so the same checks are repeated atomically at reservation time.
@@ -454,9 +482,10 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                         allow_caption_quality=allow_caption_quality,
                         variant=variant)
 
-    # Cloud always uses an official base (explicit empty base_model); stamp the
-    # chosen variant in the name so Base/De-Turbo cannot share Turbo's run path.
-    run_name = lt._run_name(ds, base_model='', family=fam, variant=variant)
+    # The explicit launch base (''=official) rides into the run name so a
+    # custom-base run keeps its own folder/prefix (combo-hash suffix, exactly
+    # like local runs) and Base/De-Turbo cannot share Turbo's run path.
+    run_name = lt._run_name(ds, base_model=base_model, family=fam, variant=variant)
     with _launch_reservation_lock:
         # Authoritative re-check + insert. Keeping the commit inside this
         # process-wide critical section means a second request always sees the
@@ -468,7 +497,7 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
             # short window before the complete params are saved would make a
             # legitimate second-family launch look like an unknown-family run.
             train_params=json.dumps({'train_type': fam, 'variant': variant,
-                                     'base_model': '', **confirmations}))
+                                     'base_model': base_model, **confirmations}))
         db.session.add(run)
         db.session.commit()
     try:
@@ -498,8 +527,15 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
         # a lock: _provision re-searches live offers and rents the cheapest one
         # of this class, falling back to the cheapest overall if the class has
         # since sold out (vast offers are ephemeral).
-        params = {'steps': n_steps, 'variant': variant, 'base_model': '',
+        params = {'steps': n_steps, 'variant': variant, 'base_model': base_model,
                   'train_type': fam, 'masked': bool(masked), **confirmations}
+        if base_repo:
+            # The monitor's rebuild (and any retry/continue replay) must route
+            # the pod's name_or_path to the PRIVATE repo without recomputing
+            # anything: stamp the repo id and the remote weight size (drives
+            # the pod's disk_gb sizing in _provision).
+            params['base_repo_id'] = base_repo['repo_id']
+            params['base_size_bytes'] = int(base_repo.get('size_bytes') or 0)
         if recipe:
             params.update({'recipe_version': recipe['recipe_version'],
                            'effective_base': recipe['effective_base'],
@@ -832,6 +868,26 @@ def _pick_offer(offers, requested_gpu, strict=False):
     return _best_of(offers)
 
 
+def _disk_gb_for(cloud_cfg, params) -> int:
+    """Pod disk size: the configured default, bumped when the run trains on a
+    LARGE custom base (stamped remote size). The pod holds the raw download
+    plus its quantized working copy plus dataset/checkpoints/HF cache, so the
+    bump budgets twice the base size + 30 GB of headroom. Official-base runs
+    (no stamp) keep the configured value bit-for-bit."""
+    disk_gb = int(cloud_cfg.get('disk_gb') or 60)
+    try:
+        base_bytes = int(params.get('base_size_bytes') or 0)
+    except (TypeError, ValueError):
+        base_bytes = 0
+    if base_bytes:
+        needed = int(base_bytes / 1e9 * 2) + 30
+        if needed > disk_gb:
+            logger.info('custom base is %.1f GB — pod disk bumped %s -> %s GB',
+                        base_bytes / 1e9, disk_gb, needed)
+            disk_gb = needed
+    return disk_gb
+
+
 def _provision(run):
     """Search offers and create the instance, honoring the launch-time GPU
     choice when the picked class is still available.
@@ -857,6 +913,7 @@ def _provision(run):
     if offer.get('machine_id') is not None:
         params['machine_id'] = offer['machine_id']
         _set(run, train_params=json.dumps(params))
+    disk_gb = _disk_gb_for(c, params)
     template_hash = (c.get('template_hash') or '').strip()
     if template_hash:
         # Preferred path (smoke-validated 2026-07-12): the official template
@@ -866,7 +923,7 @@ def _provision(run):
         # ensure_settings(), not env.
         token = ''
         instance_id = vast_client.create_instance(
-            offer['offer_id'], disk_gb=int(c.get('disk_gb') or 60),
+            offer['offer_id'], disk_gb=disk_gb,
             label=run.vast_label, template_hash=template_hash,
             image=(c.get('image') or None))
     else:
@@ -879,7 +936,7 @@ def _provision(run):
         if hf:
             env['HF_TOKEN'] = hf
         instance_id = vast_client.create_instance(
-            offer['offer_id'], disk_gb=int(c.get('disk_gb') or 60),
+            offer['offer_id'], disk_gb=disk_gb,
             label=run.vast_label, image=c.get('image'), env=env,
             onstart=(c.get('onstart') or None))
     try:
@@ -1036,12 +1093,22 @@ def _make_remote(run) -> RemoteAiToolkit:
 
 
 def _cloudify_job_config(job_config: dict, job_name: str,
-                         staging_dataset: str, pod_settings: dict) -> dict:
+                         staging_dataset: str, pod_settings: dict,
+                         run_params: dict | None = None) -> dict:
     """Rewrite the locally-built config for the pod: remote paths, remote
     trainer type (DB status updates), and the job name the pod's routes key
     on. The staging->pod path swap is done on the JSON text so every field
     referencing the staging dir (folder_path, mask_path) is rewritten at
-    once, backslash-escaping included."""
+    once, backslash-escaping included.
+
+    Custom base (run_params carries base_repo_id): the symmetric seam to the
+    dataset swap — build_job_config emitted the LOCAL custom path (single file
+    or converted diffusers dir), which means nothing on the pod; route
+    model.name_or_path to the PRIVATE HF repo the base was pushed to, and the
+    pod downloads it with the user's HF_TOKEN exactly like the gated official
+    bases. Krea additionally pins model_kwargs.checkpoint_filename (its loader
+    fetches ONE file from the repo); Klein derives its hardcoded per-size
+    filename from the arch; Z-Image loads the repo's transformer/ subfolder."""
     pod_ds = pod_settings['DATASETS_FOLDER'].rstrip('/') + '/' + job_name
     text = json.dumps(job_config)
     needle = json.dumps(str(staging_dataset))[1:-1]     # JSON-escaped form
@@ -1053,6 +1120,19 @@ def _cloudify_job_config(job_config: dict, job_name: str,
     proc['type'] = 'diffusion_trainer'
     proc['training_folder'] = pod_settings['TRAINING_FOLDER']
     proc['device'] = 'cuda:0'
+    base_repo = (run_params or {}).get('base_repo_id')
+    if base_repo:
+        from . import hf_base_push
+        fam = (run_params or {}).get('train_type')
+        model = proc.get('model') or {}
+        model['name_or_path'] = base_repo
+        fname = hf_base_push.weight_filename(
+            fam, (run_params or {}).get('variant'), base_repo.split('/')[-1])
+        if fam == 'krea' and fname:
+            kwargs = dict(model.get('model_kwargs') or {})
+            kwargs['checkpoint_filename'] = fname
+            model['model_kwargs'] = kwargs
+        proc['model'] = model
     return out
 
 
@@ -1221,7 +1301,8 @@ def _monitor(app, run_id):
                     staging_dataset, steps=params.get('steps') or 3000,
                     training_folder='__POD__')
                 job_config = _cloudify_job_config(job_config, run.job_name,
-                                                  staging_dataset, pod_settings)
+                                                  staging_dataset, pod_settings,
+                                                  run_params=params)
                 job_id = remote.create_job(run.job_name, job_config)
                 # Continue-in-cloud: drop the source checkpoint into the job's
                 # save_root BEFORE start so ai-toolkit auto-resumes from it.
@@ -1573,8 +1654,10 @@ def _mirror_into_local_run(run):
         if not run.staging_dir or not os.path.isdir(run.staging_dir):
             return
         params = json.loads(run.train_params or '{}')
-        # cloud trains on the OFFICIAL base only -> base_model=''
-        run_dir = lt._run_dir('local', run.dataset_id, base_model='',
+        # Mirror into THIS run's local dir: the stamped base ('' = official,
+        # else the custom selection whose combo hash isolates the folder).
+        run_dir = lt._run_dir('local', run.dataset_id,
+                              base_model=params.get('base_model', ''),
                               family=params.get('train_type'),
                               variant=params.get('variant'))
         os.makedirs(run_dir, exist_ok=True)

@@ -7,7 +7,10 @@ Covers the binding guardrails of the feature:
   c) _dest_base_tag encodes the full (weights, VAE, TE) triplet — two combos
      never share a run folder, the same combo is stable, and every official/
      whitelist run keeps its exact historical folder name;
-  d) cloud training REFUSES a custom base (no silent fallback to the official one);
+  d) cloud training never silently falls back to the official base: the three
+     cloud families require the base pushed to a private HF repo (actionable
+     refusal without HF_TOKEN); VAE/TE overrides and sdxl/flux keep the
+     historical local-only refusal;
   e) provenance — the resolved paths reach launch_settings_snapshot and are
      redacted in the ⎘ Share config.
 
@@ -271,7 +274,10 @@ def test_sdxl_builder_emits_custom_weights_and_overrides(app, tmp_path):
 
 # --- guardrail (d): cloud refuses a persisted custom base -----------------------
 
-def test_cloud_refuses_persisted_custom_weights(app, tmp_path, monkeypatch):
+def test_cloud_custom_weights_need_pushed_private_repo(app, tmp_path, monkeypatch):
+    """A persisted Krea custom base is no longer flat-refused: the cloud lane
+    trains it from a private HF repo. Without HF_TOKEN the launch still fails
+    BEFORE renting, with the actionable token message."""
     from app.services import cloud_training as ct
     from app.services import face_dataset_service as svc
     from app.config import LOCAL_USER
@@ -281,7 +287,7 @@ def test_cloud_refuses_persisted_custom_weights(app, tmp_path, monkeypatch):
         ds = svc.create_dataset(LOCAL_USER, 'CC', 'zc_cc', train_type='krea')
         ds.train_base_model = _mkfile(tmp_path, 'w.safetensors', _KREA_KEYS)
         svc.db.session.commit()
-        with pytest.raises(ValueError, match='local-only'):
+        with pytest.raises(ValueError, match='HF_TOKEN'):
             ct.launch_cloud_training(LOCAL_USER, ds.id)
 
 

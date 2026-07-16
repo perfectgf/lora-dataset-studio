@@ -45,10 +45,24 @@ def _fake_export(monkeypatch, ct):
     monkeypatch.setattr(ct.lt, 'assert_trainable', lambda *a, **kw: None)
 
 
-def test_launch_rejects_custom_base(ct, app, seeded_dataset, monkeypatch):
+def test_launch_custom_base_requires_hf_token(ct, app, seeded_dataset, monkeypatch):
+    """Custom bases are cloud-ENABLED for the three cloud families via a private
+    HF repo — but the pod downloads it with the user's HF_TOKEN, so a launch
+    without one fails BEFORE renting, with the actionable message (no more
+    blanket 'local-only' refusal for these families)."""
     with app.app_context():
-        with pytest.raises(ValueError, match='local'):
+        with pytest.raises(ValueError, match='HF_TOKEN'):
             ct.launch_cloud_training('local', seeded_dataset, base_model='myBase.safetensors')
+
+
+def test_launch_rejects_custom_base_for_local_only_families(ct, app, seeded_dataset, monkeypatch):
+    """sdxl/flux keep the historical custom-weights refusal VERBATIM — the
+    private-repo lane covers only Z-Image, Krea 2 and FLUX.2 Klein."""
+    with app.app_context():
+        for fam in ('sdxl', 'flux'):
+            with pytest.raises(ValueError, match='local-only'):
+                ct.launch_cloud_training('local', seeded_dataset, train_type=fam,
+                                         base_model=r'C:\models\custom.safetensors')
 
 
 def test_launch_rejects_sdxl(ct, app, seeded_dataset):
