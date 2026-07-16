@@ -169,7 +169,7 @@ function DatasetTile({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
       </button>
       <div className="grid grid-cols-2 gap-1.5 border-t border-border px-2 py-2">
         <button type="button"
-          onClick={(e) => { e.stopPropagation(); onExportZip?.(d.id); }}
+          onClick={() => onExportZip?.(d.id)}
           disabled={!canExportZip}
           title={canExportZip
             ? 'Download the kept images and captions as a training-ready ZIP'
@@ -179,7 +179,7 @@ function DatasetTile({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
           ⬇ ZIP
         </button>
         <button type="button"
-          onClick={(e) => { e.stopPropagation(); onExportBackup?.(d.id); }}
+          onClick={() => onExportBackup?.(d.id)}
           title="Download a portable backup with all images, captions and settings"
           aria-label={`Export portable backup for ${d.name}`}
           className="rounded-md border border-border bg-app/50 px-2 py-1 text-[0.6875rem] font-semibold text-content-muted transition-colors hover:border-primary/40 hover:bg-surface-raised hover:text-content">
@@ -231,7 +231,7 @@ function NewDatasetForm({ onCreate, onClose }) {
   // server with the button enabled and 400 silently (no toast, no feedback).
   const canCreate = name.trim() && (!concept || conceptDesc.trim()) && (style || trigger.trim());
   return (
-    <div className="rounded-xl border border-border bg-surface p-3 flex flex-col gap-2.5">
+    <div id="new-dataset-form" className="rounded-xl border border-border bg-surface p-3 flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-content font-semibold text-sm flex items-center gap-2">
           <span aria-hidden="true">🆕</span> New dataset
@@ -385,7 +385,8 @@ export default function DatasetListPanel({
                 if (empty) document.getElementById('new-dataset-name')?.focus();
                 else setCreating((v) => !v);
               }}
-              aria-expanded={formOpen}
+              aria-expanded={empty ? undefined : formOpen}
+              aria-controls={empty ? undefined : 'new-dataset-form'}
               className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">
               {!empty && creating ? '✕ Close' : '+ New dataset'}
             </button>
