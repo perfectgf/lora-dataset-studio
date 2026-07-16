@@ -7,10 +7,12 @@ a hard failure.
 
 def _create_ds(client, name='Preset', trigger='pres', train_type='krea',
                kind=None):
-    return client.post('/api/dataset/create',
-                       json={'name': name, 'trigger_word': trigger,
-                             'train_type': train_type,
-                             'kind': kind}).get_json()['id']
+    payload = {'name': name, 'trigger_word': trigger,
+               'train_type': train_type, 'kind': kind}
+    if kind == 'concept':
+        # A concept dataset requires the description the captioner must omit.
+        payload['concept_desc'] = 'a red vintage telephone'
+    return client.post('/api/dataset/create', json=payload).get_json()['id']
 
 
 def test_save_from_dataset_snapshot_and_list(client, app):
@@ -105,8 +107,11 @@ def test_style_builtin_catalogue_has_researched_family_settings(client):
         'builtin-style-krea-raw': (32, 32, '768,1024', 'linear'),
         'builtin-style-klein-base': (32, 32, '768,1024', 'weighted'),
         'builtin-style-zimage-base': (32, 32, '768,1024', 'weighted'),
-        'builtin-style-flux1': (16, 16, '768,1024', 'weighted'),
-        'builtin-style-sdxl': (32, 16, '1024', None),
+        # Style wants full capacity/strength: FLUX corrected 16/16 → 32/32
+        # (research groups FLUX with the 32/32 prose family for style) and
+        # SDXL alpha corrected 16 → 32 (alpha = rank recommended for style).
+        'builtin-style-flux1': (32, 32, '768,1024', 'weighted'),
+        'builtin-style-sdxl': (32, 32, '1024', None),
     }
     for preset_id, (rank, alpha, resolution, timestep) in expected.items():
         settings = styles[preset_id]['settings']
@@ -136,6 +141,73 @@ def test_every_builtin_applies_cleanly(client, app):
         assert body['ok'] is True, preset['id']
         assert body['ignored'] == [], preset['id']
         assert body['rejected'] == [], preset['id']
+
+
+# --- Built-in quick presets: 5 families × 3 kinds ---------------------------
+# The shipped catalogue promise: every supported model family exposes exactly
+# one Character, one Style and one Concept quick preset (15 total).
+
+_QUICK_PRESET_MATRIX = {
+    ('zimage', 'character'): 'builtin-character-zimage',
+    ('sdxl', 'character'): 'builtin-character-sdxl',
+    ('krea', 'character'): 'builtin-krea-character',
+    ('flux', 'character'): 'builtin-character-flux1',
+    ('flux2klein', 'character'): 'builtin-character-klein',
+    ('zimage', 'style'): 'builtin-style-zimage-base',
+    ('sdxl', 'style'): 'builtin-style-sdxl',
+    ('krea', 'style'): 'builtin-style-krea-raw',
+    ('flux', 'style'): 'builtin-style-flux1',
+    ('flux2klein', 'style'): 'builtin-style-klein-base',
+    ('zimage', 'concept'): 'builtin-concept',
+    ('sdxl', 'concept'): 'builtin-concept-sdxl',
+    ('krea', 'concept'): 'builtin-concept-krea',
+    ('flux', 'concept'): 'builtin-concept-flux1',
+    ('flux2klein', 'concept'): 'builtin-concept-klein',
+}
+
+
+def test_quick_preset_catalogue_covers_every_family_and_kind(client):
+    listed = client.get('/api/train/presets').get_json()['presets']
+    builtins = [p for p in listed if p.get('builtin')]
+    assert len(builtins) == 15
+    coverage = {(p['train_type'], p['dataset_kind']): p['id'] for p in builtins}
+    assert coverage == _QUICK_PRESET_MATRIX
+    for p in builtins:
+        # Why culture: every quick preset explains itself in one line, and
+        # pins its researched capacity explicitly (no silent family fallback).
+        assert p.get('description'), p['id']
+        assert p['settings'].get('rank'), p['id']
+        assert p['settings'].get('alpha'), p['id']
+        assert len(p['settings']['sample_prompts']) == 8, p['id']
+
+
+def test_every_quick_preset_applies_by_id_with_announced_values(client, app):
+    """Apply each of the 15 by preset_id on a dataset of ITS family and kind:
+    the scope check passes, nothing is ignored/rejected, and the STORED raw
+    settings reproduce the announced settings dict exactly."""
+    listed = client.get('/api/train/presets').get_json()['presets']
+    by_id = {p['id']: p for p in listed if p.get('builtin')}
+    # Families whose built-ins restrict variants: request an allowed one
+    # (zimage style is Base-only; Klein has only its two sizes).
+    request_variant = {'zimage': 'base', 'krea': 'base', 'flux2klein': '4b'}
+    for i, ((family, kind), preset_id) in enumerate(
+            sorted(_QUICK_PRESET_MATRIX.items())):
+        preset = by_id[preset_id]
+        ds_id = _create_ds(client, name=f'Quick {i}', trigger=f'quick{i}',
+                           train_type=family, kind=kind)
+        payload = {'preset_id': preset_id, 'train_type': family}
+        if family in request_variant:
+            payload['variant'] = request_variant[family]
+        r = client.post(f'/api/dataset/{ds_id}/train/presets/apply',
+                        json=payload)
+        assert r.status_code == 200, (preset_id, r.get_json())
+        body = r.get_json()
+        assert body['ok'] is True and body['preset_id'] == preset_id
+        assert body['ignored'] == [] and body['rejected'] == [], preset_id
+        with app.app_context():
+            from app.services import lora_training as lt
+            stored = lt.snapshot_train_settings('local', ds_id)
+            assert stored == preset['settings'], preset_id
 
 
 def test_apply_by_preset_id_and_delete(client):

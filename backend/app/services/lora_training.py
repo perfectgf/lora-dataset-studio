@@ -1296,70 +1296,261 @@ TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
                       'timestep_type', 'optimizer', 'lr_scheduler', 'warmup',
                       'grad_accum', 'network_type', 'ema')
 
-# Built-in presets: shipped with the app (every install sees them), read-only,
-# versioned with the code. The recommended character recipe: the researched
-# family defaults pinned explicitly, plus the checkpoint-SELECTION machinery —
-# a save + a probe preview every 250 steps with ten recent snapshots, because on
-# character sets the quality comes from picking the earliest checkpoint that
-# holds the identity, not from exotic hyper-parameters. Steps stay adaptive
-# (~120 × kept images). A test asserts every builtin applies with zero
-# ignored/rejected keys, so a drifting choice-list can't silently break them.
+# Built-in quick presets: shipped with the app (every install sees them),
+# read-only, versioned with the code. One preset per (family × dataset kind):
+# Character locks an identity, Style absorbs a look (route-owned catalogue),
+# Concept generalizes an object/pose/composition. Every value is SOURCED —
+# research vault first (Tech-IA notes), the installed ai-toolkit's own defaults
+# second (ui/src/app/jobs/new/options.ts + config/examples), 2026 community
+# consensus third — never intuition; per-preset comments carry the source.
+# Steps stay adaptive (recommended_steps owns them per kind) and the learning
+# rate is family-fixed (1e-4 / prodigy), so neither is a preset key. A test
+# asserts every builtin applies with zero ignored/rejected keys, so a drifting
+# choice-list can't silently break them.
+
+# Identity AND flexibility probes — overfit (waxy skin, frozen pose) shows here
+# first. One probe sheet per checkpoint: on character sets the quality comes
+# from picking the earliest checkpoint that holds the identity, not from
+# exotic hyper-parameters.
+_CHARACTER_SAMPLE_PROMPTS = [
+    '{trigger}, close-up portrait, neutral expression, soft studio light',
+    '{trigger}, headshot, golden hour sunlight, slight smile',
+    '{trigger}, bust shot, profile view, window light',
+    '{trigger}, full body, walking outdoors in a park, casual jeans and t-shirt',
+    '{trigger}, full body, elegant evening dress, dim moody lighting',
+    '{trigger}, sitting at a cafe table, laughing, candid photo',
+    '{trigger}, sportswear, stretching in a gym, harsh fluorescent light',
+    '{trigger}, wide shot, standing on a beach at dusk, wind in hair',
+]
+
+# Probes exercise the concept across framings, contexts and lighting: a concept
+# LoRA that only reproduces its training context has overfit.
+_CONCEPT_SAMPLE_PROMPTS = [
+    '{trigger}',
+    '{trigger}, close-up, high detail, sharp focus',
+    '{trigger}, wide shot showing the full scene',
+    '{trigger}, in an unusual setting, outdoors',
+    '{trigger}, soft natural window light',
+    '{trigger}, night scene, artificial light',
+    '{trigger}, seen from a high angle',
+    '{trigger}, cinematic composition, shallow depth of field',
+]
+
+
+def _character_preset_settings(rank, alpha, resolution='768,1024',
+                               timestep_type=None, ema=None):
+    """Character quick-preset baseline: a save + probe sheet every 250 steps
+    with ten snapshots kept — all sweet-spot candidates for the earliest
+    checkpoint that holds the likeness (save/sample 250 = the ai-toolkit
+    canonical cadence, train_lora_flux_24gb.yaml)."""
+    out = {
+        'rank': rank,
+        'alpha': alpha,
+        'resolution': resolution,
+        'save_every': 250,
+        'max_step_saves': 10,
+        'sample_every': 250,
+        'sample_prompts': list(_CHARACTER_SAMPLE_PROMPTS),
+    }
+    if timestep_type:
+        out['timestep_type'] = timestep_type
+    if ema:
+        out['ema'] = ema
+    return out
+
+
+def _concept_preset_settings(rank, alpha, resolution='768,1024',
+                             timestep_type=None):
+    """Concept quick-preset baseline. Runs are long (sub-linear 475·√n steps,
+    authoritative in recommended_steps), so save/sample every 500 halves the
+    preview GPU cost while max_step_saves keeps the N most RECENT saves
+    (ai-toolkit deletes the oldest): 10×500 spans the last 5000 steps — the
+    whole run at the small anchor, the second half at the large one. Alpha is
+    rank/2 across families: the concept research (vault 2026-06-22) recommends
+    'Alpha dim/2' for object/pose/composition — generalize, don't memorize."""
+    out = {
+        'rank': rank,
+        'alpha': alpha,
+        'resolution': resolution,
+        'save_every': 500,
+        'max_step_saves': 10,
+        'sample_every': 500,
+        'sample_prompts': list(_CONCEPT_SAMPLE_PROMPTS),
+    }
+    if timestep_type:
+        out['timestep_type'] = timestep_type
+    return out
+
+
 BUILTIN_TRAIN_PRESETS = [
+    # --- Character (one per family) --------------------------------------
+    # Historical ID kept stable (tests, muscle memory). rank/alpha 32/32:
+    # "Every Krea-2 source uses 32/32" (vault ai-toolkit settings 2026-07-10,
+    # HIGH confidence; musubi + RunComfy agree). timestep_type deliberately
+    # NOT pinned: it falls to the family default (linear) because linear-vs-
+    # sigmoid is the vault's one unresolved Krea conflict — "don't ship blind".
     {
         'id': 'builtin-krea-character',
-        'name': 'Krea character — recommended',
+        'name': 'Krea 2 · Character',
         'train_type': 'krea',
+        'dataset_kind': 'character',
+        'variants': ['base', 'raw', 'turbo'],
         'builtin': True,
-        'settings': {
-            'rank': 32,                    # Krea researched default (alpha derives = 32)
-            'resolution': '768,1024',      # multi-scale: close-up → full body
-            'save_every': 250,
-            'max_step_saves': 10,          # keep every snapshot — all sweet-spot candidates
-            'sample_every': 250,           # one probe sheet per checkpoint
-            'sample_prompts': [            # identity AND flexibility probes — overfit
-                                           # (waxy skin, frozen pose) shows here first
-                '{trigger}, close-up portrait, neutral expression, soft studio light',
-                '{trigger}, headshot, golden hour sunlight, slight smile',
-                '{trigger}, bust shot, profile view, window light',
-                '{trigger}, full body, walking outdoors in a park, casual jeans and t-shirt',
-                '{trigger}, full body, elegant evening dress, dim moody lighting',
-                '{trigger}, sitting at a cafe table, laughing, candid photo',
-                '{trigger}, sportswear, stretching in a gym, harsh fluorescent light',
-                '{trigger}, wide shot, standing on a beach at dusk, wind in hair',
-            ],
-        },
+        'description': 'Every Krea-2 source agrees on rank 32/32; multi-scale '
+                       '768/1024 with a probe sheet every 250 steps to catch '
+                       'the identity sweet-spot early.',
+        'settings': _character_preset_settings(32, 32),
     },
-    # Concept runs use the sub-linear 475·√n policy in recommended_steps. This
-    # legacy built-in only supplies advanced settings; step selection remains
-    # authoritative in recommended_steps_info. save/sample every 500 is the
-    # coverage compromise:
-    # max_step_saves keeps the N most RECENT saves (ai-toolkit deletes the
-    # oldest), so 10×500 spans the last 5000 steps — the whole run at the small
-    # anchor, the second half at the large one — while halving the preview GPU
-    # cost of long runs (1 image per prompt per interval). Probes exercise the
-    # concept across framings, contexts and lighting: a concept LoRA that only
-    # reproduces its training context has overfit.
+    # 32/32 is the AI-Toolkit-community default and the "lower-regret choice
+    # for hard faces" (vault 2026-07-10; options.ts + neurocanvas ship 32) —
+    # drop rank to 16 manually for small clean frontal sets. sigmoid pinned:
+    # "matches Ostris' subject guidance exactly" (vault, confirmed ✓).
+    {
+        'id': 'builtin-character-zimage',
+        'name': 'Z-Image · Character',
+        'train_type': 'zimage',
+        'dataset_kind': 'character',
+        'variants': [],
+        'builtin': True,
+        'description': 'Rank 32/32 (community default, lower-regret for hard '
+                       'faces) with sigmoid timesteps per Ostris subject '
+                       'guidance; probe every 250 steps and pick the earliest '
+                       'checkpoint that holds the likeness.',
+        'settings': _character_preset_settings(32, 32, timestep_type='sigmoid'),
+    },
+    # SDXL keeps its deliberate half-strength alpha: "SDXL's existing 32/16 is
+    # a deliberate valid choice — keep it" (vault 2026-07-10). Native 1024
+    # single-scale (vault Z-Image-vs-SDXL 2026-06-14). No timestep_type: SDXL
+    # is ddpm — flowmatch weighting does not apply (options.ts disables it).
+    {
+        'id': 'builtin-character-sdxl',
+        'name': 'SDXL · Character',
+        'train_type': 'sdxl',
+        'dataset_kind': 'character',
+        'variants': [],
+        'builtin': True,
+        'description': 'The researched SDXL recipe: rank 32 with half-strength '
+                       'alpha 16 at native 1024 — finer detail capture, with '
+                       '250-step probes for checkpoint picking.',
+        'settings': _character_preset_settings(32, 16, resolution='1024'),
+    },
+    # The canonical ai-toolkit FLUX recipe, verbatim from
+    # config/examples/train_lora_flux_24gb.yaml: lora 16/16, EMA on at 0.99
+    # ("Recommended to leave on"), save/sample 250. sigmoid = Ostris' subject
+    # guidance ("for just subject, change to sigmoid"), confirmed by the vault.
+    {
+        'id': 'builtin-character-flux1',
+        'name': 'FLUX.1 dev · Character',
+        'train_type': 'flux',
+        'dataset_kind': 'character',
+        'variants': [],
+        'builtin': True,
+        'description': "ai-toolkit's canonical FLUX recipe: rank 16/16 with "
+                       'sigmoid timesteps and EMA 0.99 (shipped default), '
+                       'probing every 250 steps.',
+        'settings': _character_preset_settings(16, 16, timestep_type='sigmoid',
+                                               ema=0.99),
+    },
+    # No vault coverage for Klein training yet. rank 16/16 = the family default
+    # and the community starting point ("start 16, try 32 if underfitting" —
+    # RunComfy Klein guide); BFL's official page gives step/LR envelopes only.
+    # sigmoid is EXTRAPOLATED from generic ai-toolkit subject guidance
+    # (weighted default → sigmoid for character) — not Klein-verified. Both
+    # sizes share hyper-parameters; only VRAM differs (apatero 4B-vs-9B).
+    {
+        'id': 'builtin-character-klein',
+        'name': 'FLUX.2 Klein · Character',
+        'train_type': 'flux2klein',
+        'dataset_kind': 'character',
+        'variants': ['4b', '9b'],
+        'builtin': True,
+        'description': 'Community starting point for Klein identity: rank '
+                       '16/16, sigmoid timesteps (generic subject guidance — '
+                       'no Klein-specific study yet), 250-step probes.',
+        'settings': _character_preset_settings(16, 16, timestep_type='sigmoid'),
+    },
+    # --- Concept / composition (one per family) --------------------------
+    # Historical ID kept stable. rank 16 / alpha 8: concept research (vault
+    # 2026-06-22) — object/concept rank 16-32 with alpha dim/2. weighted
+    # pinned: sigmoid is the app's zimage default but it is subject-tuned;
+    # weighted is the arch-canonical options.ts default and the community's
+    # non-character recommendation.
     {
         'id': 'builtin-concept',
-        'name': 'Concept — recommended',
+        'name': 'Z-Image · Concept',
         'train_type': 'zimage',
+        'dataset_kind': 'concept',
+        'variants': [],
         'builtin': True,
-        'settings': {
-            'resolution': '768,1024',
-            'save_every': 500,
-            'max_step_saves': 10,
-            'sample_every': 500,
-            'sample_prompts': [
-                '{trigger}',
-                '{trigger}, close-up, high detail, sharp focus',
-                '{trigger}, wide shot showing the full scene',
-                '{trigger}, in an unusual setting, outdoors',
-                '{trigger}, soft natural window light',
-                '{trigger}, night scene, artificial light',
-                '{trigger}, seen from a high angle',
-                '{trigger}, cinematic composition, shallow depth of field',
-            ],
-        },
+        'description': 'Generalize, don\'t memorize: rank 16 with half alpha '
+                       'and weighted timesteps, probing across framings and '
+                       'lighting every 500 steps.',
+        'settings': _concept_preset_settings(16, 8, timestep_type='weighted'),
+    },
+    # Concept research: simple concepts rank 4-8, complex 16-32 → 16 is the
+    # mid-choice; alpha dim/2 (vault 2026-06-22). Native 1024, no flowmatch
+    # timestep on SDXL.
+    {
+        'id': 'builtin-concept-sdxl',
+        'name': 'SDXL · Concept',
+        'train_type': 'sdxl',
+        'dataset_kind': 'concept',
+        'variants': [],
+        'builtin': True,
+        'description': 'Rank 16 with half alpha 8 at native 1024 — enough '
+                       'capacity for objects and poses without absorbing the '
+                       'whole scene; probes every 500 steps.',
+        'settings': _concept_preset_settings(16, 8, resolution='1024'),
+    },
+    # The vault is EXPLICIT that no Krea concept recipe exists ("seuls
+    # style/character/object documentés" — Krea-2 note 2026-06-29), so this
+    # extrapolates the family canon: rank 32 (every Krea-2 source) × the
+    # generic concept alpha dim/2 rule. linear pinned = the Krea-canonical
+    # timestep (ai-toolkit options.ts l.1050 + RunComfy Krea recipe).
+    {
+        'id': 'builtin-concept-krea',
+        'name': 'Krea 2 · Concept',
+        'train_type': 'krea',
+        'dataset_kind': 'concept',
+        'variants': [],
+        'builtin': True,
+        'description': 'No published Krea concept recipe exists — extrapolated '
+                       "from the family's rank-32 canon with half alpha 16 and "
+                       "Krea's linear timesteps.",
+        'settings': _concept_preset_settings(32, 16, timestep_type='linear'),
+    },
+    # rank 16 = the canonical FLUX example dimension; alpha dim/2 per the
+    # concept research. 'shift' is the repo's only composition guidance
+    # (train_lora_flex2_24gb.yaml: "shift works well for training fast and
+    # learning composition and style; for just subject → sigmoid") — Flex
+    # lineage, flagged as such.
+    {
+        'id': 'builtin-concept-flux1',
+        'name': 'FLUX.1 dev · Concept',
+        'train_type': 'flux',
+        'dataset_kind': 'concept',
+        'variants': [],
+        'builtin': True,
+        'description': "Rank 16 with half alpha 8; 'shift' timesteps per "
+                       "Ostris ('works well for learning composition and "
+                       "style'), probing every 500 steps.",
+        'settings': _concept_preset_settings(16, 8, timestep_type='shift'),
+    },
+    # No Klein concept source exists anywhere (flagged by the 2026 web sweep):
+    # extrapolated from the Klein style side — composition wants capacity, so
+    # rank 32 with the generic alpha dim/2 rule, and Klein's canonical
+    # weighted timesteps (options.ts) rather than subject-tuned sigmoid.
+    {
+        'id': 'builtin-concept-klein',
+        'name': 'FLUX.2 Klein · Concept',
+        'train_type': 'flux2klein',
+        'dataset_kind': 'concept',
+        'variants': ['4b', '9b'],
+        'builtin': True,
+        'description': 'No Klein-specific concept research yet — extrapolated '
+                       'from Klein style: rank 32, half alpha 16, weighted '
+                       'timesteps, 500-step probes.',
+        'settings': _concept_preset_settings(32, 16, timestep_type='weighted'),
     },
     # Legacy generic Style alias. The API hides it from GET and resolves its ID
     # to a family-specific built-in at apply time. Keep the raw entry only for

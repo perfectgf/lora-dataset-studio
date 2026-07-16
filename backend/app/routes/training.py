@@ -544,55 +544,85 @@ def _style_preset_settings(rank, alpha, resolution='768,1024',
 # outside train_settings means old exported presets remain schema-tolerant while
 # new built-ins can be rejected before a single dataset field is mutated.
 _STYLE_BUILTIN_PRESETS = [
+    # 32/32 linear = the cleanest published Krea recipe (RunComfy "Train on
+    # Raw, validate on Turbo": linear timesteps + flowmatch, rank/alpha 32) and
+    # the vault's strongest confirmation ("Every Krea-2 source uses 32/32").
     {
         'id': 'builtin-style-krea-raw',
-        'name': 'Style — Krea 2 Raw',
+        'name': 'Krea 2 · Style (Raw)',
         'train_type': 'krea',
         'dataset_kind': 'style',
         # ``base`` is the canonical UI value; ``raw`` is accepted as a readable
         # compatibility spelling for callers that used the model's public name.
         'variants': ['base', 'raw'],
         'builtin': True,
+        'description': "Krea's own style path — rank 32/32 with linear "
+                       'timesteps, trained on Raw (validate on Turbo); '
+                       'content-only probes every 250 steps.',
         'settings': _style_preset_settings(32, 32, timestep_type='linear'),
     },
+    # weighted = Klein's canonical timestep (ai-toolkit options.ts); rank 32 =
+    # the community's style step-up from the 16 default (RunComfy; the Herbst
+    # 50-run study points even higher, 128/64, above this app's rank ceiling).
     {
         'id': 'builtin-style-klein-base',
-        'name': 'Style — FLUX.2 Klein Base',
+        'name': 'FLUX.2 Klein · Style',
         'train_type': 'flux2klein',
         'dataset_kind': 'style',
         'variants': ['4b', '9b'],
         'builtin': True,
+        'description': "Rank 32/32 with Klein's canonical weighted timesteps; "
+                       'BFL recommends the shorter step envelope for style — '
+                       'content-only probes every 250 steps.',
         'settings': _style_preset_settings(32, 32, timestep_type='weighted'),
     },
+    # 32/32 confirmed by the concept research ("32/32 worked for everything,
+    # style included"); weighted = the zimage arch default in options.ts and
+    # the community's non-character recommendation.
     {
         'id': 'builtin-style-zimage-base',
-        'name': 'Style — Z-Image Base',
+        'name': 'Z-Image · Style (Base)',
         'train_type': 'zimage',
         'dataset_kind': 'style',
         'variants': ['base'],
         'builtin': True,
+        'description': 'Rank 32/32 with weighted timesteps (arch default) on '
+                       'the Base recipe; content-only probes so no hidden '
+                       'trigger leaks into an always-on style.',
         'settings': _style_preset_settings(32, 32, timestep_type='weighted'),
     },
+    # Corrected from 16/16 (the canonical FLUX subject dimension): the concept
+    # research groups FLUX with the 32/32 prose family for style ("start
+    # 32/32"), matching the practitioner consensus that style wants more
+    # capacity than subject training.
     {
         'id': 'builtin-style-flux1',
-        'name': 'Style — FLUX.1 dev',
+        'name': 'FLUX.1 dev · Style',
         'train_type': 'flux',
         'dataset_kind': 'style',
         # FLUX.1 has one training recipe; the historical dataset variant field
         # is irrelevant for it, hence no variant restriction.
         'variants': [],
         'builtin': True,
-        'settings': _style_preset_settings(16, 16, timestep_type='weighted'),
+        'description': 'Style wants more capacity than the 16/16 subject '
+                       'default: rank 32/32 (research consensus) with weighted '
+                       'timesteps and 250-step probes.',
+        'settings': _style_preset_settings(32, 32, timestep_type='weighted'),
     },
+    # Corrected from 32/16: the concept research recommends FULL alpha for
+    # style ("Alpha = dim, recommandé style") — half-strength stays a
+    # character-recipe trick. SDXL is ddpm: no flow-match timestep weighting.
     {
         'id': 'builtin-style-sdxl',
-        'name': 'Style — SDXL',
+        'name': 'SDXL · Style',
         'train_type': 'sdxl',
         'dataset_kind': 'style',
         'variants': [],
         'builtin': True,
-        # SDXL does not expose flow-match timestep weighting in ai-toolkit.
-        'settings': _style_preset_settings(32, 16, resolution='1024'),
+        'description': 'Full-strength rank 32/32 at native 1024 — research '
+                       'recommends alpha = rank for style (half-strength is a '
+                       'character trick).',
+        'settings': _style_preset_settings(32, 32, resolution='1024'),
     },
 ]
 
@@ -611,15 +641,10 @@ def _builtin_train_presets():
             continue
         preset = dict(source)
         preset['settings'] = dict(source.get('settings') or {})
-        if preset_id == 'builtin-krea-character':
-            preset.setdefault('dataset_kind', 'character')
-            preset.setdefault('variants', ['base', 'raw', 'turbo'])
-        elif preset_id == 'builtin-concept':
-            preset.setdefault('dataset_kind', 'concept')
-            preset.setdefault('variants', [])
-        else:
-            preset.setdefault('dataset_kind', None)
-            preset.setdefault('variants', [])
+        # Every current entry carries explicit scope metadata; the setdefaults
+        # only shield hypothetical future entries from missing keys.
+        preset.setdefault('dataset_kind', None)
+        preset.setdefault('variants', [])
         out.append(preset)
         seen.add(preset_id)
     return out

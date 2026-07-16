@@ -1124,11 +1124,25 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               aria-label="Training preset"
               className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[220px]">
               <option value="">— pick a preset —</option>
-              {visiblePresets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.builtin ? '★ ' : ''}{p.name}
-                </option>
-              ))}
+              {/* Built-ins first, as their own group: the shipped, researched
+                  recipes for this family × kind (read-only, versioned with
+                  the app). User snapshots follow. */}
+              {visiblePresets.some((p) => p.builtin) && (
+                <optgroup label="Built-in (researched)">
+                  {visiblePresets.filter((p) => p.builtin).map((p) => (
+                    <option key={p.id} value={p.id} title={p.description || undefined}>
+                      ★ {p.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {visiblePresets.some((p) => !p.builtin) && (
+                <optgroup label="My presets">
+                  {visiblePresets.filter((p) => !p.builtin).map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
             <button type="button" onClick={applyPreset}
               disabled={!selPreset || presetBusy || trainTypeBusy}
@@ -1171,6 +1185,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   ? ` · recipe ${selPreset.variants.join(' / ')}` : ''}
                 {selPreset.builtin && trainingPresetDatasetKind(selPreset) === 'style'
                   ? ' · applying also restores adaptive Style steps' : ''}
+                {selPreset.description ? <>{' — '}{selPreset.description}</> : ''}
               </span>
             )}
           </div>
