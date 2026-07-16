@@ -2,10 +2,11 @@
 services:
   studio:
     build: .
-    ports: ["5000:5000"]
+    ports: ["5050:5050"]
     volumes:
       - ./data-docker:/data
       - ./.env:/app/.env
     environment:
       - LDS_CONFIG=/data/config.json
       - LDS_HOST=0.0.0.0
+      - LDS_PORT=5050

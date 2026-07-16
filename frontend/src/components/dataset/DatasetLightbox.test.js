@@ -35,10 +35,10 @@ test('dataset hook starts improvement, reports the preserved original, then refr
   assert.match(hook, /resolveSmallImageRescue, improveImage, classify/);
 });
 
-test('settings explains the shared instruction for scraper and lightbox improvement', () => {
+test('settings separates scraper rescue instructions from manual lightbox improvement', () => {
   assert.match(settings, /title="Klein image improvement"/);
   assert.match(settings, /automatic rescue of scraped images under 768 px/);
-  assert.match(settings, /manual Upscale & improve action in each image lightbox/);
+  assert.match(settings, /Manual Upscale & improve uses its dedicated metadata-derived quality profile/);
 });
 
 test('manual improvement candidates cannot use the unrelated generic regenerate path', () => {

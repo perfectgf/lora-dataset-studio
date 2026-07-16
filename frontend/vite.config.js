@@ -12,7 +12,7 @@ export default defineConfig({
     port: 5173,
     host: '0.0.0.0',
     proxy: {
-      '/api': 'http://127.0.0.1:5000',
+      '/api': 'http://127.0.0.1:5050',
     },
   },
 })

@@ -26,6 +26,34 @@ jobs:
             throw "tag ${{ github.ref_name }} does not match APP_VERSION $v - bump backend/app/version.py first"
           }
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run all frontend tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Rebuild frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify the tracked frontend build is current
+        shell: pwsh
+        run: |
+          $changes = @(git status --porcelain --untracked-files=all -- frontend/dist)
+          if ($changes.Count -gt 0) {
+            $changes | ForEach-Object { Write-Host $_ }
+            git diff -- frontend/dist
+            throw "frontend/dist is stale - rebuild it and commit the result before tagging a release"
+          }
+
       # Host python for PyInstaller only (the bundle ships its own standalone CPython).
       - uses: actions/setup-python@v5
         with:

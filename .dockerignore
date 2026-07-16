@@ -8,5 +8,9 @@ config.json
 .superpowers
 frontend/node_modules
 docs
+.worktrees/
+.pytest_cache/
+packaging/build/
+packaging/dist/
 *.pyc
 __pycache__
