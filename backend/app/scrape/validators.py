@@ -17,6 +17,11 @@ class Platform(Enum):
     INSTAGRAM = "instagram"
     PICAZOR = "picazor"
     EROME = "erome"
+    # Retrait produit volontaire (dump/leak sites) : ces 4 membres restent
+    # UNIQUEMENT pour que detect_platform() identifie encore l'hôte et que
+    # validate_url() puisse renvoyer un refus explicite et nommé (cf.
+    # _REMOVED_PLATFORMS) — aucune source ne les gère plus, aucun scan ni
+    # téléchargement ne doit jamais les atteindre.
     COOMER = "coomer"
     KEMONO = "kemono"
     BUNKR = "bunkr"
@@ -44,6 +49,14 @@ class Platform(Enum):
     PEXELS = "pexels"
     GENERIC = "generic"   # toute autre URL http(s) — déléguée à yt-dlp
     UNKNOWN = "unknown"
+
+
+# Plateformes retirées du produit (dump/leak sites) : validate_url() les refuse
+# explicitement avant toute résolution de source. Ne JAMAIS router ces membres
+# vers un scan ou un téléchargement, générique ou dédié.
+_REMOVED_PLATFORMS = frozenset({
+    Platform.COOMER, Platform.KEMONO, Platform.BUNKR, Platform.CYBERDROP,
+})
 
 
 class URLType(Enum):
@@ -207,16 +220,15 @@ class URLValidator:
         Platform.INSTAGRAM: ['instagram.com', 'www.instagram.com'],
         Platform.PICAZOR: ['picazor.com', 'www.picazor.com'],
         Platform.EROME: ['erome.com', 'www.erome.com', 'fr.erome.com'],
-        Platform.COOMER: ['coomer.st', 'coomer.su', 'coomer.party', 'coomer.cr'],
-        Platform.KEMONO: ['kemono.cr', 'kemono.su', 'kemono.party'],
-        Platform.CYBERDROP: ['cyberdrop.me', 'cyberdrop.cr', 'cyberdrop.to'],
         Platform.X: ['x.com', 'twitter.com', 'www.x.com', 'www.twitter.com', 'mobile.twitter.com'],
         Platform.TIKTOK: ['tiktok.com', 'www.tiktok.com', 'vm.tiktok.com'],
         Platform.PORNPICS: ['pornpics.com', 'www.pornpics.com'],
         Platform.SEXCOM: ['sex.com', 'www.sex.com'],
         Platform.CIVITAI: ['civitai.com', 'www.civitai.com', 'civitai.red', 'www.civitai.red'],
         Platform.PEXELS: ['pexels.com', 'www.pexels.com'],
-        # Bunkr tourne sur des TLDs rotatifs → matché par host-contains 'bunkr' (cf. detect_platform).
+        # Coomer/Kemono/Cyberdrop/Bunkr : PAS de VALID_DOMAINS (source retirée, cf.
+        # _REMOVED_PLATFORMS) — validate_url() les refuse avant ce contrôle de toute
+        # façon. _HOST_PLATFORMS ci-dessous les identifie encore (message de refus nommé).
     }
 
     # Domaines reconnus par host (host == d ou host.endswith('.'+d)).
@@ -225,6 +237,9 @@ class URLValidator:
         ('instagram.com', Platform.INSTAGRAM),
         ('picazor.com', Platform.PICAZOR),
         ('erome.com', Platform.EROME),
+        # Sources retirées (cf. _REMOVED_PLATFORMS) : identifiées ici UNIQUEMENT pour
+        # que validate_url() puisse renvoyer un refus nommé plutôt qu'un générique
+        # « URL non reconnue » ou, pire, un repli silencieux vers le scraper générique.
         ('coomer.st', Platform.COOMER), ('coomer.su', Platform.COOMER),
         ('coomer.party', Platform.COOMER), ('coomer.cr', Platform.COOMER),
         ('kemono.cr', Platform.KEMONO), ('kemono.su', Platform.KEMONO),
@@ -254,9 +269,12 @@ class URLValidator:
         host = (urlparse(url).hostname or '').lower()
         if not host:
             return Platform.UNKNOWN
-        # Bunkr : TLDs rotatifs → le label 'bunkr' doit être le SLD (avant-dernier label),
-        # ex : bunkr.cr, bunkrr.su — on vérifie labels[-2] pour éviter les sous-domaines
-        # trompeurs comme bunkr.cr.evil.com où 'bunkr' est un sous-domaine, pas le SLD.
+        # Bunkr (source retirée, cf. _REMOVED_PLATFORMS) : TLDs rotatifs → le label
+        # 'bunkr' doit être le SLD (avant-dernier label), ex : bunkr.cr, bunkrr.su —
+        # on vérifie labels[-2] pour éviter les sous-domaines trompeurs comme
+        # bunkr.cr.evil.com où 'bunkr' est un sous-domaine, pas le SLD. Uniquement
+        # pour que validate_url() puisse renvoyer un refus nommé, jamais pour router
+        # vers un scan ou un téléchargement.
         labels = host.split('.')
         if len(labels) >= 2 and labels[-2].startswith('bunkr'):
             return Platform.BUNKR
@@ -295,6 +313,18 @@ class URLValidator:
 
         platform = cls.detect_platform(url)
 
+        if platform in _REMOVED_PLATFORMS:
+            # Retrait produit volontaire (dump/leak sites) : refus explicite et nommé
+            # AVANT toute résolution de source, pour ne jamais retomber — silencieusement
+            # ou non — sur le scraper générique (gallery-dl/yt-dlp supportent nativement
+            # certains de ces sites en interne).
+            return ValidationResult(
+                is_valid=False, platform=platform, url_type=URLType.UNKNOWN,
+                value="", original_url=url,
+                error=f"Source « {platform.value} » non prise en charge : ce site a été "
+                      "retiré de ce scraper.",
+            )
+
         if platform == Platform.UNKNOWN:
             # Domaine inconnu mais URL http(s) bien formée → délégué à yt-dlp.
             if '.' in parsed.netloc:
@@ -331,10 +361,9 @@ class URLValidator:
             return cls._validate_erome(url)
         if platform == Platform.PEXELS:
             return cls._validate_pexels(url)
-        if platform in (Platform.COOMER, Platform.KEMONO, Platform.BUNKR,
-                        Platform.CYBERDROP, Platform.X, Platform.TIKTOK,
-                        Platform.PORNPICS, Platform.CIVITAI, Platform.FAPELLO,
-                        Platform.REDDIT, Platform.SEXCOM):
+        if platform in (Platform.X, Platform.TIKTOK, Platform.PORNPICS,
+                        Platform.CIVITAI, Platform.FAPELLO, Platform.REDDIT,
+                        Platform.SEXCOM):
             return cls._validate_gallerydl_platform(url, platform)
 
         # Inatteignable : tout Platform détecté ci-dessus a son _validate_X.

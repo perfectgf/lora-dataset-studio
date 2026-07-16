@@ -17,7 +17,7 @@ class Capabilities:
     needs_auth: bool = False                     # cookies requis (hint UX, pas un gate dur)
     media_kinds: frozenset = field(default_factory=lambda: frozenset({'video'}))
     own_downloader: bool = False                 # True=source.download() ; False=yt-dlp universel
-    polite: bool = False                         # sleep/limit-rate (bunkr/cyberdrop/x)
+    polite: bool = False                         # sleep/limit-rate (civitai/x/pornpics/…)
     is_universal_fallback: bool = False          # exactement UNE source (priorité 0)
 
 

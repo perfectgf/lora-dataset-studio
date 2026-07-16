@@ -39,9 +39,7 @@ const SOURCE_GROUPS = [
   { label: 'NSFW', tone: 'rose', sources: [
     ['PornPics', 'https://www.pornpics.com/'], ['Sex.com', 'https://www.sex.com/'],
     ['Picazor', 'https://picazor.com/'], ['Erome', 'https://www.erome.com/'],
-    ['Fapello', 'https://fapello.com/'], ['Coomer', 'https://coomer.st/'],
-    ['Kemono', 'https://kemono.cr/'], ['Cyberdrop', 'https://cyberdrop.me/'],
-    ['Bunkr', 'https://bunkr.cr/'],
+    ['Fapello', 'https://fapello.com/'],
   ] },
 ];
 

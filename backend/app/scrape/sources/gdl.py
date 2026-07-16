@@ -183,7 +183,7 @@ def enumerate(url, *, platform='generic', max_items=DEFAULT_MAX_ITEMS,
         if items:
             return items[:max_items], None
         # Tous les albums ont échoué → remonter la 1ère erreur (auth/429) plutôt
-        # qu'un faux « aucun média » (cas coomer/kemono derrière DDoS-Guard).
+        # qu'un faux « aucun média » (cas d'une source derrière une protection DDoS-Guard).
         if album_errors:
             return None, album_errors[0]
         return None, "gallery-dl : aucun média trouvé."

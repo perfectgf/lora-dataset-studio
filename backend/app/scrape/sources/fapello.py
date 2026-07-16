@@ -40,7 +40,8 @@ class FapelloSource(_PhotoSiteSource):
     name = 'fapello'
     platform_enum = Platform.FAPELLO
     # category='image' + capabilities (image+video, own_downloader, polite) hérités de
-    # _PhotoSiteSource : agrégateur de fuites mixte, même classement que coomer/kemono/bunkr.
+    # _PhotoSiteSource : agrégateur de contenu mixte, même classement que les autres
+    # sources 'image' de ce module (PornPics, etc.).
     # gallery_cap RELEVÉ à 24 (défaut hérité = 8) : chez Fapello un « post » (chapitre) = 1
     # SEUL média, alors que chez PornPics un chapitre = 1 galerie de dizaines d'images. À 8,
     # « Charger plus » ne rendait que 8 médias → peu efficace. 24 = ~15 s (1 sous-processus

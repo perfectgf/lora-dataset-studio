@@ -16,10 +16,9 @@ from . import redgifs    # noqa: F401
 from . import instagram  # noqa: F401
 from . import picazor    # noqa: F401
 from . import erome      # noqa: F401
-from . import coomer     # noqa: F401
-from . import kemono     # noqa: F401
-from . import bunkr      # noqa: F401
-from . import cyberdrop  # noqa: F401
+# Coomer/Kemono/Bunkr/Cyberdrop retirés (dump/leak sites) : validators.py refuse
+# ces domaines explicitement (Platform._REMOVED_PLATFORMS), plus de source à
+# enregistrer ici.
 from . import x          # noqa: F401
 from . import tiktok     # noqa: F401
 from . import image_sites  # noqa: F401  (pornpics — vraies photos par catégorie)

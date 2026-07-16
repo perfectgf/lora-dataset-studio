@@ -11,10 +11,11 @@ from . import registry, gdl
 from .. import netfetch
 
 # Hôtes pour lesquels la branche générique yt-dlp est autorisée (interim SSRF).
+# Coomer/Kemono/Cyberdrop/Bunkr n'y figurent plus : ces sources sont retirées et
+# validators.py les refuse explicitement avant même d'atteindre cette source (donc
+# avant match()) — les garder ici serait du code mort et une fausse impression que
+# le repli générique reste possible pour elles.
 VETTED_DOMAINS = (
-    'coomer.st', 'coomer.su', 'coomer.party', 'coomer.cr',
-    'kemono.cr', 'kemono.su', 'kemono.party',
-    'cyberdrop.me', 'cyberdrop.cr', 'cyberdrop.to',
     'x.com', 'twitter.com', 'tiktok.com',
     'youtube.com', 'youtu.be', 'pornhub.com', 'xvideos.com', 'redgifs.com',
     'vimeo.com', 'dailymotion.com',
@@ -25,11 +26,6 @@ def _host_vetted(url):
     host = (urlparse(url).hostname or '').lower()
     if not host:
         return False
-    labels = host.split('.')
-    # Bunkr (TLDs rotatifs) : matcher UNIQUEMENT le label SLD (avant-dernier), sinon
-    # un host trompeur type bunkr.cr.evil.com passerait l'allowlist (bypass SSRF).
-    if len(labels) >= 2 and labels[-2].startswith('bunkr'):
-        return True
     return any(host == d or host.endswith('.' + d) for d in VETTED_DOMAINS)
 
 
