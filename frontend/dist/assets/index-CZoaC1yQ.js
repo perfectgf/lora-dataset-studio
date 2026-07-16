@@ -116,8 +116,8 @@ Launch another one anyway?`)||r.generate(...B)},hasRef:!!m.ref_filename,composit
 
 This is the ONLY destructive action — deleted checkpoints cannot be recovered afterwards.`)){o(!0);try{const f=await At("/api/trash/empty",{});f!=null&&f.ok&&l(0)}finally{o(!1)}}};return e.jsx(nn,{title:"Trash",help:"Everything the app deletes (checkpoints, cloud staging, deployed LoRAs) is moved here first — emptying it is the only action that actually destroys files.",children:e.jsxs("div",{className:"flex flex-wrap items-center gap-3",children:[e.jsxs("span",{className:"text-sm text-content",children:[e.jsx("span",{"aria-hidden":!0,children:"🗑"})," Trash size:"," ",e.jsx("span",{className:"font-semibold tabular-nums",children:r==null?"…":m(r)})]}),e.jsx("button",{type:"button",onClick:x,disabled:c,title:"Open the trash folder in the file explorer",className:"rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm font-medium text-content disabled:opacity-40",children:c?"Opening…":"📂 Open folder"}),e.jsx("button",{type:"button",onClick:h,disabled:a||!r,className:"rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-300 disabled:opacity-40",children:a?"Emptying…":"Empty trash"})]})})}function Aw({config:r,setField:l}){return e.jsxs("div",{className:"space-y-6",children:[e.jsx(Pw,{}),e.jsx(Tw,{}),e.jsx(nn,{title:"Data",help:"Where dataset images live on disk.",children:e.jsx(Ir,{id:"dataset-images-root",label:"Dataset images root",value:r.paths.dataset_images_root,onChange:a=>l("paths","dataset_images_root",a),placeholder:"Defaults to data/datasets"})}),e.jsx(Ef,{}),e.jsx(Lw,{})]})}const Ym={overview:nw,engines:lw,scraping:cw,"local-tools":pw,captioning:hw,training:yw,server:$w,maintenance:Aw};function Mw({status:r}){if(!r)return null;const l=r==="ready"?"bg-emerald-400":r==="partial"?"bg-amber-400":"bg-white/15",a=r==="ready"?"configured":r==="partial"?"partly configured":"not configured";return e.jsxs("span",{className:"ml-auto flex items-center pl-2",children:[e.jsx("span",{"aria-hidden":!0,className:`h-1.5 w-1.5 rounded-full ${l}`}),e.jsxs("span",{className:"sr-only",children:["(",a,")"]})]})}function Jm(){const r=Qt(),{caps:l,refresh:a}=Ar(),{section:o}=Td(),c=Rs(),[d,m]=u.useState(null),[x,h]=u.useState(null),[f,y]=u.useState({host:null,port:null}),[b,v]=u.useState({}),[w,S]=u.useState({}),[_,C]=u.useState({}),[L,P]=u.useState(!0),[O,z]=u.useState(!1),[V,H]=u.useState(""),Q=u.useCallback(async()=>{P(!0);try{const M=await Ht("/api/settings");m(M.config),h(M.config),y(M.runtime||{host:null,port:null}),v(M.secrets)}catch(M){r.error(`Failed to load settings: ${M.message}`)}finally{P(!1)}},[r]);u.useEffect(()=>{Q()},[Q]);const F=(M,Z,q)=>{m(de=>({...de,[M]:{...de[M],[Z]:q}}))},D=(M,Z)=>{C(q=>({...q,[M]:Z}))},T=M=>{m(Z=>{const q=Z.engines.enabled||[],de=q.includes(M)?q.filter(Ce=>Ce!==M):[...q,M];return{...Z,engines:{...Z.engines,enabled:de}}})},R=async(M,Z)=>{if(window.confirm(`Remove the saved ${Z}? Any engine that uses it stops working until you add a new key.`))try{const q=await Wg(`/api/settings/secret/${M}`);v(q.secrets),S(de=>{const Ce={...de};return delete Ce[M],Ce}),await a(!0),r.success(`${Z} removed.`)}catch(q){r.error(`Remove failed: ${q.message}`)}},ae=async M=>{const Z=(w[M]||"").trim();if(!Z)return;const q=await Cs("/api/settings",{secrets:{[M]:Z}});v(q.secrets),S(de=>{const Ce={...de};return delete Ce[M],Ce}),await a(!0)},E=async M=>{const Z=d==null?void 0:d[M];if(!Z||JSON.stringify(Z)===JSON.stringify(x==null?void 0:x[M]))return;const q=await Cs("/api/settings",{config:{[M]:Z}});m(de=>({...de,[M]:q.config[M]})),h(q.config),y(q.runtime||{host:null,port:null})},ce=async()=>{z(!0);try{const M=Object.fromEntries(Object.entries(w).map(([q,de])=>[q,(de||"").trim()]).filter(([,q])=>q)),Z=await Cs("/api/settings",{config:d,secrets:M});return m(Z.config),h(Z.config),y(Z.runtime||{host:null,port:null}),v(Z.secrets),S({}),await a(!0),r.success("Settings saved."),!0}catch(M){return r.error(`Save failed: ${M.message}`),!1}finally{z(!1)}},J=u.useMemo(()=>!!(d&&x&&(JSON.stringify(d)!==JSON.stringify(x)||Object.values(w).some(M=>(M||"").trim()))),[d,x,w]);u.useEffect(()=>{if(!J)return;const M=Z=>{Z.preventDefault(),Z.returnValue=""};return window.addEventListener("beforeunload",M),()=>window.removeEventListener("beforeunload",M)},[J]);const le=()=>{m(x),S({})};if(L||!d)return e.jsx("p",{className:"text-content-muted",children:"Loading settings…"});const xe={config:d,setField:F,secretsPresence:b,secretInputs:w,setSecretInputs:S,testResults:_,recordTestResult:D,saveSecretIfPending:ae,saveConfigSection:E,handleDeleteSecret:R,toggleEngine:T,handleSave:ce,saving:O,runtime:f,caps:l,refreshCaps:a,toast:r},oe=Ym[o]?o:"overview",fe=Hm.find(M=>M.id===oe),te=Ym[oe],j=Hm.filter(M=>M.id===oe||Hv(M,V)),A=(M,Z)=>{const q=M.id===oe,de=Z?`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium ${q?"border-border-strong bg-surface-raised text-content":"border-border text-content-muted hover:text-content"}`:`relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium ${q?"bg-surface-raised text-content":"text-content-muted hover:bg-surface hover:text-content"}`;return e.jsxs("button",{type:"button",onClick:()=>c(`/settings/${M.id}`),"aria-current":q?"page":void 0,className:de,children:[!Z&&q&&e.jsx("span",{"aria-hidden":!0,className:"absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded bg-gradient-primary"}),e.jsx("span",{"aria-hidden":!0,children:M.icon}),e.jsx("span",{children:M.title}),!Z&&e.jsx(Mw,{status:Vv(M.id,l)})]},M.id)};return e.jsxs("div",{children:[e.jsxs("div",{className:"lg:grid lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start lg:gap-8",children:[e.jsxs("aside",{children:[e.jsx("nav",{"aria-label":"Settings sections",className:"-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden",children:j.map(M=>A(M,!0))}),e.jsxs("nav",{"aria-label":"Settings sections",className:"hidden lg:sticky lg:top-20 lg:block",children:[e.jsx("p",{className:"px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle",children:"Settings"}),e.jsx("input",{type:"search",value:V,onChange:M=>H(M.target.value),placeholder:"Find a setting…","aria-label":"Find a setting",className:"mb-2 w-full rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-content placeholder:text-content-subtle focus:border-primary focus:outline-none"}),V.trim()&&e.jsxs("p",{className:"px-3 pb-1 text-[11px] text-content-subtle",role:"status",children:[j.length," section",j.length===1?"":"s"," match"]}),e.jsx("div",{className:"flex flex-col gap-0.5",children:j.map(M=>A(M,!1))})]})]}),e.jsxs("div",{className:"mt-2 space-y-6 lg:mt-0",children:[e.jsx(qv,{eyebrow:fe.eyebrow,title:fe.title,description:fe.description}),e.jsx(te,{...xe})]})]}),J&&e.jsxs("div",{role:"status",className:"fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[calc(100vw-2rem)] items-center gap-3 rounded-full border border-border bg-surface-overlay/95 px-4 py-2 shadow-lg backdrop-blur",children:[e.jsx("span",{"aria-hidden":!0,className:"text-amber-400",children:"●"}),e.jsx("span",{className:"text-sm text-content",children:"Unsaved changes"}),e.jsx("button",{type:"button",onClick:le,className:"rounded-full border border-border-strong px-3 py-1 text-xs font-medium text-content hover:bg-surface-raised",children:"Discard"}),e.jsx("button",{type:"button",onClick:ce,disabled:O,className:"rounded-full bg-gradient-primary px-4 py-1 text-xs font-semibold text-white disabled:opacity-50",children:O?"Saving…":"Save changes"})]})]})}function hd({intro:r,steps:l=[],link:a,children:o}){return e.jsxs("div",{className:"space-y-3 text-sm text-content-muted",children:[r&&e.jsx("p",{children:r}),e.jsx("ol",{className:"list-decimal space-y-2 pl-5",children:l.map((c,d)=>e.jsxs("li",{className:"space-y-1",children:[e.jsx("span",{children:c.text}),c.command&&e.jsx(Xh,{command:c.command})]},d))}),a&&e.jsx("a",{href:a.href,target:"_blank",rel:"noreferrer",className:"inline-block text-xs text-primary underline",children:a.label}),o]})}const eh="mt-1 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 text-sm text-content placeholder:text-content-subtle focus:border-primary focus:outline-none",Ow=[{key:"GEMINI_API_KEY",label:"Gemini API key",engine:"nanobanana",href:"https://aistudio.google.com/apikey",help:"Powers Nano Banana."},{key:"OPENAI_API_KEY",label:"OpenAI API key",engine:"chatgpt",href:"https://platform.openai.com/api-keys",help:"Powers ChatGPT (gpt-image-2)."}],th="huihui_ai/qwen3-vl-abliterated:8b-instruct",nh="≈ 8 GB VRAM",Fw="≈ 16 GB VRAM (fp8; ~29 GB at bf16)",rh=["welcome",...Mn,"done"],Dw=Mn.length,sh={ready:{glyph:"✓",label:"Ready",cls:"text-emerald-400"},partial:{glyph:"◐",label:"Almost there",cls:"text-amber-400"},available:{glyph:"○",label:"Not set up",cls:"text-content-subtle"}},Uw={"Nano Banana (Gemini)":"image","ChatGPT (gpt-image-2)":"image","Klein (local)":"comfyui",Captioning:"ollama","Auto-framing & head-crop":"ollama","Face-similarity scoring":"quality","Person masks":"quality","Watermark inpainting":"quality","LoRA training":"training","Test Studio":"comfyui"};function zw(){const r=Qt(),{caps:l,refresh:a}=Ar(),[o,c]=u.useState(null),[d,m]=u.useState({}),[x,h]=u.useState({}),[f,y]=u.useState(!1),[b,v]=u.useState(!1),[w,S]=u.useState(null),[_,C]=u.useState(!1),[L,P]=u.useState(!1),[O,z]=u.useState(0),[V,H]=u.useState(!1),[Q,F]=u.useState(!1),D=u.useRef(!1),T=u.useRef(null),R=u.useCallback(async()=>{try{const pe=await Ht("/api/settings");c(pe.config),m(pe.secrets),v(!1),T.current=JSON.stringify(pe.config)}catch(pe){v(!0),r.error(`Failed to load settings: ${pe.message}`)}},[r]);u.useEffect(()=>{R()},[R]);const ae=u.useCallback(async pe=>{C(!0);try{const $=await Ht("/api/setup/autodetect");S($);const X=JSON.parse(JSON.stringify(pe));let me=!1;const ke=(Ie,ge,Je)=>{Je&&!(X[Ie]&&X[Ie][ge])&&(X[Ie]={...X[Ie]||{},[ge]:Je},me=!0)};if(ke("ollama","url",$.ollama&&$.ollama.url),ke("ollama","vision_model",$.ollama&&$.ollama.vision_model),ke("comfyui","api_url",$.comfyui&&$.comfyui.api_url),ke("comfyui","base_dir",$.comfyui&&$.comfyui.base_dir),me){const Ie=await Cs("/api/settings",{config:X});c(Ie.config),T.current=JSON.stringify(Ie.config)}return await a(!0),$}catch{return null}finally{C(!1),P(!0)}},[a]);u.useEffect(()=>{o&&!D.current&&(D.current=!0,ae(o))},[o,ae]);const E=async(pe,$,X)=>{const me={...o,[pe]:{...o[pe],[$]:X}};try{const ke=await Cs("/api/settings",{config:me});c(ke.config),T.current=JSON.stringify(ke.config),await a(!0),r.success("Applied.")}catch(ke){r.error(`Save failed: ${ke.message}`)}},ce=u.useMemo(()=>qm(l),[l]),J=u.useMemo(()=>xf(l),[l]),le=J.filter(pe=>pe.ok).length,xe=u.useMemo(()=>Object.fromEntries(ce.map(pe=>[pe.id,pe])),[ce]),oe=(pe,$,X)=>c(me=>({...me,[pe]:{...me[pe],[$]:X}})),fe=async()=>{y(!0);try{const pe=Object.fromEntries(Object.entries(x).map(([X,me])=>[X,(me||"").trim()]).filter(([,X])=>X)),$=await Cs("/api/settings",{config:o,secrets:pe});c($.config),m($.secrets),h({}),T.current=JSON.stringify($.config),await a(!0),r.success("Saved.")}catch(pe){r.error(`Save failed: ${pe.message}`)}finally{y(!1)}},te=async(pe,$)=>{const X=(x[pe]||"").trim();try{if(X){const ke=await Cs("/api/settings",{secrets:{[pe]:X}});m(ke.secrets),h(Ie=>({...Ie,[pe]:""}))}const me=await At(`/api/settings/test/${$}`,{});me.ok?r.success(me.detail):r.warning(me.detail),await a(!0)}catch(me){r.error(me.message)}},j=async()=>{F(!0);try{const pe=await At("/api/ollama/start",{});pe.reachable?(r.success("Ollama started."),await a(!0)):r.error(pe.error||"Ollama did not become ready.")}catch(pe){r.error(pe.message||"Could not start Ollama.")}finally{F(!1)}};if(!o)return b?e.jsxs("div",{className:"space-y-3",children:[e.jsx("p",{className:"text-content-muted",children:"Couldn't load setup."}),e.jsx("button",{type:"button",onClick:R,className:"rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-content hover:bg-surface-raised",children:"Retry"})]}):e.jsx("p",{className:"text-content-muted",children:"Loading setup…"});const A=(pe,$,X,me)=>e.jsxs("label",{className:"block text-sm",children:[e.jsx("span",{className:"font-medium text-content",children:pe}),e.jsx("input",{className:eh,value:o[$][X]??"",placeholder:me,onChange:ke=>oe($,X,ke.target.value)})]}),M=e.jsx("button",{type:"button",onClick:fe,disabled:f,className:"mt-1 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised disabled:opacity-50",children:f?"Saving…":"Save & re-check"}),Z=(pe,$)=>{const X=w&&w[pe]&&w[pe][$];return!X||(o[pe]&&o[pe][$])===X?null:e.jsxs("button",{type:"button",onClick:()=>E(pe,$,X),className:"mt-1 block text-left text-xs text-primary underline",children:["Found on disk: ",e.jsx("span",{className:"font-mono",children:X})," — Use"]})},q=pe=>{const $=xe[pe];if(pe==="image")return e.jsxs("div",{className:"space-y-4",children:[Ow.map(Ie=>e.jsxs("div",{children:[e.jsxs("div",{className:"flex items-center justify-between",children:[e.jsx("span",{className:"text-sm font-medium text-content",children:Ie.label}),e.jsx("span",{className:`text-xs ${$.engines[Ie.engine]?"text-emerald-400":"text-content-subtle"}`,children:$.engines[Ie.engine]?"✓ Ready":"○ Not set"})]}),e.jsx("p",{className:"text-xs text-content-muted",children:Ie.help}),e.jsx("input",{type:"password",autoComplete:"off",className:eh,value:x[Ie.key]??"",placeholder:d[Ie.key]?"Already set — enter a new value to replace it":"Paste your key",onChange:ge=>h(Je=>({...Je,[Ie.key]:ge.target.value}))}),e.jsxs("div",{className:"mt-1 flex items-center gap-3",children:[e.jsx("a",{href:Ie.href,target:"_blank",rel:"noreferrer",className:"text-xs text-primary underline",children:"Get a key"}),e.jsx("button",{type:"button",onClick:()=>te(Ie.key,Ie.engine==="nanobanana"?"gemini":"openai"),className:"text-xs text-content-muted underline",children:"Save & test"})]})]},Ie.key)),e.jsx("p",{className:"text-xs text-content-subtle",children:"Klein (local) needs ComfyUI — the next step."}),M]});if(pe==="comfyui"){const Ie=e.jsxs(e.Fragment,{children:[A("ComfyUI API URL","comfyui","api_url","http://127.0.0.1:8188"),A("ComfyUI install directory","comfyui","base_dir","C:\\ComfyUI"),Z("comfyui","base_dir"),o.comfyui.base_dir&&(o.comfyui.base_dir!==$.baseDir?e.jsxs("p",{className:"text-xs text-content-subtle",children:["Path not checked yet — ",e.jsx("span",{className:"text-content",children:"Save & re-check"})," to validate it."]}):$.dirValid?e.jsxs("p",{className:"text-xs text-emerald-400",children:["✓ ComfyUI found",$.resolvedDir?e.jsxs(e.Fragment,{children:[" at ",e.jsx("span",{className:"font-mono",children:$.resolvedDir})]}):"","."]}):e.jsxs("p",{className:"text-xs text-amber-400",children:["⚠ No ComfyUI install in this folder — it must contain ",e.jsx("span",{className:"font-mono",children:"main.py"})," and a ",e.jsx("span",{className:"font-mono",children:"models/"})," folder. Check the path, then Save & re-check. For the portable build, point at the inner ",e.jsx("span",{className:"font-mono",children:"…\\ComfyUI_windows_portable\\ComfyUI"}),"."]})),$.reachable&&!$.hasKlein&&e.jsxs("div",{className:"space-y-1 text-xs text-content-muted",children:[e.jsxs("p",{children:["Running. The Klein model is ",e.jsx("span",{className:"text-content font-medium",children:"optional"})," — add it only if you want local generation (you can also use the API engines or your own photos, then export to train elsewhere). To enable it, download ",e.jsx("span",{className:"font-mono",children:"flux-2-klein-9b-fp8.safetensors"})," (",Fw,") into",e.jsx("span",{className:"font-mono",children:" <ComfyUI>/models/unet/klein/"}),"."]}),e.jsxs("p",{children:["Also recommended: the ",e.jsx("span",{className:"text-content font-medium",children:"consistency LoRA"})," ",e.jsx("span",{className:"font-mono",children:"Flux2-Klein-9B-consistency-V2.safetensors"})," (331 MB) into"," ",e.jsx("span",{className:"font-mono",children:"<ComfyUI>/models/loras/klein/"}),' — it anchors the composition between edits (the "Consistency LoRA" slider drives its strength; ~0.5 is balanced, high values suppress pose changes). Face identity itself comes from the reference photo(s).']}),$.dirValid?e.jsxs("div",{className:"space-y-2 rounded-md border border-border bg-white/5 p-2.5",children:[e.jsx("p",{className:"text-content text-xs font-medium",children:"⬇ One-click downloads — straight into the validated ComfyUI folders:"}),e.jsxs("div",{className:"grid grid-cols-1 sm:grid-cols-2 gap-3",children:[e.jsxs("div",{children:[e.jsxs("p",{className:"mb-1 text-[0.6875rem] text-content-muted",children:["Klein model (fp8) → ",e.jsx("span",{className:"font-mono",children:"models/unet/klein/"}),e.jsx("span",{className:"block text-amber-300/90",children:"License-gated: accept it on the official page, then add an HF_TOKEN in Settings → API keys."})]}),e.jsx(Yr,{action:"klein_model",buttonLabel:"⬇ Download Klein model",onDone:()=>a(!0)})]}),e.jsxs("div",{children:[e.jsxs("p",{className:"mb-1 text-[0.6875rem] text-content-muted",children:["Consistency LoRA (331 MB) → ",e.jsx("span",{className:"font-mono",children:"models/loras/klein/"})]}),e.jsx(Yr,{action:"klein_lora",buttonLabel:"⬇ Download consistency LoRA",onDone:()=>a(!0)})]}),e.jsxs("div",{children:[e.jsxs("p",{className:"mb-1 text-[0.6875rem] text-content-muted",children:["Text encoder (~8.7 GB) → ",e.jsx("span",{className:"font-mono",children:"models/text_encoders/"})]}),e.jsx(Yr,{action:"klein_text_encoder",buttonLabel:"⬇ Download text encoder",onDone:()=>a(!0)})]}),e.jsxs("div",{children:[e.jsxs("p",{className:"mb-1 text-[0.6875rem] text-content-muted",children:["VAE (336 MB) → ",e.jsx("span",{className:"font-mono",children:"models/vae/"})]}),e.jsx(Yr,{action:"klein_vae",buttonLabel:"⬇ Download VAE",onDone:()=>a(!0)})]})]})]}):e.jsx("p",{className:"text-xs text-content-subtle",children:"Validate the ComfyUI install directory above (Save & re-check) to unlock one-click downloads."}),e.jsxs("p",{className:"flex flex-wrap gap-x-4 gap-y-1",children:[e.jsx("a",{href:"https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8",target:"_blank",rel:"noreferrer",className:"text-primary underline",children:"Official Klein model page →"}),e.jsx("a",{href:"https://huggingface.co/dx8152/Flux2-Klein-9B-Consistency",target:"_blank",rel:"noreferrer",className:"text-primary underline",children:"Official consistency LoRA page →"}),e.jsx("a",{href:"https://docs.comfy.org/tutorials/flux/flux-2-klein",target:"_blank",rel:"noreferrer",className:"text-primary underline",children:"ComfyUI setup guide →"})]})]}),M]});return $.reachable?e.jsxs("div",{className:"space-y-4",children:[e.jsxs("div",{className:"rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content",children:["✓ ComfyUI is already running at ",e.jsx("span",{className:"font-mono",children:$.apiUrl||"the configured URL"}),".",$.hasKlein?" Nothing to do here.":" It works — the Klein model (optional, for local generation) isn’t installed."]}),Ie]}):e.jsx(hd,{intro:"ComfyUI is a local image generator. Install it once, then point the app at it.",steps:[{text:"Clone ComfyUI and follow its README to install it.",command:"git clone https://github.com/comfyanonymous/ComfyUI"},{text:"Start it (defaults to port 8188)."}],link:{href:"https://github.com/comfyanonymous/ComfyUI",label:"ComfyUI on GitHub →"},children:Ie})}if(pe==="ollama"){const Ie=$.visionModel||th,ge=$.reachable&&!$.visionModelReady&&e.jsxs("div",{className:"rounded-md border border-amber-500/30 bg-amber-500/10 p-3",children:[e.jsx("p",{className:"mb-1 text-sm font-medium text-content",children:"Ollama is running, but the vision model isn't pulled yet — that's what powers captioning."}),e.jsxs("p",{className:"mb-2 text-xs text-content-muted",children:[e.jsx("span",{className:"font-mono",children:Ie})," — uncensored, needed for concept captions · ",nh]}),e.jsx(Yr,{action:"ollama_model",buttonLabel:`Pull ${Ie}`,manualCommand:`ollama pull ${Ie}`,onDone:()=>a(!0)})]}),Je=e.jsxs(e.Fragment,{children:[A("Ollama URL","ollama","url","http://127.0.0.1:11434"),A("Vision model","ollama","vision_model",th),e.jsxs("p",{className:"text-xs text-content-subtle",children:["Use the ABLITERATED Qwen3-VL (",nh,") — the vanilla model refuses NSFW. For the best captions the app pairs it with JoyCaption (ai-toolkit) — a Joy+Ollama combo."]}),M]});return $.reachable?e.jsxs("div",{className:"space-y-4",children:[$.visionModelReady?e.jsxs("div",{className:"rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content",children:["✓ Ollama is running at ",e.jsx("span",{className:"font-mono",children:$.url||"the configured URL"})," and the vision model ",e.jsx("span",{className:"font-mono",children:$.visionModel})," is ready. Nothing to do here."]}):ge,Je]}):$.installed?e.jsxs("div",{className:"space-y-4",children:[e.jsxs("div",{className:"rounded-md border border-amber-500/30 bg-amber-500/10 p-3",children:[e.jsxs("p",{className:"mb-1 text-sm font-medium text-content",children:["Ollama is installed",$.binaryPath&&e.jsxs(e.Fragment,{children:[" at ",e.jsx("span",{className:"font-mono",children:$.binaryPath})]})," but not running."]}),e.jsx("p",{className:"mb-2 text-xs text-content-muted",children:"Start it (it listens on port 11434) to unlock captioning and auto-framing — no restart needed."}),e.jsx("button",{type:"button",onClick:j,disabled:Q,className:"rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50",children:Q?"Starting…":"▶ Start Ollama"})]}),Je]}):e.jsx(hd,{intro:"Ollama runs local models for captioning and auto-framing. Installing it is not enough — you also need to pull a vision model.",steps:[{text:"Install Ollama and start it (defaults to port 11434)."}],link:{href:"https://ollama.com/download",label:"Download Ollama →"},children:Je})}if(pe==="quality"){const Ie=[{action:"face_scoring",cap:"face_scoring",icon:"🎭",title:"Face-similarity scoring",body:'Powers the "Analyze faces" pass: scores how closely each generated image resembles your reference photo, so you keep the ones that truly look like the person. It only ranks — it never deletes anything.'},{action:"masks",cap:"masks",icon:"🧍",title:"Person masks",body:"Isolates the subject from the background for masked training: the décor is weighted down so the LoRA binds the identity to the person, not the room. A training without masks is still valid."},{action:"watermark_inpaint",cap:"watermark_inpaint",icon:"🧽",title:"Watermark inpainting",body:"Repaints small off-center watermarks (LaMa) during 🧽 Clean instead of only cropping border marks. It can use CUDA or CPU from Settings. Without it, off-center marks are skipped."}];return e.jsxs("div",{className:"space-y-3",children:[e.jsxs("p",{className:"text-sm text-content-muted",children:["Optional helpers installed into this app's own Python environment. Face scoring and masks run on CPU; watermark inpainting can use CUDA or CPU. The app works fully without them; they just make curation and training cleaner. Install each on its own below, or all at once at the bottom. Already installed? Use ",e.jsx("span",{className:"font-medium text-content",children:"↻ Reinstall"})," to repair or update it."]}),l.python&&!l.python.ml_supported&&e.jsxs("div",{className:"rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-content space-y-1",children:[e.jsxs("p",{children:[e.jsxs("span",{className:"font-semibold text-amber-300",children:["⚠ Python ",l.python.version," —"]})," ","these extras need Python ",l.python.ml_range,". insightface / numpy<2 / onnxruntime publish no prebuilt packages for ",l.python.version,", so the installs below will try to compile them and most likely fail."]}),e.jsxs("p",{className:"text-content-muted",children:["They're optional — you can skip this step, or install them into a separate Python 3.11/3.12 environment and point ",e.jsx("span",{className:"font-mono",children:"face_scoring.python"})," +"," ",e.jsx("span",{className:"font-mono",children:"masks.python"})," at it in Settings."]})]}),e.jsx("div",{className:"space-y-3",children:Ie.map(ge=>{const Je=!!l[ge.cap];return e.jsxs("div",{className:"rounded-md border border-border bg-surface-raised p-3 space-y-2",children:[e.jsxs("div",{className:"flex items-center justify-between gap-2",children:[e.jsxs("span",{className:"text-sm font-semibold text-content",children:[ge.icon," ",ge.title]}),e.jsx("span",{className:`shrink-0 text-xs font-medium ${Je?"text-emerald-400":"text-content-subtle"}`,children:Je?"✓ Installed":"✗ Not installed"})]}),e.jsx("p",{className:"text-xs text-content-muted",children:ge.body}),e.jsx(Yr,{action:ge.action,buttonLabel:Je?"↻ Reinstall":"Install",onDone:()=>a(!0)})]},ge.action)})}),e.jsxs("details",{className:"rounded-md border border-border bg-surface-raised px-3 py-2",children:[e.jsx("summary",{className:"cursor-pointer text-xs text-content-subtle hover:text-content",children:"Or install everything at once (first-time setup)"}),e.jsx("div",{className:"mt-2",children:e.jsx(Yr,{action:"ml_extras",buttonLabel:"Install all (pip)",manualCommand:"python -m pip install -r backend/requirements-ml.txt",onDone:()=>a(!0)})})]})]})}const X=o.aitoolkit&&o.aitoolkit.dir||"",me=w&&w.aitoolkit&&w.aitoolkit.dir,ke=e.jsxs(e.Fragment,{children:[A("ai-toolkit directory","aitoolkit","dir","C:\\ai-toolkit"),M,e.jsxs("p",{className:"mt-2 text-content-muted text-xs",children:["No GPU? You can skip this step: add a ",e.jsx("strong",{children:"vast.ai API key"})," in Settings instead and train in the cloud (the app rents a GPU per run, ~$1-2, and shuts it down automatically)."]})]});return $.valid?e.jsxs("div",{className:"space-y-4",children:[e.jsxs("div",{className:"rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content",children:["✓ ai-toolkit is set up at ",e.jsx("span",{className:"font-mono",children:X}),". Nothing to do here."]}),ke]}):me&&X!==me?e.jsxs("div",{className:"space-y-4",children:[e.jsxs("div",{className:"rounded-md border border-primary/40 bg-primary/10 px-3 py-3 text-sm text-content",children:[e.jsxs("p",{className:"mb-2",children:["Found an ai-toolkit install at ",e.jsx("span",{className:"font-mono",children:me}),". Use it?"]}),e.jsx("button",{type:"button",onClick:()=>E("aitoolkit","dir",me),className:"rounded-lg bg-gradient-primary px-4 py-1.5 text-xs font-semibold text-white",children:"Use this ai-toolkit →"})]}),ke]}):X?e.jsxs("div",{className:"space-y-4",children:[e.jsxs("div",{className:"rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-content",children:["Pointed at ",e.jsx("span",{className:"font-mono",children:X}),", but it isn't usable yet — set up its Python venv per the README."]}),ke]}):e.jsx(hd,{intro:"ai-toolkit trains the LoRA. Install it once, then point the app at its folder.",steps:[{text:"Clone ai-toolkit and set up its venv per its README.",command:"git clone https://github.com/ostris/ai-toolkit"}],link:{href:"https://github.com/ostris/ai-toolkit",label:"ai-toolkit on GitHub →"},children:ke})},de=rh[O],Ce=rh.length-1,_e=pe=>xe[pe].status==="ready",Ne=pe=>Mn.indexOf(pe),$e=pe=>Mn.indexOf(pe)+1,ve=Mn.every(_e),Ue=pe=>{for(let $=pe+1;$<Mn.length;$+=1)if(!_e(Mn[$]))return Mn[$];return null},ue=pe=>{for(let $=pe-1;$>=0;$-=1)if(!_e(Mn[$]))return Mn[$];return null},et=pe=>!pe||pe.status==="ready"?null:pe.reachable?pe.visionModelReady?"Finish this step to continue.":"Pull the vision model below to continue — Z-Image captioning needs it (JoyCaption only covers SDXL).":pe.installed?"Ollama is installed but not running — click ▶ Start Ollama below to continue.":"Ollama isn't installed — download it and start it (port 11434) to continue.",Me=pe=>pe==="ollama"?et(xe.ollama):null,bt=()=>{const pe=Mn.find($=>!_e($));z(pe?$e(pe):Ce)},Te=()=>{if(de==="welcome")return bt();if(de==="done")return;const pe=Ue(Ne(de));z(pe?$e(pe):Ce)},ie=()=>T.current!=null&&JSON.stringify(o)!==T.current||Object.values(x).some(pe=>(pe||"").trim()),ze=()=>{if(ie()&&!window.confirm(`You have unsaved changes on this step - they will be lost.
 
-Go back without saving?`))return;if(de==="done"){const $=[...Mn].reverse().find(X=>!_e(X));return z($?$e($):0)}const pe=ue(Ne(de));z(pe?$e(pe):0)},at=async()=>{H(!0);try{await fe();let pe=null;try{pe=await Ht("/api/capabilities")}catch{}if(pe&&de==="ollama"){const $=et(qm(pe).find(X=>X.id==="ollama"));if($){r.warning($);return}}Te()}finally{H(!1)}},Ge=()=>e.jsx("div",{className:"flex items-center gap-1.5","aria-hidden":"true",children:Mn.map((pe,$)=>{const X=de===pe,me=xe[pe].status==="ready";return e.jsx("span",{className:`h-2 rounded-full transition-all ${X?"w-6 bg-primary":me?"w-2 bg-emerald-400":"w-2 bg-border-strong"}`},pe)})}),kt=e.jsx(Lr,{to:"/datasets",onClick:()=>sessionStorage.setItem("lds_setup_redirected","1"),className:"text-xs text-content-subtle underline hover:text-content",children:"Skip setup — I'll do it later"});if(de==="welcome"){const pe=(ge,Je)=>ge?Je?"ready":"partial":"missing",$=xe.ollama,X=$.reachable?{state:$.visionModelReady?"ready":"partial",partial:"running — pull the vision model"}:$.installed?{state:"partial",partial:"installed — not running"}:{state:"missing",partial:""},me=[{label:"Local generation — ComfyUI",optional:!0,stepId:"comfyui",state:pe(xe.comfyui.reachable,xe.comfyui.hasKlein),partial:"running — Klein model optional"},{label:"Captioning — Ollama + vision model",stepId:"ollama",state:X.state,partial:X.partial},{label:"LoRA training — ai-toolkit",stepId:"training",state:xe.training.valid?"ready":w&&w.aitoolkit&&w.aitoolkit.dir?"partial":"missing",partial:"found on disk — one click to use"}],ke={ready:{glyph:"✓",cls:"text-emerald-400",word:"ready"},partial:{glyph:"⚠",cls:"text-amber-400",word:""},missing:{glyph:"✗",cls:"text-content-subtle",word:"not found"}},Ie={glyph:"○",cls:"text-content-subtle"};return e.jsxs("div",{className:"mx-auto max-w-2xl space-y-6",children:[e.jsxs("div",{className:"text-center",children:[e.jsx("div",{className:"text-3xl","aria-hidden":"true",children:"🧬"}),e.jsx("h1",{className:"mt-2 text-2xl font-bold text-content",children:"Welcome to LoRA Dataset Studio"}),e.jsx("p",{className:"mt-2 text-sm text-content-muted",children:"Let's set up your machine. I'll scan what's already installed and help you install the rest — you can also start building a dataset from your own photos right now, no setup required."})]}),e.jsxs("section",{className:"rounded-xl border border-border bg-surface p-5",children:[e.jsxs("div",{className:"flex items-center justify-between",children:[e.jsx("h2",{className:"text-base font-semibold text-content",children:_?"Scanning your machine…":"Machine scan"}),_?e.jsx("span",{className:"h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-primary","aria-hidden":"true"}):e.jsx("button",{type:"button",onClick:()=>ae(o),className:"text-xs text-primary underline",children:"Re-scan"})]}),e.jsx("ul",{className:"mt-4 space-y-1",children:me.map(ge=>{const yt=ge.optional&&ge.state!=="ready"?{...ke[ge.state],...Ie}:ke[ge.state],Gt=ge.state==="partial"?ge.partial:ge.state==="missing"&&ge.optional?"optional":yt.word;return e.jsx("li",{children:e.jsxs("button",{type:"button",disabled:_,onClick:()=>z($e(ge.stepId)),className:`flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 -mx-2 text-left text-sm\r
-                      cursor-pointer transition-colors hover:bg-surface-raised focus:outline-none focus-visible:ring-2\r
+Go back without saving?`))return;if(de==="done"){const $=[...Mn].reverse().find(X=>!_e(X));return z($?$e($):0)}const pe=ue(Ne(de));z(pe?$e(pe):0)},at=async()=>{H(!0);try{await fe();let pe=null;try{pe=await Ht("/api/capabilities")}catch{}if(pe&&de==="ollama"){const $=et(qm(pe).find(X=>X.id==="ollama"));if($){r.warning($);return}}Te()}finally{H(!1)}},Ge=()=>e.jsx("div",{className:"flex items-center gap-1.5","aria-hidden":"true",children:Mn.map((pe,$)=>{const X=de===pe,me=xe[pe].status==="ready";return e.jsx("span",{className:`h-2 rounded-full transition-all ${X?"w-6 bg-primary":me?"w-2 bg-emerald-400":"w-2 bg-border-strong"}`},pe)})}),kt=e.jsx(Lr,{to:"/datasets",onClick:()=>sessionStorage.setItem("lds_setup_redirected","1"),className:"text-xs text-content-subtle underline hover:text-content",children:"Skip setup — I'll do it later"});if(de==="welcome"){const pe=(ge,Je)=>ge?Je?"ready":"partial":"missing",$=xe.ollama,X=$.reachable?{state:$.visionModelReady?"ready":"partial",partial:"running — pull the vision model"}:$.installed?{state:"partial",partial:"installed — not running"}:{state:"missing",partial:""},me=[{label:"Local generation — ComfyUI",optional:!0,stepId:"comfyui",state:pe(xe.comfyui.reachable,xe.comfyui.hasKlein),partial:"running — Klein model optional"},{label:"Captioning — Ollama + vision model",stepId:"ollama",state:X.state,partial:X.partial},{label:"LoRA training — ai-toolkit",stepId:"training",state:xe.training.valid?"ready":w&&w.aitoolkit&&w.aitoolkit.dir?"partial":"missing",partial:"found on disk — one click to use"}],ke={ready:{glyph:"✓",cls:"text-emerald-400",word:"ready"},partial:{glyph:"⚠",cls:"text-amber-400",word:""},missing:{glyph:"✗",cls:"text-content-subtle",word:"not found"}},Ie={glyph:"○",cls:"text-content-subtle"};return e.jsxs("div",{className:"mx-auto max-w-2xl space-y-6",children:[e.jsxs("div",{className:"text-center",children:[e.jsx("div",{className:"text-3xl","aria-hidden":"true",children:"🧬"}),e.jsx("h1",{className:"mt-2 text-2xl font-bold text-content",children:"Welcome to LoRA Dataset Studio"}),e.jsx("p",{className:"mt-2 text-sm text-content-muted",children:"Let's set up your machine. I'll scan what's already installed and help you install the rest — you can also start building a dataset from your own photos right now, no setup required."})]}),e.jsxs("section",{className:"rounded-xl border border-border bg-surface p-5",children:[e.jsxs("div",{className:"flex items-center justify-between",children:[e.jsx("h2",{className:"text-base font-semibold text-content",children:_?"Scanning your machine…":"Machine scan"}),_?e.jsx("span",{className:"h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-primary","aria-hidden":"true"}):e.jsx("button",{type:"button",onClick:()=>ae(o),className:"text-xs text-primary underline",children:"Re-scan"})]}),e.jsx("ul",{className:"mt-4 space-y-1",children:me.map(ge=>{const yt=ge.optional&&ge.state!=="ready"?{...ke[ge.state],...Ie}:ke[ge.state],Gt=ge.state==="partial"?ge.partial:ge.state==="missing"&&ge.optional?"optional":yt.word;return e.jsx("li",{children:e.jsxs("button",{type:"button",disabled:_,onClick:()=>z($e(ge.stepId)),className:`flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 -mx-2 text-left text-sm
+                      cursor-pointer transition-colors hover:bg-surface-raised focus:outline-none focus-visible:ring-2
                       focus-visible:ring-primary disabled:cursor-default disabled:hover:bg-transparent`,children:[e.jsxs("span",{className:"flex items-center gap-2",children:[e.jsx("span",{"aria-hidden":"true",className:_?"text-content-subtle":yt.cls,children:_?"…":yt.glyph}),e.jsx("span",{className:ge.state==="ready"?"text-content":"text-content-muted",children:ge.label}),ge.optional&&e.jsx("span",{className:"rounded bg-surface-raised px-1.5 py-px text-[10px] font-medium text-content-subtle",children:"optional"})]}),e.jsxs("span",{className:"flex items-center gap-1.5",children:[e.jsx("span",{className:`truncate text-right font-mono text-xs ${_?"text-content-subtle":yt.cls}`,children:_?"":Gt}),!_&&e.jsx("span",{"aria-hidden":"true",className:`text-xs ${ge.state==="ready"?"text-content-subtle/60":"text-content-subtle"}`,children:"›"})]})]})},ge.label)})}),L&&!_&&e.jsxs("p",{className:"mt-3 text-xs text-content-subtle",children:[le," of ",J.length," capabilities ready. Reachable services were filled in automatically."]})]}),e.jsxs("div",{className:"flex items-center justify-between",children:[kt,e.jsx("button",{type:"button",onClick:Te,className:"rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white",children:ve?"Everything's ready — review →":"Start setup →"})]})]})}if(de==="done")return e.jsxs("div",{className:"mx-auto max-w-2xl space-y-6",children:[e.jsxs("div",{className:"text-center",children:[e.jsx("div",{className:"text-3xl","aria-hidden":"true",children:"🎉"}),e.jsx("h1",{className:"mt-2 text-2xl font-bold text-content",children:"You're all set"}),e.jsxs("p",{className:"mt-1 text-sm text-content-muted",children:[le," of ",J.length," capabilities ready."]})]}),e.jsxs("section",{className:"rounded-xl border border-border bg-surface p-5",children:[e.jsx("h2",{className:"text-base font-semibold text-content",children:"What's unlocked"}),e.jsx("ul",{className:"mt-3 grid gap-1 sm:grid-cols-2",children:J.map(pe=>{const $=Uw[pe.label];return $?e.jsx("li",{children:e.jsxs("button",{type:"button",onClick:()=>z($e($)),className:`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-sm
                       cursor-pointer transition-colors hover:bg-surface-raised focus:outline-none focus-visible:ring-2
                       focus-visible:ring-primary ${pe.ok?"text-content":"text-content-subtle"}`,children:[e.jsxs("span",{className:"flex items-center gap-2",children:[e.jsx("span",{"aria-hidden":"true",className:pe.ok?"text-emerald-400":"text-content-subtle",children:pe.ok?"✓":"✗"}),pe.label]}),e.jsx("span",{"aria-hidden":"true",className:`text-xs ${pe.ok?"text-content-subtle/60":"text-content-subtle"}`,children:"›"})]})},pe.label):e.jsxs("li",{className:`flex items-center gap-2 px-2 py-1 text-sm ${pe.ok?"text-content":"text-content-subtle"}`,children:[e.jsx("span",{"aria-hidden":"true",className:pe.ok?"text-emerald-400":"text-content-subtle",children:pe.ok?"✓":"✗"}),pe.label]},pe.label)})})]}),e.jsxs("div",{className:"flex items-center justify-between",children:[e.jsx("button",{type:"button",onClick:ze,className:"text-xs text-content-subtle underline hover:text-content",children:"← Back"}),e.jsx(Lr,{to:"/datasets",className:"rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white",children:"Build your first dataset →"})]})]});const G=xe[de],He=Mn.indexOf(de)+1,lt=sh[G.status]||sh.available,qe=Me(de),ot=Ue(Ne(de))!==null,ht=V?"Saving…":ot?"Save & continue →":"Save & finish →";return e.jsxs("div",{className:"mx-auto max-w-2xl space-y-5",children:[e.jsxs("div",{className:"flex items-center justify-between",children:[e.jsx(Ge,{}),e.jsxs("span",{className:"text-xs text-content-subtle",children:["Step ",He," of ",Dw]})]}),e.jsxs("section",{className:"rounded-xl border border-border bg-surface p-5",children:[e.jsxs("div",{className:"flex items-start justify-between gap-3",children:[e.jsxs("div",{children:[e.jsxs("h1",{className:"text-lg font-semibold text-content",children:[G.title,G.recommended&&e.jsx("span",{className:"ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary",children:"Recommended"})]}),e.jsxs("p",{className:"mt-1 text-xs text-content-muted",children:["Unlocks: ",G.unlocks.join(" · ")]})]}),e.jsxs("span",{className:`inline-flex shrink-0 items-center gap-1 text-xs font-medium ${lt.cls}`,children:[e.jsx("span",{"aria-hidden":"true",children:lt.glyph}),lt.label]})]}),e.jsx("div",{className:"mt-4",children:q(de)})]}),qe&&e.jsxs("p",{className:"rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300",children:["🔒 ",qe]}),e.jsxs("div",{className:"flex items-center justify-between",children:[e.jsx("button",{type:"button",onClick:ze,className:"text-xs text-content-subtle underline hover:text-content",children:"← Back"}),e.jsxs("div",{className:"flex items-center gap-4",children:[kt,e.jsx("button",{type:"button",onClick:at,disabled:V,title:qe||"",className:"rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40",children:ht})]})]})]})}function $r(r,l="i"){const a=[],o=/(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\([^)]+\))/g;let c=0,d,m=0;for(;(d=o.exec(r))!==null;){d.index>c&&a.push(r.slice(c,d.index));const x=d[0],h=`${l}-${m++}`;if(x.startsWith("`"))a.push(e.jsx("code",{className:"px-1 py-0.5 rounded bg-surface-raised text-indigo-200 text-[0.8125em] font-mono",children:x.slice(1,-1)},h));else if(x.startsWith("**"))a.push(e.jsx("strong",{className:"text-content font-semibold",children:x.slice(2,-2)},h));else if(x.startsWith("*"))a.push(e.jsx("em",{children:x.slice(1,-1)},h));else{const f=x.match(/^\[([^\]]+)\]\(([^)]+)\)$/);a.push(e.jsx("a",{href:f[2],target:"_blank",rel:"noreferrer",className:"text-indigo-300 underline decoration-indigo-400/40 hover:decoration-indigo-300",children:f[1]},h))}c=d.index+x.length}return c<r.length&&a.push(r.slice(c)),a}function Bw(r){const l=r.replace(/\r\n/g,`
@@ -207,471 +207,471 @@ you immediately whether the app can see it.
 
 Next chapter: **Using the app** — the full walkthrough, dataset type by dataset
 type.
-`,Ww=`# Using the app\r
-\r
-The workspace is a **guided flow**: each stage stays folded until the one\r
-before it is done, and the progress rail on the left tells you where you are\r
-and what's blocking the next step. You never have to guess what comes next —\r
-this chapter just explains what each stage does and where the useful buttons\r
-hide.\r
-\r
----\r
-\r
-## The character walkthrough (reference photo → trained LoRA)\r
-\r
-1. **Create the dataset** — Datasets → New. Pick **Character**, name it, set a\r
-   **trigger word** (the token your prompts will use), and choose the **target\r
-   model** (Z-Image / SDXL / Krea 2 / FLUX.1 / FLUX.2 Klein — changes the caption\r
-   style; you can change it later).\r
-2. **Upload the reference photo.** The app head-crops it automatically; use the\r
-   crop editor (or *Reset to auto*) if the framing is off. Up to 3 extra angles\r
-   can be added for multi-view consistency.\r
-3. **Generate variations** — pick an engine (Nano Banana, ChatGPT, or local\r
-   Klein) and fire the **variation catalog**: 45 shots across expression,\r
-   angle, lighting, framing, outfit and background, each wrapped in an identity\r
-   guard so the face stays the same person.\r
-4. **Import** your own photos too (drag & drop) — each is auto-cropped to the\r
-   face on the way in.\r
-5. **Auto-classify framing.** A local vision model tags every image\r
-   **face / bust / body / back**; the badges feed the composition meter.\r
-6. **Curate** — keep / reject / crop, guided by the live meter targeting\r
-   **12 face · 6 bust · 6 body · 1 back**. Watch the face-similarity badges\r
-   (green = strong match, orange = review) to drop off-identity shots before\r
-   they poison training.\r
-7. **Caption** — one click captions the kept set (prose or booru tags,\r
-   matched to the target model). The **identity-leak check** flags any caption\r
-   that describes hair/face/skin — fix every flagged one. A find/replace +\r
-   tag-frequency panel sweeps the whole set at once; its **💾 Write .txt\r
-   files** button drops a kohya-style \`<image>.txt\` next to each kept image\r
-   in the dataset folder (same format as the export ZIP) for external tools.\r
-8. **Fix individual shots** — every generated tile has a ✏️ button: edit the\r
-   exact prompt that made it and regenerate in place, without losing the rest.\r
-9. **Train** — the pre-flight check runs the full checklist (count, balance,\r
-   captions, leaks, duplicates). It no longer *blocks*: leaking captions and\r
-   near-duplicates are editable right inside the confirm, and missing captions\r
-   just ask you to **Start anyway** (captions stay strongly recommended). Steps\r
-   are computed automatically; ⚙️ Advanced options exposes every knob (each with\r
-   its own why/how) and a **Presets** row — apply a shipped ★ recipe (*Krea\r
-   character*, *Concept*, *Style*) or save/import/export your own as a JSON.\r
-   No GPU? **☁️ Train in cloud** rents one per run. Watch this run — and every\r
-   other, cloud or local — from the **🏋️ Runs** tab, where you can retry a\r
-   failed run (↻), continue a finished cloud run for more steps (▶), and download\r
-   the LoRA.\r
-10. **Pick the best checkpoint** — open the **Test Studio** from the dataset:\r
-    grid-test checkpoint × strength, vote, rank by face similarity, and star ★\r
-    the winning settings. The last checkpoint is almost never the best one.\r
-11. **Export** — at any point, **Export ZIP** gives you the curated, captioned\r
-    set as a standard ai-toolkit dataset. Nothing is locked in.\r
-\r
-## Concept datasets (an object or action, not a person)\r
-\r
-Pick **Concept** at creation and describe the concept in the required field —\r
-the captioner needs to know exactly *what to omit*. What changes vs character:\r
-\r
-- **No reference photo.** Images come from **import** or the built-in\r
-  **scraper** (paste a gallery URL or run a Reddit keyword search, tick the\r
-  frames you want, they land straight in the dataset — deduplicated and\r
-  quality-filtered). Already have a kohya-style dataset on disk (images +\r
-  same-name \`.txt\` captions)? **⋯ More → 📂 Import from folder…** merges it in\r
-  from a pasted folder path — captions attach, duplicates are skipped (a ZIP\r
-  works too, via **📦 Import dataset**). On gallery sites (PornPics), a category/tag/search scan\r
-  shows **the same previews the listing page does** — one per gallery, the shot\r
-  that actually matches your keyword. Tick **Scan full albums** to pull every\r
-  photo of each matched gallery instead, or paste a single \`/galleries/…\` URL\r
-  to get that whole album. Sex.com works the same way for keyword searches\r
-  (\`sex.com/en/pics?search=…\`) — every pin **is** a single matching image, so\r
-  there is no album option to worry about. Civitai searches return **SFW\r
-  results only** unless you add a Civitai API key in **Settings → Scraping &\r
-  sources**.\r
-\r
-  > **Reddit says "wait N seconds" (429)?** By default Reddit scans share a\r
-  > public client id (and its ~1000 requests / 10 min quota) with many other\r
-  > people, so it can be exhausted before your first scan. Add your own free\r
-  > client ID in **Settings → Scraping & sources** — a one-minute, step-by-step\r
-  > guide is built into that page.\r
-- **Captions invert**: they describe everything *except* the concept, so the\r
-  concept is what binds to the trigger. The leak check watches for stray\r
-  descriptions of it.\r
-- **Masked training is off** (a person mask would erase the very thing you're\r
-  teaching), and imports keep the full frame instead of head-cropping.\r
-\r
-## Style datasets (a global aesthetic)\r
-\r
-Pick **Style** at creation. What changes:\r
-\r
-- **No trigger word** — the style tints every image once the LoRA is loaded.\r
-- **Captions describe content only** (never the rendering), and they're\r
-  optional; caption dropout rises so the style generalizes.\r
-- **Step count switches to a sublinear √n scale** built for the large sets\r
-  (hundreds of images) style LoRAs want.\r
-\r
-## Tips that save runs\r
-\r
-- Trust the composition meter over your instinct — a set that "looks varied"\r
-  is usually still face-heavy.\r
-- Fix every leak the badge reports before training; one "a woman with long\r
-  blonde hair" caption quietly competes with your trigger.\r
-- Don't chase steps. Train the auto count, then let the Test Studio find the\r
-  *earliest* checkpoint that nails the identity — it keeps the most prompt\r
-  flexibility.\r
-- The next chapter — **Building a good dataset** — explains *why* behind every\r
-  rule above. Read it once before your first serious run.\r
-`,Vw=`# Building a good LoRA dataset\r
-\r
-This guide condenses what actually moves the needle when training a character LoRA\r
-with this app (ai-toolkit under the hood). Every number here matches what the app\r
-enforces or defaults to — when in doubt, the app's warnings are this guide applied.\r
-\r
-> **The one principle behind everything:** a LoRA learns whatever is **constant\r
-> across your images and NOT described in the captions**. Keep the subject constant,\r
-> vary everything else, and never describe the subject — that's the trigger word's job.\r
-\r
----\r
-\r
-## 1. Pick your model family first\r
-\r
-The family changes the caption style, the image count, and the settings — so decide\r
-before you caption anything.\r
-\r
-| | Z-Image | SDXL | Krea 2 | FLUX.1 | FLUX.2 Klein |\r
-|---|---|---|---|---|---|\r
-| **Caption style** | Prose sentences | Booru tags | Prose sentences | Prose sentences | Prose sentences |\r
-| **Images (min → good)** | 12 → 20+ | 20 → 30+ | 15 → 20+ | 15 → 20+ | 15 → 20+ |\r
-| **Training base** | Z-Image-Turbo (or a converted custom merge) | Your ComfyUI checkpoint (e.g. bigLove) | Krea-2-Raw (default) or Turbo | FLUX.1-dev (gated HF) | FLUX.2-klein-base 4B (default) or 9B (gated HF) |\r
-| **Preview quality** | Fast, distilled | Depends on checkpoint | Raw: slow but faithful | High, ~20 steps | Non-distilled, real CFG (~25 steps) |\r
-| **Best for** | Fast iteration, prose-driven prompting | Booru-native checkpoints, NSFW ecosystems | Highest realism ceiling | The largest LoRA ecosystem, strong prompt fidelity | Modern FLUX.2 stack; 4B trains on mid-range GPUs |\r
-\r
-**Krea note:** the default trains on **Krea-2-Raw** — the official recommendation is\r
-*"train on Raw, validate on Turbo"*. Raw runs are long (hours); that's normal, not stuck.\r
-\r
-**FLUX.1 note:** trains on **FLUX.1-dev**, a *gated* Hugging Face model — accept its\r
-license and set a HF token before the first run (the initial download is ~24 GB). It's\r
-a 12B model like Krea 2, so **~24 GB VRAM** is the comfort zone (drop the resolution to\r
-**768** to fit smaller cards). **Local training only for now**; in-app testing (Test\r
-Studio) is coming — until then, test your Flux LoRA in your own ComfyUI.\r
-\r
-**FLUX.2 Klein note:** two model sizes, picked next to the base selector — **4B**\r
-(default) trains on a **16–24 GB** local GPU, **9B** needs **32–48 GB VRAM** and is\r
-best trained via **☁️ Train in cloud** (both local and cloud runs are supported for\r
-this family). Both bases are *gated* on Hugging Face: accept the license of\r
-\`FLUX.2-klein-base-4B\` / \`-9B\` and set a HF token before the first run. In-app\r
-testing (Test Studio) is coming — until then, test your Klein LoRA in your own\r
-ComfyUI.\r
-\r
----\r
-\r
-## 2. How many images, and which ones\r
-\r
-- **Target ~25 images** for a balanced character LoRA. More isn't automatically\r
-  better — 25 varied images beat 60 near-duplicates every time.\r
-- **Balance the framing.** The app tracks four buckets: **face / bust / body / back**.\r
-  A dataset that is 100% face close-ups produces a LoRA that falls apart on\r
-  full-body prompts — it has never seen the body.\r
-- **Vary everything except the person:** location, lighting, outfit, pose,\r
-  expression, camera angle. Whatever repeats across images gets baked into the\r
-  LoRA — a repeated background wall becomes part of "the person".\r
-- **Reject near-duplicates.** Two frames of the same shot teach nothing and\r
-  overweight that look. The pre-flight check flags them; reject one of each pair.\r
-- **Quality floor:** no motion blur, no heavy compression, the face readable.\r
-  One bad image does more harm than one good image does good.\r
-\r
-**Body fidelity mode** (Datasets → ⋯ More): use it when the body shape and body\r
-marks (tattoos, scars) should bind to the trigger too. It shifts the composition\r
-targets toward bust/body shots, imports full-frame by default, and extends the\r
-caption rules below to body marks.\r
-\r
----\r
-\r
-## 3. Captions — the make-or-break step\r
-\r
-The model reads your captions during training and learns to attribute **whatever\r
-the caption does NOT explain** to the trigger word.\r
-\r
-**The golden rule: never describe what the person IS — describe everything else.**\r
-\r
-- ❌ \`myTrigger, a woman with long blonde hair and blue eyes, smiling\` —\r
-  the LoRA learns almost nothing: the caption already "explains" the appearance.\r
-- ✅ \`myTrigger, sitting at a café table, warm afternoon light, denim jacket,\r
-  looking at the camera\` — hair, face and skin are unexplained → they bind\r
-  to \`myTrigger\`.\r
-\r
-Concretely:\r
-\r
-1. **Start every caption with the trigger word.** The app injects it on export.\r
-2. **Never mention hair, face, eyes or skin.** The app's *identity-leak* check\r
-   flags captions that do — fix every flagged one before training.\r
-3. **Describe scene, outfit, pose, lighting, framing.** Those are the things you\r
-   want to stay promptable *independently* of the identity.\r
-4. **Vary the captions.** Identical captions across images teach nothing;\r
-   captions under ~8 words are too weak to isolate the identity.\r
-5. **Match the style to the family.** Prose for Z-Image and Krea; booru tags for\r
-   SDXL booru-native checkpoints. The app blocks a mismatch for a reason —\r
-   a prose-captioned SDXL LoRA produces disjointed images.\r
-\r
-**Concept datasets** (training a *thing/style/act*, not a person) invert the rule:\r
-describe everything **except the concept** — the concept is what must bind to the\r
-trigger. Keep masked training **off** for concepts (a person mask would erase the\r
-very thing you're training).\r
-\r
----\r
-\r
-## 4. Settings cheat-sheet\r
-\r
-The defaults below are the app's defaults (post-research). Change them from\r
-⚙️ Advanced options on the training panel — each knob has its own why/how there.\r
-That panel also has a **Presets** row: apply a shipped ★ recipe (*Krea\r
-character*, *Concept*, *Style*), or save your tuned settings as a named preset to\r
-reuse across datasets and share (import/export as JSON).\r
-\r
-| Setting | Z-Image | SDXL | Krea 2 | FLUX.1 | FLUX.2 Klein | Why |\r
-|---|---|---|---|---|---|---|\r
-| **LoRA rank / alpha** | 16 / 16 | 32 / 16 | 32 / 32 | 16 / 16 | 16 / 16 | Capacity to memorize the identity. SDXL's alpha = rank ÷ 2 is that family's half-strength convention. |\r
-| **Resolution** | 768 + 1024 | 768 + 1024 | 768 + 1024 | 768 + 1024 | 768 + 1024 | Multi-scale: holds up from close-up to full-body. |\r
-| **Save checkpoint** | every 250 | every 250 | every 250 | every 250 | every 250 | More snapshots → better odds one is at the sweet spot. |\r
-| **Steps** | auto | auto | auto | auto | auto | ~120 × images, clamped 1500–3500. A fixed 3000 overcooks small sets. |\r
-| **Masked training** | ON | ON | ON | ON | ON | Background weighs only 10% of the loss → identity binds to the person, not the room. OFF for concepts. |\r
-\r
-Rules of thumb:\r
-\r
-- **Raise rank (48–64)** only for a hard identity (distinctive features the\r
-  default misses) *and* a bigger dataset — high rank on 15 images just memorizes them.\r
-- **Don't chase steps.** More steps past the sweet spot = overfitting (plastic\r
-  skin, same face angle everywhere, prompt deafness). Train with checkpoints\r
-  every 250 and pick the best one instead.\r
-- **Turbo variant (Krea)** is the VRAM/time-friendly fallback — fine for drafts,\r
-  Raw for the final run.\r
-- **GPU under 24 GB?** Resolution is the #1 memory lever: set it to **768 only**\r
-  (Krea 2 especially — 1024 saturates a 24 GB card). You trade some fine detail\r
-  for a run that actually fits and trains far faster.\r
-\r
-### Steps — how many, and where "good results" start\r
-\r
-The app sets the step count **automatically** for a character LoRA:\r
-**≈ 120 × kept images, clamped to 1500–3500.** The *target is the same* for\r
-Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein — the model family changes how *fast*\r
-that target converges, not the number. (Concept/style datasets scale differently:\r
-**475 · √n, clamped 2000–12000**, because they train on hundreds of images.)\r
-\r
-So the character step count just follows your dataset size:\r
-\r
-| Kept images | Auto steps |\r
-|---|---|\r
-| 12–15 | 1500 – 1800 |\r
-| 20 | 2400 |\r
-| 25 | 3000 |\r
-| 30 and up | 3500 (capped) |\r
-\r
-**"Good results" is a checkpoint you pick, not the finish line.** A snapshot is\r
-saved every 250 steps, and the best one is almost never the last — later\r
-checkpoints know the face better but obey prompts worse. *Where* the first\r
-usable checkpoint appears depends on how fast the model converges:\r
-\r
-| Model | Converges | Where the sweet spot tends to land |\r
-|---|---|---|\r
-| **Z-Image** | Fast (distilled) | Around the **middle** of the run; watch for overfit in the last ~20% (waxy skin, frozen expression) |\r
-| **Krea 2 – Turbo** | Fast (distilled) | Like Z-Image — check early-to-middle checkpoints first |\r
-| **SDXL** | Medium (base-dependent) | Middle of the run; booru-native checkpoints lock an identity quickly |\r
-| **Krea 2 – Raw** | Slow (12B, non-distilled) | The **last third** — the run is long by design, let it finish the full count rather than stopping early |\r
-| **FLUX.1-dev** | Medium (12B, guidance-distilled) | Middle of the run; a strong prompt-follower, so watch for waxy skin / frozen expression if you overshoot into the last ~20% |\r
-| **FLUX.2 Klein (4B/9B)** | Medium (non-distilled base) | Middle of the run; previews run with real CFG so overfit shows honestly — pick the earliest checkpoint that holds the identity |\r
-\r
-**Takeaway:** don't hand-tune the step number. Train the auto count, then use the\r
-**Test Studio** to pick the *earliest* checkpoint that nails the identity — that's\r
-the one with the most prompt flexibility left.\r
-\r
----\r
-\r
-## 5. Pre-flight checklist\r
-\r
-The app runs these checks when you hit Train — here's the list to self-check earlier:\r
-\r
-- [ ] At least the family minimum kept (12 Z-Image / 20 SDXL / 15 Krea / 15 FLUX.1 / 15 FLUX.2 Klein) — 20–30 is the comfort zone\r
-- [ ] Framing balanced — not 100% face shots (some bust/body/back)\r
-- [ ] Every kept image captioned *(strongly recommended — a blank caption won't block the launch, it just asks you to confirm "train anyway")*\r
-- [ ] **Zero identity leaks** (no hair/face/skin words — the leak badge shows 0)\r
-- [ ] Captions varied, ≥ 8 words, style matches the family (prose vs booru)\r
-- [ ] Near-duplicate pairs resolved (keep one of each)\r
-- [ ] Body fidelity: if ON, actual full-body shots exist\r
-\r
----\r
-\r
-## 6. After training: pick the right checkpoint\r
-\r
-Training produces a checkpoint every 250 steps — **the last one is often NOT the\r
-best one**. Later checkpoints know the identity better but obey prompts worse.\r
-\r
-1. Open the **Test Studio** from the dataset (the LoRA comes pre-selected).\r
-2. Generate the same prompt grid across several checkpoints and strengths.\r
-3. Pick the **earliest checkpoint that nails the identity** — it keeps the most\r
-   prompt flexibility. Signs you've gone too far: waxy skin, identical\r
-   expression/angle regardless of prompt, outfits from the dataset bleeding in.\r
-4. Save the winning settings (★) — they're reused as the dataset's defaults.\r
-\r
----\r
-\r
-*Everything above is enforced or surfaced by the app itself (pre-flight checks,\r
-leak badge, composition bar, advanced options). This page just explains why.*\r
-`,Hw=`# Troubleshooting\r
-\r
-Symptom-first, most-reported first. If your problem isn't here, the next\r
-chapter (**Getting help**) shows how to report it with one click.\r
-\r
----\r
-\r
-## "No Z-Image model available" in the Test Studio or training panel\r
-\r
-**Why:** the Test Studio generates through ComfyUI, so the Z-Image *base model*\r
-must physically live in your ComfyUI install — and the scanner only accepts it\r
-inside a sub-folder whose name contains \`z image\` (or \`zimage\`). A file dropped\r
-loose in \`models/unet\` is **not** detected.\r
-\r
-**Fix:** lay the stack out like this inside your ComfyUI folder, then re-test:\r
-\r
-\`\`\`\r
-models/unet/z image/<your Z-Image checkpoint>.safetensors\r
-models/text_encoders/Z image/qwen_3_4b.safetensors\r
-models/vae/z ae.safetensors\r
-\`\`\`\r
-\r
-A Z-Image LoRA only works on a Z-Image base — a regular SD/SDXL graph\r
-(20–30 steps, CFG 7) renders garbage; Z-Image-Turbo wants euler / simple /\r
-**8 steps / CFG 1.0** (the app's workflows already do this).\r
-\r
-## "No SDXL checkpoint found" on a fresh install\r
-\r
-**Why:** the app derives the models folder from **Settings → Local tools →\r
-ComfyUI install directory**. If only the API URL is set, there's nothing to scan.\r
-\r
-**Fix:** point the install directory at the folder that contains \`models/\` and\r
-\`main.py\` (the Setup wizard detects it for you), then hit **Test**. SDXL\r
-checkpoints are scanned from \`models/checkpoints\`.\r
-\r
-## The reference crop isn't centered on the face\r
-\r
-**Why:** on a fresh clone the configured Ollama vision model isn't pulled yet,\r
-so head detection silently falls back to a centered square crop. The app now\r
-shows a warning toast naming the missing model when this happens.\r
-\r
-**Fix:** **Setup → Ollama** — pull the vision model (use the **Instruct**\r
-variant, not *Thinking*), or click the tile's crop button and frame it by hand.\r
-**↺ Reset to auto** re-runs the auto-crop after the model is installed.\r
-\r
-## Training log looks frozen for several minutes\r
-\r
-**Why:** ai-toolkit's output is block-buffered during model load and latent\r
-caching — nothing prints even though it's working. A "warming up" phase before\r
-the first logged step is expected, and Krea-2-Raw runs are *hours* long by\r
-design.\r
-\r
-**Fix:** nothing to fix — check GPU utilization or watch the ai-toolkit output\r
-folder for new files if you want proof of life. The cloud runs page has a\r
-stall watchdog that kills genuinely stuck runs.\r
-\r
-## ai-toolkit isn't detected (conda / uv / no venv)\r
-\r
-**Why:** the app auto-detects ai-toolkit's Python from a \`venv/\` or \`.venv/\`\r
-folder next to its \`run.py\`. Installs that use conda, uv or the system Python\r
-have no such folder, so the Test button can't find an interpreter — training\r
-and JoyCaption stay hidden.\r
-\r
-**Fix:** in **Settings → Local tools → ai-toolkit**, keep the directory pointing\r
-at the ai-toolkit folder and fill the optional **Python interpreter** field with\r
-the full path to the python that has ai-toolkit's dependencies (e.g.\r
-\`C:\\miniconda3\\envs\\aitk\\python.exe\`), then hit **Test**. ComfyUI Desktop installs\r
-are recognized automatically — no extra step.\r
-\r
-## Reddit scan says "rate limiting requests, retry in Ns" (429)\r
-\r
-**Why:** out of the box, Reddit scans authenticate with a **public client id\r
-shared by many people** (the gallery-dl one). Reddit's quota — about 1000\r
-requests per 10-minute window — is attached to that id, so other users can\r
-exhaust it before your very first scan of the day. The "retry in Ns" number is\r
-just the time left in the current 10-minute window.\r
-\r
-**Fix:** get your own free client ID (one minute, no app secret involved):\r
-**Settings → Scraping & sources** has the field plus a built-in step-by-step\r
-guide. The one trap: on reddit.com/prefs/apps, pick the app type\r
-**installed app** — a *web app* or *script* id comes with a client secret and\r
-Reddit then rejects the anonymous login this app uses (every scan fails\r
-with 401). Takes effect immediately, no restart needed.\r
-\r
-## ComfyUI shows as unreachable\r
-\r
-Check **Settings → Local tools → ComfyUI API URL** (default\r
-\`http://127.0.0.1:8188\`), confirm ComfyUI is actually running, and check that a\r
-firewall or a different bind interface isn't blocking the connection. The\r
-**Test** button answers immediately.\r
-\r
-## Klein engine stays greyed out\r
-\r
-Klein needs a reachable ComfyUI **and** the Klein model files (~16 GB VRAM\r
-class). **Setup → ComfyUI** offers the download; the license-gated fp8 model\r
-needs a Hugging Face token (Settings → Local tools).\r
-\r
-## Port 5000 conflict on macOS\r
-\r
-macOS reserves port 5000 for AirPlay Receiver. Change the port in\r
-**Settings → Server & access** (e.g. 5050) and restart.\r
-\r
-## Garbled characters in the Windows console\r
-\r
-Cosmetic only — some UTF-8 text renders wrong on the legacy console codepage.\r
-The app itself is unaffected.\r
-\r
-## \`npm install\` fails with \`Cannot find module @rollup/rollup-<platform>-...\`\r
-\r
-Only relevant if you rebuild the frontend yourself (the repo ships \`dist/\`\r
-prebuilt). It's a known npm bug: delete \`frontend/node_modules\` +\r
-\`frontend/package-lock.json\` and run \`npm install\` again on this machine.\r
-\r
-## A cloud run seems stuck\r
-\r
-Open the **Cloud** tab: every run shows its live phase, and the stall watchdog\r
-(Settings → Training → stall timeout) rescues logs and kills the pod if no step\r
-progress happens for too long. Orphaned pods are also destroyed automatically\r
-at every app start — you never pay for a forgotten GPU.\r
-`,qw=`# Getting help & reporting problems\r
-\r
-Stuck, found a bug, or missing a feature? Two doors, both watched:\r
-\r
-- **Discord** — [discord.gg/j6hnJBFtXE](https://discord.gg/j6hnJBFtXE) — ask in\r
-  **#help**; usually the fastest way to get unstuck. Feature ideas and votes\r
-  live in **#roadmap**.\r
-- **GitHub** — [Issues](https://github.com/perfectgf/lora-dataset-studio/issues) —\r
-  best for reproducible bugs and feature requests; the templates walk you\r
-  through what to include.\r
-\r
----\r
-\r
-## What makes a report solvable\r
-\r
-The difference between a five-minute fix and a week of guessing is almost\r
-always the same four things:\r
-\r
-1. **Version** — shown in Settings → Maintenance → Updates ("Current build").\r
-2. **Environment** — OS, and whether you run API-only, full local, or Docker.\r
-3. **What you did → what you expected → what happened** — three short lines\r
-   beat three paragraphs.\r
-4. **The log** — the last lines of the server log usually name the real error.\r
-   Settings → Maintenance → 🪵 Server log → **Copy all**.\r
-\r
-## Or let the app write it for you\r
-\r
-The **diagnostic report** button below assembles all of that in one click:\r
-version, OS, capability status, non-secret settings and the last log lines —\r
-formatted, copied to your clipboard, ready to paste into Discord or a GitHub\r
-issue.\r
-\r
-What it deliberately **never** includes: your API keys or tokens (only\r
-whether each one is set) and your folder paths (only whether each one is\r
-configured). One caveat: the log tail can mention file names from your machine\r
-— skim the paste before posting if that matters to you.\r
-\r
-## Feature requests\r
-\r
-Describe the **job you were doing when you missed the feature** — the problem\r
-is more valuable than the proposed solution. Post it in Discord **#roadmap** or\r
-open a GitHub issue with the *Feature request* template.\r
+`,Ww=`# Using the app
+
+The workspace is a **guided flow**: each stage stays folded until the one
+before it is done, and the progress rail on the left tells you where you are
+and what's blocking the next step. You never have to guess what comes next —
+this chapter just explains what each stage does and where the useful buttons
+hide.
+
+---
+
+## The character walkthrough (reference photo → trained LoRA)
+
+1. **Create the dataset** — Datasets → New. Pick **Character**, name it, set a
+   **trigger word** (the token your prompts will use), and choose the **target
+   model** (Z-Image / SDXL / Krea 2 / FLUX.1 / FLUX.2 Klein — changes the caption
+   style; you can change it later).
+2. **Upload the reference photo.** The app head-crops it automatically; use the
+   crop editor (or *Reset to auto*) if the framing is off. Up to 3 extra angles
+   can be added for multi-view consistency.
+3. **Generate variations** — pick an engine (Nano Banana, ChatGPT, or local
+   Klein) and fire the **variation catalog**: 45 shots across expression,
+   angle, lighting, framing, outfit and background, each wrapped in an identity
+   guard so the face stays the same person.
+4. **Import** your own photos too (drag & drop) — each is auto-cropped to the
+   face on the way in.
+5. **Auto-classify framing.** A local vision model tags every image
+   **face / bust / body / back**; the badges feed the composition meter.
+6. **Curate** — keep / reject / crop, guided by the live meter targeting
+   **12 face · 6 bust · 6 body · 1 back**. Watch the face-similarity badges
+   (green = strong match, orange = review) to drop off-identity shots before
+   they poison training.
+7. **Caption** — one click captions the kept set (prose or booru tags,
+   matched to the target model). The **identity-leak check** flags any caption
+   that describes hair/face/skin — fix every flagged one. A find/replace +
+   tag-frequency panel sweeps the whole set at once; its **💾 Write .txt
+   files** button drops a kohya-style \`<image>.txt\` next to each kept image
+   in the dataset folder (same format as the export ZIP) for external tools.
+8. **Fix individual shots** — every generated tile has a ✏️ button: edit the
+   exact prompt that made it and regenerate in place, without losing the rest.
+9. **Train** — the pre-flight check runs the full checklist (count, balance,
+   captions, leaks, duplicates). It no longer *blocks*: leaking captions and
+   near-duplicates are editable right inside the confirm, and missing captions
+   just ask you to **Start anyway** (captions stay strongly recommended). Steps
+   are computed automatically; ⚙️ Advanced options exposes every knob (each with
+   its own why/how) and a **Presets** row — apply a shipped ★ recipe (*Krea
+   character*, *Concept*, *Style*) or save/import/export your own as a JSON.
+   No GPU? **☁️ Train in cloud** rents one per run. Watch this run — and every
+   other, cloud or local — from the **🏋️ Runs** tab, where you can retry a
+   failed run (↻), continue a finished cloud run for more steps (▶), and download
+   the LoRA.
+10. **Pick the best checkpoint** — open the **Test Studio** from the dataset:
+    grid-test checkpoint × strength, vote, rank by face similarity, and star ★
+    the winning settings. The last checkpoint is almost never the best one.
+11. **Export** — at any point, **Export ZIP** gives you the curated, captioned
+    set as a standard ai-toolkit dataset. Nothing is locked in.
+
+## Concept datasets (an object or action, not a person)
+
+Pick **Concept** at creation and describe the concept in the required field —
+the captioner needs to know exactly *what to omit*. What changes vs character:
+
+- **No reference photo.** Images come from **import** or the built-in
+  **scraper** (paste a gallery URL or run a Reddit keyword search, tick the
+  frames you want, they land straight in the dataset — deduplicated and
+  quality-filtered). Already have a kohya-style dataset on disk (images +
+  same-name \`.txt\` captions)? **⋯ More → 📂 Import from folder…** merges it in
+  from a pasted folder path — captions attach, duplicates are skipped (a ZIP
+  works too, via **📦 Import dataset**). On gallery sites (PornPics), a category/tag/search scan
+  shows **the same previews the listing page does** — one per gallery, the shot
+  that actually matches your keyword. Tick **Scan full albums** to pull every
+  photo of each matched gallery instead, or paste a single \`/galleries/…\` URL
+  to get that whole album. Sex.com works the same way for keyword searches
+  (\`sex.com/en/pics?search=…\`) — every pin **is** a single matching image, so
+  there is no album option to worry about. Civitai searches return **SFW
+  results only** unless you add a Civitai API key in **Settings → Scraping &
+  sources**.
+
+  > **Reddit says "wait N seconds" (429)?** By default Reddit scans share a
+  > public client id (and its ~1000 requests / 10 min quota) with many other
+  > people, so it can be exhausted before your first scan. Add your own free
+  > client ID in **Settings → Scraping & sources** — a one-minute, step-by-step
+  > guide is built into that page.
+- **Captions invert**: they describe everything *except* the concept, so the
+  concept is what binds to the trigger. The leak check watches for stray
+  descriptions of it.
+- **Masked training is off** (a person mask would erase the very thing you're
+  teaching), and imports keep the full frame instead of head-cropping.
+
+## Style datasets (a global aesthetic)
+
+Pick **Style** at creation. What changes:
+
+- **No trigger word** — the style tints every image once the LoRA is loaded.
+- **Captions describe content only** (never the rendering), and they're
+  optional; caption dropout rises so the style generalizes.
+- **Step count switches to a sublinear √n scale** built for the large sets
+  (hundreds of images) style LoRAs want.
+
+## Tips that save runs
+
+- Trust the composition meter over your instinct — a set that "looks varied"
+  is usually still face-heavy.
+- Fix every leak the badge reports before training; one "a woman with long
+  blonde hair" caption quietly competes with your trigger.
+- Don't chase steps. Train the auto count, then let the Test Studio find the
+  *earliest* checkpoint that nails the identity — it keeps the most prompt
+  flexibility.
+- The next chapter — **Building a good dataset** — explains *why* behind every
+  rule above. Read it once before your first serious run.
+`,Vw=`# Building a good LoRA dataset
+
+This guide condenses what actually moves the needle when training a character LoRA
+with this app (ai-toolkit under the hood). Every number here matches what the app
+enforces or defaults to — when in doubt, the app's warnings are this guide applied.
+
+> **The one principle behind everything:** a LoRA learns whatever is **constant
+> across your images and NOT described in the captions**. Keep the subject constant,
+> vary everything else, and never describe the subject — that's the trigger word's job.
+
+---
+
+## 1. Pick your model family first
+
+The family changes the caption style, the image count, and the settings — so decide
+before you caption anything.
+
+| | Z-Image | SDXL | Krea 2 | FLUX.1 | FLUX.2 Klein |
+|---|---|---|---|---|---|
+| **Caption style** | Prose sentences | Booru tags | Prose sentences | Prose sentences | Prose sentences |
+| **Images (min → good)** | 12 → 20+ | 20 → 30+ | 15 → 20+ | 15 → 20+ | 15 → 20+ |
+| **Training base** | Z-Image-Turbo (or a converted custom merge) | Your ComfyUI checkpoint (e.g. bigLove) | Krea-2-Raw (default) or Turbo | FLUX.1-dev (gated HF) | FLUX.2-klein-base 4B (default) or 9B (gated HF) |
+| **Preview quality** | Fast, distilled | Depends on checkpoint | Raw: slow but faithful | High, ~20 steps | Non-distilled, real CFG (~25 steps) |
+| **Best for** | Fast iteration, prose-driven prompting | Booru-native checkpoints, NSFW ecosystems | Highest realism ceiling | The largest LoRA ecosystem, strong prompt fidelity | Modern FLUX.2 stack; 4B trains on mid-range GPUs |
+
+**Krea note:** the default trains on **Krea-2-Raw** — the official recommendation is
+*"train on Raw, validate on Turbo"*. Raw runs are long (hours); that's normal, not stuck.
+
+**FLUX.1 note:** trains on **FLUX.1-dev**, a *gated* Hugging Face model — accept its
+license and set a HF token before the first run (the initial download is ~24 GB). It's
+a 12B model like Krea 2, so **~24 GB VRAM** is the comfort zone (drop the resolution to
+**768** to fit smaller cards). **Local training only for now**; in-app testing (Test
+Studio) is coming — until then, test your Flux LoRA in your own ComfyUI.
+
+**FLUX.2 Klein note:** two model sizes, picked next to the base selector — **4B**
+(default) trains on a **16–24 GB** local GPU, **9B** needs **32–48 GB VRAM** and is
+best trained via **☁️ Train in cloud** (both local and cloud runs are supported for
+this family). Both bases are *gated* on Hugging Face: accept the license of
+\`FLUX.2-klein-base-4B\` / \`-9B\` and set a HF token before the first run. In-app
+testing (Test Studio) is coming — until then, test your Klein LoRA in your own
+ComfyUI.
+
+---
+
+## 2. How many images, and which ones
+
+- **Target ~25 images** for a balanced character LoRA. More isn't automatically
+  better — 25 varied images beat 60 near-duplicates every time.
+- **Balance the framing.** The app tracks four buckets: **face / bust / body / back**.
+  A dataset that is 100% face close-ups produces a LoRA that falls apart on
+  full-body prompts — it has never seen the body.
+- **Vary everything except the person:** location, lighting, outfit, pose,
+  expression, camera angle. Whatever repeats across images gets baked into the
+  LoRA — a repeated background wall becomes part of "the person".
+- **Reject near-duplicates.** Two frames of the same shot teach nothing and
+  overweight that look. The pre-flight check flags them; reject one of each pair.
+- **Quality floor:** no motion blur, no heavy compression, the face readable.
+  One bad image does more harm than one good image does good.
+
+**Body fidelity mode** (Datasets → ⋯ More): use it when the body shape and body
+marks (tattoos, scars) should bind to the trigger too. It shifts the composition
+targets toward bust/body shots, imports full-frame by default, and extends the
+caption rules below to body marks.
+
+---
+
+## 3. Captions — the make-or-break step
+
+The model reads your captions during training and learns to attribute **whatever
+the caption does NOT explain** to the trigger word.
+
+**The golden rule: never describe what the person IS — describe everything else.**
+
+- ❌ \`myTrigger, a woman with long blonde hair and blue eyes, smiling\` —
+  the LoRA learns almost nothing: the caption already "explains" the appearance.
+- ✅ \`myTrigger, sitting at a café table, warm afternoon light, denim jacket,
+  looking at the camera\` — hair, face and skin are unexplained → they bind
+  to \`myTrigger\`.
+
+Concretely:
+
+1. **Start every caption with the trigger word.** The app injects it on export.
+2. **Never mention hair, face, eyes or skin.** The app's *identity-leak* check
+   flags captions that do — fix every flagged one before training.
+3. **Describe scene, outfit, pose, lighting, framing.** Those are the things you
+   want to stay promptable *independently* of the identity.
+4. **Vary the captions.** Identical captions across images teach nothing;
+   captions under ~8 words are too weak to isolate the identity.
+5. **Match the style to the family.** Prose for Z-Image and Krea; booru tags for
+   SDXL booru-native checkpoints. The app blocks a mismatch for a reason —
+   a prose-captioned SDXL LoRA produces disjointed images.
+
+**Concept datasets** (training a *thing/style/act*, not a person) invert the rule:
+describe everything **except the concept** — the concept is what must bind to the
+trigger. Keep masked training **off** for concepts (a person mask would erase the
+very thing you're training).
+
+---
+
+## 4. Settings cheat-sheet
+
+The defaults below are the app's defaults (post-research). Change them from
+⚙️ Advanced options on the training panel — each knob has its own why/how there.
+That panel also has a **Presets** row: apply a shipped ★ recipe (*Krea
+character*, *Concept*, *Style*), or save your tuned settings as a named preset to
+reuse across datasets and share (import/export as JSON).
+
+| Setting | Z-Image | SDXL | Krea 2 | FLUX.1 | FLUX.2 Klein | Why |
+|---|---|---|---|---|---|---|
+| **LoRA rank / alpha** | 16 / 16 | 32 / 16 | 32 / 32 | 16 / 16 | 16 / 16 | Capacity to memorize the identity. SDXL's alpha = rank ÷ 2 is that family's half-strength convention. |
+| **Resolution** | 768 + 1024 | 768 + 1024 | 768 + 1024 | 768 + 1024 | 768 + 1024 | Multi-scale: holds up from close-up to full-body. |
+| **Save checkpoint** | every 250 | every 250 | every 250 | every 250 | every 250 | More snapshots → better odds one is at the sweet spot. |
+| **Steps** | auto | auto | auto | auto | auto | ~120 × images, clamped 1500–3500. A fixed 3000 overcooks small sets. |
+| **Masked training** | ON | ON | ON | ON | ON | Background weighs only 10% of the loss → identity binds to the person, not the room. OFF for concepts. |
+
+Rules of thumb:
+
+- **Raise rank (48–64)** only for a hard identity (distinctive features the
+  default misses) *and* a bigger dataset — high rank on 15 images just memorizes them.
+- **Don't chase steps.** More steps past the sweet spot = overfitting (plastic
+  skin, same face angle everywhere, prompt deafness). Train with checkpoints
+  every 250 and pick the best one instead.
+- **Turbo variant (Krea)** is the VRAM/time-friendly fallback — fine for drafts,
+  Raw for the final run.
+- **GPU under 24 GB?** Resolution is the #1 memory lever: set it to **768 only**
+  (Krea 2 especially — 1024 saturates a 24 GB card). You trade some fine detail
+  for a run that actually fits and trains far faster.
+
+### Steps — how many, and where "good results" start
+
+The app sets the step count **automatically** for a character LoRA:
+**≈ 120 × kept images, clamped to 1500–3500.** The *target is the same* for
+Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein — the model family changes how *fast*
+that target converges, not the number. (Concept/style datasets scale differently:
+**475 · √n, clamped 2000–12000**, because they train on hundreds of images.)
+
+So the character step count just follows your dataset size:
+
+| Kept images | Auto steps |
+|---|---|
+| 12–15 | 1500 – 1800 |
+| 20 | 2400 |
+| 25 | 3000 |
+| 30 and up | 3500 (capped) |
+
+**"Good results" is a checkpoint you pick, not the finish line.** A snapshot is
+saved every 250 steps, and the best one is almost never the last — later
+checkpoints know the face better but obey prompts worse. *Where* the first
+usable checkpoint appears depends on how fast the model converges:
+
+| Model | Converges | Where the sweet spot tends to land |
+|---|---|---|
+| **Z-Image** | Fast (distilled) | Around the **middle** of the run; watch for overfit in the last ~20% (waxy skin, frozen expression) |
+| **Krea 2 – Turbo** | Fast (distilled) | Like Z-Image — check early-to-middle checkpoints first |
+| **SDXL** | Medium (base-dependent) | Middle of the run; booru-native checkpoints lock an identity quickly |
+| **Krea 2 – Raw** | Slow (12B, non-distilled) | The **last third** — the run is long by design, let it finish the full count rather than stopping early |
+| **FLUX.1-dev** | Medium (12B, guidance-distilled) | Middle of the run; a strong prompt-follower, so watch for waxy skin / frozen expression if you overshoot into the last ~20% |
+| **FLUX.2 Klein (4B/9B)** | Medium (non-distilled base) | Middle of the run; previews run with real CFG so overfit shows honestly — pick the earliest checkpoint that holds the identity |
+
+**Takeaway:** don't hand-tune the step number. Train the auto count, then use the
+**Test Studio** to pick the *earliest* checkpoint that nails the identity — that's
+the one with the most prompt flexibility left.
+
+---
+
+## 5. Pre-flight checklist
+
+The app runs these checks when you hit Train — here's the list to self-check earlier:
+
+- [ ] At least the family minimum kept (12 Z-Image / 20 SDXL / 15 Krea / 15 FLUX.1 / 15 FLUX.2 Klein) — 20–30 is the comfort zone
+- [ ] Framing balanced — not 100% face shots (some bust/body/back)
+- [ ] Every kept image captioned *(strongly recommended — a blank caption won't block the launch, it just asks you to confirm "train anyway")*
+- [ ] **Zero identity leaks** (no hair/face/skin words — the leak badge shows 0)
+- [ ] Captions varied, ≥ 8 words, style matches the family (prose vs booru)
+- [ ] Near-duplicate pairs resolved (keep one of each)
+- [ ] Body fidelity: if ON, actual full-body shots exist
+
+---
+
+## 6. After training: pick the right checkpoint
+
+Training produces a checkpoint every 250 steps — **the last one is often NOT the
+best one**. Later checkpoints know the identity better but obey prompts worse.
+
+1. Open the **Test Studio** from the dataset (the LoRA comes pre-selected).
+2. Generate the same prompt grid across several checkpoints and strengths.
+3. Pick the **earliest checkpoint that nails the identity** — it keeps the most
+   prompt flexibility. Signs you've gone too far: waxy skin, identical
+   expression/angle regardless of prompt, outfits from the dataset bleeding in.
+4. Save the winning settings (★) — they're reused as the dataset's defaults.
+
+---
+
+*Everything above is enforced or surfaced by the app itself (pre-flight checks,
+leak badge, composition bar, advanced options). This page just explains why.*
+`,Hw=`# Troubleshooting
+
+Symptom-first, most-reported first. If your problem isn't here, the next
+chapter (**Getting help**) shows how to report it with one click.
+
+---
+
+## "No Z-Image model available" in the Test Studio or training panel
+
+**Why:** the Test Studio generates through ComfyUI, so the Z-Image *base model*
+must physically live in your ComfyUI install — and the scanner only accepts it
+inside a sub-folder whose name contains \`z image\` (or \`zimage\`). A file dropped
+loose in \`models/unet\` is **not** detected.
+
+**Fix:** lay the stack out like this inside your ComfyUI folder, then re-test:
+
+\`\`\`
+models/unet/z image/<your Z-Image checkpoint>.safetensors
+models/text_encoders/Z image/qwen_3_4b.safetensors
+models/vae/z ae.safetensors
+\`\`\`
+
+A Z-Image LoRA only works on a Z-Image base — a regular SD/SDXL graph
+(20–30 steps, CFG 7) renders garbage; Z-Image-Turbo wants euler / simple /
+**8 steps / CFG 1.0** (the app's workflows already do this).
+
+## "No SDXL checkpoint found" on a fresh install
+
+**Why:** the app derives the models folder from **Settings → Local tools →
+ComfyUI install directory**. If only the API URL is set, there's nothing to scan.
+
+**Fix:** point the install directory at the folder that contains \`models/\` and
+\`main.py\` (the Setup wizard detects it for you), then hit **Test**. SDXL
+checkpoints are scanned from \`models/checkpoints\`.
+
+## The reference crop isn't centered on the face
+
+**Why:** on a fresh clone the configured Ollama vision model isn't pulled yet,
+so head detection silently falls back to a centered square crop. The app now
+shows a warning toast naming the missing model when this happens.
+
+**Fix:** **Setup → Ollama** — pull the vision model (use the **Instruct**
+variant, not *Thinking*), or click the tile's crop button and frame it by hand.
+**↺ Reset to auto** re-runs the auto-crop after the model is installed.
+
+## Training log looks frozen for several minutes
+
+**Why:** ai-toolkit's output is block-buffered during model load and latent
+caching — nothing prints even though it's working. A "warming up" phase before
+the first logged step is expected, and Krea-2-Raw runs are *hours* long by
+design.
+
+**Fix:** nothing to fix — check GPU utilization or watch the ai-toolkit output
+folder for new files if you want proof of life. The cloud runs page has a
+stall watchdog that kills genuinely stuck runs.
+
+## ai-toolkit isn't detected (conda / uv / no venv)
+
+**Why:** the app auto-detects ai-toolkit's Python from a \`venv/\` or \`.venv/\`
+folder next to its \`run.py\`. Installs that use conda, uv or the system Python
+have no such folder, so the Test button can't find an interpreter — training
+and JoyCaption stay hidden.
+
+**Fix:** in **Settings → Local tools → ai-toolkit**, keep the directory pointing
+at the ai-toolkit folder and fill the optional **Python interpreter** field with
+the full path to the python that has ai-toolkit's dependencies (e.g.
+\`C:\\miniconda3\\envs\\aitk\\python.exe\`), then hit **Test**. ComfyUI Desktop installs
+are recognized automatically — no extra step.
+
+## Reddit scan says "rate limiting requests, retry in Ns" (429)
+
+**Why:** out of the box, Reddit scans authenticate with a **public client id
+shared by many people** (the gallery-dl one). Reddit's quota — about 1000
+requests per 10-minute window — is attached to that id, so other users can
+exhaust it before your very first scan of the day. The "retry in Ns" number is
+just the time left in the current 10-minute window.
+
+**Fix:** get your own free client ID (one minute, no app secret involved):
+**Settings → Scraping & sources** has the field plus a built-in step-by-step
+guide. The one trap: on reddit.com/prefs/apps, pick the app type
+**installed app** — a *web app* or *script* id comes with a client secret and
+Reddit then rejects the anonymous login this app uses (every scan fails
+with 401). Takes effect immediately, no restart needed.
+
+## ComfyUI shows as unreachable
+
+Check **Settings → Local tools → ComfyUI API URL** (default
+\`http://127.0.0.1:8188\`), confirm ComfyUI is actually running, and check that a
+firewall or a different bind interface isn't blocking the connection. The
+**Test** button answers immediately.
+
+## Klein engine stays greyed out
+
+Klein needs a reachable ComfyUI **and** the Klein model files (~16 GB VRAM
+class). **Setup → ComfyUI** offers the download; the license-gated fp8 model
+needs a Hugging Face token (Settings → Local tools).
+
+## Port 5000 conflict on macOS
+
+macOS reserves port 5000 for AirPlay Receiver. Change the port in
+**Settings → Server & access** (e.g. 5050) and restart.
+
+## Garbled characters in the Windows console
+
+Cosmetic only — some UTF-8 text renders wrong on the legacy console codepage.
+The app itself is unaffected.
+
+## \`npm install\` fails with \`Cannot find module @rollup/rollup-<platform>-...\`
+
+Only relevant if you rebuild the frontend yourself (the repo ships \`dist/\`
+prebuilt). It's a known npm bug: delete \`frontend/node_modules\` +
+\`frontend/package-lock.json\` and run \`npm install\` again on this machine.
+
+## A cloud run seems stuck
+
+Open the **Cloud** tab: every run shows its live phase, and the stall watchdog
+(Settings → Training → stall timeout) rescues logs and kills the pod if no step
+progress happens for too long. Orphaned pods are also destroyed automatically
+at every app start — you never pay for a forgotten GPU.
+`,qw=`# Getting help & reporting problems
+
+Stuck, found a bug, or missing a feature? Two doors, both watched:
+
+- **Discord** — [discord.gg/j6hnJBFtXE](https://discord.gg/j6hnJBFtXE) — ask in
+  **#help**; usually the fastest way to get unstuck. Feature ideas and votes
+  live in **#roadmap**.
+- **GitHub** — [Issues](https://github.com/perfectgf/lora-dataset-studio/issues) —
+  best for reproducible bugs and feature requests; the templates walk you
+  through what to include.
+
+---
+
+## What makes a report solvable
+
+The difference between a five-minute fix and a week of guessing is almost
+always the same four things:
+
+1. **Version** — shown in Settings → Maintenance → Updates ("Current build").
+2. **Environment** — OS, and whether you run API-only, full local, or Docker.
+3. **What you did → what you expected → what happened** — three short lines
+   beat three paragraphs.
+4. **The log** — the last lines of the server log usually name the real error.
+   Settings → Maintenance → 🪵 Server log → **Copy all**.
+
+## Or let the app write it for you
+
+The **diagnostic report** button below assembles all of that in one click:
+version, OS, capability status, non-secret settings and the last log lines —
+formatted, copied to your clipboard, ready to paste into Discord or a GitHub
+issue.
+
+What it deliberately **never** includes: your API keys or tokens (only
+whether each one is set) and your folder paths (only whether each one is
+configured). One caveat: the log tail can mention file names from your machine
+— skim the paste before posting if that matters to you.
+
+## Feature requests
+
+Describe the **job you were doing when you missed the feature** — the problem
+is more valuable than the proposed solution. Post it in Discord **#roadmap** or
+open a GitHub issue with the *Feature request* template.
 `,fd=[{id:"getting-started",num:"01",title:"Getting started",description:"Install the app, connect the tools you need, and understand the workspace.",source:Gw},{id:"using-the-app",num:"02",title:"Using the app",description:"Follow the complete workflow for character, concept, and style datasets.",source:Ww},{id:"dataset-guide",num:"03",title:"Building a good dataset",description:"Make stronger choices about images, captions, settings, and checkpoints.",source:Vw},{id:"troubleshooting",num:"04",title:"Troubleshooting",description:"Find a symptom, understand the cause, and apply the shortest reliable fix.",source:Hw}],Xw={id:"getting-help",num:"05",title:"Getting help",description:"Create a useful report and share the details needed to solve a problem.",source:qw,extra:"diagnostic"},Qw=r=>r.replace(/[`*_]/g,"");function xd({helpOnly:r=!1}){const{section:l}=Td(),a=Rs(),o=r?[Xw]:fd,c=r?0:Math.max(0,o.findIndex(v=>v.id===l)),d=o[c],m=c>0?o[c-1]:null,x=c<o.length-1?o[c+1]:null,h=[...d.source.matchAll(/^##\s+(.+)$/gm)].map(v=>({title:Qw(v[1]),id:Bd(v[1])})),f=Math.max(1,Math.ceil(d.source.trim().split(/\s+/).length/210)),y=v=>{var w;return(w=document.getElementById(v))==null?void 0:w.scrollIntoView({behavior:"smooth",block:"start"})};u.useEffect(()=>{window.scrollTo(0,0)},[d.id]);const b=(v,w)=>{const S=v.id===d.id,_=w?`flex shrink-0 items-baseline gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium ${S?"border-border-strong bg-surface-raised text-content":"border-border text-content-muted hover:text-content"}`:`relative flex w-full items-baseline gap-2.5 rounded-md px-3 py-2 text-left text-sm ${S?"bg-surface-raised text-content":"text-content-muted hover:bg-surface hover:text-content"}`;return e.jsxs("button",{type:"button",onClick:()=>a(`/guide/${v.id}`),"aria-current":S?"page":void 0,className:_,children:[!w&&S&&e.jsx("span",{"aria-hidden":!0,className:"absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded bg-gradient-primary"}),e.jsx("span",{className:`font-mono text-[11px] ${S?"text-content":"text-content-subtle"}`,children:v.num}),e.jsx("span",{className:"font-medium",children:v.title})]},v.id)};return e.jsxs("div",{className:r?"mx-auto max-w-5xl xl:grid xl:grid-cols-[minmax(0,1fr)_190px] xl:items-start xl:gap-7":"lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:items-start lg:gap-7 xl:grid-cols-[210px_minmax(0,1fr)_190px]",children:[!r&&e.jsxs("aside",{children:[e.jsx("nav",{"aria-label":"Guide chapters",className:"-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden",children:fd.map(v=>b(v,!0))}),e.jsxs("nav",{"aria-label":"Guide chapters",className:"hidden lg:sticky lg:top-20 lg:block",children:[e.jsx("p",{className:"px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle",children:"Field manual"}),e.jsx("div",{className:"flex flex-col gap-0.5",children:fd.map(v=>b(v,!1))})]})]}),e.jsxs("main",{className:`min-w-0 max-w-4xl pb-10 ${r?"mx-auto":"mt-2 lg:mt-0"}`,children:[e.jsxs("header",{className:"relative mb-4 overflow-hidden rounded-2xl border border-border bg-surface px-5 py-5 sm:px-6 sm:py-6",children:[e.jsx("div",{"aria-hidden":!0,className:"absolute -right-16 -top-20 h-52 w-52 rounded-full bg-indigo-500/10 blur-3xl"}),e.jsxs("div",{className:"relative",children:[e.jsxs("div",{className:"mb-3 flex flex-wrap items-center gap-2 font-mono text-[0.6875rem] uppercase tracking-[0.14em] text-content-subtle",children:[e.jsx("span",{className:"rounded-md border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-indigo-300",children:r?"Support":`Chapter ${d.num}`}),e.jsxs("span",{children:[f," min read"]}),!r&&e.jsxs(e.Fragment,{children:[e.jsx("span",{"aria-hidden":!0,children:"·"}),e.jsxs("span",{children:[c+1," of ",o.length]})]})]}),e.jsx("h1",{className:"m-0 max-w-2xl text-2xl font-bold tracking-tight text-content sm:text-3xl",children:d.title}),e.jsx("p",{className:"mb-0 mt-2 max-w-2xl text-sm leading-relaxed text-content-muted sm:text-base",children:d.description})]})]}),h.length>0&&e.jsxs("nav",{"aria-label":"On this page",className:"mb-4 rounded-xl border border-border bg-surface p-3 xl:hidden",children:[e.jsx("p",{className:"m-0 mb-2 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-content-subtle",children:"On this page"}),e.jsx("div",{className:"flex gap-2 overflow-x-auto pb-0.5",children:h.map(v=>e.jsx("button",{type:"button",onClick:()=>y(v.id),className:"shrink-0 rounded-full border border-border bg-transparent px-2.5 py-1 text-xs text-content-muted hover:border-border-strong hover:text-content",children:v.title},v.id))})]}),e.jsx(Kw,{source:d.source,variant:"guide"}),d.extra==="diagnostic"&&e.jsx("div",{className:"mt-6",children:e.jsx(Ef,{})}),!r&&e.jsxs("div",{className:"mt-6 grid grid-cols-2 gap-3 border-t border-border pt-4",children:[m?e.jsxs(Lr,{to:`/guide/${m.id}`,className:"group flex min-w-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 no-underline hover:bg-surface-raised",children:[e.jsx("span",{"aria-hidden":!0,className:"text-content-subtle",children:"←"}),e.jsxs("span",{className:"min-w-0",children:[e.jsx("span",{className:"block font-mono text-[0.625rem] uppercase tracking-wider text-content-subtle",children:"Previous"}),e.jsx("span",{className:"block truncate text-sm font-medium text-content-muted group-hover:text-content",children:m.title})]})]}):e.jsx("span",{}),x?e.jsxs(Lr,{to:`/guide/${x.id}`,className:"group flex min-w-0 items-center justify-end gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-right no-underline hover:bg-surface-raised",children:[e.jsxs("span",{className:"min-w-0",children:[e.jsx("span",{className:"block font-mono text-[0.625rem] uppercase tracking-wider text-content-subtle",children:"Next"}),e.jsx("span",{className:"block truncate text-sm font-medium text-content-muted group-hover:text-content",children:x.title})]}),e.jsx("span",{"aria-hidden":!0,className:"text-content-subtle",children:"→"})]}):e.jsx("span",{})]})]}),e.jsx("aside",{className:"hidden xl:block",children:e.jsxs("nav",{"aria-label":"On this page",className:"sticky top-20 border-l border-border pl-4",children:[e.jsx("p",{className:"m-0 mb-2 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-content-subtle",children:"On this page"}),e.jsx("div",{className:"flex flex-col gap-0.5",children:h.map(v=>e.jsx("button",{type:"button",onClick:()=>y(v.id),className:"rounded-md bg-transparent px-2 py-1.5 text-left text-xs leading-snug text-content-subtle hover:bg-surface hover:text-content",children:v.title},v.id))})]})})]})}function ah(r){var l,a,o;return!!(r!=null&&r.in_progress&&((l=r==null?void 0:r.current)==null?void 0:l.dataset_id)!==null&&((a=r==null?void 0:r.current)==null?void 0:a.dataset_id)!==void 0&&((o=r==null?void 0:r.current)!=null&&o.run_token))}function Zw(r,l){return l?l==="base"?r==="krea"?"Raw":"Base":l==="deturbo"?"De-Turbo":l==="turbo"?"Turbo":l.toUpperCase():null}const Yw=new Set(["legacy_incompatible","incompatible"]);function ra(r){var a;const l=(r==null?void 0:r.recipe_status)??((a=r==null?void 0:r.recipe)==null?void 0:a.status)??(r==null?void 0:r.status);return Yw.has(l)}const Jw=5e3,ek={zimage:"Z-Image",krea:"Krea 2",sdxl:"SDXL",flux:"FLUX.1",flux2klein:"FLUX.2 Klein"},lh="cloudRunsRecentCollapsed",tk={done:"text-emerald-300 border-emerald-400/40 bg-emerald-500/10",error:"text-rose-300 border-rose-400/40 bg-rose-500/10",error_pod_kept:"text-amber-200 border-amber-400/40 bg-amber-500/10",stopped:"text-content-muted border-border bg-surface"},oh=r=>tk[r]||"text-sky-300 border-sky-400/40 bg-sky-500/10";function ih(r){if(!r)return"";const l=new Date(/[Z+]/.test(r)?r:`${r}Z`).getTime(),a=Math.max(0,(Date.now()-l)/1e3);return a<60?"just now":a<3600?`${Math.floor(a/60)}m ago`:a<86400?`${Math.floor(a/3600)}h ago`:`${Math.floor(a/86400)}d ago`}function ch(r){return ek[r]||r||"LoRA"}function dh({run:r}){return e.jsxs(e.Fragment,{children:[r.auto_retry_of!=null&&e.jsxs("span",{className:"rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-200 text-[0.625rem]",title:`Automatic retry of cloud run #${r.auto_retry_of}`,children:["↻ automatic retry ",r.auto_retry_count||1,"/1"]}),r.auto_retry_run_id!=null&&e.jsxs("span",{className:"rounded border border-violet-400/40 bg-violet-500/10 px-1.5 py-0.5 text-violet-200 text-[0.625rem]",title:`Automatically relaunched as cloud run #${r.auto_retry_run_id}`,children:["↻ auto-retried as #",r.auto_retry_run_id]})]})}function gd({run:r}){if(!r.recipe_warning)return null;const l=ra(r);return e.jsxs("div",{role:"alert",className:"w-full rounded-md border border-amber-400/40 bg-amber-500/10 px-2.5 py-2 text-amber-200 text-[0.6875rem] leading-relaxed",children:[e.jsx("span",{className:"font-semibold",children:"⚠ Z-Image recipe warning:"})," ",r.recipe_warning,l&&e.jsx("span",{className:"font-semibold",children:" Retry and Continue are disabled; start a fresh validated run."})]})}function uh(r){const l=r.settings;return l?[l.rank?`rank ${l.rank}${l.alpha?`/${l.alpha}`:""}`:null,Array.isArray(l.resolution)?`${l.resolution.join("+")} px`:null,r.steps?`${r.steps} steps`:null,l.save_every?`save ${l.save_every}`:null,l.optimizer&&l.optimizer!=="adamw8bit"?l.optimizer:null,l.lr_scheduler||null,l.dropout?`dropout ${l.dropout}`:null,l.timestep_type||null,Zw(r.train_type,r.variant),r.masked===!1?"unmasked":"masked"].filter(Boolean).join(" · "):null}function ph(r){const l=new URLSearchParams;return r.train_type&&l.set("train_type",r.train_type),r.variant&&l.set("variant",r.variant),r.run_id&&l.set("run_id",String(r.run_id)),`/api/dataset/${r.dataset_id}/train/cloud/checkpoint?${l.toString()}`}function nk(){var ae;const r=Qt(),l=Rs(),[a,o]=u.useState(null),[c,d]=u.useState({}),[m,x]=u.useState(!1),h=u.useRef(!1),[f,y]=u.useState(()=>{try{return localStorage.getItem(lh)==="1"}catch{return!1}});u.useEffect(()=>{try{localStorage.setItem(lh,f?"1":"0")}catch{}},[f]);const b=u.useCallback(async()=>{try{const E=await fetch("/api/dataset/train/cloud/runs?limit=15",{credentials:"include"});E.ok&&o(await E.json())}catch{}},[]);u.useEffect(()=>{let E=!0,ce;const J=async()=>{await b(),E&&(ce=setTimeout(J,Jw))};return J(),()=>{E=!1,clearTimeout(ce)}},[b]);const v=E=>{try{localStorage.setItem("datasetCurrentId",String(E))}catch{}l("/datasets")},w=async E=>{const ce=E.dataset_name||E.run_name||`run #${E.run_id}`;if(window.confirm(`Stop the cloud run for « ${ce} »?
 
 The pod is terminated. Any checkpoint reached so far is still downloaded and importable — you only lose the remaining steps.`)){d(J=>({...J,[E.run_id]:!0}));try{(await At("/api/dataset/train/cloud/stop",{run_id:E.run_id})).ok===!1?r.error("Could not stop the run — it may have already finished."):r.info("Stopping the run — the pod is winding down…"),b()}finally{d(J=>({...J,[E.run_id]:!1}))}}},S=async()=>{const E=a==null?void 0:a.local_active;if(!ah(E)||h.current)return;const ce=E.current.name||`dataset #${E.current.dataset_id}`;if(window.confirm(`Stop the local run for « ${ce} »?
