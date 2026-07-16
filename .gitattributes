@@ -1,0 +1,3 @@
+# Keep frontend builds reproducible across Linux CI and Windows releases.
+frontend/** text=auto eol=lf
+docs/** text=auto eol=lf
