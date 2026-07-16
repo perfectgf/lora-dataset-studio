@@ -56,6 +56,30 @@ const SCRAPE_SECRETS = [
     help: 'Only needed for adult content: without a key, Civitai scans return SFW results only. '
       + 'Create one under civitai.com → Account settings → API Keys.',
   },
+  {
+    key: 'PEXELS_API_KEY',
+    label: 'Pexels API key (required for Pexels)',
+    help: (
+      <>
+        Required for every Pexels scan through the official API.{' '}
+        <a href="https://www.pexels.com/api/key/" target="_blank" rel="noreferrer"
+          className="font-medium text-content underline">
+          Create a free Pexels API key
+        </a>
+        {' '}— the free quota is 200 requests/hour and 20,000/month. Save it here and it
+        takes effect immediately, without a restart.
+        <span className="mt-1 block text-amber-200">
+          <strong>Authorization required:</strong>{' '}An API key alone does not authorize
+          dataset or machine-learning use. Configure and use this integration only if Pexels
+          has explicitly authorized this use case.{' '}
+          <a href="https://help.pexels.com/hc/en-us/articles/900005880463-What-are-the-Terms-and-Conditions"
+            target="_blank" rel="noreferrer" className="font-medium underline">
+            Read the official Pexels terms and conditions
+          </a>.
+        </span>
+      </>
+    ),
+  },
 ]
 
 export default function ScrapingSection(props) {
@@ -65,7 +89,7 @@ export default function ScrapingSection(props) {
     <div className="space-y-6">
       <Card
         title="Source credentials"
-        help="Optional keys used when scanning image sources for concept datasets. Everything works without them — they lift per-source limits. Keys are write-only: fields stay blank even when a key is already saved."
+        help="Credentials used when scanning image sources for concept datasets. Reddit and Civitai keys are optional; Pexels requires its API key. Keys are write-only: fields stay blank even when a key is already saved."
       >
         {SCRAPE_SECRETS.map((f) => <SecretField key={f.key} field={f} {...props} />)}
       </Card>

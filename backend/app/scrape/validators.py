@@ -9,7 +9,7 @@ import re
 from typing import Optional, List
 from dataclasses import dataclass, field
 from enum import Enum
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 
 class Platform(Enum):
@@ -39,6 +39,9 @@ class Platform(Enum):
     # Sex.com — pinboard porno (chaque pin = UNE image). La recherche mot-clé
     # (/pics?search=…) passe par l'API JSON du site ; pins/boards via gallery-dl.
     SEXCOM = "sexcom"
+    # Pexels — recherches, collections accessibles et photos SFW via l'API
+    # officielle (PEXELS_API_KEY requise). Les profils ne sont pas exposés.
+    PEXELS = "pexels"
     GENERIC = "generic"   # toute autre URL http(s) — déléguée à yt-dlp
     UNKNOWN = "unknown"
 
@@ -74,6 +77,72 @@ class ValidationResult:
             'error': self.error,
             'suggestions': self.suggestions,
         }
+
+
+@dataclass(frozen=True)
+class PexelsRoute:
+    """Route publique Pexels strictement reconnue.
+
+    ``value`` conserve le segment public pour ``ValidationResult`` tandis que
+    ``api_value`` contient la valeur décodée et validée envoyée à l'API.
+    Seules les recherches localisées portent un paramètre ``api_locale``.
+    """
+    kind: str
+    value: str
+    api_value: str
+    api_locale: Optional[str] = None
+
+
+_PEXELS_SEARCH_ROUTES = {
+    None: ('search', None),
+    'en-us': ('search', 'en-US'),
+    'fr-fr': ('chercher', 'fr-FR'),
+}
+
+
+def parse_pexels_path(path: str) -> Optional[PexelsRoute]:
+    """Parse les seules routes publiques mappables vers l'API Pexels.
+
+    Les préfixes localisés acceptés sont volontairement limités à ceux
+    testés ici. Une route ou une locale inconnue n'est jamais transformée en
+    recherche de secours.
+    """
+    if not isinstance(path, str) or not re.fullmatch(
+            r'/[^/]+(?:/[^/]+){1,2}/?', path):
+        return None
+
+    parts = path[1:-1] if path.endswith('/') else path[1:]
+    segments = parts.split('/')
+    locale = segments.pop(0) if segments[0] in _PEXELS_SEARCH_ROUTES else None
+    if len(segments) != 2:
+        return None
+
+    route_name, public_value = segments
+    if re.search(r'%(?![0-9A-Fa-f]{2})', public_value):
+        return None
+    decoded_value = unquote(public_value)
+    if (not decoded_value.strip()
+            or any(char in decoded_value for char in ('/', '\\'))
+            or any(ord(char) < 32 or ord(char) == 127 for char in decoded_value)):
+        return None
+
+    expected_search, api_locale = _PEXELS_SEARCH_ROUTES[locale]
+    if route_name == expected_search:
+        return PexelsRoute('search', public_value, decoded_value, api_locale)
+
+    if route_name == 'collections':
+        if not re.fullmatch(r'[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*', decoded_value):
+            return None
+        collection_id = decoded_value.rsplit('-', 1)[-1]
+        return PexelsRoute('collection', public_value, collection_id)
+
+    if route_name == 'photo':
+        match = re.fullmatch(
+            r'(?:[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-)?(\d+)', decoded_value)
+        if match:
+            return PexelsRoute('photo', public_value, match.group(1))
+
+    return None
 
 
 class URLValidator:
@@ -146,6 +215,7 @@ class URLValidator:
         Platform.PORNPICS: ['pornpics.com', 'www.pornpics.com'],
         Platform.SEXCOM: ['sex.com', 'www.sex.com'],
         Platform.CIVITAI: ['civitai.com', 'www.civitai.com', 'civitai.red', 'www.civitai.red'],
+        Platform.PEXELS: ['pexels.com', 'www.pexels.com'],
         # Bunkr tourne sur des TLDs rotatifs → matché par host-contains 'bunkr' (cf. detect_platform).
     }
 
@@ -167,6 +237,7 @@ class URLValidator:
         ('sex.com', Platform.SEXCOM),
         ('civitai.com', Platform.CIVITAI),
         ('civitai.red', Platform.CIVITAI),
+        ('pexels.com', Platform.PEXELS),
         # fapello.com + tout miroir de langue (fr./de./es.…) via endswith('.fapello.com').
         # Volontairement ABSENT de VALID_DOMAINS → la garde stricte de domaine n'écarte
         # pas les sous-domaines de langue (la source normalise l'hôte avant gallery-dl).
@@ -258,6 +329,8 @@ class URLValidator:
             return cls._validate_picazor(url)
         if platform == Platform.EROME:
             return cls._validate_erome(url)
+        if platform == Platform.PEXELS:
+            return cls._validate_pexels(url)
         if platform in (Platform.COOMER, Platform.KEMONO, Platform.BUNKR,
                         Platform.CYBERDROP, Platform.X, Platform.TIKTOK,
                         Platform.PORNPICS, Platform.CIVITAI, Platform.FAPELLO,
@@ -393,6 +466,44 @@ class URLValidator:
                 "  • Recherche : erome.com/search?q=motcle",
                 "  • Profil : erome.com/username",
             ],
+        )
+
+    @classmethod
+    def _validate_pexels(cls, url: str) -> ValidationResult:
+        """Accepte uniquement les chemins couverts par l'API officielle.
+
+        Recherche, collection et photo ont un endpoint documenté. Les profils
+        publics /@user, pages racine, vidéos, locales et routes inconnues sont
+        rejetés avant tout appel réseau avec des suggestions actionnables.
+        """
+        parsed = urlparse(url)
+        suggestions = [
+            "Formats Pexels pris en charge :",
+            "  • Recherche : pexels.com/search/portrait/",
+            "  • Recherche localisée : pexels.com/en-us/search/portrait/",
+            "    ou pexels.com/fr-fr/chercher/portrait/",
+            "  • Collection accessible à votre clé : pexels.com/collections/nom-identifiant/",
+            "  • Photo : pexels.com/photo/nom-123456/",
+            "Les préfixes /en-us/ et /fr-fr/ sont aussi acceptés pour les photos et collections.",
+            "L'API officielle Pexels n'expose pas les profils publics /@user.",
+        ]
+        if parsed.username is not None or parsed.password is not None:
+            return ValidationResult(
+                False, Platform.PEXELS, URLType.UNKNOWN, "", url,
+                error="URL Pexels invalide : informations utilisateur non autorisées.",
+                suggestions=suggestions,
+            )
+
+        route = parse_pexels_path(parsed.path or "/")
+        if route:
+            url_type = URLType.POST if route.kind == 'photo' else URLType.LISTING
+            return ValidationResult(
+                True, Platform.PEXELS, url_type, route.value, url)
+
+        return ValidationResult(
+            False, Platform.PEXELS, URLType.UNKNOWN, "", url,
+            error="Format d'URL Pexels non pris en charge par l'API officielle.",
+            suggestions=suggestions,
         )
 
     @classmethod

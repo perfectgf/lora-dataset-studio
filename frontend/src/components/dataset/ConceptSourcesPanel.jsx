@@ -17,6 +17,7 @@ import { postJson } from '../../hooks/useDataset';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import InstallRunner from '../setup/InstallRunner';
 import { clearScraperScanState, loadScraperScanState, saveScraperScanState } from './scraperState';
+import PexelsAttribution from './PexelsAttribution';
 
 const thumbFor = (it) =>
   `/api/scrape/thumb?url=${encodeURIComponent(it.thumbnail || it.url)}`;
@@ -25,6 +26,7 @@ const SOURCE_GROUPS = [
   { label: 'SFW', tone: 'emerald', sources: [
     ['Reddit', 'https://www.reddit.com/'], ['Instagram', 'https://www.instagram.com/'],
     ['X / Twitter', 'https://x.com/'], ['Civitai images', 'https://civitai.com/images'],
+    ['Pexels', 'https://www.pexels.com/search/portrait/'],
   ] },
   { label: 'NSFW', tone: 'rose', sources: [
     ['PornPics', 'https://www.pornpics.com/'], ['Sex.com', 'https://www.sex.com/'],
@@ -85,11 +87,22 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
       if (!body || !body.scannable) { toast.error((body && body.error) || 'Could not scan this URL.'); return; }
       // Images only (the dataset import rejects video/gif anyway).
       const imgs = (body.items || []).filter((it) => it.type === 'image');
-      setItems((prev) => (nextPage === 0 ? imgs : [...prev, ...imgs]));
+      const responsePage = body.page;
+      const isFreshScan = responsePage === 0;
+      setItems((prev) => {
+        if (isFreshScan) return imgs;
+        const seenUrls = new Set(prev.map((it) => it.url));
+        const additions = imgs.filter((it) => {
+          if (!it.url || seenUrls.has(it.url)) return false;
+          seenUrls.add(it.url);
+          return true;
+        });
+        return [...prev, ...additions];
+      });
       setPaginated(!!body.paginated);
-      setPage(nextPage);
-      if (nextPage === 0) { setSelected(new Set()); setBroken(new Set()); }  // fresh scan resets; "Load more" keeps it
-      if (imgs.length === 0 && nextPage === 0) toast.info('No images found on this page.');
+      setPage(responsePage);
+      if (isFreshScan) { setSelected(new Set()); setBroken(new Set()); }  // fresh scan resets; "Load more" keeps it
+      if (imgs.length === 0 && isFreshScan) toast.info('No images found on this page.');
     } finally {
       setScanning(false);
     }
@@ -138,7 +151,16 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
 
   const handleImport = async () => {
     const chosen = items.filter((it) => selected.has(it.url))
-      .map((it) => ({ url: it.url, title: it.title || '' }));
+      .map((it) => ({
+        url: it.url,
+        title: it.title || '',
+        ...(it.platform === 'pexels' ? {
+          platform: 'pexels',
+          source_url: it.source_url,
+          photographer: it.photographer,
+          photographer_url: it.photographer_url,
+        } : {}),
+      }));
     if (chosen.length === 0 || importing) return;
     setImporting(true);
     try {
@@ -187,13 +209,14 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
       </div>
 
       {/* Scrape extras (curl_cffi, gallery-dl, cloudscraper…) live in the
-          optional requirements-scrape.txt — without them most sources fail
-          ("curl_cffi non disponible"). One-click install into THIS interpreter. */}
+          optional requirements-scrape.txt. Pexels enumeration uses its official
+          API, while thumbnail proxying and imports still need curl_cffi. */}
       {caps.scrape_deps === false && (
         <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-2 flex flex-col gap-1.5">
           <p className="text-amber-200 text-[0.6875rem]">
-            ⚠ The scraper&apos;s Python packages are not installed (curl_cffi, gallery-dl,
-            cloudscraper…) — most sources (Picazor included) need them.
+            ⚠ The optional scraper packages are not installed (curl_cffi, gallery-dl,
+            cloudscraper…). Install them for image previews and imports. Pexels uses
+            its official API for listing, but still needs curl_cffi to fetch images.
           </p>
           <InstallRunner action="scrape_extras" buttonLabel="⬇ Install scraper extras"
             onDone={() => refresh(true)} />
@@ -204,7 +227,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
       <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); runScan(0); }}>
         <input
           type="url" value={url} onChange={(e) => setUrl(e.target.value)}
-          placeholder="Gallery or search URL (e.g. pornpics.com/… or sex.com/en/pics?search=…)"
+          placeholder="Gallery or search URL (e.g. https://www.pexels.com/search/portrait/ or pornpics.com/…)"
           className="flex-1 min-w-0 px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
         />
         <button type="submit" disabled={scanning || !url.trim()}
@@ -292,6 +315,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
         // Only live thumbnails are shown/pickable; dead source links are hidden.
         const liveItems = items.filter((it) => !broken.has(it.url));
         const deadCount = items.length - liveItems.length;
+        const hasPexels = items.some((it) => it.platform === 'pexels');
         return (
         <>
           <div className="flex items-center gap-2 text-[0.6875rem] text-content-subtle flex-wrap">
@@ -327,23 +351,40 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
             </span>
           </div>
 
+          {hasPexels && (
+            <a href="https://www.pexels.com/" target="_blank" rel="noreferrer"
+              title="Open Pexels"
+              className="self-start text-xs font-medium text-content-muted underline decoration-white/20 underline-offset-2 hover:text-content">
+              Photos provided by Pexels
+            </a>
+          )}
+
           <div className="grid gap-1.5 overflow-y-auto max-h-[34rem] pr-1"
             style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${tile}px, 1fr))` }}>
             {liveItems.map((it) => {
               const on = selected.has(it.url);
+              const imageLabel = it.title
+                || (it.platform === 'pexels' && it.photographer
+                  ? `Pexels photo by ${it.photographer}` : 'scraped image');
               return (
-                <button type="button" key={it.url} onClick={() => toggle(it.url)}
-                  aria-pressed={on} title={it.title || it.url}
-                  className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all
-                    ${on ? 'border-indigo-400' : 'border-transparent hover:border-border-strong'}`}>
-                  <img src={thumbFor(it)} alt="" loading="lazy" onError={() => markBroken(it.url)}
-                    className="w-full h-full object-cover" />
-                  <span aria-hidden
-                    className={`absolute top-1 right-1 w-4 h-4 rounded-full text-[0.625rem] leading-4 text-center font-bold
-                      ${on ? 'bg-indigo-500 text-white' : 'bg-black/50 text-white/70'}`}>
-                    {on ? '✓' : ''}
-                  </span>
-                </button>
+                <div key={it.url} className="min-w-0">
+                  <button type="button" onClick={() => toggle(it.url)}
+                    aria-pressed={on}
+                    aria-label={`${on ? 'Deselect' : 'Select'} ${imageLabel}`}
+                    title={imageLabel}
+                    className={`relative aspect-square w-full rounded-lg overflow-hidden border-2 transition-all
+                      ${on ? 'border-indigo-400' : 'border-transparent hover:border-border-strong'}`}>
+                    <img src={thumbFor(it)} alt="" loading="lazy" onError={() => markBroken(it.url)}
+                      className="w-full h-full object-cover" />
+                    <span aria-hidden
+                      className={`absolute top-1 right-1 w-4 h-4 rounded-full text-[0.625rem] leading-4 text-center font-bold
+                        ${on ? 'bg-indigo-500 text-white' : 'bg-black/50 text-white/70'}`}>
+                      {on ? '✓' : ''}
+                    </span>
+                  </button>
+                  <PexelsAttribution metadata={it}
+                    className="mt-1 block px-0.5 text-[0.625rem] leading-tight text-content-subtle" />
+                </div>
               );
             })}
           </div>
@@ -351,7 +392,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
           {paginated && (
             <button type="button" onClick={() => runScan(page + 1)} disabled={scanning}
               className="self-start px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-xs disabled:opacity-40">
-              {scanning ? 'Loading…' : 'Load more galleries'}
+              {scanning ? 'Loading…' : 'Load more images'}
             </button>
           )}
         </>

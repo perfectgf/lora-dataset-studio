@@ -117,6 +117,10 @@ class FaceDatasetImage(db.Model):
     # Correction manuelle : JSON list de bbox normalisées. NULL conserve le bbox
     # automatique comme source effective ; [] est un override explicite vide.
     watermark_regions = db.Column(Text, nullable=True)
+    # Métadonnées de provenance génériques, sérialisées en JSON. La première
+    # intégration prise en charge est Pexels : plateforme, page photo et crédit
+    # photographe. Toute écriture passe par la validation stricte du service.
+    source_metadata = db.Column(Text, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
 
     def __repr__(self):

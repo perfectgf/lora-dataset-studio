@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { displayLabel } from '../../utils/labels';
+import PexelsAttribution from './PexelsAttribution';
 
 const IMPROVE_HELP = 'Klein creates a new 2 MP version to validate and leaves the original intact.';
 
@@ -15,8 +16,10 @@ export default function DatasetLightbox({
   nonce = 0,
   onClose,
   onCrop,
+  onMirror,
   onImprove,
   busy = false,
+  mirrorBusy = false,
   improvePending = false,
   improveReady = false,
   kleinAvailable = false,
@@ -61,6 +64,12 @@ export default function DatasetLightbox({
     }
   };
 
+  const mirror = async (event) => {
+    event.stopPropagation();
+    if (!onMirror || busy || mirrorBusy) return;
+    await onMirror(img.id);
+  };
+
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Inspect — ${alt}`}
       className="fixed inset-0 z-[9996] bg-black/95 flex flex-col" onClick={onClose}>
@@ -89,6 +98,8 @@ export default function DatasetLightbox({
         <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/10 text-white/80">
           {img.source === 'import' ? 'real' : 'generated'}{img.framing ? ` · ${img.framing}` : ''}
         </span>
+        <PexelsAttribution metadata={img.source_metadata}
+          className="text-[11px] text-white/70" />
         <span className="text-white/50 text-[11px]">
           {full ? '100 % — click image to fit' : 'fitted — click image for 100 %'}
         </span>
@@ -97,6 +108,15 @@ export default function DatasetLightbox({
             title="Open the crop editor for this image (stretchable box, any ratio)"
             className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold">
             ✂ Crop
+          </button>
+        )}
+        {onMirror && (
+          <button type="button" onClick={mirror} disabled={busy || mirrorBusy}
+            aria-busy={mirrorBusy}
+            aria-label={mirrorBusy ? `Mirroring ${alt} horizontally` : `Mirror ${alt} horizontally`}
+            title={mirrorBusy ? 'Mirroring horizontally…' : 'Mirror horizontally (flip left and right)'}
+            className="min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            {mirrorBusy ? '⇆ Mirroring…' : '⇆ Mirror horizontally'}
           </button>
         )}
         {onImprove && (

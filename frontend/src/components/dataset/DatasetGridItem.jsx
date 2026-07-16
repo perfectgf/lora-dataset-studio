@@ -4,6 +4,7 @@ import { displayLabel } from '../../utils/labels';
 import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
 import CaptionEditorDialog from './CaptionEditorDialog';
 import PromptEditPopover from './PromptEditPopover';
+import PexelsAttribution from './PexelsAttribution';
 
 const STATUS_CLS = {
   keep: 'border-green-500',
@@ -58,6 +59,7 @@ const WATERMARK_BADGE = {
 };
 
 export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, onCrop, onDelete,
+                                          onMirror, mirrorBusy = false, busy = false,
                                           onRegenerate, onView, nonce = 0, faceThresholds,
                                           selected = false, onToggleSelect, tileSize = 'M' }) {
   const [cap, setCap] = useState(img.caption || '');
@@ -155,7 +157,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
             {wb.icon} {wb.text}
           </span>
         )}
-        <div className="absolute top-1 right-1 flex gap-1">
+        <div className="absolute top-1 right-1 flex max-w-[calc(100%_-_0.5rem)] flex-wrap justify-end gap-1">
           {canRegenerate && (
             <button type="button"
               onClick={(e) => { e.stopPropagation(); onRegenerate?.(img.id); }}
@@ -169,6 +171,19 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               title="Edit the prompt, then regenerate this variation"
               aria-label="Edit the prompt, then regenerate this variation"
               className="px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px]">✏️</button>
+          )}
+          {url && onMirror && (
+            <button type="button"
+              onClick={(e) => { e.stopPropagation(); onMirror(img.id); }}
+              disabled={busy || mirrorBusy}
+              aria-busy={mirrorBusy}
+              aria-label={mirrorBusy
+                ? `Mirroring ${displayLabel(img.variation_label) || 'this image'} horizontally`
+                : `Mirror ${displayLabel(img.variation_label) || 'this image'} horizontally`}
+              title={mirrorBusy ? 'Mirroring horizontally…' : 'Mirror horizontally (flip left and right)'}
+              className="grid min-h-7 min-w-7 place-items-center rounded bg-black/60 text-[10px] text-white disabled:cursor-not-allowed disabled:opacity-45">
+              <span aria-hidden="true">{mirrorBusy ? '…' : '⇆'}</span>
+            </button>
           )}
           {url && (
             <button type="button" onClick={(e) => { e.stopPropagation(); onCrop(img); }}
@@ -189,6 +204,8 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
             onClose={() => setEditingPrompt(false)} />
         )}
       </div>
+      <PexelsAttribution metadata={img.source_metadata}
+        className="mx-1.5 mt-1 block text-[0.625rem] leading-tight text-content-subtle" />
       {isRescueDerived ? (
         <p className="m-1.5 rounded border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-center text-[0.625rem] text-indigo-200"
           title="This winner was chosen atomically with its provenance pair. Caption and crop remain available.">

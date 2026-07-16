@@ -6,6 +6,7 @@ const lightbox = readFileSync(new URL('./DatasetLightbox.jsx', import.meta.url),
 const workspace = readFileSync(new URL('./DatasetWorkspace.jsx', import.meta.url), 'utf8');
 const hook = readFileSync(new URL('../../hooks/useDataset.js', import.meta.url), 'utf8');
 const settings = readFileSync(new URL('../settings/ScrapingSection.jsx', import.meta.url), 'utf8');
+const attribution = readFileSync(new URL('./PexelsAttribution.jsx', import.meta.url), 'utf8');
 
 test('lightbox exposes an accessible responsive image improvement action', () => {
   assert.match(lightbox, /✨ Upscale & improve/);
@@ -46,4 +47,14 @@ test('manual improvement candidates cannot use the unrelated generic regenerate 
   assert.match(gridItem, /const isImageImproveCandidate = img\.derivation_kind === 'klein_image_improve'/);
   assert.match(gridItem, /!isRescueDerived && !isImageImproveCandidate && img\.source === 'generated'/);
   assert.match(gridItem, /if \(!isImageImproveCandidate && img\.status !== 'reject'/);
+});
+
+test('curation grid and lightbox render the persisted safe Pexels attribution', () => {
+  const gridItem = readFileSync(new URL('./DatasetGridItem.jsx', import.meta.url), 'utf8');
+  assert.match(gridItem, /<PexelsAttribution metadata=\{img\.source_metadata\}/);
+  assert.match(lightbox, /<PexelsAttribution metadata=\{img\.source_metadata\}/);
+  assert.match(attribution, /Photo by\{' '\}/);
+  assert.match(attribution, /rel="noopener noreferrer"/);
+  assert.match(attribution, /attribution\.photographerUrl/);
+  assert.match(attribution, /attribution\.sourceUrl/);
 });

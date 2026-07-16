@@ -15,13 +15,15 @@ import os
 import posixpath
 import re
 import shutil
+import tempfile
 import threading
 import time
 import uuid
 import zipfile
 from typing import BinaryIO
+from urllib.parse import urlsplit
 
-from PIL import Image
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from ..extensions import db
 from ..models import FaceDataset, FaceDatasetImage, LoraTestImage
@@ -117,6 +119,10 @@ _SMALL_IMAGE_DERIVATIONS = (SMALL_IMAGE_SOURCE, KLEIN_SMALL_IMAGE)
 # section.  In particular, a second simultaneous lightbox click waits until the
 # first row has its job_id, then takes the idempotent return path below.
 _IMAGE_IMPROVE_LOCKS = tuple(threading.Lock() for _ in range(64))
+# A mirror is a toggle: two requests for the same image must run in order (two
+# clicks restore the original orientation), not both read the same source pixels
+# and race to promote an identical result.  Stripes avoid an unbounded lock map.
+_IMAGE_MIRROR_LOCKS = tuple(threading.Lock() for _ in range(64))
 
 
 class KleinNodesMissing(Exception):
@@ -223,8 +229,86 @@ def _safe_json(text):
         return None
     try:
         return json.loads(text)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
+
+
+_PEXELS_PAGE_HOSTS = frozenset({'pexels.com', 'www.pexels.com'})
+_PEXELS_IMAGE_HOSTS = frozenset({'images.pexels.com'})
+_SOURCE_URL_MAX_CHARS = 2048
+_PHOTOGRAPHER_MAX_CHARS = 160
+
+
+def _safe_source_https_url(value, allowed_hosts):
+    """Return a stripped HTTPS URL on an exact allowlisted host, else None."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if (not value or len(value) > _SOURCE_URL_MAX_CHARS
+            or any(ord(ch) < 32 for ch in value)):
+        return None
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or '').lower()
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    if (parsed.scheme != 'https' or host not in allowed_hosts
+            or parsed.username is not None or parsed.password is not None
+            or port not in (None, 443)):
+        return None
+    return value
+
+
+def normalize_source_metadata(value, *, image_url=None):
+    """Validate the generic provenance object currently supported by LDS.
+
+    Unknown platforms are deliberately dropped for backwards compatibility.
+    Pexels provenance is accepted only when both attribution links are exact
+    Pexels HTTPS hosts; at scrape-import time the downloaded image must also be
+    hosted by the official Pexels image CDN. Extra keys never reach storage or
+    the dataset payload.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(value, dict) or value.get('platform') != 'pexels':
+        return None
+    if image_url is not None and not _safe_source_https_url(
+            image_url, _PEXELS_IMAGE_HOSTS):
+        return None
+    photographer = value.get('photographer')
+    if not isinstance(photographer, str):
+        return None
+    photographer = photographer.strip()
+    if not photographer or len(photographer) > _PHOTOGRAPHER_MAX_CHARS:
+        return None
+    photographer = ' '.join(photographer.split())
+    source_url = _safe_source_https_url(value.get('source_url'), _PEXELS_PAGE_HOSTS)
+    photographer_url = _safe_source_https_url(
+        value.get('photographer_url'), _PEXELS_PAGE_HOSTS)
+    if not source_url or not photographer_url:
+        return None
+    return {
+        'platform': 'pexels',
+        'source_url': source_url,
+        'photographer': photographer,
+        'photographer_url': photographer_url,
+    }
+
+
+def _source_metadata_storage(value, *, image_url=None):
+    metadata = normalize_source_metadata(value, image_url=image_url)
+    return (json.dumps(metadata, ensure_ascii=False, separators=(',', ':'))
+            if metadata else None)
+
+
+def _source_metadata_from_scrape_item(item):
+    if not isinstance(item, dict) or item.get('platform') != 'pexels':
+        return None
+    return normalize_source_metadata(item, image_url=item.get('url'))
 
 
 def _watermark_regions_payload(img) -> dict:
@@ -615,6 +699,176 @@ def crop_image(user_id, image_id, x, y, w, h):
     return ok
 
 
+def _valid_icc_profile(raw):
+    """Return an ICC payload only when LittleCMS can parse it.
+
+    Pillow will otherwise copy arbitrary bytes into the rewritten image, and some
+    encoders fail late on malformed profiles.  ICC is the one embedded metadata
+    item worth retaining here (colour rendering); EXIF orientation is deliberately
+    baked into the pixels by ``ImageOps.exif_transpose`` and must not be reattached.
+    """
+    if not isinstance(raw, (bytes, bytearray)) or not raw:
+        return None
+    try:
+        from PIL import ImageCms
+        ImageCms.getOpenProfile(io.BytesIO(raw))
+    except Exception:
+        return None
+    return bytes(raw)
+
+
+def _mirrored_image_bytes(path):
+    """Prepare a horizontal mirror fully in memory without touching ``path``.
+
+    Dataset rows normally point at WEBP files, but restored/legacy datasets may
+    contain PNG or JPEG bytes (even under a misleading extension).  Preserve the
+    format Pillow actually detects: PNG stays lossless, WEBP is rewritten lossless
+    so repeated toggles do not accumulate damage, and JPEG uses high-quality 4:4:4.
+    """
+    try:
+        with Image.open(path) as src:
+            fmt = (src.format or '').upper()
+            if fmt not in {'PNG', 'WEBP', 'JPEG'}:
+                raise ValueError(f'unsupported image format: {fmt or "unknown"}')
+            if getattr(src, 'n_frames', 1) != 1:
+                raise ValueError('animated images are not supported')
+            src.load()
+            icc = _valid_icc_profile(src.info.get('icc_profile'))
+            oriented = ImageOps.exif_transpose(src)
+            mirrored = ImageOps.mirror(oriented)
+
+            save_kwargs = {}
+            if icc:
+                save_kwargs['icc_profile'] = icc
+            if fmt == 'PNG':
+                # Keep the native PNG mode/bit depth and use only lossless DEFLATE.
+                save_kwargs.update(compress_level=6)
+            elif fmt == 'WEBP':
+                # WEBP input can carry alpha; RGB(A) preserves it while avoiding
+                # encoder-dependent conversions for unusual legacy modes.
+                has_alpha = 'A' in mirrored.getbands()
+                mirrored = mirrored.convert('RGBA' if has_alpha else 'RGB')
+                save_kwargs.update(lossless=True, quality=100, method=6)
+            else:  # JPEG
+                mirrored = mirrored.convert('RGB')
+                save_kwargs.update(quality=95, subsampling=0, optimize=True)
+
+            out = io.BytesIO()
+            mirrored.save(out, fmt, **save_kwargs)
+            payload = out.getvalue()
+            expected_size = mirrored.size
+    except ValueError:
+        raise
+    except (UnidentifiedImageError, OSError, SyntaxError) as e:
+        raise ValueError('invalid image file') from e
+
+    # Decode the exact encoded result before it is allowed near the live path.
+    try:
+        with Image.open(io.BytesIO(payload)) as check:
+            check.load()
+            if (check.format or '').upper() != fmt or check.size != expected_size:
+                raise OSError('encoded mirror validation failed')
+    except (UnidentifiedImageError, OSError, SyntaxError) as e:
+        raise ValueError('could not encode mirrored image') from e
+    return payload
+
+
+def mirror_image(user_id, image_id):
+    """Permanently mirror one owned dataset image horizontally.
+
+    Returns ``None`` for an unknown/foreign row, otherwise a cache-bust payload.
+    The filename and all semantic/provenance metadata remain stable.  Only
+    watermark metadata is cleared because its pixel coordinates are no longer
+    valid after a horizontal flip.
+    """
+    lock = _IMAGE_MIRROR_LOCKS[
+        hash((str(user_id), image_id)) % len(_IMAGE_MIRROR_LOCKS)]
+    with lock:
+        img = _owned_image(user_id, image_id)
+        if not img:
+            return None
+        if not img.filename:
+            raise ValueError('image file required')
+        path = _img_path(img)
+        if not os.path.isfile(path):
+            raise RuntimeError('image file missing')
+
+        try:
+            before = os.stat(path)
+            payload = _mirrored_image_bytes(path)
+        except ValueError:
+            raise
+        except OSError as e:
+            raise RuntimeError('could not read image file') from e
+
+        tmp_path = None
+        try:
+            try:
+                fd, tmp_path = tempfile.mkstemp(
+                    prefix=f'.{os.path.basename(path)}.mirror-', suffix='.tmp',
+                    dir=os.path.dirname(path),
+                )
+                with os.fdopen(fd, 'wb') as fh:
+                    fh.write(payload)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                # Validate the on-disk temp as well as the in-memory encoding.
+                with Image.open(tmp_path) as check:
+                    check.verify()
+            except (UnidentifiedImageError, OSError, SyntaxError) as e:
+                raise RuntimeError('could not prepare mirrored image') from e
+
+            # Do not overwrite a crop/clean that raced this preparation outside
+            # the mirror lock.  (All mirror requests themselves are serialized.)
+            try:
+                current = os.stat(path)
+            except OSError as e:
+                raise RuntimeError('image file missing') from e
+            if (current.st_mtime_ns, current.st_size) != (before.st_mtime_ns, before.st_size):
+                raise RuntimeError('image changed while mirroring; retry')
+
+            watermark_snapshot = (
+                img.watermark_state, img.watermark_bbox, img.watermark_regions)
+            watermark_changed = any(value is not None for value in watermark_snapshot)
+            if watermark_changed:
+                _clear_watermark_metadata(img)
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    raise
+
+            try:
+                # Same-directory replacement is atomic; the original remains live
+                # until this single operation succeeds.
+                os.replace(tmp_path, path)
+                tmp_path = None
+            except OSError as e:
+                if watermark_changed:
+                    (img.watermark_state, img.watermark_bbox,
+                     img.watermark_regions) = watermark_snapshot
+                    try:
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+                        logger.exception(
+                            'failed to restore watermark metadata after mirror promotion failure')
+                raise RuntimeError('could not update image file') from e
+
+            return {
+                'image_id': img.id,
+                # A request token is intentionally independent of filename and
+                # HTTP Last-Modified granularity; the frontend appends it to ?v=.
+                'cache_bust': time.time_ns(),
+            }
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    logger.warning('could not remove mirror temp file %s', tmp_path)
+
+
 def delete_image(user_id, image_id):
     """Delete a dataset image row and move its file to the app trash.
 
@@ -782,7 +1036,7 @@ _BACKUP_IMG_FIELDS = ('filename', 'source', 'framing', 'variation_label', 'statu
                       'caption', 'variation_prompt', 'face_score', 'face_state',
                       'upscale_ratio', 'watermark_state', 'watermark_bbox',
                       'watermark_regions', 'parent_image_id', 'derivation_kind',
-                      'fail_reason')
+                      'fail_reason', 'source_metadata')
 
 
 def _backup_basename(value):
@@ -891,9 +1145,14 @@ def write_backup_zip(user_id: int, dataset_id: int, output: BinaryIO) -> None:
     }
     # backup_image_id is archive-local only. It lets restore remap parent_image_id
     # to the newly allocated row ids instead of retaining ids from the source DB.
-    images_meta = [dict({'backup_image_id': img.id},
-                        **{f: getattr(img, f) for f in _BACKUP_IMG_FIELDS})
-                   for img in rows]
+    images_meta = []
+    for img in rows:
+        row = dict({'backup_image_id': img.id},
+                   **{f: getattr(img, f) for f in _BACKUP_IMG_FIELDS})
+        # Archive a structured, revalidated object rather than the raw TEXT
+        # column. A malformed legacy/local row can never export arbitrary links.
+        row['source_metadata'] = normalize_source_metadata(img.source_metadata)
+        images_meta.append(row)
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as z:
         z.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=1))
         z.writestr('images.json', json.dumps(images_meta, ensure_ascii=False, indent=1))
@@ -1108,6 +1367,10 @@ def _import_backup_zipfile(user_id: int, z: zipfile.ZipFile):
                 continue   # never restore an orphaned candidate
             values = {f: meta.get(f) for f in _BACKUP_IMG_FIELDS
                       if f not in ('filename', 'parent_image_id')}
+            # Backup input is untrusted. Unknown/invalid provenance is dropped,
+            # while valid Pexels metadata is canonicalized back to JSON TEXT.
+            values['source_metadata'] = _source_metadata_storage(
+                values.get('source_metadata'))
             if is_candidate and not fn and values.get('status') in ('pending', 'keep'):
                 values['status'] = 'failed'
                 values['fail_reason'] = (
@@ -1390,6 +1653,7 @@ def dataset_payload(user_id, dataset_id):
                     'fail_reason': i.fail_reason,
                     'parent_image_id': i.parent_image_id,
                     'derivation_kind': i.derivation_kind,
+                    'source_metadata': normalize_source_metadata(i.source_metadata),
                     'upscale_ratio': i.upscale_ratio,
                     # Core creative prompt (generated tiles) → seeds the ✏️ edit
                     # bubble so the user edits the real prompt, not a blank box.
@@ -1574,7 +1838,8 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
 
 
 # --- Import + classify (Qwen3-VL) ------------------------------------------
-def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, stats=None):
+def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, stats=None,
+                  source_metadata=None):
     """Normalize (or head-crop) + persist + create import rows (status=keep).
     When crop=True, each image is auto head-cropped via Qwen3-VL - the CALLER
     must then hold the GPU-exclusive window - and is by construction a face,
@@ -1588,6 +1853,9 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     Default stays False: service-level callers (scrape flow dedupes upstream on
     the ORIGINALS, before paying the crop) keep the historical behavior.
 
+    ``source_metadata`` is an optional list parallel to ``files_bytes``. Only
+    validated Pexels provenance is stored; existing callers can omit it.
+
     Returns (ids, failed_count)."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
@@ -1597,9 +1865,10 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     # forçait tous les imports personnage en carré — un plan buste/corps importé
     # doit rester tel quel (ai-toolkit gère le bucketing multi-ratios).
     seen = _existing_dhashes(dataset_id) if dedupe else None
+    metadata_by_index = list(source_metadata) if source_metadata is not None else []
     ids = []
     failed = 0
-    for raw in files_bytes:
+    for index, raw in enumerate(files_bytes):
         # Garde-fou qualité : ai-toolkit ne fait que RÉDUIRE — une image sous
         # 768 px de petit côté reste floue à l'entraînement. Comptée (toast),
         # jamais bloquée : c'est parfois la seule photo disponible.
@@ -1637,7 +1906,10 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
             fh.write(webp)
         img = FaceDatasetImage(dataset_id=dataset_id, source='import', status='keep',
                                filename=fn, framing='face' if crop else None,
-                               upscale_ratio=scale)
+                               upscale_ratio=scale,
+                               source_metadata=_source_metadata_storage(
+                                   metadata_by_index[index]
+                                   if index < len(metadata_by_index) else None))
         db.session.add(img)
         db.session.commit()
         ids.append(img.id)
@@ -1902,7 +2174,7 @@ def _scrape_resolution_key(downloaded):
         return (0, 0)
 
 
-def _save_small_scrape_pair(user_id, dataset_id, raw, prompt):
+def _save_small_scrape_pair(user_id, dataset_id, raw, prompt, source_metadata=None):
     """Persist the untouched scrape source and enqueue one Klein candidate.
 
     Returns True when queued, False when enqueue failed. The original and result
@@ -1920,10 +2192,12 @@ def _save_small_scrape_pair(user_id, dataset_id, raw, prompt):
     with open(source_path, 'wb') as fh:
         fh.write(raw)
 
+    stored_metadata = _source_metadata_storage(source_metadata)
     source = FaceDatasetImage(
         dataset_id=dataset_id, source='import', status='pending', filename=filename,
         derivation_kind=SMALL_IMAGE_SOURCE,
         variation_label='Small scraped image · original',
+        source_metadata=stored_metadata,
     )
     db.session.add(source)
     db.session.flush()
@@ -1932,6 +2206,7 @@ def _save_small_scrape_pair(user_id, dataset_id, raw, prompt):
         dataset_id=dataset_id, source='generated', status='pending',
         parent_image_id=source.id, derivation_kind=KLEIN_SMALL_IMAGE,
         variation_label=label, variation_prompt=prompt,
+        source_metadata=stored_metadata,
     )
     db.session.add(candidate)
     db.session.commit()
@@ -1992,17 +2267,19 @@ def scrape_import_urls(user_id, dataset_id, items, rescue_small=False):
         return {'imported': 0, 'rescue_queued': 0, 'rescue_failed': 0,
                 'skipped': skipped}
     with ThreadPoolExecutor(max_workers=_SCRAPE_DL_WORKERS) as pool:
-        downloaded = list(pool.map(_download_scrape_item, items))
+        # Keep each response tied to its scan item. Rescue sorting changes order,
+        # so a separate byte list would otherwise attach the wrong photographer.
+        downloaded = list(zip(items, pool.map(_download_scrape_item, items)))
 
     # In rescue mode a low-resolution duplicate must never claim the dHash first
     # and make the usable HD source look like the duplicate. The legacy path keeps
     # request order exactly as before.
     if rescue_small:
-        downloaded.sort(key=_scrape_resolution_key, reverse=True)
+        downloaded.sort(key=lambda pair: _scrape_resolution_key(pair[1]), reverse=True)
 
     seen_hashes = _existing_dhashes(dataset_id)
     accepted, rescue_candidates = [], []
-    for reason, data in downloaded:
+    for item, (reason, data) in downloaded:
         if reason != 'ok':
             skipped[reason] = skipped.get(reason, 0) + 1
             continue
@@ -2016,9 +2293,10 @@ def scrape_import_urls(user_id, dataset_id, items, rescue_small=False):
                 except (OSError, ValueError):
                     skipped['errors'] += 1
                     continue
-                (rescue_candidates if is_small else accepted).append(ok_bytes)
+                target = rescue_candidates if is_small else accepted
+                target.append((ok_bytes, _source_metadata_from_scrape_item(item)))
             else:
-                accepted.append(ok_bytes)
+                accepted.append((ok_bytes, _source_metadata_from_scrape_item(item)))
 
     # Capacity and model preflight happen once, after every quality/dedup filter,
     # but before creating a source/result pair. No small candidate => no Klein scan.
@@ -2034,14 +2312,17 @@ def scrape_import_urls(user_id, dataset_id, items, rescue_small=False):
         if any(asset in missing for asset in KLEIN_REQUIRED):
             raise KleinModelsMissing(missing)
 
-    ids, failed = import_images(user_id, dataset_id, accepted, crop=False)
+    ids, failed = import_images(
+        user_id, dataset_id, [raw for raw, _metadata in accepted], crop=False,
+        source_metadata=[metadata for _raw, metadata in accepted])
     skipped['errors'] += failed
     raw_prompt = cfg.get('klein.small_image_prompt', '')
     prompt = '' if raw_prompt is None else str(raw_prompt)
     rescue_queued = rescue_failed = 0
-    for raw in rescue_candidates:
+    for raw, source_metadata in rescue_candidates:
         try:
-            queued = _save_small_scrape_pair(user_id, dataset_id, raw, prompt)
+            queued = _save_small_scrape_pair(
+                user_id, dataset_id, raw, prompt, source_metadata=source_metadata)
         except Exception:
             rescue_failed += 1
             logger.exception('small-image rescue save failed for dataset %s', dataset_id)
@@ -3235,6 +3516,9 @@ def _improve_existing_image_locked(user_id, image_id):
         parent_image_id=img.id, derivation_kind=KLEIN_IMAGE_IMPROVE,
         framing=img.framing, caption=img.caption,
         variation_label=label, variation_prompt=stored_prompt,
+        # The generated candidate remains derived from the credited source.
+        # Revalidate before copying so a malformed legacy row cannot surface.
+        source_metadata=_source_metadata_storage(img.source_metadata),
     )
     db.session.add(candidate)
     db.session.commit()
