@@ -35,7 +35,7 @@ def seeded_dataset(app, client):
 def _fake_export(monkeypatch, ct):
     monkeypatch.setattr(ct.lt, 'export_dataset_to_aitoolkit',
                         lambda uid, did, masked=True, dest_dir=None: dest_dir)
-    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 1200)
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds, **kw: 1200)
     # The seeded_dataset fixture has 0 kept images -- the real assert_trainable
     # (lora_training.py, already a standalone helper: dataset_id, train_type=None,
     # allow_caption_mismatch=False) requires >= 10, which is orthogonal to what
@@ -116,6 +116,36 @@ def test_launch_creates_run_and_staging(ct, app, seeded_dataset, monkeypatch):
         assert run is not None and run.dataset_id == seeded_dataset
         assert run.vast_label == f"lds-{run.id}"
         assert run.job_name.startswith('lds')
+
+
+def test_launch_forwards_caption_quality_and_family_variant_to_policies(
+        ct, app, seeded_dataset, monkeypatch):
+    preflight = []
+    step_policy = []
+    monkeypatch.setattr(
+        ct.lt, 'assert_trainable',
+        lambda dataset_id, **kw: preflight.append((dataset_id, kw)))
+    monkeypatch.setattr(
+        ct.lt, 'default_steps',
+        lambda ds, **kw: step_policy.append(kw) or 1800)
+    with app.app_context():
+        result = ct.launch_cloud_training(
+            'local', seeded_dataset, train_type='krea', variant='base',
+            allow_caption_quality=True)
+        params = json.loads(ct.db.session.get(
+            ct.CloudTrainingRun, result['run_id']).train_params)
+    assert result['steps'] == 1800
+    assert preflight == [(seeded_dataset, {
+        'train_type': 'krea',
+        'allow_caption_mismatch': False,
+        'allow_uncaptioned': False,
+        'allow_caption_quality': True,
+        'variant': 'base',
+    })]
+    assert step_policy == [{'train_type': 'krea', 'variant': 'base'}]
+    assert params['allow_caption_mismatch'] is False
+    assert params['allow_uncaptioned'] is False
+    assert params['allow_caption_quality'] is True
 
 
 @pytest.mark.parametrize('variant,expected_base,adapter_expected', [
@@ -226,6 +256,9 @@ def test_retry_relaunches_failed_run_with_same_params(ct, app, seeded_dataset, m
                                train_params=_json.dumps(
                                    {'steps': 2000, 'variant': 'base', 'train_type': 'krea',
                                     'masked': False, 'requested_gpu': 'RTX 5090',
+                                    'allow_caption_mismatch': True,
+                                    'allow_uncaptioned': True,
+                                    'allow_caption_quality': True,
                                     'resume_ckpt_path': 'C:/staging/source.safetensors',
                                     'resume_step': 1500}))
         db.session.add(run)
@@ -243,6 +276,37 @@ def test_retry_relaunches_failed_run_with_same_params(ct, app, seeded_dataset, m
     assert captured['resume_step'] == 1500
     assert captured['allow_caption_mismatch'] is True
     assert captured['allow_uncaptioned'] is True
+    assert captured['allow_caption_quality'] is True
+
+
+def test_legacy_cloud_retry_and_continue_default_confirmations_false(
+        ct, app, seeded_dataset, monkeypatch, tmp_path):
+    staging = tmp_path / 'legacy_done'
+    staging.mkdir()
+    (staging / 'legacy_000000750.safetensors').write_bytes(b'w')
+    captured = []
+    monkeypatch.setattr(
+        ct, 'launch_cloud_training',
+        lambda user_id, dataset_id, **kw:
+        captured.append(kw) or {'run_id': 99, 'status': 'preparing'})
+    with app.app_context():
+        failed = ct.CloudTrainingRun(
+            dataset_id=seeded_dataset, status='error', run_name='old-failed',
+            train_params=json.dumps({
+                'steps': 1000, 'variant': 'base', 'train_type': 'krea'}))
+        done = ct.CloudTrainingRun(
+            dataset_id=seeded_dataset, status='done', run_name='old-done',
+            staging_dir=str(staging), train_params=json.dumps({
+                'steps': 750, 'variant': 'base', 'train_type': 'krea'}))
+        ct.db.session.add_all([failed, done])
+        ct.db.session.commit()
+        ct.retry_cloud_run('local', failed.id)
+        ct.continue_cloud_run('local', done.id, extra_steps=500)
+    assert len(captured) == 2
+    for replay in captured:
+        assert replay['allow_caption_mismatch'] is False
+        assert replay['allow_uncaptioned'] is False
+        assert replay['allow_caption_quality'] is False
 
 
 def test_retry_blocks_legacy_incompatible_zimage_recipe_without_mutation(
@@ -319,6 +383,9 @@ def test_auto_retry_freezes_advanced_settings_after_dataset_edit(
         child = ct.db.session.get(ct.CloudTrainingRun, result['run_id'])
         child_params = json.loads(child.train_params)
         assert child_params['train_settings_snapshot'] == original
+        assert child_params['allow_caption_mismatch'] is False
+        assert child_params['allow_uncaptioned'] is False
+        assert child_params['allow_caption_quality'] is False
 
         job = ct.lt.build_job_config(
             ct._run_config_dataset(ds, child_params), '/staging/dataset',
@@ -699,7 +766,7 @@ def test_export_failure_in_monitor_frees_the_active_slot(ct, app, seeded_dataset
     not strand the 'preparing' row: the monitor flips it to 'error' so the
     active slot is freed for the next launch."""
     monkeypatch.setattr(ct.lt, 'assert_trainable', lambda *a, **kw: None)
-    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 100)
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds, **kw: 100)
     monkeypatch.setattr(ct.lt, 'export_dataset_to_aitoolkit',
                         lambda *a, **kw: (_ for _ in ()).throw(OSError('disk full')))
     with app.app_context():
@@ -1079,12 +1146,18 @@ def _offers_multi():
 
 
 def test_gpu_tiers_groups_ranks_and_estimates(ct, app, seeded_dataset, monkeypatch):
-    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 3000)
+    default_calls = []
+    monkeypatch.setattr(
+        ct.lt, 'default_steps',
+        lambda ds, **kw: default_calls.append(kw) or 3000)
     monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: _offers_multi())
     with app.app_context():
-        out = ct.gpu_tiers('local', seeded_dataset, train_type='krea')
+        out = ct.gpu_tiers('local', seeded_dataset,
+                           train_type='krea', variant='base')
         tiers = out['tiers']
         assert out['steps'] == 3000 and out['family'] == 'krea'
+        assert out['variant'] == 'base'
+        assert default_calls == [{'train_type': 'krea', 'variant': 'base'}]
         # one tier per GPU class, cheapest offer of each class kept
         names = [t['gpu_name'] for t in tiers]
         assert names == ['RTX 3090', 'RTX 4090', 'RTX 5090']    # slowest -> fastest
@@ -1121,7 +1194,7 @@ def test_trust_filters_apply_to_picker_and_provision(ct, app, seeded_dataset, mo
 def test_gpu_tiers_flags_tiers_slower_than_the_runtime_cap(ct, app, seeded_dataset, monkeypatch):
     """A 3090 doing 6000 krea steps (~15 h measured rate) blows the 8 h cap —
     the tier must say so BEFORE the user rents it; a 5090 fits."""
-    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 6000)
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds, **kw: 6000)
     monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: [
         {'offer_id': 1, 'gpu_name': 'RTX 3090', 'dph_total': 0.13, 'gpu_ram_gb': 24.0},
         {'offer_id': 3, 'gpu_name': 'RTX 5090', 'dph_total': 0.69, 'gpu_ram_gb': 32.0},
@@ -1175,6 +1248,9 @@ def test_continue_from_done_calls_launch_with_resume_params(ct, app, seeded_data
     with app.app_context():
         src = _seed_done_run(ct, seeded_dataset, staging, steps=750,
                              variant='base', train_type='krea', masked=False,
+                             allow_caption_mismatch=True,
+                             allow_uncaptioned=True,
+                             allow_caption_quality=True,
                              requested_gpu='RTX 5090')
         ckpt = staging / 'lds1_x_000000750.safetensors'
         captured = {}
@@ -1189,6 +1265,8 @@ def test_continue_from_done_calls_launch_with_resume_params(ct, app, seeded_data
     assert captured['variant'] == 'base' and captured['train_type'] == 'krea'
     assert captured['masked'] is False and captured['gpu_name'] == 'RTX 5090'
     assert captured['allow_caption_mismatch'] is True
+    assert captured['allow_uncaptioned'] is True
+    assert captured['allow_caption_quality'] is True
     assert res['resumed_from'] == 750 and res['target_steps'] == 1250
 
 
@@ -1333,7 +1411,7 @@ def test_gpu_tiers_flux2klein_open_and_uses_32gb_vram_floor(ct, app, seeded_data
     """The GPU picker is open for flux2klein (flux stays refused) and the offer
     search uses the family's min_vram_gb default of 32 — the 9B (32-48 GB) is
     the family's cloud lane, and a 32 GB pod trains the 4B fine too."""
-    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 1000)
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds, **kw: 1000)
     seen = {}
     monkeypatch.setattr(ct.vast_client, 'search_offers',
                         lambda **kw: seen.update(kw) or _offers_multi())

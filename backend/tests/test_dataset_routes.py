@@ -205,7 +205,10 @@ def test_captions_write_files_route(client, app):
     assert client.post('/api/dataset/999999/captions/write-files').status_code == 404
     resp = client.post(f'/api/dataset/{ds_id}/captions/write-files')
     assert resp.status_code == 200
-    assert resp.get_json() == {'ok': True, 'written': 1, 'skipped_uncaptioned': 1}
+    assert resp.get_json() == {
+        'ok': True, 'written': 1, 'skipped_uncaptioned': 1,
+        'removed_stale': 0,
+    }
     with app.app_context():
         from app.services import face_dataset_service as svc
         d = svc._dataset_dir(ds_id)
@@ -216,7 +219,10 @@ def test_captions_write_files_route(client, app):
     # Resync: edit the caption, call again -> same envelope, file overwritten.
     client.post(f'/api/dataset/image/{captioned_id}/caption', json={'caption': 'a blue dress'})
     resp2 = client.post(f'/api/dataset/{ds_id}/captions/write-files')
-    assert resp2.get_json() == {'ok': True, 'written': 1, 'skipped_uncaptioned': 1}
+    assert resp2.get_json() == {
+        'ok': True, 'written': 1, 'skipped_uncaptioned': 1,
+        'removed_stale': 0,
+    }
     with app.app_context():
         from app.services import face_dataset_service as svc
         with open(os.path.join(svc._dataset_dir(ds_id), 'a.txt'), encoding='utf-8') as fh:

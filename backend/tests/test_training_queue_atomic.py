@@ -147,6 +147,8 @@ def test_enqueue_continue_requires_custom_zimage_base_confirmation(monkeypatch):
         id=4, train_type='zimage', train_base_model=None,
         train_variant='base', train_vae_path=None, train_te_path=None)
     monkeypatch.setattr(lt.fds, 'get_dataset', lambda *_a, **_kw: ds)
+    # Dataset readiness is covered separately; isolate the custom-weight guard.
+    monkeypatch.setattr(lt, 'assert_trainable', lambda *_a, **_kw: None)
     with pytest.raises(ValueError, match='^CUSTOM_WEIGHTS_UNVERIFIED:'):
         lt.enqueue_training(
             'local', 4, extra_steps=500,
@@ -414,6 +416,9 @@ def test_queued_continue_replays_captured_base_variant_and_confirmation(monkeypa
         'train_type': 'zimage',
         'masked': False,
         'allow_unverified_weights': True,
+        'allow_caption_mismatch': False,
+        'allow_uncaptioned': False,
+        'allow_caption_quality': False,
         '_allow_dead_predecessor': True,
     }
 
@@ -431,6 +436,7 @@ def test_queued_continue_accepts_dead_predecessor_flag(monkeypatch):
         lambda key, default=None: state.get(key, default))
     monkeypatch.setattr(lt, '_pid_alive', lambda _pid: False)
     monkeypatch.setattr(lt.fds, 'get_dataset', lambda *_a, **_kw: ds)
+    monkeypatch.setattr(lt, 'assert_trainable', lambda *_a, **_kw: None)
     monkeypatch.setattr(
         lt, 'list_checkpoints',
         lambda *_a, **_kw: [{'step': 1000, 'filename': 'ck.safetensors'}])

@@ -286,7 +286,7 @@ def test_cloud_launch_registers_and_stamps_version(app, client, monkeypatch, ds_
     monkeypatch.setattr(ct, '_reconcile_before_launch', lambda a: None)
     monkeypatch.setattr(ct.lt, 'export_dataset_to_aitoolkit',
                         lambda uid, did, masked=True, dest_dir=None: dest_dir)
-    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 1000)
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds, **kw: 1000)
     monkeypatch.setattr(ct.lt, 'assert_trainable', lambda *a, **kw: None)
     with app.app_context():
         ct.launch_cloud_training(LOCAL_USER, ds_id)

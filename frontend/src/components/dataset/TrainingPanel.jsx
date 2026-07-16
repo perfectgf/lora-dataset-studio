@@ -22,6 +22,14 @@ import {
   isLongZImageTurboRun,
   ZIMAGE_TURBO_LONG_RUN_STEPS,
 } from '../../utils/zimageTrainingRecipe';
+import {
+  compatibleTrainingPresetSelection,
+  filterTrainingPresets,
+  trainingPresetApplyPayload,
+  trainingPresetDatasetKind,
+  trainingPresetSnapshotScope,
+} from '../../utils/trainingPresets';
+import { runConfirmableTrainingRequest } from '../../utils/trainingConfirmations';
 import { useToast } from '../common/Toast';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
@@ -36,6 +44,9 @@ const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20], flux: [15,
 // base-info les renvoie, ces défauts ne servent qu'avant son chargement).
 const CUSTOM_BASE_SENTINEL = '__custom_weights__';
 const DEFAULT_CUSTOM_FAMILIES = ['sdxl', 'krea', 'flux', 'flux2klein'];
+const defaultTrainingVariant = (family) => (
+  family === 'krea' ? 'base' : family === 'flux2klein' ? '4b' : 'turbo'
+);
 // Absolute path = the persisted custom-weights path (never a ComfyUI-relative
 // base name): Windows drive (C:\), UNC (\\), or POSIX (/…).
 const looksAbsolute = (p) => /^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(String(p || ''));
@@ -60,7 +71,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                                         navigationPanel = null,
                                         onNavigationStateChange,
                                         onPanelOpenChange }) {
-  const concept = kind === 'concept' || kind === 'style';  // style: même chemin UI
+  const isConcept = kind === 'concept';
+  const isStyle = kind === 'style';
+  const isConceptual = isConcept || isStyle;
   const { caps } = useCapabilities();
   const toast = useToast();
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
@@ -113,6 +126,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // inconnues ignorées, valeurs invalides signalées) → tolérant aux versions.
   const [presets, setPresets] = useState([]);
   const [presetSel, setPresetSel] = useState('');
+  const [presetBusy, setPresetBusy] = useState(false);
+  const [trainTypeBusy, setTrainTypeBusy] = useState(false);
   const presetFileRef = useRef(null);
 
   const refreshStatus = async () => {
@@ -238,28 +253,62 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Changement de type : réinitialise la base (les listes diffèrent ; SDXL → 1ère base réelle)
   // et PERSISTE la famille (choisie à la création, modifiable ici) pour que le menu
   // regroupé se ré-trie et que le format de caption suive.
-  const onTypeChange = (t) => {
+  const onTypeChange = async (t) => {
+    if (!t || t === trainType || trainTypeBusy) return;
+    const previous = { trainType, base, variant, customBase };
+    const nextVariant = defaultTrainingVariant(t);
+    const list = baseInfo?.bases_by_type?.[t] || [];
+    const nextBase = t === 'sdxl' ? (list[0]?.value || '') : '';
+    setTrainTypeBusy(true);
+    setPresetSel('');
+    setStepsInfo(null);
     setTrainType(t);
     // Switching family leaves custom-weights mode (the path is arch-specific).
     setCustomBase(false);
-    const list = baseInfo?.bases_by_type?.[t] || [];
-    setBase(t === 'sdxl' ? (list[0]?.value || '') : '');
+    setBase(nextBase);
     // Z-Image → Turbo est le chemin sûr : base Turbo + adaptateur d'entraînement v2.
     // Cela empêche une variante Krea/Klein persistée de survivre en silence au switch.
-    if (t === 'zimage') setVariant('turbo');
-    // Krea → Raw par défaut (reco officielle « train on Raw, validate on Turbo »).
-    else if (t === 'krea') setVariant('base');
-    // FLUX.2 Klein → 4B par défaut (voie locale 16-24 GB ; le 9B est la voie cloud).
-    else if (t === 'flux2klein') setVariant('4b');
-    // SDXL / FLUX.1 n'ont pas de variante de recette dans ce panneau.
-    else setVariant('turbo');
-    ds.setDatasetTrainType?.(t);
+    setVariant(nextVariant);
+    let saved;
+    try {
+      saved = await ds.setDatasetTrainType?.(t);
+    } catch {
+      saved = { ok: false, error: 'Network error' };
+    }
+    if (saved?.ok === false) {
+      setTrainType(previous.trainType);
+      setBase(previous.base);
+      setVariant(previous.variant);
+      setCustomBase(previous.customBase);
+      toastTrainError(saved, 'Could not change the training family');
+      setTrainTypeBusy(false);
+      return;
+    }
+    try {
+      // Family persistence changes base defaults and effective advanced values.
+      // Wait for both before re-enabling Apply so an old-family preset/settings
+      // cannot race the new selection.
+      const info = await ds.trainBaseInfo?.();
+      if (info) {
+        setBaseInfo(info);
+        setAdv(info.train_settings || null);
+      }
+      const checkpointData = await ds.listCheckpoints?.(nextBase, t, nextVariant);
+      setStepsInfo(checkpointData?.recommended_steps_info || null);
+    } catch {
+      // Persistence succeeded: keep the new family truthful and let the normal
+      // effects retry base/steps instead of rolling the UI back to stale state.
+      toast.warning('Training family saved, but its base/step details could not be refreshed yet.');
+    } finally {
+      setTrainTypeBusy(false);
+    }
   };
 
   // Réglages avancés effectifs (client-side pour que le défaut family-aware du rank
   // suive un changement de type SANS re-fetch). `adv.rank` null = Auto.
   const advRankChoice = adv?.rank ?? 'auto';
-  const advDefaultRank = (trainType === 'zimage' || trainType === 'flux' || trainType === 'flux2klein') ? 16 : 32;   // miroir de _DEFAULT_RANK
+  const advDefaultRank = adv?.default_rank
+    ?? ((trainType === 'zimage' || trainType === 'flux' || trainType === 'flux2klein') ? 16 : 32);
   const advEffRank = advRankChoice === 'auto' ? advDefaultRank : advRankChoice;
   // Expert levers (all default to current behaviour when absent):
   const advAlphaChoice = adv?.alpha_setting ?? 'auto';
@@ -311,42 +360,86 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   };
 
   // --- Presets (save / apply / import / export / delete) ---------------------
-  const loadPresets = async () => {
+  const presetContext = { trainType, datasetKind: kind, variant };
+  const loadPresets = async (preferredSelection) => {
     try {
       const r = await fetch('/api/train/presets', { credentials: 'include' });
-      if (r.ok) setPresets((await r.json()).presets || []);
+      if (r.ok) {
+        const list = (await r.json()).presets || [];
+        setPresets(list);
+        setPresetSel((current) => compatibleTrainingPresetSelection(
+          preferredSelection === undefined ? current : preferredSelection,
+          list,
+          presetContext,
+        ));
+        return list;
+      }
     } catch { /* list is best-effort */ }
+    return [];
   };
   useEffect(() => { loadPresets(); }, []);
-  const selPreset = presets.find((p) => String(p.id) === presetSel) || null;
+  const visiblePresets = filterTrainingPresets(presets, presetContext);
+  const selPreset = visiblePresets.find((p) => String(p.id) === presetSel) || null;
+  useEffect(() => {
+    setPresetSel((current) => compatibleTrainingPresetSelection(
+      current, presets, { trainType, datasetKind: kind, variant },
+    ));
+  }, [presets, trainType, kind, variant]);
   const savePreset = async () => {
     const name = window.prompt('Preset name (an existing name is overwritten):');
     if (!name || !name.trim()) return;
-    const d = await postTrain('/api/train/presets',
-      { name: name.trim(), dataset_id: ds.currentId, train_type: trainType });
-    if (d.ok === false) return toastTrainError(d, 'Preset save failed');
-    toast.success(`Preset “${name.trim()}” saved.`);
-    loadPresets();
+    setPresetBusy(true);
+    try {
+      const d = await postTrain('/api/train/presets',
+        { name: name.trim(), dataset_id: ds.currentId,
+          ...trainingPresetSnapshotScope(presetContext) });
+      if (d.ok === false) return toastTrainError(d, 'Preset save failed');
+      toast.success(`Preset “${name.trim()}” saved.`);
+      await loadPresets(d.id);
+    } finally {
+      setPresetBusy(false);
+    }
   };
   const applyPreset = async () => {
-    if (!selPreset) return;
-    // Built-ins live in the code, not the DB — apply them by VALUE. Same
-    // validated path server-side either way.
-    const d = await postTrain(`/api/dataset/${ds.currentId}/train/presets/apply`,
-      selPreset.builtin ? { settings: selPreset.settings } : { preset_id: selPreset.id });
-    if (d.ok === false) return toastTrainError(d, 'Preset apply failed');
-    setAdv(d.train_settings);
-    const notes = [];
-    if (d.ignored?.length) notes.push(`unknown here, ignored: ${d.ignored.join(', ')}`);
-    if (d.rejected?.length) notes.push(`rejected: ${d.rejected.map((r) => r.key).join(', ')}`);
-    if (notes.length) toast.warning(`Preset applied — ${notes.join(' · ')}`);
-    else toast.success(`Preset “${selPreset.name}” applied.`);
+    if (!selPreset || presetBusy || trainTypeBusy) return;
+    // Every preset — built-in or user-created — is resolved by id on the server.
+    // A null plan means the selection became incompatible between render/click;
+    // importantly, no request is sent in that case.
+    const payload = trainingPresetApplyPayload(selPreset, presetContext);
+    if (!payload) {
+      setPresetSel('');
+      toast.error('This preset does not match the current model family or dataset kind.');
+      return;
+    }
+    setPresetBusy(true);
+    try {
+      const d = await postTrain(`/api/dataset/${ds.currentId}/train/presets/apply`, payload);
+      if (d.ok === false) return toastTrainError(d, 'Preset apply failed');
+      setAdv(d.train_settings);
+      if (payload.variant && payload.variant !== variant) setVariant(payload.variant);
+      // Quick Style recipes own their researched step policy. Do not let a
+      // temporary cap from a previous run silently override that policy.
+      if (selPreset.builtin && trainingPresetDatasetKind(selPreset) === 'style') {
+        setStepsOverride('');
+      }
+      const checkpointData = await ds.listCheckpoints?.(base, trainType, payload.variant);
+      setStepsInfo(checkpointData?.recommended_steps_info || null);
+      const notes = [];
+      if (d.ignored?.length) notes.push(`unknown here, ignored: ${d.ignored.join(', ')}`);
+      if (d.rejected?.length) notes.push(`rejected: ${d.rejected.map((r) => r.key).join(', ')}`);
+      if (notes.length) toast.warning(`Preset applied — ${notes.join(' · ')}`);
+      else toast.success(`Preset “${selPreset.name}” applied.`);
+    } finally {
+      setPresetBusy(false);
+    }
   };
   const exportPreset = () => {
     if (!selPreset) return;
     const blob = new Blob([JSON.stringify({
       app: 'lora-dataset-studio', kind: 'training-preset', version: 1,
       name: selPreset.name, train_type: selPreset.train_type,
+      dataset_kind: trainingPresetDatasetKind(selPreset) || kind,
+      variants: Array.isArray(selPreset.variants) ? selPreset.variants : [],
       settings: selPreset.settings,
     }, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -362,25 +455,41 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         toast.error('Not a training-preset file (expected kind: "training-preset").');
         return;
       }
+      setPresetBusy(true);
+      const importedMeta = {
+        ...j,
+        train_type: j.train_type || trainType,
+        dataset_kind: j.dataset_kind || kind,
+      };
+      const compatibleHere = filterTrainingPresets([importedMeta], presetContext).length === 1;
       const d = await postTrain('/api/train/presets',
-        { name: String(j.name), train_type: j.train_type || trainType, settings: j.settings });
+        { name: String(j.name), train_type: importedMeta.train_type,
+          dataset_kind: importedMeta.dataset_kind,
+          variants: Array.isArray(importedMeta.variants) ? importedMeta.variants : [],
+          settings: j.settings });
       if (d.ok === false) return toastTrainError(d, 'Preset import failed');
-      toast.success(`Preset “${j.name}” imported — select it and Apply.`);
-      loadPresets();
+      await loadPresets(compatibleHere ? d.id : '');
+      if (compatibleHere) toast.success(`Preset “${j.name}” imported and selected — review, then Apply.`);
+      else toast.warning(`Preset “${j.name}” imported for ${importedMeta.train_type}/${importedMeta.dataset_kind}; it is hidden here because the current dataset is ${trainType}/${kind}.`);
     } catch {
       toast.error('Unreadable preset file.');
+    } finally {
+      setPresetBusy(false);
     }
   };
   const deletePreset = async () => {
     if (!selPreset || selPreset.builtin) return;   // built-ins ship with the app
     if (!window.confirm(`Delete the preset “${selPreset.name}”?`)) return;
+    setPresetBusy(true);
     try {
-      await fetch(`/api/train/presets/${selPreset.id}`, {
+      const r = await fetch(`/api/train/presets/${selPreset.id}`, {
         method: 'DELETE', headers: { 'X-CSRFToken': getCsrfToken() }, credentials: 'include',
       });
-    } catch { /* the reload below shows the truth either way */ }
-    setPresetSel('');
-    loadPresets();
+      if (!r.ok) toast.error('Could not delete the preset.');
+      setPresetSel('');
+      await loadPresets('');
+    } catch { toast.error('Could not delete the preset.'); }
+    finally { setPresetBusy(false); }
   };
 
   // Normalizes like useDataset's own postJson: a non-2xx response (e.g. the
@@ -415,6 +524,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const CONFIRMABLE_REFUSALS = [
     ['MISMATCH_CAPTION: ', 'allow_caption_mismatch'],
     ['UNCAPTIONED: ', 'allow_uncaptioned'],
+    ['CAPTION_QUALITY: ', 'allow_caption_quality'],
     // Custom-weights arch sniff couldn't positively verify the file → the
     // window.confirm IS the answer, retry carries allow_unverified_weights.
     ['CUSTOM_WEIGHTS_UNVERIFIED: ', 'allow_unverified_weights'],
@@ -443,7 +553,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const preflightOk = async () => {
     try {
       const r = await fetch(
-        `/api/dataset/${ds.currentId}/train/preflight?train_type=${encodeURIComponent(trainType)}`,
+        `/api/dataset/${ds.currentId}/train/preflight?train_type=${encodeURIComponent(trainType)}&variant=${encodeURIComponent(variant)}`,
         { credentials: 'include' });
       if (!r.ok) return true;
       const d = await r.json();
@@ -495,18 +605,17 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     setMaskedS(v);
     try { localStorage.setItem('trainMasked_v1', v ? '1' : '0'); } catch { /* ignore */ }
   };
-  // Dataset CONCEPT : masked OFF par défaut (un masque « personne » effacerait le
-  // concept qu'on veut apprendre). On force l'état SANS écrire la préférence perso
-  // (setMaskedS direct) → rouvrir un personnage retrouve ON. Rejoué au changement de
-  // dataset ou de nature.
+  // Concept/style : masked OFF. A person mask erases a concept and prevents an
+  // always-on style from learning the full frame/background. Do not overwrite
+  // the user's character preference while applying that safety default.
   useEffect(() => {
-    if (concept) setMaskedS(false);
+    if (isConceptual) setMaskedS(false);
     else { try { setMaskedS(localStorage.getItem('trainMasked_v1') !== '0'); } catch { setMaskedS(true); } }
-  }, [ds.currentId, concept]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ds.currentId, isConceptual]); // eslint-disable-line react-hooks/exhaustive-deps
   // Masked ON but rembg (person-mask backend) unavailable → the export silently
   // drops the masks and trains UNMASKED. Surface that instead of lying about it.
   // `=== false` (not `!caps.masks`) so we don't warn before caps have loaded.
-  const maskedRembgMissing = masked && !concept && caps.masks === false;
+  const maskedRembgMissing = masked && !isConceptual && caps.masks === false;
   // Plafond de steps CHOISI (vide → adaptatif). NON persisté à dessein : un cap
   // oublié (ex. 2000) ne doit pas s'appliquer en douce au prochain dataset.
   const [stepsOverride, setStepsOverride] = useState('');
@@ -648,13 +757,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     }
   };
 
-  // Estimation des steps adaptatifs — purement indicative ; le backend recalcule la
-  // valeur autoritaire au lancement (même barème). Character : ~120/image, bornés
-  // [1500,3500]. Concept/style : SOUS-LINÉAIRE 475·√n, bornés [2000,12000] — un gros
-  // set doit généraliser, pas mémoriser (à 400 img : ~9500 steps, pas 3500).
-  const recoSteps = concept
-    ? Math.max(2000, Math.min(12000, Math.round((475 * Math.sqrt(Math.max(keptCount, 1))) / 100) * 100))
-    : Math.max(1500, Math.min(3500, Math.round((keptCount * 120) / 100) * 100));
+  // Steps are family + variant recipes owned by the backend. Never duplicate a
+  // formula here: doing so previously showed a Z-Image estimate while a Krea or
+  // Klein run used a different authoritative target.
   // Libellé lisible de la base sélectionnée (pour étiqueter les checkpoints de CE run).
   // Custom weights → basename du fichier (jamais le chemin complet dans le résumé).
   const baseLabel = customBase && base
@@ -663,10 +768,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const zimageRecipe = trainType === 'zimage'
     ? describeZImageRecipe({ variant, base, baseLabel, customBase })
     : null;
-  const effectiveTargetSteps = stepsN ?? stepsInfo?.steps ?? recoSteps;
+  const effectiveTargetSteps = stepsN ?? stepsInfo?.steps ?? null;
   const zimageTurboLongRun = trainType === 'zimage'
     && isLongZImageTurboRun({ variant, steps: effectiveTargetSteps });
   const typeLabel = trainFamilyLabel(trainType);
+  const stepsRecipeType = stepsInfo?.train_type || trainType;
+  const stepsRecipeFamily = stepsInfo?.family_label || trainFamilyLabel(stepsRecipeType);
+  const stepsRecipeVariant = stepsInfo?.variant_label
+    || checkpointVariantLabel(stepsRecipeType, stepsInfo?.variant || variant);
   const checkpointBasesRaw = baseInfo?.bases_by_type?.[checkpointTrainType] || baseInfo?.bases || [];
   const checkpointBaseOptions = checkpointBase && !checkpointBasesRaw.some((item) => item.value === checkpointBase)
     ? [{ value: checkpointBase, label: `custom: ${baseName(checkpointBase)}` }, ...checkpointBasesRaw]
@@ -892,9 +1001,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
         <span className="text-content-muted text-[0.625rem] uppercase">LoRA type</span>
         <select value={trainType} onChange={(e) => onTypeChange(e.target.value)}
+          disabled={trainTypeBusy || presetBusy}
           aria-label="Type of LoRA to train"
           title="Z-Image (prose, Qwen3 encoder) ~20 img · SDXL (ComfyUI checkpoints) ~30 img · Krea 2 (prose, base fixe Turbo) ~20 img · FLUX.1-dev (prose, gated HF, local-only) ~20 img · FLUX.2 Klein (prose, gated HF, 4B local / 9B cloud) ~20 img"
-          className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+          className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] disabled:opacity-50">
           <option value="zimage">Z-Image (~20 img)</option>
           <option value="sdxl">SDXL (~30 img)</option>
           <option value="krea">Krea 2 (~20 img)</option>
@@ -919,6 +1029,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             // ds.train takes camelCase opts — map the confirmable force flags.
             const OPT_FOR_FLAG = { allow_caption_mismatch: 'allowCaptionMismatch',
                                    allow_uncaptioned: 'allowUncaptioned',
+                                   allow_caption_quality: 'allowCaptionQuality',
                                    allow_unverified_weights: 'allowUnverifiedWeights' };
             let opts = { baseModel: base, variant, trainType, masked, steps: stepsN, fresh,
                          vaePath, tePath };
@@ -1013,34 +1124,36 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               aria-label="Training preset"
               className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] max-w-[220px]">
               <option value="">— pick a preset —</option>
-              {presets.map((p) => (
+              {visiblePresets.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.builtin ? '★ ' : ''}{p.name} ({p.train_type})
+                  {p.builtin ? '★ ' : ''}{p.name}
                 </option>
               ))}
             </select>
-            <button type="button" onClick={applyPreset} disabled={!selPreset}
+            <button type="button" onClick={applyPreset}
+              disabled={!selPreset || presetBusy || trainTypeBusy}
               title="Replace this dataset's advanced settings with the selected preset"
               className="px-2.5 py-1 rounded-lg bg-primary/20 border border-primary/40 text-white text-[0.75rem] font-semibold disabled:opacity-40">
               Apply
             </button>
             <span className="mx-0.5 text-content-subtle" aria-hidden>·</span>
-            <button type="button" onClick={savePreset}
+            <button type="button" onClick={savePreset} disabled={presetBusy || trainTypeBusy}
               title="Save this dataset's current advanced settings as a named preset"
-              className="px-2.5 py-1 rounded-lg bg-surface-raised border border-border text-content text-[0.75rem]">
+              className="px-2.5 py-1 rounded-lg bg-surface-raised border border-border text-content text-[0.75rem] disabled:opacity-40">
               💾 Save current…
             </button>
             <button type="button" onClick={() => presetFileRef.current?.click()}
+              disabled={presetBusy || trainTypeBusy}
               title="Import a preset from a JSON file (exported from any app version — unknown options are ignored at apply time)"
-              className="px-2.5 py-1 rounded-lg bg-surface-raised border border-border text-content text-[0.75rem]">
+              className="px-2.5 py-1 rounded-lg bg-surface-raised border border-border text-content text-[0.75rem] disabled:opacity-40">
               ⬆ Import
             </button>
-            <button type="button" onClick={exportPreset} disabled={!selPreset}
+            <button type="button" onClick={exportPreset} disabled={!selPreset || presetBusy}
               title="Download the selected preset as a shareable JSON file"
               className="px-2.5 py-1 rounded-lg bg-surface-raised border border-border text-content text-[0.75rem] disabled:opacity-40">
               ⬇ Export
             </button>
-            <button type="button" onClick={deletePreset} disabled={!selPreset || selPreset.builtin}
+            <button type="button" onClick={deletePreset} disabled={!selPreset || selPreset.builtin || presetBusy}
               title={selPreset?.builtin ? 'Built-in presets ship with the app and cannot be deleted' : 'Delete the selected preset'}
               className="px-2 py-1 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-[0.75rem] disabled:opacity-40">
               🗑
@@ -1051,6 +1164,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 if (f) importPreset(f);
                 e.target.value = '';
               }} />
+            {selPreset && (
+              <span role="status" className="basis-full text-content-subtle text-[0.625rem] leading-relaxed">
+                {selPreset.builtin ? '★ researched recipe' : 'user preset'} · {typeLabel} · {kind}
+                {Array.isArray(selPreset.variants) && selPreset.variants.length
+                  ? ` · recipe ${selPreset.variants.join(' / ')}` : ''}
+                {selPreset.builtin && trainingPresetDatasetKind(selPreset) === 'style'
+                  ? ' · applying also restores adaptive Style steps' : ''}
+              </span>
+            )}
           </div>
           {/* --- Base d'entraînement : officielle (recommandé) ou merge ComfyUI custom.
                Affichée MÊME pendant un training en cours → choisir la base du job mis
@@ -1250,10 +1372,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 <span className="text-content-subtle text-[0.625rem] tabular-nums">→ rank {advEffRank} / alpha {advEffAlpha}</span>
               </div>
               <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
-                <b className="text-content-muted font-medium">Why:</b> how much capacity the LoRA has to memorize the
-                identity. <b className="text-content-muted font-medium">How:</b> higher (32+) captures a hard face more
-                faithfully but makes a bigger file and can overfit small sets; lower (16) is lighter and fine for clean
-                frontal datasets. ai-toolkit ties alpha to rank (SDXL keeps alpha = rank ÷ 2).
+                <b className="text-content-muted font-medium">Why:</b> how much capacity the LoRA has to learn the
+                target — identity, concept, or visual style. <b className="text-content-muted font-medium">How:</b> use
+                Auto or the researched preset for this family; higher ranks can capture broader, more complex variation
+                but make a larger adapter and can overfit a small repetitive set. The effective rank/alpha is shown above.
               </span>
             </div>
 
@@ -1341,10 +1463,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
                 <b className="text-content-muted font-medium">Why:</b> these are the test images ai-toolkit renders
                 during the run so you can watch the LoRA learn (and later pick the best epoch).
-                <b className="text-content-muted font-medium"> How:</b> one prompt per line, up to {advMaxPrompts}. Your
-                trigger word is added automatically if you leave it out. {concept
-                  ? 'Leave empty for concept-friendly defaults (the greyed text) — the portrait wording only fits a person LoRA.'
-                  : 'Leave empty for the portrait defaults shown greyed.'}
+                <b className="text-content-muted font-medium"> How:</b> one prompt per line, up to {advMaxPrompts}. {isStyle
+                  ? 'Style is always-on: prompts stay content-only and no activation trigger is added. Test varied subjects and lighting to reveal content bias.'
+                  : isConcept
+                    ? 'Your concept trigger is added automatically when absent. Leave empty for the concept defaults shown greyed.'
+                    : 'Your character trigger is added automatically when absent. Leave empty for the portrait defaults shown greyed.'}
               </span>
             </div>
           </div>
@@ -1433,9 +1556,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   </select>
                 </div>
                 <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
-                  <b className="text-content-muted font-medium">Why:</b> the anti-overfit regulariser for small sets — randomly
-                  drops LoRA weights so it generalises instead of memorising. <b className="text-content-muted font-medium">How:</b> Off
-                  by default; 0.05–0.1 is a gentle start for a tiny (≤20-image) dataset, higher = stronger regularisation.
+                  <b className="text-content-muted font-medium">Why:</b> this is <i>network</i> dropout: it randomly drops
+                  adapter updates to reduce memorisation. It is separate from caption dropout. <b className="text-content-muted font-medium">How:</b> follow
+                  the preset; 0.05 is gentle, while larger values can underfit. Krea&apos;s text-embedding cache affects caption
+                  dropout, not this network control.
                 </span>
               </div>
               {/* Timestep weighting — flowmatch families only (SDXL disables it) */}
@@ -1452,9 +1576,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   </div>
                   <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
                     <b className="text-content-muted font-medium">Why:</b> which noise levels the loss emphasises — the
-                    &quot;character&quot; knob for flow-matching models (Z-Image / Krea). <b className="text-content-muted font-medium">How:</b> Auto
-                    = the tuned default ({advTimestepDefault}); <i>sigmoid</i> favours the subject, <i>shift</i>/<i>weighted</i> shift
-                    the detail-vs-structure balance.
+                    detail-versus-global-structure balance for flow-matching models. <b className="text-content-muted font-medium">How:</b> Auto
+                    uses the family recipe ({advTimestepDefault}); use the researched Style preset unless you are deliberately
+                    testing texture/detail versus composition/structure emphasis.
                   </span>
                 </div>
               )}
@@ -1523,15 +1647,19 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           </details>
 
           <label className="flex items-center gap-1.5 text-[0.6875rem] text-content-muted cursor-pointer"
-            title={concept
-              ? 'For a CONCEPT dataset keep this OFF — a person mask would erase the very concept you are training. Masking only makes sense for a person/face LoRA.'
+            title={isStyle
+              ? 'Keep this OFF for Style: the aesthetic must be learned across the whole frame, including backgrounds. A person mask would discard much of the style signal.'
+              : isConcept
+                ? 'Keep this OFF for a Concept dataset — a person mask could erase the recurring concept you are training.'
               : 'Masked training: a person mask is generated for every image (rembg, CPU) and the background only weighs 10% of the loss — identity binds to the face, not the room. Uncheck to train the old way.'}>
             <input type="checkbox" checked={masked} onChange={(e) => setMasked(e.target.checked)}
               aria-label="Masked training (background at 10%)"
               className="accent-primary w-3.5 h-3.5" />
             <span className={masked && !maskedRembgMissing ? 'text-emerald-300' : ''}>🎭 Masked (bg 10%)</span>
-            {concept && masked && (
-              <span className="text-amber-300" title="A person mask would erase the concept.">⚠️ off recommended for concepts</span>
+            {isConceptual && masked && (
+              <span className="text-amber-300" title={isStyle ? 'A person mask discards full-frame style information.' : 'A person mask can erase the concept.'}>
+                ⚠️ off required for {isStyle ? 'styles' : 'concepts'}
+              </span>
             )}
             {maskedRembgMissing && (
               <span className="text-amber-300"
@@ -1545,17 +1673,19 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             <label className="flex items-center gap-1.5 text-content-subtle text-[0.6875rem]"
               title={stepsInfo?.rationale
                 ? `${stepsInfo.rationale} Leave empty to use it; applies to Train, Add to queue and Schedule.`
-                : concept
-                  ? 'Target training steps. Leave empty for the adaptive value (sublinear 475·√images, capped 2000–12000): the bigger the set, the fewer views per image, so the LoRA generalizes instead of memorizing shots. Applies to Train, Add to queue and Schedule.'
-                  : 'Target training steps. Leave empty for the adaptive value (~120/image, capped 1500–3500). Set a lower cap (e.g. 2000) to stop earlier — it trains faster and lighter; then pick the best checkpoint in the Test Studio. Applies to Train, Add to queue and Schedule.'}>
+                : `Target training steps. Leave empty for the backend's ${typeLabel} / ${checkpointVariantLabel(trainType, variant)} adaptive recipe. Applies to Train, Add to queue and Schedule.`}>
               <span className="uppercase text-content-muted text-[0.625rem]">Steps</span>
               <input type="number" min={500} step={100}
                 value={stepsOverride}
                 onChange={(e) => setStepsOverride(e.target.value)}
-                placeholder={String(stepsInfo?.steps ?? recoSteps)}
+                placeholder={stepsInfo?.steps != null ? String(stepsInfo.steps) : 'adaptive'}
                 aria-label="Target training steps (leave empty for adaptive)"
                 className="w-[4.5rem] rounded border border-border bg-app/60 px-1.5 py-0.5 text-content tabular-nums text-[0.75rem]" />
-              <span>{stepsOverride.trim() ? 'target' : `≈ adaptive (${keptCount} img)`}</span>
+              <span>{stepsOverride.trim()
+                ? 'target'
+                : stepsInfo?.steps != null
+                  ? `≈ ${stepsInfo.steps} · ${stepsRecipeFamily} / ${stepsRecipeVariant} (${keptCount} img)`
+                  : `adaptive · ${typeLabel} / ${checkpointVariantLabel(trainType, variant)} (${keptCount} img)`}</span>
             </label>
           )}
           {zimageTurboLongRun && (
@@ -1766,18 +1896,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   onClick={async () => {
                     const last = Math.max(...checkpoints.map((c) => c.step));
                     if (window.confirm(`Resume training « ${checkpointBaseLabel} » from step ${last} and continue for +1000 steps (→ ${last + 1000})?`)) {
-                      let continueOpts = { masked };
-                      let d = await ds.continueTraining(
-                        1000, checkpointBase, checkpointVariant, checkpointTrainType, continueOpts);
-                      for (let flag; d && d.ok === false
-                          && (flag = confirmableRetryFlag(d.error, 'Continue anyway (force)')); ) {
-                        if (flag === 'declined') { d = null; break; }
-                        if (flag === 'allow_unverified_weights') {
-                          continueOpts = { ...continueOpts, allowUnverifiedWeights: true };
-                        }
-                        d = await ds.continueTraining(
-                          1000, checkpointBase, checkpointVariant, checkpointTrainType, continueOpts);
-                      }
+                      await runConfirmableTrainingRequest(
+                        (continueOpts) => ds.continueTraining(
+                          1000, checkpointBase, checkpointVariant, checkpointTrainType, continueOpts),
+                        { masked },
+                        (error) => confirmableRetryFlag(error, 'Continue anyway (force)'),
+                      );
                       refreshStatus();
                       loadCheckpoints(checkpointBase, checkpointTrainType, checkpointVariant);
                     }

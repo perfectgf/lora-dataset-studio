@@ -45,6 +45,22 @@ _auto_retry_lock = threading.Lock()
 _launch_reservation_lock = threading.Lock()
 _UNSET = object()
 _TRAIN_SETTINGS_SNAPSHOT = 'train_settings_snapshot'
+_CONFIRMATION_FLAGS = (
+    'allow_caption_mismatch',
+    'allow_uncaptioned',
+    'allow_caption_quality',
+)
+
+
+def _confirmation_flags(params) -> dict:
+    """Replay only booleans explicitly stamped by the original launch.
+
+    Missing/corrupt legacy values are False: retrying or continuing re-exports
+    the mutable current dataset, so an old successful run is never authority to
+    waive today's caption guardrails.
+    """
+    source = params if isinstance(params, dict) else {}
+    return {key: source.get(key) is True for key in _CONFIRMATION_FLAGS}
 
 
 def _stop_event_for(run_id):
@@ -248,8 +264,8 @@ def retry_cloud_run(user_id, run_id) -> dict:
     lancement d'origine (train_params) — le bouton ↻ Retry de la page Cloud.
     C'est un VRAI launch_cloud_training (pod frais, mêmes garde-fous : limite
     de runs actifs, budget, unicité par famille), pas une réanimation du pod
-    mort. Les confirms captions ne re-bloquent pas : le lancement d'origine
-    les avait déjà passés ou fait confirmer."""
+    mort. Les confirmations ne sont rejouées que si le lancement d'origine les
+    avait explicitement enregistrées."""
     run = db.session.get(CloudTrainingRun, int(run_id))
     if not run:
         raise ValueError('unknown cloud run')
@@ -269,7 +285,7 @@ def retry_cloud_run(user_id, run_id) -> dict:
         variant=p.get('variant'),
         train_type=p.get('train_type'),
         masked=p.get('masked', True),
-        allow_caption_mismatch=True, allow_uncaptioned=True,
+        **_confirmation_flags(p),
         gpu_name=p.get('requested_gpu'),
         resume_ckpt_path=p.get('resume_ckpt_path'),
         resume_step=p.get('resume_step'),
@@ -340,7 +356,7 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
         variant=p.get('variant'),
         train_type=p.get('train_type'),
         masked=p.get('masked', True),
-        allow_caption_mismatch=True, allow_uncaptioned=True,
+        **_confirmation_flags(p),
         gpu_name=p.get('requested_gpu'),
         resume_ckpt_path=latest['path'], resume_step=latest['step'],
         train_settings_snapshot=p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET))
@@ -352,6 +368,7 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
 def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                           variant=None, train_type=None, masked=True,
                           allow_caption_mismatch=False, allow_uncaptioned=False,
+                          allow_caption_quality=False,
                           gpu_name=None, resume_ckpt_path=None, resume_step=None,
                           auto_retry_count=0, auto_retry_of=None,
                           strict_gpu=False, train_settings_snapshot=_UNSET) -> dict:
@@ -406,6 +423,11 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
         raise ValueError('FLUX.1 training is local-only for now — '
                          'cloud training supports Z-Image, Krea and FLUX.2 Klein')
     variant = (variant or '').strip().lower()
+    confirmations = {
+        'allow_caption_mismatch': bool(allow_caption_mismatch),
+        'allow_uncaptioned': bool(allow_uncaptioned),
+        'allow_caption_quality': bool(allow_caption_quality),
+    }
     recipe = None
     if fam == 'zimage':
         # Authoritative recipe validation happens before the reservation row and
@@ -428,7 +450,9 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
     # assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False).
     lt.assert_trainable(dataset_id, train_type=fam,
                         allow_caption_mismatch=allow_caption_mismatch,
-                        allow_uncaptioned=allow_uncaptioned)
+                        allow_uncaptioned=allow_uncaptioned,
+                        allow_caption_quality=allow_caption_quality,
+                        variant=variant)
 
     # Cloud always uses an official base (explicit empty base_model); stamp the
     # chosen variant in the name so Base/De-Turbo cannot share Turbo's run path.
@@ -444,7 +468,7 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
             # short window before the complete params are saved would make a
             # legitimate second-family launch look like an unknown-family run.
             train_params=json.dumps({'train_type': fam, 'variant': variant,
-                                     'base_model': ''}))
+                                     'base_model': '', **confirmations}))
         db.session.add(run)
         db.session.commit()
     try:
@@ -468,13 +492,14 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
         db.session.commit()
         # Same floor as the local path — a sub-500 target produces a run with
         # zero usable snapshots.
-        n_steps = max(500, int(steps)) if steps else lt.default_steps(ds)
+        n_steps = (max(500, int(steps)) if steps else lt.default_steps(
+            ds, train_type=fam, variant=variant))
         # requested_gpu (from the launch-time speed picker) is a PREFERENCE, not
         # a lock: _provision re-searches live offers and rents the cheapest one
         # of this class, falling back to the cheapest overall if the class has
         # since sold out (vast offers are ephemeral).
         params = {'steps': n_steps, 'variant': variant, 'base_model': '',
-                  'train_type': fam, 'masked': bool(masked)}
+                  'train_type': fam, 'masked': bool(masked), **confirmations}
         if recipe:
             params.update({'recipe_version': recipe['recipe_version'],
                            'effective_base': recipe['effective_base'],
@@ -614,8 +639,7 @@ def _maybe_auto_retry(run, error):
                 variant=params.get('variant'),
                 train_type=params.get('train_type'),
                 masked=params.get('masked', True),
-                allow_caption_mismatch=True,
-                allow_uncaptioned=True,
+                **_confirmation_flags(params),
                 gpu_name=gpu_name,
                 resume_ckpt_path=params.get('resume_ckpt_path'),
                 resume_step=params.get('resume_step'),
@@ -1765,7 +1789,8 @@ def all_runs(limit: int = 20) -> dict:
             'monthly_budget': float(c.get('monthly_budget_usd') or 0)}
 
 
-def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
+def gpu_tiers(user_id, dataset_id, train_type=None, steps=None,
+              variant=None) -> dict:
     """Live vast.ai offers for THIS dataset+family, grouped by GPU class
     (cheapest offer per class), ranked slowest -> fastest, each annotated with
     an approximate training time and total run cost. Read-only: rents nothing.
@@ -1784,7 +1809,13 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
     if fam == 'flux':
         raise ValueError('FLUX.1 training is local-only for now — '
                          'cloud training supports Z-Image, Krea and FLUX.2 Klein')
-    n_steps = int(steps) if steps else lt.default_steps(ds)
+    selected_variant = str(
+        variant or getattr(ds, 'train_variant', None)
+        or lt._default_variant_for(fam)).strip().lower()
+    if selected_variant not in lt._valid_variants_for(fam):
+        selected_variant = lt._default_variant_for(fam)
+    n_steps = (int(steps) if steps else lt.default_steps(
+        ds, train_type=fam, variant=selected_variant))
     c = cfg.get('cloud') or {}
     min_vram = (c.get('min_vram_gb') or {}).get(fam, 24)
     price_cap = c.get('max_price_per_hour', 0.80)
@@ -1830,6 +1861,7 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
     tiers.sort(key=lambda t: (t['speed'], t['dph_total']
                               if t['dph_total'] is not None else 9e9))
     return {'tiers': tiers, 'steps': n_steps, 'family': fam,
+            'variant': selected_variant,
             'max_price_per_hour': price_cap,
             'max_runtime_minutes': max_runtime}
 

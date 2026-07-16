@@ -38,11 +38,12 @@ def test_cloud_train_forwards_kwargs(client, monkeypatch):
     monkeypatch.setattr('app.services.cloud_training.launch_cloud_training', fake_launch)
     r = client.post(f'/api/dataset/{ds}/train/cloud',
                     json={'steps': 500, 'variant': 'turbo', 'train_type': 'krea',
-                          'masked': False})
+                          'masked': False, 'allow_caption_quality': True})
     assert r.status_code == 200
     assert r.get_json()['ok'] is True
     assert seen['steps'] == 500 and seen['train_type'] == 'krea'
     assert seen['masked'] is False
+    assert seen['allow_caption_quality'] is True
 
 
 def test_cloud_train_forwards_gpu_name(client, monkeypatch):
@@ -65,18 +66,20 @@ def test_cloud_offers_route_returns_tiers(client, monkeypatch):
     ds = _mkds(client)
     seen = {}
 
-    def fake_tiers(user_id, dataset_id, train_type=None, steps=None):
-        seen.update(train_type=train_type, steps=steps)
+    def fake_tiers(user_id, dataset_id, train_type=None, variant=None, steps=None):
+        seen.update(train_type=train_type, variant=variant, steps=steps)
         return {'tiers': [{'gpu_name': 'RTX 3090', 'dph_total': 0.13,
                            'est_minutes': 48, 'est_cost': 0.11, 'speed': 1.0}],
                 'steps': 3000, 'family': 'krea', 'max_price_per_hour': 0.8}
 
     monkeypatch.setattr('app.services.cloud_training.gpu_tiers', fake_tiers)
-    r = client.get(f'/api/dataset/{ds}/train/cloud/offers?train_type=krea&steps=3000')
+    r = client.get(
+        f'/api/dataset/{ds}/train/cloud/offers'
+        '?train_type=krea&variant=base&steps=3000')
     assert r.status_code == 200
     body = r.get_json()
     assert body['ok'] is True and body['tiers'][0]['gpu_name'] == 'RTX 3090'
-    assert seen['train_type'] == 'krea' and seen['steps'] == 3000
+    assert seen == {'train_type': 'krea', 'variant': 'base', 'steps': 3000}
 
 
 def test_cloud_offers_route_gated_when_unconfigured(client):
@@ -93,6 +96,39 @@ def test_cloud_train_value_error_maps_400(client, monkeypatch):
                         lambda *a, **k: (_ for _ in ()).throw(ValueError('SDXL nope')))
     r = client.post(f'/api/dataset/{ds}/train/cloud', json={'train_type': 'sdxl'})
     assert r.status_code == 400
+
+
+def test_cloud_retry_rechecks_mutated_dataset_without_legacy_bypass(
+        client, app, monkeypatch):
+    """An old successful/failed recipe cannot authorize today's bad export."""
+    import json
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    monkeypatch.setattr(
+        'app.services.cloud_training._reconcile_before_launch', lambda app: None)
+    ds_id = _mkds(client)
+    with app.app_context():
+        from app.extensions import db
+        from app.models import CloudTrainingRun, FaceDatasetImage
+        db.session.add_all([
+            FaceDatasetImage(dataset_id=ds_id, status='keep',
+                             filename=f'degraded-{i}.webp', caption=None)
+            for i in range(10)
+        ])
+        run = CloudTrainingRun(
+            dataset_id=ds_id, status='error', run_name='legacy-krea',
+            train_params=json.dumps({
+                'steps': 1000, 'variant': 'base', 'train_type': 'krea'}))
+        db.session.add(run)
+        db.session.commit()
+        run_id = run.id
+
+    response = client.post('/api/dataset/train/cloud/retry',
+                           json={'run_id': run_id})
+    assert response.status_code == 400
+    assert response.get_json()['error'].startswith('UNCAPTIONED:')
+    with app.app_context():
+        from app.models import CloudTrainingRun
+        assert CloudTrainingRun.query.count() == 1
 
 
 def test_cloud_status_unconfigured_is_open(client):

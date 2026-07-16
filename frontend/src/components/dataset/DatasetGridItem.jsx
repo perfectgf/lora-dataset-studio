@@ -61,7 +61,8 @@ const WATERMARK_BADGE = {
 export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, onCrop, onDelete,
                                           onMirror, mirrorBusy = false, busy = false,
                                           onRegenerate, onView, nonce = 0, faceThresholds,
-                                          selected = false, onToggleSelect, tileSize = 'M' }) {
+                                          selected = false, onToggleSelect, tileSize = 'M',
+                                          datasetKind = 'character' }) {
   const [cap, setCap] = useState(img.caption || '');
   const [captionEditorOpen, setCaptionEditorOpen] = useState(false);
   // ✏️ edit-prompt bubble open state (regenerate this tile with an edited prompt).
@@ -98,14 +99,16 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
   const imgFitCls = tileSize === 'L' ? 'object-contain' : 'object-cover';
 
   return (
-    <div className={`rounded-lg ${borderCls} ${selected ? 'ring-2 ring-indigo-400' : ''} bg-app/40 overflow-hidden flex flex-col`}>
+    <div tabIndex={0} aria-label={`${displayLabel(img.variation_label) || 'Dataset image'} card`}
+      className={`dataset-grid-item rounded-lg ${borderCls} ${selected ? 'ring-2 ring-indigo-400' : ''} bg-app/40 overflow-hidden flex flex-col`}>
       <div className="relative aspect-square bg-black">
         {onToggleSelect && img.filename && (
           <label
-            className="absolute bottom-1 left-1 z-10 flex items-center justify-center w-6 h-6 rounded bg-black/60 cursor-pointer"
+            className="dataset-grid-item__actions absolute bottom-1 left-1 z-10 flex items-center justify-center w-6 h-6 rounded bg-black/60 cursor-pointer"
             title="Select for bulk actions"
             onClick={(e) => e.stopPropagation()}>
-            <input type="checkbox" checked={selected} onChange={() => onToggleSelect(img.id)}
+            <input type="checkbox" checked={selected} disabled={busy}
+              onChange={() => onToggleSelect(img.id)}
               aria-label={`Select ${displayLabel(img.variation_label) || 'this image'} for bulk actions`}
               className="w-4 h-4 accent-indigo-500 cursor-pointer" />
           </label>
@@ -157,7 +160,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
             {wb.icon} {wb.text}
           </span>
         )}
-        <div className="absolute top-1 right-1 flex max-w-[calc(100%_-_0.5rem)] flex-wrap justify-end gap-1">
+        <div className="dataset-grid-item__actions absolute top-1 right-1 flex max-w-[calc(100%_-_0.5rem)] flex-wrap justify-end gap-1">
           {canRegenerate && (
             <button type="button"
               onClick={(e) => { e.stopPropagation(); onRegenerate?.(img.id); }}
@@ -212,7 +215,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
           ✓ Chosen in Klein rescue review
         </p>
       ) : (
-        <div className="flex gap-1 p-1.5">
+        <div className="dataset-grid-item__actions flex gap-1 p-1.5">
           <button type="button" onClick={() => onStatus(img.id, img.status === 'keep' ? 'pending' : 'keep')}
             title="Keep" aria-label="Keep" aria-pressed={img.status === 'keep'}
             className={`flex-1 py-1 rounded text-[11px] ${img.status === 'keep' ? 'bg-green-600 text-white' : 'bg-surface text-content-muted'}`}>✓</button>
@@ -234,7 +237,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
       )}
       {img.status === 'keep' && (
         <div className="m-1.5 mt-0 flex flex-col gap-1">
-          <div className="flex items-center justify-end gap-1">
+          <div className="dataset-grid-item__actions flex items-center justify-end gap-1">
             <button type="button" onClick={() => setCaptionEditorOpen(true)}
               title="Open a larger caption editor"
               aria-label="Expand caption editor"
@@ -258,7 +261,11 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               if (cap !== (img.caption || '')) onCaption(img.id, cap);
             }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }}
-            rows={2} placeholder="caption (without the face)…" aria-label="Image caption"
+            rows={2} placeholder={datasetKind === 'style'
+              ? 'required: content only, no aesthetic or trigger…'
+              : datasetKind === 'concept'
+                ? 'caption without naming the concept…'
+                : 'caption (without the face)…'} aria-label="Image caption"
             className="text-[11px] bg-app/60 border border-border rounded p-1 text-content resize-none" />
         </div>
       )}

@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import DatasetGridItem from './DatasetGridItem';
 import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
+import {
+  partitionKleinImproveSelection,
+  runSequentialKleinImprove,
+} from '../../utils/kleinBulkImprove';
+import { useToast } from '../common/Toast';
 
 const DEFAULT_GREEN = 0.50;
 
@@ -169,8 +174,23 @@ function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy }) {
 
 export default function DatasetGrid({ images, datasetId, onStatus, onCaption, onCrop, onDelete,
                                       onMirror, onRegenerate, onView, onBatch, busy, nonces,
-                                      mirroringIds, faceThresholds }) {
+                                      mirroringIds, faceThresholds, datasetKind = 'character',
+                                      onImprove, onRefresh, kleinAvailable = false,
+                                      eligibilityImages }) {
+  const toast = useToast();
   const [selected, setSelected] = useState(() => new Set());
+  const [bulkImprove, setBulkImprove] = useState(null); // {running, done, total}
+  const datasetIdRef = useRef(datasetId);
+  const bulkImproveRunRef = useRef(0);
+  // Update during render (not one effect later) so a completion microtask for
+  // dataset A immediately sees navigation to B. The token also protects A→B→A.
+  datasetIdRef.current = datasetId;
+  const bulkBusy = busy || Boolean(bulkImprove?.running);
+  useEffect(() => {
+    bulkImproveRunRef.current += 1;
+    setSelected(new Set());
+    setBulkImprove(null);
+  }, [datasetId]);
   // Prune ids that vanished (deleted / poll refresh) so stale selections can't act.
   useEffect(() => {
     setSelected((prev) => {
@@ -206,16 +226,69 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   // provenance makes generic bulk status/delete unsafe. Never select them here.
   const selectable = images.filter((i) => i.filename && !isSmallImageRescueRow(i));
   const ids = [...selected];
+  const improveUniverse = Array.isArray(eligibilityImages) ? eligibilityImages : images;
+  const improveSelection = partitionKleinImproveSelection(improveUniverse, ids);
+  const exclusionSummary = [...improveSelection.excluded.reduce((counts, item) => {
+    counts.set(item.reason, (counts.get(item.reason) || 0) + 1);
+    return counts;
+  }, new Map())].map(([reason, count]) => `${count} ${reason}`).join(' · ');
   const toggle = (id) => setSelected((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
   const act = async (action) => {
+    if (bulkBusy) return;
     if (action === 'delete'
         && !window.confirm(`Permanently delete the ${ids.length} selected image(s) (files included)?`)) return;
     await onBatch(ids, action);
     setSelected(new Set());
+  };
+  const improveSelected = async () => {
+    const { eligible, excluded } = partitionKleinImproveSelection(improveUniverse, ids);
+    if (!onImprove || !kleinAvailable || !eligible.length || bulkBusy) return;
+    const skipped = excluded.length
+      ? `\n\n${excluded.length} selected image(s) will be skipped: ${exclusionSummary}.`
+      : '';
+    if (!window.confirm(
+      `Create a separate 2 MP Klein improvement candidate for ${eligible.length} image(s)?`
+      + `${skipped}\n\nOriginal images stay unchanged until you review the candidates.`,
+    )) return;
+    const batchDatasetId = datasetId;
+    const runToken = ++bulkImproveRunRef.current;
+    const isCurrentBatch = () => (
+      datasetIdRef.current === batchDatasetId && bulkImproveRunRef.current === runToken
+    );
+    setBulkImprove({ running: true, done: 0, total: eligible.length });
+    let result = { succeeded: [], failed: [] };
+    let unexpectedError = null;
+    let refreshFailed = false;
+    try {
+      result = await runSequentialKleinImprove(
+        eligible,
+        (imageId) => onImprove(imageId, { silent: true, refreshAfter: false }),
+        ({ done, total }) => {
+          if (isCurrentBatch()) setBulkImprove({ running: true, done, total });
+        },
+      );
+    } catch (error) {
+      unexpectedError = error;
+    } finally {
+      // The requests may finish after navigation. Do not fetch A or mutate B's
+      // selection/progress/toasts from this stale batch.
+      if (!isCurrentBatch()) return;
+      try { await onRefresh?.(batchDatasetId); } catch { refreshFailed = true; }
+      if (!isCurrentBatch()) return;
+      setSelected(new Set());
+      setBulkImprove({ running: false, done: eligible.length, total: eligible.length });
+      if (unexpectedError) {
+        toast.error(`Bulk Klein improvement stopped unexpectedly: ${unexpectedError.message || 'unknown error'}`);
+      } else if (result.failed.length || refreshFailed) {
+        toast.warning(`Klein improvement queued for ${result.succeeded.length}/${eligible.length} image(s) · ${result.failed.length} failed or refused${refreshFailed ? ' · refresh failed' : ''}.`);
+      } else {
+        toast.success(`Klein improvement queued for ${result.succeeded.length} image(s) — originals stay intact.`);
+      }
+    }
   };
   const batchBtn = 'px-2.5 py-1 rounded-lg text-xs font-semibold disabled:opacity-40';
 
@@ -224,7 +297,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
       className="flex flex-col gap-2 scroll-mt-20">
       {onBatch && (
         <AutoTriageBar images={images.filter((image) => !isSmallImageRescueRow(image))}
-          datasetId={datasetId} faceThresholds={faceThresholds} onBatch={onBatch} busy={busy} />
+          datasetId={datasetId} faceThresholds={faceThresholds} onBatch={onBatch} busy={bulkBusy} />
       )}
       <div id="ds-images-bulk" tabIndex={-1}
         className="flex items-center gap-2 flex-wrap text-xs scroll-mt-20">
@@ -233,29 +306,50 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
             <>
               <span className="text-content-subtle">Tick images to curate them in bulk —</span>
               <button type="button" data-workspace-focus
+                disabled={bulkBusy}
                 onClick={() => setSelected(new Set(selectable.map((i) => i.id)))}
-                className="text-content-muted underline hover:text-content">select all ({selectable.length})</button>
+                className="text-content-muted underline hover:text-content disabled:opacity-40">select all ({selectable.length})</button>
             </>
           ) : (
             <div role="toolbar" aria-label="Bulk actions on the selection"
               className="flex items-center gap-2 flex-wrap rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-2.5 py-1.5 w-full">
               <span className="text-content font-semibold">{selected.size} selected</span>
-              <button type="button" disabled={busy} onClick={() => act('keep')}
+              <button type="button" disabled={bulkBusy} onClick={() => act('keep')}
                 className={`${batchBtn} bg-green-600/80 text-white`}>✓ Keep</button>
-              <button type="button" disabled={busy} onClick={() => act('reject')}
+              <button type="button" disabled={bulkBusy} onClick={() => act('reject')}
                 className={`${batchBtn} bg-red-600/80 text-white`}>✕ Reject</button>
-              <button type="button" disabled={busy} onClick={() => act('pending')}
+              <button type="button" disabled={bulkBusy} onClick={() => act('pending')}
                 title="Back to undecided" className={`${batchBtn} bg-surface text-content border border-border`}>↺ Undecide</button>
-              <button type="button" disabled={busy} onClick={() => act('clear_caption')}
+              <button type="button" disabled={bulkBusy} onClick={() => act('clear_caption')}
                 title="Delete the selected images' captions (the Caption button then regenerates them)"
                 className={`${batchBtn} bg-surface text-content border border-border`}>🧹 Clear captions</button>
-              <button type="button" disabled={busy} onClick={() => act('delete')}
+              {onImprove && (
+                <button type="button" onClick={improveSelected}
+                  disabled={bulkBusy || !kleinAvailable || !improveSelection.eligible.length}
+                  title={!kleinAvailable
+                    ? 'Klein is not available in this setup'
+                    : improveSelection.eligible.length
+                      ? `Creates separate 2 MP candidates sequentially.${exclusionSummary ? ` Excluded: ${exclusionSummary}.` : ''}`
+                      : `No selected image is eligible.${exclusionSummary ? ` ${exclusionSummary}.` : ''}`}
+                  className={`${batchBtn} border border-indigo-400/50 bg-indigo-500/20 text-indigo-100`}>
+                  {bulkImprove?.running
+                    ? `✨ Improving ${bulkImprove.done}/${bulkImprove.total}`
+                    : `✨ Improve via Klein (${improveSelection.eligible.length})`}
+                </button>
+              )}
+              {onImprove && improveSelection.excluded.length > 0 && (
+                <span className="text-content-subtle" title={exclusionSummary}>
+                  {improveSelection.excluded.length} not eligible
+                </span>
+              )}
+              <button type="button" disabled={bulkBusy} onClick={() => act('delete')}
                 className={`${batchBtn} bg-red-500/15 border border-red-500/40 text-red-300`}>🗑 Delete</button>
               <span className="ml-auto flex gap-2">
-                <button type="button" onClick={() => setSelected(new Set(selectable.map((i) => i.id)))}
-                  className="text-content-muted underline hover:text-content">all ({selectable.length})</button>
-                <button type="button" onClick={() => setSelected(new Set())}
-                  className="text-content-muted underline hover:text-content">none</button>
+                <button type="button" disabled={bulkBusy}
+                  onClick={() => setSelected(new Set(selectable.map((i) => i.id)))}
+                  className="text-content-muted underline hover:text-content disabled:opacity-40">all ({selectable.length})</button>
+                <button type="button" disabled={bulkBusy} onClick={() => setSelected(new Set())}
+                  className="text-content-muted underline hover:text-content disabled:opacity-40">none</button>
               </span>
             </div>
           )
@@ -266,11 +360,12 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
         {images.map((img) => (
           <DatasetGridItem key={img.id} img={img} datasetId={datasetId} onStatus={onStatus} onCaption={onCaption}
             onCrop={onCrop} onDelete={onDelete} onMirror={onMirror}
-            mirrorBusy={Boolean(mirroringIds?.has(img.id))} busy={busy}
+            mirrorBusy={Boolean(mirroringIds?.has(img.id))} busy={bulkBusy}
             onRegenerate={onRegenerate} onView={onView}
             selected={selected.has(img.id)}
             onToggleSelect={onBatch && !isSmallImageRescueRow(img) ? toggle : undefined}
-            nonce={(nonces && nonces[img.id]) || 0} faceThresholds={faceThresholds} tileSize={tileSize} />
+            nonce={(nonces && nonces[img.id]) || 0} faceThresholds={faceThresholds}
+            tileSize={tileSize} datasetKind={datasetKind} />
         ))}
       </div>
     </div>

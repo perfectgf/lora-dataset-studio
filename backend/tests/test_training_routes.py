@@ -72,7 +72,8 @@ def test_train_configured_forwards_kwargs(client, monkeypatch):
 
     monkeypatch.setattr('app.services.lora_training.launch_training', fake_launch)
     resp = client.post(f'/api/dataset/{ds_id}/train', json={
-        'steps': 1234, 'masked': False, 'train_type': 'sdxl', 'allow_caption_mismatch': True})
+        'steps': 1234, 'masked': False, 'train_type': 'sdxl',
+        'allow_caption_mismatch': True, 'allow_caption_quality': True})
     assert resp.status_code == 200
     body = resp.get_json()
     assert body['ok'] is True and body['pid'] == 123
@@ -85,6 +86,7 @@ def test_train_configured_forwards_kwargs(client, monkeypatch):
         'train_type': 'sdxl',
         'allow_caption_mismatch': True,
         'allow_uncaptioned': False,   # absent du body → False (confirm non donné)
+        'allow_caption_quality': True,
         'allow_unverified_weights': False,   # custom-weights confirm non donné
         'masked': False,
         'fresh': False,          # absent du body → False (resume historique)
@@ -129,12 +131,18 @@ def test_continue_forwards_kwargs(client, monkeypatch):
         'extra_steps': 1000, 'base_model': 'merge.safetensors',
         'variant': 'base', 'train_type': 'zimage', 'masked': False,
         'allow_unverified_weights': True,
+        'allow_caption_mismatch': True,
+        'allow_uncaptioned': True,
+        'allow_caption_quality': True,
     })
     assert resp.status_code == 200
     assert captured == {
         'extra_steps': 1000, 'base_model': 'merge.safetensors',
         'variant': 'base', 'train_type': 'zimage', 'masked': False,
         'allow_unverified_weights': True,
+        'allow_caption_mismatch': True,
+        'allow_uncaptioned': True,
+        'allow_caption_quality': True,
     }
 
 
@@ -151,13 +159,16 @@ def test_enqueue_forwards_kwargs(client, monkeypatch):
 
     monkeypatch.setattr('app.services.lora_training.enqueue_training', fake_enqueue)
     resp = client.post(f'/api/dataset/{ds_id}/train/enqueue',
-                       json={'extra_steps': 500, 'steps': 3000, 'allow_caption_mismatch': True})
+                       json={'extra_steps': 500, 'steps': 3000,
+                             'allow_caption_mismatch': True,
+                             'allow_caption_quality': True})
     assert resp.status_code == 200
     assert captured == {
         'extra_steps': 500,
         'masked': True,
         'steps': 3000,
-        'allow_caption_mismatch': True
+        'allow_caption_mismatch': True,
+        'allow_caption_quality': True,
     }
 
 
@@ -188,12 +199,15 @@ def test_schedule_future_enqueues_with_not_before(client, monkeypatch):
         return {'queued': True, 'position': 1, 'not_before': kw.get('not_before')}
 
     monkeypatch.setattr('app.services.lora_training.enqueue_training', fake_enqueue)
-    resp = client.post(f'/api/dataset/{ds_id}/train/schedule', json={'at': '2999-01-01T00:00'})
+    resp = client.post(f'/api/dataset/{ds_id}/train/schedule', json={
+        'at': '2999-01-01T00:00', 'allow_caption_quality': True,
+    })
     assert resp.status_code == 200
     assert captured == {
         'extra_steps': None,
         'not_before': '2999-01-01T00:00',
-        'masked': True
+        'masked': True,
+        'allow_caption_quality': True,
     }
 
 
@@ -290,19 +304,32 @@ def test_stop_rejects_a_stale_local_run_card(client, monkeypatch):
 
 # --- /train/checkpoints -------------------------------------------------------
 
-def test_checkpoints_returns_recommended_steps(client, monkeypatch):
+def test_checkpoints_returns_family_variant_recommendations(client, monkeypatch):
     _valid(monkeypatch, True)
     ds_id = _create(client)
     monkeypatch.setattr('app.services.lora_training.list_checkpoints',
                         lambda *a, **k: [{'step': 500, 'filename': 'x.safetensors'}])
-    monkeypatch.setattr('app.services.lora_training.recommended_steps', lambda dataset_id: 2500)
+    step_calls = []
+    info_calls = []
+    monkeypatch.setattr(
+        'app.services.lora_training.recommended_steps',
+        lambda dataset_id, **kw: step_calls.append((dataset_id, kw)) or 2500)
+    monkeypatch.setattr(
+        'app.services.lora_training.recommended_steps_info',
+        lambda dataset_id, **kw: info_calls.append((dataset_id, kw))
+        or {'steps': 2500, 'family': kw.get('train_type'),
+            'variant': kw.get('variant')})
     monkeypatch.setattr('app.services.lora_training.list_imported_checkpoints', lambda *a, **k: [])
-    resp = client.get(f'/api/dataset/{ds_id}/train/checkpoints')
+    resp = client.get(
+        f'/api/dataset/{ds_id}/train/checkpoints?train_type=zimage&variant=base')
     assert resp.status_code == 200
     body = resp.get_json()
     assert body['recommended_steps'] == 2500
     assert body['checkpoints'][0]['step'] == 500
     assert body['imported'] == []
+    assert step_calls == [(ds_id, {'train_type': 'zimage', 'variant': 'base'})]
+    assert info_calls == [(ds_id, {'train_type': 'zimage', 'variant': 'base'})]
+    assert body['recommended_steps_info']['variant'] == 'base'
 
 
 def test_checkpoints_query_forwards_variant_to_local_and_cloud(client, monkeypatch):

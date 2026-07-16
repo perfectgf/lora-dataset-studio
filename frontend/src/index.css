@@ -92,6 +92,28 @@
   top: 1rem;
 }
 
+/* Image-card actions stay available on touch devices. Only a device with a
+   precise hover pointer gets the quieter at-rest grid; card hover or keyboard
+   focus reveals every control without adding/removing layout space. */
+.dataset-grid-item__actions {
+  transition: opacity 140ms ease, visibility 140ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dataset-grid-item .dataset-grid-item__actions {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .dataset-grid-item:hover .dataset-grid-item__actions,
+  .dataset-grid-item:focus-within .dataset-grid-item__actions {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+
 /* Toast slide-in animation */
 @keyframes slideIn {
   from { transform: translateX(100%); opacity: 0; }

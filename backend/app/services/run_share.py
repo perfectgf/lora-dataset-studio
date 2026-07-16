@@ -20,7 +20,7 @@ import json
 import re
 from datetime import datetime
 
-from ..models import CloudTrainingRun, TrainingRunRecord
+from ..models import CloudTrainingRun, FaceDataset, TrainingRunRecord
 from ..utils.redact import redact_user_paths
 from ..version import APP_VERSION
 from . import cloud_training as ct
@@ -99,7 +99,7 @@ _SETTING_ROWS = [
     ('ema', 'EMA decay', str),
     ('sample_every', 'Sample every', _fmt_steps),
 ]
-_KNOWN_SETTING_KEYS = {k for k, _, _ in _SETTING_ROWS}
+_KNOWN_SETTING_KEYS = {k for k, _, _ in _SETTING_ROWS} | {'style_mode'}
 
 
 def _fmt_dt(dt):
@@ -148,6 +148,7 @@ def build_run_config_text(run_key):
     created = (rec.created_at if rec is not None else None) or \
         (crun.created_at if crun is not None else None)
     dataset_name = ct._dataset_name(dataset_id)
+    dataset = FaceDataset.query.get(dataset_id)
 
     settings = None
     if rec is not None and rec.settings:
@@ -157,6 +158,13 @@ def build_run_config_text(run_key):
             settings = None
     if not isinstance(settings, dict):
         settings = None
+    # New snapshots explicitly stamp style_mode. Looking at the dataset kind as
+    # well protects older Style rows that still carried the internal run id in
+    # ``trigger`` before the always-on provenance fix.
+    style_always_on = (
+        (settings is not None and settings.get('style_mode') == 'always_on')
+        or ((getattr(dataset, 'kind', None) or '').lower() == 'style')
+    )
 
     image_count = None
     if rec is not None and rec.manifest:
@@ -198,7 +206,11 @@ def build_run_config_text(run_key):
         L.append(f'Training parameters are {_NOT_RECORDED} — it predates the '
                  'settings snapshot feature.')
     else:
+        if style_always_on:
+            L.append(f'{"Style mode:":<24}always-on (no activation trigger)')
         for key, label, fmt in _SETTING_ROWS:
+            if style_always_on and key == 'trigger':
+                continue
             if key in settings and settings[key] is not None:
                 L.append(f'{label + ":":<24}{fmt(settings[key])}')
         # any enrichment key not in the known table -> generic line

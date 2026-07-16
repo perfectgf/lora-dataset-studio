@@ -5,9 +5,12 @@ no secrets)."""
 import json
 
 
-def _mkds(client, name='Lola', trigger='lola'):
+def _mkds(client, name='Lola', trigger='lola', kind=None):
+    payload = {'name': name, 'trigger_word': trigger}
+    if kind is not None:
+        payload['kind'] = kind
     return client.post('/api/dataset/create',
-                       json={'name': name, 'trigger_word': trigger}).get_json()['id']
+                       json=payload).get_json()['id']
 
 
 def _add_local_rec(app, ds, **over):
@@ -57,6 +60,41 @@ def test_share_local_run_lists_every_parameter(client, app):
     # outcome + footer
     assert 'Target steps:' in body and '2000' in body
     assert 'paste-safe, no local paths or keys' in body
+
+
+def test_share_style_hides_internal_id_but_character_keeps_trigger(client, app):
+    """Style is always-on: its generated identifier must never be advertised as
+    an activation word, including for an older snapshot that still stored it."""
+    style_id = _mkds(client, name='Ink style', trigger='', kind='style')
+    with app.app_context():
+        from app.extensions import db
+        from app.models import FaceDataset
+        from app.services import lora_training as lt
+
+        style = db.session.get(FaceDataset, style_id)
+        internal_id = style.trigger_word
+        snapshot = lt.launch_settings_snapshot(style, 'krea')
+        assert 'trigger' not in snapshot
+        assert snapshot['style_mode'] == 'always_on'
+
+    # Simulate a pre-fix record: run_share must also suppress its stale trigger.
+    stale = dict(snapshot, trigger=internal_id)
+    style_run = _add_local_rec(app, style_id, settings=stale)
+    style_body = client.get(
+        f'/api/dataset/train/runs/rec-{style_run}/share').get_data(as_text=True)
+    assert 'Trigger word' not in style_body
+    assert internal_id not in style_body
+    assert 'Style mode:' in style_body
+    assert 'always-on (no activation trigger)' in style_body
+
+    character_id = _mkds(client, name='Lola character', trigger='lola_char')
+    character_run = _add_local_rec(
+        app, character_id, settings={'trigger': 'lola_char', 'rank': 32})
+    character_body = client.get(
+        f'/api/dataset/train/runs/rec-{character_run}/share').get_data(as_text=True)
+    assert 'Trigger word' in character_body
+    assert 'lola_char' in character_body
+    assert 'Style mode:' not in character_body
 
 
 def test_share_cloud_run_outcome_redaction_and_no_secret(client, app, monkeypatch):

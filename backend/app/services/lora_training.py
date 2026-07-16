@@ -965,6 +965,27 @@ def _inject_trigger(prompt: str, trigger: str) -> str:
     return p if trigger.lower() in p.lower() else f'{trigger}, {p}'
 
 
+def _strip_style_trigger(prompt: str, trigger: str) -> str:
+    """Remove the placeholder or a legacy *leading* internal run id.
+
+    Style is an always-on training mode: ``trigger_word`` is retained solely for
+    collision-free run/file names. A legacy custom preview may nevertheless still
+    begin ``trigger, content``. Never remove an ordinary content word in the
+    middle (e.g. trigger ``ink`` in ``an ink illustration``).
+    """
+    value = (prompt or '').replace('{trigger}', ' ')
+    if trigger:
+        if value.strip(' .!?:;,').strip().casefold() == trigger.casefold():
+            value = ''
+        else:
+            value = re.sub(
+                rf'^\s*{re.escape(trigger)}\s*[,;:.!?]\s*', '', value,
+                count=1, flags=re.IGNORECASE)
+    value = re.sub(r'\s*,\s*,+', ', ', value)
+    value = re.sub(r'\s+', ' ', value)
+    return value.strip(' ,')
+
+
 def _resolved_default_sample_prompts(ds, trigger) -> list:
     """Défauts (selon le kind) avec `{trigger}` substitué — pour l'aperçu UI."""
     if fds.is_style(ds):   # style : pas de trigger, jamais injecté
@@ -983,14 +1004,23 @@ def _sample_prompts(ds, trigger) -> list:
                    and any(isinstance(x, str) and x.strip() for x in raw)) \
         else _default_sample_prompts(ds)
     # STYLE : aucun trigger — le LoRA teinte tout, une preview générique le
-    # sollicite déjà. Injecter le trigger polluerait le prompt d'un token inconnu.
+    # sollicite déjà. Le token persisté ne sert qu'à nommer/isoler le run.
     style = fds.is_style(ds)
     out = []
     for line in tmpl:
         if not isinstance(line, str) or not line.strip():
             continue
-        resolved = line.replace('{trigger}', '' if style else trigger).strip(', ') or line
-        out.append(resolved if style else _inject_trigger(resolved, trigger))
+        if style:
+            resolved = _strip_style_trigger(line, trigger)
+            raw_trigger = (getattr(ds, 'trigger_word', None) or '').strip()
+            if raw_trigger and raw_trigger.casefold() != trigger.casefold():
+                resolved = _strip_style_trigger(resolved, raw_trigger)
+            if not resolved:
+                continue
+            out.append(resolved)
+        else:
+            resolved = line.replace('{trigger}', trigger).strip(', ') or line
+            out.append(_inject_trigger(resolved, trigger))
         if len(out) >= _MAX_SAMPLE_PROMPTS:
             break
     if out:
@@ -1015,10 +1045,6 @@ def launch_settings_snapshot(ds, family=None) -> dict:
                                       getattr(ds, 'train_base_model', None))
                if fam == 'zimage' else None)
     snap = {
-        # trigger_word is part of the reproducible RECIPE (someone re-running
-        # the LoRA needs it) and is not a secret — it already appears in the
-        # run name. The Share-config file surfaces it; settingsLine ignores it.
-        'trigger': _safe_trigger(ds),
         'rank': rank,
         'alpha': _lora_alpha_eff(ds, rank, fam),
         'resolution': _train_res(ds),
@@ -1027,6 +1053,15 @@ def launch_settings_snapshot(ds, family=None) -> dict:
         'optimizer': _optimizer_eff(ds),
         'lr': _lr_eff(ds),
     }
+    if fds.is_style(ds):
+        # The persisted trigger is only an internal run/file identifier for a
+        # Style LoRA. It is deliberately absent from provenance/share snapshots
+        # so nobody mistakes it for an activation token.
+        snap['style_mode'] = 'always_on'
+        snap['effective_caption_dropout'] = _effective_style_caption_dropout(fam)
+    else:
+        # Character/concept LoRAs do require this token to reproduce inference.
+        snap['trigger'] = _safe_trigger(ds)
     if fam != 'sdxl':
         timestep_default = (zrecipe['timestep_type'] if zrecipe
                             else _DEFAULT_TIMESTEP.get(fam, 'sigmoid'))
@@ -1264,7 +1299,7 @@ TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
 # Built-in presets: shipped with the app (every install sees them), read-only,
 # versioned with the code. The recommended character recipe: the researched
 # family defaults pinned explicitly, plus the checkpoint-SELECTION machinery —
-# a save + a probe preview at every 250 steps and no snapshot cap, because on
+# a save + a probe preview every 250 steps with ten recent snapshots, because on
 # character sets the quality comes from picking the earliest checkpoint that
 # holds the identity, not from exotic hyper-parameters. Steps stay adaptive
 # (~120 × kept images). A test asserts every builtin applies with zero
@@ -1294,9 +1329,10 @@ BUILTIN_TRAIN_PRESETS = [
             ],
         },
     },
-    # Concept/style runs scale SUB-linearly (recommended_steps: 475·√n clamped
-    # [2000, 12000] — code anchors: ~30-40 images → ~3000 steps, ~400 → ~9500).
-    # save/sample every 500 (vs 250 for characters) is the coverage compromise:
+    # Concept runs use the sub-linear 475·√n policy in recommended_steps. This
+    # legacy built-in only supplies advanced settings; step selection remains
+    # authoritative in recommended_steps_info. save/sample every 500 is the
+    # coverage compromise:
     # max_step_saves keeps the N most RECENT saves (ai-toolkit deletes the
     # oldest), so 10×500 spans the last 5000 steps — the whole run at the small
     # anchor, the second half at the large one — while halving the preview GPU
@@ -1325,12 +1361,11 @@ BUILTIN_TRAIN_PRESETS = [
             ],
         },
     },
-    # Same steps scale and save/preview cadence as concept (same 475·√n
-    # recipe drives both). Style previews carry NO trigger — a style LoRA has
-    # none and the export strips `{trigger}` on style datasets — so varied
-    # CONTENT is the probe: if the aesthetic shows on a portrait AND a night
-    # street AND a still life, the style generalized instead of memorizing
-    # its training scenes.
+    # Legacy generic Style alias. The API hides it from GET and resolves its ID
+    # to a family-specific built-in at apply time. Keep the raw entry only for
+    # older callers/tests that imported BUILTIN_TRAIN_PRESETS directly. Style
+    # steps are family/variant-aware (50 steps/image with researched envelopes),
+    # not the Concept formula. Content-only previews contain no activation token.
     {
         'id': 'builtin-style',
         'name': 'Style — recommended',
@@ -1524,8 +1559,9 @@ def _mask_fields(dataset_folder: str) -> dict:
 
 def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_dir=None) -> str:
     """Écrit les images `keep` en paires .png/.txt dans
-    DATASETS_DIR/<trigger>. Le caption = caption éditée + trigger (le trigger
-    est toujours présent même si la caption est vide). Retourne le dossier.
+    DATASETS_DIR/<trigger>. Character/concept = trigger + caption éditée ; Style
+    always-on = caption de contenu seule (le trigger interne n'est jamais exporté).
+    Retourne le dossier.
 
     `masked` (défaut ON) : génère aussi un masque « personne » par image (rembg
     u2net, subprocess CPU - cf app/services/person_mask) dans `<dossier>_masks` →
@@ -1572,8 +1608,8 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_d
         dst = os.path.join(out, f'{stem}.png')
         Image.open(src).convert('RGB').save(dst, 'PNG')
         exported.append(dst)
-        cap = (img.caption or '').strip()
-        body = f'{trigger}, {cap}' if cap else trigger
+        cap = fds.style_content_caption(ds, img.caption)
+        body = cap if fds.is_style(ds) else (f'{trigger}, {cap}' if cap else trigger)
         with open(os.path.join(out, f'{stem}.txt'), 'w', encoding='utf-8') as fh:
             fh.write(body)
         n += 1
@@ -1606,27 +1642,42 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_d
     return out
 
 
-# --- Overrides STYLE (communs aux 3 familles) -----------------------------------
-# Un LoRA de style n'a PAS de trigger (il teinte toute image dès qu'il est chargé) :
-# on retire trigger_word de la config pour qu'ai-toolkit n'injecte rien dans les
-# captions. Et on monte le caption dropout à 30 % : le modèle voit régulièrement
-# l'image SANS caption, ce qui lie le rendu au LoRA lui-même plutôt qu'aux mots —
-# la reco usuelle des styles sans trigger (le 5 % character sert l'association
-# trigger→identité, sans objet ici).
-_STYLE_CAPTION_DROPOUT = 0.30
+# --- Overrides STYLE (communs aux familles) ------------------------------------
+_STYLE_CAPTION_DROPOUT = 0.05
 
 
-def _apply_style_overrides(ds, process: dict) -> dict:
-    """Mute la config d'UN process ai-toolkit pour un dataset style. No-op sinon."""
+def _effective_style_caption_dropout(family: str | None, process: dict | None = None) -> float:
+    """Caption dropout really applied by ai-toolkit for an always-on Style.
+
+    Krea caches frozen text embeddings before training. Caption dropout after that
+    cache is ineffective/misleading, so explicitly use zero. Other families retain
+    the conservative 5% generic style baseline.
+    """
+    fam = (family or '').lower()
+    if fam == 'krea':
+        # Every LDS Krea recipe currently caches embeddings. Keep the process probe
+        # for future recipes that may disable it, while snapshots (process=None)
+        # still report the current effective Krea value.
+        cached = process is None or any(
+            bool(d.get('cache_text_embeddings')) for d in process.get('datasets', ()))
+        if cached:
+            return 0.0
+    return _STYLE_CAPTION_DROPOUT
+
+
+def _apply_style_overrides(ds, process: dict, family: str | None = None) -> dict:
+    """Apply the always-on Style contract to one ai-toolkit process. No-op otherwise."""
     if not fds.is_style(ds):
         return process
+    fam = _train_type(ds, family)
+    # Internal identifier only: it may name folders/configs, never condition the
+    # model or leak into sidecars/sample prompts.
     process.pop('trigger_word', None)
+    dropout = _effective_style_caption_dropout(fam, process)
     for d in process.get('datasets', ()):
-        d['caption_dropout_rate'] = _STYLE_CAPTION_DROPOUT
-    # timestep_type 'sigmoid' est la reco LoRA de SUJET (cf commentaire zimage) ;
-    # pour un style on retombe sur le défaut ai-toolkit de la famille.
-    if process.get('train', {}).get('timestep_type') == 'sigmoid':
-        process['train'].pop('timestep_type')
+        d['caption_dropout_rate'] = dropout
+    # Timestep choice is family/variant-specific. Never erase a resolved safe
+    # recipe merely because the dataset kind is Style.
     return process
 
 
@@ -1646,19 +1697,19 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
     Défaut (None) = comportement historique inchangé (_output_dir() / _run_name(ds))."""
     if _train_type(ds) == 'sdxl':
         cfg_ = _build_job_config_sdxl(ds, dataset_folder, steps, training_folder=training_folder)
-        _apply_style_overrides(ds, cfg_['config']['process'][0])
+        _apply_style_overrides(ds, cfg_['config']['process'][0], 'sdxl')
         return cfg_
     if _train_type(ds) == 'krea':
         cfg_ = _build_job_config_krea(ds, dataset_folder, steps, training_folder=training_folder)
-        _apply_style_overrides(ds, cfg_['config']['process'][0])
+        _apply_style_overrides(ds, cfg_['config']['process'][0], 'krea')
         return cfg_
     if _train_type(ds) == 'flux':
         cfg_ = _build_job_config_flux(ds, dataset_folder, steps, training_folder=training_folder)
-        _apply_style_overrides(ds, cfg_['config']['process'][0])
+        _apply_style_overrides(ds, cfg_['config']['process'][0], 'flux')
         return cfg_
     if _train_type(ds) == 'flux2klein':
         cfg_ = _build_job_config_flux2klein(ds, dataset_folder, steps, training_folder=training_folder)
-        _apply_style_overrides(ds, cfg_['config']['process'][0])
+        _apply_style_overrides(ds, cfg_['config']['process'][0], 'flux2klein')
         return cfg_
     trigger = _safe_trigger(ds)
     base_model = getattr(ds, 'train_base_model', None)
@@ -1731,7 +1782,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
             }],
         },
     }
-    _apply_style_overrides(ds, cfg_['config']['process'][0])
+    _apply_style_overrides(ds, cfg_['config']['process'][0], 'zimage')
     return cfg_
 
 
@@ -2559,7 +2610,30 @@ def write_job_config(ds, dataset_folder: str, steps: int = 3000) -> str:
     return str(path)
 
 
-def recommended_steps(dataset_id) -> int:
+def _style_steps_policy(ds, train_type=None, variant=None) -> dict:
+    """Resolve the researched Style step envelope for one family/variant."""
+    fam = _train_type(ds, train_type)
+    selected = str(variant or getattr(ds, 'train_variant', None)
+                   or _default_variant_for(fam)).strip().lower()
+    if fam == 'flux2klein':
+        low, high, recipe = 1200, 3000, 'klein'
+    elif fam == 'krea':
+        if selected in ('base', 'raw'):
+            low, high, recipe = 2000, 3000, 'krea_raw'
+            selected = 'raw'
+        else:
+            # _krea_is_raw maps every non-Raw legacy value to the Turbo recipe.
+            low, high, recipe = 1000, 2000, 'krea_turbo'
+            selected = 'turbo'
+    elif fam == 'zimage' and selected == 'turbo':
+        low, high, recipe = 1000, 2000, 'zimage_turbo'
+    else:
+        low, high, recipe = 1500, 3000, 'general'
+    return {'train_type': fam, 'variant': selected, 'min_steps': low,
+            'max_steps': high, 'recipe': recipe}
+
+
+def recommended_steps(dataset_id, train_type=None, variant=None) -> int:
     """Steps cibles selon le *type* de dataset — la recette suit le dataset, pas l'inverse.
 
     Character (défaut) : ~120 steps/image, bornés [1500, 3500]. On verrouille une
@@ -2567,51 +2641,115 @@ def recommended_steps(dataset_id) -> int:
     ai-toolkit/Z-Image) ; un 3000 fixe surentraînait les petits datasets et
     sous-entraînait les gros. À 25 images (preset équilibré) ça redonne 3000.
 
-    Concept / style : échelle SOUS-LINÉAIRE (√n), bornée [2000, 12000]. Un concept
+    Concept : échelle SOUS-LINÉAIRE (√n), bornée [2000, 12000]. Un concept
     doit généraliser, pas mémoriser : plus le set grossit, moins chaque image doit
     être vue. Appliquer le taux « character » (120/img) à 400 images donnerait
     48 000 steps (overfit garanti) ; le clamp à 3500 donnait l'inverse (sous-
     entraîné). 475·√n colle aux deux points d'ancrage du consensus : ~30-40 images
-    de style → ~3000 steps (guides Z-Image/SDXL), ~400 images → ~9500 steps
-    (~24 vues/image, retours communautaires sur les gros sets concept/style).
+    de concept → ~3000 steps, ~400 images → ~9500 steps (~24 vues/image).
+
+    Style : cible 50 steps/image, arrondie AU-DESSUS à la centaine, puis bornée
+    par la recette effective : Klein [1200,3000], Krea Raw [2000,3000], Krea ou
+    Z-Image Turbo [1000,2000], autres [1500,3000]. ``train_type``/``variant``
+    sont optionnels et rétrocompatibles ; fournis par les routes ils décrivent le
+    lancement en cours plutôt qu'un ancien choix persisté.
     """
     ds = FaceDataset.query.get(dataset_id)
     n = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
-    if ds is not None and (ds.kind or 'character') in ('concept', 'style'):
+    if ds is not None and fds.is_style(ds):
+        policy = _style_steps_policy(ds, train_type, variant)
+        target = int(math.ceil((50 * max(n, 1)) / 100.0) * 100)
+        return max(policy['min_steps'], min(policy['max_steps'], target))
+    if ds is not None and fds.is_concept(ds):
         target = int(round(475 * math.sqrt(max(n, 1)), -2))
         return max(2000, min(12000, target))
     target = int(round(n * 120, -2))  # ~120 steps/image, arrondi à la centaine
     return max(1500, min(3500, target))
 
 
-def default_steps(ds) -> int:
+def default_steps(ds, train_type=None, variant=None) -> int:
     """Adaptive step count for a dataset — single source of truth shared by
     local launch_training and cloud training (parity guarantee). Thin ds-based
     wrapper over recommended_steps(dataset_id) (the calc used by launch_training
     when steps=None) so callers holding the ds object don't need the id."""
-    return recommended_steps(ds.id)
+    return recommended_steps(ds.id, train_type=train_type, variant=variant)
 
 
-def recommended_steps_info(dataset_id) -> dict:
+def recommended_steps_info(dataset_id, train_type=None, variant=None) -> dict:
     """Version « transparente » de recommended_steps pour l'UI : le nombre + le
     pourquoi, afin que l'app apprenne au débutant au lieu de décider en boîte
     noire. Ne mute rien."""
     ds = FaceDataset.query.get(dataset_id)
     n = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     kind = (ds.kind or 'character') if ds is not None else 'character'
-    steps = recommended_steps(dataset_id)
-    if kind in ('concept', 'style'):
+    steps = recommended_steps(dataset_id, train_type=train_type, variant=variant)
+    if kind == 'style' and ds is not None:
+        policy = _style_steps_policy(ds, train_type, variant)
         views = round(steps / n, 1) if n else 0
-        what = 'style' if kind == 'style' else 'concept'
-        rationale = (f"{what.capitalize()} — {n} images kept. Sublinear scaling (475·√n, "
+        rationale = (f"Style — {n} images kept. 50 steps/image, rounded up to 100, "
+                     f"then clamped {policy['min_steps']}–{policy['max_steps']} for "
+                     f"{policy['train_type']} {policy['variant']} (~{views}/img here). "
+                     "Use checkpoints to select the visual peak before overfitting.")
+        return {'steps': steps, 'kind': kind, 'n_images': n, 'rationale': rationale,
+                **policy}
+    if kind == 'concept':
+        views = round(steps / n, 1) if n else 0
+        rationale = (f"Concept — {n} images kept. Sublinear scaling (475·√n, "
                      f"clamped 2000–12000): the bigger the set, the fewer views per "
-                     f"image (~{views}/img here), so the LoRA generalizes the {what} "
+                     f"image (~{views}/img here), so the LoRA generalizes the concept "
                      f"instead of memorizing shots. Variety matters more than count.")
     else:
         rationale = (f"Character — {n} images kept. ~120 steps/image (clamped "
                      f"1500–3500): a small curated set seen many times locks the "
                      f"identity without drifting.")
     return {'steps': steps, 'kind': kind, 'n_images': n, 'rationale': rationale}
+
+
+def _normalize_style_caption(value) -> str:
+    """Comparison form for Style-quality guards (not an exported caption rewrite)."""
+    collapsed = re.sub(r'\s+', ' ', str(value or '')).strip()
+    return collapsed.strip(' .!?:;,').strip().casefold()
+
+
+def _style_caption_quality_from_rows(ds, rows) -> dict:
+    """Analyze the two catastrophic Style-caption patterns using stored captions.
+
+    Stored Style captions must describe image content only. The dataset trigger is
+    an internal run id, while identical sidecars provide no per-image conditioning.
+    This pure helper is shared by preflight and the authoritative launch guard.
+    """
+    captions = [(row.caption or '').strip() for row in rows
+                if (row.caption or '').strip()]
+    trigger = _normalize_style_caption(getattr(ds, 'trigger_word', None))
+    normalized = [_normalize_style_caption(caption) for caption in captions]
+    trigger_only_count = sum(1 for caption in normalized
+                             if trigger and caption == trigger)
+    all_identical = len(normalized) > 1 and len(set(normalized)) == 1
+    issues = []
+    if trigger_only_count:
+        issues.append(
+            f'{trigger_only_count} Style caption(s) contain only the internal run id; '
+            'captions must describe the visible content instead.')
+    if all_identical:
+        issues.append(
+            'all Style captions are identical; each image needs its own content description.')
+    return {
+        'caption_count': len(captions),
+        'distinct_caption_count': len(set(normalized)),
+        'trigger_only_count': trigger_only_count,
+        'all_identical': all_identical,
+        'issues': issues,
+    }
+
+
+def style_caption_quality(dataset_id) -> dict:
+    """Public read-only Style quality report used by routes/tests and preflight."""
+    ds = FaceDataset.query.get(dataset_id)
+    if ds is None or not fds.is_style(ds):
+        return {'caption_count': 0, 'distinct_caption_count': 0,
+                'trigger_only_count': 0, 'all_identical': False, 'issues': []}
+    rows = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').all()
+    return _style_caption_quality_from_rows(ds, rows)
 
 
 # --- Preflight d'entraînement (garde-fous, lecture seule) -----------------------
@@ -2633,7 +2771,7 @@ _KREA_MIN_VRAM_GB = 24
 _VRAM24_FAMILIES = ('krea', 'flux')   # familles 12B qui recommandent ~24 GB à 1024
 
 
-def training_preflight(user_id, dataset_id, train_type=None) -> dict:
+def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> dict:
     """Pre-launch sanity report: {'blockers': [...], 'warnings': [...]}. Blockers
     stop the launch (too few images for the family); warnings ask for one explicit
     confirm in the UI. Pure reads — never mutates, never raises on probe failures
@@ -2668,6 +2806,7 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     # l'invariant du set n'est pas une identité — on les saute pour ne pas générer
     # de faux avertissements.
     concept = fds.is_conceptual(ds)
+    style = fds.is_style(ds)
 
     # 1) minimum d'images par famille
     floor, reco = TRAIN_MIN_IMAGES.get(ttype, (12, 20))
@@ -2716,10 +2855,13 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     uncaptioned = sum(1 for r in kept if not (r.caption or '').strip())
     if n:
         if uncaptioned:
+            caption_policy = ('content captions are required for always-on Style'
+                              if style else 'captions are strongly recommended')
             warnings.append(f'{uncaptioned}/{n} kept image(s) have no caption — '
-                            'strongly recommended; launching will ask you to confirm.')
+                            f'{caption_policy}; launching will ask you to confirm.')
             _check('captioned', 'Every kept image captioned', 'warn',
-                   f'{uncaptioned}/{n} kept image(s) have no caption — launching asks to confirm', 'gf-images')
+                   f'{uncaptioned}/{n} kept image(s) have no caption — {caption_policy}; '
+                   'launching asks to confirm', 'gf-images')
         else:
             _check('captioned', 'Every kept image captioned', 'ok', f'{n}/{n} captioned')
 
@@ -2727,14 +2869,22 @@ def training_preflight(user_id, dataset_id, train_type=None) -> dict:
     caps = [(r.caption or '').strip() for r in kept if (r.caption or '').strip()]
     if caps:
         _cap_ok = True
+        if style:
+            quality = _style_caption_quality_from_rows(ds, kept)
+            if quality['issues']:
+                warnings.extend(quality['issues'])
+                _check('caption_quality', 'Caption quality', 'warn',
+                       ' '.join(quality['issues']), 'gf-images')
+                _cap_ok = False
         short = sum(1 for c in caps if len(c.split()) < 8)
         if short / len(caps) > 0.3:
             warnings.append(f'{short}/{len(caps)} caption(s) are very short (<8 words) — '
                             'weak captions weaken prompt control.')
-            _check('caption_quality', 'Caption quality', 'warn',
-                   f'{short}/{len(caps)} captions are very short (<8 words)', 'gf-images')
+            if _cap_ok:
+                _check('caption_quality', 'Caption quality', 'warn',
+                       f'{short}/{len(caps)} captions are very short (<8 words)', 'gf-images')
             _cap_ok = False
-        if len(set(c.lower() for c in caps)) < len(caps) * 0.7:
+        if not style and len(set(c.lower() for c in caps)) < len(caps) * 0.7:
             warnings.append('many captions are identical — the model learns nothing from '
                             'repeated text; re-caption for variety.')
             if _cap_ok:
@@ -2925,6 +3075,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
                     base_model=None, variant: str | None = None, train_type: str | None = None,
                     allow_caption_mismatch: bool = False, masked: bool = True,
                     fresh: bool = False, allow_uncaptioned: bool = False,
+                    allow_caption_quality: bool = False,
                     vae_path=_PERSISTED, te_path=_PERSISTED,
                     allow_unverified_weights: bool = False) -> dict:
     """Export + config + pause ComfyUI (flag) + lance l'entraînement ai-toolkit
@@ -2956,7 +3107,9 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     if check_captions:
         assert_trainable(dataset_id, train_type=train_type,
                          allow_caption_mismatch=allow_caption_mismatch,
-                         allow_uncaptioned=allow_uncaptioned)
+                         allow_uncaptioned=allow_uncaptioned,
+                         allow_caption_quality=allow_caption_quality,
+                         variant=variant)
     # Base d'entraînement : None/'' = officielle ; sinon un merge ComfyUI qui DOIT
     # avoir été converti en diffusers d'abord (gate). On persiste le choix sur le
     # dataset → _run_name/_run_dir/list_checkpoints deviennent base-aware (run isolé).
@@ -3048,7 +3201,8 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # (_run_name lit les valeurs persistées → on archive bien LE run qui serait repris).
     archived = archive_previous_run(ds) if fresh else None
     # Steps adaptatifs si non imposés ; sinon override borné (jamais < 500).
-    steps = default_steps(ds) if steps is None else max(500, int(steps))
+    steps = (default_steps(ds, train_type=launch_fam, variant=variant)
+             if steps is None else max(500, int(steps)))
     # masked (défaut ON) : masques personne exportés à côté du dataset → la
     # job-config passe en masked training (fond 10 %). OFF ou indispo = historique.
     dataset_folder = export_dataset_to_aitoolkit(user_id, dataset_id, masked=masked)
@@ -3133,6 +3287,8 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
 def continue_training(user_id, dataset_id, extra_steps: int = 1000,
                       base_model=_PERSISTED, variant=None, train_type=None,
                       masked=True, allow_unverified_weights=False,
+                      allow_caption_mismatch=False, allow_uncaptioned=False,
+                      allow_caption_quality=False,
                       _allow_dead_predecessor=False) -> dict:
     """Reprend l'entraînement depuis le dernier checkpoint de la base ciblée et
     vise ``dernier_step + extra_steps``. ai-toolkit auto-resume depuis le
@@ -3150,6 +3306,8 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
         if not (_allow_dead_predecessor and previous_is_dead):
             raise ValueError('a training is already in progress')
     ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
     base = (ds.train_base_model if ds else None) if base_model is _PERSISTED else base_model
     fam = _train_type(ds, train_type) if ds else train_type
     var = (variant or (ds.train_variant if ds else None)
@@ -3158,6 +3316,14 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
         var = zimage_training_recipe(var, base)['variant']
     assert_zimage_custom_recipe_confirmed(
         fam, base, var, allow_unverified_weights=allow_unverified_weights)
+    # A resume re-exports the CURRENT mutable dataset. A checkpoint proves only
+    # that an older snapshot trained successfully; it cannot waive caption/image
+    # guards after rows were edited, removed or re-captioned.
+    assert_trainable(dataset_id, train_type=fam,
+                     allow_caption_mismatch=allow_caption_mismatch,
+                     allow_uncaptioned=allow_uncaptioned,
+                     allow_caption_quality=allow_caption_quality,
+                     variant=var)
     cks = list_checkpoints(user_id, dataset_id, base_model=base,
                            family=fam, variant=var)
     if not cks:
@@ -3185,6 +3351,9 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
     res = launch_training(user_id, dataset_id, steps=latest + extra, check_captions=False,
                           base_model=base, variant=var, train_type=fam,
                           masked=masked,
+                          allow_caption_mismatch=allow_caption_mismatch,
+                          allow_uncaptioned=allow_uncaptioned,
+                          allow_caption_quality=allow_caption_quality,
                           allow_unverified_weights=launch_allow_unverified)
     res['resumed_from'] = latest
     res['target_steps'] = latest + extra
@@ -3250,14 +3419,15 @@ def _dataset_name(dataset_id):
 
 def kept_uncaptioned_count(dataset_id) -> int:
     """Nombre d'images GARDÉES (status keep) sans caption - bloque l'entraînement."""
-    return (FaceDatasetImage.query
+    rows = (FaceDatasetImage.query
             .filter_by(dataset_id=dataset_id, status='keep')
-            .filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))
-            .count())
+            .with_entities(FaceDatasetImage.caption).all())
+    return sum(1 for (caption,) in rows if not (caption or '').strip())
 
 
 def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
-                     allow_uncaptioned=False) -> None:
+                     allow_uncaptioned=False, allow_caption_quality=False,
+                     variant=None) -> None:
     """Lève ValueError si le dataset n'est pas prêt : trop peu d'images gardées,
     captions manquantes, ou STYLE de caption incohérent avec le type de modèle
     (SDXL booru-native attend des tags booru ; Z-Image attend de la prose). Le
@@ -3266,22 +3436,27 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
     `allow_uncaptioned=True` = confirm explicite « train anyway » : les captions
     manquantes ne sont plus un mur, juste un « êtes-vous sûr ? » (demande
     utilisateur — pouvoir expérimenter), le préfixe UNCAPTIONED: déclenche le
-    confirm côté front comme MISMATCH_CAPTION:."""
+    confirm côté front comme MISMATCH_CAPTION:. Pour Style, les captions de contenu
+    restent la règle (always-on, sans trigger). ``allow_caption_quality=True`` lève
+    séparément le garde trigger-only/toutes-identiques. ``variant`` est accepté pour
+    garder une signature family/variant homogène avec les recommandations de steps."""
     kept = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     if kept < 10:
         raise ValueError(f"not enough kept images ({kept}/10)")
     ds_ = FaceDataset.query.get(dataset_id)
-    # STYLE : les captions sont OPTIONNELLES (le rendu se lie au LoRA, pas aux mots ;
-    # dropout à 30 % de toute façon) → on ne bloque PAS sur les captions manquantes.
-    # Mais si des captions EXISTENT, le garde prose↔booru plus bas reste pertinent
-    # (un style SDXL captionné en prose = même mismatch qu'un character).
     style = fds.is_style(ds_)
     missing = kept_uncaptioned_count(dataset_id)
-    if missing and not style and not allow_uncaptioned:
+    if missing and not allow_uncaptioned:
+        policy = ('Style captions must describe the visible content of every image'
+                  if style else 'Captions are strongly recommended')
         raise ValueError(
-            f"UNCAPTIONED: {missing} kept image(s) have no caption. Captions are "
-            "strongly recommended — whatever a caption does NOT explain binds to "
-            "the trigger — but you can train without them.")
+            f"UNCAPTIONED: {missing} kept image(s) have no caption (including whitespace). "
+            f"{policy} — confirm explicitly to train anyway.")
+    if style and not allow_caption_quality:
+        quality = style_caption_quality(dataset_id)
+        if quality['issues']:
+            raise ValueError('CAPTION_QUALITY: ' + ' '.join(quality['issues']) +
+                             ' Re-caption the dataset, or confirm explicitly to train anyway.')
     if allow_caption_mismatch:
         return
     # Garde-fou style ↔ type : un LoRA SDXL entraîné sur des captions PROSE = mismatch
@@ -3564,6 +3739,7 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
                      base_model=_PERSISTED, variant=None, train_type=None,
                      allow_caption_mismatch=False, not_before=None, masked=True,
                      steps=None, allow_uncaptioned=False,
+                     allow_caption_quality=False,
                      vae_path=_PERSISTED, te_path=_PERSISTED,
                      allow_unverified_weights=False) -> dict:
     """Ajoute un dataset à la file (lancé à la fin du training courant).
@@ -3580,11 +3756,13 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
-    # Pas de mise en file si le dataset n'est pas prêt (captions manquantes, etc.).
-    if extra_steps is None:
-        assert_trainable(dataset_id, train_type=train_type,
-                         allow_caption_mismatch=allow_caption_mismatch,
-                         allow_uncaptioned=allow_uncaptioned)
+    # Every queued job re-exports the CURRENT dataset, including +N checkpoint
+    # resumes. Validate now and again when the item reaches the GPU.
+    assert_trainable(dataset_id, train_type=train_type,
+                     allow_caption_mismatch=allow_caption_mismatch,
+                     allow_uncaptioned=allow_uncaptioned,
+                     allow_caption_quality=allow_caption_quality,
+                     variant=variant)
     if train_type is not None:
         ds.train_type = train_type
         fds.db.session.commit()
@@ -3668,6 +3846,11 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
             # SDXL custom overrides ride along so the deferred launch reproduces
             # the exact triplet (they're also persisted on ds above).
             'vae_path': eff_vae, 'te_path': eff_te,
+            # Confirmation flags must survive the wait; launch re-runs the same
+            # authoritative guards when the queued item reaches the GPU.
+            'allow_caption_mismatch': bool(allow_caption_mismatch),
+            'allow_uncaptioned': bool(allow_uncaptioned),
+            'allow_caption_quality': bool(allow_caption_quality),
             'allow_unverified_weights': bool(allow_unverified_weights)}
     if recipe:
         item.update({'recipe_version': recipe['recipe_version'],
@@ -3731,6 +3914,11 @@ def _launch_queued_item(item) -> None:
             base_model=item.get('base_model'), variant=item.get('variant'),
             train_type=item.get('train_type'),
             masked=item.get('masked', True),
+            allow_caption_mismatch=bool(
+                item.get('allow_caption_mismatch')),
+            allow_uncaptioned=bool(item.get('allow_uncaptioned')),
+            allow_caption_quality=bool(
+                item.get('allow_caption_quality')),
             allow_unverified_weights=bool(
                 item.get('allow_unverified_weights')),
             # _advance_training_queue deliberately keeps the dead predecessor's
@@ -3743,6 +3931,9 @@ def _launch_queued_item(item) -> None:
                         variant=item.get('variant'),
                         train_type=item.get('train_type'),
                         masked=item.get('masked', True),
+                        allow_caption_mismatch=bool(item.get('allow_caption_mismatch')),
+                        allow_uncaptioned=bool(item.get('allow_uncaptioned')),
+                        allow_caption_quality=bool(item.get('allow_caption_quality')),
                         # SDXL custom overrides snapshotted at enqueue time; the file
                         # was already preflighted, so re-clear the confirmable gate.
                         vae_path=item.get('vae_path', _PERSISTED),

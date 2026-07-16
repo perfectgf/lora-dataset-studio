@@ -11,6 +11,7 @@ import { useJobs } from '../context/JobsContext';
 import { serializeWatermarkRegions } from '../utils/watermarkRegions';
 import { summarizeScrapeImport } from '../utils/smallImageRescue';
 import { trainingRunSelection } from '../utils/checkpointBrowser';
+import { refreshDatasetIfActive } from '../utils/datasetRefresh';
 
 function post(url, body, isForm) {
   // Routes through the shared fetchWithCsrfRetry: a token that aged out mid-session
@@ -92,10 +93,19 @@ export function useDataset() {
   const toast = useToast();
   const [datasets, setDatasets] = useState([]);
   // Persist the open dataset so a page reload returns to its workspace, not the list.
-  const [currentId, setCurrentId] = useState(() => {
+  const [currentId, setCurrentIdState] = useState(() => {
     try { const v = localStorage.getItem('datasetCurrentId'); return v ? Number(v) : null; }
     catch { return null; }
   });
+  // State updates render asynchronously, but request freshness cannot wait for a
+  // render. Every navigation path goes through this setter so refresh(A) can see
+  // a switch to B immediately and discard A's eventual response.
+  const currentIdRef = useRef(currentId);
+  const setCurrentId = useCallback((next) => {
+    const resolved = typeof next === 'function' ? next(currentIdRef.current) : next;
+    currentIdRef.current = resolved;
+    setCurrentIdState(resolved);
+  }, []);
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   // Tracks an in-flight captioning pass so the UI can poll progressively.
@@ -123,16 +133,17 @@ export function useDataset() {
   }, []);
 
   const refresh = useCallback(async (id) => {
-    const dsId = id ?? currentId;
-    if (!dsId) return;
-    try {
-      const r = await fetch(`/api/dataset/${dsId}`, { credentials: 'include' });
-      if (r.ok) setData(await r.json());
-      // Only a definitive 404 ejects back to the list (dataset gone). Transient
-      // failures (500, gateway hiccup) keep the open workspace untouched (M4).
-      else if (r.status === 404) { setData(null); setCurrentId(null); }
-    } catch { /* network blip — keep current workspace, the poll will retry */ }
-  }, [currentId]);
+    const dsId = id ?? currentIdRef.current;
+    return refreshDatasetIfActive({
+      datasetId: dsId,
+      getActiveDatasetId: () => currentIdRef.current,
+      request: (requestedId) => fetch(`/api/dataset/${requestedId}`, { credentials: 'include' }),
+      commitData: setData,
+      // Only an ACTIVE dataset's definitive 404 ejects back to the list.
+      // Transient errors and stale responses keep the current workspace (M4).
+      clearActiveDataset: () => setCurrentId(null),
+    });
+  }, [setCurrentId]);
 
   useEffect(() => { fetchList(); }, [fetchList]);
 
@@ -235,12 +246,15 @@ export function useDataset() {
   }, [currentId, refresh, toast]);
 
   // Change the target model family later (from the TrainingPanel selector) so the
-  // grouped menu re-sorts. Refreshes the list; silent on failure (non-critical).
+  // grouped menu re-sorts. Return the server result so TrainingPanel can keep its
+  // family/preset controls locked until persistence and the dependent refreshes
+  // are complete.
   const setDatasetTrainType = useCallback(async (trainType) => {
-    if (!currentId) return;
+    if (!currentId) return { ok: false, error: 'No dataset selected' };
     const d = await postJson(`/api/dataset/${currentId}/train-type`, { train_type: trainType });
-    if (d.ok) fetchList();
-  }, [currentId, fetchList]);
+    if (d.ok) await Promise.all([fetchList(), refresh(currentId)]);
+    return d;
+  }, [currentId, fetchList, refresh]);
 
   // Edit name / trigger / (concept) description after creation. Trigger change is
   // safe (prepended at export); a concept-desc change resets the avoid-list → the
@@ -262,9 +276,9 @@ export function useDataset() {
     const d = await postJson(`/api/dataset/${id}/delete`);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     toast.success('Dataset deleted');
-    if (currentId === id) { setCurrentId(null); setData(null); }
+    if (currentIdRef.current === id) { setCurrentId(null); setData(null); }
     await fetchList();
-  }, [currentId, fetchList, toast]);
+  }, [fetchList, setCurrentId, toast]);
 
   // Run a GPU-bound action exclusively (I2): re-entrancy guard + busy flag.
   // A second call while one is in flight is dropped instead of double-firing.
@@ -393,14 +407,14 @@ export function useDataset() {
   // Manually improve an existing dataset image with Klein. The backend always
   // creates a separate candidate row: the source pixels and their current
   // keep/reject state remain untouched until the user reviews the new version.
-  const improveImage = useCallback(async (imageId) => {
+  const improveImage = useCallback(async (imageId, { silent = false, refreshAfter = true } = {}) => {
     const d = await postJson(`/api/dataset/image/${imageId}/improve`, {});
     if (!d.ok) {
-      toast.error(d.error || 'Could not start image improvement');
+      if (!silent) toast.error(d.error || 'Could not start image improvement');
       return d;
     }
-    toast.success('Improvement started — the original stays intact while a separate 2 MP candidate is generated for validation.');
-    await refresh();
+    if (!silent) toast.success('Improvement started — the original stays intact while a separate 2 MP candidate is generated for validation.');
+    if (refreshAfter) await refresh();
     return d;
   }, [refresh, toast]);
 
@@ -706,6 +720,9 @@ export function useDataset() {
         // Images sans caption : plus un mur — confirm « train anyway » dans
         // TrainingPanel (marqueur UNCAPTIONED:), même flux que le mismatch.
         allow_uncaptioned: !!opts.allowUncaptioned,
+        // Style caption quality (trigger-only / identical captions) may be
+        // explicitly confirmed after the server explains the risk.
+        allow_caption_quality: !!opts.allowCaptionQuality,
         // Custom-weights arch sniff non concluant → confirm « train anyway »
         // (marqueur CUSTOM_WEIGHTS_UNVERIFIED:), même flux confirmable.
         allow_unverified_weights: !!opts.allowUnverifiedWeights,
@@ -727,7 +744,8 @@ export function useDataset() {
     // Les refus confirmables (mismatch caption↔type, images sans caption) sont
     // gérés par un confirm dans TrainingPanel — pas un toast d'erreur.
     else if (!String(d.error || '').includes('MISMATCH_CAPTION')
-             && !String(d.error || '').includes('UNCAPTIONED')) {
+             && !String(d.error || '').includes('UNCAPTIONED')
+             && !String(d.error || '').includes('CAPTION_QUALITY')) {
       toast.error(d.error || 'Unexpected error');
     }
     return d;
@@ -769,13 +787,19 @@ export function useDataset() {
       extra_steps: extraSteps,
       ...trainingRunSelection(baseModel, trainType, variant),
       masked: opts.masked !== false,
+      allow_caption_mismatch: !!opts.allowCaptionMismatch,
+      allow_uncaptioned: !!opts.allowUncaptioned,
       allow_unverified_weights: !!opts.allowUnverifiedWeights,
+      allow_caption_quality: !!opts.allowCaptionQuality,
     };
     const d = await postJson(`/api/dataset/${currentId}/train/continue`, body);
     if (d.ok) toast.success(`Resumed from step ${d.resumed_from} → ${d.target_steps} — ComfyUI paused`);
     // CUSTOM_WEIGHTS_UNVERIFIED is an interactive refusal: TrainingPanel owns
     // the explicit confirm + retry, so do not emit a premature error toast.
-    else if (!String(d.error || '').includes('CUSTOM_WEIGHTS_UNVERIFIED: ')) {
+    else if (!String(d.error || '').includes('CUSTOM_WEIGHTS_UNVERIFIED: ')
+             && !String(d.error || '').includes('CAPTION_QUALITY: ')
+             && !String(d.error || '').includes('MISMATCH_CAPTION: ')
+             && !String(d.error || '').includes('UNCAPTIONED: ')) {
       toast.error(d.error || 'Unexpected error');
     }
     return d;

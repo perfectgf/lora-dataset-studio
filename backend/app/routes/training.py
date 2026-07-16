@@ -67,6 +67,7 @@ def dataset_train(dataset_id):
                                  train_type=d.get('train_type'),
                                  allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),
                                  allow_uncaptioned=bool(d.get('allow_uncaptioned')),
+                                 allow_caption_quality=bool(d.get('allow_caption_quality')),
                                  allow_unverified_weights=bool(d.get('allow_unverified_weights')),
                                  masked=d.get('masked', True),
                                  # fresh=True : écarte le run existant (archivé, pas
@@ -95,6 +96,9 @@ def dataset_train_continue(dataset_id):
         kw['train_type'] = d.get('train_type')
     kw['masked'] = d.get('masked', True)
     kw['allow_unverified_weights'] = bool(d.get('allow_unverified_weights'))
+    kw['allow_caption_mismatch'] = bool(d.get('allow_caption_mismatch'))
+    kw['allow_uncaptioned'] = bool(d.get('allow_uncaptioned'))
+    kw['allow_caption_quality'] = bool(d.get('allow_caption_quality'))
     try:
         res = lt.continue_training(LOCAL_USER, dataset_id, **kw)
     except Exception as e:
@@ -137,6 +141,8 @@ def dataset_train_enqueue(dataset_id):
         kw['allow_caption_mismatch'] = True
     if d.get('allow_uncaptioned'):
         kw['allow_uncaptioned'] = True
+    if d.get('allow_caption_quality'):
+        kw['allow_caption_quality'] = True
     if d.get('allow_unverified_weights'):
         kw['allow_unverified_weights'] = True
     # SDXL custom overrides (service refuses them 400 for any other family).
@@ -188,6 +194,8 @@ def dataset_train_schedule(dataset_id):
         kw['allow_caption_mismatch'] = True
     if d.get('allow_uncaptioned'):
         kw['allow_uncaptioned'] = True
+    if d.get('allow_caption_quality'):
+        kw['allow_caption_quality'] = True
     if d.get('allow_unverified_weights'):
         kw['allow_unverified_weights'] = True
     if 'vae_path' in d:
@@ -294,8 +302,10 @@ def dataset_train_checkpoints(dataset_id):
                     # LOCAL checkpoints only
                     'cloud_checkpoints': ct.cloud_checkpoints(
                         dataset_id, fam_resolved, variant=variant),
-                    'recommended_steps': lt.recommended_steps(dataset_id),
-                    'recommended_steps_info': lt.recommended_steps_info(dataset_id),
+                    'recommended_steps': lt.recommended_steps(
+                        dataset_id, train_type=fam_resolved, variant=variant),
+                    'recommended_steps_info': lt.recommended_steps_info(
+                        dataset_id, train_type=fam_resolved, variant=variant),
                     'imported': lt.list_imported_checkpoints(LOCAL_USER, dataset_id, family=fam),
                     'disk_usage': lt.dataset_disk_usage(LOCAL_USER, dataset_id, **kw),
                     # provenance: latest registered dataset version vs the
@@ -374,7 +384,9 @@ def dataset_train_preflight(dataset_id):
         return jsonify({'error': 'not found'}), 404
     try:
         return jsonify({'ok': True, **lt.training_preflight(
-            LOCAL_USER, dataset_id, train_type=request.args.get('train_type') or None)})
+            LOCAL_USER, dataset_id,
+            train_type=request.args.get('train_type') or None,
+            variant=request.args.get('variant') or None)})
     except Exception as e:
         return _map_error(e)
 
@@ -493,23 +505,264 @@ def dataset_train_settings(dataset_id):
 # from another app version degrades gracefully (unknown keys ignored, invalid
 # values reported). No ai-toolkit gate: presets are pure configuration.
 
+_STYLE_SAMPLE_PROMPTS = [
+    'a woman reading in a sunlit cafe',
+    'a city street at night, rain, neon reflections',
+    'a mountain landscape, wide shot, morning mist',
+    'a still life of fruit on a wooden table',
+    'a cozy interior, warm lamp light',
+    'a runner mid-stride on a bridge, motion',
+    'a cat sleeping on a windowsill',
+    'a modern building facade, strong shadows',
+]
+
+
+def _style_preset_settings(rank, alpha, resolution='768,1024',
+                           timestep_type=None):
+    """One researched Style baseline with family-specific architecture levers.
+
+    The prompts deliberately describe content only. Style mode is always-on, so
+    the dataset's internal run identifier must never become a hidden activation
+    token. Network dropout is intentionally absent: Style caption dropout is a
+    separate, family-aware service policy and must not be conflated with it.
+    """
+    out = {
+        'rank': rank,
+        'alpha': alpha,
+        'resolution': resolution,
+        'save_every': 250,
+        'max_step_saves': 10,
+        'sample_every': 250,
+        'sample_prompts': list(_STYLE_SAMPLE_PROMPTS),
+    }
+    if timestep_type:
+        out['timestep_type'] = timestep_type
+    return out
+
+
+# Route-owned metadata wraps the validated setting dictionaries. Keeping scope
+# outside train_settings means old exported presets remain schema-tolerant while
+# new built-ins can be rejected before a single dataset field is mutated.
+_STYLE_BUILTIN_PRESETS = [
+    {
+        'id': 'builtin-style-krea-raw',
+        'name': 'Style — Krea 2 Raw',
+        'train_type': 'krea',
+        'dataset_kind': 'style',
+        # ``base`` is the canonical UI value; ``raw`` is accepted as a readable
+        # compatibility spelling for callers that used the model's public name.
+        'variants': ['base', 'raw'],
+        'builtin': True,
+        'settings': _style_preset_settings(32, 32, timestep_type='linear'),
+    },
+    {
+        'id': 'builtin-style-klein-base',
+        'name': 'Style — FLUX.2 Klein Base',
+        'train_type': 'flux2klein',
+        'dataset_kind': 'style',
+        'variants': ['4b', '9b'],
+        'builtin': True,
+        'settings': _style_preset_settings(32, 32, timestep_type='weighted'),
+    },
+    {
+        'id': 'builtin-style-zimage-base',
+        'name': 'Style — Z-Image Base',
+        'train_type': 'zimage',
+        'dataset_kind': 'style',
+        'variants': ['base'],
+        'builtin': True,
+        'settings': _style_preset_settings(32, 32, timestep_type='weighted'),
+    },
+    {
+        'id': 'builtin-style-flux1',
+        'name': 'Style — FLUX.1 dev',
+        'train_type': 'flux',
+        'dataset_kind': 'style',
+        # FLUX.1 has one training recipe; the historical dataset variant field
+        # is irrelevant for it, hence no variant restriction.
+        'variants': [],
+        'builtin': True,
+        'settings': _style_preset_settings(16, 16, timestep_type='weighted'),
+    },
+    {
+        'id': 'builtin-style-sdxl',
+        'name': 'Style — SDXL',
+        'train_type': 'sdxl',
+        'dataset_kind': 'style',
+        'variants': [],
+        'builtin': True,
+        # SDXL does not expose flow-match timestep weighting in ai-toolkit.
+        'settings': _style_preset_settings(32, 16, resolution='1024'),
+    },
+]
+
+
+def _builtin_train_presets():
+    """Public built-in catalogue, with the legacy generic Style entry hidden.
+
+    Copy every object so route metadata never mutates lora_training's module
+    constants (important for tests and for long-lived Flask workers).
+    """
+    out = []
+    seen = set()
+    for source in (*lt.BUILTIN_TRAIN_PRESETS, *_STYLE_BUILTIN_PRESETS):
+        preset_id = source.get('id')
+        if preset_id == 'builtin-style' or preset_id in seen:
+            continue
+        preset = dict(source)
+        preset['settings'] = dict(source.get('settings') or {})
+        if preset_id == 'builtin-krea-character':
+            preset.setdefault('dataset_kind', 'character')
+            preset.setdefault('variants', ['base', 'raw', 'turbo'])
+        elif preset_id == 'builtin-concept':
+            preset.setdefault('dataset_kind', 'concept')
+            preset.setdefault('variants', [])
+        else:
+            preset.setdefault('dataset_kind', None)
+            preset.setdefault('variants', [])
+        out.append(preset)
+        seen.add(preset_id)
+    return out
+
+
+_STYLE_PRESET_ID_BY_FAMILY = {
+    'krea': 'builtin-style-krea-raw',
+    'flux2klein': 'builtin-style-klein-base',
+    'zimage': 'builtin-style-zimage-base',
+    'flux': 'builtin-style-flux1',
+    'sdxl': 'builtin-style-sdxl',
+}
+
+
+def _builtin_preset_by_id(preset_id, train_type):
+    """Resolve a public ID, including the pre-family ``builtin-style`` alias."""
+    if preset_id == 'builtin-style':
+        preset_id = _STYLE_PRESET_ID_BY_FAMILY.get(train_type)
+    return next((p for p in _builtin_train_presets()
+                 if p.get('id') == preset_id), None)
+
+
+def _dataset_kind(ds):
+    return (getattr(ds, 'kind', None) or 'character').strip().lower()
+
+
+def _normalise_preset_kind(value):
+    kind = str(value or '').strip().lower()
+    return kind if kind in svc.DATASET_KINDS else None
+
+
+def _normalise_preset_variants(values, train_type):
+    """Validated, de-duplicated recipe variants; ``None`` means bad input."""
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        return None
+    family = svc.normalize_train_type(train_type)
+    if family in ('flux', 'sdxl'):
+        allowed = set()
+    else:
+        allowed = set(lt._valid_variants_for(family))
+        if family == 'krea':
+            allowed.add('raw')
+    out = []
+    for value in values:
+        variant = str(value or '').strip().lower()
+        if not variant or variant not in allowed:
+            return None
+        if variant not in out:
+            out.append(variant)
+    return out
+
+
+def _preset_scope_error(preset, ds, variant, reason):
+    return jsonify({
+        'ok': False,
+        'error': reason,
+        'error_code': 'PRESET_SCOPE',
+        'preset_scope': {
+            'preset_id': preset.get('id'),
+            'preset_train_type': preset.get('train_type'),
+            'preset_dataset_kind': preset.get('dataset_kind'),
+            'preset_variants': preset.get('variants') or [],
+            'dataset_train_type': ds.train_type or 'zimage',
+            'dataset_kind': _dataset_kind(ds),
+            'variant': variant,
+        },
+    }), 409
+
+
+def _validate_preset_scope(preset, ds, requested_train_type=None,
+                           requested_variant=None):
+    """Return ``None`` when compatible, otherwise a structured 409 response.
+
+    Validation happens wholly before ``apply_train_settings_dict``. This makes a
+    stale preset selection harmless even though applying a preset is a replace
+    operation that clears the previous explicit settings first.
+    """
+    dataset_family = ds.train_type or 'zimage'
+    if requested_train_type:
+        selected_family = str(requested_train_type).strip().lower()
+        if selected_family not in svc.TRAIN_TYPES:
+            return _preset_scope_error(
+                preset, ds, requested_variant,
+                'The requested model family is not supported.')
+        if selected_family != dataset_family:
+            return _preset_scope_error(
+                preset, ds, requested_variant,
+                'The selected model family changed before this preset was applied.')
+    preset_family = preset.get('train_type')
+    if preset_family and preset_family != dataset_family:
+        return _preset_scope_error(
+            preset, ds, requested_variant,
+            f'This preset is for {preset_family}, not {dataset_family}.')
+    preset_kind = preset.get('dataset_kind')
+    if preset_kind and preset_kind != _dataset_kind(ds):
+        return _preset_scope_error(
+            preset, ds, requested_variant,
+            f'This preset is for {preset_kind} datasets, not {_dataset_kind(ds)}.')
+    variant = str(
+        requested_variant or getattr(ds, 'train_variant', None)
+        or lt._default_variant_for(dataset_family)).strip().lower()
+    allowed = [str(v).strip().lower() for v in (preset.get('variants') or [])]
+    if allowed and variant not in allowed:
+        return _preset_scope_error(
+            preset, ds, variant,
+            f'This preset requires variant {" or ".join(allowed)}, not {variant}.')
+    return None
+
+
 def _preset_payload(p):
     import json
     try:
         settings = json.loads(p.settings or '{}')
     except ValueError:
         settings = {}
+    if not isinstance(settings, dict):
+        settings = {}
+    try:
+        variants = json.loads(p.variants or '[]')
+    except (TypeError, ValueError):
+        variants = []
+    if not isinstance(variants, list):
+        variants = []
     return {'id': p.id, 'name': p.name, 'train_type': p.train_type,
+            # Existing DB rows have NULL scope metadata and remain deliberately
+            # usable; their family is still validated at apply time.
+            'dataset_kind': _normalise_preset_kind(p.dataset_kind),
+            'variants': variants,
             'settings': settings}
 
 
 @bp.get('/train/presets')
 def train_presets_list():
-    """Built-ins first (shipped with the app, read-only — the frontend applies
-    them by sending their settings, and hides delete), then the user's own."""
+    """Built-ins first (shipped with the app and read-only), then user presets.
+
+    The old generic ``builtin-style`` is intentionally absent: callers should
+    select the family recipe. Its ID is still accepted by the apply endpoint.
+    """
     from ..models import TrainingPreset
     rows = TrainingPreset.query.order_by(TrainingPreset.name).all()
-    return jsonify({'presets': [*lt.BUILTIN_TRAIN_PRESETS,
+    return jsonify({'presets': [*_builtin_train_presets(),
                                 *(_preset_payload(p) for p in rows)]})
 
 
@@ -525,14 +778,59 @@ def train_presets_save():
     name = (d.get('name') or '').strip()[:80]
     if not name:
         return jsonify({'error': 'name required'}), 400
-    train_type = (d.get('train_type') or '').strip() or None
+    requested_family = None
+    if 'train_type' in d and d.get('train_type') is not None:
+        requested_family = str(d.get('train_type')).strip().lower()
+        if requested_family not in svc.TRAIN_TYPES:
+            return jsonify({'error': 'invalid train_type'}), 400
+    dataset_kind = _normalise_preset_kind(d.get('dataset_kind'))
+    if d.get('dataset_kind') is not None and dataset_kind is None:
+        return jsonify({'error': 'invalid dataset_kind'}), 400
+    supplied_variants = None
+    if 'variants' in d:
+        supplied_variants = d.get('variants')
+    elif 'variant' in d:
+        supplied_variants = [d.get('variant')]
     if d.get('dataset_id') is not None:
         ds = svc.get_dataset(LOCAL_USER, d['dataset_id'])
         if not ds:
             return jsonify({'error': 'dataset not found'}), 404
+        train_type = ds.train_type or 'zimage'
+        if (requested_family is not None
+                and requested_family != train_type):
+            return jsonify({
+                'ok': False,
+                'error': 'The selected model family changed before this preset was saved.',
+                'error_code': 'PRESET_SCOPE',
+            }), 409
+        actual_kind = _dataset_kind(ds)
+        if dataset_kind is not None and dataset_kind != actual_kind:
+            return jsonify({
+                'ok': False,
+                'error': 'The dataset kind changed before this preset was saved.',
+                'error_code': 'PRESET_SCOPE',
+            }), 409
         settings = lt.snapshot_train_settings(LOCAL_USER, ds.id)
-        train_type = train_type or (ds.train_type or 'zimage')
+        dataset_kind = actual_kind
+        variants = _normalise_preset_variants(supplied_variants, train_type)
+        if variants is None:
+            return jsonify({'error': 'invalid variants for train_type'}), 400
+        if supplied_variants is None:
+            # A snapshot is a recipe for the currently selected architecture.
+            # Single-recipe families do not need a synthetic variant scope.
+            if train_type in ('flux', 'sdxl'):
+                variants = []
+            else:
+                selected = (d.get('variant') or ds.train_variant
+                            or lt._default_variant_for(train_type))
+                variants = _normalise_preset_variants([selected], train_type)
+                if variants is None:
+                    return jsonify({'error': 'invalid variant for train_type'}), 400
     else:
+        train_type = requested_family or 'zimage'
+        variants = _normalise_preset_variants(supplied_variants, train_type)
+        if variants is None:
+            return jsonify({'error': 'invalid variants for train_type'}), 400
         settings = d.get('settings')
         if not isinstance(settings, dict):
             return jsonify({'error': "'settings' must be an object"}), 400
@@ -541,7 +839,9 @@ def train_presets_save():
     if created:
         row = TrainingPreset(name=name)
         db.session.add(row)
-    row.train_type = train_type or 'zimage'
+    row.train_type = train_type
+    row.dataset_kind = dataset_kind
+    row.variants = json.dumps(variants) if variants else None
     row.settings = json.dumps(settings)
     db.session.commit()
     return jsonify({'ok': True, 'created': created, **_preset_payload(row)})
@@ -563,20 +863,64 @@ def train_presets_delete(preset_id):
 def dataset_train_preset_apply(dataset_id):
     """Replace the dataset's advanced settings with a preset's ({preset_id})
     or with a raw dict ({settings}). Returns the effective settings plus what
-    was ignored (unknown keys) and rejected (invalid values) — never fatal on
-    content, so old exports keep working as the app evolves."""
+    was ignored (unknown keys) and rejected (invalid values). Built-ins and DB
+    presets are scope-checked before mutation; raw settings keep the legacy,
+    schema-tolerant import path."""
     import json
     from ..extensions import db
     from ..models import TrainingPreset
     d = request.get_json(silent=True) or {}
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    if not ds:
+        return jsonify({'error': 'not found'}), 404
+    applied_id = None
     if d.get('preset_id') is not None:
-        row = db.session.get(TrainingPreset, int(d['preset_id']))
-        if not row:
-            return jsonify({'error': 'unknown preset'}), 404
-        try:
-            settings = json.loads(row.settings or '{}')
-        except ValueError:
-            settings = {}
+        raw_id = d.get('preset_id')
+        applied_id = raw_id
+        builtin = (_builtin_preset_by_id(raw_id, ds.train_type or 'zimage')
+                   if isinstance(raw_id, str) else None)
+        if builtin:
+            scoped = _validate_preset_scope(
+                builtin, ds, requested_train_type=d.get('train_type'),
+                requested_variant=d.get('variant'))
+            if scoped:
+                return scoped
+            settings = dict(builtin.get('settings') or {})
+            applied_id = builtin['id']
+        else:
+            try:
+                numeric_id = int(raw_id)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'unknown preset'}), 404
+            row = db.session.get(TrainingPreset, numeric_id)
+            if not row:
+                return jsonify({'error': 'unknown preset'}), 404
+            try:
+                row_variants = json.loads(row.variants or '[]')
+            except (TypeError, ValueError):
+                row_variants = []
+            if not isinstance(row_variants, list):
+                row_variants = []
+            # Legacy numeric presets have always carried a family. New rows also
+            # carry kind/variant scope; NULL/[] retains historical compatibility.
+            db_preset = {
+                'id': row.id,
+                'train_type': row.train_type,
+                'dataset_kind': row.dataset_kind,
+                'variants': row_variants,
+            }
+            scoped = _validate_preset_scope(
+                db_preset, ds, requested_train_type=d.get('train_type'),
+                requested_variant=d.get('variant'))
+            if scoped:
+                return scoped
+            try:
+                settings = json.loads(row.settings or '{}')
+            except ValueError:
+                settings = {}
+            if not isinstance(settings, dict):
+                settings = {}
+            applied_id = row.id
     else:
         settings = d.get('settings')
         if not isinstance(settings, dict):
@@ -585,7 +929,11 @@ def dataset_train_preset_apply(dataset_id):
         eff, ignored, rejected = lt.apply_train_settings_dict(LOCAL_USER, dataset_id, settings)
     except ValueError as e:
         return _map_error(e)
-    return jsonify({'ok': True, 'train_settings': eff,
+    return jsonify({'ok': True, 'preset_id': applied_id,
+                    'train_type': ds.train_type or 'zimage',
+                    'variant': (d.get('variant') or ds.train_variant
+                                or lt._default_variant_for(ds.train_type or 'zimage')),
+                    'train_settings': eff,
                     'ignored': ignored, 'rejected': rejected})
 
 
@@ -774,6 +1122,7 @@ def dataset_train_cloud(dataset_id):
             masked=d.get('masked', True),
             allow_caption_mismatch=bool(d.get('allow_caption_mismatch')),
             allow_uncaptioned=bool(d.get('allow_uncaptioned')),
+            allow_caption_quality=bool(d.get('allow_caption_quality')),
             gpu_name=d.get('gpu_name'))
     except Exception as e:
         return _map_error(e)
@@ -823,6 +1172,7 @@ def dataset_train_cloud_offers(dataset_id):
     try:
         data = ct.gpu_tiers(LOCAL_USER, dataset_id,
                             train_type=request.args.get('train_type'),
+                            variant=request.args.get('variant'),
                             steps=request.args.get('steps', type=int))
     except Exception as e:
         return _map_error(e)

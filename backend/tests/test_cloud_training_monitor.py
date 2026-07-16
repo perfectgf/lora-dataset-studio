@@ -94,7 +94,7 @@ def _launch(ct, app, client, monkeypatch, remote, destroy_log):
     # Respect the production launch invariant: cloud runs never target fewer
     # than one usable 500-step save.  Keeping the fixture valid also lets the
     # automatic-retry assertion require byte-for-byte-equivalent parameters.
-    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 500)
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds, **kw: 500)
     monkeypatch.setattr(ct.lt, 'assert_trainable', lambda *a, **k: None)
     monkeypatch.setattr(ct.lt, 'build_job_config',
                         lambda ds, folder, steps=3000, training_folder=None: {

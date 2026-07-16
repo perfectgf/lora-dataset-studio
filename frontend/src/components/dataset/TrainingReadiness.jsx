@@ -17,7 +17,7 @@ const VERDICT = {
 const ROW_ICON = { ok: '✓', warn: '⚠', fail: '✕' };
 const ROW_CLS = { ok: 'text-emerald-400', warn: 'text-amber-300', fail: 'text-red-300' };
 
-export default function TrainingReadiness({ datasetId, trainType, refreshKey, onJump }) {
+export default function TrainingReadiness({ datasetId, trainType, variant, refreshKey, onJump }) {
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(false);
   const timer = useRef(null);
@@ -27,7 +27,10 @@ export default function TrainingReadiness({ datasetId, trainType, refreshKey, on
     clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
       try {
-        const qs = trainType ? `?train_type=${encodeURIComponent(trainType)}` : '';
+        const params = new URLSearchParams();
+        if (trainType) params.set('train_type', trainType);
+        if (variant) params.set('variant', variant);
+        const qs = params.size ? `?${params.toString()}` : '';
         const r = await fetch(`/api/dataset/${datasetId}/train/preflight${qs}`, { credentials: 'include' });
         if (!r.ok) { if (alive) setData(null); return; }   // 409 ai-toolkit absent → rien
         const d = await r.json();
@@ -35,7 +38,7 @@ export default function TrainingReadiness({ datasetId, trainType, refreshKey, on
       } catch { /* transient — le prochain changement de compteur retentera */ }
     }, 400);
     return () => { alive = false; clearTimeout(timer.current); };
-  }, [datasetId, trainType, refreshKey]);
+  }, [datasetId, trainType, variant, refreshKey]);
 
   if (!data || !(data.checks || []).length) return null;
   const v = VERDICT[data.verdict] || VERDICT.warnings;

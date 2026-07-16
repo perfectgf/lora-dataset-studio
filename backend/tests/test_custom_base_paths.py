@@ -180,7 +180,8 @@ def test_enqueue_rejects_vae_off_sdxl(app, tmp_path, monkeypatch):
     _configure_aitoolkit(tmp_path, app)
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'FXQ', 'zchar_fxq', train_type='flux')
-        # extra_steps set → skips assert_trainable; the whitelist still fires.
+        # Dataset readiness is orthogonal; the family whitelist must still fire.
+        monkeypatch.setattr(lt, 'assert_trainable', lambda *_a, **_kw: None)
         with pytest.raises(ValueError, match='SDXL-only'):
             lt.enqueue_training(LOCAL_USER, ds.id, extra_steps=100, vae_path='C:\\x\\vae.safetensors')
 
@@ -299,10 +300,10 @@ def test_cloud_refuses_persisted_sdxl_override(app, tmp_path, monkeypatch):
             ct.launch_cloud_training(LOCAL_USER, ds.id)
 
 
-def test_continue_bypasses_confirmable_preflight(app, tmp_path, monkeypatch):
-    """Resuming a run whose custom base was accepted once must not re-hit the
-    confirmable sniff (this path can't answer the confirm) — continue_training
-    passes allow_unverified_weights=True while keeping the vae/te triplet."""
+def test_continue_bypasses_custom_weight_sniff_after_caption_preflight(
+        app, tmp_path, monkeypatch):
+    """After caption readiness succeeds, resume must not re-hit the custom-base
+    sniff: it reuses the accepted weights and keeps the VAE/TE triplet."""
     from app.services import lora_training as lt
     from app.services import face_dataset_service as svc
     from app.config import LOCAL_USER
@@ -316,6 +317,7 @@ def test_continue_bypasses_confirmable_preflight(app, tmp_path, monkeypatch):
         ds = svc.create_dataset(LOCAL_USER, 'CN', 'zc_cn', train_type='flux')
         ds.train_base_model = _mkfile(tmp_path, 'w.safetensors', _FLUX_KEYS)
         svc.db.session.commit()
+        monkeypatch.setattr(lt, 'assert_trainable', lambda *_a, **_kw: None)
         monkeypatch.setattr(lt, 'list_checkpoints', lambda *a, **k: [{'step': 800}])
         monkeypatch.setattr(lt, 'launch_training', fake_launch)
         lt.continue_training(LOCAL_USER, ds.id, extra_steps=500)

@@ -340,15 +340,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Dataset CONCEPT : on masque tout ce qui est identité/visage (référence, générateur
   // de variations, analyse faciale, badge de fuite, composition, flux guidé) — il ne
   // reste que import brut → curation → caption (inversée) → entraînement.
-  // 'style' suit le même chemin UI que concept : pas de référence/visage/composition,
-  // juste import brut → curation → caption (contenu pur, optionnelle) → entraînement.
-  const concept = d.kind === 'concept' || d.kind === 'style';
-  // Leak check is KIND-specific (see the caption-leak panel): character flags identity,
-  // concept flags the caption NAMING the concept (must bind to the trigger), style never
-  // (its subjects' description IS the content). `concept` above stays "concept OR style"
-  // for the shared layout gating.
+  // Style follows the same compact layout as concept (no face/reference tools),
+  // but keeps its own always-on semantics and requires content-only captions.
   const isConcept = d.kind === 'concept';
   const isStyle = d.kind === 'style';
+  const isConceptual = isConcept || isStyle;
+  // Leak check is KIND-specific (see the caption-leak panel): character flags identity,
+  // concept flags the caption NAMING the concept (must bind to the trigger), style never
+  // (its subjects' description IS the content). `isConceptual` is layout-only.
   // Fidélité corps : captions bannissent aussi les marques corporelles, composition
   // cible plus de bustes/corps, import plein cadre par défaut.
   const bodyFid = d.fidelity === 'body';
@@ -449,10 +448,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
     && viewImgLive.derivation_kind !== 'klein_image_improve';
 
   // Export ZIP — shared by the header CTA and the Import & export row.
-  // Guard-rails: untriaged images are silently EXCLUDED from the zip,
-  // and uncaptioned kept ones export as trigger-only.
+  // Guard-rails: untriaged images are silently EXCLUDED from the zip. Style
+  // captions are mandatory and have no trigger-only fallback.
   const exportZipGuarded = () => {
     if (triage && !window.confirm(`${triage} image(s) still await triage (✓/✕) and will NOT be in the ZIP. Export anyway?`)) return;
+    if (isStyle && keptUncaptioned) {
+      toast.error(`Style training needs a content-only caption for every kept image — ${keptUncaptioned} still missing.`);
+      jumpTo({ targetId: 'gf-captions' });
+      return;
+    }
     if (keptUncaptioned && !window.confirm(`${keptUncaptioned} kept image(s) without a caption (trigger only). Export anyway?`)) return;
     ds.exportZip();
   };
@@ -584,7 +588,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const heading = (id) => {
     const s = sectionMeta[id];
     return <SectionHeading id={`ds-section-${id}-heading`} eyebrow={s.eyebrow} title={s.title}
-      description={concept && s.conceptDescription ? s.conceptDescription : s.description} />;
+      description={isStyle && id === 'add'
+        ? 'Import varied images that share the aesthetic; subject and scene diversity keep the Style LoRA composable.'
+        : isConceptual && s.conceptDescription ? s.conceptDescription : s.description} />;
   };
   // Sections inactives : montées mais masquées (display:none) — les polls et
   // états internes survivent au changement de section (le poll 10 s du
@@ -607,14 +613,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
           ← Datasets
         </button>
         <h1 className="text-content font-bold">{d.name}</h1>
-        <button type="button"
-          onClick={() => { try { navigator.clipboard.writeText(d.trigger_word || ''); } catch { /* ignore */ } }}
-          title="Copy the trigger word (to put in your prompts)"
-          className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-indigo-400/40 bg-indigo-500/10 text-[0.6875rem]">
-          <span className="text-content-subtle">trigger:</span>
-          <code className="text-indigo-300 font-semibold">{d.trigger_word || '—'}</code>
-          <span aria-hidden className="text-content-subtle">⧉</span>
-        </button>
+        {isStyle ? (
+          <span title="This Style LoRA is always active when loaded; adjust its LoRA weight to control the effect."
+            className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-cyan-400/40 bg-cyan-500/10 text-cyan-200 text-[0.6875rem]">
+            always-on style · no trigger
+          </span>
+        ) : (
+          <button type="button"
+            onClick={() => { try { navigator.clipboard.writeText(d.trigger_word || ''); } catch { /* ignore */ } }}
+            title="Copy the trigger word (to put in your prompts)"
+            className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-indigo-400/40 bg-indigo-500/10 text-[0.6875rem]">
+            <span className="text-content-subtle">trigger:</span>
+            <code className="text-indigo-300 font-semibold">{d.trigger_word || '—'}</code>
+            <span aria-hidden className="text-content-subtle">⧉</span>
+          </button>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <button type="button" disabled={!kept} onClick={exportZipGuarded}
             className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
@@ -630,14 +643,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
             </summary>
             <div className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
               <button type="button" onClick={() => setSettingsOpen(true)}
-                title="Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list."
+                title={isStyle ? 'Edit the Style dataset name and review its always-on behavior.' : 'Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list.'}
                 className={MENU_ITEM}>
                 ⚙️ Edit settings
                 <span className="ml-auto text-content-subtle text-[0.625rem]">
-                  name · trigger{concept ? ' · concept' : ''}
+                  {isStyle ? 'name · always-on' : `name · trigger${isConcept ? ' · concept' : ''}`}
                 </span>
               </button>
-              {!concept && (
+              {!isConceptual && (
                 <button type="button" disabled={ds.busy}
                   onClick={() => ds.setDatasetFidelity?.(bodyFid ? 'face' : 'body')}
                   title={bodyFid
@@ -701,7 +714,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 })}
               </ul>
             </nav>
-            {!concept && (
+            {!isConceptual && (
               <GuidedChecklist steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
             )}
           </div>
@@ -710,7 +723,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         <div className="flex flex-col gap-3 min-w-0 mt-1 lg:mt-0">
           {/* ---- Bandeaux GLOBAUX : visibles quelle que soit la section active
                (une passe GPU ou un batch de générations concernent tout l'écran). ---- */}
-          {!concept && (
+          {!isConceptual && (
             <NextStepCard step={nextStep} trainMode={!!caps.training_visible} busy={ds.busy}
               totalImages={images.length} onAction={nextAction} actionLabel={nextActionLabel} />
           )}
@@ -774,7 +787,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   onMirror={ds.mirrorImage} mirroringIds={ds.mirroringIds}
                   onRegenerate={(id, loraStrength, prompt) => ds.regenerate(id, loraStrength, prompt)} onView={setViewImg}
                   onBatch={ds.batchImages} busy={ds.busy}
-                  nonces={ds.nonces} faceThresholds={d.face_thresholds} />
+                  onImprove={ds.improveImage} onRefresh={ds.refresh}
+                  kleinAvailable={Boolean(caps.engines?.klein)}
+                  eligibilityImages={images}
+                  nonces={ds.nonces} faceThresholds={d.face_thresholds} datasetKind={d.kind || 'character'} />
               )}
             </div>
           </div>
@@ -783,7 +799,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                scrapées + import brut. Personnage : référence puis génération/import. */}
           <div className={sectionCls('add')}>
             {heading('add')}
-            {concept ? (
+            {isConceptual ? (
               // Concept : pas de photo de référence ni de générateur — on peuple le dataset
               // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
               <div id="gf-reference" className="scroll-mt-20 flex flex-col gap-2">
@@ -868,7 +884,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 onPreview={(image) => setViewImg({ ...image, _rescueReviewPreview: true })}
                 nonces={ds.nonces} />
               <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
-                {!concept && (
+                {!isConceptual && (
                   <button id="ds-curation-face-analysis" type="button" data-workspace-focus
                     onClick={ds.analyzeFaces} disabled={ds.busy || !d.ref_filename}
                     title={d.ref_filename ? "Scores each image's facial resemblance vs the reference (deletes nothing)" : "Set a reference photo first"}
@@ -985,7 +1001,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             <div id="gf-captions" className="scroll-mt-20 flex flex-col gap-2">
               <div id="ds-captions-generate" tabIndex={-1}
                 className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2 scroll-mt-20">
-                {!concept && (
+                {!isConceptual && (
                   <select value={effCaptionMode} onChange={(e) => setCaptionMode(e.target.value)} disabled={ds.busy}
                     title="Caption style — Prose (Z-Image) or Booru tags (SDXL booru-native, e.g. bigLove). Defaults to auto based on the dataset's type."
                     className="px-2 py-1.5 rounded-lg bg-surface border border-border text-content text-[0.8125rem] disabled:opacity-40">
@@ -1017,9 +1033,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     explainer panel; the count is spelled out ("N checked") so a green 0
                     reads as a REAL result, not a scan that never ran. */}
                 {isStyle ? (
-                  <span className="ml-auto text-content-subtle text-[0.8125rem]"
-                    title="Style captions describe controllable content but should not name the aesthetic, medium or artist. The caption prompt enforces this rule; there is no automatic style-term scanner yet.">
-                    style captions: content only · aesthetic terms stay unspoken
+                  <span className={`ml-auto text-[0.8125rem] ${keptUncaptioned ? 'text-amber-300' : 'text-emerald-400'}`}
+                    title="Every Style image needs a content-only caption: describe subject, action and setting, but do not name the aesthetic, medium or artist. No activation trigger is added.">
+                    {keptUncaptioned
+                      ? `⚠ ${keptUncaptioned} missing · content-only captions required · no trigger`
+                      : `✅ ${keptCaptioned}/${kept} content-only captions · no trigger`}
                   </span>
                 ) : d.caption_leak && (
                   d.caption_leak.captioned > 0 ? (
@@ -1269,7 +1287,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 {/* Pastille de préparation (miroir du preflight) : refreshKey borné aux
                     compteurs pertinents → pas de re-fetch à chaque poll du dataset. */}
                 {caps.training_visible && (
-                  <TrainingReadiness datasetId={d.id} trainType={d.train_type}
+                  <TrainingReadiness datasetId={d.id} trainType={d.train_type} variant={d.train_variant}
                     refreshKey={`${kept}|${keptCaptioned}|${pending}|${triage}|${d.caption_leak?.leaking ?? ''}`}
                     onJump={(targetId) => jumpTo({ targetId })} />
                 )}

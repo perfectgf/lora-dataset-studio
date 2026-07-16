@@ -83,6 +83,7 @@ def test_launch_refuses_flux2klein_when_arch_missing(app, tmp_path, monkeypatch)
         with pytest.raises(ValueError, match=r'update it \(git pull\)'):
             lt.launch_training(LOCAL_USER, ds.id, check_captions=False)
         # Same guard on the queue path — no deferred job doomed to the fallback.
+        monkeypatch.setattr(lt, 'assert_trainable', lambda *_a, **_kw: None)
         with pytest.raises(ValueError, match=r'update it \(git pull\)'):
             lt.enqueue_training(LOCAL_USER, ds.id, extra_steps=100)
 

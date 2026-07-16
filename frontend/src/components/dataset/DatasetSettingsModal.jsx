@@ -1,8 +1,9 @@
 /**
  * DatasetSettingsModal — edit a dataset's identity after creation.
  *
- * Name and trigger word (any dataset), plus the concept description for concept
- * datasets. Changing the trigger is safe (it's prepended at export — no re-caption).
+ * Name and trigger word for character/concept datasets, plus the concept
+ * description for concept datasets. Style is explicitly always-on and never
+ * exposes its internal run identifier as an activation trigger.
  * Changing the concept description is what drives the caption avoid-list, so editing
  * it resets that list; the parent's toast nudges a re-caption for existing captions.
  */
@@ -14,16 +15,17 @@ const FIELD =
 
 export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
   const concept = d.kind === 'concept';
+  const style = d.kind === 'style';
   const [name, setName] = useState(d.name || '');
   const [trigger, setTrigger] = useState(d.trigger_word || '');
   const [desc, setDesc] = useState(d.concept_desc || '');
 
-  const canSave = name.trim() && trigger.trim() && (!concept || desc.trim());
+  const canSave = name.trim() && (style || trigger.trim()) && (!concept || desc.trim());
   const save = async () => {
     if (!canSave || busy) return;
     const res = await onSave({
       name: name.trim(),
-      trigger_word: trigger.trim(),
+      trigger_word: style ? (d.trigger_word || '') : trigger.trim(),
       concept_desc: concept ? desc.trim() : undefined,
     });
     if (res?.ok) onClose();
@@ -42,15 +44,23 @@ export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
           <input value={name} onChange={(e) => setName(e.target.value)} className={FIELD} />
         </label>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-content-muted text-xs">Trigger word</span>
-          <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
-            placeholder="e.g. myTrigger" className={`${FIELD} font-mono`} />
-          <span className="text-content-subtle text-[0.6875rem]">
-            The word you put in prompts to summon this LoRA. Safe to change anytime —
-            it&apos;s added at export, so existing captions don&apos;t need redoing.
-          </span>
-        </label>
+        {style ? (
+          <div className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[0.75rem] text-cyan-100">
+            <b>Always-on Style:</b> no activation trigger is written into captions or prompts.
+            Control the effect with the LoRA weight; when combining with a character LoRA,
+            tune the two weights independently.
+          </div>
+        ) : (
+          <label className="flex flex-col gap-1">
+            <span className="text-content-muted text-xs">Trigger word</span>
+            <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
+              placeholder="e.g. myTrigger" className={`${FIELD} font-mono`} />
+            <span className="text-content-subtle text-[0.6875rem]">
+              The word you put in prompts to summon this LoRA. Safe to change anytime —
+              it&apos;s added at export, so existing captions don&apos;t need redoing.
+            </span>
+          </label>
+        )}
 
         {concept && (
           <label className="flex flex-col gap-1">

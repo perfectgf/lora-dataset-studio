@@ -60,6 +60,57 @@ def test_export_zip_layout(app):
         assert any(n.endswith('_000_ref.png') for n in names)
         txt = [n for n in names if n.endswith('_001.txt')][0]
         assert z.read(txt).decode('utf-8').startswith('zoe, ')
+        info = z.read(next(n for n in names if n.endswith('_dataset_info.md'))).decode()
+        assert 'Training family: Z-Image' in info
+        assert 'Activation token: zoe' in info
+        assert 'rank 12-16' not in info and 'de-distill adapter' not in info
+
+
+def test_style_exports_content_only_in_zip_and_sidecars(app):
+    """Style's salted run id never becomes an activation token in public exports."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    import os
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Ink style', 'zsty_ink', kind='style',
+                                train_type='krea')
+        d = svc._dataset_dir(ds.id); os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, 'ref.webp'), 'wb').write(_png()); ds.ref_filename = 'ref.webp'
+        open(os.path.join(d, 'ink.webp'), 'wb').write(_png((10, 20, 30)))
+        caption = 'A bicycle beside a brick wall under soft afternoon light.'
+        svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, filename='ink.webp',
+                                            status='keep',
+                                            caption=f'zsty_ink, {caption}'))
+        svc.db.session.commit()
+
+        z = zipfile.ZipFile(io.BytesIO(svc.build_export_zip(LOCAL_USER, ds.id)))
+        assert not any('_000_ref.' in name for name in z.namelist())
+        txt = next(name for name in z.namelist() if name.endswith('_001.txt'))
+        assert z.read(txt).decode('utf-8') == caption
+        assert 'zsty_ink' not in z.read(txt).decode('utf-8')
+        info = z.read(next(
+            name for name in z.namelist() if name.endswith('_dataset_info.md'))).decode()
+        assert 'Training family: Krea 2' in info
+        assert 'Activation: always-on Style' in info
+        assert 'zsty_ink' not in info
+        assert 'rank 12-16' not in info and 'de-distill adapter' not in info
+
+        result = svc.write_caption_files(LOCAL_USER, ds.id)
+        assert result['written'] == 1
+        with open(os.path.join(d, 'ink.txt'), encoding='utf-8') as fh:
+            assert fh.read() == caption
+
+        # A later legacy trigger-only caption resolves to empty. Resync must
+        # delete yesterday's content sidecar instead of silently training it.
+        row = FaceDatasetImage.query.filter_by(
+            dataset_id=ds.id, filename='ink.webp').one()
+        row.caption = 'zsty_ink'
+        svc.db.session.commit()
+        result = svc.write_caption_files(LOCAL_USER, ds.id)
+        assert result['written'] == 0
+        assert result['removed_stale'] == 1
+        assert not os.path.exists(os.path.join(d, 'ink.txt'))
 
 
 def test_status_validation(app):

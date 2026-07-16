@@ -384,10 +384,15 @@ class TrainingPreset(db.Model):
     the per-key update_train_settings path, so a preset exported by a newer
     (or older) app version applies gracefully: unknown keys are ignored and
     invalid values reported, never fatal. Import/export is a JSON file built
-    around this row. New table — created by db.create_all()."""
+    around this row. ``dataset_kind``/``variants`` scope new presets without
+    invalidating legacy NULL rows; their columns are added idempotently at boot."""
     __tablename__ = 'training_preset'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), nullable=False, unique=True)
     train_type = db.Column(db.String(16), nullable=False, default='zimage')
+    # Scope metadata is nullable for presets created before family/kind guards.
+    # ``variants`` is a JSON list (e.g. ["base"] or ["4b", "9b"]).
+    dataset_kind = db.Column(db.String(16), nullable=True)
+    variants = db.Column(db.Text, nullable=True)
     settings = db.Column(db.Text, nullable=False, default='{}')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

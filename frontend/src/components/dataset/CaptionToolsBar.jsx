@@ -194,7 +194,9 @@ export default function CaptionToolsBar({ images, kind = 'character', mode = 'bo
                   </button>
                 )}
                 <span className="text-content-subtle text-[0.6875rem]">
-                  kohya-style sidecar captions, trigger included — overwrites existing .txt
+                  {kind === 'style'
+                    ? 'content-only sidecars · no activation trigger · overwrites existing .txt'
+                    : 'kohya-style sidecar captions, trigger included — overwrites existing .txt'}
                 </span>
               </div>
             </div>

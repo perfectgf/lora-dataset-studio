@@ -115,6 +115,7 @@ function tileStats(d) {
   if (!total) return 'empty';
   if (!kept) return `${total} img · none kept`;
   if (captioned >= kept) return `${kept} kept · ✓ captioned`;
+  if (d.kind === 'style') return `${kept} kept · ${captioned}/${kept} required captions`;
   if (captioned > 0) return `${kept} kept · ${captioned}/${kept} captioned`;
   return `${kept} kept`;
 }
@@ -163,7 +164,9 @@ function DatasetTile({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
               );
             })}
           </span>
-          <span className="truncate font-mono text-[0.6875rem] text-indigo-300">{d.trigger_word || '—'}</span>
+          <span className={`truncate text-[0.6875rem] ${d.kind === 'style' ? 'text-cyan-300' : 'font-mono text-indigo-300'}`}>
+            {d.kind === 'style' ? 'always-on · no activation trigger' : (d.trigger_word || '—')}
+          </span>
           <span className="text-[0.6875rem] text-content-subtle">{tileStats(d)}</span>
         </div>
       </button>
@@ -219,14 +222,13 @@ function NewDatasetForm({ onCreate, onClose }) {
   // corporelles sont bannies des captions et la composition cible plus de corps).
   const [fidelity, setFidelity] = useState('face');
   const concept = kind === 'concept';
-  // Style : esthétique globale absorbée par le LoRA — captions de contenu pur,
-  // PAS de trigger dans la config d'entraînement (champ facultatif ici, il ne sert
-  // qu'à nommer le run), pas de description à omettre, pas de fidélité visage.
+  // Style : esthétique globale absorbée par le LoRA — captions de contenu pur
+  // obligatoires, aucun trigger d'activation, pas de fidélité visage.
   const style = kind === 'style';
   // Mirrors the server rule EXACTLY (POST /api/dataset/create): name is always
   // required; trigger_word is required for character/concept (it's the token
-  // that summons them) but NOT for style (the server auto-generates a
-  // zsty_<id> placeholder — no trigger to type, as the field above says).
+  // that summons them) but NOT for style (the server may retain an internal id
+  // for filenames/runs, but it never enters training captions or prompts).
   // Without this, an empty-trigger character/concept create used to reach the
   // server with the button enabled and 400 silently (no toast, no feedback).
   const canCreate = name.trim() && (!concept || conceptDesc.trim()) && (style || trigger.trim());
@@ -247,7 +249,7 @@ function NewDatasetForm({ onCreate, onClose }) {
       <div className="flex gap-1.5">
         {[['character', '🧑 Character', 'A person/face — identity binds to the trigger'],
           ['concept', '💡 Concept', 'A recurring act/effect — the concept binds to the trigger'],
-          ['style', '🎨 Style', 'A global aesthetic — no trigger: the LoRA tints every image it is loaded on']].map(
+          ['style', '🎨 Style', 'An always-on aesthetic: load the LoRA and control its influence with the LoRA weight']].map(
           ([val, label, hint]) => (
             <button key={val} type="button" onClick={() => setKind(val)} title={hint}
               className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
@@ -259,27 +261,29 @@ function NewDatasetForm({ onCreate, onClose }) {
           ))}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
+        <label className={`flex flex-col gap-1 text-[0.6875rem] text-content-muted ${style ? 'sm:col-span-2' : ''}`}>
           {concept ? 'Concept name' : style ? 'Style name' : 'Character name'}
           <input id="new-dataset-name" value={name} onChange={(e) => setName(e.target.value)}
             placeholder={concept ? 'e.g. cim' : style ? 'e.g. ink-wash' : 'e.g. Emma'}
             className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
         </label>
-        <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
-          Trigger word{style ? ' (names the run — a style LoRA has no trigger)' : ''}
-          <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
-            placeholder={concept ? 'e.g. cim_act' : style ? 'e.g. zsty_inkwash' : 'e.g. zchar_emma'}
-            className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
-          {/* Guard-rail: a plain short word ("emma", "girl") collides with the base
-              model's existing vocabulary — the identity bleeds into that word
-              everywhere. A unique token (prefix/underscore/digits) binds cleanly. */}
-          {trigger.trim() && /^[a-z]{1,7}$/i.test(trigger.trim()) && (
-            <span className="text-amber-300 text-[0.625rem]">
-              ⚠ “{trigger.trim()}” looks like a common word — the base model already has a meaning
-              for it. Prefer a unique token like <span className="font-mono">zchar_{trigger.trim().toLowerCase()}</span>.
-            </span>
-          )}
-        </label>
+        {!style && (
+          <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
+            Trigger word
+            <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
+              placeholder={concept ? 'e.g. cim_act' : 'e.g. zchar_emma'}
+              className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
+            {/* Guard-rail: a plain short word ("emma", "girl") collides with the base
+                model's existing vocabulary — the identity bleeds into that word
+                everywhere. A unique token (prefix/underscore/digits) binds cleanly. */}
+            {trigger.trim() && /^[a-z]{1,7}$/i.test(trigger.trim()) && (
+              <span className="text-amber-300 text-[0.625rem]">
+                ⚠ “{trigger.trim()}” looks like a common word — the base model already has a meaning
+                for it. Prefer a unique token like <span className="font-mono">zchar_{trigger.trim().toLowerCase()}</span>.
+              </span>
+            )}
+          </label>
+        )}
       </div>
       {/* Modèle cible : fixe le format de caption (SDXL→tags booru, sinon prose) et la
           section du menu. Modifiable ensuite dans le panneau d'entraînement. */}
@@ -330,7 +334,7 @@ function NewDatasetForm({ onCreate, onClose }) {
           {concept
             ? 'The trigger word is the token you type to summon this concept. Import raw images of it, then caption and train.'
             : style
-              ? 'A style LoRA applies to every image once loaded — no trigger needed. Import varied images sharing the style, then train (captions optional).'
+              ? 'Always-on Style: import varied images, then caption every kept image with content only (subject, action, setting) while leaving the aesthetic unspoken. Combine it with a character LoRA by adjusting each LoRA weight.'
               : 'The trigger word is the unique token you will type in prompts to summon this character.'}
         </p>
         <button type="button"

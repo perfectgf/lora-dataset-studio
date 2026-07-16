@@ -31,7 +31,7 @@ test('workspace wires mirror actions and keeps rescue previews read-only', () =>
 
 test('grid exposes an accessible per-image mirror action with busy protection', () => {
   assert.match(grid, /onMirror, onRegenerate/);
-  assert.match(grid, /mirrorBusy=\{Boolean\(mirroringIds\?\.has\(img\.id\)\)\} busy=\{busy\}/);
+  assert.match(grid, /mirrorBusy=\{Boolean\(mirroringIds\?\.has\(img\.id\)\)\} busy=\{bulkBusy\}/);
   assert.match(gridItem, /\{url && onMirror && \(/);
   assert.match(gridItem, /disabled=\{busy \|\| mirrorBusy\}/);
   assert.match(gridItem, /aria-busy=\{mirrorBusy\}/);

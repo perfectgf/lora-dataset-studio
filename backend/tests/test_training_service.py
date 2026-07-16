@@ -240,9 +240,8 @@ def test_recommended_steps_concept_scales_sublinearly(app):
 
 
 def test_style_dataset_job_config_and_steps(app, tmp_path):
-    """Style kind: √n steps like concept, NO trigger_word in the job config,
-    caption dropout raised to 0.30, subject-LoRA timestep override removed,
-    sample prompts without the trigger."""
+    """Style is always-on: no process/prompt trigger, conservative dropout and
+    the family/variant timestep recipe remains intact."""
     from app.services import lora_training as lt
     from app.services import face_dataset_service as svc
     from app.models import FaceDatasetImage
@@ -255,29 +254,125 @@ def test_style_dataset_job_config_and_steps(app, tmp_path):
         assert ds.fidelity is None            # fidelity = personnage uniquement
         for _ in range(100):
             svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep', filename='x.webp'))
+        ds.train_settings = json.dumps({'sample_prompts': [
+            'zsty, a harbor at dawn', '{trigger}, a quiet forest path']})
         svc.db.session.commit()
-        assert lt.recommended_steps(ds.id) == 4800        # 475*10=4750 -> arrondi centaine
+        assert lt.recommended_steps(ds.id) == 2000        # Z-Image Turbo cap
         assert lt.recommended_steps_info(ds.id)['kind'] == 'style'
-        cfg_ = lt.build_job_config(ds, str(tmp_path), steps=4800)
+        cfg_ = lt.build_job_config(ds, str(tmp_path), steps=2000)
         proc = cfg_['config']['process'][0]
         assert 'trigger_word' not in proc                  # style = pas de trigger
-        assert proc['datasets'][0]['caption_dropout_rate'] == 0.30
-        assert 'timestep_type' not in proc['train']        # sigmoid = reco sujet, retirée
+        assert proc['datasets'][0]['caption_dropout_rate'] == 0.05
+        assert proc['train']['timestep_type'] == 'sigmoid'
         assert all('zsty' not in p for p in proc['sample']['prompts'])
+        assert proc['sample']['prompts'] == ['a harbor at dawn', 'a quiet forest path']
+        snap = lt.launch_settings_snapshot(ds)
+        assert snap['style_mode'] == 'always_on'
+        assert snap['effective_caption_dropout'] == 0.05
+        assert 'trigger' not in snap
 
 
-def test_style_dataset_captions_optional(app):
-    """assert_trainable must NOT block a style dataset on missing captions."""
+def test_style_dataset_captions_required_with_existing_override(app):
+    """Blank/whitespace Style captions block unless the explicit override is used."""
     from app.services import lora_training as lt
     from app.services import face_dataset_service as svc
     from app.models import FaceDatasetImage
     from app.config import LOCAL_USER
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'S2', 'zsty2', kind='style')
-        for _ in range(12):
-            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep', filename='x.webp'))
+        for i in range(12):
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep',
+                                                filename='x.webp',
+                                                caption='   ' if i == 0 else None))
         svc.db.session.commit()
-        lt.assert_trainable(ds.id)   # aucune caption -> ne lève pas
+        with pytest.raises(ValueError, match='UNCAPTIONED'):
+            lt.assert_trainable(ds.id)
+        lt.assert_trainable(ds.id, allow_uncaptioned=True)
+
+
+def test_style_caption_quality_guard_and_override(app):
+    """Trigger-only and normalized-identical captions are detected together."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'SQ', 'raw_lds', kind='style')
+        variants = (' raw_lds. ', 'RAW_LDS!', ' raw_lds  ', 'raw_lds:')
+        for i in range(12):
+            svc.db.session.add(FaceDatasetImage(
+                dataset_id=ds.id, status='keep', filename=f'{i}.webp',
+                caption=variants[i % len(variants)]))
+        svc.db.session.commit()
+        quality = lt.style_caption_quality(ds.id)
+        assert quality['trigger_only_count'] == 12
+        assert quality['all_identical'] is True
+        with pytest.raises(ValueError, match='CAPTION_QUALITY'):
+            lt.assert_trainable(ds.id)
+        lt.assert_trainable(ds.id, allow_caption_quality=True)
+
+
+def test_style_steps_are_family_and_variant_aware(app):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Step style', 'style_steps', kind='style')
+        for i in range(10):
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep',
+                                                filename=f'{i}.webp'))
+        svc.db.session.commit()
+        assert lt.recommended_steps(ds.id, 'flux2klein', '4b') == 1200
+        assert lt.recommended_steps(ds.id, 'krea', 'raw') == 2000
+        assert lt.recommended_steps(ds.id, 'krea', 'turbo') == 1000
+        assert lt.recommended_steps(ds.id, 'krea', 'deturbo') == 1000  # legacy -> Turbo
+        assert lt.recommended_steps(ds.id, 'zimage', 'turbo') == 1000
+        assert lt.recommended_steps(ds.id, 'zimage', 'base') == 1500
+        info = lt.recommended_steps_info(ds.id, train_type='krea', variant='raw')
+        assert info['min_steps'] == 2000 and info['max_steps'] == 3000
+        assert info['train_type'] == 'krea' and info['variant'] == 'raw'
+
+
+def test_style_krea_cached_text_has_zero_caption_dropout(app, tmp_path):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Krea style', 'krea_style', kind='style',
+                                train_type='krea')
+        ds.train_variant = 'base'
+        proc = lt.build_job_config(ds, str(tmp_path), steps=2000,
+                                   training_folder='__test__')['config']['process'][0]
+        assert 'trigger_word' not in proc
+        assert proc['datasets'][0]['cache_text_embeddings'] is True
+        assert proc['datasets'][0]['caption_dropout_rate'] == 0.0
+        assert proc['train']['timestep_type'] == 'linear'
+        snap = lt.launch_settings_snapshot(ds)
+        assert snap['effective_caption_dropout'] == 0.0
+
+
+def test_style_aitoolkit_export_is_content_only(app, tmp_path):
+    from PIL import Image
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Export style', 'zsty_export', kind='style')
+        filename = 'source.webp'
+        Image.new('RGB', (32, 32), (30, 20, 10)).save(
+            os.path.join(svc._dataset_dir(ds.id), filename), 'WEBP')
+        caption = 'A glass vase on a table beside a bright window.'
+        svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep',
+                                            filename=filename,
+                                            caption=f'zsty_export, {caption}'))
+        svc.db.session.commit()
+        out = lt.export_dataset_to_aitoolkit(
+            LOCAL_USER, ds.id, masked=True, dest_dir=tmp_path / 'export')
+        sidecar = next((tmp_path / 'export').glob('*.txt'))
+        assert sidecar.read_text(encoding='utf-8') == caption
+        assert 'zsty_export' not in sidecar.read_text(encoding='utf-8')
 
 
 def test_style_captioned_still_checks_prose_booru_mismatch(app):
@@ -292,9 +387,9 @@ def test_style_captioned_still_checks_prose_booru_mismatch(app):
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'S3', 'zsty3', kind='style', train_type='sdxl')
         prose = 'A woman reading a book in a sunlit cafe, sitting by the window.'
-        for _ in range(12):
+        for i in range(12):
             svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep',
-                                                filename='x.webp', caption=prose))
+                                                filename='x.webp', caption=f'{prose} Scene {i}.'))
         svc.db.session.commit()
         with pytest.raises(ValueError, match='MISMATCH_CAPTION'):
             lt.assert_trainable(ds.id, train_type='sdxl')
@@ -316,6 +411,26 @@ def test_style_default_trigger_salted_no_collision(app):
         assert c.trigger_word == 'zsty_ink'   # un trigger explicite est respecté
 
 
+def test_style_preview_strips_only_legacy_trigger_prefix(app):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Ink', 'ink', kind='style')
+        ds.train_settings = json.dumps({'sample_prompts': [
+            'an ink illustration on paper',
+            'ink, a portrait under window light',
+            '{trigger}, a mountain landscape',
+        ]})
+        svc.db.session.commit()
+        prompts = lt._sample_prompts(ds, 'ink')
+    assert prompts == [
+        'an ink illustration on paper',
+        'a portrait under window light',
+        'a mountain landscape',
+    ]
+
+
 def test_job_config_masked_fields_only_when_masks_exist(app, tmp_path):
     from app.services import lora_training as lt
     folder = tmp_path / 'ds'
@@ -334,10 +449,100 @@ def test_enqueue_snapshots_steps_and_not_before(app, monkeypatch):
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'Q', 'q')
         monkeypatch.setattr(lt, 'assert_trainable', lambda *a, **k: None)
-        lt.enqueue_training(LOCAL_USER, ds.id, steps=2000, not_before='2999-01-01T00:00')
+        lt.enqueue_training(LOCAL_USER, ds.id, steps=2000, not_before='2999-01-01T00:00',
+                            allow_caption_mismatch=True, allow_uncaptioned=True,
+                            allow_caption_quality=True)
         q = lt.get_train_queue()
         assert q[0]['steps'] == 2000 and q[0]['not_before'].startswith('2999')
+        assert q[0]['allow_caption_mismatch'] is True
+        assert q[0]['allow_uncaptioned'] is True
+        assert q[0]['allow_caption_quality'] is True
         assert lt._due_index(q) is None                   # scheduled in the future -> not due
+
+        captured = {}
+        monkeypatch.setattr(lt, 'launch_training',
+                            lambda *a, **kw: captured.update(kw) or {'started': True})
+        lt._launch_queued_item(q[0])
+        assert captured['allow_caption_mismatch'] is True
+        assert captured['allow_uncaptioned'] is True
+        assert captured['allow_caption_quality'] is True
+
+
+def test_continue_revalidates_current_dataset_then_forwards_confirmations(
+        app, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Resume guarded', 'resume_guarded')
+        calls = []
+        monkeypatch.setattr(
+            lt, 'assert_trainable',
+            lambda dataset_id, **kw: calls.append(('preflight', dataset_id, kw)))
+        monkeypatch.setattr(
+            lt, 'list_checkpoints',
+            lambda *a, **kw: [{'step': 750, 'filename': 'resume.safetensors'}])
+        monkeypatch.setattr(
+            lt, 'launch_training',
+            lambda *a, **kw: calls.append(('launch', kw)) or {'started': True})
+
+        result = lt.continue_training(
+            LOCAL_USER, ds.id, extra_steps=500,
+            allow_caption_mismatch=True, allow_uncaptioned=True,
+            allow_caption_quality=True)
+
+    assert result['target_steps'] == 1250
+    assert calls[0][0] == 'preflight'
+    assert calls[0][2]['allow_caption_mismatch'] is True
+    assert calls[0][2]['allow_uncaptioned'] is True
+    assert calls[0][2]['allow_caption_quality'] is True
+    assert calls[1][0] == 'launch'
+    assert calls[1][1]['check_captions'] is False
+    assert calls[1][1]['allow_caption_mismatch'] is True
+    assert calls[1][1]['allow_uncaptioned'] is True
+    assert calls[1][1]['allow_caption_quality'] is True
+
+
+def test_continue_and_queued_resume_block_if_dataset_degraded(app, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Resume degraded', 'resume_degraded')
+        launched = []
+        monkeypatch.setattr(
+            lt, 'assert_trainable',
+            lambda *a, **kw: (_ for _ in ()).throw(
+                ValueError('UNCAPTIONED: dataset changed since the checkpoint')))
+        monkeypatch.setattr(
+            lt, 'list_checkpoints', lambda *a, **kw: [{'step': 750}])
+        monkeypatch.setattr(
+            lt, 'launch_training', lambda *a, **kw: launched.append(kw))
+
+        with pytest.raises(ValueError, match='UNCAPTIONED'):
+            lt.continue_training(LOCAL_USER, ds.id, extra_steps=500)
+        with pytest.raises(ValueError, match='UNCAPTIONED'):
+            lt.enqueue_training(LOCAL_USER, ds.id, extra_steps=500)
+        assert launched == []
+        assert lt.get_train_queue() == []
+
+
+def test_queued_resume_replays_confirmation_flags(monkeypatch):
+    from app.services import lora_training as lt
+    captured = {}
+    monkeypatch.setattr(
+        lt, 'continue_training',
+        lambda *a, **kw: captured.update(kw) or {'started': True})
+    lt._launch_queued_item({
+        'dataset_id': 9, 'user_id': 'local', 'extra_steps': 500,
+        'base_model': '', 'variant': 'base', 'train_type': 'zimage',
+        'allow_caption_mismatch': True,
+        'allow_uncaptioned': True,
+        'allow_caption_quality': True,
+    })
+    assert captured['allow_caption_mismatch'] is True
+    assert captured['allow_uncaptioned'] is True
+    assert captured['allow_caption_quality'] is True
 
 
 def test_step_cap_floor_500(app, tmp_path, monkeypatch):
