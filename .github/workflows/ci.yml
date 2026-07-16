@@ -16,7 +16,9 @@ concurrency:
 jobs:
   backend-tests:
     name: Backend tests
-    runs-on: ubuntu-latest
+    # The portable app and its ai-toolkit/ComfyUI path contracts target Windows.
+    # Linux runtime viability is covered independently by docker-smoke below.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
