@@ -305,24 +305,38 @@ The machine scan lists each capability as a **clickable row** that jumps straigh
 </p>
 <p align="center"><em>Setup detects ComfyUI (optional), an Ollama vision model, and ai-toolkit — and helps you install whatever's missing.</em></p>
 
-First, get the code (every option below starts from here):
+### Option 1 — release ZIP + start.bat (Windows)
 
-```bash
-git clone https://github.com/perfectgf/lora-dataset-studio.git
-cd lora-dataset-studio
-```
-
-### Option 1 — start.bat (Windows, one command)
-
-The repo ships with the frontend prebuilt (`frontend/dist/`), so this doesn't need Node.js:
+Download **`LoRA-Dataset-Studio-windows.zip`** from the
+[latest GitHub release](https://github.com/perfectgf/lora-dataset-studio/releases/latest),
+extract the whole archive, then double-click:
 
 ```
 start.bat
 ```
 
-No Python needed up front: `start.bat` looks for a compatible interpreter (`py -3.12/3.11/3.10` — the range with prebuilt wheels for the optional ML extras) and, if it finds none, **downloads a self-contained CPython 3.12** into a local `.python\` folder (~44 MB, once — no system install, no admin, nothing added to PATH). It then creates a `.venv`, installs `backend/requirements.txt`, opens `http://127.0.0.1:5050/` in your browser, and starts the server. So the whole flow is just: **unzip → double-click `start.bat`**. (Already have Python 3.10–3.12? It's used as-is and nothing is downloaded. On 3.13+ only, the core app still runs but the ML extras can't install.) Override the port with `set LDS_PORT=<port>` before running.
+Releases deliberately contain an archive/source, not a prebuilt executable launcher.
+No Python is needed up front: `start.bat` looks for a compatible interpreter
+(`py -3.12/3.11/3.10` — the range with prebuilt wheels for the optional ML extras)
+and, if it finds none, **downloads a self-contained CPython 3.12** into a local
+`.python\` folder (~44 MB, once — no system install, no admin, nothing added to
+PATH). It then creates a `.venv`, installs `backend/requirements.txt`, opens
+`http://127.0.0.1:5050/` in your browser, and starts the server. (Already have
+Python 3.10–3.12? It's used as-is and nothing is downloaded. On 3.13+ only, the
+core app still runs but the ML extras can't install.) Override the port with
+`set LDS_PORT=<port>` before running.
+
+You can use the same flow from a git checkout instead of the release ZIP:
+
+```bash
+git clone https://github.com/perfectgf/lora-dataset-studio.git
+cd lora-dataset-studio
+start.bat
+```
 
 ### Option 2 — manual venv (any OS)
+
+Clone/download the source, open a terminal in its root, then run:
 
 ```bash
 python -m venv .venv

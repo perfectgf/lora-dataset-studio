@@ -28,6 +28,12 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
+      - name: Enforce release asset policy
+        run: python scripts/check_release_artifacts.py
+
+      - name: Test release asset guard
+        run: python -m unittest discover -s scripts/tests -p 'test_*.py'
+
       - name: Install backend dependencies
         run: python -m pip install --disable-pip-version-check -r backend/requirements.txt
 

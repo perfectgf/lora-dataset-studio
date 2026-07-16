@@ -1,7 +1,6 @@
-# Release automation: push a tag `vYYYY.MM.DD[.N]` and this builds the portable
-# Windows bundle (packaging/build_portable.ps1) and publishes it as a GitHub
-# Release. The release author is the github-actions bot. The in-app update
-# check for PACKAGED builds compares the latest release tag against
+# Release automation: push a tag `vYYYY.MM.DD[.N]` and this publishes a Windows
+# source ZIP launched through start.bat. Binary launchers are intentionally not
+# release assets. The in-app update check compares the latest release tag against
 # backend/app/version.py, so the tag MUST match APP_VERSION — enforced below.
 name: release
 
@@ -54,10 +53,15 @@ jobs:
             throw "frontend/dist is stale - rebuild it and commit the result before tagging a release"
           }
 
-      # Host python for PyInstaller only (the bundle ships its own standalone CPython).
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Enforce release asset policy
+        run: python scripts/check_release_artifacts.py
+
+      - name: Test release asset guard
+        run: python -m unittest discover -s scripts/tests -p 'test_*.py'
 
       - name: Run the test suite
         shell: pwsh
@@ -65,9 +69,12 @@ jobs:
           python -m pip install --disable-pip-version-check -r backend/requirements.txt
           python -m pytest backend/tests -q
 
-      - name: Build the portable bundle
+      - name: Build the Windows source ZIP
         shell: pwsh
-        run: ./packaging/build_portable.ps1
+        run: ./packaging/build_release_zip.ps1
+
+      - name: Verify release archive policy
+        run: python scripts/check_release_artifacts.py packaging/dist/LoRA-Dataset-Studio-windows.zip
 
       - name: Publish the release
         shell: pwsh
@@ -75,6 +82,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" `
-            "packaging/dist/LoRA-Dataset-Studio-win64.zip" `
+            "packaging/dist/LoRA-Dataset-Studio-windows.zip" `
             --title "LoRA Dataset Studio ${{ github.ref_name }}" `
             --generate-notes

@@ -4,9 +4,9 @@ working tree is, `git pull --ff-only`, then relaunch the server.
 Dependency installation is deliberately deferred to the detached restart helper.
 Running pip inside the live Flask process can corrupt locked packages on Windows.
 
-Only meaningful for a git checkout. A packaged build (the portable bundle) has no
+Only meaningful for a git checkout. A packaged build (the Windows release ZIP) has no
 `.git`, so `is_git_checkout()` is False and the caller falls back to the releases
-page — a running bundle can't safely overwrite its own locked exe/dlls anyway.
+page — a running bundle can't safely overwrite its own live runtime files anyway.
 `git` must be on PATH; if it isn't we say so rather than fail cryptically (a clone
 user has git by definition, so this only bites an unusual setup).
 """

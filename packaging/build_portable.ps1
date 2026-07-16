@@ -1,10 +1,10 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  Assemble the portable Windows bundle of LoRA Dataset Studio.
+  Assemble the legacy local PyInstaller bundle of LoRA Dataset Studio.
 
 .DESCRIPTION
-  Produces packaging/dist/LoRA-Dataset-Studio-win64.zip: a self-contained folder the
+  Produces packaging/dist/LoRA-Dataset-Studio-local-legacy-win64.zip: a self-contained folder the
   end user extracts and runs by double-clicking "LoRA Dataset Studio.exe" — no Python
   install, no terminal. The heavy externals (ComfyUI, ai-toolkit, Ollama, ML extras)
   stay OUT of the bundle: the in-app Setup wizard installs them. This is why we ship a
@@ -20,13 +20,13 @@
   (only used to run PyInstaller for the launcher), tar.exe (built into Windows 10+),
   and internet access. The end user needs none of this.
 
-  Distribute the resulting .zip as a GitHub Release asset. Unsigned: SmartScreen will
-  warn "unknown publisher" (More info -> Run anyway). Code-signing is a later add-on.
+  Developer-only compatibility tool. GitHub releases MUST use
+  build_release_zip.ps1 instead; this legacy output must never be published.
 #>
 [CmdletBinding()]
 param(
   [string]$PyVersion = '3.11',
-  [string]$OutName   = 'LoRA-Dataset-Studio'
+  [string]$OutName   = 'LoRA-Dataset-Studio-local-legacy'
 )
 $ErrorActionPreference = 'Stop'
 $Here  = $PSScriptRoot
@@ -35,6 +35,8 @@ $Build = Join-Path $Here 'build'
 $Stage = Join-Path $Here "dist\$OutName"
 $Zip   = Join-Path $Here "dist\$OutName-win64.zip"
 $UA    = @{ 'User-Agent' = 'lds-build' }
+
+Write-Warning 'Legacy local launcher build only. Do not attach this output to a release.'
 
 function Step($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 

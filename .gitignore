@@ -19,7 +19,7 @@ venv/
 # node
 frontend/node_modules/
 
-# packaging build artifacts (portable bundle) — the sources are committed, not the output
+# packaging build artifacts — release ZIP and optional local legacy bundle
 packaging/build/
 packaging/dist/
 packaging/*.spec

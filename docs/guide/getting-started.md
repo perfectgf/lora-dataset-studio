@@ -25,9 +25,12 @@ automatically when their tool is detected.
 
 ## First launch
 
-**Windows (one command):** clone the repo, then run `start.bat`. It picks a
-compatible Python (3.10–3.12), creates a `.venv`, installs the requirements and
-opens the app at `http://127.0.0.1:5050/`.
+**Windows (one command):** download `LoRA-Dataset-Studio-windows.zip` from the
+[latest release](https://github.com/perfectgf/lora-dataset-studio/releases/latest),
+extract it, then double-click `start.bat`. Releases contain an archive/source, not
+a prebuilt executable launcher. `start.bat` finds or downloads a compatible Python
+(3.10–3.12), creates `.venv`, installs the requirements, and opens the app at
+`http://127.0.0.1:5050/`.
 
 **Any OS (manual venv):**
 
@@ -40,7 +43,7 @@ python backend/run.py
 
 **Docker (API-only):** `cp .env.example .env`, then `docker compose up --build`.
 
-The full install matrix (portable bundle, GPU requirements, external tools)
+The full install matrix (Windows release ZIP, GPU requirements, external tools)
 lives in the README on GitHub.
 
 ## The Setup wizard

@@ -3,7 +3,7 @@
   CPython 3.10-3.12 that start.bat can build its .venv on.
 
   Downloads the official `install_only` build from astral-sh/python-build-standalone
-  (the same source the old portable bundle embedded), verifies its SHA-256 against
+  (the runtime source used by the Windows start.bat flow), verifies its SHA-256 against
   the GitHub asset digest, and extracts it to <Dest> so <Dest>\python.exe is a ready
   3.12 interpreter — no system install, no admin rights, nothing added to PATH.
 

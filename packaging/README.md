@@ -1,71 +1,36 @@
-# Packaging — portable Windows bundle
+# Packaging — Windows release ZIP
 
-A one-double-click distribution for non-technical users: **no Python install, no
-terminal**. They download a `.zip`, extract it, and run **`LoRA Dataset Studio.exe`**.
+The supported Windows release is a source archive named
+`LoRA-Dataset-Studio-windows.zip`. It contains the tracked frontend build,
+backend, `start.bat`, and the small Python bootstrap script. It does not ship a
+prebuilt launcher or an embedded runtime.
 
-## What's in the bundle
+Users extract the archive and double-click **`start.bat`**. The launcher finds a
+compatible Python already installed or downloads a standalone CPython into the
+extracted folder on first launch, creates `.venv`, installs the core requirements,
+and opens the browser. Nothing is installed system-wide and administrator rights
+are not required.
 
-```
-LoRA Dataset Studio.exe   ← launcher (Tkinter status window: Open / Quit)
-python/                   ← standalone CPython + core deps, WITH pip
-backend/                  ← Flask app
-frontend/dist/            ← prebuilt UI (shipped in the repo)
-icon.ico  README.md
-data/                     ← created on first run: config.json, .env, datasets, server.log
-```
+## Build the release archive
 
-The launcher starts `python\python.exe backend\run.py` (no console), waits for
-`/api/health`, opens the browser, and shows a small window with **Open** / **Quit**.
-Everything writable lives under `data/` next to the exe, so the bundle is fully
-portable — copy the folder anywhere, nothing touches `%APPDATA%` or the registry.
-
-## Why a standalone Python and not a single frozen .exe
-
-The in-app **Setup wizard** installs the optional ML extras at runtime with
-`pip install -r backend/requirements-ml.txt` (face scoring, background masks). A frozen
-PyInstaller single-exe has **no pip**, so that step would break. Shipping a real
-standalone CPython keeps it working: the app runs under `python/python.exe`, so the
-wizard's `pip` targets the bundle. The heavy externals stay outside the bundle and are
-guided by the wizard:
-
-| In the bundle | Installed later via the Setup wizard |
-| --- | --- |
-| Flask app + core deps (light) | ML extras (insightface, onnxruntime, rembg, opencv) |
-| Prebuilt UI | ComfyUI · ai-toolkit · Ollama + a vision model |
-
-## Build it
-
-On a **build machine** (Windows 10+, a host `python` 3.9–3.12 on PATH, internet):
-
-**Easiest — double-click `packaging\build.bat`.** It checks for Python, runs the
-build with the right execution policy, and opens the output folder when done.
-
-Or from a terminal:
+On Windows, either double-click `packaging\build.bat` or run:
 
 ```powershell
-python packaging\make_icon.py        # (re)generate icon.ico — optional, it's committed
-powershell -ExecutionPolicy Bypass -File packaging\build_portable.ps1
-# -> packaging\dist\LoRA-Dataset-Studio-win64.zip
+powershell -ExecutionPolicy Bypass -File packaging\build_release_zip.ps1
+# -> packaging\dist\LoRA-Dataset-Studio-windows.zip
 ```
 
-The script fetches the latest [`python-build-standalone`](https://github.com/astral-sh/python-build-standalone)
-CPython (no pinned tag, so it never goes stale), installs the core deps into it, stages
-the app, builds the launcher exe with PyInstaller, and zips the result. Build artifacts
-(`packaging/build/`, `packaging/dist/`) are git-ignored; only the sources
-(`launcher.py`, `build_portable.ps1`, `make_icon.py`, `icon.ico`) are committed.
+The release workflow runs the same script after the backend/frontend test suites.
+It then runs `scripts/check_release_artifacts.py` against the ZIP before uploading
+the explicitly named archive. GitHub also supplies its normal source-code archives.
 
-## Distribute
+## Release policy
 
-Attach the `.zip` to a **GitHub Release**. Note for users:
+- Publish archives/source only; do not attach an executable launcher.
+- Never replace the explicit ZIP path in the workflow with a broad `dist/*` glob.
+- Run `python scripts/check_release_artifacts.py` after changing a release workflow.
+- Test the extracted archive by double-clicking `start.bat` on a clean Windows VM.
 
-- **SmartScreen** may say *"Windows protected your PC — unknown publisher."* That's
-  expected for an unsigned exe: **More info → Run anyway**. A code-signing certificate
-  (paid) removes the warning — a later add-on, not required to ship.
-- Some antivirus engines occasionally false-positive on PyInstaller exes; the launcher
-  source is right here (`launcher.py`) for anyone who wants to audit or rebuild it.
-
-## Verified vs. not
-
-`launcher.py` and `build_portable.ps1` are committed and parse-checked. The **full
-end-user flow** (extract → double-click → wizard) should be validated on a **clean
-Windows machine without Python** before publishing a release.
+`build_portable.ps1` and `launcher.py` remain in the repository only as a legacy
+local developer experiment. They are not invoked by CI, `build.bat`, or the release
+workflow, and their output is unsupported and must never be published.
