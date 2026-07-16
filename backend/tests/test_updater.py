@@ -108,7 +108,7 @@ def test_apply_changed_no_deps(monkeypatch):
     assert r['ok'] and r['changed'] is True and r['deps_changed'] is False
 
 
-def test_apply_reinstalls_when_requirements_change(monkeypatch):
+def test_apply_defers_requirements_install_until_restart(monkeypatch):
     state = {'pulled': False}
 
     def resp(a):
@@ -128,7 +128,22 @@ def test_apply_reinstalls_when_requirements_change(monkeypatch):
                         lambda *a, **k: pip_calls.append(a[0]) or _R())
     r = updater.apply_update()
     assert r['changed'] is True and r['deps_changed'] is True
-    assert pip_calls and 'pip' in ' '.join(pip_calls[0])   # pip install was invoked
+    assert pip_calls == []   # never mutate imported packages in the live Flask process
+
+
+def test_restart_helper_installs_dependencies_after_port_is_free(tmp_path):
+    command = updater._dependency_install_command(tmp_path, 'python-test')
+    assert command == ['python-test', '-m', 'pip', 'install', '-q', '-r',
+                       str(tmp_path / 'backend' / 'requirements.txt')]
+
+    helper = updater._restart_helper_code(
+        'python-test', 'run-test.py', str(tmp_path), 5050,
+        install_requirements=True, root=tmp_path,
+    )
+    compile(helper, '<restart-helper>', 'exec')
+    assert repr(command) in helper
+    assert helper.index('s.bind') < helper.index('subprocess.run(dependency_command')
+    assert helper.index('subprocess.run(dependency_command') < helper.index('subprocess.Popen')
 
 
 def test_apply_pull_failure_is_reported_not_raised(monkeypatch):

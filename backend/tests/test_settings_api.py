@@ -417,3 +417,20 @@ def test_settings_restart_triggers_schedule_restart(client, monkeypatch):
     assert r.status_code == 200
     assert r.get_json() == {'ok': True, 'restarting': True}
     assert called == [1]
+
+
+def test_update_apply_defers_changed_requirements_to_restart(client, monkeypatch):
+    from app.services import updater
+    monkeypatch.setattr(
+        updater, 'apply_update',
+        lambda: {'ok': True, 'changed': True, 'deps_changed': True},
+    )
+    calls = []
+    monkeypatch.setattr(updater, 'schedule_restart',
+                        lambda *a, **k: calls.append((a, k)))
+
+    response = client.post('/api/update/apply')
+
+    assert response.status_code == 200
+    assert response.get_json()['restarting'] is True
+    assert calls == [((), {'install_requirements': True})]

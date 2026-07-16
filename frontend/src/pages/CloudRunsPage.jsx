@@ -39,6 +39,27 @@ function timeAgo(iso) {
 
 function famLabel(f) { return FAMILY_LABEL[f] || f || 'LoRA'; }
 
+function AutoRetryBadges({ run }) {
+  return (
+    <>
+      {run.auto_retry_of != null && (
+        <span
+          className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-200 text-[0.625rem]"
+          title={`Automatic retry of cloud run #${run.auto_retry_of}`}>
+          ↻ automatic retry {run.auto_retry_count || 1}/1
+        </span>
+      )}
+      {run.auto_retry_run_id != null && (
+        <span
+          className="rounded border border-violet-400/40 bg-violet-500/10 px-1.5 py-0.5 text-violet-200 text-[0.625rem]"
+          title={`Automatically relaunched as cloud run #${run.auto_retry_run_id}`}>
+          ↻ auto-retried as #{run.auto_retry_run_id}
+        </span>
+      )}
+    </>
+  );
+}
+
 /* One compact line: the EFFECTIVE ai-toolkit settings this launch used
    (snapshotted at launch by the provenance registry). Absent on rows that
    predate the snapshot feature. */
@@ -297,6 +318,7 @@ export default function CloudRunsPage() {
                 <span className={`rounded border px-1.5 py-0.5 text-[0.625rem] ${statusStyle(run.status)}`}>
                   {run.status}
                 </span>
+                <AutoRetryBadges run={run} />
                 <span className="text-content-subtle text-[0.625rem]">{timeAgo(run.created_at)}</span>
                 <span className="ml-auto text-content-muted text-[0.6875rem] tabular-nums">
                   {run.gpu ? `${run.gpu} · ` : ''}{run.price_per_hour != null ? `$${run.price_per_hour}/h · ` : ''}
@@ -398,6 +420,7 @@ export default function CloudRunsPage() {
                 <span className={`rounded border px-1.5 py-0.5 text-[0.625rem] ${statusStyle(run.status)}`}>
                   {run.status}
                 </span>
+                <AutoRetryBadges run={run} />
                 <span className="text-content-subtle text-[0.625rem]">{timeAgo(run.finished_at || run.created_at)}</span>
                 {run.error && (run.status === 'error' || run.status === 'error_pod_kept') && (
                   <span className="text-content-subtle text-[0.625rem] truncate max-w-[16rem]" title={run.error}>

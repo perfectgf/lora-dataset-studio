@@ -1,5 +1,5 @@
 const STORAGE_PREFIX = 'lds:scraper-scan:v1:';
-const API_GENERATION_ENGINES = new Set(['nanobanana', 'chatgpt']);
+
 const emptyState = () => ({ url: '', kw: '', sub: '', items: [], page: 0,
   paginated: false, fullAlbums: false, rescueSmall: false, selected: new Set() });
 const storageFor = (storage) => {
@@ -8,10 +8,8 @@ const storageFor = (storage) => {
 };
 const keyFor = (datasetId) => `${STORAGE_PREFIX}${datasetId}`;
 
-export function isScraperImportBlocked({ busy, activity }) {
-  if (!busy) return false;
-  return !(activity?.kind === 'generate'
-    && API_GENERATION_ENGINES.has(String(activity?.engine || '').toLowerCase()));
+export function isDatasetImportBlocked({ localBusy, activity }) {
+  return !!localBusy || (!!activity && activity.kind !== 'generate');
 }
 
 export function loadScraperScanState(datasetId, storage) {

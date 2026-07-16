@@ -241,7 +241,9 @@ def update_apply():
         # invalidate the cached checks so the banner/badge re-evaluate post-update
         _update_cache.update(ts=0.0, data=None)
         _git_check_cache.update(ts=0.0, data=None)
-        updater.schedule_restart()
+        updater.schedule_restart(
+            install_requirements=bool(res.get('deps_changed'))
+        )
     return jsonify(res)
 
 
@@ -272,6 +274,18 @@ def trash_info():
     there; only 'Empty trash' below actually destroys bytes."""
     from ..services import trash
     return jsonify({'size_bytes': trash.trash_size()})
+
+
+@bp.post('/trash/open')
+def trash_open():
+    """Open the server-resolved trash directory; the client supplies no path."""
+    from ..services import trash
+    try:
+        trash.open_trash_folder()
+    except Exception:
+        current_app.logger.exception('could not open trash folder')
+        return jsonify({'error': 'could not open trash folder'}), 500
+    return jsonify({'ok': True})
 
 
 @bp.post('/trash/empty')

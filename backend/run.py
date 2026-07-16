@@ -41,6 +41,13 @@ def _reexec_into_venv():
 _reexec_into_venv()
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+from bootstrap_dependencies import ensure_pillow_consistent
+
+# Must run before importing ``app`` (which eventually imports PIL).  This fixes
+# Windows installs left half-upgraded by versions of the in-app updater that ran
+# pip while Pillow files were still loaded and locked by the Flask process.
+ensure_pillow_consistent()
+
 from app import create_app
 
 try:

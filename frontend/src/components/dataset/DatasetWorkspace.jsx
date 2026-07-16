@@ -7,7 +7,7 @@ import TrainingPanel from './TrainingPanel';
 import { fmt } from '../../utils/studioFormat';
 import ImportDropzone from './ImportDropzone';
 import ConceptSourcesPanel from './ConceptSourcesPanel';
-import { isScraperImportBlocked } from './scraperState';
+import { isDatasetImportBlocked } from './scraperState';
 import DatasetGrid from './DatasetGrid';
 import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
@@ -470,7 +470,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // e.g. "Scanning for watermarks… 12/64". CPU passes (face analysis, watermark
   // clean) don't pause ComfyUI, so their note omits that claim.
   const act = ds.activity;
-  const scraperBusy = isScraperImportBlocked({ busy: ds.busy, activity: act });
+  const importBusy = isDatasetImportBlocked({ localBusy: ds.localBusy, activity: act });
+  // Unknown / legacy engine values fail safe as local: only these two API
+  // engines are guaranteed not to share ComfyUI VRAM with vision auto-crop.
+  const visionImportBusy = act?.kind === 'generate'
+    && !['nanobanana', 'chatgpt'].includes(String(act?.engine || '').toLowerCase());
   const activityBanner = ds.captioning
     ? `${act?.detail || `Captioning in progress — ${keptCaptioned}/${kept} captioned…`} ComfyUI is paused.`
     : (() => {
@@ -784,10 +788,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
               <div id="gf-reference" className="scroll-mt-20 flex flex-col gap-2">
                 <div id="ds-add-scraper" tabIndex={-1} className="scroll-mt-20">
                   <ConceptSourcesPanel key={`scraper-${d.id}`} datasetId={d.id}
-                    onImport={ds.scrapeImport} busy={scraperBusy} />
+                    onImport={ds.scrapeImport} busy={importBusy} />
                 </div>
                 <div id="ds-add-import" tabIndex={-1} className="scroll-mt-20">
-                  <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={ds.busy} />
+                  <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={importBusy} visionBusy={visionImportBusy} />
                 </div>
               </div>
             ) : (
@@ -798,7 +802,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       one clear photo of the face — every generated variation starts from it
                     </span>
                     <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
-                      onCropRef={() => setRefCrop(true)} busy={ds.busy} nonce={ds.refNonce}
+                      onCropRef={() => setRefCrop(true)} busy={ds.busy} importBusy={importBusy} visionBusy={visionImportBusy} nonce={ds.refNonce}
                       extraRefs={d.ref_extra_filenames || []}
                       onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
                   </div>
@@ -825,7 +829,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       dropzone so the default follows a fidelity switch. */}
                   <div id="ds-add-import" tabIndex={-1} className="scroll-mt-20">
                     <ImportDropzone key={`${d.id}-${bodyFid}`} onImport={(f, o) => ds.importFiles(f, o)}
-                      busy={ds.busy} cropOption defaultCrop={!bodyFid} />
+                      busy={importBusy} visionBusy={visionImportBusy} cropOption defaultCrop={!bodyFid} />
                   </div>
                   {/* Scraper (character datasets too): scan a gallery URL → pick → import
                       full-frame — then crop each tile manually (✂ on the card). Collapsed
@@ -845,7 +849,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     </summary>
                     <div className="px-3">
                       <ConceptSourcesPanel key={`scraper-${d.id}`} datasetId={d.id}
-                        onImport={ds.scrapeImport} busy={scraperBusy} />
+                        onImport={ds.scrapeImport} busy={importBusy} />
                     </div>
                   </details>
                 </div>
@@ -1192,12 +1196,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
               <div id="ds-export-import" tabIndex={-1}
                 className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2 scroll-mt-20">
                 <button type="button" data-workspace-focus
-                  onClick={() => zipInput.current?.click()} disabled={ds.busy}
+                  onClick={() => zipInput.current?.click()} disabled={importBusy}
                   title="Merge an existing training dataset into this one: a ZIP of images with kohya-style same-name .txt captions (any folder layout). Aspect kept, perceptual duplicates skipped."
                   className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
                   📦 Import dataset (ZIP)
                 </button>
-                <button type="button" disabled={ds.busy} onClick={importFolderPrompt}
+                <button type="button" disabled={importBusy} onClick={importFolderPrompt}
                   title="Merge an existing training dataset already on this machine's disk: a folder of images with kohya-style same-name .txt captions (subfolders included). Aspect kept, perceptual duplicates skipped."
                   className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
                   📂 Import from folder…

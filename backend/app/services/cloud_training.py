@@ -36,6 +36,9 @@ ACTIVE_STATES = ('preparing', 'provisioning', 'uploading', 'training',
 
 _stop_events = {}        # run_id -> threading.Event
 _monitor_threads = {}    # run_id -> threading.Thread
+_auto_retry_lock = threading.Lock()
+_UNSET = object()
+_TRAIN_SETTINGS_SNAPSHOT = 'train_settings_snapshot'
 
 
 def _stop_event_for(run_id):
@@ -83,9 +86,8 @@ def _run_family(run):
 
 
 class _RunConfigDataset:
-    """Read-only view of a dataset whose ``train_type`` / ``train_variant`` are
-    forced to a run's STAMPED launch params; every other attribute delegates to
-    the real dataset row.
+    """Read-only view of a dataset whose config inputs are forced to the values
+    stamped for this run; every other attribute delegates to the real dataset.
 
     The cloud monitor builds the pod job through this view so the job's
     architecture/variant come from what the run was LAUNCHED with — never from
@@ -99,10 +101,12 @@ class _RunConfigDataset:
     rented GPU). build_job_config only READS the dataset, so a view is enough:
     no DB mutation, nothing to restore, and both concurrent runs stay isolated."""
 
-    def __init__(self, ds, train_type, train_variant):
+    def __init__(self, ds, train_type, train_variant,
+                 train_settings_snapshot=_UNSET):
         self._ds = ds
         self._train_type = train_type
         self._train_variant = train_variant
+        self._train_settings_snapshot = train_settings_snapshot
 
     @property
     def train_type(self):
@@ -114,6 +118,14 @@ class _RunConfigDataset:
         return (self._train_variant if self._train_variant is not None
                 else getattr(self._ds, 'train_variant', None))
 
+    @property
+    def train_settings(self):
+        # ``None`` is a meaningful snapshot: the run was launched with the
+        # family defaults. Only _UNSET means a legacy run without a snapshot.
+        return (getattr(self._ds, 'train_settings', None)
+                if self._train_settings_snapshot is _UNSET
+                else self._train_settings_snapshot)
+
     def __getattr__(self, name):
         # Reached only for attributes not resolved normally (i.e. everything
         # except _ds / _train_* / the two properties) -> delegate to the real ds.
@@ -121,16 +133,19 @@ class _RunConfigDataset:
 
 
 def _run_config_dataset(ds, params):
-    """Wrap ``ds`` so build_job_config reads THIS run's stamped family/variant
-    instead of the dataset's current selection. A legacy row that stamped
-    neither (pre-feature) falls back to the dataset unchanged (historical
-    behaviour), so only runs that actually recorded a family/variant get the
-    override."""
+    """Wrap ``ds`` so build_job_config reads THIS run's stamped recipe.
+
+    Advanced settings must be immutable per run: the pod job is built minutes
+    after launch and an automatic retry even later. Dataset edits in between
+    affect future launches only. Legacy rows without a settings snapshot retain
+    their historical DB fallback.
+    """
     fam = params.get('train_type')
     var = params.get('variant')
-    if fam is None and var is None:
+    advanced = params.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET)
+    if fam is None and var is None and advanced is _UNSET:
         return ds
-    return _RunConfigDataset(ds, fam, var)
+    return _RunConfigDataset(ds, fam, var, advanced)
 
 
 def latest_run_for(dataset_id, train_type=None):
@@ -188,7 +203,10 @@ def retry_cloud_run(user_id, run_id) -> dict:
         train_type=p.get('train_type'),
         masked=p.get('masked', True),
         allow_caption_mismatch=True, allow_uncaptioned=True,
-        gpu_name=p.get('requested_gpu'))
+        gpu_name=p.get('requested_gpu'),
+        resume_ckpt_path=p.get('resume_ckpt_path'),
+        resume_step=p.get('resume_step'),
+        train_settings_snapshot=p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET))
 
 
 def _run_staging_checkpoints(run) -> list:
@@ -224,9 +242,9 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
     famille) avec les paramètres persistés du run source (variante/famille/
     masked/GPU class, comme retry_cloud_run) ; son monitor, AVANT de démarrer le
     job, dépose le checkpoint dans le save_root du job sur le pod pour déclencher
-    l'auto-resume d'ai-toolkit. Le job config reprend les settings du dataset
-    comme d'habitude ; register_launch reste un launch cloud normal — le resume
-    est un détail d'exécution."""
+    l'auto-resume d'ai-toolkit. Le job config reprend le snapshot de réglages du
+    run source ; register_launch reste un launch cloud normal — le resume est un
+    détail d'exécution."""
     run = db.session.get(CloudTrainingRun, int(run_id))
     if not run:
         raise ValueError('unknown cloud run')
@@ -255,7 +273,8 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
         masked=p.get('masked', True),
         allow_caption_mismatch=True, allow_uncaptioned=True,
         gpu_name=p.get('requested_gpu'),
-        resume_ckpt_path=latest['path'], resume_step=latest['step'])
+        resume_ckpt_path=latest['path'], resume_step=latest['step'],
+        train_settings_snapshot=p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET))
     res['resumed_from'] = latest['step']
     res['target_steps'] = latest['step'] + extra
     return res
@@ -264,7 +283,9 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
 def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                           variant=None, train_type=None, masked=True,
                           allow_caption_mismatch=False, allow_uncaptioned=False,
-                          gpu_name=None, resume_ckpt_path=None, resume_step=None) -> dict:
+                          gpu_name=None, resume_ckpt_path=None, resume_step=None,
+                          auto_retry_count=0, auto_retry_of=None,
+                          strict_gpu=False, train_settings_snapshot=_UNSET) -> dict:
     if not cfg.secret('VAST_API_KEY'):
         raise RuntimeError('vast.ai API key is not configured — add it in Settings')
     # A user launching after days away is exactly when an expired
@@ -374,8 +395,20 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         # since sold out (vast offers are ephemeral).
         params = {'steps': n_steps, 'variant': variant,
                   'train_type': fam, 'masked': bool(masked)}
+        # Freeze the RAW JSON, not only the compact provenance summary: it also
+        # carries custom preview prompts and explicit family defaults. ``None``
+        # deliberately means "family defaults at launch".
+        if train_settings_snapshot is _UNSET:
+            train_settings_snapshot = getattr(ds, 'train_settings', None)
+        params[_TRAIN_SETTINGS_SNAPSHOT] = train_settings_snapshot
         if gpu_name:
             params['requested_gpu'] = str(gpu_name)
+        if auto_retry_count:
+            params['auto_retry_count'] = max(0, int(auto_retry_count))
+        if auto_retry_of is not None:
+            params['auto_retry_of'] = int(auto_retry_of)
+        if strict_gpu:
+            params['strict_gpu'] = True
         # Continue-in-cloud: the monitor seeds this checkpoint into the pod job's
         # save_root before start_job so ai-toolkit auto-resumes from it. Absent
         # on a normal launch (the seed step is then a no-op).
@@ -389,7 +422,9 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         rec = checkpoint_registry.register_launch(
             user_id, dataset_id, family=fam, source='cloud',
             variant=variant, masked=bool(masked), steps=n_steps,
-            cloud_run_id=run.id, settings=lt.launch_settings_snapshot(ds, fam))
+            cloud_run_id=run.id,
+            settings=lt.launch_settings_snapshot(
+                _run_config_dataset(ds, params), fam))
         if rec is not None:
             params['version'] = rec.version
         _set(run, train_params=json.dumps(params))
@@ -401,6 +436,129 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         raise
     return {'run_id': run.id, 'status': run.status,
             'job_name': run.job_name, 'steps': n_steps}
+
+
+_AUTO_RETRY_LIMIT = 1
+_AUTO_RETRY_MARKERS = (
+    'pod did not become ready',
+    'pod unreachable',
+    'connection aborted',
+    'connection reset',
+    'connectionreseterror',
+    'remote end closed connection',
+    'failed to establish a new connection',
+    'max retries exceeded',
+    'read timed out',
+    'readtimeout',
+    'connect timeout',
+    'connecttimeout',
+    'connection refused',
+    'connectionrefusederror',
+)
+
+
+def _is_retryable_pod_failure(error) -> bool:
+    """True only for transient pod/transport failures worth paying to retry."""
+    text = str(error or '').lower()
+    return any(marker in text for marker in _AUTO_RETRY_MARKERS)
+
+
+def _auto_retry_child(parent_id):
+    """Existing child, including the crash window before its id reached parent."""
+    for child in CloudTrainingRun.query.order_by(CloudTrainingRun.id.desc()).all():
+        if _run_param(child, 'auto_retry_of') == int(parent_id):
+            return child
+    return None
+
+
+def _maybe_auto_retry(run, error):
+    """Rent at most one fresh pod after a transient failure of an existing pod."""
+    if (run.status != 'error' or not run.vast_instance_id
+            or not _is_retryable_pod_failure(error)):
+        return None
+
+    with _auto_retry_lock:
+        db.session.refresh(run)
+        try:
+            params = json.loads(run.train_params or '{}')
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(params, dict):
+            return None
+        try:
+            retry_count = max(0, int(params.get('auto_retry_count') or 0))
+        except (TypeError, ValueError):
+            return None
+
+        existing = _auto_retry_child(run.id)
+        if existing is not None:
+            params['auto_retry_scheduled'] = True
+            params['auto_retry_pending'] = False
+            params['auto_retry_run_id'] = existing.id
+            _set(run, train_params=json.dumps(params),
+                 phase_detail='Run failed — automatic retry launched')
+            return {'run_id': existing.id, 'status': existing.status}
+
+        pending_recovery = bool(params.get('auto_retry_scheduled')
+                                and params.get('auto_retry_pending'))
+        if retry_count >= _AUTO_RETRY_LIMIT:
+            return None
+        if params.get('auto_retry_scheduled') and not pending_recovery:
+            return None
+
+        # Commit the claim before renting. boot_recover resumes this exact
+        # pending state if the app stops between the claim and child creation.
+        params['auto_retry_scheduled'] = True
+        params['auto_retry_pending'] = True
+        _set(run, train_params=json.dumps(params),
+             phase_detail='Run failed — automatic retry starting…')
+
+        # Reuse the GPU class actually rented. requested_gpu may have fallen
+        # back on the initial launch, so it is not necessarily the effective GPU.
+        gpu_name = run.gpu_name or params.get('requested_gpu')
+        try:
+            result = launch_cloud_training(
+                'local', run.dataset_id,
+                steps=params.get('steps'),
+                variant=params.get('variant'),
+                train_type=params.get('train_type'),
+                masked=params.get('masked', True),
+                allow_caption_mismatch=True,
+                allow_uncaptioned=True,
+                gpu_name=gpu_name,
+                resume_ckpt_path=params.get('resume_ckpt_path'),
+                resume_step=params.get('resume_step'),
+                auto_retry_count=retry_count + 1,
+                auto_retry_of=run.id,
+                strict_gpu=bool(gpu_name),
+                train_settings_snapshot=params.get(
+                    _TRAIN_SETTINGS_SNAPSHOT, _UNSET))
+        except Exception as retry_error:
+            params['auto_retry_pending'] = False
+            params['auto_retry_error'] = str(retry_error)[:300]
+            prior = str(run.error or error or '')
+            _set(run, train_params=json.dumps(params),
+                 phase_detail='Run failed — automatic retry could not start',
+                 error=f'{prior} | automatic retry: {retry_error}'[:1000])
+            logger.exception('automatic retry for cloud run %s could not start',
+                             run.id)
+            return None
+
+        params['auto_retry_pending'] = False
+        params['auto_retry_run_id'] = result.get('run_id')
+        _set(run, train_params=json.dumps(params),
+             phase_detail='Run failed — automatic retry launched')
+        logger.warning('cloud run %s automatically retried as run %s on %s',
+                       run.id, result.get('run_id'), gpu_name)
+        return result
+
+
+def _recover_pending_auto_retries():
+    """Complete the persisted claim-to-child crash window at app boot."""
+    parents = CloudTrainingRun.query.filter_by(status='error').all()
+    for parent in parents:
+        if _run_param(parent, 'auto_retry_pending'):
+            _maybe_auto_retry(parent, parent.error)
 
 
 def _prepare_staging(run):
@@ -527,7 +685,7 @@ def _best_of(group):
     return max(window, key=lambda o: ((o.get('reliability') or 0), -o['dph_total']))
 
 
-def _pick_offer(offers, requested_gpu):
+def _pick_offer(offers, requested_gpu, strict=False):
     """Best offer of the requested GPU class if the user picked a speed tier
     and that class is still on the market; otherwise an offer of a
     SIMILAR-OR-BETTER speed tier (≥75% of the requested class's throughput,
@@ -545,6 +703,9 @@ def _pick_offer(offers, requested_gpu):
         matches = [o for o in offers if (o.get('gpu_name') or '') == requested_gpu]
         if matches:
             return _best_of(matches)
+        if strict:
+            raise RuntimeError(
+                f'no {requested_gpu} offer is available for the automatic retry')
         floor = gpu_speed.speed_factor(requested_gpu) * 0.75
         similar = [o for o in offers
                    if gpu_speed.speed_factor(o.get('gpu_name')) >= floor]
@@ -573,7 +734,8 @@ def _provision(run):
         raise RuntimeError(
             f'no vast.ai offer matches (>= {min_vram} GB VRAM, '
             f'<= ${c.get("max_price_per_hour", 0.80)}/h) — raise the price cap in Settings')
-    offer = _pick_offer(_filter_offers(offers), params.get('requested_gpu'))
+    offer = _pick_offer(_filter_offers(offers), params.get('requested_gpu'),
+                        strict=bool(params.get('strict_gpu')))
     # Stamp the host identity so a boot failure can blacklist THIS machine.
     if offer.get('machine_id') is not None:
         params['machine_id'] = offer['machine_id']
@@ -736,6 +898,7 @@ def boot_recover(app):
                 else:
                     _set(run, status='error', finished_at=datetime.utcnow(),
                          error='app restarted before the pod was created')
+            _recover_pending_auto_retries()
     except Exception:
         logger.exception('cloud boot recovery failed')
 
@@ -777,13 +940,20 @@ def _cloudify_job_config(job_config: dict, job_name: str,
 
 
 def _finish(run, status, detail='', error=None, destroy=True):
+    # A paid retry must never overlap the failed pod. Return whether there is
+    # confirmed to be no old pod left; callers that do not retry ignore it.
+    pod_gone = not bool(run.vast_instance_id)
     if destroy and run.vast_instance_id:
         try:
-            vast_client.destroy_instance(run.vast_instance_id)
+            pod_gone = bool(vast_client.destroy_instance(run.vast_instance_id))
+            if not pod_gone:
+                logger.error('terminate %s returned false', run.vast_instance_id)
         except Exception as e:
+            pod_gone = False
             logger.warning('terminate %s failed: %s', run.vast_instance_id, e)
     _set(run, status=status, phase_detail=detail, error=error,
          finished_at=datetime.utcnow())
+    return pod_gone
 
 
 def _monitor(app, run_id):
@@ -1043,12 +1213,19 @@ def _monitor(app, run_id):
                 _sleep(POLL_SECONDS)
         except Exception as e:
             logger.exception('cloud run %s failed', run_id)
-            # A pod that died mid-run is a HOST-quality signal (live
-            # 2026-07-13: a krea run lost at ~$0.93 when its pod went
-            # unreachable) — skip this machine for the next launches.
-            if 'unreachable' in str(e).lower():
-                _blacklist_host(_run_machine_id(run), 'pod died mid-run (unreachable)')
-            _finish(run, 'error', detail='Run failed', error=str(e)[:500])
+            error_text = str(e)[:500]
+            retryable = _is_retryable_pod_failure(error_text)
+            # Exclude the failed host before selecting the fresh pod.
+            if retryable:
+                _blacklist_host(_run_machine_id(run),
+                                f'transient pod failure: {error_text[:160]}')
+            pod_gone = _finish(run, 'error', detail='Run failed',
+                               error=error_text)
+            if retryable and pod_gone:
+                _maybe_auto_retry(run, error_text)
+            elif retryable:
+                _set(run, phase_detail='Run failed — automatic retry withheld '
+                                       'because pod termination was not confirmed')
         finally:
             # This run's slot in the module maps is done with — drop it so
             # they cannot grow unbounded across the app's lifetime with many
@@ -1364,6 +1541,9 @@ def _run_payload(run) -> dict:
                                      and os.path.isfile(run.checkpoint_local_path)),
             'train_type': _run_family(run),
             'version': _run_param(run, 'version'),
+            'auto_retry_count': int(_run_param(run, 'auto_retry_count') or 0),
+            'auto_retry_of': _run_param(run, 'auto_retry_of'),
+            'auto_retry_run_id': _run_param(run, 'auto_retry_run_id'),
             'created_at': run.created_at.isoformat() if run.created_at else None,
             'finished_at': run.finished_at.isoformat() if run.finished_at else None}
 

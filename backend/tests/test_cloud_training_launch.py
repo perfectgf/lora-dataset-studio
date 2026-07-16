@@ -158,7 +158,9 @@ def test_retry_relaunches_failed_run_with_same_params(ct, app, seeded_dataset, m
         run = CloudTrainingRun(dataset_id=seeded_dataset, status='error', run_name='x',
                                train_params=_json.dumps(
                                    {'steps': 2000, 'variant': 'base', 'train_type': 'krea',
-                                    'masked': False, 'requested_gpu': 'RTX 5090'}))
+                                    'masked': False, 'requested_gpu': 'RTX 5090',
+                                    'resume_ckpt_path': 'C:/staging/source.safetensors',
+                                    'resume_step': 1500}))
         db.session.add(run)
         db.session.commit()
         captured = {}
@@ -170,8 +172,74 @@ def test_retry_relaunches_failed_run_with_same_params(ct, app, seeded_dataset, m
     assert captured['steps'] == 2000 and captured['variant'] == 'base'
     assert captured['train_type'] == 'krea' and captured['masked'] is False
     assert captured['gpu_name'] == 'RTX 5090'
+    assert captured['resume_ckpt_path'] == 'C:/staging/source.safetensors'
+    assert captured['resume_step'] == 1500
     assert captured['allow_caption_mismatch'] is True
     assert captured['allow_uncaptioned'] is True
+
+
+def test_auto_retry_freezes_advanced_settings_after_dataset_edit(
+        ct, app, seeded_dataset, monkeypatch):
+    """A paid automatic retry must rebuild the original recipe, even when the
+    user edits Advanced options while the first pod is running."""
+    _fake_export(monkeypatch, ct)
+    original = json.dumps({
+        'rank': 64, 'alpha': 32, 'dropout': 0.1,
+        'resolution': '1024', 'save_every': 500,
+        'max_step_saves': 6, 'optimizer': 'prodigy',
+        'grad_accum': 2, 'timestep_type': 'linear',
+        'lr_scheduler': 'constant_with_warmup', 'warmup': 200,
+        'network_type': 'lokr', 'ema': 0.99,
+        'sample_every': 500,
+        'sample_prompts': ['{trigger}, original preview'],
+    })
+    changed = json.dumps({
+        'rank': 8, 'resolution': '768', 'optimizer': 'adamw8bit',
+        'sample_prompts': ['changed preview'],
+    })
+
+    with app.app_context():
+        ds = ct.fds.get_dataset('local', seeded_dataset)
+        ds.train_settings = original
+        ct.db.session.commit()
+        parent_id = ct.launch_cloud_training(
+            'local', seeded_dataset, train_type='zimage')['run_id']
+        parent = ct.db.session.get(ct.CloudTrainingRun, parent_id)
+        parent.status = 'error'
+        parent.error = 'connection reset by peer'
+        parent.vast_instance_id = 'failed-pod'
+        parent.gpu_name = 'RTX 5090'
+        ds.train_settings = changed
+        ct.db.session.commit()
+
+        result = ct._maybe_auto_retry(parent, parent.error)
+        child = ct.db.session.get(ct.CloudTrainingRun, result['run_id'])
+        child_params = json.loads(child.train_params)
+        assert child_params['train_settings_snapshot'] == original
+
+        job = ct.lt.build_job_config(
+            ct._run_config_dataset(ds, child_params), '/staging/dataset',
+            steps=child_params['steps'], training_folder='__POD__')
+        proc = job['config']['process'][0]
+        assert proc['network'] == {
+            'type': 'lokr', 'linear': 64, 'linear_alpha': 32,
+            'dropout': 0.1,
+        }
+        assert proc['datasets'][0]['resolution'] == [1024]
+        assert proc['save']['save_every'] == 500
+        assert proc['train']['optimizer'] == 'prodigy'
+        assert proc['train']['gradient_accumulation'] == 2
+        assert proc['sample']['prompts'] == ['lola, original preview']
+
+
+def test_strict_offer_selection_never_falls_back_to_another_gpu(ct):
+    offers = [
+        {'offer_id': 1, 'gpu_name': 'RTX 4090', 'dph_total': 0.35},
+        {'offer_id': 2, 'gpu_name': 'RTX 3090', 'dph_total': 0.13},
+    ]
+    with pytest.raises(RuntimeError, match='automatic retry'):
+        ct._pick_offer(offers, 'RTX 5090', strict=True)
+    assert ct._pick_offer(offers, 'RTX 4090', strict=True)['offer_id'] == 1
 
 
 def test_retry_refuses_non_error_or_unknown_run(ct, app, seeded_dataset):

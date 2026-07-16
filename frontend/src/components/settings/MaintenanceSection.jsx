@@ -201,6 +201,7 @@ function LogViewer() {
 function TrashCard() {
   const [size, setSize] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [opening, setOpening] = useState(false)
   useEffect(() => {
     let alive = true
     apiFetch('/api/trash')
@@ -211,6 +212,17 @@ function TrashCard() {
   const fmt = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB`
     : b >= 1e6 ? `${Math.round(b / 1e6)} MB`
     : b > 0 ? `${Math.max(1, Math.round(b / 1e3))} KB` : 'empty')
+  const openFolder = async () => {
+    setOpening(true)
+    try {
+      const d = await postJson('/api/trash/open', {})
+      if (!d?.ok) window.alert(d?.error || 'Could not open the trash folder.')
+    } catch {
+      window.alert('Could not open the trash folder.')
+    } finally {
+      setOpening(false)
+    }
+  }
   const empty = async () => {
     if (!window.confirm('Permanently delete everything in the trash?\n\nThis is the ONLY destructive action — deleted checkpoints cannot be recovered afterwards.')) return
     setBusy(true)
@@ -228,6 +240,11 @@ function TrashCard() {
           <span aria-hidden>🗑</span> Trash size:{' '}
           <span className="font-semibold tabular-nums">{size == null ? '…' : fmt(size)}</span>
         </span>
+        <button type="button" onClick={openFolder} disabled={opening}
+          title="Open the trash folder in the file explorer"
+          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm font-medium text-content disabled:opacity-40">
+          {opening ? 'Opening…' : '📂 Open folder'}
+        </button>
         <button type="button" onClick={empty} disabled={busy || !size}
           className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-300 disabled:opacity-40">
           {busy ? 'Emptying…' : 'Empty trash'}

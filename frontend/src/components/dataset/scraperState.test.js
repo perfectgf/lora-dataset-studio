@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clearScraperScanState, isScraperImportBlocked, loadScraperScanState, saveScraperScanState } from './scraperState.js';
+import { clearScraperScanState, isDatasetImportBlocked, loadScraperScanState, saveScraperScanState } from './scraperState.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -8,12 +8,20 @@ function memoryStorage() {
     setItem: (key, value) => values.set(key, String(value)), removeItem: (key) => values.delete(key) };
 }
 
-test('scraper import stays available during API generation only', () => {
-  assert.equal(isScraperImportBlocked({ busy: false, activity: null }), false);
-  for (const engine of ['nanobanana', 'chatgpt'])
-    assert.equal(isScraperImportBlocked({ busy: true, activity: { kind: 'generate', engine } }), false);
-  for (const activity of [{ kind: 'generate', engine: 'klein' }, { kind: 'generate' }, { kind: 'caption' }, null])
-    assert.equal(isScraperImportBlocked({ busy: true, activity }), true);
+test('dataset image imports stay available during every generation engine', () => {
+  assert.equal(isDatasetImportBlocked({ localBusy: false, activity: null }), false);
+  for (const engine of ['klein', 'nanobanana', 'chatgpt', undefined])
+    assert.equal(isDatasetImportBlocked({
+      localBusy: false, activity: { kind: 'generate', engine },
+    }), false);
+});
+
+test('dataset image imports still block local overlap and non-generation activity', () => {
+  assert.equal(isDatasetImportBlocked({
+    localBusy: true, activity: { kind: 'generate', engine: 'chatgpt' },
+  }), true);
+  for (const activity of [{ kind: 'caption' }, { kind: 'classify' }, { kind: 'watermark_clean' }])
+    assert.equal(isDatasetImportBlocked({ localBusy: false, activity }), true);
 });
 
 test('scan results and selection survive reload per dataset', () => {

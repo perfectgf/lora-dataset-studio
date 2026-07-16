@@ -842,7 +842,7 @@ export function useDataset() {
     || actKind === 'watermark_detect' || actKind === 'watermark_clean';
   const busyLive = busy || !!activity;
 
-  return { datasets, currentId, data, busy: busyLive, captioning: captioningLive,
+  return { datasets, currentId, data, busy: busyLive, localBusy: busy, captioning: captioningLive,
            analyzing: analyzingLive, watermarking: watermarkingLive, activity,
            nonces, refNonce, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,

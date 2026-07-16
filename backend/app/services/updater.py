@@ -1,6 +1,8 @@
 """In-app self-update for GIT checkouts: report how many commits behind origin the
-working tree is, `git pull --ff-only`, reinstall deps only if requirements changed,
-then relaunch the server.
+working tree is, `git pull --ff-only`, then relaunch the server.
+
+Dependency installation is deliberately deferred to the detached restart helper.
+Running pip inside the live Flask process can corrupt locked packages on Windows.
 
 Only meaningful for a git checkout. A packaged build (the portable bundle) has no
 `.git`, so `is_git_checkout()` is False and the caller falls back to the releases
@@ -91,10 +93,12 @@ def git_update_status(root=None) -> dict | None:
 
 
 def apply_update(root=None) -> dict:
-    """`git pull --ff-only` the current branch; if requirements changed in the pulled
-    range, reinstall them. Returns {'ok', 'changed', 'from', 'to', 'deps_changed',
-    'log', ...}. Does NOT restart — the route schedules that when `changed` is True, so
-    this stays pure/testable."""
+    """`git pull --ff-only` and report whether requirements changed.
+
+    This function never invokes pip: the route passes ``deps_changed`` to
+    :func:`schedule_restart`, whose detached helper installs requirements only
+    after this process has exited and released imported package files.
+    """
     root = root or REPO_ROOT
     if not is_git_checkout(root):
         from ..config import get as cfg_get
@@ -121,24 +125,57 @@ def apply_update(root=None) -> dict:
     if changed:
         names = (_git(root, 'diff', '--name-only', before, after).stdout or '')
         deps_changed = any('requirements' in n for n in names.splitlines())
-        if deps_changed:
-            req = root / 'backend' / 'requirements.txt'
-            if req.exists():
-                try:
-                    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '-r', str(req)],
-                                   capture_output=True, text=True, timeout=900)
-                except subprocess.SubprocessError:
-                    pass   # non-fatal: the restart still loads new code; deps can be redone
     return {'ok': True, 'changed': changed, 'from': before[:8], 'to': after[:8],
             'deps_changed': deps_changed, 'log': log[-1500:]}
 
 
-def schedule_restart(delay: float = 1.2) -> None:
+def _dependency_install_command(root=None, executable=None) -> list[str]:
+    """Command embedded in the detached helper (kept separate for unit tests)."""
+    root = root or REPO_ROOT
+    executable = executable or sys.executable
+    return [executable, '-m', 'pip', 'install', '-q', '-r',
+            str(root / 'backend' / 'requirements.txt')]
+
+
+def _restart_helper_code(py, run_py, workdir, port, *, install_requirements=False,
+                         root=None):
+    root = root or REPO_ROOT
+    dependency_command = (_dependency_install_command(root, py)
+                          if install_requirements else None)
+    return (
+        'import os,socket,time,subprocess\n'
+        f'port={port!r}\n'
+        f'dependency_command={dependency_command!r}\n'
+        f'repo_root={str(root)!r}\n'
+        'for _ in range(120):\n'
+        '    s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)\n'
+        '    try:\n'
+        '        s.bind(("127.0.0.1",int(port))); s.close(); break\n'
+        '    except OSError:\n'
+        '        s.close(); time.sleep(0.5)\n'
+        # Package files are now unlocked because the old Flask process is gone.
+        'if dependency_command:\n'
+        '    try:\n'
+        '        subprocess.run(dependency_command, cwd=repo_root, check=False, timeout=900)\n'
+        '    except Exception as exc:\n'
+        '        print(f"[LDS] dependency update failed: {exc}", flush=True)\n'
+        # New visible console for the relaunched server: the helper itself is
+        # DETACHED, so a default spawn would leave the server console-less and
+        # the old launcher window frozen on stale output.
+        'flags=0x00000010 if os.name=="nt" else 0\n'
+        f'subprocess.Popen([{py!r},{run_py!r}], cwd={workdir!r}, creationflags=flags)\n'
+    )
+
+
+def schedule_restart(delay: float = 1.2, *, install_requirements: bool = False) -> None:
     """Relaunch the server, then hard-exit this process. A DETACHED helper waits for our
     port to free (this process fully gone) before binding, so we never hit the Windows
     'address already in use' rebind race a bare os.execv can trigger. The helper inherits
     our env, so LDS_HOST/LDS_PORT and the LDS_ACCESS_TOKEN (hence the bind + the token)
-    stay identical across the restart. `delay` lets the HTTP response flush first."""
+    stay identical across the restart. When ``install_requirements`` is true,
+    pip runs in that helper only after the old port is free (and therefore after
+    this process released imported package files). ``delay`` lets the HTTP
+    response flush first."""
     py = sys.executable
     run_py = os.path.abspath(sys.argv[0])
     workdir = os.path.dirname(run_py) or None
@@ -147,21 +184,8 @@ def schedule_restart(delay: float = 1.2) -> None:
     # another app, the helper stalled its whole 60 s retry budget against a
     # port that would never free before relaunching (observed live 2026-07-12).
     port = int(os.environ.get('LDS_PORT') or _cfg_get('server.port') or 5000)
-    helper = (
-        'import os,socket,time,subprocess\n'
-        f'port={port!r}\n'
-        'for _ in range(120):\n'
-        '    s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)\n'
-        '    try:\n'
-        '        s.bind(("127.0.0.1",int(port))); s.close(); break\n'
-        '    except OSError:\n'
-        '        s.close(); time.sleep(0.5)\n'
-        # New visible console for the relaunched server: the helper itself is
-        # DETACHED, so a default spawn would leave the server console-less and
-        # the old launcher window frozen on stale output.
-        'flags=0x00000010 if os.name=="nt" else 0\n'
-        f'subprocess.Popen([{py!r},{run_py!r}], cwd={workdir!r}, creationflags=flags)\n'
-    )
+    helper = _restart_helper_code(py, run_py, workdir, port,
+                                  install_requirements=install_requirements)
 
     def _spawn_then_exit():
         import time

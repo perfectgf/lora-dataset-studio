@@ -91,7 +91,10 @@ def _launch(ct, app, client, monkeypatch, remote, destroy_log):
                         (os.makedirs(dest_dir, exist_ok=True),
                          open(os.path.join(dest_dir, '0001.png'), 'wb').close(),
                          dest_dir)[-1])
-    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 100)
+    # Respect the production launch invariant: cloud runs never target fewer
+    # than one usable 500-step save.  Keeping the fixture valid also lets the
+    # automatic-retry assertion require byte-for-byte-equivalent parameters.
+    monkeypatch.setattr(ct.lt, 'default_steps', lambda ds: 500)
     monkeypatch.setattr(ct.lt, 'assert_trainable', lambda *a, **k: None)
     monkeypatch.setattr(ct.lt, 'build_job_config',
                         lambda ds, folder, steps=3000, training_folder=None: {
@@ -267,6 +270,101 @@ def test_pod_unreachable_mid_run_blacklists_host(ct, app, client, monkeypatch):
         assert 'unreachable' in (run.error or '')
         assert destroyed == ['777']                 # leak-safety unchanged
         assert '43503' in ct._load_bad_hosts()
+        # A transient pod loss gets exactly one fresh launch.  The retry locks
+        # to the GPU that was ACTUALLY rented (not merely the original picker
+        # preference), and preserves every persisted training parameter.
+        parent_params = json.loads(run.train_params)
+        child_id = parent_params['auto_retry_run_id']
+        child = ct.CloudTrainingRun.query.get(child_id)
+        child_params = json.loads(child.train_params)
+        assert child_params['auto_retry_of'] == run.id
+        assert child_params['auto_retry_count'] == 1
+        assert child_params['requested_gpu'] == 'RTX 4090'
+        assert child_params['strict_gpu'] is True
+        for key in ('steps', 'variant', 'train_type', 'masked'):
+            assert child_params[key] == parent_params[key]
+
+        # Calling the recovery seam again (e.g. after an app restart in the
+        # claim-to-child window) finds the same child instead of paying for a
+        # second pod.
+        before = ct.CloudTrainingRun.query.count()
+        again = ct._maybe_auto_retry(run, run.error)
+        assert again['run_id'] == child_id
+        assert ct.CloudTrainingRun.query.count() == before
+
+
+def test_auto_retry_classifier_only_accepts_transient_pod_failures(ct):
+    assert ct._is_retryable_pod_failure(
+        "('Connection aborted.', ConnectionResetError(10054, 'closed'))")
+    assert ct._is_retryable_pod_failure('pod did not become ready in time')
+    assert ct._is_retryable_pod_failure('pod unreachable: connection refused')
+    assert not ct._is_retryable_pod_failure('CUDA out of memory')
+    assert not ct._is_retryable_pod_failure('stall watchdog')
+
+
+def test_auto_retry_preserves_resume_and_uses_effective_gpu(ct, app, client,
+                                                            monkeypatch, tmp_path):
+    """The paid retry is the same run recipe, including a cloud continuation
+    seed, and strict-locks to the effective GPU recorded on the failed pod."""
+    ds_id = client.post('/api/dataset/create',
+                        json={'name': 'Retry recipe', 'trigger_word': 'retry'}).get_json()['id']
+    seed = tmp_path / 'resume.safetensors'
+    seed.write_bytes(b'weights')
+    captured = {}
+    with app.app_context():
+        run = ct.CloudTrainingRun(
+            dataset_id=ds_id, status='error', run_name='retry-source',
+            vast_instance_id='old-pod', gpu_name='RTX 5090',
+            train_params=json.dumps({
+                'steps': 4100, 'variant': 'deturbo', 'train_type': 'zimage',
+                'masked': False, 'requested_gpu': 'RTX 4090',
+                'resume_ckpt_path': str(seed), 'resume_step': 2500,
+            }))
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        monkeypatch.setattr(
+            ct, 'launch_cloud_training',
+            lambda user_id, dataset_id, **kw:
+            (captured.update(user_id=user_id, dataset_id=dataset_id, **kw),
+             {'run_id': 99, 'status': 'preparing'})[1])
+
+        result = ct._maybe_auto_retry(run, 'connection reset by peer')
+
+    assert result['run_id'] == 99
+    assert captured['dataset_id'] == ds_id
+    assert captured['steps'] == 4100
+    assert captured['variant'] == 'deturbo'
+    assert captured['train_type'] == 'zimage'
+    assert captured['masked'] is False
+    assert captured['resume_ckpt_path'] == str(seed)
+    assert captured['resume_step'] == 2500
+    assert captured['gpu_name'] == 'RTX 5090'       # effective, not requested
+    assert captured['strict_gpu'] is True
+    assert captured['auto_retry_count'] == 1
+    assert captured['auto_retry_of'] == run.id
+
+
+def test_auto_retry_requires_confirmed_old_pod_termination(ct, app, client,
+                                                            monkeypatch):
+    """Never rent the replacement while Vast has not confirmed that the old
+    billed instance is gone: two overlapping pods would double-charge."""
+    destroyed = []
+    remote = FakeRemote()
+    remote.is_ready = lambda: False
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    monkeypatch.setattr(ct.vast_client, 'destroy_instance',
+                        lambda iid: destroyed.append(iid) or False)
+    clock = {'t': 0.0}
+    monkeypatch.setattr(ct, '_now',
+                        lambda: clock.__setitem__('t', clock['t'] + 120) or clock['t'])
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'error'
+        assert destroyed == ['777']
+        assert 'termination was not confirmed' in run.phase_detail
+        assert ct.CloudTrainingRun.query.count() == 1
+        assert 'auto_retry_run_id' not in json.loads(run.train_params)
 
 
 def test_pod_never_ready_fails_and_destroys(ct, app, client, monkeypatch):

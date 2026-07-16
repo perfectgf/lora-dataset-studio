@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -44,6 +46,19 @@ def send_to_trash(path, context='') -> str:
     shutil.move(str(src), str(dest))
     logger.info('trashed %s -> %s', src, dest)
     return str(dest)
+
+
+def open_trash_folder() -> str:
+    """Open the fixed app trash directory in the host file explorer."""
+    path = str(trash_root())
+    if os.name == 'nt':
+        os.startfile(path)
+    elif sys.platform == 'darwin':
+        subprocess.Popen(['open', path])
+    else:
+        subprocess.Popen(['xdg-open', path])
+    logger.info('opened trash folder: %s', path)
+    return path
 
 
 def trash_size() -> int:

@@ -133,6 +133,17 @@ def test_max_step_saves_setting_reaches_job_config(app, ds):
             lt.update_train_settings(LOCAL_USER, ds, {'max_step_saves': 99})
 
 
+def test_trash_open_route(client, monkeypatch):
+    from app.services import trash
+    opened = []
+    monkeypatch.setattr(trash, 'open_trash_folder',
+                        lambda: opened.append(True) or 'trash')
+    res = client.post('/api/trash/open')
+    assert res.status_code == 200
+    assert res.get_json()['ok'] is True
+    assert opened == [True]
+
+
 def test_trash_routes(app, client, tmp_path):
     from app.services import trash
     with app.app_context():
