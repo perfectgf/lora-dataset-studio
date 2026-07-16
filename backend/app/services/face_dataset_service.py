@@ -2656,7 +2656,8 @@ def _caption_concept(ds, force, backend, token=None):
             if is_available():
                 dataset_activity.progress(
                     token, detail=f'Loading JoyCaption model and captioning {len(todo)} images…')
-                jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
+                jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt,
+                                               activity_token=token)
             elif backend == 'joycaption':
                 raise RuntimeError('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
         except RuntimeError:
@@ -2871,7 +2872,8 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
                         detail=f'Loading JoyCaption model and captioning {len(todo)} images…')
                     # Consigne « ne décris pas le visage » → les traits se lient au trigger,
                     # pas aux mots de la caption (deep-research 2026-06-14).
-                    jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
+                    jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt,
+                                                   activity_token=token)
                 elif backend == 'joycaption':
                     # Explicit choice, explicit failure: a user who forced 'joycaption' in
                     # Settings must be told WHY (the exact missing deps + pip command),

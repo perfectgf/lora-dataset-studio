@@ -8,10 +8,12 @@ le caller (`face_dataset_service.caption_images`) retombe sur Qwen3-VL (ou honor
 backend choisi dans les réglages)."""
 from __future__ import annotations
 
+import collections
 import json
 import logging
 import os
 import subprocess
+import threading
 import time
 
 from .. import config as cfg
@@ -39,10 +41,33 @@ def is_available() -> bool:
     return availability()['ok']
 
 
+def _reflect_stage(line: str, activity_token) -> None:
+    """Mirror one of the infer script's own ``[joycaption] …`` markers into the dataset
+    activity indicator so the UI shows a live stage ("first run: downloading …",
+    "model loaded", per-image progress) instead of a frozen "Loading…". Raw Hugging Face
+    tqdm download bars (no ``[joycaption]`` prefix) go to the log only, keeping the UI
+    detail readable. Non-fatal: never let progress reflection break captioning."""
+    if not activity_token or not line.startswith('[joycaption]'):
+        return
+    try:
+        from . import dataset_activity
+        dataset_activity.progress(activity_token, detail=line[len('[joycaption]'):].strip()[:200])
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def caption_images_joycaption(paths, prompt: str | None = None,
-                              max_tokens: int = 300, timeout: int = 1800) -> dict:
+                              max_tokens: int = 300, timeout: int = 1800,
+                              activity_token=None) -> dict:
     """Caption une LISTE d'images en un seul chargement de modèle.
-    Retourne {chemin: caption}. Vide si indispo/échec (non-fatal)."""
+    Retourne {chemin: caption}. Vide si indispo/échec (non-fatal).
+
+    Le stderr du subprocess est STREAMÉ ligne-à-ligne vers le log de l'app EN DIRECT
+    (thread lecteur) : au PREMIER run le modèle 8B NF4 (~7 Go) se télécharge depuis
+    Hugging Face, et sans ce flux l'app semblait gelée (issue #6 — l'utilisateur croyait
+    que rien ne se passait). Chargement du modèle, progression du download et erreurs
+    apparaissent désormais au fil de l'eau. ``activity_token`` (optionnel) reflète en plus
+    les jalons dans l'indicateur d'activité du dataset."""
     paths = [p for p in (paths or []) if p and os.path.isfile(p)]
     if not paths or not is_available():
         return {}
@@ -54,25 +79,76 @@ def caption_images_joycaption(paths, prompt: str | None = None,
     started = time.monotonic()
     logger.info('joycaption: starting batch (%d image(s), timeout=%ss)', len(paths), timeout)
     try:
-        proc = subprocess.run(
-            [venv_python, script], input=payload, env=env,
-            cwd=os.path.dirname(script), capture_output=True, text=True,
-            encoding='utf-8', errors='replace', timeout=timeout,
+        proc = subprocess.Popen(
+            [venv_python, script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, env=env, cwd=os.path.dirname(script), text=True,
+            encoding='utf-8', errors='replace',
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    except subprocess.TimeoutExpired:
-        logger.error('joycaption: timed out after %.1fs while processing %d image(s)',
-                     time.monotonic() - started, len(paths))
-        return {}
     except OSError as e:
         logger.error('joycaption: could not start subprocess after %.1fs: %s',
                      time.monotonic() - started, e)
         return {}
-    out = (proc.stdout or '').strip()
+
+    # Drain both pipes in threads: stderr is logged live (first-run download visibility),
+    # stdout is collected for the result JSON. Reading both concurrently avoids the pipe-
+    # buffer deadlock a naive proc.wait() would hit on a chatty subprocess, and lets us
+    # enforce the timeout via proc.wait() while the readers keep draining.
+    stdout_chunks: list[str] = []
+    stderr_tail: collections.deque = collections.deque(maxlen=25)
+
+    def _drain_stdout():
+        try:
+            stdout_chunks.append(proc.stdout.read() or '')
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _drain_stderr():
+        try:
+            for raw in proc.stderr:
+                line = raw.rstrip('\n')
+                if not line:
+                    continue
+                stderr_tail.append(line)
+                logger.info('joycaption[sub]: %s', line)
+                _reflect_stage(line, activity_token)
+        except Exception:  # noqa: BLE001
+            pass
+
+    t_out = threading.Thread(target=_drain_stdout, daemon=True)
+    t_err = threading.Thread(target=_drain_stderr, daemon=True)
+    t_out.start()
+    t_err.start()
+    try:
+        proc.stdin.write(payload)
+        proc.stdin.close()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        t_out.join(timeout=5)
+        t_err.join(timeout=5)
+        # The dominant cause of a first-run timeout is the ~7 GB model download, not a
+        # hang — say so, and note the download is cached so a re-run resumes instead of
+        # restarting from zero.
+        logger.error('joycaption: timed out after %.1fs while processing %d image(s) — '
+                     'if this was the FIRST run the ~7 GB model was still downloading; '
+                     'the partial download is cached, so just run captioning again to '
+                     'resume. Last subprocess output: %s',
+                     time.monotonic() - started, len(paths),
+                     ' | '.join(list(stderr_tail)[-5:]) or '(none)')
+        return {}
+    t_out.join(timeout=5)
+    t_err.join(timeout=5)
+
+    out = (''.join(stdout_chunks)).strip()
     # La sortie JSON est la dernière ligne `{…}` (les logs vont sur stderr).
     line = next((ln for ln in reversed(out.splitlines()) if ln.strip().startswith('{')), '')
     if not line:
         logger.warning('joycaption: pas de JSON (rc=%s) stderr=%s',
-                       proc.returncode, (proc.stderr or '')[-400:])
+                       proc.returncode, ' | '.join(list(stderr_tail)[-6:]))
         return {}
     try:
         data = json.loads(line)

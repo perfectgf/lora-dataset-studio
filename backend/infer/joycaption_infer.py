@@ -35,6 +35,19 @@ def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def _model_is_cached() -> bool:
+    """Best-effort: is the JoyCaption snapshot already in HF_HOME? Used ONLY to print an
+    honest first-run notice (a ~7 GB download is about to start) — never gates loading, so
+    a wrong guess is harmless. The cache dir name follows huggingface_hub's convention."""
+    import os
+    hub = os.path.join(os.environ.get('HF_HOME', '') or '', 'hub')
+    snap = os.path.join(hub, 'models--' + MODEL_ID.replace('/', '--'), 'snapshots')
+    try:
+        return os.path.isdir(snap) and any(os.scandir(snap))
+    except OSError:
+        return False
+
+
 def _trim(input_ids, eoh_id, eot_id):
     """Retire le prompt (tout jusqu'au dernier <|end_header_id|>) puis la fin (<|eot_id|>)."""
     while True:
@@ -66,18 +79,31 @@ def main() -> int:
 
     import torch
     import torchvision.transforms.functional as TVF
+    import transformers
     from PIL import Image
     from transformers import (AutoTokenizer, BitsAndBytesConfig,
                               LlavaForConditionalGeneration)
 
-    _log(f"[joycaption] loading {MODEL_ID} (NF4) …")
+    # First run pulls the 8B NF4 weights (~7 GB) from Hugging Face — say so on stderr so
+    # the app log (which streams this live) shows real activity instead of a silent wait
+    # (issue #6). Hugging Face's own download progress follows on stderr right after.
+    if _model_is_cached():
+        _log(f"[joycaption] loading {MODEL_ID} (NF4) from local cache …")
+    else:
+        _log(f"[joycaption] first run: downloading {MODEL_ID} (~7 GB, NF4) from Hugging "
+             "Face — this can take several minutes on a slow connection; progress follows …")
     nf4 = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                              bnb_4bit_quant_storage=torch.bfloat16,
                              bnb_4bit_use_double_quant=True,
                              bnb_4bit_compute_dtype=torch.bfloat16)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
+    # transformers 5.x renamed the load dtype kwarg `torch_dtype` -> `dtype` (the old name
+    # still works but warns; a future major may drop it). Pick by version so the same
+    # script loads on the ai-toolkit venv whether the user pip-installed transformers 4.x
+    # or the latest 5.x (they install it unpinned).
+    _dtype_kw = 'dtype' if int(transformers.__version__.split('.')[0]) >= 5 else 'torch_dtype'
     model = LlavaForConditionalGeneration.from_pretrained(
-        MODEL_ID, torch_dtype="bfloat16", quantization_config=nf4).eval()
+        MODEL_ID, quantization_config=nf4, **{_dtype_kw: "bfloat16"}).eval()
     # transformers 5.x déplace les sous-modules sous `.model` (vision_tower/language_model
     # ne sont plus top-level). On résout des deux façons pour rester compatible 4.x/5.x.
     _core = getattr(model, "model", model)

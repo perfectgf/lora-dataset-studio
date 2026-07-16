@@ -188,7 +188,7 @@ def _patch_joy(monkeypatch, draft):
     import app.services.joycaption as jc
     monkeypatch.setattr(jc, 'is_available', lambda: True)
     monkeypatch.setattr(jc, 'caption_images_joycaption',
-                        lambda paths, prompt=None: {p: draft for p in paths})
+                        lambda paths, prompt=None, **kw: {p: draft for p in paths})
 
 
 def test_caption_concept_uses_clean_qwen_refine(app, monkeypatch):

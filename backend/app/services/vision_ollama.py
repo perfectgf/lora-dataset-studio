@@ -71,6 +71,62 @@ def _ollama_reject_message(exc: Exception) -> str:
             else f'Ollama rejected the request (HTTP {status})')
 
 
+# Ollama decodes the image bytes SERVER-SIDE before handing pixels to the model.
+# Which decoder runs depends on the model's runtime: the llama.cpp runner (used by the
+# GGUF vision models most users pull, e.g. huihui_ai/qwen3-vl-abliterated) loads images
+# with stb_image, which handles JPEG/PNG/BMP/GIF/TGA but NOT WebP; Ollama's native Go
+# engine only decodes the formats registered in image.Decode (gif/jpeg/png) unless the
+# build blank-imports x/image/webp. Our datasets are stored as WebP (normalize_to_webp)
+# and the Studio "Describe" pass also re-encodes to WebP, so on those builds the request
+# fails with HTTP 400 "Failed to load image or audio file" (the exact llama.cpp reject) —
+# issue #6, theotherbox122 on Ollama 0.32.0. Re-encoding anything that isn't already
+# JPEG/PNG to JPEG at this single seam makes captioning work regardless of the Ollama /
+# runner version, and passes JPEG/PNG through untouched so a batch of hundreds of images
+# never pays for a needless re-encode.
+_JPEG_MAGIC = b'\xff\xd8\xff'
+_PNG_MAGIC = b'\x89PNG\r\n\x1a\n'
+# Ollama vision encoders downscale to a small grid anyway; bound the JPEG we send so a
+# huge source image (a raw import, not the ~1024px normalized dataset webp) doesn't bloat
+# the base64 payload. Only applied when we already have the pixels open to re-encode.
+_OLLAMA_MAX_SIDE = 1536
+
+
+def _ensure_ollama_decodable(image_bytes: bytes) -> bytes:
+    """Return image bytes Ollama's server-side decoder can definitely read.
+
+    JPEG and PNG pass through byte-for-byte (both stb_image and Go's image.Decode read
+    them, and skipping the re-encode keeps batch captioning cheap). Everything else —
+    WebP above all — is re-encoded to JPEG (alpha flattened onto white, longest side
+    bounded, quality 90). Best-effort: an undecodable blob is returned unchanged so the
+    caller still surfaces Ollama's own error rather than crashing the never-raise
+    contract."""
+    head = image_bytes[:8] if image_bytes else b''
+    if head.startswith(_JPEG_MAGIC) or head.startswith(_PNG_MAGIC):
+        return image_bytes
+    try:
+        import io
+
+        from PIL import Image
+        im = Image.open(io.BytesIO(image_bytes))
+        im.load()
+        if im.mode in ('RGBA', 'LA', 'PA') or (im.mode == 'P' and 'transparency' in im.info):
+            im = im.convert('RGBA')
+            bg = Image.new('RGB', im.size, (255, 255, 255))
+            bg.paste(im, mask=im.split()[-1])
+            im = bg
+        elif im.mode != 'RGB':
+            im = im.convert('RGB')
+        if max(im.size) > _OLLAMA_MAX_SIDE:
+            im.thumbnail((_OLLAMA_MAX_SIDE, _OLLAMA_MAX_SIDE), Image.LANCZOS)
+        out = io.BytesIO()
+        im.save(out, 'JPEG', quality=90)
+        return out.getvalue()
+    except Exception as e:  # noqa: BLE001 - not-an-image / truncated: fall through to Ollama's error
+        logger.warning('vision_ollama: could not re-encode image to JPEG (%s); '
+                       'sending original bytes', e)
+        return image_bytes
+
+
 def get_vision_model() -> str:
     """Resolve the Ollama vision model: env ``VISION_OLLAMA_MODEL`` > config
     ``ollama.vision_model`` (defaults to 'huihui_ai/qwen3-vl-abliterated:8b-instruct', see
@@ -124,7 +180,10 @@ def describe_image_ollama(image_bytes: bytes, prompt: str, *,
     """
     try:
         url = (ollama_url or _ollama_url()).rstrip('/')
-        b64 = base64.b64encode(image_bytes).decode('ascii')
+        # Normalize to a format Ollama's decoder can read (WebP -> JPEG); JPEG/PNG are
+        # passed through untouched. Without this, WebP dataset bytes hit HTTP 400
+        # "Failed to load image or audio file" on llama.cpp-backed runners (issue #6).
+        b64 = base64.b64encode(_ensure_ollama_decodable(image_bytes)).decode('ascii')
         payload = {
             'model': model or get_vision_model(),
             'prompt': prompt,

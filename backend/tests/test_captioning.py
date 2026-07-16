@@ -1,5 +1,8 @@
+import base64
 import io
+import json
 import os
+import subprocess
 
 import pytest
 from PIL import Image
@@ -9,6 +12,33 @@ def _png(color=(255, 0, 0)):
     buf = io.BytesIO()
     Image.new('RGB', (64, 64), color).save(buf, 'PNG')
     return buf.getvalue()
+
+
+def _jpeg(color=(0, 128, 255)):
+    buf = io.BytesIO()
+    Image.new('RGB', (64, 64), color).save(buf, 'JPEG', quality=88)
+    return buf.getvalue()
+
+
+def _webp(color=(0, 200, 0), size=(64, 64), mode='RGB'):
+    buf = io.BytesIO()
+    Image.new(mode, size, color).save(buf, 'WEBP', quality=92)
+    return buf.getvalue()
+
+
+class _CapturePost:
+    """requests.post stand-in that records the JSON payload so a test can inspect the
+    exact image bytes describe_image_ollama sent (after any re-encode)."""
+    def __init__(self, response=None):
+        self.payload = None
+        self._response = response or {'response': 'a caption'}
+
+    def __call__(self, *args, **kwargs):
+        self.payload = kwargs.get('json')
+        return _Resp(self._response)
+
+    def sent_image_bytes(self):
+        return base64.b64decode(self.payload['images'][0])
 
 
 class _Resp:
@@ -321,7 +351,7 @@ def test_caption_images_backend_joycaption_skips_ollama_fallback(app, monkeypatc
         path = svc._img_path(img)
         monkeypatch.setattr(jc_mod, 'is_available', lambda: True)
         monkeypatch.setattr(jc_mod, 'caption_images_joycaption',
-                            lambda paths, prompt=None, max_tokens=300, timeout=1800: {path: 'a joycaption result'})
+                            lambda paths, prompt=None, max_tokens=300, timeout=1800, **kw: {path: 'a joycaption result'})
         n = svc.caption_images(LOCAL_USER, ds.id)
         assert n == 1
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
@@ -380,7 +410,7 @@ def test_caption_images_backend_auto_falls_back_to_ollama(app, monkeypatch):
 
     monkeypatch.setattr(jc_mod, 'is_available', lambda: True)
     monkeypatch.setattr(jc_mod, 'caption_images_joycaption',
-                        lambda paths, prompt=None, max_tokens=300, timeout=1800: {})  # misses everything
+                        lambda paths, prompt=None, max_tokens=300, timeout=1800, **kw: {})  # misses everything
     monkeypatch.setattr(vision_ollama.requests, 'post',
                         lambda *a, **k: _Resp({'response': 'ollama caption'}))
     with app.app_context():
@@ -390,3 +420,189 @@ def test_caption_images_backend_auto_falls_back_to_ollama(app, monkeypatch):
         assert n == 1
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
         assert refreshed.caption == 'ollama caption'
+
+
+# --- Problem A (issue #6): WebP -> JPEG re-encode at the Ollama seam ---------
+# Ollama's server-side image decoder (stb_image on llama.cpp GGUF runners; Go's
+# image.Decode on the native engine) can't read WebP on many builds, so a WebP payload
+# fails with HTTP 400 "Failed to load image or audio file". describe_image_ollama now
+# re-encodes anything that isn't already JPEG/PNG to JPEG before base64.
+
+def test_describe_image_ollama_reencodes_webp_payload_to_jpeg(app, monkeypatch):
+    """The bytes that actually leave for Ollama must be JPEG when the source is WebP —
+    proving the fix works regardless of the Ollama/runner version."""
+    from app.services import vision_ollama
+    cap = _CapturePost()
+    monkeypatch.setattr(vision_ollama.requests, 'post', cap)
+    with app.app_context():
+        vision_ollama.describe_image_ollama(_webp(), 'describe this')
+    sent = cap.sent_image_bytes()
+    assert sent[:3] == b'\xff\xd8\xff', 'payload image should be JPEG, not WebP'
+    # And it must be a valid, decodable JPEG (not a corrupted re-wrap).
+    with Image.open(io.BytesIO(sent)) as im:
+        assert im.format == 'JPEG'
+
+
+def test_describe_image_ollama_reencodes_webp_with_alpha_flattens_on_white(app, monkeypatch):
+    """A WebP with alpha must flatten to opaque RGB JPEG (no alpha channel that a JPEG
+    can't hold, no crash)."""
+    from app.services import vision_ollama
+    cap = _CapturePost()
+    monkeypatch.setattr(vision_ollama.requests, 'post', cap)
+    with app.app_context():
+        vision_ollama.describe_image_ollama(_webp(mode='RGBA', color=(0, 200, 0, 128)),
+                                            'describe this')
+    sent = cap.sent_image_bytes()
+    assert sent[:3] == b'\xff\xd8\xff'
+    with Image.open(io.BytesIO(sent)) as im:
+        assert im.mode == 'RGB'
+
+
+def test_describe_image_ollama_passes_jpeg_through_unchanged(app, monkeypatch):
+    """A source already JPEG is forwarded byte-for-byte — a batch of hundreds must not
+    pay for a needless re-encode."""
+    from app.services import vision_ollama
+    src = _jpeg()
+    cap = _CapturePost()
+    monkeypatch.setattr(vision_ollama.requests, 'post', cap)
+    with app.app_context():
+        vision_ollama.describe_image_ollama(src, 'describe this')
+    assert cap.sent_image_bytes() == src
+
+
+def test_describe_image_ollama_passes_png_through_unchanged(app, monkeypatch):
+    """PNG is decodable everywhere too, so it is also forwarded untouched."""
+    from app.services import vision_ollama
+    src = _png()
+    cap = _CapturePost()
+    monkeypatch.setattr(vision_ollama.requests, 'post', cap)
+    with app.app_context():
+        vision_ollama.describe_image_ollama(src, 'describe this')
+    assert cap.sent_image_bytes() == src
+
+
+def test_ensure_ollama_decodable_returns_original_on_non_image(app):
+    """A non-image blob can't be re-encoded — it is returned unchanged so the caller
+    still surfaces Ollama's own error instead of crashing the never-raise contract."""
+    from app.services import vision_ollama
+    with app.app_context():
+        assert vision_ollama._ensure_ollama_decodable(b'not an image') == b'not an image'
+
+
+# --- Problem B (issue #6): JoyCaption live stderr streaming ------------------
+# The first run silently downloads the ~7 GB model; capture_output=True hid all stderr
+# until the process ended, so the app log looked frozen. It is now streamed line-by-line.
+
+class _FakeStdin:
+    def write(self, data):
+        return len(data)
+
+    def close(self):
+        pass
+
+
+class _FakeStdout:
+    def __init__(self, text):
+        self._text = text
+
+    def read(self):
+        return self._text
+
+
+class _FakePopen:
+    """Minimal Popen stand-in: hands the drain threads pre-buffered stdout/stderr and a
+    wait() that can raise TimeoutExpired exactly once (a killed process reaps cleanly)."""
+    def __init__(self, stderr_lines, stdout_text, returncode=0, wait_raises=None):
+        self.stdin = _FakeStdin()
+        self.stdout = _FakeStdout(stdout_text)
+        self.stderr = iter(stderr_lines)
+        self.returncode = returncode
+        self._wait_raises = wait_raises
+        self._waited = False
+        self.killed = False
+
+    def wait(self, timeout=None):
+        if self._wait_raises is not None and not self._waited:
+            self._waited = True
+            raise self._wait_raises
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+
+
+def _prep_joycaption(monkeypatch, jc, tmp_path):
+    img = tmp_path / 'a.webp'
+    img.write_bytes(_webp())
+    monkeypatch.setattr(jc, 'is_available', lambda: True)
+    monkeypatch.setattr(jc.cfg, 'aitoolkit_path', lambda k: str(tmp_path / str(k)))
+    return str(img)
+
+
+def test_joycaption_streams_stderr_to_log_live(app, monkeypatch, caplog, tmp_path):
+    import app.services.joycaption as jc
+    img = _prep_joycaption(monkeypatch, jc, tmp_path)
+    stderr_lines = [
+        '[joycaption] first run: downloading model (~7 GB) from Hugging Face …\n',
+        '[joycaption] model loaded\n',
+        '[joycaption] 1/1 ok (42 chars)\n',
+    ]
+    stdout_text = json.dumps({'captions': {img: 'a caption'}, 'errors': {}}) + '\n'
+    monkeypatch.setattr(jc.subprocess, 'Popen',
+                        lambda *a, **k: _FakePopen(stderr_lines, stdout_text))
+    with app.app_context():
+        with caplog.at_level('INFO'):
+            out = jc.caption_images_joycaption([img])
+    assert out == {img: 'a caption'}
+    # Every subprocess stderr line reached the app log live (not only at the end).
+    assert 'first run: downloading model' in caplog.text
+    assert 'model loaded' in caplog.text
+
+
+def test_joycaption_reflects_stage_markers_into_activity(app, monkeypatch, tmp_path):
+    import app.services.joycaption as jc
+    from app.services import dataset_activity as da
+    img = _prep_joycaption(monkeypatch, jc, tmp_path)
+    seen = []
+    real_progress = da.progress
+
+    def _spy(token, **kw):
+        if kw.get('detail'):
+            seen.append(kw['detail'])
+        return real_progress(token, **kw)
+
+    monkeypatch.setattr(da, 'progress', _spy)
+    stderr_lines = [
+        '[joycaption] first run: downloading model (~7 GB) …\n',
+        'Downloading shards:  40%|####      | 2/5\n',   # raw HF tqdm -> log only
+        '[joycaption] model loaded\n',
+    ]
+    stdout_text = json.dumps({'captions': {img: 'cap'}, 'errors': {}})
+    monkeypatch.setattr(jc.subprocess, 'Popen',
+                        lambda *a, **k: _FakePopen(stderr_lines, stdout_text))
+    with app.app_context():
+        da.reset()
+        token = da.begin(1, 'caption', total=1)
+        out = jc.caption_images_joycaption([img], activity_token=token)
+    assert out == {img: 'cap'}
+    # The controlled [joycaption] markers were reflected into the UI stage…
+    assert any('first run: downloading' in d for d in seen)
+    assert any('model loaded' in d for d in seen)
+    # …but the noisy raw tqdm line was NOT (log only), keeping the UI detail readable.
+    assert not any('Downloading shards' in d for d in seen)
+
+
+def test_joycaption_timeout_returns_empty_and_logs_first_run_hint(app, monkeypatch, caplog, tmp_path):
+    import app.services.joycaption as jc
+    img = _prep_joycaption(monkeypatch, jc, tmp_path)
+    stderr_lines = ['[joycaption] first run: downloading model (~7 GB) …\n']
+    fake = _FakePopen(stderr_lines, '',
+                      wait_raises=subprocess.TimeoutExpired(cmd='joycaption', timeout=1))
+    monkeypatch.setattr(jc.subprocess, 'Popen', lambda *a, **k: fake)
+    with app.app_context():
+        with caplog.at_level('ERROR'):
+            out = jc.caption_images_joycaption([img], timeout=1)
+    assert out == {}
+    assert fake.killed, 'a timed-out subprocess must be killed'
+    # The timeout message explains the first-run download so the user knows to re-run.
+    assert '7 GB' in caplog.text and 'resume' in caplog.text.lower()

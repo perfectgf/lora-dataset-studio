@@ -248,7 +248,7 @@ def test_pipeline_joycaption_backend_scrubs_pose_without_ollama(app, monkeypatch
         ds, img = _leg_concept_with_image()
         monkeypatch.setattr(jc, 'is_available', lambda: True)
         monkeypatch.setattr(jc, 'caption_images_joycaption',
-                            lambda paths, prompt=None: {
+                            lambda paths, prompt=None, **kw: {
                                 p: 'A woman with red hair on a bed, knees lifted, feet on her thighs.'
                                 for p in paths})
 
