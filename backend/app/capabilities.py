@@ -14,6 +14,8 @@ import sys
 import time
 from pathlib import Path
 
+from .services.klein_edit_helper import resolve_klein_unet, resolve_klein_vae, resolve_klein_text_encoder, _get_extra_paths_for_type
+
 import requests
 
 from . import config as cfg
@@ -308,29 +310,64 @@ def _scan_models() -> dict:
     except OSError:
         return result
 
+    # Helper to collect files from a folder (including subfolders containing 'klein')
+    def _collect_klein_files(base_dir):
+        files = []
+        # Scan base folder for any file with 'klein' in name
+        try:
+            all_files = [p.name for p in base_dir.iterdir() if p.is_file() and p.suffix.lower() in _MODEL_SUFFIXES]
+            files.extend([f for f in all_files if 'klein' in f.lower()])
+        except OSError:
+            pass
+        # Scan subfolders that contain 'klein'
+        try:
+            for sub in base_dir.iterdir():
+                if sub.is_dir() and 'klein' in sub.name.lower():
+                    try:
+                        sub_files = [p.name for p in sub.iterdir() if p.is_file() and p.suffix.lower() in _MODEL_SUFFIXES]
+                        files.extend(sub_files)
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        return files
+
+    # Main models/unet and diffusion_models
     for base_name in ('unet', 'diffusion_models'):
         base = models_dir / base_name
-        try:
-            if not base.is_dir():
-                continue
-            subfolders = [p for p in base.iterdir() if p.is_dir()]
-        except OSError:
-            continue
-        for sub in subfolders:
-            name = sub.name
-            if _ZIMAGE_RE.search(name):
-                result['zimage'].extend(_model_files(sub))
-            # Any 'klein'-named subfolder under unet/ OR diffusion_models/ counts:
-            # shared installs keep e.g. diffusion_models/'Flux2 klein'/ (the KV
-            # variant) next to our canonical unet/klein/ download — hiding it made
-            # the picker blind to models the user already owns.
-            elif 'klein' in name.lower():
-                result['klein'].extend(_model_files(sub))
-            elif base_name == 'unet' and name.lower().startswith('krea'):
-                result['krea'].extend(_model_files(sub))
+        if base.is_dir():
+            # Z‑Image detection
+            try:
+                for sub in base.iterdir():
+                    if sub.is_dir() and _ZIMAGE_RE.search(sub.name):
+                        result['zimage'].extend(_model_files(sub))
+            except OSError:
+                pass
+            # Klein files from main base (including any 'klein'-named subfolder)
+            result['klein'].extend(_collect_klein_files(base))
 
-    result['klein'] = sorted(set(result['klein']))
+    # Krea detection (checkpoints in unet/krea*)
+    krea_base = models_dir / 'unet'
+    if krea_base.is_dir():
+        try:
+            for sub in krea_base.iterdir():
+                if sub.is_dir() and sub.name.lower().startswith('krea'):
+                    result['krea'].extend(_model_files(sub))
+        except OSError:
+            pass
+
+    # Extra paths for unet (from extra_model_paths.yaml or config)
+    extra_unet_paths = _get_extra_paths_for_type('unet')
+    for extra_path in extra_unet_paths:
+        extra_path = Path(extra_path)
+        if extra_path.is_dir():
+            result['klein'].extend(_collect_klein_files(extra_path))
+
+    # SDXL checkpoints
     result['sdxl'] = _model_files(models_dir / 'checkpoints')
+
+    # Deduplicate
+    result['klein'] = sorted(set(result['klein']))
     return result
 
 
@@ -507,12 +544,19 @@ def probe(force=False) -> dict:
     from .services import chatgpt_oauth
     sub_status = chatgpt_oauth.status()
 
+    # Use the extra-path-aware resolvers instead of the hardcoded scan for the Klein engine status
+    klein_installed = (
+        resolve_klein_unet() is not None and
+        resolve_klein_vae() is not None and
+        resolve_klein_text_encoder() is not None
+    )
+
     caps = {
         'configured': cfg.is_configured(),
         'engines': {
             'nanobanana': gemini['ok'],
             'chatgpt': openai_['ok'],
-            'klein': comfy['ok'] and bool(models['klein']),
+            'klein': comfy['ok'] and klein_installed,
         },
         'chatgpt_subscription': {
             'connected': sub_status['connected'],

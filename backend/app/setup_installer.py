@@ -38,6 +38,14 @@ import requests
 
 from . import capabilities
 from . import config as cfg
+# Import resolution helpers from the Klein helper – they now respect extra_model_paths.yaml
+from .services.klein_edit_helper import (
+    resolve_klein_unet,
+    resolve_klein_vae,
+    resolve_klein_text_encoder,
+    _consistency_lora,  # internal but needed for status
+    KleinModelsMissing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -300,15 +308,64 @@ def _klein_dest_path(action) -> str:
 
 
 def _check_klein_precondition(action):
-    dest = _klein_dest_path(action)
+    """Don't block the download if the file already exists in the main location
+    OR in any extra_model_paths.yaml location (via resolution helpers)."""
+    # First check if it's already present in the main dest
+    try:
+        dest = _klein_dest_path(action)
+        if os.path.isfile(dest):
+            # Already there – no need to download
+            return
+    except Precondition:
+        # ComfyUI not configured – let it raise
+        raise
+
+    # If not in main, check extras via resolution
+    installed = _klein_is_installed(action)
+    if installed:
+        # The file exists somewhere in extra paths – we can skip the download
+        return
+
+    # If not installed anywhere, check disk space for the download
     spec = _KLEIN_DOWNLOADS[action]
     try:
-        free_gb = shutil.disk_usage(os.path.dirname(os.path.dirname(dest))).free / 1e9
-        if free_gb < spec['min_free_gb']:
-            raise Precondition(f'not enough disk space: {free_gb:.1f} GB free, '
-                               f"~{spec['min_free_gb']} GB needed for this file")
+        # Use the parent of the ComfyUI models root for disk space check
+        r = capabilities.resolve_comfyui_base(cfg.get('comfyui.base_dir') or '')
+        if r['valid']:
+            base_dir = r['resolved']
+            free_gb = shutil.disk_usage(os.path.dirname(base_dir)).free / 1e9
+            if free_gb < spec['min_free_gb']:
+                raise Precondition(f'not enough disk space: {free_gb:.1f} GB free, '
+                                   f"~{spec['min_free_gb']} GB needed for this file")
     except OSError:
         pass   # unknown -> never block on a stat failure
+
+
+def _klein_is_installed(action) -> bool:
+    """Return True if the Klein asset is found in the main location OR
+    in any extra_model_paths.yaml location (via the resolution functions)."""
+    if action == 'klein_model':
+        return resolve_klein_unet() is not None
+    if action == 'klein_vae':
+        return resolve_klein_vae() is not None
+    if action == 'klein_text_encoder':
+        return resolve_klein_text_encoder() is not None
+    if action == 'klein_lora':
+        _, path = _consistency_lora()
+        return path is not None and os.path.exists(path)
+    return False
+
+
+def get_klein_installed_status():
+    """Return a dict with keys for each Klein asset and a bool indicating if
+    it's installed (either in the main ComfyUI models folder or in any extra
+    path defined in extra_model_paths.yaml)."""
+    return {
+        'unet': resolve_klein_unet() is not None,
+        'vae': resolve_klein_vae() is not None,
+        'text_encoder': resolve_klein_text_encoder() is not None,
+        'consistency_lora': _consistency_lora()[1] is not None,
+    }
 
 
 def _execute(action):
@@ -436,9 +493,16 @@ def _run_klein_download(action) -> int:
     Gated repo without credentials -> actionable recovery steps, rc 1."""
     spec = _KLEIN_DOWNLOADS[action]
     dest = _klein_dest_path(action)
+    # If the file already exists (main or extra), skip download
     if os.path.isfile(dest):
         _append(action, f'already present: {dest}')
         return 0
+    # If it exists in an extra path, we could copy or symlink, but for simplicity
+    # we just note it and skip download (the user can symlink).
+    if _klein_is_installed(action):
+        _append(action, f'file found in extra_model_paths.yaml – skipping download (symlink or copy to main if needed)')
+        return 0
+
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     headers = {}
     token = cfg.secret('HF_TOKEN')

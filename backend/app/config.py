@@ -17,11 +17,11 @@ def _config_path() -> Path:
 ENV_PATH = Path(os.environ.get('LDS_ENV', str(REPO_ROOT / '.env')))
 load_dotenv(ENV_PATH)
 
-# REDDIT_CLIENT_ID / CIVITAI_API_KEY / PEXELS_API_KEY: scraping credentials
-# (Settings > Scraping & sources). Sources read their env var at request time,
-# and set_secrets() stamps os.environ on save, so changes apply without restart.
+# REDDIT_CLIENT_ID / CIVITAI_API_KEY: scraping credentials (Settings > Scraping &
+# sources). Both scrape sources read their env var first, and set_secrets() stamps
+# os.environ on save — so a key saved in the UI takes effect without a restart.
 SECRET_KEYS = ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'HF_TOKEN', 'VAST_API_KEY',
-               'REDDIT_CLIENT_ID', 'CIVITAI_API_KEY', 'PEXELS_API_KEY')
+               'REDDIT_CLIENT_ID', 'CIVITAI_API_KEY')
 
 DEFAULTS = {
     # host: '127.0.0.1' = this machine only ; '0.0.0.0' = reachable from the LAN
@@ -92,7 +92,7 @@ DEFAULTS = {
     # background), not the face — its own guide says start at 0.5 and that
     # 0.8-1.0 "can prevent edits from applying". 0.9 made every variation a
     # near-copy of the reference. 0 disables the LoRA entirely.
-    'klein': {'consistency_lora': 'klein/Flux2-Klein-9B-consistency-V2.safetensors',
+    'klein': {'consistency_lora': 'Flux2-Klein-9B-consistency-V2.safetensors',
               'consistency_strength': 0.5,
               # Optional instruction for small scraped-image rescue only.
               # Manual "Upscale & improve" uses its own fixed quality profile.
