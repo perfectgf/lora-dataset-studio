@@ -16,6 +16,7 @@ from ..config import LOCAL_USER
 from .. import config as cfg
 from ..gpu_window import gpu_exclusive_vision_window
 from ..services import face_dataset_service as svc
+from ..services.dataset_storage import dataset_path, ensure_dataset_dir
 from ..services import lora_test_studio as lts
 from ..services.face_variations import (NSFW_VARIATION_CATALOG, VARIATION_CATALOG,
                                         is_nsfw_label, select_preset)
@@ -198,7 +199,7 @@ def dataset_set_ref(dataset_id):
                 raw, pad=svc.REF_CROP_PAD, return_detected=True, use_vision=False)
     except Exception as e:
         return _map_error(e)
-    dsdir = svc._dataset_dir(dataset_id)
+    dsdir = ensure_dataset_dir(dataset_id)
     # Keep the full-frame ORIGINAL (aspect-kept, capped ~2048) so the crop editor can
     # widen back out later — the auto head-crop is only the default framing, not a
     # one-way lossy door (the old behavior discarded it and re-crops could only tighten).
@@ -917,7 +918,7 @@ def dataset_publish_hf_status(dataset_id):
 def dataset_image_file(dataset_id, filename):
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
-    return send_from_directory(svc._dataset_dir(dataset_id), filename)
+    return send_from_directory(dataset_path(dataset_id), filename)
 
 
 # ---------------------------------------------------------------------------

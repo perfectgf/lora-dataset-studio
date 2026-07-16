@@ -27,6 +27,7 @@ from ..extensions import db
 from ..models import FaceDataset, FaceDatasetImage, LoraTestImage
 from .. import config as cfg
 from . import dataset_activity, trash
+from .dataset_storage import dataset_path, ensure_dataset_dir
 
 # Garde le modèle vision chaud entre les images d'un même batch caption/classify
 # (sinon Ollama le recharge - cold start ~10s - à CHAQUE image). Déchargé en fin
@@ -72,15 +73,11 @@ REF_CROP_PAD = 2.0
 UPSCALE_WARN_THRESHOLD = 1.5
 
 
-def _dataset_path(dataset_id) -> str:
-    """Dataset folder path without creating it (needed by delete paths)."""
-    return str(cfg.dataset_images_root() / str(dataset_id))
-
-
-def _dataset_dir(dataset_id) -> str:
-    d = _dataset_path(dataset_id)
-    os.makedirs(d, exist_ok=True)
-    return d
+# Backward-compatible aliases for existing service consumers. New cross-module
+# callers use the public names from dataset_storage so read paths cannot
+# accidentally create directories.
+_dataset_path = dataset_path
+_dataset_dir = ensure_dataset_dir
 
 
 def _restore_from_trash(trashed_path, original_path) -> None:

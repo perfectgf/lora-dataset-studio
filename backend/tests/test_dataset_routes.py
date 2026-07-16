@@ -242,6 +242,28 @@ def test_ref_upload_multipart(client):
     assert payload['ref_filename'] == body['ref_filename']
 
 
+def test_image_get_is_read_only_but_reference_upload_creates_storage(client):
+    import os
+    from app.services.dataset_storage import dataset_path
+
+    ds_id = _create(client, 'Storage boundary', 'storage_boundary').get_json()['id']
+    folder = dataset_path(ds_id)
+    assert not os.path.exists(folder)
+
+    missing = client.get(f'/api/dataset/{ds_id}/img/missing.webp')
+    assert missing.status_code == 404
+    assert not os.path.exists(folder)
+
+    uploaded = client.post(
+        f'/api/dataset/{ds_id}/ref',
+        data={'file': (io.BytesIO(_png_bytes()), 'ref.png')},
+        content_type='multipart/form-data',
+    )
+    assert uploaded.status_code == 200
+    filename = uploaded.get_json()['ref_filename']
+    assert os.path.isfile(os.path.join(folder, filename))
+
+
 def test_ref_upload_unknown_dataset_404(client):
     data = {'file': (io.BytesIO(_png_bytes()), 'ref.png')}
     resp = client.post('/api/dataset/999999/ref', data=data, content_type='multipart/form-data')
