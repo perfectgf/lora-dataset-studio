@@ -44,7 +44,7 @@ from datetime import datetime
 from .. import config as cfg
 from ..extensions import db
 from ..gpu_window import GpuBusyError
-from ..models import FaceDataset, LoraTestImage
+from ..models import FaceDataset, ImageGenerationQueue, LoraTestImage
 from . import face_dataset_service as fds, trash
 from . import lora_training as lt
 from ..job_queue import queue_manager
@@ -379,6 +379,44 @@ def _active_run_count(dataset_id=None) -> int:
     if dataset_id is not None:
         q = q.filter_by(dataset_id=dataset_id)
     return q.count()
+
+
+def _queue_activity(rows) -> dict:
+    """Real queue state for the in-flight Test Studio cells in ``rows``.
+
+    ``LoraTestImage.status`` intentionally stays ``pending`` until the output
+    callback links a file, so it cannot distinguish waiting from GPU work. The
+    linked ``ImageGenerationQueue`` row can. ``pending`` remains the historical
+    total of unfinished cells for API compatibility; ``queued`` and
+    ``generating`` split that total during the normal queue lifecycle.
+    """
+    live = [r for r in rows if r.status == 'pending' and not r.filename]
+    job_ids = {r.job_id for r in live if r.job_id}
+    queue_rows = (ImageGenerationQueue.query
+                  .filter(ImageGenerationQueue.job_id.in_(job_ids)).all()
+                  if job_ids else [])
+    raw_by_job = {q.job_id: q.status for q in queue_rows}
+
+    def _display_status(raw):
+        if raw == 'pending':
+            return 'queued'
+        if raw in ('processing', 'sent_to_comfy'):
+            return 'generating'
+        return raw
+
+    queue_status = {job_id: _display_status(status)
+                    for job_id, status in raw_by_job.items()}
+    queued = sum(1 for r in live if raw_by_job.get(r.job_id) == 'pending')
+    generating = sum(1 for r in live
+                     if raw_by_job.get(r.job_id) in ('processing', 'sent_to_comfy'))
+    return {
+        'pending': len(live),
+        'queued': queued,
+        'generating': generating,
+        # Alias for consumers that use queue terminology rather than UI copy.
+        'running': generating,
+        'queue_status': queue_status,
+    }
 
 
 def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=None, steps2_list=None) -> list[tuple]:
@@ -1377,16 +1415,26 @@ def cancel_run(user_id, dataset_id=None, run_id=None) -> int:
                 .filter_by(dataset_id=dataset_id, status='pending')
                 .filter(LoraTestImage.filename.is_(None)).all())
     n = 0
+    interruptions = []
     for img in rows:
         if img.job_id:
             try:
-                queue_manager.cancel_job(img.job_id, str(user_id), 'image')
+                queue_job = ImageGenerationQueue.query.filter_by(job_id=img.job_id).first()
+                if (queue_job and queue_job.status in ('processing', 'sent_to_comfy')
+                        and queue_job.comfyui_prompt_id):
+                    interruptions.append((queue_job.comfyui_prompt_id, queue_job.job_id))
+                # Stop the whole batch in one transaction. Otherwise an HTTP
+                # /interrupt round-trip on the first cell gives the worker time
+                # to claim the second cell before this loop reaches it.
+                queue_manager.cancel_job(img.job_id, str(user_id), 'image', commit=False)
             except Exception:
                 pass
         img.status = 'cancelled'
         img.job_id = None
         n += 1
     db.session.commit()
+    for prompt_id, job_id in interruptions:
+        queue_manager.interrupt_comfyui_job(prompt_id, job_id)
     return n
 
 
@@ -2062,6 +2110,7 @@ def studio_payload(user_id, dataset_id, family=None) -> dict | None:
                 .order_by(LoraTestImage.id.asc()).all())
     # Grille = cellules de la famille effective (famille déduite du checkpoint).
     rows = [r for r in rows_all if (family_of_lora(r.checkpoint) or 'zimage') == eff]
+    activity = _queue_activity(rows_all)
     best = _best_for_family(ds, eff)
     # Pool de bases selon la FAMILLE effective : SDXL → checkpoints SDXL (forme
     # {value,label}) ; Krea → base fixe (UNET du workflow, aucun sélecteur) ; sinon
@@ -2104,6 +2153,7 @@ def studio_payload(user_id, dataset_id, family=None) -> dict | None:
                    'label': format_trained_lora_label(r.checkpoint) or _basename(r.checkpoint).rsplit('.', 1)[0],
                    'strength': r.strength, 'aspect': r.aspect, 'filename': r.filename,
                    'rating': r.rating, 'seed': r.seed, 'run_seed': r.run_seed, 'status': r.status,
+                   'queue_status': activity['queue_status'].get(r.job_id),
                    'prompt': r.prompt, 'z_model': r.z_model,
                    'z_model_label': (_basename(r.z_model).rsplit('.', 1)[0] if r.z_model else None),
                    'cfg': r.cfg, 'steps': r.steps, 'steps2': r.steps2,
@@ -2123,7 +2173,10 @@ def studio_payload(user_id, dataset_id, family=None) -> dict | None:
         'checkpoint_breakdown': checkpoint_model_breakdown(dataset_id, scores=_scores),
         # Classement facial objectif des checkpoints (« best epoch », cellules scorées).
         'face_ranking': face_ranking(dataset_id, eff),
-        'pending': _active_run_count(dataset_id),
+        'pending': activity['pending'],
+        'queued': activity['queued'],
+        'generating': activity['generating'],
+        'running': activity['running'],
         # Cellules stoppées/échouées reprenables - global (resume opère sur tout le dataset).
         'resumable': sum(1 for r in rows_all if r.status in ('cancelled', 'failed')),
         # Prompts récents distincts (family-agnostiques) pour recharger/relancer un
@@ -2168,6 +2221,7 @@ def studio_payload_run(user_id, run_id) -> dict | None:
              FaceDataset.id.in_(ds_ids)).all()}
     if ds_ids - owned:
         return None
+    activity = _queue_activity(rows)
     def _lbl(d):
         return next((_basename(r.checkpoint).rsplit('.', 1)[0] for r in rows if r.dataset_id == d), str(d))
     def _name(d):
@@ -2179,12 +2233,16 @@ def studio_payload_run(user_id, run_id) -> dict | None:
         'cells': [{'id': r.id, 'dataset_id': r.dataset_id, 'checkpoint': r.checkpoint,
                    'label': _basename(r.checkpoint).rsplit('.', 1)[0], 'strength': r.strength,
                    'aspect': r.aspect, 'filename': r.filename, 'rating': r.rating, 'seed': r.seed,
-                   'run_seed': r.run_seed, 'status': r.status, 'prompt': r.prompt,
+                   'run_seed': r.run_seed, 'status': r.status,
+                   'queue_status': activity['queue_status'].get(r.job_id), 'prompt': r.prompt,
                    'z_model': r.z_model, 'cfg': r.cfg, 'steps': r.steps, 'steps2': r.steps2,
                    'batch_lora': _batch_lora_label(r),
                    'error': r.error if r.status == 'failed' else None} for r in rows],
         'lora_ranking': lora_net_scores(run_id),
-        'pending': sum(1 for r in rows if r.status == 'pending' and not r.filename),
+        'pending': activity['pending'],
+        'queued': activity['queued'],
+        'generating': activity['generating'],
+        'running': activity['running'],
         'resumable': sum(1 for r in rows if r.status in ('cancelled', 'failed')),
         'gpu_busy': gpu_busy_reason(),
     }

@@ -2,10 +2,62 @@
 parser (label + group MUST share one parse — the drift-proof invariant),
 config-driven listers (empty/None-safe when ComfyUI isn't configured), and
 the LoRA-chain injectors (allowed-whitelist respected)."""
+from unittest.mock import MagicMock, patch
+
 from app.utils.comfyui import (
     trained_lora_group, format_trained_lora_label, family_of_lora,
     inject_zimage_loras,
 )
+
+
+def _response(payload=None):
+    response = MagicMock()
+    response.json.return_value = payload
+    return response
+
+
+def test_cancel_comfyui_prompt_interrupts_only_matching_running_prompt(app):
+    from app.utils.comfyui import cancel_comfyui_prompt
+    queue = {
+        'queue_running': [
+            [1, 'other-prompt', {}, {'client_id': 'other-job'}, []],
+            [2, 'target-prompt', {}, {'client_id': 'target-job'}, []],
+        ],
+        'queue_pending': [],
+    }
+    with app.app_context(), \
+         patch('app.utils.comfyui.requests.get', return_value=_response(queue)), \
+         patch('app.utils.comfyui.requests.post', return_value=_response({})) as post:
+        assert cancel_comfyui_prompt('target-prompt', 'target-job') is True
+    post.assert_called_once()
+    assert post.call_args.args[0].endswith('/interrupt')
+
+
+def test_cancel_comfyui_prompt_never_interrupts_unrelated_running_prompt(app):
+    from app.utils.comfyui import cancel_comfyui_prompt
+    queue = {
+        'queue_running': [[1, 'other-prompt', {}, {'client_id': 'other-job'}, []]],
+        'queue_pending': [],
+    }
+    with app.app_context(), \
+         patch('app.utils.comfyui.requests.get', return_value=_response(queue)), \
+         patch('app.utils.comfyui.requests.post') as post:
+        assert cancel_comfyui_prompt('target-prompt', 'target-job') is False
+    post.assert_not_called()
+
+
+def test_cancel_comfyui_prompt_deletes_matching_pending_prompt(app):
+    from app.utils.comfyui import cancel_comfyui_prompt
+    queue = {
+        'queue_running': [],
+        'queue_pending': [[1, 'target-prompt', {}, {'client_id': 'target-job'}, []]],
+    }
+    with app.app_context(), \
+         patch('app.utils.comfyui.requests.get', return_value=_response(queue)), \
+         patch('app.utils.comfyui.requests.post', return_value=_response({})) as post:
+        assert cancel_comfyui_prompt('target-prompt', 'target-job') is True
+    assert post.call_args.args[0].endswith('/queue')
+    assert post.call_args.kwargs['json'] == {'delete': ['target-prompt']}
 
 
 def test_label_and_group_share_parse():

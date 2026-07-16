@@ -7,11 +7,16 @@
  * La clé `key={cell.id}` est posée par le PARENT (ResultCell) lors du `.map`.
  */
 export default function ResultTile({ cell, row, strength, variant, datasetId, onRate, onOpen, fmt }) {
+  const isGenerating = cell.queue_status === 'generating';
   return (
     <div className="flex flex-col gap-1 items-center">
       {cell.status === 'pending' && (
-        <div className="w-20 h-28 rounded-md border border-border bg-surface flex items-center justify-center" role="status" aria-label="Generating">
+        <div className="w-20 h-28 rounded-md border border-border bg-surface flex flex-col gap-2 items-center justify-center"
+          role="status" aria-label={isGenerating ? 'Generating' : 'Queued'}>
           <span className="inline-block w-5 h-5 border-2 border-purple-400/40 border-t-purple-400 rounded-full animate-spin" aria-hidden />
+          <span className="text-content-muted text-[0.625rem]">
+            {isGenerating ? 'generating' : 'queued'}
+          </span>
         </div>
       )}
       {/* Failed tiles are no longer mute: the real reason (ComfyUI validation /

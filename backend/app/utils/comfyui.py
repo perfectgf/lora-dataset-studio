@@ -493,6 +493,74 @@ def get_comfyui_history(prompt_id, worker_url=None):
         return None
 
 
+def _queue_entry_identity(entry):
+    """Return ``(prompt_id, client_id)`` from a ComfyUI ``/queue`` entry.
+
+    Current ComfyUI versions expose queue items as
+    ``[number, prompt_id, workflow, extra_data, outputs]`` while a few forks
+    return dictionaries. Supporting both shapes keeps cancellation best-effort
+    without coupling LDS to one ComfyUI build.
+    """
+    if isinstance(entry, (list, tuple)):
+        prompt_id = entry[1] if len(entry) > 1 else None
+        extra = entry[3] if len(entry) > 3 and isinstance(entry[3], dict) else {}
+        return prompt_id, extra.get('client_id')
+    if isinstance(entry, dict):
+        extra = entry.get('extra_data') if isinstance(entry.get('extra_data'), dict) else {}
+        return (entry.get('prompt_id') or entry.get('id'),
+                entry.get('client_id') or extra.get('client_id'))
+    return None, None
+
+
+def cancel_comfyui_prompt(prompt_id, client_id=None, worker_url=None) -> bool:
+    """Cancel one known ComfyUI prompt without blindly interrupting the GPU.
+
+    ComfyUI's ``/interrupt`` endpoint is global: calling it without first
+    checking ``/queue`` can stop an unrelated workflow submitted by another
+    app. We therefore interrupt only when the exact prompt is currently in
+    ``queue_running``. If it has not started yet, the targeted ``/queue``
+    delete operation is used instead. The optional LDS job id (sent as
+    ComfyUI's ``client_id``) is checked when the queue exposes it.
+
+    Returns whether a cancellation request was sent. Network errors and an
+    already-finished prompt are normal best-effort failures and return False.
+    """
+    if not prompt_id:
+        return False
+    api_addr = worker_url or api_address()
+
+    def _matches(entry):
+        queued_prompt_id, queued_client_id = _queue_entry_identity(entry)
+        if str(queued_prompt_id or '') != str(prompt_id):
+            return False
+        # Some ComfyUI builds omit client_id from /queue. A prompt_id is unique,
+        # but when both sides provide a client id require it to match as an
+        # additional guard against interrupting somebody else's work.
+        return not (client_id and queued_client_id
+                    and str(queued_client_id) != str(client_id))
+
+    try:
+        response = requests.get(urljoin(api_addr, "/queue"), timeout=3)
+        response.raise_for_status()
+        queue = response.json() or {}
+
+        if any(_matches(entry) for entry in queue.get('queue_pending') or []):
+            response = requests.post(urljoin(api_addr, "/queue"),
+                                     json={'delete': [prompt_id]}, timeout=3)
+            response.raise_for_status()
+            return True
+
+        if any(_matches(entry) for entry in queue.get('queue_running') or []):
+            response = requests.post(urljoin(api_addr, "/interrupt"), timeout=3)
+            response.raise_for_status()
+            return True
+    except requests.exceptions.RequestException as exc:
+        logger.warning("Could not cancel ComfyUI prompt %s: %s", prompt_id, exc)
+    except Exception as exc:
+        logger.warning("Unexpected error cancelling ComfyUI prompt %s: %s", prompt_id, exc)
+    return False
+
+
 def download_image_from_worker(filename, worker_url, output_dir):
     """Télécharge une image générée depuis un worker distant via l'API ComfyUI.
 

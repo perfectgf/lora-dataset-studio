@@ -27,6 +27,33 @@ POLL_TIMEOUT_SECONDS = 15 * 60
 STUCK_TIMEOUT_MINUTES = 10
 IDLE_SLEEP_SECONDS = 1
 
+# A DB status check is the source of truth, but this in-process event also wakes
+# the worker immediately when it is sleeping between two history requests.
+_poll_cancel_events: dict[str, threading.Event] = {}
+_poll_cancel_events_lock = threading.Lock()
+
+
+def _cancel_event(prompt_id) -> threading.Event:
+    with _poll_cancel_events_lock:
+        return _poll_cancel_events.setdefault(str(prompt_id), threading.Event())
+
+
+def _signal_poll_cancel(prompt_id) -> None:
+    if not prompt_id:
+        return
+    # Do not create an event for a prompt that has never entered _poll_outputs
+    # (notably cancel-during-submit). Its cancelled DB status is sufficient, and
+    # leaving a pre-signalled orphan behind can poison a later reused test id.
+    with _poll_cancel_events_lock:
+        event = _poll_cancel_events.get(str(prompt_id))
+        if event is not None:
+            event.set()
+
+
+def _discard_cancel_event(prompt_id) -> None:
+    with _poll_cancel_events_lock:
+        _poll_cancel_events.pop(str(prompt_id), None)
+
 
 def _claim(job_id) -> bool:
     """Atomically claim a pending job for processing. Returns False if the job
@@ -78,40 +105,55 @@ def _poll_outputs(prompt_id, timeout=POLL_TIMEOUT_SECONDS):
     """
     from .utils.comfyui import get_comfyui_history
     deadline = time.monotonic() + timeout
-    while True:
-        try:
-            history = get_comfyui_history(prompt_id) or {}
-            entry = history.get(prompt_id, history) if isinstance(history, dict) else {}
-        except Exception:
-            entry = {}
-        outputs = (entry or {}).get('outputs') or {}
-        for node_output in outputs.values():
-            for img in (node_output or {}).get('images') or []:
-                if isinstance(img, dict) and img.get('filename') and img.get('type', 'output') != 'temp':
-                    return img['filename'], False
-        status = (entry or {}).get('status') or {}
-        if status.get('status_str') == 'error' or (status.get('completed') and not outputs):
-            # ComfyUI errored, or finished with no image. Stash the execution
-            # error on the job row BEFORE returning (the 2-tuple contract stays):
-            # process_one/_dispatch_completion surface it on the dataset tile, so
-            # a runtime failure (wrong text encoder, OOM...) reads as itself, not
-            # as a generic "see the server log".
-            detail = _execution_error_detail(status)
-            if detail:
-                job = ImageGenerationQueue.query.filter_by(comfyui_prompt_id=prompt_id).first()
-                if job:
-                    job.error_message = detail
-                    db.session.commit()
-            return None, True
+    cancel_event = _cancel_event(prompt_id)
+    try:
+        while True:
+            # Read the scalar through a new SELECT instead of trusting an ORM
+            # object already present in the worker session's identity map.
+            job_status = (ImageGenerationQueue.query
+                          .with_entities(ImageGenerationQueue.status)
+                          .filter_by(comfyui_prompt_id=prompt_id).scalar())
+            if cancel_event.is_set() or job_status == 'cancelled':
+                return None, True
+            try:
+                history = get_comfyui_history(prompt_id) or {}
+                entry = history.get(prompt_id, history) if isinstance(history, dict) else {}
+            except Exception:
+                entry = {}
+            outputs = (entry or {}).get('outputs') or {}
+            for node_output in outputs.values():
+                for img in (node_output or {}).get('images') or []:
+                    if isinstance(img, dict) and img.get('filename') and img.get('type', 'output') != 'temp':
+                        return img['filename'], False
+            status = (entry or {}).get('status') or {}
+            if status.get('status_str') == 'error' or (status.get('completed') and not outputs):
+                # ComfyUI errored, or finished with no image. Stash the execution
+                # error on the job row BEFORE returning (the 2-tuple contract stays):
+                # process_one/_dispatch_completion surface it on the dataset tile, so
+                # a runtime failure (wrong text encoder, OOM...) reads as itself, not
+                # as a generic "see the server log".
+                detail = _execution_error_detail(status)
+                if detail:
+                    job = ImageGenerationQueue.query.filter_by(comfyui_prompt_id=prompt_id).first()
+                    if job:
+                        job.error_message = detail
+                        db.session.commit()
+                return None, True
 
-        job = ImageGenerationQueue.query.filter_by(comfyui_prompt_id=prompt_id).first()
-        if job:
-            job.last_heartbeat = datetime.utcnow()
-            db.session.commit()
+            job = ImageGenerationQueue.query.filter_by(comfyui_prompt_id=prompt_id).first()
+            if job:
+                if job.status == 'cancelled' or cancel_event.is_set():
+                    return None, True
+                job.last_heartbeat = datetime.utcnow()
+                db.session.commit()
 
-        if time.monotonic() >= deadline:
-            return None, True
-        time.sleep(POLL_INTERVAL_SECONDS)
+            if time.monotonic() >= deadline:
+                return None, True
+            # Unlike time.sleep(), Event.wait() returns as soon as Stop signals
+            # this exact prompt.
+            cancel_event.wait(POLL_INTERVAL_SECONDS)
+    finally:
+        _discard_cancel_event(prompt_id)
 
 
 def _execution_error_detail(status) -> str | None:
@@ -253,6 +295,9 @@ class JobQueueManager:
             db.session.commit()
             if not claimed:
                 db.session.refresh(job)
+                # The cancel landed while /prompt was in flight, so cancel_job
+                # could not yet know the returned prompt id. Target it now.
+                self.interrupt_comfyui_job(prompt_id, job.job_id)
                 _dispatch_completion(job, None, True)
                 return True
             filename, failed = _poll_outputs(prompt_id, POLL_TIMEOUT_SECONDS)
@@ -314,10 +359,35 @@ class JobQueueManager:
         job = query.first()
         if job is None or job.status in ('completed', 'failed', 'cancelled'):
             return False
+        previous_status = job.status
+        prompt_id = job.comfyui_prompt_id
         job.update_status('cancelled')
         if commit:
             db.session.commit()
+            # Wake the exact LDS poll first, then ask ComfyUI to stop/delete only
+            # the matching prompt. commit=False deliberately has no external side
+            # effect before its owning transaction succeeds.
+            if previous_status in ('processing', 'sent_to_comfy'):
+                self.interrupt_comfyui_job(prompt_id, job.job_id)
         return True
+
+    def interrupt_comfyui_job(self, prompt_id, job_id) -> bool:
+        """Wake LDS's exact poll and best-effort cancel the matching prompt.
+
+        Kept separate from ``cancel_job`` so a service cancelling a whole batch
+        transactionally can mark every row first, commit once, then perform the
+        external ComfyUI side effect without letting the worker claim the next
+        row halfway through that batch.
+        """
+        if not prompt_id:
+            return False
+        _signal_poll_cancel(prompt_id)
+        try:
+            from .utils.comfyui import cancel_comfyui_prompt
+            return cancel_comfyui_prompt(prompt_id, job_id)
+        except Exception:
+            logger.exception('job_queue: could not cancel ComfyUI prompt %s', prompt_id)
+            return False
 
     # -- system-state KV (underscore names required verbatim) -------------
     def _set_system_state(self, key, value, ttl_seconds=None):

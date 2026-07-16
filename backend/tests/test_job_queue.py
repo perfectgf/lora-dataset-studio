@@ -159,9 +159,11 @@ def test_cancel_during_submit_window_not_resurrected(app):
             return 'prompt-1'
 
         with patch('app.job_queue._submit', side_effect=_submit_then_cancel), \
-             patch('app.job_queue._poll_outputs') as poll:
+             patch('app.job_queue._poll_outputs') as poll, \
+             patch('app.utils.comfyui.cancel_comfyui_prompt') as interrupt:
             assert queue_manager.process_one() is True
             poll.assert_not_called()
+            interrupt.assert_called_once_with('prompt-1', jid)
         row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
         assert row.status == 'cancelled'
 
@@ -378,6 +380,38 @@ def test_poll_outputs_all_temp_images_keeps_polling_then_times_out(app):
              patch('app.job_queue.POLL_INTERVAL_SECONDS', 0.01):
             filename, failed = _poll_outputs('prompt-1', timeout=0.05)
     assert (filename, failed) == (None, True)
+
+
+def test_cancel_during_poll_exits_fast_and_interrupts_exact_prompt(app):
+    """Stop must wake the history poll immediately and request a targeted
+    ComfyUI cancellation instead of waiting for the next 2-second tick/timeout."""
+    from app.job_queue import queue_manager, _poll_outputs
+    from app.models import ImageGenerationQueue
+    from app.extensions import db
+    with app.app_context():
+        jid = queue_manager.add_job(workflow_data={'1': {}})
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        row.update_status('sent_to_comfy', comfyui_prompt_id='prompt-cancel')
+        db.session.commit()
+
+        history_calls = 0
+
+        def cancel_while_polling(_prompt_id):
+            nonlocal history_calls
+            history_calls += 1
+            assert queue_manager.cancel_job(jid) is True
+            return {}
+
+        started = time.monotonic()
+        with patch('app.utils.comfyui.get_comfyui_history', side_effect=cancel_while_polling), \
+             patch('app.utils.comfyui.cancel_comfyui_prompt', return_value=True) as interrupt, \
+             patch('app.job_queue.POLL_INTERVAL_SECONDS', 30):
+            assert _poll_outputs('prompt-cancel', timeout=60) == (None, True)
+
+        assert time.monotonic() - started < 1
+        assert history_calls == 1
+        interrupt.assert_called_once_with('prompt-cancel', jid)
+        assert ImageGenerationQueue.query.filter_by(job_id=jid).one().status == 'cancelled'
 
 
 def test_concurrent_expired_delete_guard(app):

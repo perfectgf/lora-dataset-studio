@@ -194,10 +194,97 @@ def test_studio_payload_on_fresh_dataset_is_well_formed_and_empty(app):
         assert payload['scores'] == []
         assert payload['best_cell'] is None
         assert payload['pending'] == 0
+        assert payload['queued'] == payload['generating'] == payload['running'] == 0
         assert payload['resumable'] == 0
         assert payload['max_images'] == lts.MAX_TEST_IMAGES
         # SRC's 'saved_to_gallery'/history-hiding fields are dropped for this app.
         assert 'saved_to_gallery' not in json_dump_keys(payload)
+
+
+def test_studio_payload_splits_queued_and_generating_from_real_queue(app):
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue, LoraTestImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Activity', 'activity')
+        queued_id = queue_manager.add_job(workflow_data={'1': {}})
+        running_id = queue_manager.add_job(workflow_data={'1': {}})
+        running_job = ImageGenerationQueue.query.filter_by(job_id=running_id).one()
+        running_job.update_status('sent_to_comfy', comfyui_prompt_id='prompt-running')
+        svc.db.session.add_all([
+            LoraTestImage(dataset_id=ds.id, checkpoint='z image\\activity_a.safetensors',
+                          strength=1.0, status='pending', job_id=queued_id),
+            LoraTestImage(dataset_id=ds.id, checkpoint='z image\\activity_b.safetensors',
+                          strength=1.0, status='pending', job_id=running_id),
+        ])
+        svc.db.session.commit()
+
+        payload = lts.studio_payload(LOCAL_USER, ds.id)
+        assert payload['pending'] == 2
+        assert payload['queued'] == 1
+        assert payload['generating'] == payload['running'] == 1
+        assert {cell['queue_status'] for cell in payload['cells']} == {'queued', 'generating'}
+
+
+def test_studio_payload_run_queue_counts_are_scoped_to_run_id(app):
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue, LoraTestImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Run activity', 'runactivity')
+        queued_id = queue_manager.add_job(workflow_data={'1': {}})
+        running_id = queue_manager.add_job(workflow_data={'1': {}})
+        other_id = queue_manager.add_job(workflow_data={'1': {}})
+        running_job = ImageGenerationQueue.query.filter_by(job_id=running_id).one()
+        running_job.update_status('processing')
+        svc.db.session.add_all([
+            LoraTestImage(dataset_id=ds.id, run_id='run-a', checkpoint='z image\\a.safetensors',
+                          strength=1.0, status='pending', job_id=queued_id),
+            LoraTestImage(dataset_id=ds.id, run_id='run-a', checkpoint='z image\\b.safetensors',
+                          strength=1.0, status='pending', job_id=running_id),
+            LoraTestImage(dataset_id=ds.id, run_id='run-b', checkpoint='z image\\c.safetensors',
+                          strength=1.0, status='pending', job_id=other_id),
+        ])
+        svc.db.session.commit()
+
+        payload = lts.studio_payload_run(LOCAL_USER, 'run-a')
+        assert payload['pending'] == 2
+        assert payload['queued'] == 1
+        assert payload['generating'] == payload['running'] == 1
+        assert len(payload['cells']) == 2
+
+
+def test_cancel_run_commits_whole_batch_before_interrupting_comfyui(app):
+    from unittest.mock import patch
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue, LoraTestImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Stop batch', 'stopbatch')
+        running_id = queue_manager.add_job(workflow_data={'1': {}})
+        queued_id = queue_manager.add_job(workflow_data={'1': {}})
+        running = ImageGenerationQueue.query.filter_by(job_id=running_id).one()
+        running.update_status('sent_to_comfy', comfyui_prompt_id='prompt-stop')
+        svc.db.session.add_all([
+            LoraTestImage(dataset_id=ds.id, run_id='run-stop', checkpoint='z image\\a.safetensors',
+                          strength=1.0, status='pending', job_id=running_id),
+            LoraTestImage(dataset_id=ds.id, run_id='run-stop', checkpoint='z image\\b.safetensors',
+                          strength=1.0, status='pending', job_id=queued_id),
+        ])
+        svc.db.session.commit()
+
+        def assert_batch_is_already_stopped(_prompt_id, _job_id):
+            assert {j.status for j in ImageGenerationQueue.query.all()} == {'cancelled'}
+            assert {c.status for c in LoraTestImage.query.all()} == {'cancelled'}
+            return True
+
+        with patch.object(queue_manager, 'interrupt_comfyui_job',
+                          side_effect=assert_batch_is_already_stopped) as interrupt:
+            assert lts.cancel_run(LOCAL_USER, run_id='run-stop') == 2
+        interrupt.assert_called_once_with('prompt-stop', running_id)
 
 
 def json_dump_keys(payload):

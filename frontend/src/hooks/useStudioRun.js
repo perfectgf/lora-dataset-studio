@@ -12,7 +12,7 @@
  *             rating, seed, run_seed, status, prompt, z_model, cfg, steps}],
  *     lora_ranking:[{dataset_id, lora_label, dataset_name, likes, dislikes,
  *                    voted, net, wilson}],
- *     pending, resumable, gpu_busy }
+ *     pending, queued, generating, running, resumable, gpu_busy }
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '../components/common/Toast';

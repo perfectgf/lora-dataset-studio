@@ -191,7 +191,9 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
         {data?.pending > 0 && (
           <div className="flex items-center gap-2 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2" role="status">
             <span className="inline-block w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />
-            <span className="text-content text-sm">{data.pending} test generation(s) queued…</span>
+            <span className="text-content text-sm">
+              {data.generating ?? data.running ?? 0} generating · {data.queued ?? data.pending} queued
+            </span>
             <button type="button" onClick={run.cancel}
               className="ml-auto px-2.5 py-1 rounded-lg bg-red-600/80 text-white text-xs font-semibold">
               Stop (resumable)
