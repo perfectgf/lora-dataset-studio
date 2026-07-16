@@ -133,7 +133,7 @@ Good to know:
 
 #### Built-in web scraper
 
-Concept and style LoRAs learn from *real* images, so those datasets swap the face tooling for a scraper. Paste an **image-gallery / album URL**, or run a **Reddit keyword search** — with an optional community (subreddit) scope for cleaner, on-topic results — and the app turns the results into a pick-and-import grid. Tick the frames you want and they download **directly into this dataset**; nothing touches a shared pool.
+Concept and style LoRAs learn from *real* images, so those datasets swap the face tooling for a scraper. Paste an **image-gallery / album URL**, a supported **Pexels search / photo / collection URL**, or run a **Reddit keyword search** — with an optional community (subreddit) scope for cleaner, on-topic results — and the app turns the results into a pick-and-import grid. Tick the frames you want and they download **directly into this dataset**; nothing touches a shared pool.
 
 <p align="center">
   <img src="docs/screenshots/06-scraper.png" alt="Scraper panel: gallery URL field, Reddit keyword + subreddit search, Scan and Import" width="900">
@@ -148,7 +148,11 @@ What it does on your behalf:
 - **Dead-link hygiene** — source links whose thumbnails fail to load are hidden from the grid, so you only ever pick live images.
 - **Sensible guidance baked in** — the panel nudges you toward 20–50 varied images, at most ~10 per gallery (one gallery ≈ one shoot), which is what actually trains well.
 
-Some sources take **optional credentials** in **Settings → Scraping & sources**: your own free **Reddit client ID** (the built-in shared one is rate-limited — a personal id gives you a private quota and clears the "retry in Ns" 429s) and a **Civitai API key** (Civitai scans return SFW results only without one). Everything works without them — they just lift per-source limits.
+Source credentials live in **Settings → Scraping & sources**. Your own free **Reddit client ID** is optional (the built-in shared one is rate-limited — a personal id gives you a private quota and clears the "retry in Ns" 429s), as is a **Civitai API key** (Civitai scans return SFW results only without one). Pexels is the exception: its API key is required for every Pexels scan.
+
+Pexels listings are queried through its **official API**, not `gallery-dl`. [Create a free API key](https://www.pexels.com/api/key/) and save it under **Settings → Scraping & sources**; it takes effect immediately. The free quota is **200 requests/hour and 20,000/month**. The scraper extras remain required because LDS uses `curl_cffi` to proxy thumbnails and import the selected files. LDS accepts Pexels `/search/`, `/photo/`, and `/collections/` URLs, plus their `/en-us/` variants and the French `/fr-fr/chercher/`, `/fr-fr/photo/`, and `/fr-fr/collections/` routes. Localized searches pass `en-US` or `fr-FR` to the official API. Collection access depends on the API key, so a collection that is not available to your key may return 404; Pexels profile URLs (`/@user`) are not supported by the official API. Keep the photographer, photo-source, and Pexels attribution links that LDS displays with API results.
+
+> **Pexels authorization required:** An API key alone does not authorize dataset or machine-learning use. Configure and use this integration only if Pexels has explicitly authorized this use case. Review the [official Pexels terms and conditions](https://help.pexels.com/hc/en-us/articles/900005880463-What-are-the-Terms-and-Conditions) before enabling it.
 
 The scraper can reach adult communities as well — this is an NSFW-capable tool — so use it only for material you have the right to train on. See [Legal & responsible use](#legal--responsible-use). The scraping extras (`gallery-dl`, `curl_cffi`, …) install with one click from the panel when they're missing.
 
@@ -254,7 +258,7 @@ Not every feature needs every backend. The app degrades gracefully — API keys 
 | Person masks | `backend/requirements-ml.txt` (rembg) |
 | Watermark detection (scraped datasets) | Ollama (vision model) |
 | Watermark inpainting (LaMa) | `backend/requirements-ml.txt` (simple-lama-inpainting) — without it, Clean crops border marks only |
-| Scrape images into a concept dataset (Reddit keyword search + gallery URLs) | `backend/requirements-scrape.txt` (gallery-dl + curl_cffi) |
+| Scrape images into a concept dataset (Reddit search + Pexels/gallery URLs) | `backend/requirements-scrape.txt`; Pexels enumeration additionally requires `PEXELS_API_KEY` and uses the official API instead of gallery-dl |
 | Concept-caption inversion (identity-leak-aware) | Ollama **or** ai-toolkit (JoyCaption) |
 | LoRA training | ai-toolkit installed and configured |
 | Test Studio (checkpoint testing) | ComfyUI reachable |

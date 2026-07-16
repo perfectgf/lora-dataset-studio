@@ -33,22 +33,26 @@ def test_put_settings_persists_config_and_secret(client, tmp_path):
     assert r.get_json()['config']['ollama']['url'] == 'http://127.0.0.1:11500'
     assert r.get_json()['secrets']['GEMINI_API_KEY'] is True
 
-def test_put_settings_saves_scrape_credentials(client):
-    """REDDIT_CLIENT_ID / CIVITAI_API_KEY ride the same secrets store as the engine
-    keys: presence-only in the payload, env stamped on save — the scrape sources
-    read the env var first, so a key saved in the UI works without a restart."""
+def test_put_settings_saves_scrape_credentials(client, monkeypatch):
+    """Scrape credentials are presence-only and effective without restart."""
     import os
+    monkeypatch.setenv('PEXELS_API_KEY', '')
     r = client.put('/api/settings', json={'secrets': {'REDDIT_CLIENT_ID': 'my-cid',
-                                                      'CIVITAI_API_KEY': 'civ-key'}})
+                                                      'CIVITAI_API_KEY': 'civ-key',
+                                                      'PEXELS_API_KEY': 'pexels-key'}})
     assert r.status_code == 200
     secrets = r.get_json()['secrets']
     assert secrets['REDDIT_CLIENT_ID'] is True and secrets['CIVITAI_API_KEY'] is True
-    assert 'my-cid' not in str(r.get_json())               # presence only, never the value
+    assert secrets['PEXELS_API_KEY'] is True
+    payload = str(r.get_json())
+    assert 'my-cid' not in payload and 'pexels-key' not in payload  # presence only
     assert os.environ['REDDIT_CLIENT_ID'] == 'my-cid'      # effective immediately
     from app.scrape.sources import reddit
     from app.scrape.sources.civitai import civitai_api_key
+    from app.scrape.sources.pexels import pexels_api_key
     assert reddit._client_id() == 'my-cid'
     assert civitai_api_key() == 'civ-key'
+    assert pexels_api_key() == 'pexels-key'
 
 
 def test_delete_scrape_credential_falls_back_to_shared_id(client, monkeypatch):
@@ -63,6 +67,21 @@ def test_delete_scrape_credential_falls_back_to_shared_id(client, monkeypatch):
     assert r.get_json()['secrets']['REDDIT_CLIENT_ID'] is False
     assert 'REDDIT_CLIENT_ID' not in os.environ
     assert reddit._client_id() == reddit._GDL_CLIENT_ID
+
+
+def test_delete_pexels_api_key_clears_runtime_secret_without_leak(client):
+    import os
+    from app.scrape.sources.pexels import pexels_api_key
+
+    client.put('/api/settings', json={'secrets': {'PEXELS_API_KEY': 'delete-me'}})
+    assert pexels_api_key() == 'delete-me'
+    r = client.delete('/api/settings/secret/PEXELS_API_KEY')
+
+    assert r.status_code == 200
+    assert r.get_json()['secrets']['PEXELS_API_KEY'] is False
+    assert 'delete-me' not in str(r.get_json())
+    assert 'PEXELS_API_KEY' not in os.environ
+    assert pexels_api_key() is None
 
 
 def test_put_rejects_unknown_section(client):

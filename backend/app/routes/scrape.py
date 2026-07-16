@@ -68,11 +68,17 @@ def scrape_scan():
     if err:
         return jsonify({'error': err, 'platform': result.platform.value,
                         'url_type': result.url_type.value}), 502
+    # Une source peut être généralement paginable tout en résolvant certaines
+    # URLs unitaires. scan() peut alors poser un override sur Match, sans que la
+    # route connaisse la plateforme concernée.
+    paginated = getattr(match, 'paginated', None)
+    if paginated is None:
+        paginated = getattr(match.source, 'paginated', False)
     return jsonify({
         'scannable': True, 'platform': result.platform.value,
         'url_type': result.url_type.value,
         'count': len(items or []), 'items': items or [],
-        'paginated': bool(getattr(match.source, 'paginated', False)),
+        'paginated': bool(paginated),
         'page': page,
         'category': getattr(match.source, 'category', 'video'),
     })

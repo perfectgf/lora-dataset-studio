@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 import zipfile
+from urllib.parse import urlsplit
 
 from PIL import Image
 
@@ -225,8 +226,86 @@ def _safe_json(text):
         return None
     try:
         return json.loads(text)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
+
+
+_PEXELS_PAGE_HOSTS = frozenset({'pexels.com', 'www.pexels.com'})
+_PEXELS_IMAGE_HOSTS = frozenset({'images.pexels.com'})
+_SOURCE_URL_MAX_CHARS = 2048
+_PHOTOGRAPHER_MAX_CHARS = 160
+
+
+def _safe_source_https_url(value, allowed_hosts):
+    """Return a stripped HTTPS URL on an exact allowlisted host, else None."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if (not value or len(value) > _SOURCE_URL_MAX_CHARS
+            or any(ord(ch) < 32 for ch in value)):
+        return None
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or '').lower()
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    if (parsed.scheme != 'https' or host not in allowed_hosts
+            or parsed.username is not None or parsed.password is not None
+            or port not in (None, 443)):
+        return None
+    return value
+
+
+def normalize_source_metadata(value, *, image_url=None):
+    """Validate the generic provenance object currently supported by LDS.
+
+    Unknown platforms are deliberately dropped for backwards compatibility.
+    Pexels provenance is accepted only when both attribution links are exact
+    Pexels HTTPS hosts; at scrape-import time the downloaded image must also be
+    hosted by the official Pexels image CDN. Extra keys never reach storage or
+    the dataset payload.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(value, dict) or value.get('platform') != 'pexels':
+        return None
+    if image_url is not None and not _safe_source_https_url(
+            image_url, _PEXELS_IMAGE_HOSTS):
+        return None
+    photographer = value.get('photographer')
+    if not isinstance(photographer, str):
+        return None
+    photographer = photographer.strip()
+    if not photographer or len(photographer) > _PHOTOGRAPHER_MAX_CHARS:
+        return None
+    photographer = ' '.join(photographer.split())
+    source_url = _safe_source_https_url(value.get('source_url'), _PEXELS_PAGE_HOSTS)
+    photographer_url = _safe_source_https_url(
+        value.get('photographer_url'), _PEXELS_PAGE_HOSTS)
+    if not source_url or not photographer_url:
+        return None
+    return {
+        'platform': 'pexels',
+        'source_url': source_url,
+        'photographer': photographer,
+        'photographer_url': photographer_url,
+    }
+
+
+def _source_metadata_storage(value, *, image_url=None):
+    metadata = normalize_source_metadata(value, image_url=image_url)
+    return (json.dumps(metadata, ensure_ascii=False, separators=(',', ':'))
+            if metadata else None)
+
+
+def _source_metadata_from_scrape_item(item):
+    if not isinstance(item, dict) or item.get('platform') != 'pexels':
+        return None
+    return normalize_source_metadata(item, image_url=item.get('url'))
 
 
 def _watermark_regions_payload(img) -> dict:
@@ -783,7 +862,7 @@ _BACKUP_IMG_FIELDS = ('filename', 'source', 'framing', 'variation_label', 'statu
                       'caption', 'variation_prompt', 'face_score', 'face_state',
                       'upscale_ratio', 'watermark_state', 'watermark_bbox',
                       'watermark_regions', 'parent_image_id', 'derivation_kind',
-                      'fail_reason')
+                      'fail_reason', 'source_metadata')
 
 
 def _backup_basename(value):
@@ -892,9 +971,14 @@ def build_backup_zip(user_id, dataset_id) -> bytes:
     }
     # backup_image_id is archive-local only. It lets restore remap parent_image_id
     # to the newly allocated row ids instead of retaining ids from the source DB.
-    images_meta = [dict({'backup_image_id': img.id},
-                        **{f: getattr(img, f) for f in _BACKUP_IMG_FIELDS})
-                   for img in rows]
+    images_meta = []
+    for img in rows:
+        row = dict({'backup_image_id': img.id},
+                   **{f: getattr(img, f) for f in _BACKUP_IMG_FIELDS})
+        # Archive a structured, revalidated object rather than the raw TEXT
+        # column. A malformed legacy/local row can never export arbitrary links.
+        row['source_metadata'] = normalize_source_metadata(img.source_metadata)
+        images_meta.append(row)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         z.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=1))
@@ -1043,6 +1127,10 @@ def import_backup_zip(user_id, zip_bytes):
                 continue   # never restore an orphaned candidate
             values = {f: meta.get(f) for f in _BACKUP_IMG_FIELDS
                       if f not in ('filename', 'parent_image_id')}
+            # Backup input is untrusted. Unknown/invalid provenance is dropped,
+            # while valid Pexels metadata is canonicalized back to JSON TEXT.
+            values['source_metadata'] = _source_metadata_storage(
+                values.get('source_metadata'))
             if is_candidate and not fn and values.get('status') in ('pending', 'keep'):
                 values['status'] = 'failed'
                 values['fail_reason'] = (
@@ -1325,6 +1413,7 @@ def dataset_payload(user_id, dataset_id):
                     'fail_reason': i.fail_reason,
                     'parent_image_id': i.parent_image_id,
                     'derivation_kind': i.derivation_kind,
+                    'source_metadata': normalize_source_metadata(i.source_metadata),
                     'upscale_ratio': i.upscale_ratio,
                     # Core creative prompt (generated tiles) → seeds the ✏️ edit
                     # bubble so the user edits the real prompt, not a blank box.
@@ -1509,7 +1598,8 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
 
 
 # --- Import + classify (Qwen3-VL) ------------------------------------------
-def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, stats=None):
+def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, stats=None,
+                  source_metadata=None):
     """Normalize (or head-crop) + persist + create import rows (status=keep).
     When crop=True, each image is auto head-cropped via Qwen3-VL - the CALLER
     must then hold the GPU-exclusive window - and is by construction a face,
@@ -1523,6 +1613,9 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     Default stays False: service-level callers (scrape flow dedupes upstream on
     the ORIGINALS, before paying the crop) keep the historical behavior.
 
+    ``source_metadata`` is an optional list parallel to ``files_bytes``. Only
+    validated Pexels provenance is stored; existing callers can omit it.
+
     Returns (ids, failed_count)."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
@@ -1532,9 +1625,10 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     # forçait tous les imports personnage en carré — un plan buste/corps importé
     # doit rester tel quel (ai-toolkit gère le bucketing multi-ratios).
     seen = _existing_dhashes(dataset_id) if dedupe else None
+    metadata_by_index = list(source_metadata) if source_metadata is not None else []
     ids = []
     failed = 0
-    for raw in files_bytes:
+    for index, raw in enumerate(files_bytes):
         # Garde-fou qualité : ai-toolkit ne fait que RÉDUIRE — une image sous
         # 768 px de petit côté reste floue à l'entraînement. Comptée (toast),
         # jamais bloquée : c'est parfois la seule photo disponible.
@@ -1572,7 +1666,10 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
             fh.write(webp)
         img = FaceDatasetImage(dataset_id=dataset_id, source='import', status='keep',
                                filename=fn, framing='face' if crop else None,
-                               upscale_ratio=scale)
+                               upscale_ratio=scale,
+                               source_metadata=_source_metadata_storage(
+                                   metadata_by_index[index]
+                                   if index < len(metadata_by_index) else None))
         db.session.add(img)
         db.session.commit()
         ids.append(img.id)
@@ -1815,7 +1912,7 @@ def _scrape_resolution_key(downloaded):
         return (0, 0)
 
 
-def _save_small_scrape_pair(user_id, dataset_id, raw, prompt):
+def _save_small_scrape_pair(user_id, dataset_id, raw, prompt, source_metadata=None):
     """Persist the untouched scrape source and enqueue one Klein candidate.
 
     Returns True when queued, False when enqueue failed. The original and result
@@ -1833,10 +1930,12 @@ def _save_small_scrape_pair(user_id, dataset_id, raw, prompt):
     with open(source_path, 'wb') as fh:
         fh.write(raw)
 
+    stored_metadata = _source_metadata_storage(source_metadata)
     source = FaceDatasetImage(
         dataset_id=dataset_id, source='import', status='pending', filename=filename,
         derivation_kind=SMALL_IMAGE_SOURCE,
         variation_label='Small scraped image · original',
+        source_metadata=stored_metadata,
     )
     db.session.add(source)
     db.session.flush()
@@ -1845,6 +1944,7 @@ def _save_small_scrape_pair(user_id, dataset_id, raw, prompt):
         dataset_id=dataset_id, source='generated', status='pending',
         parent_image_id=source.id, derivation_kind=KLEIN_SMALL_IMAGE,
         variation_label=label, variation_prompt=prompt,
+        source_metadata=stored_metadata,
     )
     db.session.add(candidate)
     db.session.commit()
@@ -1905,17 +2005,19 @@ def scrape_import_urls(user_id, dataset_id, items, rescue_small=False):
         return {'imported': 0, 'rescue_queued': 0, 'rescue_failed': 0,
                 'skipped': skipped}
     with ThreadPoolExecutor(max_workers=_SCRAPE_DL_WORKERS) as pool:
-        downloaded = list(pool.map(_download_scrape_item, items))
+        # Keep each response tied to its scan item. Rescue sorting changes order,
+        # so a separate byte list would otherwise attach the wrong photographer.
+        downloaded = list(zip(items, pool.map(_download_scrape_item, items)))
 
     # In rescue mode a low-resolution duplicate must never claim the dHash first
     # and make the usable HD source look like the duplicate. The legacy path keeps
     # request order exactly as before.
     if rescue_small:
-        downloaded.sort(key=_scrape_resolution_key, reverse=True)
+        downloaded.sort(key=lambda pair: _scrape_resolution_key(pair[1]), reverse=True)
 
     seen_hashes = _existing_dhashes(dataset_id)
     accepted, rescue_candidates = [], []
-    for reason, data in downloaded:
+    for item, (reason, data) in downloaded:
         if reason != 'ok':
             skipped[reason] = skipped.get(reason, 0) + 1
             continue
@@ -1929,9 +2031,10 @@ def scrape_import_urls(user_id, dataset_id, items, rescue_small=False):
                 except (OSError, ValueError):
                     skipped['errors'] += 1
                     continue
-                (rescue_candidates if is_small else accepted).append(ok_bytes)
+                target = rescue_candidates if is_small else accepted
+                target.append((ok_bytes, _source_metadata_from_scrape_item(item)))
             else:
-                accepted.append(ok_bytes)
+                accepted.append((ok_bytes, _source_metadata_from_scrape_item(item)))
 
     # Capacity and model preflight happen once, after every quality/dedup filter,
     # but before creating a source/result pair. No small candidate => no Klein scan.
@@ -1947,14 +2050,17 @@ def scrape_import_urls(user_id, dataset_id, items, rescue_small=False):
         if any(asset in missing for asset in KLEIN_REQUIRED):
             raise KleinModelsMissing(missing)
 
-    ids, failed = import_images(user_id, dataset_id, accepted, crop=False)
+    ids, failed = import_images(
+        user_id, dataset_id, [raw for raw, _metadata in accepted], crop=False,
+        source_metadata=[metadata for _raw, metadata in accepted])
     skipped['errors'] += failed
     raw_prompt = cfg.get('klein.small_image_prompt', '')
     prompt = '' if raw_prompt is None else str(raw_prompt)
     rescue_queued = rescue_failed = 0
-    for raw in rescue_candidates:
+    for raw, source_metadata in rescue_candidates:
         try:
-            queued = _save_small_scrape_pair(user_id, dataset_id, raw, prompt)
+            queued = _save_small_scrape_pair(
+                user_id, dataset_id, raw, prompt, source_metadata=source_metadata)
         except Exception:
             rescue_failed += 1
             logger.exception('small-image rescue save failed for dataset %s', dataset_id)
@@ -3148,6 +3254,9 @@ def _improve_existing_image_locked(user_id, image_id):
         parent_image_id=img.id, derivation_kind=KLEIN_IMAGE_IMPROVE,
         framing=img.framing, caption=img.caption,
         variation_label=label, variation_prompt=stored_prompt,
+        # The generated candidate remains derived from the credited source.
+        # Revalidate before copying so a malformed legacy row cannot surface.
+        source_metadata=_source_metadata_storage(img.source_metadata),
     )
     db.session.add(candidate)
     db.session.commit()

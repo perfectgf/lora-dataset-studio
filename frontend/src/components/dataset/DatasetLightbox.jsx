@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { displayLabel } from '../../utils/labels';
+import PexelsAttribution from './PexelsAttribution';
 
 const IMPROVE_HELP = 'Klein creates a new 2 MP version to validate and leaves the original intact.';
 
@@ -89,6 +90,8 @@ export default function DatasetLightbox({
         <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/10 text-white/80">
           {img.source === 'import' ? 'real' : 'generated'}{img.framing ? ` · ${img.framing}` : ''}
         </span>
+        <PexelsAttribution metadata={img.source_metadata}
+          className="text-[11px] text-white/70" />
         <span className="text-white/50 text-[11px]">
           {full ? '100 % — click image to fit' : 'fitted — click image for 100 %'}
         </span>

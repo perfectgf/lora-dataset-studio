@@ -55,6 +55,7 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset_image', 'watermark_state', 'VARCHAR(16)'),
     ('face_dataset_image', 'watermark_bbox', 'TEXT'),
     ('face_dataset_image', 'watermark_regions', 'TEXT'),
+    ('face_dataset_image', 'source_metadata', 'TEXT'),
     ('training_run_record', 'settings', 'TEXT'),
     ('lora_test_image', 'error', 'TEXT'),
 )

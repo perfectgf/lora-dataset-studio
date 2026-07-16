@@ -9,12 +9,16 @@ Porté de l'app source, adapté à notre extraction mono-utilisateur : LOCAL_USE
 racine d'images via la fixture `app`, route sous app.routes.datasets.
 """
 import io
+import json
+import zipfile
 from unittest.mock import patch
 
 import pytest
 from PIL import Image
 
 from app.models import FaceDatasetImage
+from app.scrape.sources.base import Match
+from app.scrape.sources.pexels import PexelsSource
 from app.services import face_dataset_service as svc
 from app.config import LOCAL_USER
 
@@ -44,6 +48,17 @@ def _concept(user_id=LOCAL_USER):
 
 def _item(url):
     return {'url': url, 'title': ''}
+
+
+def _pexels_item(photo_id='123'):
+    return {
+        'url': f'https://images.pexels.com/photos/{photo_id}/photo.jpeg',
+        'title': 'A Pexels photo',
+        'platform': 'pexels',
+        'source_url': f'https://www.pexels.com/photo/example-{photo_id}/',
+        'photographer': f'Photographer {photo_id}',
+        'photographer_url': f'https://www.pexels.com/@photographer-{photo_id}/',
+    }
 
 
 def _fake_downloader(by_url):
@@ -76,6 +91,73 @@ def test_scrape_import_happy_path(app):
         assert all(v == 0 for v in res['skipped'].values()), res['skipped']
         rows = FaceDatasetImage.query.filter_by(dataset_id=c.id).all()
         assert len(rows) == 2 and all(r.source == 'import' and r.status == 'keep' for r in rows)
+
+
+def test_pexels_scan_import_payload_and_backup_preserve_provenance(app, monkeypatch):
+    with app.app_context():
+        c = _concept()
+        monkeypatch.setenv('PEXELS_API_KEY', 'integration-test-key')
+        api_photo = {
+            'id': 31415,
+            'url': 'https://www.pexels.com/photo/example-31415/',
+            'photographer': 'Photographer 31415',
+            'photographer_url': 'https://www.pexels.com/@photographer-31415/',
+            'alt': 'A Pexels photo',
+            'src': {
+                'original': 'https://images.pexels.com/photos/31415/photo.jpeg',
+                'medium': 'https://images.pexels.com/photos/31415/medium.jpeg',
+            },
+        }
+        with patch('app.scrape.sources.pexels._request_json', return_value=(
+                {'photos': [api_photo], 'next_page': None}, None)):
+            scanned, error = PexelsSource().scan(Match(
+                url='https://www.pexels.com/search/portrait/'))
+        assert error is None and len(scanned) == 1
+        item = scanned[0]
+        data = _img_bytes(grad='ltr')
+        with patch.object(svc, '_download_scrape_item',
+                          _fake_downloader({item['url']: data})):
+            res = svc.scrape_import_urls(LOCAL_USER, c.id, [item])
+
+        assert res['imported'] == 1
+        expected = {key: item[key] for key in (
+            'platform', 'source_url', 'photographer', 'photographer_url')}
+        row = FaceDatasetImage.query.filter_by(dataset_id=c.id).one()
+        assert json.loads(row.source_metadata) == expected
+        assert svc.dataset_payload(LOCAL_USER, c.id)['images'][0]['source_metadata'] == expected
+
+        backup = svc.build_backup_zip(LOCAL_USER, c.id)
+        with zipfile.ZipFile(io.BytesIO(backup)) as archive:
+            archived = json.loads(archive.read('images.json'))
+        assert archived[0]['source_metadata'] == expected
+
+        restored = svc.import_backup_zip(LOCAL_USER, backup)
+        restored_payload = svc.dataset_payload(LOCAL_USER, restored.id)
+        assert restored_payload['images'][0]['source_metadata'] == expected
+
+
+def test_spoofed_pexels_links_are_dropped_without_blocking_import(app):
+    with app.app_context():
+        c = _concept()
+        item = _pexels_item('2718')
+        item['source_url'] = 'https://evil.example/pexels-lookalike'
+        data = _img_bytes(grad='ltr')
+        with patch.object(svc, '_download_scrape_item',
+                          _fake_downloader({item['url']: data})):
+            res = svc.scrape_import_urls(LOCAL_USER, c.id, [item])
+
+        assert res['imported'] == 1
+        row = FaceDatasetImage.query.filter_by(dataset_id=c.id).one()
+        assert row.source_metadata is None
+        assert svc.dataset_payload(LOCAL_USER, c.id)['images'][0]['source_metadata'] is None
+
+
+def test_source_metadata_column_is_present(app):
+    from sqlalchemy import text
+    with app.app_context():
+        columns = {row[1] for row in svc.db.session.execute(
+            text('PRAGMA table_info(face_dataset_image)'))}
+    assert 'source_metadata' in columns
 
 
 def test_scrape_import_filters(app):
@@ -223,6 +305,49 @@ def test_small_rescue_hd_duplicate_wins_before_klein_preflight(app):
         assert res['imported'] == 1 and res['rescue_queued'] == 0
         assert res['skipped']['duplicates'] == 1
         preflight.assert_not_called()
+
+
+def test_rescue_sort_keeps_metadata_attached_to_winning_pexels_bytes(app):
+    with app.app_context():
+        c = _concept()
+        low_item = _pexels_item('100')
+        high_item = _pexels_item('200')
+        low = _img_bytes(700, 500, grad='ltr')
+        high = _img_bytes(1280, 960, grad='ltr')
+        by_url = {low_item['url']: low, high_item['url']: high}
+        with patch.object(svc, '_download_scrape_item', _fake_downloader(by_url)), \
+             patch('app.services.klein_edit_helper.klein_missing_assets') as preflight:
+            res = svc.scrape_import_urls(
+                LOCAL_USER, c.id, [low_item, high_item], rescue_small=True)
+
+        assert res['imported'] == 1 and res['skipped']['duplicates'] == 1
+        metadata = svc.dataset_payload(LOCAL_USER, c.id)['images'][0]['source_metadata']
+        assert metadata['source_url'] == high_item['source_url']
+        assert metadata['photographer'] == high_item['photographer']
+        preflight.assert_not_called()
+
+
+def test_small_rescue_source_and_candidate_keep_pexels_provenance(app):
+    with app.app_context():
+        c = _concept()
+        item = _pexels_item('8080')
+        data = _img_bytes(700, 500)
+        with patch.object(svc, '_download_scrape_item',
+                          _fake_downloader({item['url']: data})), \
+             patch('app.services.klein_edit_helper.klein_missing_assets', return_value=[]), \
+             patch('app.services.klein_edit_helper.enqueue_klein_edit',
+                   return_value='pexels-rescue-job'):
+            res = svc.scrape_import_urls(
+                LOCAL_USER, c.id, [item], rescue_small=True)
+
+        assert res['rescue_queued'] == 1
+        rows = FaceDatasetImage.query.filter_by(dataset_id=c.id).all()
+        assert len(rows) == 2
+        expected = {key: item[key] for key in (
+            'platform', 'source_url', 'photographer', 'photographer_url')}
+        assert all(json.loads(row.source_metadata) == expected for row in rows)
+        payload = svc.dataset_payload(LOCAL_USER, c.id)
+        assert all(image['source_metadata'] == expected for image in payload['images'])
 
 
 def test_resolve_small_rescue_is_atomic_idempotent_and_non_reversible(app):

@@ -27,12 +27,14 @@ class Match:
     source universelle) + la Source qui a matché (posée par le registry).
 
     `page` (0-based) est posé par la route /scan pour la pagination « Charger plus »
-    des sources paginables (cf. Source.paginated) ; les autres sources l'ignorent —
-    pas besoin de toucher leur signature scan()."""
+    des sources paginables (cf. Source.paginated) ; les autres sources l'ignorent.
+    `paginated` permet à scan() d'override ce défaut pour une URL précise (par ex.
+    un média unique au sein d'une source qui gère aussi des listings)."""
     url: str
     validation: object = None
     source: object = None
     page: int = 0
+    paginated: Optional[bool] = None
 
 
 class Source(ABC):
