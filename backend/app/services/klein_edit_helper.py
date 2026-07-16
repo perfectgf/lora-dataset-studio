@@ -31,6 +31,7 @@ import time
 import uuid
 
 from .. import config as cfg
+from . import comfy_model_paths
 from ..utils.comfyui import load_workflow_local
 from ..job_queue import queue_manager
 
@@ -64,11 +65,6 @@ class KleinModelsMissing(Exception):
         super().__init__('Klein models missing: ' + ', '.join(self.missing))
 
 
-def _models_root():
-    d = cfg.comfyui_dir('models')
-    return str(d) if d else None
-
-
 # Canonical filenames = the exact files the Setup installer downloads (single
 # source of truth: setup_installer._KLEIN_DOWNLOADS dest names). Matching MUST be
 # canonical-first with NARROW token fallbacks: on a ComfyUI shared with other
@@ -82,38 +78,39 @@ def _canonical_name(action):
     return setup_installer._KLEIN_DOWNLOADS[action]['dest'][-1]
 
 
-def _find_model_file(subparts, canonical, tokens):
-    """Model file under <models>/<subparts...>: the canonical filename if present,
-    else the first (sorted) name containing any of the NARROW tokens. None when
-    nothing matches — never a blind first-file-in-folder guess."""
-    root = _models_root()
-    if not root:
-        return None
-    folder = os.path.join(root, *subparts)
-    try:
-        names = sorted(n for n in os.listdir(folder)
-                       if n.lower().endswith(_MODEL_SUFFIXES))
-    except OSError:
-        return None
-    if canonical in names:
+def _find_model_file(comfy_type, canonical, tokens):
+    """Model file for a ComfyUI folder type ('vae' / 'text_encoders'): the canonical
+    filename if present in ANY search root, else the first (sorted) name containing a
+    NARROW token, scanning roots in ComfyUI's priority order (base <models>/<type>
+    first, then extra_model_paths roots). None when nothing matches — never a blind
+    first-file guess. Returns the bare filename: a VAE/CLIP loader lists these files
+    relative to the (registered) folder that holds them, so the bare name loads.
+    With no extra_model_paths.yaml this scans exactly the one base folder as before."""
+    listings = []
+    for folder in comfy_model_paths.search_roots(comfy_type):
+        try:
+            listings.append(sorted(n for n in os.listdir(folder)
+                                   if n.lower().endswith(_MODEL_SUFFIXES)))
+        except OSError:
+            continue
+    if any(canonical in names for names in listings):
         return canonical
-    for n in names:
-        if any(tok in n.lower() for tok in tokens):
-            return n
+    for names in listings:
+        for n in names:
+            if any(tok in n.lower() for tok in tokens):
+                return n
     return None
 
 
 def _klein_unet_folders():
-    """(subfolder_name, [model files]) for every 'klein'-named subfolder under
-    models/unet and models/diffusion_models — mirrors capabilities._scan_models,
-    so anything the picker lists is resolvable here. unet/ first (the canonical
-    download location), then shared-install folders like 'Flux2 klein'."""
-    root = _models_root()
-    if not root:
-        return []
+    """(subfolder_name, [model files]) for every 'klein'-named subfolder under each
+    diffusion-model search root (base models/unet + models/diffusion_models, then any
+    extra_model_paths roots) — mirrors capabilities._scan_models, so anything the
+    picker lists is resolvable here. Base unet/ first (the canonical download
+    location), then shared-install folders like 'Flux2 klein', then extra roots. With
+    no extra_model_paths.yaml the roots are exactly [unet, diffusion_models] as before."""
     out = []
-    for base in ('unet', 'diffusion_models'):
-        base_dir = os.path.join(root, base)
+    for base_dir in comfy_model_paths.search_roots('diffusion_models'):
         try:
             subs = sorted(d for d in os.listdir(base_dir)
                           if 'klein' in d.lower() and os.path.isdir(os.path.join(base_dir, d)))
@@ -159,7 +156,7 @@ def resolve_klein_vae():
     """`vae_name` for node 10 — canonical flux2-vae.safetensors, else a narrow
     flux2-vae token match (covers the 'flux2_vae.safetensors.safetensors'
     double-extension variant some installs carry). Never e.g. qwen_image_vae."""
-    return _find_model_file(('vae',), _canonical_name('klein_vae'),
+    return _find_model_file('vae', _canonical_name('klein_vae'),
                             ('flux2-vae', 'flux2_vae', 'flux-2-vae', 'flux_2_vae'))
 
 
@@ -168,18 +165,39 @@ def resolve_klein_text_encoder():
     narrow qwen_3_8b token match. NEVER a bare 'qwen' match: qwen3vl_* (Z-Image)
     and qwen_2.5_vl_* (Qwen-Image) encoders live in the same folder and produce
     incompatible embeddings."""
-    return _find_model_file(('text_encoders',), _canonical_name('klein_text_encoder'),
+    return _find_model_file('text_encoders', _canonical_name('klein_text_encoder'),
                             ('qwen_3_8b', 'qwen3_8b', 'qwen-3-8b'))
 
 
+def _lora_abs(rel_name):
+    """Absolute path of a loras-relative name under the FIRST loras search root that
+    holds it (base models/loras, then extra_model_paths loras roots), else None. The
+    name passed to a LoraLoader stays relative to whichever root contains it — ComfyUI
+    lists it identically from any registered loras folder. No yaml → base root only."""
+    if not rel_name:
+        return None
+    for root in comfy_model_paths.search_roots('loras'):
+        cand = os.path.join(root, rel_name)
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
 def _consistency_lora():
-    """(relative_name, absolute_path) of the configured consistency LoRA, or
-    (name, None) when the loras dir is unset."""
+    """(relative_name, absolute_path) of the configured consistency LoRA. The path is
+    where it was FOUND (base or an extra_model_paths loras root); when absent it is the
+    base-expected path (for a stable log message), or None when no loras root exists.
+    The relative name is unchanged (e.g. 'klein\\Flux2-...safetensors') — it carries
+    'klein/' because the file lives under loras/klein/, which is exactly the string a
+    LoraLoader wants regardless of which registered loras root holds it."""
     name = (cfg.get('klein.consistency_lora') or '').replace('/', os.sep)
-    lora_dir = cfg.comfyui_dir('loras')
-    if not (lora_dir and name):
-        return name or None, None
-    return name, os.path.join(str(lora_dir), name)
+    if not name:
+        return None, None
+    found = _lora_abs(name)
+    if found:
+        return name, found
+    roots = comfy_model_paths.search_roots('loras')
+    return name, (os.path.join(roots[0], name) if roots else None)
 
 
 def klein_missing_assets():
@@ -431,9 +449,8 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     # its file is absent so ComfyUI doesn't fail validation on a missing LoRA. The
     # consistency LoRA injected above (if any) stays in the chain.
     base_lora = (workflow.get("139", {}).get("inputs", {}).get("lora_name") or '').replace('/', os.sep)
-    loras_dir = cfg.comfyui_dir('loras')
-    base_lora_path = os.path.join(str(loras_dir), base_lora) if (loras_dir and base_lora) else None
-    if "139" in workflow and (not base_lora_path or not os.path.exists(base_lora_path)):
+    base_lora_path = _lora_abs(base_lora)   # base + extra_model_paths loras roots
+    if "139" in workflow and not base_lora_path:
         logger.info("base LoRA %r absent — bypassing node 139", base_lora)
         _bypass_node(workflow, "139", "model")
 

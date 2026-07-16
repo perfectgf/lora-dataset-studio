@@ -927,11 +927,25 @@ def _ci_join_exists(root, rel):
 def _model_file_present(models_root, subfolders, ref):
     """True if `ref` (a loader value, possibly with its own subfolder prefix)
     resolves to a real file under models_root/<subfolder>/ for any candidate
-    subfolder."""
+    subfolder, OR under an extra_model_paths.yaml root for those types (where the
+    extra dir IS the type root, so `ref` resolves directly beneath it). With no yaml
+    only the base models_root is checked, so this is unchanged. This keeps the Studio
+    preflight from raising a false 'missing file' 409 for a model that lives in an
+    extra path — ComfyUI resolves it natively at run time from the same yaml."""
     rel_ref = (ref or '').replace('\\', os.sep).replace('/', os.sep).lstrip(os.sep)
     if not rel_ref:
         return True  # empty ref = loader left at a wired default upstream — not our miss
-    return any(_ci_join_exists(models_root, os.path.join(sub, rel_ref)) for sub in subfolders)
+    if any(_ci_join_exists(models_root, os.path.join(sub, rel_ref)) for sub in subfolders):
+        return True
+    try:
+        from . import comfy_model_paths
+        for sub in subfolders:
+            for root in comfy_model_paths.extra_roots(sub):
+                if _ci_join_exists(root, rel_ref):
+                    return True
+    except Exception:
+        pass
+    return False
 
 
 def _scan_workflow_assets(workflow, models_root):

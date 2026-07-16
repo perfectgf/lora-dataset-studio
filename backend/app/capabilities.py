@@ -26,7 +26,11 @@ _IMPORT_TTL = 600
 _import_cache = {}  # key -> (ts, ok)
 
 _ZIMAGE_RE = re.compile(r'z[ -]?image', re.IGNORECASE)
-_MODEL_SUFFIXES = ('.safetensors', '.gguf')
+# Aligned with klein_edit_helper / utils.comfyui (was missing '.sft', so the
+# picker under-listed vs the resolvers). '.gguf' kept deliberately: the app
+# supports ComfyUI-GGUF quantised diffusion models, and dropping it would hide
+# models existing installs already see (see comfy_model_paths module docstring).
+_MODEL_SUFFIXES = ('.safetensors', '.gguf', '.sft')
 
 
 def _http_ok(url, timeout=3) -> bool:
@@ -331,42 +335,44 @@ def _model_files(folder) -> list:
 
 
 def _scan_models() -> dict:
+    # Roots come from the SAME resolver ComfyUI uses (base <models> folders + any
+    # extra_model_paths.yaml roots), so the picker/probe list exactly what a running
+    # ComfyUI would load. With no yaml the roots are the historical [unet,
+    # diffusion_models] / [checkpoints], so the output is byte-for-byte unchanged.
+    from .services import comfy_model_paths
     result = {'zimage': [], 'sdxl': [], 'krea': [], 'klein': []}
     try:
         models_dir = cfg.comfyui_dir('models')
     except Exception:
-        return result
-    if not models_dir:
-        return result
-    try:
-        if not models_dir.is_dir():
-            return result
-    except OSError:
-        return result
+        models_dir = None
+    # krea is historically scanned ONLY from the base <models>/unet folder; track it
+    # so an extra root (treated like diffusion_models) doesn't change that bucket.
+    unet_default = os.path.normpath(str(models_dir / 'unet')) if models_dir else None
 
-    for base_name in ('unet', 'diffusion_models'):
-        base = models_dir / base_name
+    for root in comfy_model_paths.search_roots('diffusion_models'):
         try:
-            if not base.is_dir():
-                continue
-            subfolders = [p for p in base.iterdir() if p.is_dir()]
+            subfolders = [p for p in Path(root).iterdir() if p.is_dir()]
         except OSError:
             continue
+        krea_eligible = (os.path.normpath(root) == unet_default)
         for sub in subfolders:
             name = sub.name
             if _ZIMAGE_RE.search(name):
                 result['zimage'].extend(_model_files(sub))
-            # Any 'klein'-named subfolder under unet/ OR diffusion_models/ counts:
-            # shared installs keep e.g. diffusion_models/'Flux2 klein'/ (the KV
-            # variant) next to our canonical unet/klein/ download — hiding it made
-            # the picker blind to models the user already owns.
+            # Any 'klein'-named subfolder counts: shared installs keep e.g.
+            # diffusion_models/'Flux2 klein'/ (the KV variant) next to our canonical
+            # unet/klein/ download — hiding it made the picker blind to models the
+            # user already owns.
             elif 'klein' in name.lower():
                 result['klein'].extend(_model_files(sub))
-            elif base_name == 'unet' and name.lower().startswith('krea'):
+            elif krea_eligible and name.lower().startswith('krea'):
                 result['krea'].extend(_model_files(sub))
 
     result['klein'] = sorted(set(result['klein']))
-    result['sdxl'] = _model_files(models_dir / 'checkpoints')
+    sdxl = []
+    for root in comfy_model_paths.search_roots('checkpoints'):
+        sdxl.extend(_model_files(Path(root)))
+    result['sdxl'] = sdxl
     return result
 
 
@@ -538,6 +544,16 @@ def probe(force=False) -> dict:
     watermark_inpaint = probe_watermark_inpaint()
     joycaption = probe_joycaption(aitoolkit)
     models = _scan_models()
+    # Klein engine readiness is now honest tri-component: the graph needs the UNET
+    # AND the VAE AND the text-encoder. The old check was unet-only (bool(models
+    # ['klein'])), so the engine lit up while a generate would 409 for the missing
+    # vae/te. That 409 already names + auto-downloads the missing files, so a badge
+    # that flips to "not ready" here is actionable. resolvers are cheap listdir,
+    # network-free, and extra_model_paths-aware. Lazy import avoids an import cycle.
+    from .services import klein_edit_helper as _keh
+    klein_ready = (comfy['ok'] and bool(models['klein'])
+                   and bool(_keh.resolve_klein_vae())
+                   and bool(_keh.resolve_klein_text_encoder()))
     base_dir = cfg.get('comfyui.base_dir') or ''
     comfy_dir = resolve_comfyui_base(base_dir)
 
@@ -549,7 +565,7 @@ def probe(force=False) -> dict:
         'engines': {
             'nanobanana': gemini['ok'],
             'chatgpt': openai_['ok'],
-            'klein': comfy['ok'] and bool(models['klein']),
+            'klein': klein_ready,
         },
         'chatgpt_subscription': {
             'connected': sub_status['connected'],

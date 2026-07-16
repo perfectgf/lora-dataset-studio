@@ -429,6 +429,26 @@ def _run_ml_capability(action) -> int:
     return proc.returncode
 
 
+def _klein_present_in_extra(action) -> bool:
+    """Is the canonical Klein asset for `action` already on disk under an
+    extra_model_paths.yaml root? We still DOWNLOAD into the base is-default tree
+    (dest is unchanged, per the "install location doesn't move" rule) — this only
+    skips a redundant multi-GB fetch when the file already lives somewhere ComfyUI
+    will load it. EXTRA roots only (base presence is the os.path.isfile(dest) check),
+    so with no yaml this is a no-op and behaviour is identical."""
+    spec = _KLEIN_DOWNLOADS[action]
+    dest_parts = spec['dest']                 # e.g. ('unet','klein','flux-2-...safetensors')
+    comfy_type = dest_parts[0]                # 'unet'|'loras'|'text_encoders'|'vae'
+    rel = os.path.join(*dest_parts[1:]) if len(dest_parts) > 1 else dest_parts[-1]
+    try:
+        from .services import comfy_model_paths
+        return any(os.path.isfile(os.path.join(root, rel))
+                   for root in comfy_model_paths.extra_roots(comfy_type))
+    except Exception:
+        logger.debug('extra-path klein presence check failed for %s', action, exc_info=True)
+        return False
+
+
 def _run_klein_download(action) -> int:
     """Stream one Klein asset into the validated ComfyUI tree. Writes to a .part
     file then renames (a killed download never leaves a half file the model
@@ -438,6 +458,9 @@ def _run_klein_download(action) -> int:
     dest = _klein_dest_path(action)
     if os.path.isfile(dest):
         _append(action, f'already present: {dest}')
+        return 0
+    if _klein_present_in_extra(action):
+        _append(action, 'already available via a configured extra_model_paths.yaml root - skipping download')
         return 0
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     headers = {}

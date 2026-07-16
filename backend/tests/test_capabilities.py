@@ -72,12 +72,36 @@ def test_comfyui_reachable_lights_studio_and_klein(app, monkeypatch, tmp_path):
         base = tmp_path / 'Comfy'
         (base / 'models' / 'unet' / 'klein').mkdir(parents=True)
         (base / 'models' / 'unet' / 'klein' / 'k.safetensors').touch()
+        # Klein readiness is now tri-component (unet + vae + text-encoder): the
+        # engine only lights when a generate could actually run, not on the unet
+        # alone. Materialise the canonical vae + text-encoder too.
+        (base / 'models' / 'vae').mkdir(parents=True)
+        (base / 'models' / 'vae' / 'flux2-vae.safetensors').touch()
+        (base / 'models' / 'text_encoders').mkdir(parents=True)
+        (base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors').touch()
         config.save_config({'comfyui': {'base_dir': str(base)}})
         with patch('app.capabilities._http_ok', return_value=True):
             caps = capabilities.probe(force=True)
     assert caps['comfyui']['reachable'] is True
     assert caps['studio_visible'] is True
     assert caps['engines']['klein'] is True
+
+
+def test_klein_engine_stays_dark_until_all_three_assets_present(app, monkeypatch, tmp_path):
+    """Honest readiness: a reachable ComfyUI with ONLY the unet (no vae / no
+    text-encoder) must NOT light the Klein engine — the generate would 409 for the
+    missing assets (which the 409 then names + auto-downloads)."""
+    monkeypatch.setenv('OPENAI_API_KEY', '')
+    with app.app_context():
+        from app import capabilities, config
+        base = tmp_path / 'Comfy'
+        (base / 'models' / 'unet' / 'klein').mkdir(parents=True)
+        (base / 'models' / 'unet' / 'klein' / 'k.safetensors').touch()
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        with patch('app.capabilities._http_ok', return_value=True):
+            caps = capabilities.probe(force=True)
+    assert caps['comfyui']['models']['klein'] == ['k.safetensors']   # picker still lists it
+    assert caps['engines']['klein'] is False                          # but engine stays dark
 
 
 # --- extra coverage: individual probe_* ok/detail contract --------------
