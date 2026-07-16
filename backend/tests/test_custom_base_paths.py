@@ -217,14 +217,14 @@ def test_dest_base_tag_encodes_triplet(app, tmp_path):
 
 
 def test_dest_base_tag_official_runs_unchanged(app, tmp_path):
-    """No custom weights / VAE / TE → the tag is EXACTLY the historical one, so
-    existing run folders (and ai-toolkit resume) are untouched."""
+    """Official families have stable distinct tags; Z-Image Turbo deliberately
+    no longer reuses the historical suffix-less folder."""
     from app.services import lora_training as lt
     from app.services import face_dataset_service as svc
     from app.config import LOCAL_USER
     with app.app_context():
         z = svc.create_dataset(LOCAL_USER, 'Z', 'zc_z', train_type='zimage')
-        assert lt._dest_base_tag(z) == ''
+        assert lt._dest_base_tag(z) == '_Z-Image-Turbo'
         k = svc.create_dataset(LOCAL_USER, 'K', 'zc_k', train_type='krea')
         assert lt._dest_base_tag(k) == '_Krea-2-Raw'      # unchanged constant tag
         fk = svc.create_dataset(LOCAL_USER, 'FK', 'zc_fk', train_type='flux2klein')

@@ -139,11 +139,12 @@ class _RunConfigDataset:
     rented GPU). build_job_config only READS the dataset, so a view is enough:
     no DB mutation, nothing to restore, and both concurrent runs stay isolated."""
 
-    def __init__(self, ds, train_type, train_variant,
+    def __init__(self, ds, train_type, train_variant, train_base_model='',
                  train_settings_snapshot=_UNSET):
         self._ds = ds
         self._train_type = train_type
         self._train_variant = train_variant
+        self._train_base_model = train_base_model
         self._train_settings_snapshot = train_settings_snapshot
 
     @property
@@ -155,6 +156,13 @@ class _RunConfigDataset:
     def train_variant(self):
         return (self._train_variant if self._train_variant is not None
                 else getattr(self._ds, 'train_variant', None))
+
+    @property
+    def train_base_model(self):
+        # Cloud runs always stamp their launch-time selection.  In particular,
+        # an empty string means the official Hugging Face base and must not
+        # fall through to a base subsequently persisted on the dataset row.
+        return self._train_base_model
 
     @property
     def train_settings(self):
@@ -180,10 +188,27 @@ def _run_config_dataset(ds, params):
     """
     fam = params.get('train_type')
     var = params.get('variant')
+    base = params.get('base_model', '')
     advanced = params.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET)
-    if fam is None and var is None and advanced is _UNSET:
-        return ds
-    return _RunConfigDataset(ds, fam, var, advanced)
+    return _RunConfigDataset(ds, fam, var, base, advanced)
+
+
+def _recipe_replay_diagnostic(params):
+    """Safety diagnosis for retry/continue without mutating the source run."""
+    if not isinstance(params, dict):
+        return None
+    return lt.zimage_recipe_diagnostic(
+        params.get('train_type'), params.get('variant'),
+        params.get('effective_base'), params.get('training_adapter'),
+        params.get('recipe_version'))
+
+
+def _assert_recipe_replayable(params, action):
+    diag = _recipe_replay_diagnostic(params)
+    if diag and diag.get('status') in ('legacy_incompatible', 'incompatible'):
+        raise ValueError(
+            f'cannot {action} this run safely: {diag.get("warning")} Start a fresh '
+            'run with the validated Z-Image recipe instead.')
 
 
 def latest_run_for(dataset_id, train_type=None):
@@ -234,9 +259,13 @@ def retry_cloud_run(user_id, run_id) -> dict:
         p = json.loads(run.train_params or '{}')
     except ValueError:
         p = {}
+    if not isinstance(p, dict):
+        p = {}
+    _assert_recipe_replayable(p, 'retry')
     return launch_cloud_training(
         user_id, run.dataset_id,
         steps=p.get('steps'),
+        base_model=p.get('base_model', ''),
         variant=p.get('variant'),
         train_type=p.get('train_type'),
         masked=p.get('masked', True),
@@ -288,6 +317,13 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
         raise ValueError('unknown cloud run')
     if run.status != 'done':
         raise ValueError('only a finished (done) run can be continued')
+    try:
+        p = json.loads(run.train_params or '{}')
+    except ValueError:
+        p = {}
+    if not isinstance(p, dict):
+        p = {}
+    _assert_recipe_replayable(p, 'continue')
     cks = _run_staging_checkpoints(run)
     if not cks:
         raise ValueError('no harvested checkpoint to continue from — its staging '
@@ -297,15 +333,10 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
         extra = max(100, int(extra_steps))
     except (TypeError, ValueError):
         extra = 1000
-    try:
-        p = json.loads(run.train_params or '{}')
-    except ValueError:
-        p = {}
-    if not isinstance(p, dict):
-        p = {}
     res = launch_cloud_training(
         user_id, run.dataset_id,
         steps=latest['step'] + extra,
+        base_model=p.get('base_model', ''),
         variant=p.get('variant'),
         train_type=p.get('train_type'),
         masked=p.get('masked', True),
@@ -318,7 +349,7 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
     return res
 
 
-def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
+def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                           variant=None, train_type=None, masked=True,
                           allow_caption_mismatch=False, allow_uncaptioned=False,
                           gpu_name=None, resume_ckpt_path=None, resume_step=None,
@@ -340,21 +371,31 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         target=_reconcile_before_launch,
         args=(current_app._get_current_object(),), daemon=True,
         name='cloud-reconcile-prelaunch').start()
-    if base_model:
-        raise ValueError('custom weights are local-only — cloud training '
-                         'uses the official Hugging Face bases')
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
-    # A dataset carrying a PERSISTED custom base (absolute-path weights) or an
-    # SDXL VAE/TE override must not silently fall back to the official base in the
-    # cloud (the exact mute divergence the feature forbids) — refuse explicitly.
-    if (lt._is_custom_weights(getattr(ds, 'train_base_model', None))
-            or getattr(ds, 'train_vae_path', None)
-            or getattr(ds, 'train_te_path', None)):
+    fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
+    # ``base_model`` is an explicit launch selection on the HTTP path.  Keep a
+    # compatibility fallback for older internal callers that omitted it: use
+    # the persisted value only while staying on the dataset's persisted family.
+    # If the caller explicitly switches family, that old value belongs to the
+    # previous family and must not make an official Krea/Klein launch fail.
+    if base_model is _UNSET:
+        persisted_fam = fds.normalize_train_type(getattr(ds, 'train_type', None))
+        selected_base = (getattr(ds, 'train_base_model', None)
+                         if not train_type or fam == persisted_fam else '')
+    else:
+        selected_base = base_model
+    base_model = str(selected_base or '').strip()
+    if base_model:
         raise ValueError('custom weights are local-only — cloud training '
                          'uses the official Hugging Face bases')
-    fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
+    # These fields are local-only too.  Unlike ``train_base_model`` they have no
+    # supported cloud-family meaning (SDXL itself is rejected below), so retain
+    # the historical fail-fast instead of silently accepting a selected override.
+    if getattr(ds, 'train_vae_path', None) or getattr(ds, 'train_te_path', None):
+        raise ValueError('custom VAE/text-encoder overrides are local-only — '
+                         'cloud training uses the official Hugging Face bases')
     if fam == 'sdxl':
         raise ValueError('SDXL training needs a local base checkpoint — '
                          'cloud training supports Z-Image, Krea and FLUX.2 Klein')
@@ -364,6 +405,17 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
     if fam == 'flux':
         raise ValueError('FLUX.1 training is local-only for now — '
                          'cloud training supports Z-Image, Krea and FLUX.2 Klein')
+    variant = (variant or '').strip().lower()
+    recipe = None
+    if fam == 'zimage':
+        # Authoritative recipe validation happens before the reservation row and
+        # therefore before a monitor can provision/rent a GPU.  build_job_config
+        # validates again when the pod job is assembled.
+        recipe = lt.zimage_training_recipe(
+            variant or lt._default_variant_for(fam), base_model=None)
+        variant = recipe['variant']
+    elif variant not in lt._valid_variants_for(fam):
+        variant = lt._default_variant_for(fam)
     # Cheap fast-fail before the image/caption preflight below. This read is
     # intentionally advisory: another Flask request can reserve a slot after
     # it, so the same checks are repeated atomically at reservation time.
@@ -378,7 +430,9 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                         allow_caption_mismatch=allow_caption_mismatch,
                         allow_uncaptioned=allow_uncaptioned)
 
-    run_name = lt._run_name(ds, family=fam)
+    # Cloud always uses an official base (explicit empty base_model); stamp the
+    # chosen variant in the name so Base/De-Turbo cannot share Turbo's run path.
+    run_name = lt._run_name(ds, base_model='', family=fam, variant=variant)
     with _launch_reservation_lock:
         # Authoritative re-check + insert. Keeping the commit inside this
         # process-wide critical section means a second request always sees the
@@ -389,7 +443,8 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
             # Stamp the family in the reservation itself. Without this, the
             # short window before the complete params are saved would make a
             # legitimate second-family launch look like an unknown-family run.
-            train_params=json.dumps({'train_type': fam}))
+            train_params=json.dumps({'train_type': fam, 'variant': variant,
+                                     'base_model': ''}))
         db.session.add(run)
         db.session.commit()
     try:
@@ -401,18 +456,13 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         # return in well under a second or the launch dialog sits on
         # 'Launching…' for a minute (user-observed).
         _set(run, vast_label=f'lds-{run.id}',
-             job_name=f'lds{run.id}_{lt._run_name(ds, family=fam)}')
+             job_name=f'lds{run.id}_{run_name}')
         # Mirror the LOCAL launch: persist this dataset's family/variant as its
         # remembered selection (launch_training does the same; two launch tests
         # assert it). This is now ONLY the dataset's default selection — the
         # monitor builds the pod job from the run's STAMPED params (see
         # _run_config_dataset at the build site), so a later launch overwriting
         # this row can no longer retarget an already-provisioning run's arch.
-        variant = (variant or '').strip().lower()
-        # Enum PAR FAMILLE (flux2klein : '4b'/'9b') — même validation que le
-        # lancement local, hors-liste → défaut family-aware (jamais d'erreur).
-        if variant not in lt._valid_variants_for(fam):
-            variant = lt._default_variant_for(fam)
         ds.train_type = fam
         ds.train_variant = variant
         db.session.commit()
@@ -423,8 +473,12 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
         # a lock: _provision re-searches live offers and rents the cheapest one
         # of this class, falling back to the cheapest overall if the class has
         # since sold out (vast offers are ephemeral).
-        params = {'steps': n_steps, 'variant': variant,
+        params = {'steps': n_steps, 'variant': variant, 'base_model': '',
                   'train_type': fam, 'masked': bool(masked)}
+        if recipe:
+            params.update({'recipe_version': recipe['recipe_version'],
+                           'effective_base': recipe['effective_base'],
+                           'training_adapter': recipe['training_adapter']})
         # Freeze the RAW JSON, not only the compact provenance summary: it also
         # carries custom preview prompts and explicit family defaults. ``None``
         # deliberately means "family defaults at launch".
@@ -515,6 +569,12 @@ def _maybe_auto_retry(run, error):
             return None
         if not isinstance(params, dict):
             return None
+        replay_diag = _recipe_replay_diagnostic(params)
+        if replay_diag and replay_diag.get('status') in (
+                'legacy_incompatible', 'incompatible'):
+            logger.warning('automatic retry blocked for unsafe legacy recipe on run %s',
+                           run.id)
+            return None
         try:
             retry_count = max(0, int(params.get('auto_retry_count') or 0))
         except (TypeError, ValueError):
@@ -550,6 +610,7 @@ def _maybe_auto_retry(run, error):
             result = launch_cloud_training(
                 'local', run.dataset_id,
                 steps=params.get('steps'),
+                base_model=params.get('base_model', ''),
                 variant=params.get('variant'),
                 train_type=params.get('train_type'),
                 masked=params.get('masked', True),
@@ -1440,9 +1501,11 @@ def _import_result(run):
         params = json.loads(run.train_params or '{}')
         lt.import_checkpoint('local', run.dataset_id,
                              os.path.basename(run.checkpoint_local_path),
+                             base_model=params.get('base_model', ''),
                              family=params.get('train_type'),
                              src_dir=run.staging_dir,
-                             version=params.get('version'))
+                             version=params.get('version'),
+                             variant=params.get('variant'))
     except Exception as e:
         logger.warning('cloud import into ComfyUI failed: %s', e)
 
@@ -1488,7 +1551,8 @@ def _mirror_into_local_run(run):
         params = json.loads(run.train_params or '{}')
         # cloud trains on the OFFICIAL base only -> base_model=''
         run_dir = lt._run_dir('local', run.dataset_id, base_model='',
-                              family=params.get('train_type'))
+                              family=params.get('train_type'),
+                              variant=params.get('variant'))
         os.makedirs(run_dir, exist_ok=True)
         base = os.path.basename(os.path.normpath(run_dir))     # lora_<trigger>
         for src_name in sorted(os.listdir(run.staging_dir)):
@@ -1556,6 +1620,13 @@ def _dataset_name(dataset_id):
 
 
 def _run_payload(run) -> dict:
+    family = _run_family(run)
+    variant = _run_param(run, 'variant')
+    effective_base = _run_param(run, 'effective_base')
+    training_adapter = _run_param(run, 'training_adapter')
+    recipe_version = _run_param(run, 'recipe_version')
+    diagnostic = lt.zimage_recipe_diagnostic(
+        family, variant, effective_base, training_adapter, recipe_version)
     return {'run_id': run.id, 'dataset_id': run.dataset_id, 'status': run.status,
             # Stable id for the per-run "Share configuration" download. Every
             # cloud row (active/finished/legacy) addresses by its pod row id;
@@ -1571,7 +1642,12 @@ def _run_payload(run) -> dict:
             # file yields a download button that 404s.
             'checkpoint_ready': bool(run.checkpoint_local_path
                                      and os.path.isfile(run.checkpoint_local_path)),
-            'train_type': _run_family(run),
+            'train_type': family, 'variant': variant,
+            'effective_base': effective_base,
+            'training_adapter': training_adapter,
+            'recipe_version': recipe_version,
+            'recipe_status': diagnostic and diagnostic.get('status'),
+            'recipe_warning': diagnostic and diagnostic.get('warning'),
             'version': _run_param(run, 'version'),
             'auto_retry_count': int(_run_param(run, 'auto_retry_count') or 0),
             'auto_retry_of': _run_param(run, 'auto_retry_of'),
@@ -1638,6 +1714,18 @@ def all_runs(limit: int = 20) -> dict:
                # a cloud row overrides this with 'cloud-<id>' via _run_payload.
                'share_key': f'rec-{rec.id}',
                'created_at': rec.created_at.isoformat() if rec.created_at else None}
+        if rec.family == 'zimage':
+            safe_settings = settings if isinstance(settings, dict) else {}
+            diag = lt.zimage_recipe_diagnostic(
+                rec.family, rec.variant,
+                safe_settings.get('effective_base'),
+                safe_settings.get('training_adapter'),
+                safe_settings.get('recipe_version'))
+            row.update({'effective_base': safe_settings.get('effective_base'),
+                        'training_adapter': safe_settings.get('training_adapter'),
+                        'recipe_version': safe_settings.get('recipe_version'),
+                        'recipe_status': diag and diag.get('status'),
+                        'recipe_warning': diag and diag.get('warning')})
         if crun is not None:
             # cloud enrichment wins on shared keys (status/cost/checkpoint/...)
             row.update(_run_payload(crun))
@@ -1746,17 +1834,22 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
             'max_runtime_minutes': max_runtime}
 
 
-def cloud_checkpoints(dataset_id, train_type=None) -> list:
-    """Locally-synced cloud checkpoints of this dataset (+family filter),
+def cloud_checkpoints(dataset_id, train_type=None, variant=None) -> list:
+    """Locally-synced cloud checkpoints of this dataset (+family/variant filters),
     newest run first, step-sorted within a run — ALL the saves retrieved for a
     finished run (final + intermediates, local parity: pick the least-overfit
     epoch), and an in-progress run's latest synced save. Only files that
     actually exist are listed (hand-deleting in Explorer must not 404)."""
     fam = fds.normalize_train_type(train_type) if train_type else None
+    wanted_variant = str(variant).strip().lower() if variant else None
     out = []
     for run in (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
                 .order_by(CloudTrainingRun.id.desc()).all()):
         if fam and (_run_family(run) or fam) != fam:
+            continue
+        if wanted_variant and (
+                str(_run_param(run, 'variant') or wanted_variant).lower()
+                != wanted_variant):
             continue
         if not run.staging_dir or not os.path.isdir(run.staging_dir):
             continue

@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { postJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
 import TrainingProgress from '../components/dataset/TrainingProgress';
+import {
+  canStopLocalRun,
+  isTrainingRecipeReplayBlocked,
+  trainingRunVariantLabel,
+} from '../utils/trainingRuns';
 
 /* Dedicated hub for cloud training runs across ALL datasets: watch the ones in
    progress (live progress + samples), stop them, and download finished LoRAs —
@@ -60,6 +65,20 @@ function AutoRetryBadges({ run }) {
   );
 }
 
+function RecipeWarning({ run }) {
+  if (!run.recipe_warning) return null;
+  const replayBlocked = isTrainingRecipeReplayBlocked(run);
+  return (
+    <div role="alert"
+      className="w-full rounded-md border border-amber-400/40 bg-amber-500/10 px-2.5 py-2 text-amber-200 text-[0.6875rem] leading-relaxed">
+      <span className="font-semibold">⚠ Z-Image recipe warning:</span> {run.recipe_warning}
+      {replayBlocked && (
+        <span className="font-semibold"> Retry and Continue are disabled; start a fresh validated run.</span>
+      )}
+    </div>
+  );
+}
+
 /* One compact line: the EFFECTIVE ai-toolkit settings this launch used
    (snapshotted at launch by the provenance registry). Absent on rows that
    predate the snapshot feature. */
@@ -75,7 +94,7 @@ function settingsLine(run) {
     s.lr_scheduler || null,
     s.dropout ? `dropout ${s.dropout}` : null,
     s.timestep_type || null,
-    run.variant ? (run.variant === 'base' ? 'Raw' : run.variant) : null,
+    trainingRunVariantLabel(run.train_type, run.variant),
     run.masked === false ? 'unmasked' : 'masked',
   ].filter(Boolean).join(' · ');
 }
@@ -83,6 +102,7 @@ function settingsLine(run) {
 function checkpointHref(run) {
   const qs = new URLSearchParams();
   if (run.train_type) qs.set('train_type', run.train_type);
+  if (run.variant) qs.set('variant', run.variant);
   // run_id: THIS row's file — with several finished runs of a family in the
   // history, family resolution alone would serve the newest run's checkpoint.
   if (run.run_id) qs.set('run_id', String(run.run_id));
@@ -94,6 +114,10 @@ export default function CloudRunsPage() {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [stopping, setStopping] = useState({});     // run_id -> bool
+  const [stoppingLocal, setStoppingLocal] = useState(false);
+  // React disables the button on the next render. The ref also closes the tiny
+  // gap before that render, so a fast double-click cannot send two kill calls.
+  const stoppingLocalRef = useRef(false);
   const [recentCollapsed, setRecentCollapsed] = useState(() => {
     try { return localStorage.getItem(RECENT_COLLAPSED_KEY) === '1'; } catch { return false; }
   });
@@ -137,11 +161,50 @@ export default function CloudRunsPage() {
     }
   };
 
+  const stopLocal = async () => {
+    const local = data?.local_active;
+    if (!canStopLocalRun(local) || stoppingLocalRef.current) return;
+    const who = local.current.name || `dataset #${local.current.dataset_id}`;
+    if (!window.confirm(`Stop the local run for « ${who} »?\n\n`
+      + 'The training process is terminated and the pending local training queue is cleared. '
+      + 'Checkpoints already saved remain available.')) return;
+
+    stoppingLocalRef.current = true;
+    setStoppingLocal(true);
+    try {
+      const d = await postJson('/api/dataset/train/stop', {
+        dataset_id: local.current.dataset_id,
+        run_token: local.current.run_token,
+      });
+      if (d.ok === false) {
+        toast.error(d.error || 'Could not stop the local run — it may have already finished.');
+        return;
+      }
+      // The stop endpoint is synchronous: once it answers, the process is gone
+      // and the backend flag is clear. Remove the live card immediately instead
+      // of waiting up to POLL_MS for the next refresh.
+      setData((current) => current ? { ...current, local_active: null } : current);
+      toast.success('Local training stopped — ComfyUI is re-enabled.');
+    } catch (error) {
+      toast.error(error?.message
+        ? `Could not stop the local run: ${error.message}`
+        : 'Could not stop the local run. Please try again.');
+    } finally {
+      await poll();
+      stoppingLocalRef.current = false;
+      setStoppingLocal(false);
+    }
+  };
+
   // ↻ Retry of a failed run: fresh pod, exact same settings as the failed
   // launch (steps/variant/family/masked/GPU class) — the two field failures
   // (vanished vast offer, pod never ready) are transient by nature.
   const [retrying, setRetrying] = useState({});      // run_id -> bool
   const retry = async (run) => {
+    if (isTrainingRecipeReplayBlocked(run)) {
+      toast.error('This run uses an incompatible legacy Z-Image recipe. Start a fresh validated run instead.');
+      return;
+    }
     setRetrying((m) => ({ ...m, [run.run_id]: true }));
     try {
       const d = await postJson('/api/dataset/train/cloud/retry', { run_id: run.run_id });
@@ -158,6 +221,10 @@ export default function CloudRunsPage() {
   // auto-resume — the monitor seeds the checkpoint onto the pod before start).
   const [continuing, setContinuing] = useState({});   // run_id -> bool
   const continueRun = async (run) => {
+    if (isTrainingRecipeReplayBlocked(run)) {
+      toast.error('This checkpoint uses an incompatible legacy Z-Image recipe and cannot be continued safely.');
+      return;
+    }
     const raw = window.prompt('Additional steps to train from the last checkpoint:', '1000');
     if (raw == null) return;                            // cancelled
     const extra = parseInt(raw, 10);
@@ -272,6 +339,13 @@ export default function CloudRunsPage() {
                 <span className="text-rose-300 text-[0.625rem]">{data.local_active.error}</span>
               )}
               <span className="ml-auto flex items-center gap-2">
+                {canStopLocalRun(data.local_active) && (
+                  <button type="button" onClick={stopLocal} disabled={stoppingLocal}
+                    title="Stop this local training process; checkpoints already saved are kept"
+                    className="px-3 py-1 rounded-lg bg-red-600/80 text-white text-xs font-semibold disabled:opacity-40">
+                    {stoppingLocal ? 'Stopping…' : 'Stop run'}
+                  </button>
+                )}
                 {data.local_active.share_key && (
                   <button type="button" onClick={() => shareConfig(data.local_active)}
                     title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
@@ -285,7 +359,11 @@ export default function CloudRunsPage() {
                 </button>
               </span>
             </div>
-            <TrainingProgress datasetId={data.local_active.current.dataset_id} />
+            <RecipeWarning run={{ ...data.local_active, ...data.local_active.current }} />
+            <TrainingProgress datasetId={data.local_active.current.dataset_id}
+              base={data.local_active.current.base_model}
+              trainType={data.local_active.current.train_type}
+              variant={data.local_active.current.variant} />
           </div>
         )}
         {!data ? (
@@ -326,7 +404,8 @@ export default function CloudRunsPage() {
                 </span>
               </div>
 
-              <TrainingProgress datasetId={run.dataset_id} trainType={run.train_type} cloud />
+              <RecipeWarning run={run} />
+              <TrainingProgress datasetId={run.dataset_id} trainType={run.train_type} variant={run.variant} cloud />
 
               <div className="flex flex-wrap items-center gap-2">
                 <button type="button" onClick={() => stop(run)} disabled={stopping[run.run_id]}
@@ -437,15 +516,21 @@ export default function CloudRunsPage() {
                   </a>
                 )}
                 {run.status === 'error' && (
-                  <button type="button" onClick={() => retry(run)} disabled={!!retrying[run.run_id]}
-                    title="Relaunch this run with the same settings on a fresh pod"
+                  <button type="button" onClick={() => retry(run)}
+                    disabled={isTrainingRecipeReplayBlocked(run) || !!retrying[run.run_id]}
+                    title={isTrainingRecipeReplayBlocked(run)
+                      ? 'Disabled: this legacy/incompatible Z-Image recipe cannot be replayed safely; start a fresh run'
+                      : 'Relaunch this run with the same settings on a fresh pod'}
                     className="px-2 py-1 rounded-lg border border-primary/40 bg-primary/15 text-white text-xs font-semibold disabled:opacity-50">
                     {retrying[run.run_id] ? '↻ Retrying…' : '↻ Retry'}
                   </button>
                 )}
                 {run.source === 'cloud' && run.status === 'done' && run.checkpoint_ready && (
-                  <button type="button" onClick={() => continueRun(run)} disabled={!!continuing[run.run_id]}
-                    title="Resume training from this run's last checkpoint for more steps, on a fresh pod"
+                  <button type="button" onClick={() => continueRun(run)}
+                    disabled={isTrainingRecipeReplayBlocked(run) || !!continuing[run.run_id]}
+                    title={isTrainingRecipeReplayBlocked(run)
+                      ? 'Disabled: this legacy/incompatible Z-Image checkpoint cannot be continued safely; start a fresh run'
+                      : "Resume training from this run's last checkpoint for more steps, on a fresh pod"}
                     className="px-2 py-1 rounded-lg border border-sky-400/40 bg-sky-500/10 text-sky-200 text-xs font-semibold disabled:opacity-50">
                     {continuing[run.run_id] ? '▶ Continuing…' : '▶ Continue (+1000)'}
                   </button>
@@ -463,6 +548,7 @@ export default function CloudRunsPage() {
                     ⚙ {settingsLine(run)}
                   </span>
                 )}
+                <RecipeWarning run={run} />
               </div>
             ))}
           </div>

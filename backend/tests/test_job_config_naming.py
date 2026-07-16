@@ -34,7 +34,8 @@ def test_write_job_config_is_run_name_scoped(training):
         p_zimage = lt.write_job_config(_ds('zimage'), 'folderA')
         p_krea = lt.write_job_config(_ds('krea'), 'folderB')            # default -> Raw
         p_krea_turbo = lt.write_job_config(_ds('krea', 'turbo'), 'folderC')
-    assert os.path.basename(p_zimage) == 'ulocal_AgentCTest.json'
+    assert os.path.basename(p_zimage) == (
+        'ulocal_AgentCTest_Z-Image-Turbo.json')
     assert os.path.basename(p_krea) == 'ulocal_AgentCTest_Krea-2-Raw.json'
     assert os.path.basename(p_krea_turbo) == 'ulocal_AgentCTest_Krea-2-Turbo.json'
     # Raw and Turbo Krea configs must not clobber each other (incompatible weights).

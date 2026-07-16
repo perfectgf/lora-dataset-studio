@@ -21,6 +21,7 @@ import logging
 import math
 import os
 import re
+import secrets
 import shutil
 import struct
 import subprocess
@@ -573,23 +574,153 @@ FLUX_BASE_LABEL = 'FLUX-1-dev'
 # d'extension que FLUX_BASE_LABEL : _base_tag_for tronque après un '.').
 FLUX2KLEIN_BASE_LABELS = {'4b': 'FLUX2-Klein-4B', '9b': 'FLUX2-Klein-9B'}
 
+# Z-Image recipes are intentionally centralized here.  Before this guardrail,
+# ``train_variant='base'`` / ``'deturbo'`` only removed the Turbo training
+# adapter while the model itself silently stayed ``Z-Image-Turbo``.  That is the
+# exact incompatible combination that produced unusable runs: a distilled base
+# trained as if it were non-distilled.  Keep every launch path and the generated
+# ai-toolkit config on this single matrix.
+ZIMAGE_TURBO_BASE = 'Tongyi-MAI/Z-Image-Turbo'
+ZIMAGE_BASE = 'Tongyi-MAI/Z-Image'
+ZIMAGE_DETURBO_BASE = 'ostris/Z-Image-De-Turbo'
+ZIMAGE_TURBO_TRAINING_ADAPTER = (
+    'ostris/zimage_turbo_training_adapter/'
+    'zimage_turbo_training_adapter_v2.safetensors')
+ZIMAGE_RECIPE_VERSION = 1
 
-def _krea_is_raw(ds) -> bool:
+
+def zimage_training_recipe(variant=None, base_model=None) -> dict:
+    """Resolve and validate one complete Z-Image training recipe.
+
+    Official selections are a strict matrix: Turbo uses the official distilled
+    pipeline plus adapter v2; Base uses the real non-distilled Tongyi pipeline;
+    De-Turbo uses Ostris' transformer and borrows tokenizer/TE/VAE from the
+    official Turbo pipeline via ``extras_name_or_path``.  A converted local
+    checkpoint keeps its own transformer and also borrows those shared extras;
+    the explicitly declared variant determines whether adapter v2 is required.
+
+    This helper is pure on purpose, so local launch, cloud reservation, queueing,
+    provenance, and config generation can all consult the same contract before
+    any GPU process/pod is started.
+    """
+    var = str(variant or 'turbo').strip().lower()
+    if var not in ('turbo', 'base', 'deturbo'):
+        raise ValueError(
+            f"invalid Z-Image variant '{variant}' — expected turbo, base or deturbo")
+    custom = (str(base_model).strip() if base_model else '')
+
+    if custom:
+        effective_base = custom
+        extras = ZIMAGE_TURBO_BASE
+    elif var == 'turbo':
+        effective_base, extras = ZIMAGE_TURBO_BASE, None
+    elif var == 'base':
+        effective_base, extras = ZIMAGE_BASE, None
+    else:
+        # ostris/Z-Image-De-Turbo ships the transformer rather than a complete
+        # pipeline, so ai-toolkit needs the shared tokenizer/TE/VAE explicitly.
+        effective_base, extras = ZIMAGE_DETURBO_BASE, ZIMAGE_TURBO_BASE
+
+    if var == 'turbo':
+        adapter = ZIMAGE_TURBO_TRAINING_ADAPTER
+        sample_steps, guidance, timestep_type = 8, 1, 'sigmoid'
+    elif var == 'deturbo':
+        adapter = None
+        sample_steps, guidance, timestep_type = 25, 3, 'weighted'
+    else:
+        adapter = None
+        sample_steps, guidance, timestep_type = 35, 4, 'weighted'
+
+    return {
+        'recipe_version': ZIMAGE_RECIPE_VERSION,
+        'variant': var,
+        'effective_base': effective_base,
+        'extras_name_or_path': extras,
+        'training_adapter': adapter,
+        'sample_steps': sample_steps,
+        'guidance_scale': guidance,
+        'timestep_type': timestep_type,
+        'custom_base': bool(custom),
+    }
+
+
+def assert_zimage_custom_recipe_confirmed(family, base_model, variant,
+                                           allow_unverified_weights=False) -> None:
+    """Require an explicit acknowledgement for unverifiable custom recipes.
+
+    Safetensors architecture keys can identify Z-Image, but they cannot prove
+    whether a custom transformer is distilled.  Declaring such a file as Base
+    or De-Turbo therefore needs the same explicit confirmation used by the
+    existing custom-weight preflight.  Turbo remains allowed because its safe
+    recipe always installs the required training adapter.
+    """
+    if ((family or '').lower() == 'zimage' and str(base_model or '').strip()
+            and str(variant or 'turbo').strip().lower() in ('base', 'deturbo')
+            and not allow_unverified_weights):
+        raise ValueError(
+            f'{_UNVERIFIED_MARKER}a custom Z-Image checkpoint declared as '
+            f'{str(variant).strip().lower()} cannot be verified as distilled '
+            'or non-distilled. Confirm this recipe explicitly before export.')
+
+
+def zimage_recipe_diagnostic(family, variant, effective_base=None,
+                             training_adapter=None, recipe_version=None) -> dict | None:
+    """Read-only safety annotation for Runs payloads, including legacy rows.
+
+    Historical Turbo configs were coherent, but historical Base/De-Turbo rows
+    without a stamped recipe were built from Z-Image-Turbo *without* its adapter.
+    Mark them visibly; never stop, delete, or otherwise mutate an old/active run.
+    """
+    if (family or '').lower() != 'zimage':
+        return None
+    var = (variant or 'turbo').lower()
+    if not recipe_version:
+        if var in ('base', 'deturbo'):
+            return {
+                'status': 'legacy_incompatible',
+                'warning': ('Legacy Z-Image Base/De-Turbo run: it predates the recipe '
+                            'guardrail and may have trained Z-Image-Turbo without the '
+                            'required adapter. The run was not stopped or modified.'),
+            }
+        return {'status': 'legacy_inferred_turbo', 'warning': None}
+
+    try:
+        official = {ZIMAGE_TURBO_BASE, ZIMAGE_BASE, ZIMAGE_DETURBO_BASE}
+        custom_base = effective_base if effective_base not in official else None
+        expected = zimage_training_recipe(var, custom_base)
+    except ValueError as exc:
+        return {'status': 'incompatible', 'warning': str(exc)}
+    mismatch = (effective_base != expected['effective_base']
+                or training_adapter != expected['training_adapter'])
+    if mismatch:
+        return {
+            'status': 'incompatible',
+            'warning': ('Stamped Z-Image recipe does not match the safe '
+                        f"{var} base/adapter matrix."),
+        }
+    return {'status': 'safe', 'warning': None}
+
+
+def _krea_is_raw(ds, variant=_PERSISTED) -> bool:
     """Krea 2 training base. `train_variant` 'base'/'raw' → Krea-2-Raw (non-distilled,
     the official recommendation « train on Raw, validate on Turbo » — best quality,
     the LoRA transfers to Turbo at inference); 'turbo' → Krea-2-Turbo + Ostris adapter
     (VRAM-friendly). Default RAW when unset — that's the chosen product default, so the
     tag and the job-config never disagree even if train_variant was never persisted."""
-    return (getattr(ds, 'train_variant', None) or 'base').lower() in ('base', 'raw')
+    selected = (getattr(ds, 'train_variant', None)
+                if variant is _PERSISTED else variant)
+    return str(selected or 'base').lower() in ('base', 'raw')
 
 
-def _flux2klein_is_9b(ds) -> bool:
+def _flux2klein_is_9b(ds, variant=_PERSISTED) -> bool:
     """FLUX.2 Klein model size. `train_variant` '9b' → the 9B base (32-48 GB VRAM,
     the cloud-first lane); anything else → the 4B base (16-24 GB, the local lane).
     Default 4B when unset — the chosen product default (mirrors _default_variant_for),
     so the run tag and the job-config never disagree even if train_variant was
     never persisted."""
-    return (getattr(ds, 'train_variant', None) or '4b').lower() == '9b'
+    selected = (getattr(ds, 'train_variant', None)
+                if variant is _PERSISTED else variant)
+    return str(selected or '4b').lower() == '9b'
 
 
 def _default_variant_for(family) -> str:
@@ -880,6 +1011,9 @@ def launch_settings_snapshot(ds, family=None) -> dict:
     leviers experts n'apparaissent que s'ils dévient du défaut."""
     fam = family or _train_type(ds)
     rank = _lora_rank(ds, fam)
+    zrecipe = (zimage_training_recipe(getattr(ds, 'train_variant', None),
+                                      getattr(ds, 'train_base_model', None))
+               if fam == 'zimage' else None)
     snap = {
         # trigger_word is part of the reproducible RECIPE (someone re-running
         # the LoRA needs it) and is not a secret — it already appears in the
@@ -894,7 +1028,15 @@ def launch_settings_snapshot(ds, family=None) -> dict:
         'lr': _lr_eff(ds),
     }
     if fam != 'sdxl':
-        snap['timestep_type'] = _timestep_type_eff(ds, _DEFAULT_TIMESTEP.get(fam, 'sigmoid'))
+        timestep_default = (zrecipe['timestep_type'] if zrecipe
+                            else _DEFAULT_TIMESTEP.get(fam, 'sigmoid'))
+        snap['timestep_type'] = _timestep_type_eff(ds, timestep_default)
+    if zrecipe:
+        # Persist what actually went to ai-toolkit.  ``training_adapter=None`` is
+        # deliberate and useful provenance for Base/De-Turbo, not a missing key.
+        snap.update({'recipe_version': zrecipe['recipe_version'],
+                     'effective_base': zrecipe['effective_base'],
+                     'training_adapter': zrecipe['training_adapter']})
     # Provenance: the ACTUAL custom paths that went to ai-toolkit (weights + the
     # SDXL-only VAE/TE overrides). Surfaced in the Runs hub and the ⎘ Share config
     # (both redact the home-dir prefix via redact_user_paths — no identity leaks).
@@ -1247,29 +1389,48 @@ def apply_train_settings_dict(user_id, dataset_id, settings: dict):
             ignored, rejected)
 
 
-def _dest_base_tag(ds, base_model=_PERSISTED, family=None) -> str:
+def _dest_base_tag(ds, base_model=_PERSISTED, family=None,
+                   variant=_PERSISTED) -> str:
     """Deployment-name suffix, family-aware. Like _base_tag, but for Krea
     (which has no base column - always Krea-2-Turbo) falls back to a constant tag
     so the LoRA carries the model name like SDXL does. `family` override permet au
     sélecteur UI de router vers Krea même si le train_type persisté diffère."""
     tag = _base_tag(ds) if base_model is _PERSISTED else _base_tag_for(base_model)
-    if not tag and _train_type(ds, family) == 'krea':
+    fam = _train_type(ds, family)
+    if fam == 'zimage':
+        # All three recipes are incompatible, including official Turbo versus
+        # the old suffix-less legacy folder. Give every recipe a distinct
+        # folder/deployed filename. Custom
+        # bases already carry their base tag; suffix the recipe there as well so
+        # switching adapter policy can never auto-resume a different recipe.
+        var = (getattr(ds, 'train_variant', None) if variant is _PERSISTED
+               else variant) or 'turbo'
+        var = str(var).lower()
+        if var == 'turbo':
+            tag += '_turbo' if tag else '_Z-Image-Turbo'
+        elif var == 'base':
+            tag += '_base' if tag else '_Z-Image-Base'
+        elif var == 'deturbo':
+            tag += '_deturbo' if tag else '_Z-Image-De-Turbo'
+    if not tag and fam == 'krea':
         # Raw and Turbo are DIFFERENT base checkpoints → distinct tags so their
         # run folders / deployed LoRA names never collide (same trigger, same
         # family, but incompatible weights would otherwise share a folder).
-        tag = _base_tag_for('Krea-2-Raw' if _krea_is_raw(ds) else KREA_BASE_LABEL)
+        tag = _base_tag_for(
+            'Krea-2-Raw' if _krea_is_raw(ds, variant) else KREA_BASE_LABEL)
     # Même garde pour Flux : sa base officielle donne un tag vide, qui télescoperait
     # un run Z-Image officiel du même trigger (même dossier `u{user}_{trigger}` →
     # ai-toolkit auto-resume le mauvais run, poids mélangés). Le tag `_FLUX-1-dev`
     # isole le run et le LoRA déployé de la famille Z-Image.
-    if not tag and _train_type(ds, family) == 'flux':
+    if not tag and fam == 'flux':
         tag = _base_tag_for(FLUX_BASE_LABEL)
     # FLUX.2 Klein : même garde, mais le tag encode AUSSI la variante (4B vs 9B
     # sont deux checkpoints incompatibles) — sans ça, deux runs du même trigger
     # sur les deux tailles partageraient dossier de run et nom déployé.
-    if not tag and _train_type(ds, family) == 'flux2klein':
+    if not tag and fam == 'flux2klein':
         tag = _base_tag_for(
-            FLUX2KLEIN_BASE_LABELS['9b' if _flux2klein_is_9b(ds) else '4b'])
+            FLUX2KLEIN_BASE_LABELS[
+                '9b' if _flux2klein_is_9b(ds, variant) else '4b'])
     return tag + _custom_combo_hash(ds, base_model, family)
 
 
@@ -1284,13 +1445,21 @@ def _custom_combo_hash(ds, base_model=_PERSISTED, family=None) -> str:
     weights = getattr(ds, 'train_base_model', None) if base_model is _PERSISTED else base_model
     vae = getattr(ds, 'train_vae_path', None) if fam in VAE_TE_OVERRIDE_FAMILIES else None
     te = getattr(ds, 'train_te_path', None) if fam in VAE_TE_OVERRIDE_FAMILIES else None
-    if not (_is_custom_weights(weights) or vae or te):
+    # Z-Image custom bases can be relative ComfyUI model names as well as
+    # absolute filesystem paths. Hash the complete normalized identifier in
+    # both cases; basename-only tags would collide for two same-named files in
+    # different folders.
+    zimage_custom = fam == 'zimage' and bool(str(weights or '').strip())
+    if not (zimage_custom or _is_custom_weights(weights) or vae or te):
         return ''
-    raw = f'{weights or ""}|{vae or ""}|{te or ""}'
+    norm_weights = (os.path.normcase(os.path.normpath(str(weights)))
+                    if weights else '')
+    raw = f'{norm_weights}|{vae or ""}|{te or ""}'
     return '_h' + hashlib.sha1(raw.encode('utf-8')).hexdigest()[:8]
 
 
-def _run_name(ds, base_model=_PERSISTED, family=None) -> str:
+def _run_name(ds, base_model=_PERSISTED, family=None,
+              variant=_PERSISTED) -> str:
     """Nom de dossier de run unique par (user, trigger, base, FAMILLE) - évite qu'un
     même trigger_word chez deux datasets partage/écrase les dossiers, isole un run
     sur base custom du run officiel, ET isole les familles entre elles. `base_model`
@@ -1300,26 +1469,29 @@ def _run_name(ds, base_model=_PERSISTED, family=None) -> str:
     un run **Krea** porte le suffixe `_Krea-2-Turbo` dans le NOM DE DOSSIER. Sans ça,
     Z-Image base-officielle (tag vide) et Krea (base vide) au même trigger tombaient
     dans le même dossier `u{user}_{trigger}` → ai-toolkit mélangeait les deux runs et
-    l'import récupérait le mauvais checkpoint. zimage/sdxl restent nommés à l'identique."""
-    tag = _dest_base_tag(ds, base_model, family)
+    l'import récupérait le mauvais checkpoint. Z-Image ajoute désormais aussi la
+    recette (Turbo/Base/De-Turbo), afin de ne jamais reprendre des poids issus
+    d'une matrice base/adapter incompatible."""
+    tag = _dest_base_tag(ds, base_model, family, variant)
     return f'u{ds.user_id}_{_safe_trigger(ds)}{tag}'
 
 
-def find_run_collision(user_id, dataset_id, base_model=_PERSISTED):
+def find_run_collision(user_id, dataset_id, base_model=_PERSISTED,
+                       variant=_PERSISTED):
     """Autre dataset du MÊME user qui produirait le même dossier de run
     (`u{user}_{trigger}{base_tag}`) que (dataset_id, base_model). C'est la source
     de collision : ai-toolkit auto-resume depuis ce dossier → LoRA mélangés, et
     deux lancements simultanés corrompent l'`optimizer.pt` partagé (incident
     Test/Test 2, 2026-06-16). Retourne le FaceDataset en conflit, ou None.
 
-    La clé de collision est le dossier (trigger + base) ; la variante
-    (turbo/deturbo) n'y entre PAS → deux datasets « même trigger + même base » se
-    télescopent quoi qu'il arrive. On compare le run-name CIBLE (base en cours de
-    sélection) aux run-names PERSISTÉS des autres datasets du user."""
+    La clé de collision est le dossier complet (trigger + base + recette/variante).
+    On compare le run-name CIBLE (base/variante en cours de sélection) aux
+    run-names PERSISTÉS des autres datasets du user."""
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         return None
-    target = _run_name(ds) if base_model is _PERSISTED else _run_name(ds, base_model)
+    target = _run_name(ds, variant=variant) if base_model is _PERSISTED \
+        else _run_name(ds, base_model, variant=variant)
     others = (FaceDataset.query
               .filter(FaceDataset.user_id == str(ds.user_id),
                       FaceDataset.id != int(ds.id))
@@ -1459,13 +1631,12 @@ def _apply_style_overrides(ds, process: dict) -> dict:
 
 
 def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder=None) -> dict:
-    """Job-config ai-toolkit pour le preset officiel `zimage:turbo`
-    (« Z-Image Turbo w/ Training Adapter »). Clés alignées sur ce que génère
+    """Job-config ai-toolkit pour la recette Z-Image validée (Turbo/Base/De-Turbo).
+    Clés alignées sur ce que génère
     l'UI ai-toolkit (ui/src/app/jobs/new/options.ts) + structure LoRA 24 Go de
     référence - vérifiées au runtime contre la version installée (cf. spec §3).
-    Points non négociables : arch='zimage', name_or_path='Tongyi-MAI/Z-Image-Turbo',
-    assistant_lora_path = l'adapter de training (retiré à l'inférence),
-    quantize qfloat8 + low_vram pour tenir sur 24 Go.
+    Points non négociables : arch='zimage', base/adapter résolus uniquement par
+    ``zimage_training_recipe``, quantize qfloat8 + low_vram pour tenir sur 24 Go.
 
     SDXL (train_type='sdxl') part dans une branche dédiée (_build_job_config_sdxl) -
     le chemin zimage ci-dessous reste strictement inchangé.
@@ -1491,24 +1662,20 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
         return cfg_
     trigger = _safe_trigger(ds)
     base_model = getattr(ds, 'train_base_model', None)
-    variant = (getattr(ds, 'train_variant', None) or 'turbo').lower()
+    recipe = zimage_training_recipe(getattr(ds, 'train_variant', None), base_model)
 
     # Base : officielle (repo HF diffusers) OU merge ComfyUI converti en diffusers.
     model = {'arch': 'zimage', 'quantize': True, 'quantize_te': True,
              'low_vram': True, 'qtype': 'qfloat8'}
-    if base_model:
+    if recipe['custom_base']:
         from .zimage_convert import converted_dir
         model['name_or_path'] = converted_dir(base_model)       # dossier diffusers converti
-        model['extras_name_or_path'] = 'Tongyi-MAI/Z-Image-Turbo'  # tokenizer/TE/VAE partagés
     else:
-        model['name_or_path'] = 'Tongyi-MAI/Z-Image-Turbo'
-    # Adapter de dé-distillation : UNIQUEMENT pour la variante Turbo (distillée).
-    # Base / De-Turbo sont déjà non distillés → pas d'adapter (chargé à -1.0 sinon).
-    if variant == 'turbo':
-        model['assistant_lora_path'] = ('ostris/zimage_turbo_training_adapter/'
-                                        'zimage_turbo_training_adapter_v2.safetensors')
-    # Previews : Turbo = 8 steps / cfg 1 ; non-distillé = plus de steps + CFG réel.
-    sample_steps, guidance = (8, 1) if variant == 'turbo' else (25, 4)
+        model['name_or_path'] = recipe['effective_base']
+    if recipe['extras_name_or_path']:
+        model['extras_name_or_path'] = recipe['extras_name_or_path']
+    if recipe['training_adapter']:
+        model['assistant_lora_path'] = recipe['training_adapter']
     _zrank = _lora_rank(ds, 'zimage')   # défaut 16 (choix user) ; éditable via train_settings
 
     cfg_ = {
@@ -1545,7 +1712,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
                     'noise_scheduler': 'flowmatch',
                     # 'sigmoid' = reco runbook pour un LoRA de sujet (l'exemple
                     # ai-toolkit confirme : "for just subject, change to sigmoid").
-                    'timestep_type': _timestep_type_eff(ds, 'sigmoid'),
+                    'timestep_type': _timestep_type_eff(ds, recipe['timestep_type']),
                     'optimizer': _optimizer_eff(ds),
                     'lr': _lr_eff(ds),
                     'dtype': 'bf16',
@@ -1557,8 +1724,8 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
                     'sampler': 'flowmatch',
                     'neg': '',   # cohérence avec SDXL : défaut ai-toolkit = False (booléen) → fragile
                     'sample_every': _sample_every(ds),
-                    'guidance_scale': guidance,
-                    'sample_steps': sample_steps,
+                    'guidance_scale': recipe['guidance_scale'],
+                    'sample_steps': recipe['sample_steps'],
                     'prompts': _sample_prompts(ds, trigger),
                 },
             }],
@@ -1905,7 +2072,8 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int, training_folder=
 _CK_RE = re.compile(r'_(\d{4,})\.safetensors$')
 
 
-def _run_dir(user_id, dataset_id, base_model=_PERSISTED, family=None) -> str:
+def _run_dir(user_id, dataset_id, base_model=_PERSISTED, family=None,
+             variant=_PERSISTED) -> str:
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
@@ -1914,11 +2082,12 @@ def _run_dir(user_id, dataset_id, base_model=_PERSISTED, family=None) -> str:
     # `base_model` cible le run d'une base PRÉCISE (sélection UI) ; `family` cible la
     # famille sélectionnée (Krea vs Z-Image) - sans quoi le panneau montre les
     # checkpoints du mauvais run quand deux familles partagent le même trigger.
-    return str(_output_dir() / _run_name(ds, base_model, family) / f'lora_{_safe_trigger(ds)}')
+    return str(_output_dir() / _run_name(ds, base_model, family, variant)
+               / f'lora_{_safe_trigger(ds)}')
 
 
 def open_training_folder(user_id, dataset_id, target='loras', family=None,
-                         base_model=_PERSISTED) -> str:
+                         base_model=_PERSISTED, variant=_PERSISTED) -> str:
     """Ouvre dans l'explorateur de fichiers du POSTE (app locale mono-utilisateur,
     le navigateur tourne sur la même machine) le dossier demandé :
     'loras' → dossier d'import ComfyUI de la famille (loras/krea, loras/sdxl,
@@ -1932,7 +2101,7 @@ def open_training_folder(user_id, dataset_id, target='loras', family=None,
     if not ds:
         raise ValueError('dataset not found')
     if target == 'run':
-        path = _run_dir(user_id, dataset_id, base_model, family)
+        path = _run_dir(user_id, dataset_id, base_model, family, variant)
     elif target == 'loras':
         path = _lora_dest_dir(ds, family)
     elif target == 'dataset':
@@ -1950,14 +2119,15 @@ def open_training_folder(user_id, dataset_id, target='loras', family=None,
     return path
 
 
-def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None) -> list[dict]:
+def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None,
+                     variant=_PERSISTED) -> list[dict]:
     """Checkpoints .safetensors du run de la base+famille données (absentes → persistées),
     triés par step croissant. Retour: [{step:int, filename:str, final?:bool}].
 
     Inclut le fichier FINAL `lora_<trigger>.safetensors` (écrit à la fin d'un run
     abouti, SANS numéro de step) : c'est le résultat terminé, et le regex numéroté
     l'excluait → le LoRA fini était invisible/non importable depuis le panneau."""
-    run = _run_dir(user_id, dataset_id, base_model, family)
+    run = _run_dir(user_id, dataset_id, base_model, family, variant)
     if not os.path.isdir(run):
         return []
     out = []
@@ -1991,20 +2161,20 @@ def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None) ->
 
 
 def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, family=None,
-                      src_dir=None, version=None) -> str:
+                      src_dir=None, version=None, variant=_PERSISTED) -> str:
     """Copie le checkpoint choisi vers le dossier loras de ComfyUI : loras/z image/
     pour Z-Image, loras/sdxl/ pour SDXL, loras/krea/ pour Krea (routage par famille,
     pour ne pas polluer le Test Studio Z-Image). Anti path-traversal :
     le filename doit appartenir à la liste des checkpoints du run.
 
-    Le nom de DESTINATION encode la base d'entraînement (_base_tag) : ai-toolkit
+    Le nom de DESTINATION encode la base et la recette d'entraînement : ai-toolkit
     écrit toujours `lora_<trigger>_<step>.safetensors` quel que soit le modèle de
     base (le `name` du job n'est pas base-aware), donc un LoRA entraîné sur un
     merge ComfyUI et un autre entraîné sur la base officielle produisent des
     fichiers IDENTIQUES qui, une fois copiés dans le dossier partagé de ComfyUI,
     sont indiscernables et s'écrasent au même step. On insère ici le tag du merge
-    (`lora_<trigger>_<step>_<merge>.safetensors`) - la base officielle reste sans
-    suffixe - pour les rendre reconnaissables ET éviter la collision. Le fichier
+    (`lora_<trigger>_<step>_<merge>_<recipe>.safetensors`) pour les rendre
+    reconnaissables ET éviter la collision. Le fichier
     source ai-toolkit n'est pas renommé (l'auto-resume continue de fonctionner).
 
     `base_model`/`family` ciblent le run d'une base+famille précises (sélection UI) ;
@@ -2030,8 +2200,9 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
         except OSError:
             allowed = set()
     else:
-        run_dir = _run_dir(user_id, dataset_id, base_model, family)
-        allowed = {c['filename'] for c in list_checkpoints(user_id, dataset_id, base_model, family)}
+        run_dir = _run_dir(user_id, dataset_id, base_model, family, variant)
+        allowed = {c['filename'] for c in list_checkpoints(
+            user_id, dataset_id, base_model, family, variant)}
     if filename not in allowed:
         raise ValueError('unknown checkpoint')
     # Arch guard: read the LoRA's REAL family from its header and refuse a deploy
@@ -2052,7 +2223,7 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
     # directement dans le dossier lu par le menu de génération Krea).
     dest_dir = _lora_dest_dir(ds, family)
     os.makedirs(dest_dir, exist_ok=True)
-    tag = _dest_base_tag(ds, base_model, family)
+    tag = _dest_base_tag(ds, base_model, family, variant)
     # Dataset-version suffix (_v3): makes successive dataset states
     # distinguishable in the ComfyUI/Test Studio dropdowns AND prevents a
     # cloud/local re-run of a CHANGED dataset from silently overwriting the
@@ -2199,7 +2370,7 @@ def _local_training_active_for(dataset_id) -> bool:
 
 
 def delete_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED,
-                      family=None) -> str:
+                      family=None, variant=_PERSISTED) -> str:
     """Move ONE run-dir checkpoint to the trash. Whitelisted against
     list_checkpoints (anti path-traversal), refused while this dataset trains
     locally. Returns the trashed filename."""
@@ -2207,10 +2378,10 @@ def delete_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED,
         raise ValueError('this dataset is training right now — stop the run '
                          'before deleting its checkpoints')
     allowed = {c['filename'] for c in
-               list_checkpoints(user_id, dataset_id, base_model, family)}
+               list_checkpoints(user_id, dataset_id, base_model, family, variant)}
     if filename not in allowed:
         raise ValueError('unknown checkpoint')
-    run_dir = _run_dir(user_id, dataset_id, base_model, family)
+    run_dir = _run_dir(user_id, dataset_id, base_model, family, variant)
     from . import trash
     trash.send_to_trash(os.path.join(run_dir, filename),
                         context=f'ckpt_ds{dataset_id}')
@@ -2218,17 +2389,17 @@ def delete_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED,
 
 
 def cleanup_checkpoints(user_id, dataset_id, keep, base_model=_PERSISTED,
-                        family=None) -> dict:
+                        family=None, variant=_PERSISTED) -> dict:
     """'Clean up this run': trash every run-dir checkpoint NOT in `keep`
     (typically the final + the best-epoch pick). Returns {'removed', 'kept'}."""
     if _local_training_active_for(dataset_id):
         raise ValueError('this dataset is training right now — stop the run '
                          'before cleaning its checkpoints')
     keep_set = {str(k) for k in (keep or [])}
-    run_dir = _run_dir(user_id, dataset_id, base_model, family)
+    run_dir = _run_dir(user_id, dataset_id, base_model, family, variant)
     from . import trash
     removed = 0
-    for c in list_checkpoints(user_id, dataset_id, base_model, family):
+    for c in list_checkpoints(user_id, dataset_id, base_model, family, variant):
         if c['filename'] in keep_set:
             continue
         try:
@@ -2251,12 +2422,13 @@ def _dir_size(path) -> int:
     return total
 
 
-def dataset_disk_usage(user_id, dataset_id, base_model=_PERSISTED, family=None) -> dict:
+def dataset_disk_usage(user_id, dataset_id, base_model=_PERSISTED, family=None,
+                       variant=_PERSISTED) -> dict:
     """Where this dataset's training bytes live: the selected run dir, the
     cloud staging dirs of its runs, and its deployed LoRA. Best-effort."""
     out = {'run_dir_bytes': 0, 'cloud_staging_bytes': 0, 'deployed_bytes': 0}
     try:
-        rd = _run_dir(user_id, dataset_id, base_model, family)
+        rd = _run_dir(user_id, dataset_id, base_model, family, variant)
         if os.path.isdir(rd):
             out['run_dir_bytes'] = _dir_size(rd)
     except Exception:
@@ -2794,7 +2966,14 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # dataset — c'est elle qui fixe l'enum de variantes valide (flux2klein : 4b/9b ;
     # les autres : turbo/base/deturbo) et le défaut (Krea → Raw, flux2klein → 4B).
     launch_fam = _train_type(ds, train_type)
-    if variant not in _valid_variants_for(launch_fam):
+    recipe = None
+    if launch_fam == 'zimage':
+        # Strict (no silent coercion): one typo must never select a different
+        # base/adapter recipe.  This validation runs before export/config/spawn.
+        recipe = zimage_training_recipe(
+            variant or _default_variant_for(launch_fam), base_model)
+        variant = recipe['variant']
+    elif variant not in _valid_variants_for(launch_fam):
         variant = _default_variant_for(launch_fam)
     if train_type is not None:
         ds.train_type = train_type
@@ -2833,6 +3012,9 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     preflight_custom_paths(launch_fam, weights=base_model, vae_path=eff_vae,
                            te_path=eff_te,
                            allow_unverified_weights=allow_unverified_weights)
+    assert_zimage_custom_recipe_confirmed(
+        launch_fam, base_model, variant,
+        allow_unverified_weights=allow_unverified_weights)
     # Krea 2 : refuser TÔT si l'ai-toolkit installé n'a pas l'arch krea2 (sinon
     # fallback silencieux vers le loader SD legacy → mauvais modèle, plantage confus).
     if _train_type(ds) == 'krea' and not _aitoolkit_supports_krea():
@@ -2846,9 +3028,10 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
             "ai-toolkit doesn't support FLUX.2 Klein yet (flux2_klein arch missing) - "
             "update it (git pull) before training a FLUX.2 Klein LoRA.")
     # Garde-fou anti-collision de dossier : un AUTRE dataset du user avec le même
-    # (trigger, base) écrirait dans le même run → LoRA mélangés. Refuser AVANT de
+    # (trigger, base, recette) écrirait dans le même run → LoRA mélangés. Refuser AVANT de
     # persister/lancer, en nommant le conflit pour que l'utilisateur change un trigger.
-    clash = find_run_collision(user_id, dataset_id, base_model=base_model)
+    clash = find_run_collision(user_id, dataset_id, base_model=base_model,
+                               variant=variant)
     if clash:
         raise ValueError(
             f"training collision: dataset '{clash.name}' (#{clash.id}) already uses "
@@ -2870,38 +3053,68 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # job-config passe en masked training (fond 10 %). OFF ou indispo = historique.
     dataset_folder = export_dataset_to_aitoolkit(user_id, dataset_id, masked=masked)
     config_path = write_job_config(ds, dataset_folder, steps=steps)
-    # Provenance registry: record WHICH dataset version this launch trains on
-    # (fingerprint + manifest -> human version v1/v2/...). Best-effort — a
-    # registry failure must never block a training launch.
-    from . import checkpoint_registry
-    checkpoint_registry.register_launch(
-        user_id, dataset_id, family=_train_type(ds), source='local',
-        base_model=base_model or '', variant=variant, masked=bool(masked),
-        steps=int(steps), settings=launch_settings_snapshot(ds))
-    # Pause GPU longue durée : le superviseur stoppe ComfyUI -> comfyui_ready=False
-    # -> le dispatch worker se met en pause tout seul.
-    queue_manager._set_system_state('training_error', None, ttl_seconds=1)  # reset crash précédent
-    queue_manager._set_system_state('training_in_progress', True, ttl_seconds=_TRAIN_STATE_TTL)
-    queue_manager._set_system_state('training_dataset_id', int(dataset_id), ttl_seconds=_TRAIN_STATE_TTL)
-    # Step cible : sert à snapshotter le final en nom NUMÉROTÉ à la fin (cf.
-    # _snapshot_final_checkpoint) - ai-toolkit écrit le final sans numéro.
-    queue_manager._set_system_state('training_target_step', int(steps), ttl_seconds=_TRAIN_STATE_TTL)
     # HF_HOME route les poids base/adapter sur le disque configuré. PYTHONIOENCODING
     # évite les crashs cp1252 sur les logs unicode. Jamais shell=True ; args en liste.
     env = dict(os.environ, HF_HOME=str(_hf_home()), PYTHONIOENCODING='utf-8')
-    run_dir = _output_dir() / _run_name(ds)
+    run_dir = _output_dir() / _run_name(
+        ds, base_model=base_model, family=launch_fam, variant=variant)
     run_dir.mkdir(parents=True, exist_ok=True)
     log_path = str(run_dir / 'training.log')
-    try:
-        logf = open(log_path, 'w', encoding='utf-8')
-        proc = subprocess.Popen([str(_venv_python()), 'run.py', config_path],
-                                cwd=str(_aitoolkit_dir()), env=env, shell=False,
-                                stdout=logf, stderr=subprocess.STDOUT,
-                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    except (FileNotFoundError, OSError) as e:
-        queue_manager._set_system_state('training_in_progress', False, ttl_seconds=None)
-        raise ValueError(f"could not start training: {e}")
-    queue_manager._set_system_state('training_pid', proc.pid, ttl_seconds=_TRAIN_STATE_TTL)
+    run_token = secrets.token_hex(16)
+    # The authoritative live-run check, identity state and PID publication are
+    # one transition under the SAME lock used by Stop and queue advancement.
+    # This closes both races: two launches spawning together, and a stale Stop
+    # clearing the identity of the next queued process between Popen and PID set.
+    with _queue_lock:
+        if (queue_manager._get_system_state('training_in_progress', False)
+                and _pid_alive(queue_manager._get_system_state('training_pid', None))):
+            raise ValueError(
+                'a training is already in progress - wait for it to finish or '
+                'queue this dataset')
+        # Provenance registry: record WHICH dataset version this launch trains on
+        # only after this request has won the process slot.
+        from . import checkpoint_registry
+        checkpoint_registry.register_launch(
+            user_id, dataset_id, family=launch_fam, source='local',
+            base_model=base_model or '', variant=variant, masked=bool(masked),
+            steps=int(steps), settings=launch_settings_snapshot(ds))
+        queue_manager._set_system_state('training_error', None, ttl_seconds=1)
+        identity = {
+            'training_in_progress': True,
+            'training_dataset_id': int(dataset_id),
+            'training_target_step': int(steps),
+            'training_run_token': run_token,
+            'training_train_type': launch_fam,
+            'training_variant': variant,
+            'training_base_model': base_model or '',
+            'training_effective_base': (
+                recipe.get('effective_base') if recipe else (base_model or None)),
+            'training_training_adapter': (
+                recipe.get('training_adapter') if recipe else None),
+            'training_recipe_version': (
+                recipe.get('recipe_version') if recipe else None),
+        }
+        for key, value in identity.items():
+            queue_manager._set_system_state(
+                key, value, ttl_seconds=_TRAIN_STATE_TTL)
+        logf = None
+        try:
+            logf = open(log_path, 'w', encoding='utf-8')
+            proc = subprocess.Popen(
+                [str(_venv_python()), 'run.py', config_path],
+                cwd=str(_aitoolkit_dir()), env=env, shell=False,
+                stdout=logf, stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            queue_manager._set_system_state(
+                'training_pid', proc.pid, ttl_seconds=_TRAIN_STATE_TTL)
+        except (FileNotFoundError, OSError) as e:
+            if logf is not None:
+                try:
+                    logf.close()
+                except OSError:
+                    pass
+            _clear_training_identity(ttl_seconds=None)
+            raise ValueError(f"could not start training: {e}")
     # Watcher event-driven : libère ComfyUI / enchaîne la file dès la fin du
     # process (le poll de /train/status reste le filet de secours).
     try:
@@ -2913,11 +3126,14 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
         logger.warning("watcher training non démarré : %s", e)
     return {'started': True, 'pid': proc.pid, 'config_path': config_path, 'steps': steps,
             'dataset_folder': dataset_folder, 'log_path': log_path,
-            'fresh': bool(fresh), 'archived_run': archived}
+            'fresh': bool(fresh), 'archived_run': archived,
+            'run_token': run_token}
 
 
 def continue_training(user_id, dataset_id, extra_steps: int = 1000,
-                      base_model=_PERSISTED, variant=None) -> dict:
+                      base_model=_PERSISTED, variant=None, train_type=None,
+                      masked=True, allow_unverified_weights=False,
+                      _allow_dead_predecessor=False) -> dict:
     """Reprend l'entraînement depuis le dernier checkpoint de la base ciblée et
     vise ``dernier_step + extra_steps``. ai-toolkit auto-resume depuis le
     training_folder ; il faut donc qu'au moins un checkpoint existe POUR CETTE BASE.
@@ -2925,12 +3141,25 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
     `base_model` absent → base persistée du dataset (ex. file d'attente). Fourni
     (sélection UI) → on reprend le run DE CETTE base précise : sinon on proposait
     « Continuer » sur une base sans run et on relançait en fait l'ancienne base."""
+    # Queue advancement calls this while the previous run's flag is still set
+    # (so ComfyUI never grabs the GPU between jobs).  Only a *live* PID blocks;
+    # a dead predecessor is precisely the normal queued-continue transition.
     if queue_manager._get_system_state('training_in_progress', False):
-        raise ValueError('a training is already in progress')
+        previous_is_dead = not _pid_alive(
+            queue_manager._get_system_state('training_pid', None))
+        if not (_allow_dead_predecessor and previous_is_dead):
+            raise ValueError('a training is already in progress')
     ds = fds.get_dataset(user_id, dataset_id)
     base = (ds.train_base_model if ds else None) if base_model is _PERSISTED else base_model
-    var = (variant or (ds.train_variant if ds else None) or 'turbo')
-    cks = list_checkpoints(user_id, dataset_id, base_model=base)
+    fam = _train_type(ds, train_type) if ds else train_type
+    var = (variant or (ds.train_variant if ds else None)
+           or _default_variant_for(fam))
+    if fam == 'zimage':
+        var = zimage_training_recipe(var, base)['variant']
+    assert_zimage_custom_recipe_confirmed(
+        fam, base, var, allow_unverified_weights=allow_unverified_weights)
+    cks = list_checkpoints(user_id, dataset_id, base_model=base,
+                           family=fam, variant=var)
     if not cks:
         raise ValueError("no checkpoint to resume for this base - run a training first")
     latest = max(c['step'] for c in cks)
@@ -2940,26 +3169,59 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
         extra = 1000
     # Reprendre AVEC la base/variante ciblée - sinon launch_training les remettrait
     # à l'officiel et ai-toolkit reprendrait depuis le mauvais run. vae/te restent
-    # _PERSISTED (on garde le triplet du run). allow_unverified_weights=True : la
-    # base custom a DÉJÀ franchi le sniff au 1er lancement (un checkpoint existe) —
-    # ne pas re-buter sur le refus confirmable, que ce chemin ne saurait confirmer.
+    # _PERSISTED (on garde le triplet du run). A custom Base/De-Turbo declaration
+    # still requires the caller's explicit confirmation; an old run existing is
+    # not proof that the custom transformer has the declared distillation type.
+    needs_explicit_z_recipe = (
+        fam == 'zimage' and bool(str(base or '').strip())
+        and var in ('base', 'deturbo'))
+    # Historical resumes already bypassed the generic custom-weight sniff: the
+    # checkpoint proves that this exact local base was accepted for the run.
+    # Preserve that behavior except for custom Z-Image Base/De-Turbo, whose
+    # distillation recipe cannot be inferred and therefore needs a fresh,
+    # explicit server-side acknowledgement.
+    launch_allow_unverified = (allow_unverified_weights
+                               or not needs_explicit_z_recipe)
     res = launch_training(user_id, dataset_id, steps=latest + extra, check_captions=False,
-                          base_model=base, variant=var, allow_unverified_weights=True)
+                          base_model=base, variant=var, train_type=fam,
+                          masked=masked,
+                          allow_unverified_weights=launch_allow_unverified)
     res['resumed_from'] = latest
     res['target_steps'] = latest + extra
     return res
 
 
-def stop_training() -> None:
+def stop_training(expected_dataset_id=None, expected_run_token=None) -> bool:
     """Tue le process d'entraînement (s'il tourne) PUIS lève le flag → le
     superviseur relance ComfyUI. L'ordre compte : si on levait le flag d'abord,
-    ComfyUI reprendrait le GPU pendant que l'entraînement tourne encore."""
+    ComfyUI reprendrait le GPU pendant que l'entraînement tourne encore.
+
+    La vue Runs fournit dataset + jeton opaque. Les deux sont vérifiés SOUS le
+    même verrou que le kill : même si le run suivant utilise le même dataset,
+    une carte périmée ne peut pas l'arrêter. L'appel historique sans identité
+    reste un Stop global pour le gestionnaire de dataset."""
     # Le verrou couvre TOUTE la transition, lecture/kill du PID compris. Sinon le
     # watcher peut constater la mort entre le kill et le clear, entrer dans
     # process_training_queue(), lancer le job suivant, puis voir Stop effacer ses
     # flags. L'état « process arrêté + file vide + idle » doit devenir visible en
     # une seule fois aux autres opérations de queue.
     with _queue_lock:
+        current_id = queue_manager._get_system_state('training_dataset_id', None)
+        current_token = queue_manager._get_system_state('training_run_token', None)
+        in_progress = bool(queue_manager._get_system_state(
+            'training_in_progress', False))
+        if expected_dataset_id is not None:
+            try:
+                same_run = int(current_id) == int(expected_dataset_id)
+            except (TypeError, ValueError):
+                same_run = False
+            if not in_progress or not same_run:
+                return False
+        if expected_run_token is not None:
+            token_ok = bool(current_token) and secrets.compare_digest(
+                str(current_token), str(expected_run_token))
+            if not in_progress or not token_ok:
+                return False
         pid = queue_manager._get_system_state('training_pid', None)
         if pid:
             try:
@@ -2975,8 +3237,8 @@ def stop_training() -> None:
         # relancerait l'entraînement suivant), PUIS on lève le flag EN DERNIER
         # (c'est lui qui signale à ComfyUI de reprendre le GPU).
         _save_queue([])
-        queue_manager._set_system_state('training_pid', None, ttl_seconds=None)
-        queue_manager._set_system_state('training_in_progress', False, ttl_seconds=None)
+        _clear_training_identity(ttl_seconds=None)
+        return True
 
 
 def _dataset_name(dataset_id):
@@ -3051,11 +3313,41 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
 def training_status(user_id=None) -> dict:
     cur_id = queue_manager._get_system_state('training_dataset_id', None)
     in_progress = bool(queue_manager._get_system_state('training_in_progress', False))
+    current = None
+    if in_progress and cur_id is not None:
+        ds = FaceDataset.query.get(int(cur_id))
+        fam = (queue_manager._get_system_state('training_train_type', None)
+               or (_train_type(ds) if ds else None))
+        variant = (queue_manager._get_system_state('training_variant', None)
+                   or (getattr(ds, 'train_variant', None) if ds else None))
+        base_model = queue_manager._get_system_state(
+            'training_base_model', getattr(ds, 'train_base_model', None) if ds else None)
+        effective_base = queue_manager._get_system_state(
+            'training_effective_base', None)
+        adapter = queue_manager._get_system_state(
+            'training_training_adapter', None)
+        recipe_version = queue_manager._get_system_state(
+            'training_recipe_version', None)
+        diag = zimage_recipe_diagnostic(
+            fam, variant, effective_base, adapter, recipe_version)
+        current = {
+            'dataset_id': cur_id,
+            'name': ds.name if ds else _dataset_name(cur_id),
+            'run_token': queue_manager._get_system_state(
+                'training_run_token', None),
+            'train_type': fam,
+            'variant': variant,
+            'base_model': base_model,
+            'effective_base': effective_base,
+            'training_adapter': adapter,
+            'recipe_version': recipe_version,
+            'recipe_status': diag.get('status') if diag else None,
+            'recipe_warning': diag.get('warning') if diag else None,
+        }
     return {'in_progress': in_progress,
             'installed': is_installed(),
             'pid': queue_manager._get_system_state('training_pid', None),
-            'current': ({'dataset_id': cur_id, 'name': _dataset_name(cur_id)}
-                        if (in_progress and cur_id is not None) else None),
+            'current': current,
             # Dernier crash d'entraînement (rc≠0) remonté par le watcher, pour l'UI.
             'error': queue_manager._get_system_state('training_error', None),
             'queue': train_queue_view(user_id) if user_id is not None else []}
@@ -3119,16 +3411,19 @@ def _parse_training_log(text: str) -> dict:
     return out
 
 
-def _samples_dir(user_id, dataset_id, base_model=_PERSISTED, family=None) -> str:
-    return os.path.join(_run_dir(user_id, dataset_id, base_model, family), 'samples')
+def _samples_dir(user_id, dataset_id, base_model=_PERSISTED, family=None,
+                 variant=_PERSISTED) -> str:
+    return os.path.join(
+        _run_dir(user_id, dataset_id, base_model, family, variant), 'samples')
 
 
 def list_training_samples(user_id, dataset_id, base_model=_PERSISTED, family=None,
-                          limit=_PROG_SAMPLES_MAX) -> list[dict]:
+                          limit=_PROG_SAMPLES_MAX,
+                          variant=_PERSISTED) -> list[dict]:
     """Sample previews ai-toolkit writes every sample_every steps
     (<run>/samples/<ts>__<step>_<promptidx>.jpg). Newest steps first, capped
     (limit=None → all, for the best-epoch scoring pass)."""
-    d = _samples_dir(user_id, dataset_id, base_model, family)
+    d = _samples_dir(user_id, dataset_id, base_model, family, variant)
     if not os.path.isdir(d):
         return []
     out = []
@@ -3140,7 +3435,8 @@ def list_training_samples(user_id, dataset_id, base_model=_PERSISTED, family=Non
     return out if limit is None else out[:limit]
 
 
-def score_checkpoint_samples(user_id, dataset_id, base_model=_PERSISTED, family=None) -> dict:
+def score_checkpoint_samples(user_id, dataset_id, base_model=_PERSISTED, family=None,
+                             variant=_PERSISTED) -> dict:
     """Best-epoch selection (jandordoe method): every training sample is an output
     of the LoRA at its step — scoring their face similarity vs the dataset
     reference (insightface, CPU, one subprocess for the whole set) tells which
@@ -3160,10 +3456,11 @@ def score_checkpoint_samples(user_id, dataset_id, base_model=_PERSISTED, family=
     if not face_similarity.is_available():
         return {'available': False,
                 'reason': 'face scoring is not installed (Quality tools step in Setup)'}
-    samples = list_training_samples(user_id, dataset_id, base_model, family, limit=None)
+    samples = list_training_samples(
+        user_id, dataset_id, base_model, family, limit=None, variant=variant)
     if not samples:
         return {'available': False, 'reason': 'no training samples yet (they appear every 250 steps)'}
-    sdir = _samples_dir(user_id, dataset_id, base_model, family)
+    sdir = _samples_dir(user_id, dataset_id, base_model, family, variant)
     paths = [os.path.join(sdir, s['filename']) for s in samples]
     results, scoring_error = face_similarity.score_dataset_faces(ref_path, paths)
     if not results:
@@ -3183,12 +3480,13 @@ def score_checkpoint_samples(user_id, dataset_id, base_model=_PERSISTED, family=
     best = max(steps, key=lambda s: s['mean_sim'])
     # Map the winning sample step to the CLOSEST saved checkpoint (samples every
     # 250 steps, checkpoints every 500 — they rarely align exactly).
-    cks = list_checkpoints(user_id, dataset_id, base_model, family)
+    cks = list_checkpoints(user_id, dataset_id, base_model, family, variant)
     ck = min(cks, key=lambda c: abs(c['step'] - best['step']))['filename'] if cks else None
     return {'available': True, 'steps': steps, 'best_step': best['step'], 'checkpoint': ck}
 
 
-def training_progress(user_id, dataset_id, base_model=_PERSISTED, family=None) -> dict:
+def training_progress(user_id, dataset_id, base_model=_PERSISTED, family=None,
+                      variant=_PERSISTED) -> dict:
     """Live view of a run: parsed log progress + sample listing. Never raises on a
     missing/unreadable log (a run that hasn't started writing yet is normal) —
     only on an unknown dataset (route → 404 via get_dataset)."""
@@ -3199,7 +3497,9 @@ def training_progress(user_id, dataset_id, base_model=_PERSISTED, family=None) -
     active = (bool(queue_manager._get_system_state('training_in_progress', False))
               and cur_id is not None and int(cur_id) == int(dataset_id)
               and _pid_alive(queue_manager._get_system_state('training_pid', None)))
-    log_path = os.path.join(str(_output_dir() / _run_name(ds, base_model, family)), 'training.log')
+    log_path = os.path.join(
+        str(_output_dir() / _run_name(ds, base_model, family, variant)),
+        'training.log')
     parsed = {'step': None, 'total': None, 'loss': None, 'speed': None, 'eta': None,
               'loss_curve': []}
     log_exists = os.path.isfile(log_path)
@@ -3214,7 +3514,8 @@ def training_progress(user_id, dataset_id, base_model=_PERSISTED, family=None) -
             log_exists = False
     return {'active': active, 'log_exists': log_exists, **parsed,
             'masks_skipped': bool(active and queue_manager._get_system_state('training_masks_skipped', False)),
-            'samples': list_training_samples(user_id, dataset_id, base_model, family)}
+            'samples': list_training_samples(
+                user_id, dataset_id, base_model, family, variant=variant)}
 
 
 # --- File d'attente d'entraînement -------------------------------------------
@@ -3226,6 +3527,20 @@ TRAIN_QUEUE_KEY = 'lora_train_queue'
 # hors du verrou : seule la courte transaction duplicate-check/read/write est
 # critique.
 _queue_lock = threading.RLock()
+
+_TRAIN_IDENTITY_KEYS = (
+    'training_pid', 'training_dataset_id', 'training_target_step',
+    'training_run_token', 'training_train_type', 'training_variant',
+    'training_base_model', 'training_effective_base',
+    'training_training_adapter', 'training_recipe_version',
+)
+
+
+def _clear_training_identity(ttl_seconds=None) -> None:
+    for key in _TRAIN_IDENTITY_KEYS:
+        queue_manager._set_system_state(key, None, ttl_seconds=ttl_seconds)
+    queue_manager._set_system_state(
+        'training_in_progress', False, ttl_seconds=ttl_seconds)
 
 
 def _pid_alive(pid) -> bool:
@@ -3275,7 +3590,18 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
         fds.db.session.commit()
     ttype = _train_type(ds)
     base = (ds.train_base_model if base_model is _PERSISTED else base_model) or None
-    var = (variant or ds.train_variant or _default_variant_for(ttype))
+    var = str(variant or ds.train_variant or _default_variant_for(ttype)).strip().lower()
+    recipe = None
+    if ttype == 'zimage':
+        # Reject a bad recipe now, not hours later when the queued item reaches
+        # the GPU.  launch_training validates again as the authoritative gate.
+        recipe = zimage_training_recipe(var, base)
+        var = recipe['variant']
+    elif var not in _valid_variants_for(ttype):
+        var = _default_variant_for(ttype)
+    assert_zimage_custom_recipe_confirmed(
+        ttype, base, var,
+        allow_unverified_weights=allow_unverified_weights)
     # Base custom (merge) Z-Image = doit être convertie AVANT (SDXL = single-file
     # direct, pas de conversion → on saute la vérif). Refus immédiat et lisible.
     if extra_steps is None and base and ttype == 'zimage':
@@ -3320,8 +3646,8 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
             "ai-toolkit doesn't support FLUX.2 Klein yet (flux2_klein arch missing) - "
             "update it (git pull) before queuing a FLUX.2 Klein LoRA.")
     # Même garde-fou de collision qu'au lancement : pas de mise en file d'un job
-    # qui partagerait le dossier de run d'un autre dataset (même trigger + base).
-    clash = find_run_collision(user_id, dataset_id, base_model=base)
+    # qui partagerait le dossier de run d'un autre dataset (même trigger + base + recette).
+    clash = find_run_collision(user_id, dataset_id, base_model=base, variant=var)
     if clash:
         raise ValueError(f"training collision with '{clash.name}' (#{clash.id}): "
                          f"same trigger + same base. Change the trigger_word before queuing.")
@@ -3343,6 +3669,10 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
             # the exact triplet (they're also persisted on ds above).
             'vae_path': eff_vae, 'te_path': eff_te,
             'allow_unverified_weights': bool(allow_unverified_weights)}
+    if recipe:
+        item.update({'recipe_version': recipe['recipe_version'],
+                     'effective_base': recipe['effective_base'],
+                     'training_adapter': recipe['training_adapter']})
     # Ne verrouiller qu'après tous les preflights potentiellement coûteux. La
     # lecture, le contrôle anti-doublon et l'écriture doivent former UNE opération
     # atomique, sinon deux requêtes concurrentes peuvent perdre un item ou accepter
@@ -3381,6 +3711,11 @@ def train_queue_view(user_id) -> list:
                     # Cible de steps absolue choisie à la mise en file (None = adaptatif).
                     'steps': it.get('steps'),
                     'base_model': bm, 'base_label': base_label,
+                    'train_type': it.get('train_type'),
+                    'variant': it.get('variant'),
+                    'recipe_version': it.get('recipe_version'),
+                    'effective_base': it.get('effective_base'),
+                    'training_adapter': it.get('training_adapter'),
                     # Échéance de programmation (ISO local) - None = dès que possible.
                     'not_before': it.get('not_before')})
     return out
@@ -3391,7 +3726,16 @@ def _launch_queued_item(item) -> None:
     uid = item.get('user_id')
     extra = item.get('extra_steps')
     if extra:
-        continue_training(uid, ds_id, extra_steps=extra)  # reprend la base/type persistés
+        continue_training(
+            uid, ds_id, extra_steps=extra,
+            base_model=item.get('base_model'), variant=item.get('variant'),
+            train_type=item.get('train_type'),
+            masked=item.get('masked', True),
+            allow_unverified_weights=bool(
+                item.get('allow_unverified_weights')),
+            # _advance_training_queue deliberately keeps the dead predecessor's
+            # flag raised until the next PID is published (no ComfyUI GPU flap).
+            _allow_dead_predecessor=True)
     else:
         launch_training(uid, ds_id, steps=item.get('steps'),
                         base_model=item.get('base_model'),
@@ -3417,7 +3761,8 @@ def process_training_queue() -> str | None:
         return _advance_training_queue()
 
 
-def _snapshot_final_checkpoint(dataset_id, step) -> str | None:
+def _snapshot_final_checkpoint(dataset_id, step, base_model=_PERSISTED,
+                               family=None, variant=_PERSISTED) -> str | None:
     """Copie le final bare `lora_<trigger>.safetensors` vers son nom NUMÉROTÉ
     `lora_<trigger>_<step:09d>.safetensors`. ai-toolkit écrit le résultat final SANS
     numéro de step ; sans ce snapshot :
@@ -3436,7 +3781,8 @@ def _snapshot_final_checkpoint(dataset_id, step) -> str | None:
     if not ds:
         return None
     trigger = _safe_trigger(ds)
-    run = str(_output_dir() / _run_name(ds) / f'lora_{trigger}')
+    run = str(_output_dir() / _run_name(
+        ds, base_model, family, variant) / f'lora_{trigger}')
     final = os.path.join(run, f'lora_{trigger}.safetensors')
     numbered = os.path.join(run, f'lora_{trigger}_{step:09d}.safetensors')
     if not os.path.isfile(final) or os.path.exists(numbered):
@@ -3479,14 +3825,13 @@ def _advance_training_queue() -> str | None:
             # longer than 4h would see these flags silently expire mid-run,
             # and the GPU gate (job_queue / gpu_busy_reason) would think
             # nothing is running and let the queue/vision grab the GPU back.
-            queue_manager._set_system_state('training_in_progress', True, ttl_seconds=_TRAIN_STATE_TTL)
-            queue_manager._set_system_state('training_pid', pid, ttl_seconds=_TRAIN_STATE_TTL)
-            cur_dataset_id = queue_manager._get_system_state('training_dataset_id', None)
-            if cur_dataset_id is not None:
-                queue_manager._set_system_state('training_dataset_id', cur_dataset_id, ttl_seconds=_TRAIN_STATE_TTL)
-            cur_target_step = queue_manager._get_system_state('training_target_step', None)
-            if cur_target_step is not None:
-                queue_manager._set_system_state('training_target_step', cur_target_step, ttl_seconds=_TRAIN_STATE_TTL)
+            queue_manager._set_system_state(
+                'training_in_progress', True, ttl_seconds=_TRAIN_STATE_TTL)
+            for key in _TRAIN_IDENTITY_KEYS:
+                value = queue_manager._get_system_state(key, None)
+                if value is not None:
+                    queue_manager._set_system_state(
+                        key, value, ttl_seconds=_TRAIN_STATE_TTL)
             return None  # toujours en cours
         # Process mort alors que le flag est levé → training terminé.
         # Snapshot du final en nom NUMÉROTÉ (immuable) AVANT d'enchaîner/libérer :
@@ -3495,7 +3840,13 @@ def _advance_training_queue() -> str | None:
         try:
             _snapshot_final_checkpoint(
                 queue_manager._get_system_state('training_dataset_id', None),
-                queue_manager._get_system_state('training_target_step', None))
+                queue_manager._get_system_state('training_target_step', None),
+                base_model=queue_manager._get_system_state(
+                    'training_base_model', _PERSISTED),
+                family=queue_manager._get_system_state(
+                    'training_train_type', None),
+                variant=queue_manager._get_system_state(
+                    'training_variant', _PERSISTED))
         except Exception as e:
             logger.warning('snapshot final (advance) échoué : %s', e)
         due = _due_index(q)
@@ -3517,8 +3868,7 @@ def _advance_training_queue() -> str | None:
                 return None
         # File vide (ou uniquement des jobs programmés plus tard) → libérer le GPU
         # (le superviseur relance ComfyUI ; le ticker relancera le job à l'échéance).
-        queue_manager._set_system_state('training_in_progress', False, ttl_seconds=1)
-        queue_manager._set_system_state('training_pid', None, ttl_seconds=1)
+        _clear_training_identity(ttl_seconds=1)
         logger.info("File training : terminé, aucune suite due → flag libéré")
         return 'released'
 

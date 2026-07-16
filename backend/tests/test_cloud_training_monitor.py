@@ -157,7 +157,10 @@ def test_done_run_mirrors_checkpoint_into_local_run_dir(ct, app, client, monkeyp
     destroyed = []
     remote = FakeRemote(polls_to_complete=3)
     local_run = tmp_path / 'ulocal_lola' / 'lora_lola'
-    monkeypatch.setattr(ct.lt, '_run_dir', lambda *a, **k: str(local_run))
+    run_dir_calls = []
+    monkeypatch.setattr(
+        ct.lt, '_run_dir',
+        lambda *a, **k: run_dir_calls.append(k) or str(local_run))
     ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
     with app.app_context():
         ct._monitor(app, run_id)
@@ -165,6 +168,9 @@ def test_done_run_mirrors_checkpoint_into_local_run_dir(ct, app, client, monkeyp
         assert run.status == 'done'
         # pod file lds1_run_000000100.safetensors -> local lora_lola_000000100
         assert (local_run / 'lora_lola_000000100.safetensors').is_file()
+        assert run_dir_calls[-1]['base_model'] == ''
+        assert run_dir_calls[-1]['family'] == 'zimage'
+        assert run_dir_calls[-1]['variant'] == 'turbo'
 
 
 def test_mirror_never_clobbers_an_existing_local_checkpoint(ct, app, client, monkeypatch, tmp_path):
@@ -317,6 +323,9 @@ def test_auto_retry_preserves_resume_and_uses_effective_gpu(ct, app, client,
             vast_instance_id='old-pod', gpu_name='RTX 5090',
             train_params=json.dumps({
                 'steps': 4100, 'variant': 'deturbo', 'train_type': 'zimage',
+                'recipe_version': ct.lt.ZIMAGE_RECIPE_VERSION,
+                'effective_base': ct.lt.ZIMAGE_DETURBO_BASE,
+                'training_adapter': None,
                 'masked': False, 'requested_gpu': 'RTX 4090',
                 'resume_ckpt_path': str(seed), 'resume_step': 2500,
             }))
@@ -708,7 +717,9 @@ def _echo_family_build(ct, monkeypatch):
             'job': 'extension', 'config': {'name': 'x', 'process': [{
                 'type': 'sd_trainer', 'training_folder': training_folder,
                 'device': 'cuda:0', 'datasets': [{'folder_path': folder}],
-                'model': {'arch': ds.train_type}, 'variant': ds.train_variant}]}})
+                            'model': {'arch': ds.train_type,
+                                      'name_or_path': ds.train_base_model},
+                            'variant': ds.train_variant}]}})
 
 
 def test_two_families_each_build_own_config_despite_ds_change(ct, app, client, monkeypatch):
@@ -733,6 +744,7 @@ def test_two_families_each_build_own_config_despite_ds_change(ct, app, client, m
         ds = ct.fds.get_dataset('local', ds_id)
         ds.train_type = 'zimage'
         ds.train_variant = 'deturbo'
+        ds.train_base_model = r'C:\later\custom-zimage.safetensors'
         ct.db.session.commit()
         ct._monitor(app, run1)
         ct._monitor(app, run2)
@@ -742,6 +754,8 @@ def test_two_families_each_build_own_config_despite_ds_change(ct, app, client, m
     p2 = r_krea.job_config['config']['process'][0]
     assert (p1['model']['arch'], p1['variant']) == ('zimage', 'turbo')
     assert (p2['model']['arch'], p2['variant']) == ('krea', 'base')
+    assert p1['model']['name_or_path'] == ''
+    assert p2['model']['name_or_path'] == ''
 
 
 def test_run_config_immune_to_ds_change_while_booting(ct, app, client, monkeypatch):
@@ -776,7 +790,7 @@ def test_harvest_imports_with_run_family_not_current_ds(ct, app, client, monkeyp
     captured = {}
 
     def fake_import(*a, **kw):
-        captured['family'] = kw.get('family')
+        captured.update(kw)
         return 'x'
 
     monkeypatch.setattr(ct.lt, 'import_checkpoint', fake_import)
@@ -790,6 +804,8 @@ def test_harvest_imports_with_run_family_not_current_ds(ct, app, client, monkeyp
         ct._monitor(app, run_id)
         assert ct.CloudTrainingRun.query.get(run_id).status == 'done'
     assert captured['family'] == 'zimage'
+    assert captured['base_model'] == ''
+    assert captured['variant'] == 'turbo'
 
 
 def test_boot_timeout_anchored_to_created_at_on_resume(ct, app, client, monkeypatch):

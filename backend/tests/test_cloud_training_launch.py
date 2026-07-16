@@ -118,6 +118,71 @@ def test_launch_creates_run_and_staging(ct, app, seeded_dataset, monkeypatch):
         assert run.job_name.startswith('lds')
 
 
+@pytest.mark.parametrize('variant,expected_base,adapter_expected', [
+    ('turbo', 'Tongyi-MAI/Z-Image-Turbo', True),
+    ('base', 'Tongyi-MAI/Z-Image', False),
+    ('deturbo', 'ostris/Z-Image-De-Turbo', False),
+])
+def test_cloud_launch_stamps_validated_zimage_recipe_before_monitor(
+        ct, app, seeded_dataset, monkeypatch, variant, expected_base,
+        adapter_expected):
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        ct.launch_cloud_training('local', seeded_dataset, variant=variant)
+        run = ct.get_active_run()
+        params = json.loads(run.train_params)
+        assert params['recipe_version'] == ct.lt.ZIMAGE_RECIPE_VERSION
+        assert params['effective_base'] == expected_base
+        assert bool(params['training_adapter']) is adapter_expected
+        assert params['variant'] == variant
+        assert params['base_model'] == ''
+        payload = ct._run_payload(run)
+        assert payload['recipe_status'] == 'safe'
+        assert payload['recipe_warning'] is None
+
+
+def test_cloud_rejects_invalid_zimage_recipe_before_reservation(
+        ct, app, seeded_dataset, monkeypatch):
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        with pytest.raises(ValueError, match='invalid Z-Image variant'):
+            ct.launch_cloud_training('local', seeded_dataset, variant='deturb0')
+        assert ct.CloudTrainingRun.query.count() == 0
+
+
+def test_cloud_run_config_freezes_official_base_after_dataset_mutation(
+        ct, app, seeded_dataset):
+    from app.services import face_dataset_service as fds
+
+    with app.app_context():
+        ds = fds.get_dataset('local', seeded_dataset)
+        view = ct._run_config_dataset(ds, {
+            'train_type': 'zimage', 'variant': 'base', 'base_model': '',
+        })
+        ds.train_base_model = r'C:\later\custom.safetensors'
+        ct.db.session.commit()
+        assert view.train_base_model == ''
+        assert view.train_type == 'zimage'
+        assert view.train_variant == 'base'
+
+
+def test_explicit_krea_cloud_launch_ignores_stale_zimage_custom_base(
+        ct, app, seeded_dataset, monkeypatch):
+    from app.services import face_dataset_service as fds
+
+    _fake_export(monkeypatch, ct)
+    with app.app_context():
+        ds = fds.get_dataset('local', seeded_dataset)
+        ds.train_base_model = r'C:\old\zimage.safetensors'
+        ct.db.session.commit()
+        result = ct.launch_cloud_training(
+            'local', seeded_dataset, train_type='krea', base_model='')
+        run = ct.db.session.get(ct.CloudTrainingRun, result['run_id'])
+        params = json.loads(run.train_params)
+        assert params['train_type'] == 'krea'
+        assert params['base_model'] == ''
+
+
 def test_launch_refuses_second_active_run(ct, app, seeded_dataset, monkeypatch):
     _fake_export(monkeypatch, ct)
     with app.app_context():
@@ -178,6 +243,42 @@ def test_retry_relaunches_failed_run_with_same_params(ct, app, seeded_dataset, m
     assert captured['resume_step'] == 1500
     assert captured['allow_caption_mismatch'] is True
     assert captured['allow_uncaptioned'] is True
+
+
+def test_retry_blocks_legacy_incompatible_zimage_recipe_without_mutation(
+        ct, app, seeded_dataset, monkeypatch):
+    with app.app_context():
+        run = ct.CloudTrainingRun(
+            dataset_id=seeded_dataset, status='error', run_name='legacy',
+            vast_label='lds-legacy', error='old failure',
+            train_params=json.dumps({'steps': 4000, 'variant': 'deturbo',
+                                     'train_type': 'zimage'}))
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        before = (run.status, run.error, run.train_params)
+        called = []
+        monkeypatch.setattr(ct, 'launch_cloud_training',
+                            lambda *a, **kw: called.append((a, kw)))
+        with pytest.raises(ValueError, match='Start a fresh run'):
+            ct.retry_cloud_run('local', run.id)
+        assert called == []
+        assert (run.status, run.error, run.train_params) == before
+
+
+def test_continue_blocks_legacy_incompatible_zimage_before_checkpoint_seed(
+        ct, app, seeded_dataset):
+    with app.app_context():
+        run = ct.CloudTrainingRun(
+            dataset_id=seeded_dataset, status='done', run_name='legacy',
+            vast_label='lds-legacy',
+            train_params=json.dumps({'steps': 4000, 'variant': 'base',
+                                     'train_type': 'zimage'}))
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        before = (run.status, run.train_params)
+        with pytest.raises(ValueError, match='cannot continue.*Start a fresh run'):
+            ct.continue_cloud_run('local', run.id)
+        assert (run.status, run.train_params) == before
 
 
 def test_auto_retry_freezes_advanced_settings_after_dataset_edit(
@@ -762,6 +863,22 @@ def test_run_payload_carries_train_type(ct, app):
         ct.db.session.commit()
         assert ct._run_payload(run)['train_type'] == 'krea'
         assert ct._run_payload(bad)['train_type'] is None
+
+
+def test_run_payload_marks_legacy_zimage_deturbo_without_mutating_run(ct, app):
+    with app.app_context():
+        run = ct.CloudTrainingRun(
+            dataset_id=1, status='done', job_name='legacy', vast_label='lds-1',
+            train_params=json.dumps({'train_type': 'zimage',
+                                     'variant': 'deturbo', 'steps': 4000}))
+        ct.db.session.add(run)
+        ct.db.session.commit()
+        before = run.train_params
+        payload = ct._run_payload(run)
+        assert payload['recipe_status'] == 'legacy_incompatible'
+        assert 'predates the recipe guardrail' in payload['recipe_warning']
+        assert run.train_params == before
+        assert run.status == 'done'
 
 
 def test_run_payload_carries_dataset_name_and_run_name(ct, app, client):

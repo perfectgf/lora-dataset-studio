@@ -491,6 +491,9 @@ def test_process_training_queue_rearms_ttl_while_pid_alive(app, monkeypatch):
         queue_manager._set_system_state('training_pid', 4242, ttl_seconds=1)
         queue_manager._set_system_state('training_dataset_id', 7, ttl_seconds=1)
         queue_manager._set_system_state('training_target_step', 1500, ttl_seconds=1)
+        queue_manager._set_system_state('training_run_token', 'long-run-token', ttl_seconds=1)
+        queue_manager._set_system_state('training_variant', 'deturbo', ttl_seconds=1)
+        queue_manager._set_system_state('training_train_type', 'zimage', ttl_seconds=1)
         monkeypatch.setattr(lt, '_pid_alive', lambda pid: True)
 
         assert lt.process_training_queue() is None  # still running -> no action taken
@@ -500,6 +503,8 @@ def test_process_training_queue_rearms_ttl_while_pid_alive(app, monkeypatch):
         assert queue_manager._get_system_state('training_pid', None) == 4242
         assert queue_manager._get_system_state('training_dataset_id', None) == 7
         assert queue_manager._get_system_state('training_target_step', None) == 1500
+        assert queue_manager._get_system_state('training_run_token', None) == 'long-run-token'
+        assert queue_manager._get_system_state('training_variant', None) == 'deturbo'
 
 
 def test_import_list_delete_checkpoint_roundtrip_filesystem_scan(app, tmp_path):
@@ -521,7 +526,8 @@ def test_import_list_delete_checkpoint_roundtrip_filesystem_scan(app, tmp_path):
         ds = svc.create_dataset(LOCAL_USER, 'Import', 'ImportTrig')
 
         # Fake ai-toolkit run dir with one numbered checkpoint (list_checkpoints reads this).
-        run_dir = lt._output_dir() / f'u{ds.user_id}_ImportTrig' / 'lora_ImportTrig'
+        run_dir = (lt._output_dir() / lt._run_name(ds)
+                   / 'lora_ImportTrig')
         run_dir.mkdir(parents=True)
         ck_name = 'lora_ImportTrig_000001500.safetensors'
         (run_dir / ck_name).write_bytes(b'fake-weights')
@@ -535,11 +541,13 @@ def test_import_list_delete_checkpoint_roundtrip_filesystem_scan(app, tmp_path):
 
         imported = lt.list_imported_checkpoints(LOCAL_USER, ds.id)
         assert len(imported) == 1
-        assert imported[0]['filename'] == os.path.join('z image', ck_name)
+        deployed_name = os.path.basename(dest)
+        assert deployed_name.endswith('_Z-Image-Turbo.safetensors')
+        assert imported[0]['filename'] == os.path.join('z image', deployed_name)
         assert imported[0]['label']  # format_trained_lora_label produced something non-empty
 
         removed_name = lt.delete_imported_checkpoint(LOCAL_USER, ds.id, imported[0]['filename'])
-        assert removed_name == ck_name
+        assert removed_name == deployed_name
         assert not os.path.isfile(dest)
         assert lt.list_imported_checkpoints(LOCAL_USER, ds.id) == []
 
@@ -586,6 +594,198 @@ def test_default_variant_is_family_aware():
     assert lt._default_variant_for('zimage') == 'turbo'
     assert lt._default_variant_for('sdxl') == 'turbo'
     assert lt._default_variant_for(None) == 'turbo'
+
+
+def test_explicit_variant_controls_krea_and_flux2_run_tags(app):
+    """Cloud/import/mirror replay a stamped variant and must not fall through
+    to a later mutable dataset selection."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        krea = svc.create_dataset(
+            LOCAL_USER, 'Krea stale', 'krea_stale', train_type='krea')
+        krea.train_variant = 'turbo'
+        assert lt._run_name(
+            krea, base_model='', family='krea', variant='base'
+        ).endswith('_Krea-2-Raw')
+        assert lt._run_name(
+            krea, base_model='', family='krea', variant='turbo'
+        ).endswith('_Krea-2-Turbo')
+
+        klein = svc.create_dataset(
+            LOCAL_USER, 'Klein stale', 'klein_stale',
+            train_type='flux2klein')
+        klein.train_variant = '4b'
+        assert lt._run_name(
+            klein, base_model='', family='flux2klein', variant='9b'
+        ).endswith('_FLUX2-Klein-9B')
+        assert lt._run_name(
+            klein, base_model='', family='flux2klein', variant='4b'
+        ).endswith('_FLUX2-Klein-4B')
+
+
+def test_zimage_official_recipe_matrix_and_isolated_run_names(app, tmp_path):
+    """Each official Z-Image variant must resolve to its real checkpoint and
+    adapter contract; incompatible variants must never share an auto-resume dir."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Zed', 'zed', train_type='zimage')
+        folder = tmp_path / 'dataset'; folder.mkdir()
+
+        expected = {
+            'turbo': (lt.ZIMAGE_TURBO_BASE, lt.ZIMAGE_TURBO_TRAINING_ADAPTER,
+                      None, 8, 1, 'sigmoid'),
+            'base': (lt.ZIMAGE_BASE, None, None, 35, 4, 'weighted'),
+            'deturbo': (lt.ZIMAGE_DETURBO_BASE, None, lt.ZIMAGE_TURBO_BASE,
+                        25, 3, 'weighted'),
+        }
+        names = {}
+        for variant, (base, adapter, extras, sample_steps, cfg, timestep) in expected.items():
+            ds.train_variant = variant
+            process = lt.build_job_config(
+                ds, str(folder), steps=1500, training_folder='__test__'
+            )['config']['process'][0]
+            model = process['model']
+            assert model['name_or_path'] == base
+            assert model.get('assistant_lora_path') == adapter
+            assert model.get('extras_name_or_path') == extras
+            assert process['sample']['sample_steps'] == sample_steps
+            assert process['sample']['guidance_scale'] == cfg
+            assert process['train']['timestep_type'] == timestep
+            names[variant] = lt._run_name(ds)
+
+        assert len(set(names.values())) == 3
+        assert names['turbo'].endswith('_Z-Image-Turbo')
+        assert names['base'].endswith('_Z-Image-Base')
+        assert names['deturbo'].endswith('_Z-Image-De-Turbo')
+
+
+def test_zimage_recipe_validation_provenance_and_legacy_annotation(app):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    with pytest.raises(ValueError, match='invalid Z-Image variant'):
+        lt.zimage_training_recipe('typo')
+
+    custom = lt.zimage_training_recipe('turbo', 'my_merge.safetensors')
+    assert custom['effective_base'] == 'my_merge.safetensors'
+    assert custom['extras_name_or_path'] == lt.ZIMAGE_TURBO_BASE
+    assert custom['training_adapter'] == lt.ZIMAGE_TURBO_TRAINING_ADAPTER
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Safe', 'safe', train_type='zimage')
+        ds.train_variant = 'deturbo'
+        snap = lt.launch_settings_snapshot(ds)
+        assert snap['recipe_version'] == lt.ZIMAGE_RECIPE_VERSION
+        assert snap['effective_base'] == lt.ZIMAGE_DETURBO_BASE
+        assert snap['training_adapter'] is None
+
+    legacy = lt.zimage_recipe_diagnostic('zimage', 'deturbo')
+    assert legacy['status'] == 'legacy_incompatible'
+    assert 'not stopped or modified' in legacy['warning']
+    safe = lt.zimage_recipe_diagnostic(
+        'zimage', 'deturbo', snap['effective_base'], snap['training_adapter'],
+        snap['recipe_version'])
+    assert safe == {'status': 'safe', 'warning': None}
+
+
+def test_zimage_custom_base_confirmation_and_full_identifier_hash(app):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    for variant in ('base', 'deturbo'):
+        with pytest.raises(ValueError, match='^CUSTOM_WEIGHTS_UNVERIFIED:'):
+            lt.assert_zimage_custom_recipe_confirmed(
+                'zimage', r'merges\model.safetensors', variant)
+        lt.assert_zimage_custom_recipe_confirmed(
+            'zimage', r'merges\model.safetensors', variant,
+            allow_unverified_weights=True)
+    # Custom Turbo keeps its adapter and does not need this distillation-type
+    # acknowledgement.
+    lt.assert_zimage_custom_recipe_confirmed(
+        'zimage', r'merges\model.safetensors', 'turbo')
+
+    with app.app_context():
+        ds = svc.create_dataset(
+            LOCAL_USER, 'Hash', 'hashy', train_type='zimage')
+        first = lt._run_name(
+            ds, r'folder-a\same.safetensors', 'zimage', 'turbo')
+        second = lt._run_name(
+            ds, r'folder-b\same.safetensors', 'zimage', 'turbo')
+        absolute = lt._run_name(
+            ds, r'C:\weights\same.safetensors', 'zimage', 'turbo')
+        assert len({first, second, absolute}) == 3
+        assert all('_h' in name for name in (first, second, absolute))
+
+
+def test_variant_scopes_local_checkpoint_sample_and_progress_paths(
+        app, tmp_path, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    _configure_aitoolkit(tmp_path, monkeypatch, app)
+    with app.app_context():
+        ds = svc.create_dataset(
+            LOCAL_USER, 'Variants', 'variants', train_type='zimage')
+        base_dir = lt._run_dir(
+            LOCAL_USER, ds.id, base_model='', family='zimage', variant='base')
+        deturbo_dir = lt._run_dir(
+            LOCAL_USER, ds.id, base_model='', family='zimage', variant='deturbo')
+        assert base_dir != deturbo_dir
+        os.makedirs(base_dir, exist_ok=True)
+        os.makedirs(deturbo_dir, exist_ok=True)
+        open(os.path.join(base_dir, 'lora_variants_000000500.safetensors'),
+             'wb').write(b'base')
+        open(os.path.join(deturbo_dir, 'lora_variants_000001000.safetensors'),
+             'wb').write(b'deturbo')
+        assert [c['step'] for c in lt.list_checkpoints(
+            LOCAL_USER, ds.id, '', 'zimage', 'base')] == [500]
+        assert [c['step'] for c in lt.list_checkpoints(
+            LOCAL_USER, ds.id, '', 'zimage', 'deturbo')] == [1000]
+        assert lt._samples_dir(
+            LOCAL_USER, ds.id, '', 'zimage', 'base') != lt._samples_dir(
+                LOCAL_USER, ds.id, '', 'zimage', 'deturbo')
+
+
+def test_training_status_exposes_active_recipe_and_unique_token(app, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        ds = svc.create_dataset(
+            LOCAL_USER, 'Active', 'active', train_type='zimage')
+        recipe = lt.zimage_training_recipe('turbo')
+        state = {
+            'training_in_progress': True,
+            'training_dataset_id': ds.id,
+            'training_pid': 123,
+            'training_run_token': 'opaque-token',
+            'training_train_type': 'zimage',
+            'training_variant': 'turbo',
+            'training_base_model': '',
+            'training_effective_base': recipe['effective_base'],
+            'training_training_adapter': recipe['training_adapter'],
+            'training_recipe_version': recipe['recipe_version'],
+        }
+        monkeypatch.setattr(
+            lt.queue_manager, '_get_system_state',
+            lambda key, default=None: state.get(key, default))
+        current = lt.training_status()['current']
+        assert current['run_token'] == 'opaque-token'
+        assert current['variant'] == 'turbo'
+        assert current['effective_base'] == lt.ZIMAGE_TURBO_BASE
+        assert current['training_adapter'] == lt.ZIMAGE_TURBO_TRAINING_ADAPTER
+        assert current['recipe_status'] == 'safe'
+        assert current['recipe_warning'] is None
 
 
 def test_build_job_config_krea_raw_default_and_turbo_optin(app, tmp_path):

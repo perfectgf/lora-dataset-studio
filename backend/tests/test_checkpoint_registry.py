@@ -95,14 +95,17 @@ def test_import_suffixes_deployed_name_with_version(app, ds_with_images, tmp_pat
         ck = run_dir / 'lora_prov_000001000.safetensors'
         ck.write_bytes(b'W')
         monkeypatch.setattr(lt, '_run_dir', lambda *a, **k: str(run_dir))
-        # no registry row yet -> unchanged historical name
+        # No registry row yet -> recipe suffix only (Turbo is intentionally
+        # isolated from the old suffix-less Z-Image folder/name).
         dest = lt.import_checkpoint(LOCAL_USER, ds_id, ck.name)
-        assert os.path.basename(dest) == ck.name
+        assert os.path.basename(dest) == (
+            'lora_prov_000001000_Z-Image-Turbo.safetensors')
         # registered BEFORE the file was written -> _v1 suffix
         reg.register_launch(LOCAL_USER, ds_id, 'zimage', 'local')
         os.utime(ck)                        # file newer than the record
         dest = lt.import_checkpoint(LOCAL_USER, ds_id, ck.name)
-        assert os.path.basename(dest) == 'lora_prov_000001000_v1.safetensors'
+        assert os.path.basename(dest) == (
+            'lora_prov_000001000_Z-Image-Turbo_v1.safetensors')
         # both deployed files are listed (the _v suffix passes the boundary)
         names = [c['filename'] for c in lt.list_imported_checkpoints(LOCAL_USER, ds_id)]
         assert any(n.endswith('_v1.safetensors') for n in names)
@@ -267,7 +270,8 @@ def test_import_route_accepts_cloud_run_id(app, client, monkeypatch, ds_with_ima
                     json={'filename': ck.name, 'train_type': 'zimage',
                           'cloud_run_id': run_id})
     assert r.status_code == 200
-    assert r.get_json()['dest'] == 'lds10_x_000001000_v3.safetensors'
+    assert r.get_json()['dest'] == (
+        'lds10_x_000001000_Z-Image-Turbo_v3.safetensors')
     # unknown run / wrong dataset -> 404
     r = client.post(f'/api/dataset/{ds_id}/train/import',
                     json={'filename': ck.name, 'cloud_run_id': 999999})

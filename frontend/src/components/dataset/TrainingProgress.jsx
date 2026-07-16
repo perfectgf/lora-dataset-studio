@@ -55,7 +55,7 @@ function LossSparkline({ curve }) {
   );
 }
 
-export default function TrainingProgress({ datasetId, base, trainType, cloud = false }) {
+export default function TrainingProgress({ datasetId, base, trainType, variant, cloud = false }) {
   const [prog, setProg] = useState(null);
   const timer = useRef(null);
   useEffect(() => {
@@ -65,6 +65,7 @@ export default function TrainingProgress({ datasetId, base, trainType, cloud = f
         const qs = new URLSearchParams();
         if (base != null) qs.set('base_model', base);
         if (trainType) qs.set('train_type', trainType);
+        if (variant) qs.set('variant', variant);
         const r = await fetch(`/api/dataset/${datasetId}/train/${cloud ? 'cloud/' : ''}progress?${qs}`, { credentials: 'include' });
         if (r.ok) {
           const d = await r.json();
@@ -75,7 +76,7 @@ export default function TrainingProgress({ datasetId, base, trainType, cloud = f
     };
     poll();
     return () => { alive = false; clearTimeout(timer.current); };
-  }, [datasetId, base, trainType, cloud]);
+  }, [datasetId, base, trainType, variant, cloud]);
 
   // The export downgraded a requested masked run to UNMASKED (rembg missing or the
   // mask pass crashed). Warn loudly — a multi-hour run training the wrong way is
@@ -136,6 +137,7 @@ export default function TrainingProgress({ datasetId, base, trainType, cloud = f
               const qs = new URLSearchParams();
               if (base != null) qs.set('base_model', base);
               if (trainType) qs.set('train_type', trainType);
+              if (variant) qs.set('variant', variant);
               const url = `/api/dataset/${datasetId}/train/${cloud ? 'cloud/' : ''}sample/${encodeURIComponent(s.filename)}?${qs}`;
               return (
                 <a key={s.filename} href={url} target="_blank" rel="noreferrer"

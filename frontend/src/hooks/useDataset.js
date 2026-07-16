@@ -10,6 +10,7 @@ import { useToast } from '../components/common/Toast';
 import { useJobs } from '../context/JobsContext';
 import { serializeWatermarkRegions } from '../utils/watermarkRegions';
 import { summarizeScrapeImport } from '../utils/smallImageRescue';
+import { trainingRunSelection } from '../utils/checkpointBrowser';
 
 function post(url, body, isForm) {
   // Routes through the shared fetchWithCsrfRetry: a token that aged out mid-session
@@ -763,32 +764,35 @@ export function useDataset() {
   // baseModel/variant ciblent le run de la base SÉLECTIONNÉE (undefined → base
   // persistée). Pas de window.open : l'entraînement est headless (CLI), l'ancien
   // lien localhost:8675 était mort (« Ce site est inaccessible »).
-  const continueTraining = useCallback(async (extraSteps = 1000, baseModel, variant) => {
-    const body = { extra_steps: extraSteps };
-    if (baseModel !== undefined && baseModel !== null) body.base_model = baseModel;
-    if (variant) body.variant = variant;
+  const continueTraining = useCallback(async (extraSteps = 1000, baseModel, variant, trainType, opts = {}) => {
+    const body = {
+      extra_steps: extraSteps,
+      ...trainingRunSelection(baseModel, trainType, variant),
+      masked: opts.masked !== false,
+      allow_unverified_weights: !!opts.allowUnverifiedWeights,
+    };
     const d = await postJson(`/api/dataset/${currentId}/train/continue`, body);
     if (d.ok) toast.success(`Resumed from step ${d.resumed_from} → ${d.target_steps} — ComfyUI paused`);
-    else toast.error(d.error || 'Unexpected error');
+    // CUSTOM_WEIGHTS_UNVERIFIED is an interactive refusal: TrainingPanel owns
+    // the explicit confirm + retry, so do not emit a premature error toast.
+    else if (!String(d.error || '').includes('CUSTOM_WEIGHTS_UNVERIFIED: ')) {
+      toast.error(d.error || 'Unexpected error');
+    }
     return d;
   }, [currentId, toast]);
 
   // trainType = famille sélectionnée dans le menu LORA TYPE (Z-Image / SDXL / Krea).
   // Transmise à l'API pour que checkpoints + liste « IN COMFYUI » suivent le menu et
   // pas le train_type persisté du dataset (sinon LoRA Krea affichés sur la page Z-Image).
-  const listCheckpoints = useCallback(async (baseModel, trainType) => {
-    const p = new URLSearchParams();
-    if (baseModel !== undefined && baseModel !== null) p.set('base_model', baseModel);
-    if (trainType) p.set('train_type', trainType);
+  const listCheckpoints = useCallback(async (baseModel, trainType, variant) => {
+    const p = new URLSearchParams(trainingRunSelection(baseModel, trainType, variant));
     const qs = p.toString() ? `?${p.toString()}` : '';
     const r = await fetch(`/api/dataset/${currentId}/train/checkpoints${qs}`, { credentials: 'include' });
     return r.ok ? await r.json() : { checkpoints: [], imported: [] };
   }, [currentId]);
 
-  const importCheckpoint = useCallback(async (filename, baseModel, trainType) => {
-    const body = { filename };
-    if (baseModel !== undefined && baseModel !== null) body.base_model = baseModel;
-    if (trainType) body.train_type = trainType;
+  const importCheckpoint = useCallback(async (filename, baseModel, trainType, variant) => {
+    const body = { filename, ...trainingRunSelection(baseModel, trainType, variant) };
     try {
       const d = await postJson(`/api/dataset/${currentId}/train/import`, body);
       if (d.ok) toast.success(`LoRA imported: ${d.dest}`); else toast.error(d.error || 'Unexpected error');
@@ -801,9 +805,8 @@ export function useDataset() {
   }, [currentId, toast]);
 
   // Supprime un checkpoint du dossier loras de la famille dans ComfyUI (libère de l'espace).
-  const deleteCheckpoint = useCallback(async (filename, trainType) => {
-    const body = { filename };
-    if (trainType) body.train_type = trainType;
+  const deleteCheckpoint = useCallback(async (filename, trainType, variant) => {
+    const body = { filename, ...trainingRunSelection(undefined, trainType, variant) };
     const d = await postJson(`/api/dataset/${currentId}/train/checkpoint/delete`, body);
     if (d.ok) toast.success(`Checkpoint deleted: ${d.removed}`); else toast.error(d.error || 'Unexpected error');
     return d;

@@ -4,6 +4,7 @@ Every test patches `app.capabilities.probe` so none of this ever touches a
 real HTTP/subprocess probe, and patches the `lora_training`/`zimage_convert`
 service functions it exercises so no test spawns a real subprocess.
 """
+import pytest
 
 def _create(client, name='Lola', trigger='lola'):
     return client.post('/api/dataset/create', json={'name': name, 'trigger_word': trigger}).get_json()['id']
@@ -124,9 +125,17 @@ def test_continue_forwards_kwargs(client, monkeypatch):
         return {'started': True, 'resumed_from': 500, 'target_steps': 1500}
 
     monkeypatch.setattr('app.services.lora_training.continue_training', fake_continue)
-    resp = client.post(f'/api/dataset/{ds_id}/train/continue', json={'extra_steps': 1000, 'variant': 'base'})
+    resp = client.post(f'/api/dataset/{ds_id}/train/continue', json={
+        'extra_steps': 1000, 'base_model': 'merge.safetensors',
+        'variant': 'base', 'train_type': 'zimage', 'masked': False,
+        'allow_unverified_weights': True,
+    })
     assert resp.status_code == 200
-    assert captured == {'extra_steps': 1000, 'variant': 'base'}
+    assert captured == {
+        'extra_steps': 1000, 'base_model': 'merge.safetensors',
+        'variant': 'base', 'train_type': 'zimage', 'masked': False,
+        'allow_unverified_weights': True,
+    }
 
 
 # --- /train/enqueue ----------------------------------------------------------
@@ -235,6 +244,50 @@ def test_stop_calls_stop_training(client, monkeypatch):
     assert calls == [True]
 
 
+def test_stop_targets_the_local_run_shown_by_the_runs_hub(client, monkeypatch):
+    _valid(monkeypatch, True)
+    calls = []
+    monkeypatch.setattr('app.services.lora_training.stop_training',
+                        lambda expected_dataset_id=None, expected_run_token=None:
+                        calls.append((expected_dataset_id, expected_run_token)) or True)
+    resp = client.post('/api/dataset/train/stop',
+                       json={'dataset_id': 42, 'run_token': 'run-abc'})
+    assert resp.status_code == 200
+    assert calls == [(42, 'run-abc')]
+
+
+@pytest.mark.parametrize('body', [
+    {'dataset_id': 42},
+    {'run_token': 'run-abc'},
+])
+def test_stop_rejects_partial_run_identity(client, monkeypatch, body):
+    _valid(monkeypatch, True)
+    called = []
+    monkeypatch.setattr(
+        'app.services.lora_training.stop_training',
+        lambda **_kw: called.append(True))
+
+    resp = client.post('/api/dataset/train/stop', json=body)
+
+    assert resp.status_code == 400
+    assert resp.get_json()['error'] == (
+        'dataset_id and run_token must be provided together')
+    assert called == []
+
+
+def test_stop_rejects_a_stale_local_run_card(client, monkeypatch):
+    _valid(monkeypatch, True)
+    monkeypatch.setattr('app.services.lora_training.stop_training',
+                        lambda **_kw: False)
+    resp = client.post('/api/dataset/train/stop',
+                       json={'dataset_id': 42, 'run_token': 'stale-token'})
+    assert resp.status_code == 409
+    assert resp.get_json() == {
+        'ok': False,
+        'error': 'This local run is no longer active. The Runs page was refreshed.',
+    }
+
+
 # --- /train/checkpoints -------------------------------------------------------
 
 def test_checkpoints_returns_recommended_steps(client, monkeypatch):
@@ -250,6 +303,33 @@ def test_checkpoints_returns_recommended_steps(client, monkeypatch):
     assert body['recommended_steps'] == 2500
     assert body['checkpoints'][0]['step'] == 500
     assert body['imported'] == []
+
+
+def test_checkpoints_query_forwards_variant_to_local_and_cloud(client, monkeypatch):
+    _valid(monkeypatch, True)
+    ds_id = _create(client, name='Variant', trigger='variant')
+    local_calls = []
+    cloud_calls = []
+    monkeypatch.setattr(
+        'app.services.lora_training.list_checkpoints',
+        lambda *a, **kw: local_calls.append(kw) or [])
+    monkeypatch.setattr(
+        'app.services.lora_training.dataset_disk_usage',
+        lambda *a, **kw: {'total_bytes': 0})
+    monkeypatch.setattr(
+        'app.services.lora_training.list_imported_checkpoints',
+        lambda *a, **kw: [])
+    monkeypatch.setattr(
+        'app.services.cloud_training.cloud_checkpoints',
+        lambda dataset_id, train_type=None, variant=None:
+        cloud_calls.append((dataset_id, train_type, variant)) or [])
+    resp = client.get(
+        f'/api/dataset/{ds_id}/train/checkpoints'
+        '?base_model=&train_type=zimage&variant=deturbo')
+    assert resp.status_code == 200
+    assert local_calls and all(
+        call['variant'] == 'deturbo' for call in local_calls)
+    assert cloud_calls == [(ds_id, 'zimage', 'deturbo')]
 
 
 # --- /train/base-info ---------------------------------------------------------
@@ -359,8 +439,49 @@ def test_checkpoint_delete_unknown_returns_400(client, monkeypatch):
 def test_import_checkpoint_calls_service(client, monkeypatch):
     _valid(monkeypatch, True)
     ds_id = _create(client)
-    monkeypatch.setattr('app.services.lora_training.import_checkpoint',
-                        lambda user_id, dataset_id, fn, **kw: f'/some/dir/{fn}')
-    resp = client.post(f'/api/dataset/{ds_id}/train/import', json={'filename': 'x.safetensors'})
+    captured = {}
+
+    def fake_import(user_id, dataset_id, fn, **kw):
+        captured.update(kw)
+        return f'/some/dir/{fn}'
+
+    monkeypatch.setattr('app.services.lora_training.import_checkpoint', fake_import)
+    resp = client.post(f'/api/dataset/{ds_id}/train/import', json={
+        'filename': 'x.safetensors', 'base_model': '',
+        'train_type': 'zimage', 'variant': 'deturbo',
+    })
     assert resp.status_code == 200
     assert resp.get_json() == {'ok': True, 'dest': 'x.safetensors'}
+    assert captured == {
+        'base_model': '', 'family': 'zimage', 'variant': 'deturbo'}
+
+
+def test_variant_forwarded_to_open_delete_and_cleanup(client, monkeypatch):
+    _valid(monkeypatch, True)
+    ds_id = _create(client, name='Operations', trigger='operations')
+    captured = {}
+
+    monkeypatch.setattr(
+        'app.services.lora_training.open_training_folder',
+        lambda *a, **kw: captured.setdefault('open', kw) or 'C:/run')
+    monkeypatch.setattr(
+        'app.services.lora_training.delete_checkpoint',
+        lambda *a, **kw: captured.setdefault('delete', kw) or 'x.safetensors')
+    monkeypatch.setattr(
+        'app.services.lora_training.cleanup_checkpoints',
+        lambda *a, **kw: captured.setdefault('cleanup', kw)
+        or {'removed': 0, 'kept': []})
+
+    common = {'base_model': '', 'train_type': 'zimage', 'variant': 'base'}
+    assert client.post(
+        f'/api/dataset/{ds_id}/train/open-folder',
+        json={**common, 'target': 'run'}).status_code == 200
+    assert client.post(
+        f'/api/dataset/{ds_id}/train/run-checkpoint/delete',
+        json={**common, 'filename': 'x.safetensors'}).status_code == 200
+    assert client.post(
+        f'/api/dataset/{ds_id}/train/checkpoints/cleanup',
+        json={**common, 'keep_filenames': []}).status_code == 200
+    assert captured['open']['variant'] == 'base'
+    assert captured['delete']['variant'] == 'base'
+    assert captured['cleanup']['variant'] == 'base'

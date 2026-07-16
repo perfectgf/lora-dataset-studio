@@ -124,6 +124,35 @@ def test_concurrent_dequeues_do_not_resurrect_removed_items(monkeypatch):
     assert queue.items == []
 
 
+def test_enqueue_collision_check_receives_captured_variant(monkeypatch):
+    from app.services import lora_training as lt
+
+    _stub_enqueue_preflights(monkeypatch, lt)
+    seen = {}
+    monkeypatch.setattr(
+        lt, 'find_run_collision',
+        lambda *args, **kwargs: seen.update(kwargs) or None)
+    monkeypatch.setattr(lt, 'get_train_queue', lambda: [])
+    monkeypatch.setattr(lt, '_save_queue', lambda _items: None)
+
+    result = lt.enqueue_training('local', 4, variant='base')
+    assert result['queued'] is True
+    assert seen['variant'] == 'base'
+
+
+def test_enqueue_continue_requires_custom_zimage_base_confirmation(monkeypatch):
+    from app.services import lora_training as lt
+
+    ds = SimpleNamespace(
+        id=4, train_type='zimage', train_base_model=None,
+        train_variant='base', train_vae_path=None, train_te_path=None)
+    monkeypatch.setattr(lt.fds, 'get_dataset', lambda *_a, **_kw: ds)
+    with pytest.raises(ValueError, match='^CUSTOM_WEIGHTS_UNVERIFIED:'):
+        lt.enqueue_training(
+            'local', 4, extra_steps=500,
+            base_model=r'merges\unknown.safetensors', variant='base')
+
+
 def test_advance_and_dequeue_share_the_same_queue_lock(monkeypatch):
     from app.services import lora_training as lt
 
@@ -213,6 +242,210 @@ def test_stop_and_dequeue_share_the_same_queue_lock(monkeypatch):
     assert not stop_thread.is_alive() and not dequeue_thread.is_alive()
     assert dequeue_was_blocked
     assert dequeue_read.is_set()
+
+
+def test_targeted_stop_does_not_touch_a_newer_local_run(monkeypatch):
+    from app.services import lora_training as lt
+
+    state = {
+        'training_dataset_id': 22,
+        'training_in_progress': True,
+        'training_pid': 4242,
+    }
+    writes = []
+    queue_writes = []
+    monkeypatch.setattr(lt.queue_manager, '_get_system_state',
+                        lambda key, default=None: state.get(key, default))
+    monkeypatch.setattr(lt.queue_manager, '_set_system_state',
+                        lambda *args, **kwargs: writes.append((args, kwargs)))
+    monkeypatch.setattr(lt, '_save_queue', lambda items: queue_writes.append(items))
+
+    assert lt.stop_training(expected_dataset_id=21) is False
+    assert writes == []
+    assert queue_writes == []
+
+
+def test_targeted_stop_token_rejects_same_dataset_newer_run(monkeypatch):
+    from app.services import lora_training as lt
+
+    state = {
+        'training_dataset_id': 22,
+        'training_run_token': 'new-run-token',
+        'training_in_progress': True,
+        'training_pid': 4242,
+    }
+    writes = []
+    queue_writes = []
+    monkeypatch.setattr(
+        lt.queue_manager, '_get_system_state',
+        lambda key, default=None: state.get(key, default))
+    monkeypatch.setattr(
+        lt.queue_manager, '_set_system_state',
+        lambda *args, **kwargs: writes.append((args, kwargs)))
+    monkeypatch.setattr(lt, '_save_queue', lambda items: queue_writes.append(items))
+
+    assert lt.stop_training(
+        expected_dataset_id=22,
+        expected_run_token='old-run-token') is False
+    assert writes == []
+    assert queue_writes == []
+
+
+def test_stop_waits_until_launch_publishes_the_new_pid(
+        app, tmp_path, monkeypatch):
+    """Popen + PID publication and Stop share one lock: Stop cannot clear the
+    flag while launch is blocked inside Popen and let an orphan process escape."""
+    from app import config as cfg
+    from app.config import LOCAL_USER
+    from app.services import checkpoint_registry
+    from app.services import face_dataset_service as svc
+    from app.services import lora_training as lt
+
+    root = tmp_path / 'aitoolkit'
+    (root / 'venv' / 'Scripts').mkdir(parents=True)
+    (root / 'venv' / 'Scripts' / 'python.exe').write_text('fake')
+    (root / 'run.py').write_text('fake')
+    exported = tmp_path / 'exported'
+    exported.mkdir()
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(root)}})
+        ds = svc.create_dataset(
+            LOCAL_USER, 'Launch lock', 'launch_lock', train_type='zimage')
+        dataset_id = ds.id
+        lt._clear_training_identity(ttl_seconds=None)
+
+    popen_entered = threading.Event()
+    release_popen = threading.Event()
+    stop_started = threading.Event()
+    stop_done = threading.Event()
+    identity = {}
+    killed = []
+    launch_errors = []
+    stop_results = []
+
+    def blocked_popen(_args, **kwargs):
+        identity['token'] = lt.queue_manager._get_system_state(
+            'training_run_token', None)
+        popen_entered.set()
+        assert release_popen.wait(timeout=2)
+        kwargs['stdout'].close()
+        return SimpleNamespace(pid=7878)
+
+    monkeypatch.setattr(lt, 'assert_free_disk', lambda *_a, **_kw: None)
+    monkeypatch.setattr(lt, 'assert_trainable', lambda *_a, **_kw: None)
+    monkeypatch.setattr(lt, 'preflight_custom_paths', lambda *_a, **_kw: None)
+    monkeypatch.setattr(lt, 'find_run_collision', lambda *_a, **_kw: None)
+    monkeypatch.setattr(
+        lt, 'export_dataset_to_aitoolkit',
+        lambda *_a, **_kw: str(exported))
+    monkeypatch.setattr(
+        lt, 'write_job_config', lambda *_a, **_kw: str(tmp_path / 'job.json'))
+    monkeypatch.setattr(
+        checkpoint_registry, 'register_launch', lambda *_a, **_kw: None)
+    monkeypatch.setattr(lt.subprocess, 'Popen', blocked_popen)
+    if lt.os.name == 'nt':
+        monkeypatch.setattr(
+            lt.subprocess, 'run',
+            lambda args, **_kw: killed.append(args)
+            or SimpleNamespace(returncode=0))
+    else:
+        monkeypatch.setattr(
+            lt.os, 'kill', lambda pid, sig: killed.append([str(pid), str(sig)]))
+    monkeypatch.setattr(lt, '_watch_training', lambda *_a, **_kw: None)
+
+    def launch():
+        try:
+            with app.app_context():
+                lt.launch_training(
+                    LOCAL_USER, dataset_id, steps=500, masked=False)
+        except BaseException as exc:
+            launch_errors.append(exc)
+
+    def stop():
+        stop_started.set()
+        with app.app_context():
+            stop_results.append(lt.stop_training(
+                expected_dataset_id=dataset_id,
+                expected_run_token=identity['token']))
+        stop_done.set()
+
+    launch_thread = threading.Thread(target=launch)
+    stop_thread = threading.Thread(target=stop)
+    launch_thread.start()
+    assert popen_entered.wait(timeout=2)
+    assert identity['token']
+    stop_thread.start()
+    assert stop_started.wait(timeout=1)
+
+    stop_was_blocked = not stop_done.wait(timeout=0.1)
+    release_popen.set()
+    launch_thread.join(timeout=3)
+    stop_thread.join(timeout=3)
+
+    assert not launch_thread.is_alive() and not stop_thread.is_alive()
+    assert launch_errors == []
+    assert stop_was_blocked
+    assert stop_results == [True]
+    assert any('7878' in args for args in killed)
+
+
+def test_queued_continue_replays_captured_base_variant_and_confirmation(monkeypatch):
+    from app.services import lora_training as lt
+
+    captured = {}
+    monkeypatch.setattr(
+        lt, 'continue_training',
+        lambda *args, **kwargs: captured.update({'args': args, 'kwargs': kwargs}))
+    lt._launch_queued_item({
+        'dataset_id': 9,
+        'user_id': 'local',
+        'extra_steps': 750,
+        'base_model': r'merges\base.safetensors',
+        'variant': 'deturbo',
+        'train_type': 'zimage',
+        'masked': False,
+        'allow_unverified_weights': True,
+    })
+    assert captured['args'] == ('local', 9)
+    assert captured['kwargs'] == {
+        'extra_steps': 750,
+        'base_model': r'merges\base.safetensors',
+        'variant': 'deturbo',
+        'train_type': 'zimage',
+        'masked': False,
+        'allow_unverified_weights': True,
+        '_allow_dead_predecessor': True,
+    }
+
+
+def test_queued_continue_accepts_dead_predecessor_flag(monkeypatch):
+    from app.services import lora_training as lt
+
+    ds = SimpleNamespace(
+        id=9, train_type='zimage', train_base_model=None,
+        train_variant='base', train_vae_path=None, train_te_path=None)
+    state = {'training_in_progress': True, 'training_pid': 4242}
+    launched = {}
+    monkeypatch.setattr(
+        lt.queue_manager, '_get_system_state',
+        lambda key, default=None: state.get(key, default))
+    monkeypatch.setattr(lt, '_pid_alive', lambda _pid: False)
+    monkeypatch.setattr(lt.fds, 'get_dataset', lambda *_a, **_kw: ds)
+    monkeypatch.setattr(
+        lt, 'list_checkpoints',
+        lambda *_a, **_kw: [{'step': 1000, 'filename': 'ck.safetensors'}])
+    monkeypatch.setattr(
+        lt, 'launch_training',
+        lambda *_a, **kw: launched.update(kw) or {'started': True})
+
+    result = lt.continue_training(
+        'local', 9, extra_steps=500, base_model='', variant='base',
+        train_type='zimage', _allow_dead_predecessor=True)
+
+    assert result['target_steps'] == 1500
+    assert launched['base_model'] == ''
+    assert launched['variant'] == 'base'
+    assert launched['train_type'] == 'zimage'
 
 
 def test_stop_holds_queue_lock_during_kill_before_watcher_advance(monkeypatch):

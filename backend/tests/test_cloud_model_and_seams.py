@@ -177,8 +177,13 @@ def test_run_config_dataset_overrides_without_mutating(app, client):
         assert view.id == ds.id
         assert ds.train_type == 'zimage'                # real row untouched
         assert ds.train_variant == 'turbo'
-        # A legacy run that stamped neither falls back to the real dataset as-is.
-        assert ct._run_config_dataset(ds, {}) is ds
+        # Even a legacy run gets a view: cloud must freeze the official empty
+        # base instead of delegating a later local custom-base selection.
+        legacy = ct._run_config_dataset(ds, {})
+        assert legacy is not ds
+        assert legacy.train_base_model == ''
+        assert legacy.train_type == 'zimage'
+        assert legacy.train_variant == 'turbo'
         # A partial override (family only) still delegates the missing one.
         v2 = ct._run_config_dataset(ds, {'train_type': 'krea'})
         assert v2.train_type == 'krea'

@@ -91,6 +91,10 @@ def dataset_train_continue(dataset_id):
         kw['base_model'] = d.get('base_model')
     if d.get('variant'):
         kw['variant'] = d.get('variant')
+    if d.get('train_type'):
+        kw['train_type'] = d.get('train_type')
+    kw['masked'] = d.get('masked', True)
+    kw['allow_unverified_weights'] = bool(d.get('allow_unverified_weights'))
     try:
         res = lt.continue_training(LOCAL_USER, dataset_id, **kw)
     except Exception as e:
@@ -217,7 +221,38 @@ def dataset_train_stop():
     gate = _require_aitoolkit()
     if gate:
         return gate
-    lt.stop_training()
+    d = request.get_json(silent=True) or {}
+    expected_dataset_id = d.get('dataset_id')
+    expected_run_token = d.get('run_token')
+    if (expected_dataset_id is None) != (expected_run_token is None):
+        return jsonify({
+            'ok': False,
+            'error': 'dataset_id and run_token must be provided together',
+        }), 400
+    if expected_dataset_id is not None:
+        try:
+            expected_dataset_id = int(expected_dataset_id)
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'invalid dataset id'}), 400
+    if expected_run_token is not None:
+        if not isinstance(expected_run_token, str) or not expected_run_token.strip():
+            return jsonify({'ok': False, 'error': 'invalid run token'}), 400
+        expected_run_token = expected_run_token.strip()
+    # Preserve the original no-argument call for the dataset-manager button;
+    # only the Runs hub opts into target-aware protection.
+    stopped = (lt.stop_training()
+               if expected_dataset_id is None and expected_run_token is None
+               else lt.stop_training(
+                   expected_dataset_id=expected_dataset_id,
+                   expected_run_token=expected_run_token))
+    if stopped is False:
+        # The Runs hub polls every few seconds. Its card can therefore describe
+        # run A just after A ended and queued run B started; never let that stale
+        # button kill B. Older callers omit dataset_id and keep global semantics.
+        return jsonify({
+            'ok': False,
+            'error': 'This local run is no longer active. The Runs page was refreshed.',
+        }), 409
     return jsonify({'ok': True})
 
 
@@ -233,9 +268,12 @@ def dataset_train_checkpoints(dataset_id):
     # train_type = famille sélectionnée dans le menu LORA TYPE (param absent →
     # famille persistée).
     fam = request.args.get('train_type') or None
+    variant = request.args.get('variant') or None
     kw = {} if bm is None else {'base_model': bm}
     if fam:
         kw['family'] = fam
+    if variant:
+        kw['variant'] = variant
     from ..models import CloudTrainingRun
     from ..services import checkpoint_registry
     ds = svc.get_dataset(LOCAL_USER, dataset_id)
@@ -254,7 +292,8 @@ def dataset_train_checkpoints(dataset_id):
                     # cloud saves synced locally (incl. an ACTIVE run's latest)
                     # — separate field: the resume-or-fresh prompt reasons on
                     # LOCAL checkpoints only
-                    'cloud_checkpoints': ct.cloud_checkpoints(dataset_id, fam_resolved),
+                    'cloud_checkpoints': ct.cloud_checkpoints(
+                        dataset_id, fam_resolved, variant=variant),
                     'recommended_steps': lt.recommended_steps(dataset_id),
                     'recommended_steps_info': lt.recommended_steps_info(dataset_id),
                     'imported': lt.list_imported_checkpoints(LOCAL_USER, dataset_id, family=fam),
@@ -277,9 +316,12 @@ def dataset_train_progress(dataset_id):
         return jsonify({'error': 'not found'}), 404
     bm = request.args.get('base_model')
     fam = request.args.get('train_type') or None
+    variant = request.args.get('variant') or None
     kw = {} if bm is None else {'base_model': bm}
     if fam:
         kw['family'] = fam
+    if variant:
+        kw['variant'] = variant
     try:
         return jsonify(lt.training_progress(LOCAL_USER, dataset_id, **kw))
     except Exception as e:
@@ -302,9 +344,12 @@ def dataset_train_sample(dataset_id, filename):
         return jsonify({'error': 'invalid filename'}), 400
     bm = request.args.get('base_model')
     fam = request.args.get('train_type') or None
+    variant = request.args.get('variant') or None
     kw = {} if bm is None else {'base_model': bm}
     if fam:
         kw['family'] = fam
+    if variant:
+        kw['variant'] = variant
     try:
         d = lt._samples_dir(LOCAL_USER, dataset_id, **kw)
     except Exception as e:
@@ -350,6 +395,8 @@ def dataset_train_best_epoch(dataset_id):
     kw = {} if bm is None else {'base_model': bm}
     if fam:
         kw['family'] = fam
+    if d.get('variant'):
+        kw['variant'] = d.get('variant')
     try:
         return jsonify({'ok': True, **lt.score_checkpoint_samples(LOCAL_USER, dataset_id, **kw)})
     except Exception as e:
@@ -581,6 +628,8 @@ def dataset_train_open_folder(dataset_id):
         kw['family'] = d.get('train_type')
     if 'base_model' in d:
         kw['base_model'] = d.get('base_model')
+    if d.get('variant'):
+        kw['variant'] = d.get('variant')
     try:
         path = lt.open_training_folder(LOCAL_USER, dataset_id, **kw)
     except Exception as e:
@@ -624,6 +673,8 @@ def dataset_train_run_checkpoint_delete(dataset_id):
             kw = {} if 'base_model' not in body else {'base_model': body.get('base_model')}
             if body.get('train_type'):
                 kw['family'] = body.get('train_type')
+            if body.get('variant'):
+                kw['variant'] = body.get('variant')
             removed = lt.delete_checkpoint(LOCAL_USER, dataset_id,
                                            body.get('filename', ''), **kw)
     except Exception as e:
@@ -644,6 +695,8 @@ def dataset_train_checkpoints_cleanup(dataset_id):
     kw = {} if 'base_model' not in body else {'base_model': body.get('base_model')}
     if body.get('train_type'):
         kw['family'] = body.get('train_type')
+    if body.get('variant'):
+        kw['variant'] = body.get('variant')
     try:
         res = lt.cleanup_checkpoints(LOCAL_USER, dataset_id,
                                      body.get('keep_filenames') or [], **kw)
@@ -674,6 +727,8 @@ def dataset_train_import(dataset_id):
     fam = body.get('train_type') or None
     if fam:
         kw['family'] = fam
+    if body.get('variant'):
+        kw['variant'] = body.get('variant')
     # cloud_run_id: import a CLOUD checkpoint (synced into the run's staging —
     # possibly mid-run) instead of a local ai-toolkit file. The run must belong
     # to this dataset; its dataset version rides along into the deployed name.
@@ -684,7 +739,16 @@ def dataset_train_import(dataset_id):
             return jsonify({'error': 'unknown cloud run'}), 404
         kw['src_dir'] = crun.staging_dir
         kw['version'] = ct._run_param(crun, 'version')
-        kw.pop('base_model', None)          # cloud trains on the official base
+        # Never route a cloud file through the dataset row: replay the exact
+        # family/variant/base stamped at cloud launch. Legacy rows fall back to
+        # the request's family/variant, but still use the official empty base.
+        kw['base_model'] = ct._run_param(crun, 'base_model') or ''
+        cloud_fam = ct._run_param(crun, 'train_type')
+        cloud_variant = ct._run_param(crun, 'variant')
+        if cloud_fam:
+            kw['family'] = cloud_fam
+        if cloud_variant:
+            kw['variant'] = cloud_variant
     try:
         dest = lt.import_checkpoint(LOCAL_USER, dataset_id, fn, **kw)
     except Exception as e:
@@ -704,6 +768,7 @@ def dataset_train_cloud(dataset_id):
             # No hardcoded 'turbo' default: an absent variant now resolves to
             # the family-aware default in the service (Krea → Raw, like local).
             steps=d.get('steps'),
+            base_model=d.get('base_model', ''),
             variant=d.get('variant'),
             train_type=d.get('train_type'),
             masked=d.get('masked', True),
