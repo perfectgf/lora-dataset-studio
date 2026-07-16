@@ -15,6 +15,7 @@ import { fmt } from '../../../utils/studioFormat';
 import { postJson } from '../../../api/fetchClient';
 import StrengthPicker from './StrengthPicker';
 import RecentPrompts from './RecentPrompts';
+import DescribeImageModal from './DescribeImageModal';
 
 export default function StudioRunSetup({
   selectionCount, strengths, onToggleStrength,
@@ -30,6 +31,12 @@ export default function StudioRunSetup({
   // aucun avant). Rechargé après un lancement (nouveau prompt mémorisé) et après
   // une suppression.
   const [recentPrompts, setRecentPrompts] = useState([]);
+  const [describeOpen, setDescribeOpen] = useState(false);
+  const applyDescription = (text) => {
+    if (prompt && prompt.trim()
+      && !window.confirm('Replace the current prompt with the described one?')) return;
+    onPrompt(text);
+  };
   const loadRecent = useCallback(() => {
     fetch('/api/studio/recent-prompts', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
@@ -53,11 +60,20 @@ export default function StudioRunSetup({
       <StrengthPicker choices={STRENGTH_CHOICES} selected={strengths} onToggle={onToggleStrength} fmt={fmt} />
 
       <label className="flex flex-col gap-1">
-        <span className="text-content-muted text-[0.625rem] uppercase">Prompt (optional)</span>
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-content-muted text-[0.625rem] uppercase">Prompt (optional)</span>
+          <button type="button" onClick={() => setDescribeOpen(true)}
+            title="Describe an image into a test prompt (vision model)"
+            className="px-2 py-0.5 rounded border border-border bg-surface text-content-subtle text-[0.625rem] hover:text-content">
+            🔎 Describe
+          </button>
+        </span>
         <textarea value={prompt} onChange={(e) => onPrompt(e.target.value)} rows={5}
           placeholder="Leave empty for the LoRA's default prompt…"
           className="rounded-lg border border-border bg-app/60 px-2.5 py-1.5 text-content text-sm resize-y min-h-[7rem]" />
       </label>
+      <DescribeImageModal open={describeOpen} onClose={() => setDescribeOpen(false)}
+        onResult={applyDescription} />
 
       {recentPrompts.length > 0 && (
         <RecentPrompts items={recentPrompts} datasetId={null} selectedPrompt={prompt}

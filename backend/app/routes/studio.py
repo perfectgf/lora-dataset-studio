@@ -9,15 +9,37 @@ actually enqueue ComfyUI jobs, so they're gated on `capabilities.probe()`
 status, cancel) stays reachable even when ComfyUI is offline so run history
 never goes dark.
 """
+import base64
+
 from flask import Blueprint, jsonify, request
 
 from ..config import LOCAL_USER
+from ..gpu_window import gpu_exclusive_vision_window
 from ..services import lora_test_studio as lts
 from ..utils.comfyui import get_zimage_models
 from ._common import (_map_error, _require_comfyui, _studio_arch_mismatch_response,
                       _studio_missing_response)
 
 bp = Blueprint('studio', __name__, url_prefix='/api/studio')
+
+
+def _read_uploaded_image():
+    """Pull the image bytes from either a multipart `image` file or a JSON
+    `image_base64` (a data: URL prefix is tolerated). Raises ValueError with an
+    actionable message when nothing usable is attached."""
+    f = request.files.get('image')
+    if f is not None:
+        return f.read()
+    d = request.get_json(silent=True) or {}
+    b64 = d.get('image_base64') or d.get('image')
+    if isinstance(b64, str) and b64:
+        if b64.startswith('data:'):
+            b64 = b64.split(',', 1)[-1]
+        try:
+            return base64.b64decode(b64)
+        except Exception:
+            raise ValueError('invalid base64 image')
+    raise ValueError('no image provided')
 
 
 @bp.get('/base-models')
@@ -57,6 +79,27 @@ def studio_recent_prompts_delete():
     d = request.get_json(silent=True) or {}
     return jsonify({'ok': True,
                     'deleted': lts.delete_prompt_everywhere(LOCAL_USER, d.get('prompt'))})
+
+
+@bp.post('/describe-image')
+def studio_describe_image():
+    """Describe an uploaded image into a ready-to-paste Studio TEST PROMPT (Ollama
+    vision). Accepts multipart (`image`) or JSON (`image_base64`). Runs inside the
+    GPU-exclusive vision window (frees ComfyUI VRAM first, blocks during training /
+    another vision pass); the service unloads the model after (keep_alive=0).
+
+    400 = bad/oversized/non-image upload · 409 = Ollama unavailable/rejected (its own
+    reason carried through) · 503 = GPU busy."""
+    try:
+        image_bytes = _read_uploaded_image()
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    try:
+        with gpu_exclusive_vision_window(flag_ttl=600):
+            prompt = lts.describe_test_prompt(image_bytes)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'prompt': prompt})
 
 
 @bp.post('/run')

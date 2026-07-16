@@ -62,6 +62,97 @@ def test_studio_run_reachable_forwards_to_service(client, monkeypatch):
     assert body == {'ok': True, 'created': 2, 'seed': 42, 'count': 1, 'run_id': 'r1'}
 
 
+# --- /api/studio/describe-image (image -> test prompt via Ollama vision) ------
+
+def _png_bytes(color=(120, 60, 30), size=(48, 64)):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new('RGB', size, color).save(buf, 'PNG')
+    return buf.getvalue()
+
+
+def _mock_vram(monkeypatch):
+    # The GPU-exclusive vision window frees ComfyUI VRAM on entry (best-effort);
+    # stub it so the test never reaches a real ComfyUI.
+    monkeypatch.setattr('app.utils.comfyui.free_comfyui_vram', lambda *a, **k: True)
+
+
+def test_describe_image_returns_prompt(client, monkeypatch):
+    _mock_vram(monkeypatch)
+    monkeypatch.setattr('app.services.vision_ollama.describe_image_ollama',
+                        lambda *a, **k: 'Three-quarter shot, the subject standing by a window, soft light.')
+    import io
+    resp = client.post('/api/studio/describe-image',
+                       data={'image': (io.BytesIO(_png_bytes()), 'ref.png')},
+                       content_type='multipart/form-data')
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['ok'] is True
+    assert body['prompt'].startswith('Three-quarter shot')
+
+
+def test_describe_image_ollama_error_surfaces_exact_message(client, monkeypatch):
+    """Ollama unavailable/rejected -> the service raises RuntimeError with Ollama's
+    own reason; the route must carry that exact message through as a 409."""
+    _mock_vram(monkeypatch)
+    msg = 'Ollama rejected the request (HTTP 400): this model has no vision support'
+
+    def boom(*a, **k):
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr('app.services.vision_ollama.describe_image_ollama', boom)
+    import io
+    resp = client.post('/api/studio/describe-image',
+                       data={'image': (io.BytesIO(_png_bytes()), 'ref.png')},
+                       content_type='multipart/form-data')
+    assert resp.status_code == 409
+    assert resp.get_json()['error'] == msg
+
+
+def test_describe_image_rejects_non_image(client, monkeypatch):
+    _mock_vram(monkeypatch)
+    import io
+    resp = client.post('/api/studio/describe-image',
+                       data={'image': (io.BytesIO(b'this is not an image'), 'note.txt')},
+                       content_type='multipart/form-data')
+    assert resp.status_code == 400
+    assert 'unreadable image' in resp.get_json()['error']
+
+
+def test_describe_image_rejects_oversized(client, monkeypatch):
+    _mock_vram(monkeypatch)
+    from app.services import lora_test_studio as lts
+    monkeypatch.setattr(lts, 'STUDIO_DESCRIBE_MAX_BYTES', 8)   # any real PNG exceeds this
+    import io
+    resp = client.post('/api/studio/describe-image',
+                       data={'image': (io.BytesIO(_png_bytes()), 'ref.png')},
+                       content_type='multipart/form-data')
+    assert resp.status_code == 400
+    assert 'too large' in resp.get_json()['error']
+
+
+def test_describe_image_no_image_returns_400(client, monkeypatch):
+    _mock_vram(monkeypatch)
+    resp = client.post('/api/studio/describe-image', json={})
+    assert resp.status_code == 400
+    assert resp.get_json()['error'] == 'no image provided'
+
+
+def test_describe_image_gpu_busy_returns_503(client, monkeypatch):
+    """A held vision window / training in progress must map to 503, not 409/400."""
+    _mock_vram(monkeypatch)
+    from app.job_queue import queue_manager
+    with client.application.app_context():
+        queue_manager._set_system_state('training_in_progress', True, ttl_seconds=60)
+    import io
+    resp = client.post('/api/studio/describe-image',
+                       data={'image': (io.BytesIO(_png_bytes()), 'ref.png')},
+                       content_type='multipart/form-data')
+    assert resp.status_code == 503
+    assert 'GPU busy' in resp.get_json()['error']
+
+
 # --- /api/studio/run/<id>/status + /cancel work regardless of ComfyUI --------
 
 def test_studio_run_status_unknown_returns_404_even_when_comfyui_down(client, monkeypatch):

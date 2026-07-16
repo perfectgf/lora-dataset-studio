@@ -17,6 +17,33 @@ def test_build_matrix_shape_and_validation(app):
     assert ok
 
 
+def test_build_matrix_accepts_extended_strengths_up_to_4(app):
+    """Progressive-disclosure « + » exposes strengths above 2.0 (over-cook range);
+    the sweep validation now accepts up to 4.0 and rejects anything beyond."""
+    from app.services.lora_test_studio import build_matrix
+    m = build_matrix(['a.safetensors'], [2.5, 3.5, 4.0], aspects=['9:16'])
+    assert sorted({t[1] for t in m}) == [2.5, 3.5, 4.0]     # carried, not clamped to 2.0
+    for bad in (4.01, 4.5, 10.0):
+        with pytest.raises(ValueError, match=r'out of range \[0.0, 4.0\]'):
+            build_matrix(['a.safetensors'], [bad])
+
+
+def test_cell_workflow_carries_extended_strength_unclamped(app):
+    """A > 2.0 test strength must reach the LoraLoader as-is (no silent clamp back
+    to the old 2.0 ceiling) so the exaggerated effect is actually rendered."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        checkpoint = 'z image\\lora_zt_000001000.safetensors'
+        workflow = lts._build_cell_workflow(
+            user_id='local', checkpoint=checkpoint, strength=3.5, prompt='a prompt',
+            seed=42, z_model=None, allowed_loras={checkpoint}, dataset_id=1,
+            train_type='zimage', trigger_word='zt')
+        lora_nodes = [n for n in workflow.values()
+                      if isinstance(n, dict) and n.get('class_type') == 'LoraLoaderModelOnly']
+        tested = [n for n in lora_nodes if n['inputs']['lora_name'] == checkpoint]
+        assert tested and tested[0]['inputs']['strength_model'] == 3.5
+
+
 def test_wilson_ranking_prefers_confident_likes(app):
     from app.services.lora_test_studio import _wilson_lower_bound
     assert _wilson_lower_bound(9, 10) > _wilson_lower_bound(1, 1)

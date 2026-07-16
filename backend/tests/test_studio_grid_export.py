@@ -86,6 +86,10 @@ def test_fmt_strength_matches_frontend():
     assert _fmt_strength(1.4) == '1.4'
     assert _fmt_strength(0.0) == '0.0'
     assert _fmt_strength(2.0) == '2.0'
+    # Extended (> 2.0) strengths render as clean generic labels, no clamp/rounding.
+    assert _fmt_strength(2.5) == '2.5'
+    assert _fmt_strength(3.5) == '3.5'
+    assert _fmt_strength(4.0) == '4.0'
 
 
 # --- DB collector -------------------------------------------------------------
@@ -130,6 +134,21 @@ def test_collect_grid_builds_rows_cols_blocks(app, tmp_path):
         # Row labels are the human LoRA labels (trigger · steps …), not raw filenames.
         assert all('troubeau' in r['label'] for r in block['rows'])
         assert 'FORMAT 16:9' in block['header'] and 'CFG 1.0' in block['header']
+
+
+def test_collect_grid_renders_extended_strength_columns(app, tmp_path):
+    """A run swept beyond 2.0 (progressive-disclosure « + » range) exports its
+    extended columns generically — 2.5 / 3.5 / 4.0 show up as real grid headers."""
+    from app.services import studio_grid_export as sge
+    from app.config import LOCAL_USER
+    with app.app_context():
+        cks = ['z image\\lora_troubeau_000002000.safetensors']
+        ds_id = _make_run(app, tmp_path, run_seed=777, checkpoints=cks,
+                          strengths=[1.0, 2.5, 3.5, 4.0])
+        grid = sge.collect_grid(LOCAL_USER, ds_id)
+        block = grid['blocks'][0]
+        assert block['col_labels'] == ['1.0', '2.5', '3.5', '4.0']
+        assert grid['n_cells'] == 4
 
 
 def test_collect_grid_unknown_dataset_returns_none(app):

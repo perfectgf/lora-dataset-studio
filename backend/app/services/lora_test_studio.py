@@ -421,8 +421,9 @@ def _queue_activity(rows) -> dict:
 
 def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=None, steps2_list=None) -> list[tuple]:
     """Materialize the (checkpoint, strength, aspect) grid cells, validated:
-    non-empty checkpoint/strength axes, strengths in [0.0, 2.0] (0 = base model /
-    LoRA off, a valid control column) (deduped, order
+    non-empty checkpoint/strength axes, strengths in [0.0, 4.0] (0 = base model /
+    LoRA off, a valid control column; above 2.0 = over-cook / breaking-point range,
+    behind the « + » disclosure in the UI) (deduped, order
     kept), aspects within the whitelist (deduped, défaut 9:16). PAS de plafond sur
     le nombre de cellules : la file est sérielle et l'utilisateur voit le compte +
     l'estimation de durée avant de lancer (choix assumé sur sa propre machine)."""
@@ -433,8 +434,8 @@ def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=Non
             v = round(float(s), 2)
         except (TypeError, ValueError):
             raise ValueError(f'invalid strength: {s!r}')
-        if not 0.0 <= v <= 2.0:
-            raise ValueError(f'strength out of range [0.0, 2.0]: {v}')
+        if not 0.0 <= v <= 4.0:
+            raise ValueError(f'strength out of range [0.0, 4.0]: {v}')
         if v not in sts:
             sts.append(v)
     asp = []
@@ -481,6 +482,59 @@ def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=Non
     # du nombre de cellules / de la durée dans l'UI avant de lancer.
     return [(c, s, a, cf, sp, sp2)
             for c in cps for s in sts for a in asp for cf in cfs for sp in sps for sp2 in sps2]
+
+
+# --- « 🔎 Describe » : image → TEST PROMPT via le modèle vision Ollama ---------
+# Upload guard (l'endpoint plafonne aussi, ceci est la borne de service).
+STUDIO_DESCRIBE_MAX_BYTES = 20 * 1024 * 1024
+
+# Variante « prompt de génération » du captioning prose (CAPTION_PROMPT) : décrit la
+# scène/pose/cadrage/tenue directement, SANS identité (le LoRA la porte) et SANS trigger
+# word (le Studio l'injecte séparément dans le workflow — le prompt stocké reste brut).
+STUDIO_DESCRIBE_PROMPT = (
+    "You are writing a TEXT-TO-IMAGE GENERATION PROMPT that would recreate this image.\n\n"
+    "ABSOLUTE RULE - never describe WHO the person is. Do not mention identity or any "
+    "identity-fixing trait: hair (its length, colour, style, texture), face shape, facial "
+    "features, eye colour, eyebrows, nose, lips, jawline, skin tone or texture, freckles, "
+    "age, gender, or ethnicity. Refer to a person only as \"the subject\". Do not invent a "
+    "name and do not add any trigger word or token.\n\n"
+    "DO describe, the way a prompt would: the shot type and framing (close-up, "
+    "three-quarter, full-body, wide), the pose and body position, the expression and gaze "
+    "as a state (smiling, looking at the viewer, eyes closed), the clothing and accessories "
+    "with their colours, the setting or location, and the lighting and mood.\n\n"
+    "Output ONE compact paragraph of plain natural-language prose, ready to paste as a "
+    "generation prompt, beginning with the shot type and framing. Output only the prompt "
+    "itself - no preamble, no \"Here is\", no quotation marks, no commentary.")
+
+
+def describe_test_prompt(image_bytes: bytes) -> str:
+    """Describe an uploaded image into a ready-to-paste Studio TEST PROMPT via the
+    Ollama vision model (the same abliterated Qwen3-VL the app captions with, so NSFW
+    passes). Resizes to <=1024 long side (like captioning) before the call, force-starts
+    a stopped LOCAL Ollama, and unloads the model right after (keep_alive=0) so ComfyUI
+    gets its VRAM back for the next generation.
+
+    Raises ValueError on a missing / oversized / unreadable (non-image) upload, and
+    RuntimeError when Ollama is unavailable or rejects the request (its own reason is
+    carried straight through via describe_image_ollama's auto_start_local path)."""
+    if not image_bytes:
+        raise ValueError('no image provided')
+    if len(image_bytes) > STUDIO_DESCRIBE_MAX_BYTES:
+        raise ValueError(f'image too large (max {STUDIO_DESCRIBE_MAX_BYTES // (1024 * 1024)} MB)')
+    try:
+        webp = fds.normalize_to_webp(image_bytes, size=1024)
+    except Exception as e:
+        raise ValueError('unreadable image — expected a webp, png or jpg file') from e
+    from .vision_ollama import describe_image_ollama
+    text = describe_image_ollama(
+        webp, STUDIO_DESCRIBE_PROMPT,
+        num_predict=500, auto_start_local=True, keep_alive=0)
+    text = (text or '').strip().strip('"').strip()
+    if not text:
+        raise RuntimeError(
+            'The vision model returned an empty description — check the configured '
+            'vision model in Settings and the application log.')
+    return text
 
 
 # --- Workflow build + enqueue -------------------------------------------------
@@ -1934,7 +1988,7 @@ def set_best_settings(user_id, dataset_id, checkpoint, strength,
         strength = round(float(strength), 2)
     except (TypeError, ValueError):
         raise ValueError(f'invalid strength: {strength!r}')
-    if not 0.05 <= strength <= 2.0:
+    if not 0.05 <= strength <= 4.0:
         raise ValueError(f'strength out of range: {strength}')
     # Whitelist de bases selon la FAMILLE (SDXL → bases SDXL ; Krea → UNET locaux
     # scannés ; sinon Z-Image), sinon une base d'une autre famille était jetée.
