@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 import zipfile
+from typing import BinaryIO
 
 from PIL import Image
 
@@ -775,6 +776,7 @@ BACKUP_VERSION = 1
 _BACKUP_MAX_FILES = 600
 _BACKUP_MAX_ROWS = 600
 _BACKUP_MAX_BYTES = 2 * 1024 * 1024 * 1024   # 2 GB uncompressed (zip-bomb guard)
+_BACKUP_MAX_METADATA_BYTES = 4 * 1024 * 1024
 _BACKUP_NAME_RE = re.compile(r'^[\w.-]+\.(webp|jpg|jpeg|png)$', re.IGNORECASE)
 
 # Champs snapshotés tels quels par ligne image (job_id/klein_model exclus : liés
@@ -829,7 +831,7 @@ def _portable_train_base_model(value):
     return value
 
 
-def build_backup_zip(user_id, dataset_id) -> bytes:
+def write_backup_zip(user_id: int, dataset_id: int, output: BinaryIO) -> None:
     """Self-contained backup of one dataset: manifest.json (settings) +
     images.json (rows) + ref/ + images/ files. Ordinary rows without a file are
     skipped, but small-image rescue metadata rows are retained so their pair can
@@ -895,8 +897,7 @@ def build_backup_zip(user_id, dataset_id) -> bytes:
     images_meta = [dict({'backup_image_id': img.id},
                         **{f: getattr(img, f) for f in _BACKUP_IMG_FIELDS})
                    for img in rows]
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as z:
         z.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=1))
         z.writestr('images.json', json.dumps(images_meta, ensure_ascii=False, indent=1))
         for n in ref_names:
@@ -909,27 +910,88 @@ def build_backup_zip(user_id, dataset_id) -> bytes:
             p = os.path.join(dsdir, name)
             if os.path.isfile(p):
                 z.write(p, f'images/{name}')
-    return buf.getvalue()
 
 
-def import_backup_zip(user_id, zip_bytes):
+def build_backup_zip(user_id: int, dataset_id: int) -> bytes:
+    """Compatibility wrapper for callers that still need an in-memory archive."""
+    output = io.BytesIO()
+    write_backup_zip(user_id, dataset_id, output)
+    return output.getvalue()
+
+
+def _coerce_archive_stream(archive):
+    """Return (seekable stream, owned stream or None) without copying file uploads."""
+    if isinstance(archive, (bytes, bytearray, memoryview)):
+        owned = io.BytesIO(bytes(archive))
+        return owned, owned
+    if not hasattr(archive, 'read') or not hasattr(archive, 'seek'):
+        raise ValueError('not a zip file')
+    try:
+        archive.seek(0)
+    except (OSError, ValueError) as exc:
+        raise ValueError('zip archive is not seekable') from exc
+    return archive, None
+
+
+def import_backup_zip(user_id: int, archive: bytes | BinaryIO):
     """Restore a backup as a NEW dataset (never merges into an existing one).
     Hardened: manifest format/version check, per-entry filename whitelist (no
     separators/traversal), file-count and uncompressed-size caps. Returns the
     created FaceDataset."""
+    stream, owned = _coerce_archive_stream(archive)
     try:
-        z = zipfile.ZipFile(io.BytesIO(zip_bytes))
-    except zipfile.BadZipFile:
-        raise ValueError('not a zip file')
-    try:
-        manifest = json.loads(z.read('manifest.json').decode('utf-8'))
-        images_meta = json.loads(z.read('images.json').decode('utf-8'))
-    except (KeyError, ValueError):
+        try:
+            z = zipfile.ZipFile(stream)
+        except zipfile.BadZipFile as exc:
+            raise ValueError('not a zip file') from exc
+        try:
+            return _import_backup_zipfile(user_id, z)
+        finally:
+            z.close()
+    finally:
+        if owned is not None:
+            owned.close()
+
+
+def _import_backup_zipfile(user_id: int, z: zipfile.ZipFile):
+    # Validate the central directory BEFORE inflating JSON.  Previously a tiny
+    # compressed manifest/images.json could bypass the image-only size total and
+    # consume unbounded RAM during z.read/json.loads.
+    all_infos = z.infolist()
+    if len(all_infos) > _BACKUP_MAX_FILES + 2:
+        raise ValueError(f'too many files in backup (max {_BACKUP_MAX_FILES})')
+    if sum(info.file_size for info in all_infos) > _BACKUP_MAX_BYTES:
+        raise ValueError('backup too large (max 2 GB uncompressed)')
+    metadata = {}
+    for info in all_infos:
+        if info.filename not in ('manifest.json', 'images.json'):
+            continue
+        if info.filename in metadata:
+            raise ValueError(f'duplicate {info.filename} in backup')
+        if info.file_size > _BACKUP_MAX_METADATA_BYTES:
+            raise ValueError(f'{info.filename} is too large')
+        metadata[info.filename] = info
+    if set(metadata) != {'manifest.json', 'images.json'}:
         raise ValueError('not a dataset backup (manifest.json/images.json missing or invalid)')
+    try:
+        manifest = json.loads(z.read(metadata['manifest.json']).decode('utf-8'))
+        images_meta = json.loads(z.read(metadata['images.json']).decode('utf-8'))
+    except (ValueError, UnicodeError, zipfile.BadZipFile):
+        raise ValueError('not a dataset backup (manifest.json/images.json missing or invalid)')
+    if not isinstance(manifest, dict):
+        raise ValueError('invalid backup manifest')
     if manifest.get('format') != BACKUP_FORMAT:
         raise ValueError('not a dataset backup')
-    if int(manifest.get('version') or 0) > BACKUP_VERSION:
+    version = manifest.get('version')
+    if (isinstance(version, bool) or not isinstance(version, int)
+            or version < 1):
+        raise ValueError('invalid backup version')
+    if version > BACKUP_VERSION:
         raise ValueError('backup made by a newer version of the app - update first')
+    for field in ('name', 'trigger_word'):
+        value = manifest.get(field)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f'invalid backup {field}')
     if not isinstance(images_meta, list):
         raise ValueError('invalid backup image metadata')
     if len(images_meta) > _BACKUP_MAX_ROWS:
@@ -940,6 +1002,9 @@ def import_backup_zip(user_id, zip_bytes):
     for meta in images_meta:
         if not isinstance(meta, dict):
             raise ValueError('invalid backup image metadata')
+        filename = meta.get('filename')
+        if filename is not None and not isinstance(filename, str):
+            raise ValueError('invalid backup image filename')
         backup_id = meta.get('backup_image_id')
         if backup_id is not None:
             if isinstance(backup_id, bool) or not isinstance(backup_id, int) or backup_id <= 0:
@@ -964,17 +1029,20 @@ def import_backup_zip(user_id, zip_bytes):
                 raise ValueError('multiple Klein rescue candidates for one source')
     if any(parent_id not in rescue_sources for parent_id in rescue_parent_counts):
         raise ValueError('Klein rescue candidate has no valid source')
-    infos = [i for i in z.infolist() if i.filename.startswith(('ref/', 'images/'))]
+    infos = [i for i in all_infos
+             if not i.is_dir() and i.filename.startswith(('ref/', 'images/'))]
     if len(infos) > _BACKUP_MAX_FILES:
         raise ValueError(f'too many files in backup (max {_BACKUP_MAX_FILES})')
-    if sum(i.file_size for i in infos) > _BACKUP_MAX_BYTES:
-        raise ValueError('backup too large (max 2 GB uncompressed)')
     archive_names = {'ref': {}, 'images': {}}
     for info in infos:
         prefix, candidate = info.filename.split('/', 1)
         name = _backup_basename(candidate)
         if name:
-            archive_names[prefix].setdefault(name.casefold(), name)
+            key = name.casefold()
+            if key in archive_names[prefix]:
+                raise ValueError(
+                    f'backup has duplicate {prefix} filename: {name}')
+            archive_names[prefix][key] = name
     collisions = set(archive_names['ref']).intersection(archive_names['images'])
     if collisions:
         collision = archive_names['images'][next(iter(collisions))]
@@ -1590,6 +1658,7 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
 # est parcouru récursivement pour rester aligné).
 DATASET_ZIP_MAX_FILES = 400
 DATASET_ZIP_MAX_BYTES = 2 * 1024 * 1024 * 1024
+DATASET_ZIP_MAX_IMAGE_BYTES = 128 * 1024 * 1024
 _DATASET_ZIP_IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.bmp')
 
 
@@ -1648,7 +1717,8 @@ def _merge_training_images(user_id, dataset_id, entries, captions, stats=None):
     return ids, failed
 
 
-def import_dataset_zip(user_id, dataset_id, zip_bytes, stats=None):
+def import_dataset_zip(user_id: int, dataset_id: int,
+                       archive: bytes | BinaryIO, stats=None):
     """Import an existing training dataset into THIS dataset (merge, not create):
     every image in the zip becomes an 'import' row (status=keep), a same-stem
     .txt sidecar becomes its caption (truncated to CAPTION_MAX_CHARS). Returns
@@ -1656,26 +1726,46 @@ def import_dataset_zip(user_id, dataset_id, zip_bytes, stats=None):
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
+    stream, owned = _coerce_archive_stream(archive)
     try:
-        z = zipfile.ZipFile(io.BytesIO(zip_bytes))
-    except zipfile.BadZipFile:
-        raise ValueError('not a zip file')
-    infos = [i for i in z.infolist() if not i.is_dir()]
-    if len(infos) > DATASET_ZIP_MAX_FILES:
-        raise ValueError(f'too many files in the zip (max {DATASET_ZIP_MAX_FILES})')
-    if sum(i.file_size for i in infos) > DATASET_ZIP_MAX_BYTES:
-        raise ValueError('zip too large (max 2 GB uncompressed)')
-    captions = {}
-    for i in infos:
-        if i.filename.lower().endswith('.txt') and i.file_size <= 64 * 1024:
-            try:
-                captions[os.path.splitext(i.filename)[0]] = \
-                    z.read(i).decode('utf-8', 'replace').strip()
-            except (OSError, zipfile.BadZipFile):
-                pass
-    entries = [(os.path.splitext(i.filename)[0], i.filename, lambda i=i: z.read(i))
-               for i in infos if i.filename.lower().endswith(_DATASET_ZIP_IMG_EXTS)]
-    return _merge_training_images(user_id, dataset_id, entries, captions, stats=stats)
+        try:
+            z = zipfile.ZipFile(stream)
+        except zipfile.BadZipFile as exc:
+            raise ValueError('not a zip file') from exc
+        try:
+            infos = [i for i in z.infolist() if not i.is_dir()]
+            if len(infos) > DATASET_ZIP_MAX_FILES:
+                raise ValueError(
+                    f'too many files in the zip (max {DATASET_ZIP_MAX_FILES})')
+            if sum(i.file_size for i in infos) > DATASET_ZIP_MAX_BYTES:
+                raise ValueError('zip too large (max 2 GB uncompressed)')
+            oversized = next((
+                i for i in infos
+                if i.filename.lower().endswith(_DATASET_ZIP_IMG_EXTS)
+                and i.file_size > DATASET_ZIP_MAX_IMAGE_BYTES
+            ), None)
+            if oversized is not None:
+                raise ValueError('image too large in zip (max 128 MiB per image)')
+            captions = {}
+            for i in infos:
+                if i.filename.lower().endswith('.txt') and i.file_size <= 64 * 1024:
+                    try:
+                        captions[os.path.splitext(i.filename)[0]] = \
+                            z.read(i).decode('utf-8', 'replace').strip()
+                    except (OSError, zipfile.BadZipFile):
+                        pass
+            entries = [
+                (os.path.splitext(i.filename)[0], i.filename,
+                 lambda i=i: z.read(i))
+                for i in infos if i.filename.lower().endswith(_DATASET_ZIP_IMG_EXTS)
+            ]
+            return _merge_training_images(
+                user_id, dataset_id, entries, captions, stats=stats)
+        finally:
+            z.close()
+    finally:
+        if owned is not None:
+            owned.close()
 
 
 def import_dataset_folder(user_id, dataset_id, folder, stats=None):
@@ -3739,7 +3829,7 @@ def _export_caption(ds, caption) -> str:
     return f"{ds.trigger_word}, {cap}" if cap else ds.trigger_word
 
 
-def build_export_zip(user_id, dataset_id) -> bytes:
+def write_export_zip(user_id: int, dataset_id: int, output: BinaryIO) -> None:
     """Training-ready ZIP in the PUBLIC-TOOL layout, not an app-internal format:
     one `10_<trigger>/` folder of `image.png` + same-stem `image.txt` caption
     pairs (captions carry the resolved trigger inline). That single shape feeds
@@ -3758,8 +3848,7 @@ def build_export_zip(user_id, dataset_id) -> bytes:
     safe_trigger = ''.join(c for c in ds.trigger_word if c.isalnum() or c in ('-', '_')) or 'lora'
     folder = f"10_{safe_trigger}"
     comp = {'face': 0, 'bust': 0, 'body': 0, 'back': 0}
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as zf:
         # Garder la PHOTO RÉELLE de référence dans le set : les datasets 100 %
         # synthétiques dérivent de la distribution réelle (deep-research 2026-06-14).
         # On l'inclut comme ancre réelle (_000), caption = trigger seul.
@@ -3785,7 +3874,13 @@ def build_export_zip(user_id, dataset_id) -> bytes:
                 comp[img.framing] += 1
         zf.writestr(f"{folder}/_dataset_info.md",
                     _INFO.format(trigger=ds.trigger_word, n=len(kept), comp=comp))
-    return buf.getvalue()
+
+
+def build_export_zip(user_id: int, dataset_id: int) -> bytes:
+    """Compatibility wrapper for callers that still need an in-memory archive."""
+    output = io.BytesIO()
+    write_export_zip(user_id, dataset_id, output)
+    return output.getvalue()
 
 
 def write_caption_files(user_id, dataset_id) -> dict:

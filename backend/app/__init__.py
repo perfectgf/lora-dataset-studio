@@ -12,6 +12,22 @@ from . import config as cfg
 FRONTEND_DIST = cfg.REPO_ROOT / 'frontend' / 'dist'
 logger = logging.getLogger(__name__)
 
+_DEFAULT_DATASET_ARCHIVE_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+_DEFAULT_DATASET_ARCHIVE_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
+_DATASET_ARCHIVE_UPLOAD_ENDPOINTS = frozenset({
+    'datasets.dataset_backup_import',
+    'datasets.dataset_import_zip',
+})
+
+
+def _positive_env_int(name, default):
+    """Read a positive integer without making a bad optional env var fatal."""
+    try:
+        value = int((os.environ.get(name) or '').strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
 
 def _configure_sqlite_connection(dbapi_con, _connection_record):
     """Apply the app's SQLite guarantees to every newly-opened connection.
@@ -134,6 +150,15 @@ def create_app(config_object=None):
         SQLALCHEMY_DATABASE_URI=f"sqlite:///{data_dir / 'studio.db'}",
         SQLALCHEMY_ENGINE_OPTIONS={'connect_args': {'check_same_thread': False}},
         MAX_CONTENT_LENGTH=64 * 1024 * 1024,
+        # ZIP imports legitimately exceed the ordinary upload ceiling.  The exact
+        # archive-file cap stays separate from multipart framing overhead so the
+        # route can enforce the former after Werkzeug has spooled the upload.
+        DATASET_ARCHIVE_MAX_UPLOAD_BYTES=_positive_env_int(
+            'LDS_DATASET_ARCHIVE_MAX_UPLOAD_BYTES',
+            _DEFAULT_DATASET_ARCHIVE_MAX_UPLOAD_BYTES),
+        DATASET_ARCHIVE_MULTIPART_OVERHEAD_BYTES=(
+            _DEFAULT_DATASET_ARCHIVE_MULTIPART_OVERHEAD_BYTES),
+        DATASET_ARCHIVE_SPOOL_MEMORY_BYTES=8 * 1024 * 1024,
     )
     app.config.update(config_object or {})
 
@@ -158,8 +183,34 @@ def create_app(config_object=None):
             if root.level > logging.INFO or root.level == logging.NOTSET:
                 root.setLevel(logging.INFO)
 
+    # Flask-WTF looks in request.form before it checks the CSRF header.  For a
+    # multipart upload that parses the body in its before_request hook, before the
+    # view itself can raise the limit.  Register this override first so ONLY the
+    # two archive endpoints may exceed the ordinary 64 MiB request ceiling.
+    @app.before_request
+    def _set_dataset_archive_request_limit():
+        if request.endpoint in _DATASET_ARCHIVE_UPLOAD_ENDPOINTS:
+            archive_max = int(app.config['DATASET_ARCHIVE_MAX_UPLOAD_BYTES'])
+            overhead = max(0, int(
+                app.config['DATASET_ARCHIVE_MULTIPART_OVERHEAD_BYTES']))
+            request.max_content_length = archive_max + overhead
+
     db.init_app(app)
     csrf.init_app(app)
+
+    from werkzeug.exceptions import RequestEntityTooLarge
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def _request_entity_too_large(error):
+        if not request.path.startswith('/api/'):
+            return error
+        if request.endpoint in _DATASET_ARCHIVE_UPLOAD_ENDPOINTS:
+            limit = int(app.config['DATASET_ARCHIVE_MAX_UPLOAD_BYTES'])
+            return jsonify({
+                'ok': False,
+                'error': f'archive too large (maximum {limit // (1024 * 1024)} MiB)',
+            }), 413
+        return jsonify({'ok': False, 'error': 'upload too large'}), 413
 
     with app.app_context():
         from . import models  # noqa: F401

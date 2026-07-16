@@ -5,11 +5,12 @@ No login — single local user (`cfg.LOCAL_USER`). Vision-dependent routes borro
 the GPU-exclusive window (`gpu_exclusive_vision_window`) so a vision pass never
 fights ComfyUI for the single GPU.
 """
-import io
 import os
+import tempfile
 import uuid
 
 from flask import Blueprint, request, jsonify, send_file, send_from_directory, current_app
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from ..config import LOCAL_USER
 from .. import config as cfg
@@ -26,6 +27,48 @@ bp = Blueprint('datasets', __name__, url_prefix='/api')
 
 _PRESET_NAMES = ('balanced_25', 'zimage_12', 'balanced_multiformat',
                  'face_focused', 'fullbody_focused', 'body_emphasis')
+
+
+def _uploaded_archive_stream(file_storage):
+    """Return a rewound, seekable upload stream after enforcing the file cap.
+
+    Werkzeug already stores multipart files in a SpooledTemporaryFile.  Reading
+    the FileStorage here would needlessly copy the complete archive back into RAM.
+    """
+    stream = file_storage.stream
+    try:
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        stream.seek(0)
+    except (AttributeError, OSError, ValueError) as exc:
+        raise ValueError('uploaded archive is not seekable') from exc
+    if size > int(current_app.config['DATASET_ARCHIVE_MAX_UPLOAD_BYTES']):
+        raise RequestEntityTooLarge()
+    return stream
+
+
+def _zip_download(write_zip, filename):
+    """Build a seekable ZIP with bounded RAM, then let WSGI stream it.
+
+    The spool must outlive this function: send_file consumes it only after the
+    view returns.  Response.close owns normal cleanup; the except path handles a
+    writer/send_file failure before a response exists.
+    """
+    spool = tempfile.SpooledTemporaryFile(
+        max_size=int(current_app.config['DATASET_ARCHIVE_SPOOL_MEMORY_BYTES']),
+        mode='w+b')
+    try:
+        write_zip(spool)
+        size = spool.tell()
+        spool.seek(0)
+        response = send_file(spool, mimetype='application/zip', as_attachment=True,
+                             download_name=filename)
+        response.content_length = size
+        response.call_on_close(spool.close)
+        return response
+    except Exception:
+        spool.close()
+        raise
 
 
 @bp.post('/dataset/create')
@@ -664,7 +707,8 @@ def dataset_import_zip(dataset_id):
         return jsonify({'error': 'no file'}), 400
     stats = {}
     try:
-        ids, failed = svc.import_dataset_zip(LOCAL_USER, dataset_id, f.read(), stats=stats)
+        ids, failed = svc.import_dataset_zip(
+            LOCAL_USER, dataset_id, _uploaded_archive_stream(f), stats=stats)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
@@ -778,25 +822,25 @@ def dataset_image_crop(image_id):
 @bp.get('/dataset/<int:dataset_id>/export')
 def dataset_export(dataset_id):
     try:
-        data = svc.build_export_zip(LOCAL_USER, dataset_id)
+        return _zip_download(
+            lambda output: svc.write_export_zip(LOCAL_USER, dataset_id, output),
+            f'dataset_{dataset_id}.zip')
     except ValueError as e:
         return _map_error(e)
-    return send_file(io.BytesIO(data), mimetype='application/zip', as_attachment=True,
-                     download_name=f'dataset_{dataset_id}.zip')
 
 
 @bp.get('/dataset/<int:dataset_id>/backup')
 def dataset_backup(dataset_id):
     """Full portable backup (manifest + settings + ALL images with status/captions/
     scores) — distinct from /export, the training-format ZIP."""
-    try:
-        data = svc.build_backup_zip(LOCAL_USER, dataset_id)
-    except ValueError as e:
-        return _map_error(e)
     ds = svc.get_dataset(LOCAL_USER, dataset_id)
     safe = ''.join(c if c.isalnum() or c in '-_' else '_' for c in (ds.name if ds else str(dataset_id)))
-    return send_file(io.BytesIO(data), mimetype='application/zip', as_attachment=True,
-                     download_name=f'lds_backup_{safe}.zip')
+    try:
+        return _zip_download(
+            lambda output: svc.write_backup_zip(LOCAL_USER, dataset_id, output),
+            f'lds_backup_{safe}.zip')
+    except ValueError as e:
+        return _map_error(e)
 
 
 @bp.post('/dataset/backup/import')
@@ -806,7 +850,7 @@ def dataset_backup_import():
     if not f or not f.filename:
         return jsonify({'error': 'no file'}), 400
     try:
-        ds = svc.import_backup_zip(LOCAL_USER, f.read())
+        ds = svc.import_backup_zip(LOCAL_USER, _uploaded_archive_stream(f))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'id': ds.id, 'name': ds.name})
