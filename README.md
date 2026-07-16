@@ -1,6 +1,6 @@
 # LoRA Dataset Studio
 
-[![Join our Discord](https://img.shields.io/discord/1525908170331914411?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/j6hnJBFtXE)
+[![Join our Discord](https://img.shields.io/discord/1525908170331914411?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/j6hnJBFtXE) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/perfectgf)
 
 **Build, train and rank Character, Concept and Style LoRAs — curation, captioning, quality checks and training behind a single browser tab, on your own machine.**
 
@@ -522,6 +522,12 @@ Cosmetic only — some UTF-8 text (em dashes, accents) renders incorrectly on th
 Still stuck? Open the app's **Guide → Getting help** for the one-click **diagnostic report** (version, capability status, log tail — no keys, no paths), then post it on [Discord](https://discord.gg/j6hnJBFtXE) or in a [GitHub issue](https://github.com/perfectgf/lora-dataset-studio/issues).
 
 ---
+
+## Support the project
+
+If LoRA Dataset Studio saves you time, you can support development on
+[**GitHub Sponsors**](https://github.com/sponsors/perfectgf) — one-time or monthly, and 100% goes to the project (GitHub charges no platform fees).
+Bug reports, ideas in [Discord](https://discord.gg/j6hnJBFtXE) and repo stars help just as much.
 
 ## Legal & responsible use
 
