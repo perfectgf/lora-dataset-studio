@@ -18,6 +18,14 @@ import { useCapabilities } from '../../context/CapabilitiesContext';
 import InstallRunner from '../setup/InstallRunner';
 import { clearScraperScanState, loadScraperScanState, saveScraperScanState } from './scraperState';
 import PexelsAttribution from './PexelsAttribution';
+import {
+  buildPexelsSearchUrl,
+  isPexelsUrl,
+  loadPexelsAuthorization,
+  normalizePexelsKeyword,
+  resolveScanTarget,
+  savePexelsAuthorization,
+} from './scraperSourceSearch';
 
 const thumbFor = (it) =>
   `/api/scrape/thumb?url=${encodeURIComponent(it.thumbnail || it.url)}`;
@@ -26,7 +34,7 @@ const SOURCE_GROUPS = [
   { label: 'SFW', tone: 'emerald', sources: [
     ['Reddit', 'https://www.reddit.com/'], ['Instagram', 'https://www.instagram.com/'],
     ['X / Twitter', 'https://x.com/'], ['Civitai images', 'https://civitai.com/images'],
-    ['Pexels', 'https://www.pexels.com/search/portrait/'],
+    ['Pexels', 'https://www.pexels.com/'],
   ] },
   { label: 'NSFW', tone: 'rose', sources: [
     ['PornPics', 'https://www.pornpics.com/'], ['Sex.com', 'https://www.sex.com/'],
@@ -37,13 +45,37 @@ const SOURCE_GROUPS = [
   ] },
 ];
 
+const SOURCE_MODES = [
+  ['reddit', 'Reddit'],
+  ['pexels', 'Pexels'],
+  ['url', 'URL'],
+];
+
+const PEXELS_AUTH_ERROR = 'Confirm explicit Pexels authorization for dataset/ML use before scanning Pexels.';
+
+const PLATFORM_LABELS = {
+  civitai: 'Civitai', instagram: 'Instagram', pexels: 'Pexels', pornpics: 'PornPics',
+  reddit: 'Reddit', sexcom: 'Sex.com', x: 'X / Twitter', generic: 'URL source',
+};
+
+const platformLabel = (platform) => PLATFORM_LABELS[platform]
+  || (platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : 'source');
+
 export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
   const toast = useToast();
   const { caps, refresh } = useCapabilities();
   const [restoredScan] = useState(() => loadScraperScanState(datasetId));
+  const [sourceMode, setSourceMode] = useState(restoredScan.sourceMode);
+  // `url` is only the editable URL-mode draft. Pagination uses activeScanUrl.
   const [url, setUrl] = useState(restoredScan.url);
   const [kw, setKw] = useState(restoredScan.kw);       // Reddit keyword search
   const [sub, setSub] = useState(restoredScan.sub);     // optional subreddit scope
+  const [pexelsKeyword, setPexelsKeyword] = useState(restoredScan.pexelsKeyword);
+  const [pexelsLocale, setPexelsLocale] = useState(restoredScan.pexelsLocale);
+  const [pexelsOrientation, setPexelsOrientation] = useState(restoredScan.pexelsOrientation);
+  const [pexelsAuthorized, setPexelsAuthorized] = useState(() => loadPexelsAuthorization());
+  const [activeScanUrl, setActiveScanUrl] = useState(restoredScan.activeScanUrl);
+  const [activePlatform, setActivePlatform] = useState(restoredScan.activePlatform);
   const [items, setItems] = useState(restoredScan.items);
   const [page, setPage] = useState(restoredScan.page);
   const [paginated, setPaginated] = useState(restoredScan.paginated);
@@ -71,15 +103,24 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
   };
 
   useEffect(() => {
-    saveScraperScanState(datasetId, { url, kw, sub, items, page, paginated,
-      fullAlbums, rescueSmall, selected });
-  }, [datasetId, url, kw, sub, items, page, paginated, fullAlbums, rescueSmall, selected]);
+    saveScraperScanState(datasetId, { sourceMode, url, kw, sub, pexelsKeyword,
+      pexelsLocale, pexelsOrientation, activeScanUrl, activePlatform,
+      items, page, paginated, fullAlbums, rescueSmall, selected });
+  }, [datasetId, sourceMode, url, kw, sub, pexelsKeyword, pexelsLocale,
+    pexelsOrientation, activeScanUrl, activePlatform, items, page, paginated,
+    fullAlbums, rescueSmall, selected]);
 
-  // `explicitUrl` lets the Reddit keyword search scan a freshly-built URL without
-  // waiting for the `url` state to flush; "Load more" omits it and reuses `url`.
+  // Page zero uses the submitted form target. Later pages are deliberately pinned
+  // to the last successful target, even if another tab/draft has since been edited.
   const runScan = useCallback(async (nextPage, explicitUrl) => {
-    const target = (explicitUrl ?? url).trim();
+    const target = resolveScanTarget({ nextPage, explicitUrl,
+      draftUrl: url, activeScanUrl });
     if (!target || scanning) return;
+    if (isPexelsUrl(target) && !pexelsAuthorized) {
+      setSourceMode('pexels');
+      toast.error(PEXELS_AUTH_ERROR);
+      return;
+    }
     setScanning(true);
     try {
       const body = await postJson('/api/scrape/scan',
@@ -101,12 +142,16 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
       });
       setPaginated(!!body.paginated);
       setPage(responsePage);
-      if (isFreshScan) { setSelected(new Set()); setBroken(new Set()); }  // fresh scan resets; "Load more" keeps it
+      if (isFreshScan) {
+        setActiveScanUrl(target);
+        setActivePlatform(typeof body.platform === 'string' ? body.platform : '');
+        setSelected(new Set()); setBroken(new Set());
+      }  // fresh scan resets; "Load more" keeps it
       if (imgs.length === 0 && isFreshScan) toast.info('No images found on this page.');
     } finally {
       setScanning(false);
     }
-  }, [url, scanning, fullAlbums, toast]);
+  }, [url, activeScanUrl, scanning, fullAlbums, pexelsAuthorized, toast]);
 
   // Reddit search, three modes depending on which field is filled:
   //   keyword only          → search all of Reddit for the term
@@ -128,9 +173,23 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
     } else {
       built = `https://www.reddit.com/r/${s}/top/?t=all`;   // subreddit only → browse top
     }
-    setUrl(built);
     runScan(0, built);
   }, [kw, sub, scanning, runScan]);
+
+  const runPexelsSearch = useCallback(() => {
+    if (scanning) return;
+    if (!pexelsAuthorized) { toast.error(PEXELS_AUTH_ERROR); return; }
+    const built = buildPexelsSearchUrl(
+      pexelsKeyword, pexelsLocale, pexelsOrientation);
+    if (!built) return;
+    runScan(0, built);
+  }, [pexelsKeyword, pexelsLocale, pexelsOrientation,
+    pexelsAuthorized, scanning, runScan, toast]);
+
+  const changePexelsAuthorization = (confirmed) => {
+    setPexelsAuthorized(confirmed);
+    savePexelsAuthorization(confirmed);
+  };
 
   const toggle = (u) => {
     setSelected((prev) => {
@@ -173,7 +232,9 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
 
   const resetScan = () => {
     clearScraperScanState(datasetId);
-    setUrl(''); setKw(''); setSub(''); setItems([]); setPage(0);
+    setSourceMode('reddit'); setUrl(''); setKw(''); setSub('');
+    setPexelsKeyword(''); setPexelsLocale('fr-FR'); setPexelsOrientation('');
+    setActiveScanUrl(''); setActivePlatform(''); setItems([]); setPage(0);
     setPaginated(false); setFullAlbums(false); setRescueSmall(false);
     setSelected(new Set()); setBroken(new Set());
   };
@@ -223,22 +284,143 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
         </div>
       )}
 
-      {/* URL → scan. Chosen images are downloaded straight into THIS dataset. */}
-      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); runScan(0); }}>
-        <input
-          type="url" value={url} onChange={(e) => setUrl(e.target.value)}
-          placeholder="Gallery or search URL (e.g. https://www.pexels.com/search/portrait/ or pornpics.com/…)"
-          className="flex-1 min-w-0 px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
-        />
-        <button type="submit" disabled={scanning || !url.trim()}
-          className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40">
-          {scanning && page === 0 ? 'Scanning…' : 'Scan'}
-        </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="Scraper source"
+          className="inline-flex rounded-lg border border-border bg-surface-raised p-0.5">
+          {SOURCE_MODES.map(([mode, label]) => (
+            <button key={mode} type="button"
+              aria-pressed={sourceMode === mode}
+              onClick={() => setSourceMode(mode)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
+                sourceMode === mode
+                  ? 'bg-indigo-500 text-white shadow-sm'
+                  : 'text-content-muted hover:bg-white/5 hover:text-content'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
         <button type="button" onClick={handleImport} disabled={busy || importing || selected.size === 0}
-          className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+          className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
           {importing ? 'Importing…' : `⬇ Import ${selected.size || ''}`}
         </button>
-      </form>
+      </div>
+
+      {sourceMode === 'reddit' && (
+        <div className="rounded-lg border border-border bg-white/5 px-2 py-2 flex flex-col gap-1.5">
+          <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1">
+            <span aria-hidden>🔎</span> Search Reddit
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={kw} onChange={(e) => setKw(e.target.value)}
+              aria-label="Reddit search keyword"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
+              placeholder="keyword — what to look for (e.g. film portrait)"
+              title="The term to search for across Reddit. Leave empty to browse a subreddit's top posts."
+              className="flex-[2] min-w-[9rem] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
+            />
+            <span className="text-content-subtle text-sm shrink-0">in r/</span>
+            <input
+              value={sub} onChange={(e) => setSub(e.target.value)}
+              aria-label="Subreddit (optional)"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
+              placeholder="community, e.g. analog (optional)"
+              title="A subreddit name (community). Restricts the search to it — cleaner results. This is also how you reach NSFW communities."
+              className="flex-[1] min-w-[7rem] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
+            />
+            <button type="button" onClick={runRedditSearch}
+              disabled={scanning || (!kw.trim() && !sub.trim())}
+              className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40 shrink-0">
+              {scanning ? 'Searching…' : 'Search Reddit'}
+            </button>
+          </div>
+          <p className="text-content-muted text-[0.6875rem] leading-relaxed">
+            <b className="text-content-subtle">Keyword</b> searches all of Reddit for a term.
+            Add a <b className="text-content-subtle">subreddit</b> (the part after
+            <code className="px-1 text-content-subtle">r/</code>) to search inside one community.
+            Subreddit alone browses that community&apos;s top posts.
+          </p>
+        </div>
+      )}
+
+      {sourceMode === 'pexels' && (
+        <div className="rounded-lg border border-border bg-white/5 px-2.5 py-2 flex flex-col gap-2">
+          <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-2 text-[0.6875rem] leading-relaxed text-amber-100">
+            <p>
+              <b>Pexels authorization required.</b> An API key alone does not authorize
+              dataset or machine-learning use. Search only if Pexels explicitly authorized
+              your use case.{' '}
+              <a href="https://help.pexels.com/hc/en-us/articles/900005880463-What-are-the-Terms-and-Conditions"
+                target="_blank" rel="noreferrer"
+                className="font-semibold underline underline-offset-2 hover:text-white">
+                Read the official terms ↗
+              </a>
+            </p>
+            <label className="mt-1.5 flex cursor-pointer items-start gap-2 font-semibold text-amber-50">
+              <input type="checkbox" checked={pexelsAuthorized}
+                onChange={(e) => changePexelsAuthorization(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-300 accent-amber-500" />
+              <span>I confirm I have explicit Pexels authorization for dataset/ML use.</span>
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input value={pexelsKeyword} onChange={(e) => setPexelsKeyword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runPexelsSearch(); } }}
+              placeholder="keyword — e.g. cinematic portrait"
+              aria-label="Pexels search keyword"
+              className="min-w-[12rem] flex-[2] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none" />
+            <select value={pexelsLocale} onChange={(e) => setPexelsLocale(e.target.value)}
+              aria-label="Pexels search language"
+              className="px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm focus:border-indigo-500 outline-none">
+              <option value="fr-FR">Français (fr-FR)</option>
+              <option value="en-US">English (en-US)</option>
+            </select>
+            <select value={pexelsOrientation} onChange={(e) => setPexelsOrientation(e.target.value)}
+              aria-label="Pexels image orientation"
+              className="px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm focus:border-indigo-500 outline-none">
+              <option value="">Any orientation</option>
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+              <option value="square">Square</option>
+            </select>
+            <button type="button" onClick={runPexelsSearch}
+              disabled={scanning || !pexelsAuthorized || !normalizePexelsKeyword(pexelsKeyword)}
+              title={pexelsAuthorized ? 'Search the official Pexels API' : 'Confirm explicit Pexels authorization first'}
+              className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40 shrink-0">
+              {scanning ? 'Searching…' : 'Search Pexels'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {sourceMode === 'url' && (
+        <div className="rounded-lg border border-border bg-white/5 px-2 py-2 flex flex-col gap-1.5">
+          <form className="flex flex-wrap gap-2"
+            onSubmit={(e) => { e.preventDefault(); runScan(0); }}>
+            <input type="url" value={url} onChange={(e) => setUrl(e.target.value)}
+              aria-label="Gallery or media URL"
+              placeholder="Gallery, album, collection or direct photo URL"
+              className="flex-1 min-w-[14rem] px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none" />
+            <button type="submit" disabled={scanning || !url.trim()}
+              className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40">
+              {scanning ? 'Scanning…' : 'Scan URL'}
+            </button>
+          </form>
+          <p className="text-content-muted text-[0.6875rem] leading-relaxed">
+            Use this for supported galleries and albums, or direct Pexels photos and collections.
+            Normal Pexels keyword searches belong in the Pexels tab.
+          </p>
+          {/pornpics\.com/i.test(url) && !/\/galleries\//i.test(url) && (
+            <label className="flex items-center gap-2 text-[0.6875rem] text-content-muted cursor-pointer"
+              title="Off: one listing cover per gallery. On: every photo from each matched gallery.">
+              <input type="checkbox" checked={fullAlbums}
+                onChange={(e) => setFullAlbums(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-border-strong accent-indigo-500" />
+              Scan full albums — off = one cover per gallery, on = every photo of each
+            </label>
+          )}
+        </div>
+      )}
 
       <label className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-[0.75rem] ${
         rescueSmall
@@ -261,56 +443,6 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
         </span>
       </label>
 
-      {/* Gallery-listing option — only meaningful for PornPics category/tag/search
-          URLs (a direct /galleries/... URL always returns its full album). */}
-      {/pornpics\.com/i.test(url) && !/\/galleries\//i.test(url) && (
-        <label className="flex items-center gap-2 text-[0.6875rem] text-content-muted cursor-pointer"
-          title="Off: you get exactly the preview images the listing page shows — one per gallery, the shot that matches your keyword. On: every photo of each matched gallery floods in (a lot of off-topic frames). To grab one full album, paste its /galleries/ URL directly.">
-          <input type="checkbox" checked={fullAlbums}
-            onChange={(e) => setFullAlbums(e.target.checked)}
-            className="h-3.5 w-3.5 rounded border-border-strong accent-indigo-500" />
-          Scan full albums — off = one cover per matched gallery, on = every photo of each
-        </label>
-      )}
-
-      {/* Reddit search — two fields, three modes (keyword / keyword+sub / sub only).
-          Both build a reddit URL routed through the same scan pipeline. */}
-      <div className="rounded-lg border border-border bg-white/5 px-2 py-2 flex flex-col gap-1.5">
-        <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1">
-          <span aria-hidden>🔎</span> Search Reddit
-        </span>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={kw} onChange={(e) => setKw(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
-            placeholder="keyword — what to look for (e.g. film portrait)"
-            title="The term to search for across Reddit. Leave empty to browse a subreddit's top posts."
-            className="flex-[2] min-w-[9rem] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
-          />
-          <span className="text-content-subtle text-sm shrink-0">in r/</span>
-          <input
-            value={sub} onChange={(e) => setSub(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
-            placeholder="community, e.g. analog (optional)"
-            title="A subreddit name (community). Restricts the search to it — cleaner results. This is also how you reach NSFW communities."
-            className="flex-[1] min-w-[7rem] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
-          />
-          <button type="button" onClick={runRedditSearch} disabled={scanning || (!kw.trim() && !sub.trim())}
-            className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40 shrink-0">
-            Search
-          </button>
-        </div>
-        {/* Plain-language explanation of the two fields. */}
-        <p className="text-content-muted text-[0.6875rem] leading-relaxed">
-          <b className="text-content-subtle">Keyword</b> searches all of Reddit for a term.
-          Add a <b className="text-content-subtle">subreddit</b> (a community — the part after
-          <code className="px-1 text-content-subtle">r/</code>, e.g. <code className="px-1 text-content-subtle">analog</code>,
-          <code className="px-1 text-content-subtle">photographs</code>) to search only inside it — far cleaner,
-          on-topic images (and the way to reach NSFW communities). <b className="text-content-subtle">Subreddit alone</b>,
-          no keyword → just browse its top posts.
-        </p>
-      </div>
-
       {items.length > 0 && (() => {
         // Only live thumbnails are shown/pickable; dead source links are hidden.
         const liveItems = items.filter((it) => !broken.has(it.url));
@@ -319,6 +451,10 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
         return (
         <>
           <div className="flex items-center gap-2 text-[0.6875rem] text-content-subtle flex-wrap">
+            <span className="rounded-full border border-border bg-surface-raised px-2 py-0.5 font-semibold text-content"
+              title={activeScanUrl || undefined}>
+              Results from {platformLabel(activePlatform)}
+            </span>
             <button type="button" onClick={() => setSelected(new Set(liveItems.map((it) => it.url)))}
               title="Selects all live (loaded) images"
               className="px-2 py-0.5 rounded border border-border hover:text-content">

@@ -26,7 +26,11 @@ test('dataset image imports still block local overlap and non-generation activit
 
 test('scan results and selection survive reload per dataset', () => {
   const storage = memoryStorage();
-  const state = { url: 'https://example.test/gallery', kw: 'portrait', sub: 'photos',
+  const state = { sourceMode: 'pexels', url: 'https://example.test/gallery',
+    kw: 'portrait', sub: 'photos', pexelsKeyword: 'cinematic portrait',
+    pexelsLocale: 'en-US', pexelsOrientation: 'portrait',
+    activeScanUrl: 'https://www.pexels.com/en-us/search/cinematic%20portrait/?orientation=portrait',
+    activePlatform: 'pexels',
     items: [{ url: 'https://example.test/a.webp', title: 'A', type: 'image' }], page: 2,
     paginated: true, fullAlbums: true, rescueSmall: false,
     selected: new Set(['https://example.test/a.webp']) };
@@ -34,7 +38,42 @@ test('scan results and selection survive reload per dataset', () => {
   const restored = loadScraperScanState(11, storage);
   assert.deepEqual(restored.items, state.items);
   assert.deepEqual([...restored.selected], [...state.selected]);
+  assert.equal(restored.sourceMode, 'pexels');
+  assert.equal(restored.pexelsKeyword, state.pexelsKeyword);
+  assert.equal(restored.pexelsLocale, 'en-US');
+  assert.equal(restored.pexelsOrientation, 'portrait');
+  assert.equal(restored.activeScanUrl, state.activeScanUrl);
+  assert.equal(restored.activePlatform, 'pexels');
   assert.equal(loadScraperScanState(12, storage).items.length, 0);
+});
+
+test('legacy scan cache restores its URL as the active pagination target', () => {
+  const storage = memoryStorage();
+  storage.setItem('lds:scraper-scan:v1:13', JSON.stringify({
+    url: 'https://www.reddit.com/search/?q=portrait', kw: 'portrait',
+    items: [{ url: 'https://example.test/legacy.webp', type: 'image' }], page: 1,
+  }));
+  const restored = loadScraperScanState(13, storage);
+  assert.equal(restored.sourceMode, 'reddit');
+  assert.equal(restored.activeScanUrl, 'https://www.reddit.com/search/?q=portrait');
+  assert.equal(restored.activePlatform, 'reddit');
+  assert.equal(restored.pexelsLocale, 'fr-FR');
+  assert.equal(restored.pexelsOrientation, '');
+});
+
+test('Pexels source drafts persist before the first result exists', () => {
+  const storage = memoryStorage();
+  saveScraperScanState(14, {
+    sourceMode: 'pexels', pexelsKeyword: 'studio portrait',
+    pexelsLocale: 'en-US', pexelsOrientation: 'square',
+    items: [], selected: new Set(),
+  }, storage);
+  const restored = loadScraperScanState(14, storage);
+  assert.equal(restored.sourceMode, 'pexels');
+  assert.equal(restored.pexelsKeyword, 'studio portrait');
+  assert.equal(restored.pexelsLocale, 'en-US');
+  assert.equal(restored.pexelsOrientation, 'square');
+  assert.deepEqual(restored.items, []);
 });
 
 test('reset clears only the targeted dataset scan', () => {

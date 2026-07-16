@@ -136,12 +136,12 @@ Good to know:
 
 #### Built-in web scraper
 
-The scraper is available in every dataset (and is especially useful for Concept/Style sets). Paste a supported **gallery / album / search URL** — including sources surfaced in the UI such as Reddit, Instagram, X/Twitter, Civitai and Pexels — or run a **Reddit keyword search** with an optional community scope. The app turns results into a pick-and-import grid; selected frames download **directly into the open dataset**, never a shared pool.
+The scraper is available in every dataset (and is especially useful for Concept/Style sets). Its **Reddit | Pexels | URL** switch keeps each workflow clear: search Reddit by keyword with an optional community, search Pexels by keyword without constructing a URL, or paste a supported gallery / album / direct-media URL for sources such as Instagram, X/Twitter, Civitai and direct Pexels photos or collections. Switching source does not discard the current result grid, and pagination remains attached to the last search actually launched. Selected frames download **directly into the open dataset**, never a shared pool.
 
 <p align="center">
-  <img src="docs/screenshots/06-scraper.png" alt="Scraper panel: gallery URL field, Reddit keyword + subreddit search, Scan and Import" width="900">
+  <img src="docs/screenshots/06-scraper.png" alt="Scraper panel with Reddit, Pexels and URL source modes, result selection and import" width="900">
 </p>
-<p align="center"><em>Scrape a gallery URL or search Reddit by keyword (optionally scoped to a community), then pick frames straight into the dataset.</em></p>
+<p align="center"><em>Choose Reddit, Pexels or URL, launch a search, then pick frames straight into the dataset.</em></p>
 
 What it does on your behalf:
 
@@ -153,9 +153,9 @@ What it does on your behalf:
 
 Source credentials live in **Settings → Scraping & sources**. Your own free **Reddit client ID** is optional (the built-in shared one is rate-limited — a personal id gives you a private quota and clears the "retry in Ns" 429s), as is a **Civitai API key** (Civitai scans return SFW results only without one). Pexels is the exception: its API key is required for every Pexels scan.
 
-Pexels listings are queried through its **official API**, not `gallery-dl`. [Create a free API key](https://www.pexels.com/api/key/) and save it under **Settings → Scraping & sources**; it takes effect immediately. The free quota is **200 requests/hour and 20,000/month**. The scraper extras remain required because LDS uses `curl_cffi` to proxy thumbnails and import the selected files. LDS accepts Pexels `/search/`, `/photo/`, and `/collections/` URLs, plus their `/en-us/` variants and the French `/fr-fr/chercher/`, `/fr-fr/photo/`, and `/fr-fr/collections/` routes. Localized searches pass `en-US` or `fr-FR` to the official API. Collection access depends on the API key, so a collection that is not available to your key may return 404; Pexels profile URLs (`/@user`) are not supported by the official API. Keep the photographer, photo-source, and Pexels attribution links that LDS displays with API results.
+Pexels listings are queried through its **official API**, not `gallery-dl`. [Create a free API key](https://www.pexels.com/api/key/) and save it under **Settings → Scraping & sources**; it takes effect immediately. The free quota is **200 requests/hour and 20,000/month**. In the Pexels mode, enter a keyword, choose French (`fr-FR`, the default) or English (`en-US`), and optionally restrict orientation to portrait, landscape or square. The URL mode remains available for direct Pexels photos and collections. The scraper extras remain required because LDS uses `curl_cffi` to proxy thumbnails and import the selected files. Collection access depends on the API key, so a collection that is not available to your key may return 404; Pexels profile URLs (`/@user`) are not supported by the official API. Keep the photographer, photo-source, and Pexels attribution links that LDS displays with API results.
 
-> **Pexels authorization required:** An API key alone does not authorize dataset or machine-learning use. Configure and use this integration only if Pexels has explicitly authorized this use case. Review the [official Pexels terms and conditions](https://help.pexels.com/hc/en-us/articles/900005880463-What-are-the-Terms-and-Conditions) before enabling it.
+> **Pexels authorization required:** An API key alone does not authorize dataset or machine-learning use. Configure and use this integration only if Pexels has explicitly authorized this use case. The Pexels panel links the [official Pexels terms and conditions](https://help.pexels.com/hc/en-us/articles/900005880463-What-are-the-Terms-and-Conditions) and requires a locally persisted confirmation before any Pexels keyword search or direct Pexels URL scan can run.
 
 The scraper can reach adult communities as well — this is an NSFW-capable tool — so use it only for material you have the right to train on. See [Legal & responsible use](#legal--responsible-use). The scraping extras (`gallery-dl`, `curl_cffi`, …) install with one click from the panel when they're missing.
 

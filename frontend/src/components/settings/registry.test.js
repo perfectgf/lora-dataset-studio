@@ -42,8 +42,12 @@ test('Pexels key and attribution markup stay wired without nested controls', () 
     assert.match(source,
       /https:\/\/help\.pexels\.com\/hc\/en-us\/articles\/900005880463-What-are-the-Terms-and-Conditions/);
   }
+  assert.match(panelSource, /\['pexels', 'Pexels'\]/);
+  assert.match(panelSource, /buildPexelsSearchUrl/);
   assert.match(panelSource,
-    /placeholder="[^"]*https:\/\/www\.pexels\.com\/search\/portrait\//);
+    /I confirm I have explicit Pexels authorization for dataset\/ML use/);
+  assert.match(panelSource,
+    /https:\/\/help\.pexels\.com\/hc\/en-us\/articles\/900005880463-What-are-the-Terms-and-Conditions/);
   assert.match(panelSource, /Photos provided by Pexels/);
   assert.match(panelSource, /<PexelsAttribution metadata=\{it\}/);
   for (const field of ['platform', 'source_url', 'photographer', 'photographer_url']) {

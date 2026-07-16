@@ -217,6 +217,49 @@ def test_search_decodes_query_maps_attribution_and_uses_raw_auth(monkeypatch):
     }]
 
 
+def test_search_orientation_is_allowlisted_with_locale_and_pagination(monkeypatch):
+    calls = _mock_get(monkeypatch, _Response(payload={
+        'photos': [], 'next_page': 'https://api.pexels.com/v1/search?page=4',
+    }))
+    match, items, err = _scan(
+        'https://www.pexels.com/fr-fr/chercher/portrait%20studio/'
+        '?orientation=portrait&color=red&page=999&per_page=1&locale=xx-XX',
+        page=2,
+    )
+
+    assert err is None and items == [] and match.paginated is True
+    endpoint, kwargs = calls[0]
+    assert endpoint == 'https://api.pexels.com/v1/search'
+    assert kwargs['params'] == {
+        'query': 'portrait studio',
+        'page': 3,
+        'per_page': 80,
+        'locale': 'fr-FR',
+        'orientation': 'portrait',
+    }
+
+
+@pytest.mark.parametrize('query', [
+    'orientation=wide',
+    'orientation=',
+    'orientation=PORTRAIT',
+    'orientation=portrait&orientation=landscape',
+    'orientation=portrait%0D%0Apage%3D999',
+])
+def test_invalid_or_repeated_orientation_never_reaches_api(monkeypatch, query):
+    monkeypatch.setattr(
+        pexels.requests, 'get',
+        lambda *args, **kwargs: pytest.fail('invalid orientation reached requests'),
+    )
+    target = pexels._target_for(
+        f'https://www.pexels.com/search/portrait/?{query}', 0)
+    assert target is None
+
+    _match, items, err = _scan(
+        f'https://www.pexels.com/search/portrait/?{query}')
+    assert items is None and 'format' in err
+
+
 def test_search_last_page_disables_pagination(monkeypatch):
     _mock_get(monkeypatch, _Response(payload={'photos': [], 'next_page': None}))
     match, items, err = _scan('https://www.pexels.com/search/portrait/')

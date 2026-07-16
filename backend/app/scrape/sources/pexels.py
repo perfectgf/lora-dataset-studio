@@ -9,7 +9,7 @@ Routes Pexels prises en charge : recherche (y compris ``/en-us/search/`` et
 L'API officielle n'expose pas les profils publics ``/@user``.
 """
 import os
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qsl, quote, urlsplit
 
 import requests
 
@@ -21,6 +21,8 @@ from . import registry
 _API_ROOT = 'https://api.pexels.com/v1'
 _HTTP_TIMEOUT = 20
 _PAGE_SIZE = 80
+_SEARCH_ORIENTATIONS = frozenset({'portrait', 'landscape', 'square'})
+_INVALID_ORIENTATION = object()
 
 _PEXELS_CAPS = Capabilities(
     can_enumerate_profile=False,
@@ -144,10 +146,29 @@ def _map_photo_list(data, key):
     return items, None
 
 
+def _orientation_from_query(query):
+    """Retourne une orientation allowlistée, None si absente, sentinelle si invalide.
+
+    Tous les autres paramètres publics sont volontairement ignorés : ils ne
+    doivent jamais devenir des paramètres arbitraires de l'API officielle.
+    """
+    try:
+        pairs = parse_qsl(query, keep_blank_values=True, max_num_fields=20)
+    except (TypeError, ValueError):
+        return _INVALID_ORIENTATION
+    values = [value for key, value in pairs if key == 'orientation']
+    if not values:
+        return None
+    if len(values) != 1 or values[0] not in _SEARCH_ORIENTATIONS:
+        return _INVALID_ORIENTATION
+    return values[0]
+
+
 def _target_for(url, page):
     """URL publique Pexels validée -> endpoint officiel, params, type de cible."""
     try:
-        path = urlsplit(url).path
+        parsed = urlsplit(url)
+        path = parsed.path
     except (TypeError, ValueError):
         return None
 
@@ -156,6 +177,9 @@ def _target_for(url, page):
         return None
 
     if route.kind == 'search':
+        orientation = _orientation_from_query(parsed.query)
+        if orientation is _INVALID_ORIENTATION:
+            return None
         params = {
             'query': route.api_value,
             'page': page + 1,
@@ -163,6 +187,8 @@ def _target_for(url, page):
         }
         if route.api_locale:
             params['locale'] = route.api_locale
+        if orientation:
+            params['orientation'] = orientation
         return _API_ROOT + '/search', params, 'search'
 
     if route.kind == 'collection':
