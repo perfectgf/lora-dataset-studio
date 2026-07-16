@@ -777,15 +777,21 @@ export function useDataset() {
     return d;
   }, [currentId, toast]);
 
-  const exportZip = useCallback(() => {
-    if (currentId) window.open(`/api/dataset/${currentId}/export`, '_blank');
-  }, [currentId]);
+  const exportZipFor = useCallback((datasetId) => {
+    if (Number.isInteger(datasetId) && datasetId > 0) {
+      window.open(`/api/dataset/${datasetId}/export`, '_blank');
+    }
+  }, []);
+  const exportZip = useCallback(() => exportZipFor(currentId), [currentId, exportZipFor]);
 
   // Full portable backup (images + captions + settings) — distinct from the
   // training-format export. Restore creates a NEW dataset and opens it.
-  const exportBackup = useCallback(() => {
-    if (currentId) window.open(`/api/dataset/${currentId}/backup`, '_blank');
-  }, [currentId]);
+  const exportBackupFor = useCallback((datasetId) => {
+    if (Number.isInteger(datasetId) && datasetId > 0) {
+      window.open(`/api/dataset/${datasetId}/backup`, '_blank');
+    }
+  }, []);
+  const exportBackup = useCallback(() => exportBackupFor(currentId), [currentId, exportBackupFor]);
 
   const importBackup = useCallback(async (file) => {
     const fd = new FormData(); fd.append('file', file);
@@ -849,7 +855,7 @@ export function useDataset() {
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, classify, caption, recaption,
            setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
            findWatermarks, cleanWatermarks, cleanWatermarkImages, dismissWatermarks, saveWatermarkRegions,
-           purgeUnused, exportZip, exportBackup, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
+           purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };
 }

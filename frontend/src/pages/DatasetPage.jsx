@@ -16,7 +16,8 @@ export default function DatasetPage() {
       ) : (
         <div className="max-w-4xl mx-auto">
           <DatasetListPanel datasets={ds.datasets} onOpen={ds.open} onCreate={ds.create}
-            onDelete={ds.deleteDataset} onRestore={ds.importBackup} />
+            onDelete={ds.deleteDataset} onRestore={ds.importBackup}
+            onExportZip={ds.exportZipFor} onExportBackup={ds.exportBackupFor} />
         </div>
       )}
     </div>

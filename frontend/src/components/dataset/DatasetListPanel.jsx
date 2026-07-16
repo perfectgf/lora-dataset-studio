@@ -120,7 +120,8 @@ function tileStats(d) {
 }
 
 /** Photo-first tile: the reference face IS the identity — lead with it. */
-function DatasetTile({ d, onOpen, onDelete }) {
+function DatasetTile({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
+  const canExportZip = (d.images_kept ?? 0) > 0;
   return (
     <div className="group relative overflow-hidden rounded-xl border border-border bg-surface transition-colors hover:border-primary/40">
       <button type="button" onClick={() => onOpen(d.id)}
@@ -166,6 +167,25 @@ function DatasetTile({ d, onOpen, onDelete }) {
           <span className="text-[0.6875rem] text-content-subtle">{tileStats(d)}</span>
         </div>
       </button>
+      <div className="grid grid-cols-2 gap-1.5 border-t border-border px-2 py-2">
+        <button type="button"
+          onClick={(e) => { e.stopPropagation(); onExportZip?.(d.id); }}
+          disabled={!canExportZip}
+          title={canExportZip
+            ? 'Download the kept images and captions as a training-ready ZIP'
+            : 'Keep at least one image before exporting a training ZIP'}
+          aria-label={`Export training ZIP for ${d.name}`}
+          className="rounded-md border border-border bg-app/50 px-2 py-1 text-[0.6875rem] font-semibold text-content-muted transition-colors hover:border-primary/40 hover:bg-surface-raised hover:text-content disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-app/50 disabled:hover:text-content-muted">
+          ⬇ ZIP
+        </button>
+        <button type="button"
+          onClick={(e) => { e.stopPropagation(); onExportBackup?.(d.id); }}
+          title="Download a portable backup with all images, captions and settings"
+          aria-label={`Export portable backup for ${d.name}`}
+          className="rounded-md border border-border bg-app/50 px-2 py-1 text-[0.6875rem] font-semibold text-content-muted transition-colors hover:border-primary/40 hover:bg-surface-raised hover:text-content">
+          💾 Backup
+        </button>
+      </div>
       {onDelete && (
         <button type="button"
           onClick={() => {
@@ -182,8 +202,7 @@ function DatasetTile({ d, onOpen, onDelete }) {
 
 /** The creation form — folded behind "+ New dataset" (auto-open on an empty
  *  library). Fields unchanged from the historical always-open card. */
-function NewDatasetForm({ onCreate, onRestore, onClose }) {
-  const restoreRef = useRef(null);
+function NewDatasetForm({ onCreate, onClose }) {
   const [name, setName] = useState('');
   const [trigger, setTrigger] = useState('');
   // Nature du dataset : personnage (identité liée au trigger) vs concept (un acte/effet
@@ -242,7 +261,7 @@ function NewDatasetForm({ onCreate, onRestore, onClose }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted">
           {concept ? 'Concept name' : style ? 'Style name' : 'Character name'}
-          <input value={name} onChange={(e) => setName(e.target.value)}
+          <input id="new-dataset-name" value={name} onChange={(e) => setName(e.target.value)}
             placeholder={concept ? 'e.g. cim' : style ? 'e.g. ink-wash' : 'e.g. Emma'}
             className="bg-app/60 border border-border rounded px-2 py-1.5 text-sm text-content" />
         </label>
@@ -321,32 +340,20 @@ function NewDatasetForm({ onCreate, onRestore, onClose }) {
           className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
           Create
         </button>
-        {onRestore && (
-          <>
-            <button type="button" onClick={() => restoreRef.current?.click()}
-              title="Restore a dataset from a backup zip (made with the 💾 Backup button) — creates a new dataset."
-              className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
-              📦 Restore backup
-            </button>
-            <input ref={restoreRef} type="file" accept=".zip,application/zip" className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onRestore(f);
-                e.target.value = '';
-              }} />
-          </>
-        )}
       </div>
     </div>
   );
 }
 
-export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete, onRestore }) {
+export default function DatasetListPanel({
+  datasets, onOpen, onCreate, onDelete, onRestore, onExportZip, onExportBackup,
+}) {
   // Library-first: the creation form stays folded behind "+ New dataset" so the
   // page opens on the collection — except on an empty library, where creating
   // is the only meaningful action.
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState('');
+  const restoreRef = useRef(null);
   const empty = datasets.length === 0;
   const formOpen = creating || empty;
   const q = query.trim().toLowerCase();
@@ -373,19 +380,37 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
                 className="w-40 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-content placeholder:text-content-subtle focus:border-primary focus:outline-none sm:w-52"
               />
             )}
-            {!empty && (
-              <button type="button" onClick={() => setCreating((v) => !v)}
-                aria-expanded={formOpen}
-                className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">
-                {creating ? '✕ Close' : '+ New dataset'}
-              </button>
+            <button type="button"
+              onClick={() => {
+                if (empty) document.getElementById('new-dataset-name')?.focus();
+                else setCreating((v) => !v);
+              }}
+              aria-expanded={formOpen}
+              className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">
+              {!empty && creating ? '✕ Close' : '+ New dataset'}
+            </button>
+            {onRestore && (
+              <>
+                <button type="button" onClick={() => restoreRef.current?.click()}
+                  title="Import a portable dataset backup — a new dataset will be created"
+                  className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-content transition-colors hover:border-primary/40 hover:bg-surface-raised">
+                  📦 Import backup
+                </button>
+                <input ref={restoreRef} type="file" accept=".zip,application/zip" className="hidden"
+                  aria-label="Choose a dataset backup ZIP"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) onRestore(file);
+                    e.target.value = '';
+                  }} />
+              </>
             )}
           </div>
         </div>
       </div>
 
       {formOpen && (
-        <NewDatasetForm onCreate={onCreate} onRestore={onRestore}
+        <NewDatasetForm onCreate={onCreate}
           onClose={empty ? null : () => setCreating(false)} />
       )}
 
@@ -408,7 +433,8 @@ export default function DatasetListPanel({ datasets, onOpen, onCreate, onDelete,
                 </h2>
                 <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                   {group.map((d) => (
-                    <DatasetTile key={d.id} d={d} onOpen={onOpen} onDelete={onDelete} />
+                    <DatasetTile key={d.id} d={d} onOpen={onOpen} onDelete={onDelete}
+                      onExportZip={onExportZip} onExportBackup={onExportBackup} />
                   ))}
                 </div>
               </div>
