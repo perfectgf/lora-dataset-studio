@@ -1,11 +1,38 @@
 import os
+import logging
+import sqlite3
+import json
 from pathlib import Path
 from flask import Flask, send_from_directory, jsonify, request
 from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from .extensions import db, csrf
 from . import config as cfg
 
 FRONTEND_DIST = cfg.REPO_ROOT / 'frontend' / 'dist'
+logger = logging.getLogger(__name__)
+
+
+def _configure_sqlite_connection(dbapi_con, _connection_record):
+    """Apply the app's SQLite guarantees to every newly-opened connection.
+
+    This listener is registered once, at module import, instead of once per
+    ``create_app`` call.  App-factory tests and embedded launches can therefore
+    create several Flask apps without stacking duplicate engine listeners.
+    """
+    if not isinstance(dbapi_con, sqlite3.Connection):
+        return
+    cur = dbapi_con.cursor()
+    try:
+        cur.execute('PRAGMA foreign_keys=ON')
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=5000')
+        cur.execute('PRAGMA synchronous=NORMAL')
+    finally:
+        cur.close()
+
+
+event.listen(Engine, 'connect', _configure_sqlite_connection)
 
 # Additive schema migrations. `db.create_all()` creates missing TABLES but never
 # ALTERs an existing one, so a column added to a model after the DB was first
@@ -42,6 +69,61 @@ def _apply_additive_migrations():
                 db.session.commit()
         except Exception:
             db.session.rollback()  # a failed ALTER must never block boot
+
+
+def _cleanup_orphaned_lora_test_images():
+    """Remove Studio rows left by legacy databases without enforced FKs.
+
+    New databases cascade these rows and the service explicitly removes them,
+    but old releases could leave them behind after deleting their dataset.
+    ``NOT EXISTS`` only targets rows whose parent is provably absent.
+    """
+    from sqlalchemy import text
+    # A legacy Studio row may still own a live queue job. Cancel only when the
+    # linkage is unambiguous: exact job_id plus the Studio metadata and matching
+    # dataset_id. Unknown/mismatched jobs are deliberately left untouched; a
+    # bare legacy job_id is not enough authority to cancel unrelated work.
+    columns = {
+        row[1] for row in db.session.execute(text(
+            'PRAGMA table_info(lora_test_image)'))
+    }
+    cancelled_jobs = 0
+    if 'job_id' in columns:
+        orphan_links = db.session.execute(text(
+            'SELECT job_id, dataset_id FROM lora_test_image '
+            'WHERE job_id IS NOT NULL AND NOT EXISTS ('
+            'SELECT 1 FROM face_dataset '
+            'WHERE face_dataset.id = lora_test_image.dataset_id)'
+        )).all()
+        if orphan_links:
+            from .models import ImageGenerationQueue
+            for job_id, dataset_id in orphan_links:
+                job = ImageGenerationQueue.query.filter_by(job_id=job_id).first()
+                if not job or job.status in ('completed', 'failed', 'cancelled'):
+                    continue
+                try:
+                    metadata = json.loads(job.job_metadata or '{}')
+                except (TypeError, ValueError):
+                    metadata = {}
+                if not (metadata.get('is_lora_test') is True
+                        and metadata.get('model_name') == 'zimage_lora_test'
+                        and str(metadata.get('dataset_id')) == str(dataset_id)):
+                    continue
+                job.update_status('cancelled')
+                cancelled_jobs += 1
+    result = db.session.execute(text(
+        'DELETE FROM lora_test_image '
+        'WHERE NOT EXISTS ('
+        'SELECT 1 FROM face_dataset '
+        'WHERE face_dataset.id = lora_test_image.dataset_id)'
+    ))
+    db.session.commit()
+    if result.rowcount is not None and result.rowcount > 0:
+        logger.warning('startup cleanup removed %d orphaned LoRA Studio row(s)',
+                       result.rowcount)
+    if cancelled_jobs:
+        logger.warning('startup cleanup cancelled %d safely-linked Studio job(s)',
+                       cancelled_jobs)
 
 def create_app(config_object=None):
     app = Flask(__name__, static_folder=None)
@@ -80,16 +162,10 @@ def create_app(config_object=None):
     csrf.init_app(app)
 
     with app.app_context():
-        @event.listens_for(db.engine, 'connect')
-        def _sqlite_pragmas(dbapi_con, _):
-            cur = dbapi_con.cursor()
-            cur.execute('PRAGMA journal_mode=WAL')
-            cur.execute('PRAGMA busy_timeout=5000')
-            cur.execute('PRAGMA synchronous=NORMAL')
-            cur.close()
         from . import models  # noqa: F401
         db.create_all()
         _apply_additive_migrations()
+        _cleanup_orphaned_lora_test_images()
         # Vision requests are process-local, while their mutual-exclusion flag is
         # persisted in SQLite. A killed captioning request therefore cannot still
         # be running after boot; clear its stale flag immediately instead of

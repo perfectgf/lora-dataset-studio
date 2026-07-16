@@ -1,0 +1,431 @@
+"""Targeted regression tests for SQLite integrity and user-data Trash paths."""
+import json
+import os
+import sqlite3
+
+import pytest
+from sqlalchemy import text
+
+
+def test_sqlite_connections_enforce_foreign_keys_and_new_schema_cascades(app):
+    from app.extensions import db
+    from app.models import FaceDataset, LoraTestImage
+
+    with app.app_context():
+        with db.engine.connect() as connection:
+            assert connection.execute(text('PRAGMA foreign_keys')).scalar_one() == 1
+
+        fk_rows = db.session.execute(
+            text('PRAGMA foreign_key_list(lora_test_image)')).all()
+        assert any(row[2] == 'face_dataset' and row[6].upper() == 'CASCADE'
+                   for row in fk_rows)
+
+        ds = FaceDataset(user_id='local', name='Cascade', trigger_word='cascade')
+        db.session.add(ds)
+        db.session.flush()
+        cell = LoraTestImage(dataset_id=ds.id, checkpoint='lora.safetensors',
+                             strength=1.0)
+        db.session.add(cell)
+        db.session.commit()
+        dataset_id = ds.id
+
+        db.session.execute(
+            text('DELETE FROM face_dataset WHERE id = :dataset_id'),
+            {'dataset_id': dataset_id})
+        db.session.commit()
+        assert LoraTestImage.query.filter_by(dataset_id=dataset_id).count() == 0
+
+
+def test_startup_cleans_only_legacy_orphaned_studio_rows(tmp_path, monkeypatch):
+    """Clean legacy cells; cancel only queue jobs with an exact Studio linkage."""
+    data_dir = tmp_path / 'legacy-data'
+    data_dir.mkdir()
+    monkeypatch.setenv('LDS_DATA_DIR', str(data_dir))
+    monkeypatch.setenv('LDS_CONFIG', str(tmp_path / 'config.json'))
+    monkeypatch.setenv('LDS_ENV', str(tmp_path / '.env'))
+    from app import config as cfg
+    monkeypatch.setattr(cfg, 'ENV_PATH', tmp_path / '.env')
+    monkeypatch.setattr(cfg, '_cache', None)
+    from app import create_app
+    from app.extensions import db
+    from app.models import FaceDataset
+
+    first_boot = create_app({
+        'TESTING': True,
+        'WTF_CSRF_ENABLED': False,
+    })
+    with first_boot.app_context():
+        db.session.add(FaceDataset(
+            id=1, user_id='local', name='Valid', trigger_word='valid'))
+        db.session.commit()
+        db.session.remove()
+        db.engine.dispose()
+
+    # Raw SQLite defaults to FK=OFF, reproducing a database written by the old
+    # app. Its full schema came from first_boot, so queue metadata can be tested.
+    db_path = data_dir / 'studio.db'
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            'INSERT INTO lora_test_image '
+            '(id, dataset_id, checkpoint, strength, status, rating) '
+            "VALUES (10, 1, 'valid.safetensors', 1.0, 'done', 0)")
+        connection.execute(
+            'INSERT INTO lora_test_image '
+            '(id, dataset_id, checkpoint, strength, status, rating, job_id) '
+            "VALUES (11, 999, 'orphan.safetensors', 1.0, 'pending', 0, 'safe-job')")
+        connection.execute(
+            'INSERT INTO lora_test_image '
+            '(id, dataset_id, checkpoint, strength, status, rating, job_id) '
+            "VALUES (12, 998, 'orphan.safetensors', 1.0, 'pending', 0, 'unsafe-job')")
+        safe_metadata = json.dumps({
+            'model_name': 'zimage_lora_test', 'is_lora_test': True,
+            'dataset_id': 999})
+        unsafe_metadata = json.dumps({
+            'model_name': 'zimage_lora_test', 'is_lora_test': True,
+            'dataset_id': 123})
+        for job_id, metadata in (
+                ('safe-job', safe_metadata), ('unsafe-job', unsafe_metadata)):
+            connection.execute(
+                'INSERT INTO image_generation_queue '
+                '(job_id, user_id, status, retry_count, priority, created_at, '
+                'job_metadata) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)',
+                (job_id, 'local', 'pending', 0, 0, metadata))
+        connection.commit()
+    finally:
+        connection.close()
+
+    application = create_app({
+        'TESTING': True,
+        'WTF_CSRF_ENABLED': False,
+    })
+    with application.app_context():
+        rows = db.session.execute(
+            text('SELECT id, dataset_id FROM lora_test_image ORDER BY id')).all()
+        assert rows == [(10, 1)]
+        statuses = dict(db.session.execute(text(
+            'SELECT job_id, status FROM image_generation_queue')).all())
+        assert statuses == {'safe-job': 'cancelled', 'unsafe-job': 'pending'}
+        assert db.session.execute(text('PRAGMA foreign_keys')).scalar_one() == 1
+
+
+def _trash_spy(monkeypatch):
+    from app.services import trash
+
+    calls = []
+    original = trash.send_to_trash
+
+    def spy(path, context=''):
+        destination = original(path, context=context)
+        calls.append((str(path), context, destination))
+        return destination
+
+    monkeypatch.setattr(trash, 'send_to_trash', spy)
+    return calls
+
+
+def test_delete_image_rolls_back_queue_cancellation_when_commit_fails(
+        app, monkeypatch):
+    from app.extensions import db
+    from app.job_queue import queue_manager
+    from app.models import FaceDatasetImage, ImageGenerationQueue
+    from app.services import face_dataset_service as svc
+
+    with app.app_context():
+        ds = svc.create_dataset('local', 'Atomic image', 'atomic_image')
+        job_id = queue_manager.add_job(
+            workflow_data={'1': {}}, user_id='local',
+            metadata={'is_dataset': True, 'dataset_id': ds.id})
+        image = FaceDatasetImage(
+            dataset_id=ds.id, source='generated', status='pending',
+            filename=None, job_id=job_id)
+        db.session.add(image)
+        db.session.commit()
+        image_id = image.id
+
+        session = db.session()
+
+        def fail_commit():
+            raise RuntimeError('injected delete commit failure')
+
+        monkeypatch.setattr(session, 'commit', fail_commit)
+        with pytest.raises(RuntimeError, match='injected delete commit failure'):
+            svc.delete_image('local', image_id)
+
+        assert db.session.get(FaceDatasetImage, image_id) is not None
+        assert (ImageGenerationQueue.query.filter_by(job_id=job_id).one().status
+                == 'pending')
+
+
+def test_studio_prompt_delete_trashes_files_and_cancels_jobs_atomically(
+        app, monkeypatch):
+    from app.extensions import db
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue, LoraTestImage
+    from app.services import face_dataset_service as fds
+    from app.services import lora_test_studio as studio
+
+    with app.app_context():
+        calls = _trash_spy(monkeypatch)
+        ds = fds.create_dataset('local', 'Studio trash', 'studio_trash')
+        folder = fds._dataset_dir(ds.id)
+        result_path = os.path.join(folder, 'cell.png')
+        with open(result_path, 'wb') as fh:
+            fh.write(b'cell')
+        job_id = queue_manager.add_job(
+            workflow_data={'1': {}}, user_id='local',
+            metadata={'model_name': 'zimage_lora_test', 'is_lora_test': True,
+                      'dataset_id': ds.id})
+        db.session.add_all((
+            LoraTestImage(
+                dataset_id=ds.id, checkpoint='done.safetensors', strength=1.0,
+                prompt='delete me', status='done', filename='cell.png'),
+            LoraTestImage(
+                dataset_id=ds.id, checkpoint='pending.safetensors', strength=1.0,
+                prompt='delete me', status='pending', job_id=job_id),
+        ))
+        db.session.commit()
+
+        assert studio.delete_prompt('local', ds.id, 'delete me') == 2
+        assert LoraTestImage.query.filter_by(dataset_id=ds.id).count() == 0
+        assert not os.path.exists(result_path)
+        assert (ImageGenerationQueue.query.filter_by(job_id=job_id).one().status
+                == 'cancelled')
+        assert len(calls) == 1
+        assert calls[0][1] == f'dataset-{ds.id}-studio-prompt'
+        assert os.path.exists(calls[0][2])
+
+
+def test_studio_prompt_delete_restores_file_and_rows_when_commit_fails(
+        app, monkeypatch):
+    from app.extensions import db
+    from app.models import LoraTestImage
+    from app.services import face_dataset_service as fds
+    from app.services import lora_test_studio as studio
+
+    with app.app_context():
+        calls = _trash_spy(monkeypatch)
+        ds = fds.create_dataset('local', 'Studio rollback', 'studio_rollback')
+        folder = fds._dataset_dir(ds.id)
+        result_path = os.path.join(folder, 'cell.png')
+        with open(result_path, 'wb') as fh:
+            fh.write(b'cell')
+        db.session.add(LoraTestImage(
+            dataset_id=ds.id, checkpoint='done.safetensors', strength=1.0,
+            prompt='keep me', status='done', filename='cell.png'))
+        db.session.commit()
+
+        session = db.session()
+
+        def fail_commit():
+            raise RuntimeError('injected prompt commit failure')
+
+        monkeypatch.setattr(session, 'commit', fail_commit)
+        with pytest.raises(RuntimeError, match='injected prompt commit failure'):
+            studio.delete_prompt('local', ds.id, 'keep me')
+
+        assert LoraTestImage.query.filter_by(dataset_id=ds.id).count() == 1
+        assert os.path.isfile(result_path)
+        assert len(calls) == 1
+        assert not os.path.exists(calls[0][2])
+
+
+def test_regenerate_preflight_failure_keeps_current_file_out_of_trash(
+        app, monkeypatch):
+    from app.extensions import db
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    from app.services import trash
+
+    with app.app_context():
+        ds = svc.create_dataset('local', 'Preflight', 'preflight')
+        folder = svc._dataset_dir(ds.id)
+        old_path = os.path.join(folder, 'old.webp')
+        with open(old_path, 'wb') as fh:
+            fh.write(b'old')
+        ds.ref_filename = 'missing-ref.webp'
+        image = FaceDatasetImage(
+            dataset_id=ds.id, source='generated', status='keep',
+            filename='old.webp', variation_prompt='portrait')
+        db.session.add(image)
+        db.session.commit()
+        image_id = image.id
+        calls = []
+        monkeypatch.setattr(svc, '_api_generate_fn', lambda _engine: lambda *_a, **_k: b'new')
+        monkeypatch.setattr(
+            trash, 'send_to_trash',
+            lambda *args, **kwargs: calls.append((args, kwargs)))
+
+        with pytest.raises(ValueError, match='reference image file missing'):
+            svc.regenerate_image('local', image_id, engine='nanobanana')
+
+        row = db.session.get(FaceDatasetImage, image_id)
+        assert row.filename == 'old.webp' and row.status == 'keep'
+        assert os.path.isfile(old_path)
+        assert calls == []
+
+
+def test_regenerate_trash_failure_restores_previous_row_and_cancels_new_job(
+        app, monkeypatch):
+    from app.extensions import db
+    from app.job_queue import queue_manager
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper, trash
+
+    with app.app_context():
+        ds = svc.create_dataset('local', 'Trash rollback', 'trash_rollback')
+        folder = svc._dataset_dir(ds.id)
+        ref_path = os.path.join(folder, 'ref.webp')
+        old_path = os.path.join(folder, 'old.webp')
+        for path, content in ((ref_path, b'ref'), (old_path, b'old')):
+            with open(path, 'wb') as fh:
+                fh.write(content)
+        ds.ref_filename = 'ref.webp'
+        image = FaceDatasetImage(
+            dataset_id=ds.id, source='generated', status='keep',
+            filename='old.webp', caption='old caption',
+            variation_prompt='portrait', klein_model='klein.safetensors',
+            watermark_state='detected', watermark_bbox='[0,0,1,1]')
+        db.session.add(image)
+        db.session.commit()
+        image_id = image.id
+        monkeypatch.setattr(
+            klein_edit_helper, 'enqueue_klein_edit', lambda **_kwargs: 'new-job')
+        cancellations = []
+
+        def cancel(job_id, user_id=None, job_type='image', *, commit=True):
+            cancellations.append((job_id, user_id, job_type, commit))
+            return True
+
+        monkeypatch.setattr(queue_manager, 'cancel_job', cancel)
+
+        def fail_trash(_path, context=''):
+            db.session.expire_all()
+            pending = db.session.get(FaceDatasetImage, image_id)
+            assert pending.filename is None and pending.status == 'pending'
+            assert pending.job_id == 'new-job'
+            raise OSError('injected Trash failure')
+
+        monkeypatch.setattr(trash, 'send_to_trash', fail_trash)
+        with pytest.raises(OSError, match='injected Trash failure'):
+            svc.regenerate_image('local', image_id, engine='klein')
+
+        row = db.session.get(FaceDatasetImage, image_id)
+        assert (row.filename, row.status, row.caption, row.job_id) == (
+            'old.webp', 'keep', 'old caption', None)
+        assert row.watermark_state == 'detected'
+        assert os.path.isfile(old_path)
+        assert ('new-job', 'local', 'image', False) in cancellations
+
+
+def test_dataset_deletions_are_owned_trashed_and_leave_no_studio_orphans(
+        app, monkeypatch):
+    from app.extensions import db
+    from app.job_queue import queue_manager
+    from app.models import FaceDatasetImage, ImageGenerationQueue, LoraTestImage
+    from app.services import face_dataset_service as svc
+
+    with app.app_context():
+        calls = _trash_spy(monkeypatch)
+        ds = svc.create_dataset('local', 'Trash safety', 'trashsafe')
+        folder = svc._dataset_dir(ds.id)
+
+        image_path = os.path.join(folder, 'image.webp')
+        with open(image_path, 'wb') as fh:
+            fh.write(b'image')
+        image = FaceDatasetImage(dataset_id=ds.id, filename='image.webp',
+                                 status='keep', source='import')
+        db.session.add(image)
+
+        extra_path = os.path.join(folder, 'extra.webp')
+        with open(extra_path, 'wb') as fh:
+            fh.write(b'extra')
+        ds.ref_extra_filenames = json.dumps(['extra.webp'])
+
+        ref_path = os.path.join(folder, 'ref.webp')
+        with open(ref_path, 'wb') as fh:
+            fh.write(b'reference')
+        ds.ref_filename = 'ref.webp'
+        studio_job = queue_manager.add_job(
+            workflow_data={'1': {}}, user_id='local',
+            metadata={'model_name': 'zimage_lora_test', 'is_lora_test': True,
+                      'dataset_id': ds.id})
+        face_job = queue_manager.add_job(
+            workflow_data={'1': {}}, user_id='local',
+            metadata={'model_name': 'klein_edit_dataset', 'is_dataset': True,
+                      'dataset_id': ds.id})
+        cell = LoraTestImage(dataset_id=ds.id, checkpoint='lora.safetensors',
+                             strength=1.0, status='pending', job_id=studio_job)
+        pending_image = FaceDatasetImage(
+            dataset_id=ds.id, filename=None, status='pending',
+            source='generated', job_id=face_job)
+        db.session.add_all((cell, pending_image))
+        db.session.commit()
+        image_id, dataset_id = image.id, ds.id
+
+        assert svc.delete_image('local', image_id) is True
+        assert not os.path.exists(image_path)
+        assert svc.remove_extra_ref('local', dataset_id, 'extra.webp') is True
+        assert not os.path.exists(extra_path)
+
+        # Emulate an old DB where the FK existed without enforcement/cascade:
+        # service-level explicit cleanup must still remove Studio rows.
+        db.session.execute(text('PRAGMA foreign_keys=OFF'))
+        assert db.session.execute(text('PRAGMA foreign_keys')).scalar_one() == 0
+        db.session.commit()
+
+        before_foreign_attempt = len(calls)
+        assert svc.delete_dataset('another-user', dataset_id) is False
+        assert len(calls) == before_foreign_attempt
+        assert os.path.isdir(folder)
+        assert LoraTestImage.query.filter_by(dataset_id=dataset_id).count() == 1
+
+        assert svc.delete_dataset('local', dataset_id) is True
+        assert not os.path.exists(folder)
+        assert LoraTestImage.query.filter_by(dataset_id=dataset_id).count() == 0
+        queue_states = dict(
+            db.session.query(ImageGenerationQueue.job_id,
+                             ImageGenerationQueue.status).all())
+        assert queue_states[studio_job] == 'cancelled'
+        assert queue_states[face_job] == 'cancelled'
+        assert {context for _src, context, _dst in calls} >= {
+            f'dataset-{dataset_id}-image-{image_id}',
+            f'dataset-{dataset_id}-extra-ref',
+            f'dataset-{dataset_id}',
+        }
+        assert all(os.path.exists(destination)
+                   for _src, _context, destination in calls)
+
+
+def test_training_artifact_purge_moves_matches_to_trash(app, tmp_path, monkeypatch):
+    from app import config as cfg
+    from app.services import lora_training as training
+
+    with app.app_context():
+        aitoolkit = tmp_path / 'aitoolkit'
+        output = aitoolkit / 'output'
+        datasets = aitoolkit / 'datasets'
+        jobs = aitoolkit / 'config' / 'generated'
+        for directory in (output, datasets, jobs):
+            directory.mkdir(parents=True)
+        cfg.save_config({'aitoolkit': {'dir': str(aitoolkit)}})
+
+        run_output = output / 'ulocal_TrashMe'
+        run_dataset = datasets / 'ulocal_TrashMe_Krea-2-Raw'
+        run_output.mkdir()
+        run_dataset.mkdir()
+        job = jobs / 'ulocal_TrashMe.json'
+        job.write_text('{}', encoding='utf-8')
+        sibling = jobs / 'ulocal_TrashMe2.json'
+        sibling.write_text('{}', encoding='utf-8')
+
+        calls = _trash_spy(monkeypatch)
+        removed = training.purge_training_artifacts('local', 'TrashMe')
+
+        assert set(removed) == {str(run_output), str(run_dataset), str(job)}
+        assert not run_output.exists() and not run_dataset.exists() and not job.exists()
+        assert sibling.exists()
+        assert len(calls) == 3
+        assert all(context == 'training-TrashMe'
+                   for _src, context, _destination in calls)

@@ -298,9 +298,14 @@ class JobQueueManager:
         db.session.commit()
         return job_id
 
-    def cancel_job(self, job_id, user_id=None, job_type='image') -> bool:
+    def cancel_job(self, job_id, user_id=None, job_type='image', *, commit=True) -> bool:
         """pending -> cancelled directly; processing/sent_to_comfy -> best-effort
-        (marks the row; `process_one` checks status before finalizing)."""
+        (marks the row; `process_one` checks status before finalizing).
+
+        ``commit=False`` lets destructive services include the cancellation in
+        the same DB transaction as deleting their owning row. Existing callers
+        keep the historical immediate-commit behaviour.
+        """
         if job_type != 'image':
             return False
         query = ImageGenerationQueue.query.filter_by(job_id=job_id)
@@ -310,7 +315,8 @@ class JobQueueManager:
         if job is None or job.status in ('completed', 'failed', 'cancelled'):
             return False
         job.update_status('cancelled')
-        db.session.commit()
+        if commit:
+            db.session.commit()
         return True
 
     # -- system-state KV (underscore names required verbatim) -------------

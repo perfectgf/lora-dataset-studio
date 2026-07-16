@@ -33,7 +33,7 @@ from PIL import Image
 from .. import config as cfg
 from ..models import FaceDataset, FaceDatasetImage
 from ..job_queue import queue_manager
-from . import face_dataset_service as fds
+from . import face_dataset_service as fds, trash
 from .person_mask import generate_person_masks
 
 logger = logging.getLogger(__name__)
@@ -1377,9 +1377,12 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_d
     trigger = _safe_trigger(ds)
     out = str(dest_dir) if dest_dir else str(_datasets_dir() / _run_name(ds))
     if os.path.isdir(out):
+        # Derived training export cache, recreated below from the dataset source.
+        # It is not user-authored data, so bypassing Trash is intentional.
         shutil.rmtree(out)  # ré-export propre
     masks_out = _masks_dir(out)
     if os.path.isdir(masks_out):
+        # Derived masks are regenerated from exported images on every export.
         shutil.rmtree(masks_out)  # jamais de masques périmés (ré-export ou toggle OFF)
     os.makedirs(out, exist_ok=True)
     kept = (FaceDatasetImage.query
@@ -1418,6 +1421,7 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_d
         else:
             logger.warning(f'export dataset {dataset_id}: masques indisponibles - training SANS masked loss')
             if os.path.isdir(masks_out):
+                # Failed/incomplete derived mask cache; safe to destroy directly.
                 shutil.rmtree(masks_out, ignore_errors=True)
     # A REQUESTED masked run that produced no masks (rembg missing, or generation
     # crashed at runtime) silently trains UNMASKED. Record it per-run so the live
@@ -2325,9 +2329,10 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
             p = os.path.join(root, fn)
             if fn.endswith('.safetensors') and _trigger_boundary(fn, lora_prefix) and os.path.isfile(p):
                 try:
-                    os.remove(p); removed.append(p)
+                    trash.send_to_trash(p, context=f'training-{trigger_safe}')
+                    removed.append(p)
                 except OSError as e:
-                    logger.warning('purge: remove %s échoué : %s', p, e)
+                    logger.warning('purge: trash %s échoué : %s', p, e)
     # 2) run output + 3) export datasets (dossiers entiers)
     output_datasets_roots = []
     for accessor in (_output_dir, _datasets_dir):
@@ -2341,7 +2346,11 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
         for name in os.listdir(root):
             p = os.path.join(root, name)
             if _trigger_boundary(name, run_prefix) and os.path.isdir(p):
-                shutil.rmtree(p, ignore_errors=True); removed.append(p)
+                try:
+                    trash.send_to_trash(p, context=f'training-{trigger_safe}')
+                    removed.append(p)
+                except OSError as e:
+                    logger.warning('purge: trash %s échoué : %s', p, e)
     # 4) job configs : nommés d'après le run name (base/famille), donc un même
     #    trigger peut en avoir plusieurs (ex. un run zimage + un run krea). On
     #    balaie tout config dont le stem est sur la frontière de ce trigger,
@@ -2357,9 +2366,10 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
             p = os.path.join(jobs_dir, fn)
             if _trigger_boundary(fn[:-len('.json')], run_prefix) and os.path.isfile(p):
                 try:
-                    os.remove(p); removed.append(p)
+                    trash.send_to_trash(p, context=f'training-{trigger_safe}')
+                    removed.append(p)
                 except OSError as e:
-                    logger.warning('purge: remove %s échoué : %s', p, e)
+                    logger.warning('purge: trash %s échoué : %s', p, e)
     logger.info('purge_training_artifacts u%s/%s : %d artefact(s) retiré(s)',
                 user_id, trigger_safe, len(removed))
     return removed

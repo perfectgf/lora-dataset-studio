@@ -68,7 +68,9 @@ class FaceDatasetImage(db.Model):
     """One image of a face-dataset: a generated Klein variation or an imported real photo."""
     __tablename__ = 'face_dataset_image'
     id = db.Column(Integer, primary_key=True)
-    dataset_id = db.Column(Integer, db.ForeignKey('face_dataset.id'), nullable=False, index=True)
+    dataset_id = db.Column(
+        Integer, db.ForeignKey('face_dataset.id', ondelete='CASCADE'),
+        nullable=False, index=True)
     filename = db.Column(String(255), nullable=True)            # null until the job completes
     source = db.Column(String(12), nullable=False, default='generated')  # generated|import
     framing = db.Column(String(12), nullable=True)              # face|bust|body|back|unknown
@@ -129,7 +131,9 @@ class LoraTestImage(db.Model):
     and hidden from the gallery history."""
     __tablename__ = 'lora_test_image'
     id = db.Column(Integer, primary_key=True)
-    dataset_id = db.Column(Integer, db.ForeignKey('face_dataset.id'), nullable=False, index=True)
+    dataset_id = db.Column(
+        Integer, db.ForeignKey('face_dataset.id', ondelete='CASCADE'),
+        nullable=False, index=True)
     checkpoint = db.Column(String(255), nullable=False)   # LoRA filename ('z image\\Lola-1000.safetensors')
     strength = db.Column(Float, nullable=False)
     filename = db.Column(String(255), nullable=True)      # null until the job completes

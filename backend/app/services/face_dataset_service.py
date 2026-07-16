@@ -23,9 +23,9 @@ import zipfile
 from PIL import Image
 
 from ..extensions import db
-from ..models import FaceDataset, FaceDatasetImage
+from ..models import FaceDataset, FaceDatasetImage, LoraTestImage
 from .. import config as cfg
-from . import dataset_activity
+from . import dataset_activity, trash
 
 # Garde le modèle vision chaud entre les images d'un même batch caption/classify
 # (sinon Ollama le recharge - cold start ~10s - à CHAQUE image). Déchargé en fin
@@ -71,10 +71,32 @@ REF_CROP_PAD = 2.0
 UPSCALE_WARN_THRESHOLD = 1.5
 
 
+def _dataset_path(dataset_id) -> str:
+    """Dataset folder path without creating it (needed by delete paths)."""
+    return str(cfg.dataset_images_root() / str(dataset_id))
+
+
 def _dataset_dir(dataset_id) -> str:
-    d = str(cfg.dataset_images_root() / str(dataset_id))
+    d = _dataset_path(dataset_id)
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def _restore_from_trash(trashed_path, original_path) -> None:
+    """Best-effort filesystem compensation when a matching DB commit fails."""
+    if not trashed_path or not original_path or not os.path.exists(trashed_path):
+        return
+    try:
+        if os.path.exists(original_path):
+            logger.error('cannot restore trashed path because destination exists: %s',
+                         original_path)
+            return
+        os.makedirs(os.path.dirname(original_path), exist_ok=True)
+        shutil.move(trashed_path, original_path)
+    except OSError:
+        # The bytes are still recoverable in Trash; never mask the DB exception.
+        logger.exception('failed to restore %s from Trash after DB rollback',
+                         original_path)
 
 
 def _img_path(img) -> str:
@@ -161,19 +183,25 @@ def add_extra_ref(user_id, dataset_id, image_bytes) -> str:
 
 
 def remove_extra_ref(user_id, dataset_id, filename) -> bool:
-    """Retire une référence additionnelle (entrée JSON + fichier). False si inconnue."""
+    """Retire une référence additionnelle, en plaçant son fichier en corbeille."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return False
     extras = extra_ref_filenames(ds)
     if filename not in extras:
         return False
+    original_path = os.path.join(_dataset_path(dataset_id), filename)
+    trashed_path = None
+    if os.path.exists(original_path):
+        trashed_path = trash.send_to_trash(
+            original_path, context=f'dataset-{dataset_id}-extra-ref')
     try:
-        os.remove(os.path.join(_dataset_dir(dataset_id), filename))
-    except OSError:
-        pass
-    ds.ref_extra_filenames = json.dumps([f for f in extras if f != filename])
-    db.session.commit()
+        ds.ref_extra_filenames = json.dumps([f for f in extras if f != filename])
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        _restore_from_trash(trashed_path, original_path)
+        raise
     return True
 
 
@@ -590,33 +618,43 @@ def crop_image(user_id, image_id, x, y, w, h):
 
 
 def delete_image(user_id, image_id):
-    """Permanently delete a dataset image (DB row + file). If the image is
-    still a pending generation, its queue job is cancelled first. Returns bool."""
+    """Delete a dataset image row and move its file to the app trash.
+
+    If the image is still a pending generation, its queue job is cancelled
+    first. Returns bool.
+    """
     img = _owned_image(user_id, image_id)
     if not img:
         return False
     if img.derivation_kind in _SMALL_IMAGE_DERIVATIONS:
         raise ValueError('resolve the small-image rescue pair before cleanup')
-    if img.status == 'pending' and not img.filename and img.job_id:
-        try:
+    original_path = (os.path.join(_dataset_path(img.dataset_id), img.filename)
+                     if img.filename else None)
+    trashed_path = None
+    try:
+        if img.status == 'pending' and not img.filename and img.job_id:
             from ..job_queue import queue_manager
-            queue_manager.cancel_job(img.job_id, str(user_id), 'image')
-        except Exception:
-            pass
-    if img.filename:
-        try:
-            os.remove(_img_path(img))
-        except OSError:
-            pass
-    db.session.delete(img)
-    db.session.commit()
+            queue_manager.cancel_job(
+                img.job_id, str(user_id), 'image', commit=False)
+        if original_path and os.path.exists(original_path):
+            trashed_path = trash.send_to_trash(
+                original_path, context=f'dataset-{img.dataset_id}-image-{img.id}')
+        db.session.delete(img)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        _restore_from_trash(trashed_path, original_path)
+        raise
     return True
 
 
 def delete_dataset(user_id, dataset_id):
-    """Permanently delete a whole dataset: all image rows + files, the dataset
-    row, and its per-dataset image folder. Cancels any in-flight generations
-    first. Returns bool (False if not owned)."""
+    """Delete an owned dataset and move its complete folder to app trash.
+
+    Child image and Studio rows are explicitly removed for legacy databases
+    whose foreign key had neither enforcement nor ``ON DELETE CASCADE``.
+    Cancels any in-flight generations first. Returns False if not owned.
+    """
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return False
@@ -633,18 +671,37 @@ def delete_dataset(user_id, dataset_id):
     except ImportError:
         pass
     imgs = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).all()
-    for img in imgs:
-        if img.status == 'pending' and not img.filename and img.job_id:  # still generating
-            try:
-                from ..job_queue import queue_manager
-                queue_manager.cancel_job(img.job_id, str(user_id), 'image')
-            except Exception:
-                pass
-        db.session.delete(img)
-    db.session.delete(ds)
-    db.session.commit()
-    # Drop the per-dataset image folder (files + ref). rmtree, not unlink.
-    shutil.rmtree(_dataset_dir(dataset_id), ignore_errors=True)
+    studio_rows = LoraTestImage.query.filter_by(dataset_id=dataset_id).all()
+    dataset_path = _dataset_path(dataset_id)
+    trashed_path = None
+    try:
+        # Keep Studio queue cancellation atomic with deleting its owning rows.
+        # Exact job_id + owned dataset scope prevents cross-dataset cancellation.
+        from ..job_queue import queue_manager
+        for img in imgs:
+            if img.status == 'pending' and not img.filename and img.job_id:
+                queue_manager.cancel_job(
+                    img.job_id, str(user_id), 'image', commit=False)
+        for cell in studio_rows:
+            if (cell.job_id
+                    and cell.status not in ('done', 'failed', 'cancelled')):
+                queue_manager.cancel_job(
+                    cell.job_id, str(user_id), 'image', commit=False)
+        if os.path.exists(dataset_path):
+            trashed_path = trash.send_to_trash(
+                dataset_path, context=f'dataset-{dataset_id}')
+        for img in imgs:
+            db.session.delete(img)
+        # Explicit for old databases whose FK definition cannot be altered by
+        # db.create_all(). New databases also have ON DELETE CASCADE as a guard.
+        for cell in studio_rows:
+            db.session.delete(cell)
+        db.session.delete(ds)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        _restore_from_trash(trashed_path, dataset_path)
+        raise
     # Purge les artefacts d'entraînement (LoRA ComfyUI + ai-toolkit + config). Best
     # effort : un échec ici ne doit pas faire échouer la suppression du dataset.
     if lt is not None:
@@ -3159,9 +3216,8 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     if not ds.ref_filename:
         raise ValueError('reference image required')
     edited = (prompt or '').strip()
-    if edited:
-        img.variation_prompt = edited[:500]   # column is String(500); persist the edit
-    prompt = img.variation_prompt or prompt_by_label(img.variation_label or '')
+    stored_prompt = edited[:500] if edited else img.variation_prompt
+    prompt = stored_prompt or prompt_by_label(img.variation_label or '')
     if prompt is None:
         raise ValueError('variation prompt unknown')
     requested = (engine or '').strip() or None
@@ -3180,18 +3236,101 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
         if enabled and target not in enabled:
             default = cfg.get('engines.default')
             target = default if default in enabled else enabled[0]
-    _clear_watermark_metadata(img)
-    if img.status == 'pending' and not img.filename and img.job_id:  # still generating
+    # Complete every fallible target-specific preflight before changing either
+    # the row or its current file. Klein enqueue is itself part of preparation:
+    # if the later DB transition fails, that exact new job is cancelled below.
+    from ..job_queue import queue_manager
+    old_state = {
+        field: getattr(img, field) for field in (
+            'filename', 'caption', 'status', 'fail_reason', 'job_id',
+            'klein_model', 'variation_prompt', 'watermark_state',
+            'watermark_bbox', 'watermark_regions')
+    }
+    old_path = (os.path.join(_dataset_path(img.dataset_id), img.filename)
+                if img.filename else None)
+    new_job_id = None
+    api_generate = None
+    aspect = None
+    ref_bytes = None
+    model = None
+    if target in API_ENGINES:
+        engine = target
+        api_generate = _api_generate_fn(engine)
+        ref_path = os.path.join(_dataset_path(ds.id), ds.ref_filename)
+        if not os.path.exists(ref_path):
+            raise ValueError('reference image file missing')
+        aspect = aspect_for_label(img.variation_label, img.framing)
+        ref_bytes = _all_ref_bytes(ds)  # principale + extras (multi-références)
+    else:
         try:
-            from ..job_queue import queue_manager
-            queue_manager.cancel_job(img.job_id, str(user_id), 'image')
+            from .klein_edit_helper import enqueue_klein_edit
+        except ImportError:
+            raise RuntimeError('ComfyUI is not configured')
+        # Klein target: keep the row's real model file when it has one; a row born
+        # on an API engine holds an engine TAG here, not a model — use the
+        # workspace's Klein pick instead (None = enqueue's default model).
+        model = (img.klein_model if img.klein_model not in API_ENGINES
+                 else ((klein_model or '').strip() or None))
+        ref_path = os.path.join(_dataset_path(ds.id), ds.ref_filename)
+        extra_paths = [os.path.join(_dataset_path(ds.id), fn)
+                       for fn in extra_ref_filenames(ds)]
+        new_job_id = enqueue_klein_edit(
+            user_id=str(user_id), source_filename=ds.ref_filename,
+            source_path=ref_path,
+            edit_prompt=wrap_variation_klein(
+                prompt, nsfw=is_nsfw_label(img.variation_label),
+                framing=img.framing),
+            klein_model=model,
+            lora_strength=lora_strength, extra_ref_paths=extra_paths,
+            extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
+                            'variation_label': img.variation_label})
+
+    # Persist the replacement state first. The old file remains in place until
+    # this commit succeeds, eliminating rows that reference an already-moved file.
+    try:
+        if old_state['status'] == 'pending' and not old_state['filename'] \
+                and old_state['job_id']:
+            queue_manager.cancel_job(
+                old_state['job_id'], str(user_id), 'image', commit=False)
+        if edited:
+            img.variation_prompt = stored_prompt
+        _clear_watermark_metadata(img)
+        img.klein_model = engine if target in API_ENGINES else model
+        img.filename = None
+        img.caption = None
+        img.status = 'pending'
+        img.job_id = new_job_id
+        img.fail_reason = None
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        if new_job_id:
+            try:
+                queue_manager.cancel_job(new_job_id, str(user_id), 'image')
+            except Exception:
+                logger.exception('regenerate: failed to cancel unlinked job %s',
+                                 new_job_id)
+        raise
+
+    # The DB no longer references the old filename. If Trash itself fails, put
+    # the exact previous row state back and cancel the prepared Klein job.
+    try:
+        if old_path and os.path.exists(old_path):
+            trash.send_to_trash(
+                old_path, context=f'dataset-{img.dataset_id}-regenerate-{img.id}')
+    except Exception:
+        try:
+            for field, value in old_state.items():
+                setattr(img, field, value)
+            if new_job_id:
+                queue_manager.cancel_job(
+                    new_job_id, str(user_id), 'image', commit=False)
+            db.session.commit()
         except Exception:
-            pass
-    if img.filename:
-        try:
-            os.remove(_img_path(img))
-        except OSError:
-            pass
+            db.session.rollback()
+            logger.exception('regenerate: failed to restore row %s after Trash error',
+                             image_id)
+        raise
 
     # API target ('nanobanana'/'chatgpt' — requested, or the row's origin when
     # no engine was given): the row's klein_model column carries the engine tag.
@@ -3200,33 +3339,28 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     # reacts at once); without it the call is synchronous (test path / legacy
     # callers).
     if target in API_ENGINES:
-        engine = target
-        img.klein_model = engine      # the row's engine tag follows the switch
-        api_generate = _api_generate_fn(engine)
-        ref_path = _ref_path(ds)
-        if not os.path.exists(ref_path):
-            raise ValueError('reference image file missing')
-        img.filename = None
-        img.caption = None
-        img.status = 'pending'
-        img.fail_reason = None   # fresh attempt: drop the previous failure message
-        db.session.commit()
-        aspect = aspect_for_label(img.variation_label, img.framing)
-        ref_bytes = _all_ref_bytes(ds)  # principale + extras (multi-références)
         if app is not None:
             # Threaded path: _run_nanobanana_batch owns the 'generate' indicator
             # (begin/bump/end) so a single API regenerate takes the same lock as a
             # batch — every concurrent action stays disabled until it finishes.
-            threading.Thread(target=_run_nanobanana_batch,
-                             args=(app, [(img.id, prompt, aspect)], ref_bytes, engine,
-                                   img.dataset_id),
-                             daemon=True).start()
+            try:
+                threading.Thread(target=_run_nanobanana_batch,
+                                 args=(app, [(img.id, prompt, aspect)], ref_bytes, engine,
+                                       img.dataset_id),
+                                 daemon=True).start()
+            except Exception as e:
+                img.status = 'failed'
+                img.fail_reason = f'{engine}: failed to start generation: {e}'[:500]
+                db.session.commit()
+                raise
             return engine
         # Synchronous path (legacy / no-app callers): guard the same 'generate'
         # indicator directly so the payload advertises the regenerate too, and a
         # raise never leaks the entry (finally end()).
-        token = dataset_activity.begin(img.dataset_id, 'generate', total=1, engine=engine)
+        token = None
         try:
+            token = dataset_activity.begin(
+                img.dataset_id, 'generate', total=1, engine=engine)
             gen_kwargs = {'aspect_ratio': aspect}
             if engine == 'chatgpt':
                 from .chatgpt_image import _use_subscription
@@ -3256,39 +3390,22 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                 img.fail_reason = f'{engine}: empty response (often a content-policy refusal or a transient API error - retry usually works)'
             db.session.commit()
             return engine
+        except Exception as e:
+            db.session.rollback()
+            current = db.session.get(FaceDatasetImage, image_id)
+            if current and current.filename is None:
+                current.status = 'failed'
+                current.fail_reason = f'{engine}: {e}'[:500]
+                db.session.commit()
+            raise
         finally:
-            dataset_activity.end(token)
+            if token is not None:
+                dataset_activity.end(token)
 
-    try:
-        from .klein_edit_helper import enqueue_klein_edit
-    except ImportError:
-        raise RuntimeError('ComfyUI is not configured')
-    # Klein target: keep the row's real model file when it has one; a row born
-    # on an API engine holds an engine TAG here, not a model — use the
-    # workspace's Klein pick instead (None = enqueue's default model).
-    model = (img.klein_model if img.klein_model not in API_ENGINES
-             else ((klein_model or '').strip() or None))
-    img.klein_model = model           # the row's engine/model tag follows the switch
-    extra_paths = [os.path.join(_dataset_dir(ds.id), fn) for fn in extra_ref_filenames(ds)]
-    job_id = enqueue_klein_edit(
-        user_id=str(user_id), source_filename=ds.ref_filename,
-        source_path=_ref_path(ds),
-        edit_prompt=wrap_variation_klein(prompt, nsfw=is_nsfw_label(img.variation_label),
-                                         framing=img.framing),
-        klein_model=model,
-        lora_strength=lora_strength, extra_ref_paths=extra_paths,
-        extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
-                        'variation_label': img.variation_label})
-    img.status = 'pending'
-    img.filename = None
-    img.caption = None
-    img.job_id = job_id
-    img.fail_reason = None   # fresh attempt: drop the previous failure message
-    db.session.commit()
     # Advertise the in-flight Klein job so a single regenerate takes the same lock
     # as a batch; link_completed_dataset_image clears it on completion.
     _sync_generate_activity(img.dataset_id)
-    return job_id
+    return new_job_id
 
 
 # --- Fan-out generation (API engines: Nano Banana / ChatGPT) ---------------
@@ -3506,8 +3623,8 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
     if img.derivation_kind == KLEIN_SMALL_IMAGE and img.status in ('keep', 'reject'):
         # The user already resolved the pair while this job/callback was racing.
         # The terminal review decision wins: do not attach
-        # a late file and do not turn reject into failed. Remove a local Comfy output
-        # when possible so ignored results do not accumulate outside the dataset.
+        # a late file and do not turn reject into failed. This is a temporary,
+        # unlinked Comfy output (never user data), so direct removal is intentional.
         output_dir = _comfy_output_dir()
         late_output = os.path.join(output_dir, filename) if output_dir and filename else None
         if late_output and os.path.isfile(late_output):

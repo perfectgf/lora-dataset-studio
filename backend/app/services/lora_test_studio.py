@@ -45,7 +45,7 @@ from .. import config as cfg
 from ..extensions import db
 from ..gpu_window import GpuBusyError
 from ..models import FaceDataset, LoraTestImage
-from . import face_dataset_service as fds
+from . import face_dataset_service as fds, trash
 from . import lora_training as lt
 from ..job_queue import queue_manager
 from ..utils.comfyui import (FAMILY_LABELS, KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS,
@@ -2014,25 +2014,32 @@ def delete_prompt(user_id, dataset_id, prompt) -> int:
     rows = LoraTestImage.query.filter_by(dataset_id=dataset_id, prompt=p).all()
     if not rows:
         return 0
-    dataset_dir = fds._dataset_dir(dataset_id)
-    n = 0
-    for r in rows:
-        # Cellule encore en file → annuler le job avant de la supprimer.
-        if r.status == 'pending' and r.job_id and not r.filename:
-            try:
-                queue_manager.cancel_job(r.job_id, str(user_id), 'image')
-            except Exception:
-                pass
-        if r.filename:
-            try:
+    dataset_dir = fds._dataset_path(dataset_id)
+    moved = []
+    seen_paths = set()
+    try:
+        for r in rows:
+            # Cancellation and row deletion share one DB transaction. If moving
+            # any file or committing fails, rollback also restores live jobs.
+            if (r.job_id and r.status not in ('done', 'failed', 'cancelled')):
+                queue_manager.cancel_job(
+                    r.job_id, str(user_id), 'image', commit=False)
+            if r.filename:
                 fp = os.path.join(dataset_dir, r.filename)
-                if os.path.exists(fp):
-                    os.remove(fp)
-            except OSError:
-                pass
-        db.session.delete(r)
-        n += 1
-    db.session.commit()
+                path_key = os.path.normcase(os.path.abspath(fp))
+                if path_key not in seen_paths and os.path.exists(fp):
+                    destination = trash.send_to_trash(
+                        fp, context=f'dataset-{dataset_id}-studio-prompt')
+                    moved.append((destination, fp))
+                    seen_paths.add(path_key)
+            db.session.delete(r)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        for destination, original in reversed(moved):
+            fds._restore_from_trash(destination, original)
+        raise
+    n = len(rows)
     logger.info(f"lora-test: prompt supprimé sur dataset {dataset_id} -> {n} cellule(s)")
     return n
 
