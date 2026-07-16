@@ -22,10 +22,21 @@ logger = logging.getLogger(__name__)
 _SCRIPT = cfg.BACKEND_DIR / 'infer' / 'joycaption_infer.py'
 
 
+def availability() -> dict:
+    """Single source of truth for JoyCaption readiness: the capability probe.
+    Returns {ok, detail} — `detail` names what's missing (the exact pip command
+    for the ai-toolkit venv when the deps aren't importable). Delegating here means
+    is_available() can't drift from what the Settings UI advertises (issue #6: the
+    old filesystem-only check said "ready" while transformers was absent)."""
+    from .. import capabilities
+    return capabilities.probe_joycaption()
+
+
 def is_available() -> bool:
-    """JoyCaption est utilisable si le venv ai-toolkit ET le script existent."""
-    venv = cfg.aitoolkit_path('venv_python')
-    return bool(venv) and venv.exists() and _SCRIPT.exists()
+    """True only when the ai-toolkit venv + script exist AND the venv can import the
+    JoyCaption deps (transformers/bitsandbytes/accelerate) — otherwise the batch
+    subprocess would ModuleNotFoundError. See availability() for the reason string."""
+    return availability()['ok']
 
 
 def caption_images_joycaption(paths, prompt: str | None = None,

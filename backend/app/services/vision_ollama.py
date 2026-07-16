@@ -27,6 +27,50 @@ def _ollama_url() -> str:
     return cfg.get('ollama.url') or 'http://127.0.0.1:11434'
 
 
+def _ollama_error_detail(exc: Exception) -> str:
+    """Pull Ollama's own explanation out of a failed request. Ollama always
+    answers a rejected /api/generate with a JSON body ({"error": "..."}) — e.g.
+    a model with no image support, an architecture an older Ollama can't load, or
+    a model that isn't pulled — but requests' HTTPError carries only the status
+    line, so the reason is on the attached Response, not the exception string.
+
+    Returns '' when there is no HTTP response at all (a connection/timeout error,
+    where `exc.response` is None) so the caller can tell "Ollama rejected this"
+    (has a body) from "Ollama was unreachable" (no response). Never raises."""
+    resp = getattr(exc, 'response', None)
+    if resp is None:
+        return ''
+    try:
+        body = resp.json()
+    except Exception:
+        body = None
+    if isinstance(body, dict):
+        msg = (body.get('error') or '').strip()
+        if msg:
+            return msg
+    # Non-JSON body, or JSON without an 'error' key: fall back to the raw text so
+    # the user still sees *something* actionable rather than a bare status code.
+    try:
+        text = (resp.text or '').strip()
+    except Exception:
+        text = ''
+    return text[:300]
+
+
+def _ollama_reject_message(exc: Exception) -> str:
+    """User-facing one-liner when Ollama actively REJECTED a request (the server
+    answered with a 4xx/5xx). '' when the failure wasn't an HTTP rejection (e.g. a
+    connection error, which has no response/status) — the caller then keeps its
+    unreachable/restart handling. Shape: 'Ollama rejected the request (HTTP 400):
+    <exact error>' so the user can act without opening the log."""
+    status = getattr(getattr(exc, 'response', None), 'status_code', None)
+    if status is None:
+        return ''
+    detail = _ollama_error_detail(exc)
+    return (f'Ollama rejected the request (HTTP {status}): {detail}' if detail
+            else f'Ollama rejected the request (HTTP {status})')
+
+
 def get_vision_model() -> str:
     """Resolve the Ollama vision model: env ``VISION_OLLAMA_MODEL`` > config
     ``ollama.vision_model`` (defaults to 'huihui_ai/qwen3-vl-abliterated:8b-instruct', see
@@ -129,7 +173,18 @@ def describe_image_ollama(image_bytes: bytes, prompt: str, *,
             return parts[-1]
         return ''
     except Exception as e:
+        # If Ollama answered with a 4xx/5xx it told us WHY in the body — carry that
+        # exact reason into both the log and the user-facing error. '' when the
+        # failure had no HTTP response (connection/timeout), leaving the existing
+        # unreachable/restart handling untouched.
+        reject = _ollama_reject_message(e)
         if auto_start_local:
+            # A rejection means the server DID answer, so starting a stopped server
+            # can't fix it — surface Ollama's own reason now instead of retrying
+            # into the same wall and reporting a generic "no caption after restart".
+            if reject:
+                logger.warning('vision_ollama: %s', reject)
+                raise RuntimeError(reject) from e
             from . import ollama_control
             ready = ollama_control.ensure_captioning_ready()
             if not ready.get('ok'):
@@ -144,7 +199,9 @@ def describe_image_ollama(image_bytes: bytes, prompt: str, *,
                     'Ollama did not return a caption after restart — check the configured '
                     'vision model and the application log.') from e
             return retried
-        logger.warning('vision_ollama: describe skipped: %s', e)
+        # Best-effort call: contract is to return "" — but still log the concrete
+        # reason (previously only the opaque status code reached the log).
+        logger.warning('vision_ollama: describe skipped: %s', reject or e)
         return ''
 
 

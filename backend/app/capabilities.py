@@ -205,6 +205,42 @@ def probe_aitoolkit() -> dict:
     return {'ok': False, 'detail': f'invalid aitoolkit dir: {d}'}
 
 
+# JoyCaption's runtime deps that ai-toolkit does NOT ship: the training venv has
+# torch/torchvision, but joycaption_infer.py also needs transformers (AutoTokenizer
+# / LlavaForConditionalGeneration), bitsandbytes (the NF4 4-bit load) and accelerate
+# (required by from_pretrained with a quantization_config). Missing any of these is
+# the ModuleNotFoundError users hit (issue #6). One import expr = one cached probe.
+_JOYCAPTION_IMPORTS = 'import transformers, bitsandbytes, accelerate'
+_JOYCAPTION_INSTALL = 'transformers bitsandbytes accelerate'
+
+
+def probe_joycaption(aitoolkit: dict | None = None) -> dict:
+    """Honest JoyCaption readiness. The old probe declared it available on the mere
+    existence of the script + a configured ai-toolkit, so the app offered JoyCaption
+    and then crashed with `ModuleNotFoundError: No module named 'transformers'` when
+    the batch actually ran (issue #6). This checks the ai-toolkit venv can really
+    import the captioning deps, through the cached subprocess seam so probe() stays
+    fast and network-free (a per-probe subprocess would be unacceptable).
+
+    `detail` names what to do: the exact `<venv_python> -m pip install …` command so
+    the user can fix it without reading a stack trace. NEVER installs anything."""
+    if aitoolkit is None:
+        aitoolkit = probe_aitoolkit()
+    if not aitoolkit['ok']:
+        return {'ok': False, 'detail': aitoolkit['detail']}
+    script = cfg.BACKEND_DIR / 'infer' / 'joycaption_infer.py'
+    if not script.exists():
+        return {'ok': False, 'detail': f'{script.name} not found'}
+    venv_python = cfg.aitoolkit_path('venv_python')
+    ok = _cached_import('joycaption', str(venv_python), _JOYCAPTION_IMPORTS)
+    if ok:
+        return {'ok': True, 'detail': 'JoyCaption deps import OK'}
+    return {'ok': False,
+            'detail': (f'JoyCaption deps ({_JOYCAPTION_INSTALL.replace(" ", ", ")}) '
+                       f'are not importable in the ai-toolkit venv — run: '
+                       f'"{venv_python}" -m pip install {_JOYCAPTION_INSTALL}')}
+
+
 VAST_API_BASE = 'https://console.vast.ai/api/v0'
 
 
@@ -500,6 +536,7 @@ def probe(force=False) -> dict:
     face_scoring = probe_face_scoring()
     masks = probe_masks()
     watermark_inpaint = probe_watermark_inpaint()
+    joycaption = probe_joycaption(aitoolkit)
     models = _scan_models()
     base_dir = cfg.get('comfyui.base_dir') or ''
     comfy_dir = resolve_comfyui_base(base_dir)
@@ -550,7 +587,11 @@ def probe(force=False) -> dict:
         # must stay network-free). The ⋯ More menu entry keys off this.
         'hf_publish': bool(cfg.secret('HF_TOKEN')),
         'captioners': {
-            'joycaption': aitoolkit['ok'] and (cfg.BACKEND_DIR / 'infer' / 'joycaption_infer.py').exists(),
+            # Honest: the ai-toolkit venv must actually import the JoyCaption deps,
+            # not merely have the script on disk (issue #6). `detail` carries the
+            # exact pip command when it can't, so the UI/error can name the fix.
+            'joycaption': joycaption['ok'],
+            'joycaption_detail': joycaption['detail'],
             'ollama': ollama['ok'],
         },
         'face_scoring': face_scoring['ok'],

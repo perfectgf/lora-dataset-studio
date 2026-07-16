@@ -159,6 +159,64 @@ def test_probe_masks_goes_through_import_seam(app, monkeypatch):
         result = capabilities.probe_masks()
     assert result == {'ok': True, 'detail': 'rembg import OK'}
 
+def _configure_aitoolkit_ok(cfg, tmp_path):
+    """A valid ai-toolkit checkout (run.py + a venv python) so probe_aitoolkit()
+    passes and probe_joycaption() advances to the dep import check."""
+    root = tmp_path / 'aitoolkit'
+    (root / 'venv' / 'Scripts').mkdir(parents=True)
+    (root / 'venv' / 'Scripts' / 'python.exe').write_text('fake')
+    (root / 'run.py').write_text('fake')
+    cfg.save_config({'aitoolkit': {'dir': str(root)}})
+    return root
+
+
+def test_probe_joycaption_false_when_deps_missing(app, tmp_path, monkeypatch):
+    """Issue #6: the ai-toolkit venv exists but can't import transformers etc. —
+    probe must report NOT available and name the exact pip fix, not lie 'ready'."""
+    with app.app_context():
+        from app import capabilities, config
+        _configure_aitoolkit_ok(config, tmp_path)
+        monkeypatch.setattr(capabilities, '_import_ok', lambda *a, **k: False)  # deps absent
+        capabilities._import_cache.clear()
+        result = capabilities.probe_joycaption()
+    assert result['ok'] is False
+    assert 'pip install' in result['detail']
+    assert 'transformers' in result['detail'] and 'bitsandbytes' in result['detail']
+
+
+def test_probe_joycaption_true_when_deps_import(app, tmp_path, monkeypatch):
+    with app.app_context():
+        from app import capabilities, config
+        _configure_aitoolkit_ok(config, tmp_path)
+        monkeypatch.setattr(capabilities, '_import_ok', lambda *a, **k: True)  # deps present
+        capabilities._import_cache.clear()
+        result = capabilities.probe_joycaption()
+    assert result == {'ok': True, 'detail': 'JoyCaption deps import OK'}
+
+
+def test_probe_joycaption_false_when_aitoolkit_unconfigured(app):
+    """No ai-toolkit at all: name THAT gap, never a misleading deps message, and
+    never spawn the import subprocess (returns before the seam)."""
+    with app.app_context():
+        from app import capabilities
+        result = capabilities.probe_joycaption()
+    assert result['ok'] is False
+    assert 'pip install' not in result['detail']
+
+
+def test_probe_joycaption_import_result_is_cached(app, tmp_path, monkeypatch):
+    """Uses the same cached seam as the other import-probes — no per-call subprocess."""
+    with app.app_context():
+        from app import capabilities, config
+        _configure_aitoolkit_ok(config, tmp_path)
+        calls = []
+        monkeypatch.setattr(capabilities, '_import_ok', lambda *a, **k: calls.append(1) or True)
+        capabilities._import_cache.clear()
+        capabilities.probe_joycaption()
+        capabilities.probe_joycaption()
+    assert len(calls) == 1
+
+
 def test_import_probe_result_is_cached(app, monkeypatch):
     """Second call within the 10 min TTL must not re-invoke the seam."""
     with app.app_context():

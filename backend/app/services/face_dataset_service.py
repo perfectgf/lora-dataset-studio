@@ -2855,12 +2855,16 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     try:
         n = 0
         remaining = todo
+        # In 'auto', why JoyCaption didn't contribute (deps missing / crash). Kept so a
+        # LATER Ollama failure reports BOTH reasons instead of only the Ollama one —
+        # otherwise a user whose JoyCaption is silently unavailable debugs blind (issue #6).
+        joycaption_note = ''
         # 1) JoyCaption en BATCH (un seul chargement du 8B NF4, via le venv ai-toolkit) -
         # sauté entièrement quand le backend force 'ollama'.
         if backend in ('auto', 'joycaption'):
             jc = {}
             try:
-                from .joycaption import caption_images_joycaption, is_available
+                from .joycaption import availability, caption_images_joycaption, is_available
                 if is_available():
                     dataset_activity.progress(
                         token,
@@ -2870,12 +2874,17 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
                     jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt)
                 elif backend == 'joycaption':
                     # Explicit choice, explicit failure: a user who forced 'joycaption' in
-                    # Settings must be told it's unavailable, not get a silent 0 (only
-                    # 'auto' is allowed to fall back to Ollama quietly).
-                    raise RuntimeError('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
+                    # Settings must be told WHY (the exact missing deps + pip command),
+                    # not get a silent 0 (only 'auto' is allowed to fall back to Ollama).
+                    raise RuntimeError(
+                        'JoyCaption backend is not available — '
+                        + (availability().get('detail') or 'check the ai-toolkit folder in Settings'))
+                else:  # auto: JoyCaption unavailable -> remember the reason, fall back to Ollama
+                    joycaption_note = availability().get('detail') or 'JoyCaption unavailable'
             except RuntimeError:
                 raise
             except Exception as e:
+                joycaption_note = str(e)
                 logger.warning('caption_images: JoyCaption indisponible (%s)', e)
             still = []
             for img, p in remaining:
@@ -2919,6 +2928,14 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
                         db.session.commit()
                         n += 1
                     dataset_activity.bump(token)   # image handled (captioned or not)
+            except RuntimeError as e:
+                # 'auto' tried JoyCaption first and it was unavailable, then Ollama
+                # failed too — report BOTH so the user isn't repairing blind (they'd
+                # otherwise see only the Ollama error and never learn JoyCaption's deps
+                # are missing, issue #6). backend='ollama' has no note -> re-raise as-is.
+                if joycaption_note:
+                    raise RuntimeError(f'JoyCaption unavailable: {joycaption_note} · Ollama: {e}') from e
+                raise
             finally:
                 unload_vision_model()  # libère la VRAM pour ComfyUI en fin de batch
         logger.info('captioning finished: dataset=%s backend=%s captioned=%s elapsed=%.1fs',

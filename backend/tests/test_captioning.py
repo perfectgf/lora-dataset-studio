@@ -23,6 +23,32 @@ class _Resp:
         return self._payload
 
 
+class _ErrResp:
+    """Response stand-in that raises HTTPError like a real Ollama 4xx would — the
+    error body ({"error": ...}) rides on the exception's .response, exactly where
+    describe_image_ollama now reads it. `json_error` simulates a non-JSON body."""
+    def __init__(self, status, body, *, text=None, json_error=False):
+        self.status_code = status
+        self._body = body
+        self._text = text
+        self._json_error = json_error
+
+    def json(self):
+        if self._json_error:
+            raise ValueError('response is not JSON')
+        return self._body
+
+    @property
+    def text(self):
+        if self._text is not None:
+            return self._text
+        return '' if self._body is None else str(self._body)
+
+    def raise_for_status(self):
+        import requests
+        raise requests.HTTPError(f'{self.status_code} Client Error', response=self)
+
+
 def _dataset_with_kept_image(svc, LOCAL_USER):
     """Real FaceDataset + one kept FaceDatasetImage backed by a real file on disk,
     matching the pattern used in test_dataset_service.py."""
@@ -107,6 +133,80 @@ def test_caption_images_surfaces_ollama_start_failure(app, monkeypatch):
         ds, _ = _dataset_with_kept_image(svc, LOCAL_USER)
         with pytest.raises(RuntimeError, match='Ollama could not start'):
             svc.caption_images(LOCAL_USER, ds.id)
+
+
+def test_describe_image_ollama_surfaces_http_error_body(app, monkeypatch):
+    """Ollama explains a 400 in its JSON body; the user-facing RuntimeError must
+    carry that exact reason (not just the status), so no log-diving is needed."""
+    from app.services import vision_ollama
+    monkeypatch.setattr(vision_ollama.requests, 'post',
+                        lambda *a, **k: _ErrResp(400, {'error': 'model requires more system memory'}))
+    with app.app_context(), pytest.raises(RuntimeError) as ei:
+        vision_ollama.describe_image_ollama(_png(), 'p', auto_start_local=True)
+    msg = str(ei.value)
+    assert 'HTTP 400' in msg
+    assert 'model requires more system memory' in msg
+
+
+def test_describe_image_ollama_surfaces_non_json_error_body(app, monkeypatch):
+    """A non-JSON error body (proxy/HTML) must still reach the user as text,
+    not collapse to a bare status code."""
+    from app.services import vision_ollama
+    monkeypatch.setattr(vision_ollama.requests, 'post',
+                        lambda *a, **k: _ErrResp(400, None, text='Bad Request: unknown field images',
+                                                 json_error=True))
+    with app.app_context(), pytest.raises(RuntimeError) as ei:
+        vision_ollama.describe_image_ollama(_png(), 'p', auto_start_local=True)
+    assert 'Bad Request: unknown field images' in str(ei.value)
+
+
+def test_describe_image_ollama_reports_status_when_body_empty(app, monkeypatch):
+    """Empty body: no dangling 'reason' — just the clean status message."""
+    from app.services import vision_ollama
+    monkeypatch.setattr(vision_ollama.requests, 'post',
+                        lambda *a, **k: _ErrResp(500, None, text='', json_error=True))
+    with app.app_context(), pytest.raises(RuntimeError) as ei:
+        vision_ollama.describe_image_ollama(_png(), 'p', auto_start_local=True)
+    msg = str(ei.value)
+    assert msg.strip().endswith('rejected the request (HTTP 500)')
+
+
+def test_describe_image_ollama_best_effort_logs_reason_and_returns_empty(app, monkeypatch, caplog):
+    """Ordinary best-effort call keeps the "" contract on a 400, but the concrete
+    reason now reaches the log (previously only the opaque status code did)."""
+    from app.services import vision_ollama
+    monkeypatch.setattr(vision_ollama.requests, 'post',
+                        lambda *a, **k: _ErrResp(400, {'error': 'this model does not support images'}))
+    with app.app_context():
+        with caplog.at_level('WARNING'):
+            out = vision_ollama.describe_image_ollama(_png(), 'p')  # auto_start_local=False
+    assert out == ''
+    assert 'this model does not support images' in caplog.text
+
+
+def test_caption_images_auto_reports_both_backend_failures(app, monkeypatch):
+    """Regression for issue #6: in 'auto', JoyCaption unavailable + Ollama rejecting
+    the request must surface BOTH reasons — the user otherwise sees only the Ollama
+    error and never learns JoyCaption's deps are missing."""
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    import app.services.joycaption as jc_mod
+    from app.config import LOCAL_USER, save_config
+
+    monkeypatch.setattr(jc_mod, 'is_available', lambda: False)
+    monkeypatch.setattr(jc_mod, 'availability',
+                        lambda: {'ok': False,
+                                 'detail': 'transformers not importable in the ai-toolkit venv'})
+    monkeypatch.setattr(vision_ollama.requests, 'post',
+                        lambda *a, **k: _ErrResp(400, {'error': 'model does not support images'}))
+    with app.app_context():
+        save_config({'captioning': {'backend': 'auto'}})
+        ds, _ = _dataset_with_kept_image(svc, LOCAL_USER)
+        with pytest.raises(RuntimeError) as ei:
+            svc.caption_images(LOCAL_USER, ds.id)
+    msg = str(ei.value)
+    assert 'JoyCaption unavailable' in msg and 'transformers' in msg
+    assert 'model does not support images' in msg and 'HTTP 400' in msg
 
 
 def test_vision_ollama_never_raises_when_config_returns_none(app, monkeypatch):
