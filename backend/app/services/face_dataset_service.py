@@ -10,7 +10,9 @@ import io
 import json
 import logging
 import math
+import ntpath
 import os
+import posixpath
 import re
 import shutil
 import threading
@@ -275,7 +277,14 @@ def normalize_train_type(t) -> str:
 
 
 def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, train_type=None,
-                   fidelity=None):
+                   fidelity=None, *, commit=True):
+    """Create a dataset and return its row.
+
+    ``commit=False`` is reserved for callers that need to coordinate the row with
+    another resource (for example a restored filesystem tree).  The row is still
+    flushed so its id is available, but ownership of commit/rollback stays with
+    the caller.  Ordinary callers keep the historical commit-on-return contract.
+    """
     k = normalize_kind(kind)
     desc = (concept_desc or '').strip()
     if k == 'concept' and not desc:
@@ -293,13 +302,14 @@ def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, tr
                      # omis ; style : les sujets varient, aucune identité à protéger).
                      fidelity=(normalize_fidelity(fidelity) if k is None else None))
     db.session.add(ds)
-    db.session.commit()
+    db.session.flush()
     if k == 'style' and not (trigger_word or '').strip():
         # Un style n'exige pas de trigger (l'UI le présente comme facultatif), mais
         # `_run_name`/`lora_{trigger}` nomment le run d'entraînement avec : deux styles
         # créés sans trigger retomberaient tous deux sur 'zchar' → le garde anti-
         # collision bloquerait le 2e entraînement. On sale le défaut avec l'id.
         ds.trigger_word = f'zsty_{ds.id}'
+    if commit:
         db.session.commit()
     return ds
 
@@ -714,8 +724,52 @@ _BACKUP_NAME_RE = re.compile(r'^[\w.-]+\.(webp|jpg|jpeg|png)$', re.IGNORECASE)
 # à la machine source — un backup restauré ne peut pas « regénérer »).
 _BACKUP_IMG_FIELDS = ('filename', 'source', 'framing', 'variation_label', 'status',
                       'caption', 'variation_prompt', 'face_score', 'face_state',
+                      'upscale_ratio', 'watermark_state', 'watermark_bbox',
                       'watermark_regions', 'parent_image_id', 'derivation_kind',
                       'fail_reason')
+
+
+def _backup_basename(value):
+    """Return a portable image basename, or None for paths/invalid values."""
+    if not isinstance(value, str) or not value:
+        return None
+    if '/' in value or '\\' in value or not _BACKUP_NAME_RE.fullmatch(value):
+        return None
+    return value
+
+
+def _backup_extra_ref_names(raw, *, limit=MAX_EXTRA_REFS):
+    """Parse the stored JSON list into unique portable basenames."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    seen = set()
+    for value in raw:
+        name = _backup_basename(value)
+        key = name.casefold() if name else None
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+        if limit is not None and len(out) >= limit:
+            break
+    return out
+
+
+def _portable_train_base_model(value):
+    """Keep model ids/relative paths, never machine-local absolute paths."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    drive, _ = ntpath.splitdrive(value)
+    if (not value or drive or ntpath.isabs(value) or posixpath.isabs(value)):
+        return None
+    return value
 
 
 def build_backup_zip(user_id, dataset_id) -> bytes:
@@ -732,15 +786,52 @@ def build_backup_zip(user_id, dataset_id) -> bytes:
             .filter(or_(FaceDatasetImage.filename.isnot(None),
                         FaceDatasetImage.derivation_kind.in_(_SMALL_IMAGE_DERIVATIONS)))
             .all())
+    primary_ref_names = []
+    ref_name_keys = set()
+    for raw_name in (ds.ref_filename, ds.ref_original_filename):
+        name = _backup_basename(raw_name)
+        key = name.casefold() if name else None
+        if (not name or key in ref_name_keys
+                or not os.path.isfile(os.path.join(dsdir, name))):
+            continue
+        ref_name_keys.add(key)
+        primary_ref_names.append(name)
+    portable_extras = []
+    for name in _backup_extra_ref_names(ds.ref_extra_filenames, limit=None):
+        key = name.casefold()
+        if (key in ref_name_keys
+                or not os.path.isfile(os.path.join(dsdir, name))):
+            continue
+        ref_name_keys.add(key)
+        portable_extras.append(name)
+        if len(portable_extras) >= MAX_EXTRA_REFS:
+            break
+    ref_names = primary_ref_names + portable_extras
+    image_file_names = {
+        name.casefold(): name for img in rows
+        if (name := _backup_basename(img.filename))
+        and os.path.isfile(os.path.join(dsdir, name))
+    }
+    collisions = ref_name_keys.intersection(image_file_names)
+    if collisions:
+        collision = image_file_names[next(iter(collisions))]
+        raise ValueError(f'ref/image filename collision in dataset: {collision}')
+
     manifest = {
         'format': BACKUP_FORMAT, 'version': BACKUP_VERSION,
         'name': ds.name, 'trigger_word': ds.trigger_word,
         'kind': ds.kind, 'fidelity': ds.fidelity,
         'concept_desc': ds.concept_desc, 'concept_terms': ds.concept_terms,
-        'train_type': ds.train_type, 'train_base_model': ds.train_base_model,
-        'train_variant': ds.train_variant, 'best_settings': ds.best_settings,
-        'ref_filename': ds.ref_filename, 'ref_original_filename': ds.ref_original_filename,
-        'ref_extra_filenames': ds.ref_extra_filenames,
+        'train_type': ds.train_type,
+        'train_base_model': _portable_train_base_model(ds.train_base_model),
+        'train_variant': ds.train_variant, 'train_settings': ds.train_settings,
+        'best_settings': ds.best_settings,
+        'ref_filename': (_backup_basename(ds.ref_filename)
+                         if _backup_basename(ds.ref_filename) in primary_ref_names else None),
+        'ref_original_filename': (
+            _backup_basename(ds.ref_original_filename)
+            if _backup_basename(ds.ref_original_filename) in primary_ref_names else None),
+        'ref_extra_filenames': json.dumps(portable_extras),
     }
     # backup_image_id is archive-local only. It lets restore remap parent_image_id
     # to the newly allocated row ids instead of retaining ids from the source DB.
@@ -751,21 +842,16 @@ def build_backup_zip(user_id, dataset_id) -> bytes:
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         z.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=1))
         z.writestr('images.json', json.dumps(images_meta, ensure_ascii=False, indent=1))
-        ref_names = [n for n in (ds.ref_filename, ds.ref_original_filename) if n]
-        try:
-            ref_names += list(json.loads(ds.ref_extra_filenames or '[]'))
-        except ValueError:
-            pass
         for n in ref_names:
             p = os.path.join(dsdir, n)
-            if os.path.isfile(p):
-                z.write(p, f'ref/{n}')
+            z.write(p, f'ref/{n}')
         for img in rows:
-            if not img.filename:
+            name = _backup_basename(img.filename)
+            if not name:
                 continue   # metadata-only small-rescue candidate
-            p = os.path.join(dsdir, img.filename)
+            p = os.path.join(dsdir, name)
             if os.path.isfile(p):
-                z.write(p, f'images/{img.filename}')
+                z.write(p, f'images/{name}')
     return buf.getvalue()
 
 
@@ -826,72 +912,138 @@ def import_backup_zip(user_id, zip_bytes):
         raise ValueError(f'too many files in backup (max {_BACKUP_MAX_FILES})')
     if sum(i.file_size for i in infos) > _BACKUP_MAX_BYTES:
         raise ValueError('backup too large (max 2 GB uncompressed)')
+    archive_names = {'ref': {}, 'images': {}}
+    for info in infos:
+        prefix, candidate = info.filename.split('/', 1)
+        name = _backup_basename(candidate)
+        if name:
+            archive_names[prefix].setdefault(name.casefold(), name)
+    collisions = set(archive_names['ref']).intersection(archive_names['images'])
+    if collisions:
+        collision = archive_names['images'][next(iter(collisions))]
+        raise ValueError(f'backup has colliding ref/image filename: {collision}')
     name = (manifest.get('name') or 'Restored dataset')[:100]
     trigger = (manifest.get('trigger_word') or 'restored')[:60]
-    ds = create_dataset(user_id, name, trigger, kind=manifest.get('kind'),
-                        concept_desc=manifest.get('concept_desc'),
-                        train_type=manifest.get('train_type'))
-    for field in ('concept_terms', 'train_base_model', 'train_variant', 'best_settings',
-                  'ref_filename', 'ref_original_filename', 'ref_extra_filenames', 'fidelity'):
-        setattr(ds, field, manifest.get(field))
-    dsdir = _dataset_dir(ds.id)
-    os.makedirs(dsdir, exist_ok=True)
-    extracted = set()
-    for info in infos:
-        base = os.path.basename(info.filename)
-        if not _BACKUP_NAME_RE.match(base) or base != info.filename.split('/', 1)[1]:
-            continue   # nested path or weird name -> skip, never traverse
-        with z.open(info) as src, open(os.path.join(dsdir, base), 'wb') as dst:
-            shutil.copyfileobj(src, dst, 1024 * 1024)
-        extracted.add(base)
-    n_rows = 0
-    restored_rows = []
-    valid_source_ids = {
-        meta.get('backup_image_id') for meta in images_meta
-        if isinstance(meta, dict)
-        and meta.get('derivation_kind') == SMALL_IMAGE_SOURCE
-        and meta.get('filename') in extracted
-    }
-    for meta in images_meta:
-        if not isinstance(meta, dict):
-            continue
-        fn = meta.get('filename')
-        derivation = meta.get('derivation_kind')
-        is_candidate = derivation == KLEIN_SMALL_IMAGE
-        if fn and fn not in extracted:
-            continue
-        if not fn and not is_candidate:
-            continue   # only rescue candidates have meaningful metadata-only rows
-        if is_candidate and meta.get('parent_image_id') not in valid_source_ids:
-            continue   # never restore an orphaned candidate
-        values = {f: meta.get(f) for f in _BACKUP_IMG_FIELDS
-                  if f not in ('filename', 'parent_image_id')}
-        if is_candidate and not fn and values.get('status') in ('pending', 'keep'):
-            values['status'] = 'failed'
-            values['fail_reason'] = (
-                'Klein rescue was in flight when this backup was created; '
-                'the original image is preserved, but the job must be started again.'
-            )
-        img = FaceDatasetImage(dataset_id=ds.id,
-                               **values,
-                               filename=fn)
-        db.session.add(img)
-        restored_rows.append((img, meta))
-        n_rows += 1
-    # Allocate new ids first, then restore the graph strictly within this backup.
-    # A missing/skipped parent clears the relationship rather than pointing at an
-    # unrelated row that happens to reuse the old numeric id.
-    db.session.flush()
-    id_map = {meta.get('backup_image_id'): img.id for img, meta in restored_rows
-              if meta.get('backup_image_id') is not None}
-    for img, meta in restored_rows:
-        img.parent_image_id = id_map.get(meta.get('parent_image_id'))
-    # Refs referenced by the manifest but absent from the zip -> clear (no dangling).
-    if ds.ref_filename and ds.ref_filename not in extracted:
-        ds.ref_filename = None
-    if ds.ref_original_filename and ds.ref_original_filename not in extracted:
-        ds.ref_original_filename = None
-    db.session.commit()
+    # Extract first into a sibling directory: it is on the same volume as the final
+    # dataset folder, so promotion is a single rename.  The database transaction is
+    # only opened after extraction succeeds; no empty dataset can become visible.
+    root = str(cfg.dataset_images_root())
+    staging_dir = os.path.join(root, f'.restore-{uuid.uuid4().hex}.tmp')
+    os.mkdir(staging_dir)
+    final_dir = None
+    promoted = False
+    db_started = False
+    try:
+        extracted_images = set()
+        extracted_refs = {}
+        for info in infos:
+            prefix, candidate = info.filename.split('/', 1)
+            base = _backup_basename(candidate)
+            if not base:
+                continue   # nested path or weird name -> skip, never traverse
+            with z.open(info) as src, open(os.path.join(staging_dir, base), 'wb') as dst:
+                shutil.copyfileobj(src, dst, 1024 * 1024)
+            if prefix == 'ref':
+                extracted_refs.setdefault(base.casefold(), base)
+            else:
+                extracted_images.add(base)
+
+        db_started = True
+        ds = create_dataset(user_id, name, trigger, kind=manifest.get('kind'),
+                            concept_desc=manifest.get('concept_desc'),
+                            train_type=manifest.get('train_type'), commit=False)
+        for field in ('concept_terms', 'train_variant', 'train_settings',
+                      'best_settings', 'fidelity'):
+            setattr(ds, field, manifest.get(field))
+        ds.train_base_model = _portable_train_base_model(manifest.get('train_base_model'))
+        ds.ref_filename = _backup_basename(manifest.get('ref_filename'))
+        ds.ref_original_filename = _backup_basename(
+            manifest.get('ref_original_filename'))
+        final_dir = os.path.join(root, str(ds.id))
+        if os.path.exists(final_dir):
+            # Never merge with or delete a pre-existing orphan directory.
+            raise RuntimeError(f'dataset folder already exists for id {ds.id}')
+
+        n_rows = 0
+        restored_rows = []
+        valid_source_ids = {
+            meta.get('backup_image_id') for meta in images_meta
+            if isinstance(meta, dict)
+            and meta.get('derivation_kind') == SMALL_IMAGE_SOURCE
+            and meta.get('filename') in extracted_images
+        }
+        for meta in images_meta:
+            if not isinstance(meta, dict):
+                continue
+            fn = meta.get('filename')
+            derivation = meta.get('derivation_kind')
+            is_candidate = derivation == KLEIN_SMALL_IMAGE
+            if fn and fn not in extracted_images:
+                continue
+            if not fn and not is_candidate:
+                continue   # only rescue candidates have meaningful metadata-only rows
+            if is_candidate and meta.get('parent_image_id') not in valid_source_ids:
+                continue   # never restore an orphaned candidate
+            values = {f: meta.get(f) for f in _BACKUP_IMG_FIELDS
+                      if f not in ('filename', 'parent_image_id')}
+            if is_candidate and not fn and values.get('status') in ('pending', 'keep'):
+                values['status'] = 'failed'
+                values['fail_reason'] = (
+                    'Klein rescue was in flight when this backup was created; '
+                    'the original image is preserved, but the job must be started again.'
+                )
+            img = FaceDatasetImage(dataset_id=ds.id,
+                                   **values,
+                                   filename=fn)
+            db.session.add(img)
+            restored_rows.append((img, meta))
+            n_rows += 1
+        # Allocate new ids first, then restore the graph strictly within this backup.
+        # A missing/skipped parent clears the relationship rather than pointing at an
+        # unrelated row that happens to reuse the old numeric id.
+        db.session.flush()
+        id_map = {meta.get('backup_image_id'): img.id for img, meta in restored_rows
+                  if meta.get('backup_image_id') is not None}
+        for img, meta in restored_rows:
+            img.parent_image_id = id_map.get(meta.get('parent_image_id'))
+        # Reference fields are rebuilt exclusively from actual ref/ archive files.
+        # Never retain paths, missing names, image-only files, or case variants.
+        ds.ref_filename = (extracted_refs.get(ds.ref_filename.casefold())
+                           if ds.ref_filename else None)
+        ds.ref_original_filename = (
+            extracted_refs.get(ds.ref_original_filename.casefold())
+            if ds.ref_original_filename else None)
+        used_ref_keys = {
+            ref.casefold() for ref in (ds.ref_filename, ds.ref_original_filename) if ref
+        }
+        restored_extras = []
+        for requested in _backup_extra_ref_names(
+                manifest.get('ref_extra_filenames'), limit=None):
+            key = requested.casefold()
+            actual = extracted_refs.get(key)
+            if not actual or key in used_ref_keys:
+                continue
+            used_ref_keys.add(key)
+            restored_extras.append(actual)
+            if len(restored_extras) >= MAX_EXTRA_REFS:
+                break
+        ds.ref_extra_filenames = json.dumps(restored_extras)
+
+        os.replace(staging_dir, final_dir)
+        promoted = True
+        db.session.commit()
+    except Exception:
+        try:
+            if db_started:
+                db.session.rollback()
+        finally:
+            if promoted and final_dir:
+                shutil.rmtree(final_dir, ignore_errors=True)
+        raise
+    finally:
+        # Exists on extraction/build/promotion failure; after promotion the old path
+        # is already gone.  Never leave hidden partial restores behind.
+        shutil.rmtree(staging_dir, ignore_errors=True)
     logger.info(f"dataset backup restored: '{name}' -> #{ds.id} ({n_rows} image rows)")
     return ds
 

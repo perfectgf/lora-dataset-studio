@@ -277,16 +277,28 @@ def test_backup_roundtrip_restores_everything(app):
         open(os.path.join(d, 'ref.webp'), 'wb').write(_png())
         ds.ref_filename = 'ref.webp'
         ds.best_settings = '{"strength": 0.8}'
+        ds.train_settings = '{"rank": 32, "resolution": 1024}'
+        # Machine-local custom component paths must remain outside portable backups.
+        ds.train_vae_path = r'C:\models\private-vae.safetensors'
+        ds.train_te_path = r'C:\models\private-text-encoder.safetensors'
         open(os.path.join(d, 'a.webp'), 'wb').write(_png((0, 255, 0)))
         svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, filename='a.webp', status='keep',
                                             framing='bust', caption='a green coat',
-                                            face_score=0.61, face_state='scorable'))
+                                            face_score=0.61, face_state='scorable',
+                                            upscale_ratio=1.75,
+                                            watermark_state='detected',
+                                            watermark_bbox='[0.1, 0.2, 0.3, 0.4]'))
         svc.db.session.commit()
         data = svc.build_backup_zip(LOCAL_USER, ds.id)
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            manifest = json.loads(z.read('manifest.json'))
+        assert 'train_vae_path' not in manifest and 'train_te_path' not in manifest
         restored = svc.import_backup_zip(LOCAL_USER, data)
         assert restored.id != ds.id
         assert restored.name == 'Bak' and restored.trigger_word == 'bak'
         assert restored.train_type == 'sdxl' and restored.best_settings == '{"strength": 0.8}'
+        assert restored.train_settings == '{"rank": 32, "resolution": 1024}'
+        assert restored.train_vae_path is None and restored.train_te_path is None
         assert restored.ref_filename == 'ref.webp'
         assert os.path.isfile(os.path.join(svc._dataset_dir(restored.id), 'ref.webp'))
         rows = FaceDatasetImage.query.filter_by(dataset_id=restored.id).all()
@@ -294,6 +306,10 @@ def test_backup_roundtrip_restores_everything(app):
         r = rows[0]
         assert (r.filename, r.status, r.framing, r.caption) == ('a.webp', 'keep', 'bust', 'a green coat')
         assert r.face_score == 0.61 and r.face_state == 'scorable'
+        assert r.upscale_ratio == 1.75
+        assert (r.watermark_state, r.watermark_bbox) == (
+            'detected', '[0.1, 0.2, 0.3, 0.4]',
+        )
         assert os.path.isfile(os.path.join(svc._dataset_dir(restored.id), 'a.webp'))
 
 
@@ -367,6 +383,184 @@ def test_backup_import_rejects_garbage_and_traversal(app):
         assert FaceDatasetImage.query.filter_by(dataset_id=restored.id).count() == 0
         import os
         assert not os.path.exists(os.path.join(svc._dataset_dir(restored.id), '..', '..', 'evil.webp'))
+
+
+def test_backup_extra_refs_cannot_exfiltrate_and_restore_only_real_ref_files(app):
+    import os
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Safe refs export', 'safe_refs_export')
+        dsdir = svc._dataset_dir(ds.id)
+        outside = os.path.join(os.path.dirname(dsdir), 'outside.webp')
+        open(outside, 'wb').write(_png((1, 2, 3)))
+        open(os.path.join(dsdir, 'extra.webp'), 'wb').write(_png((4, 5, 6)))
+        ds.ref_extra_filenames = json.dumps([
+            '../outside.webp', 'extra.webp', 'EXTRA.webp', 'missing.webp',
+        ])
+        svc.db.session.commit()
+
+        data = svc.build_backup_zip(LOCAL_USER, ds.id)
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            assert all('..' not in name for name in z.namelist())
+            assert 'ref/outside.webp' not in z.namelist()
+            manifest = json.loads(z.read('manifest.json'))
+        assert json.loads(manifest['ref_extra_filenames']) == ['extra.webp']
+
+        # A legacy/malicious manifest is rebuilt from files genuinely extracted
+        # from ref/. Missing, traversing, duplicate, and image-only names disappear.
+        legacy = io.BytesIO()
+        with zipfile.ZipFile(legacy, 'w') as z:
+            z.writestr('manifest.json', json.dumps({
+                'format': svc.BACKUP_FORMAT, 'version': 1,
+                'name': 'Safe refs import', 'trigger_word': 'safe_refs_import',
+                'ref_extra_filenames': json.dumps([
+                    '../../secret.webp', 'valid.webp', 'VALID.WEBP',
+                    'missing.webp', 'image-only.webp', 'extra2.webp',
+                    'extra3.webp', 'extra4.webp',
+                ]),
+            }))
+            z.writestr('images.json', '[]')
+            z.writestr('ref/../../secret.webp', _png())
+            z.writestr('ref/valid.webp', _png())
+            z.writestr('ref/extra2.webp', _png())
+            z.writestr('ref/extra3.webp', _png())
+            z.writestr('ref/extra4.webp', _png())
+            z.writestr('images/image-only.webp', _png())
+        restored = svc.import_backup_zip(LOCAL_USER, legacy.getvalue())
+        assert json.loads(restored.ref_extra_filenames) == [
+            'valid.webp', 'extra2.webp', 'extra3.webp',
+        ]
+
+
+def test_backup_train_base_model_drops_absolute_paths_but_keeps_portable_ids(app):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        source = svc.create_dataset(LOCAL_USER, 'Private base', 'private_base')
+        source.train_base_model = r'C:\Users\me\private\model.safetensors'
+        svc.db.session.commit()
+        data = svc.build_backup_zip(LOCAL_USER, source.id)
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            manifest = json.loads(z.read('manifest.json'))
+        assert manifest['train_base_model'] is None
+        assert svc.import_backup_zip(LOCAL_USER, data).train_base_model is None
+
+        cases = (
+            (r'C:\private\windows.safetensors', None),
+            (r'\\server\share\unc.safetensors', None),
+            ('/home/me/private/posix.safetensors', None),
+            ('models/z-image/base.safetensors', 'models/z-image/base.safetensors'),
+            ('black-forest-labs/FLUX.1-dev', 'black-forest-labs/FLUX.1-dev'),
+        )
+        for index, (value, expected) in enumerate(cases):
+            legacy = io.BytesIO()
+            with zipfile.ZipFile(legacy, 'w') as z:
+                z.writestr('manifest.json', json.dumps({
+                    'format': svc.BACKUP_FORMAT, 'version': 1,
+                    'name': f'Legacy model {index}', 'trigger_word': f'legacy_model_{index}',
+                    'train_base_model': value,
+                }))
+                z.writestr('images.json', '[]')
+            restored = svc.import_backup_zip(LOCAL_USER, legacy.getvalue())
+            assert restored.train_base_model == expected
+
+
+def test_backup_restore_rejects_case_insensitive_ref_image_collision(app):
+    import os
+    import pytest
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDataset
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        root = svc.cfg.dataset_images_root()
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as z:
+            z.writestr('manifest.json', json.dumps({
+                'format': svc.BACKUP_FORMAT, 'version': 1,
+                'name': 'Colliding backup', 'trigger_word': 'colliding_backup',
+            }))
+            z.writestr('images.json', '[]')
+            z.writestr('ref/Portrait.webp', _png())
+            z.writestr('images/portrait.WEBP', _png())
+
+        with pytest.raises(ValueError, match='colliding ref/image filename'):
+            svc.import_backup_zip(LOCAL_USER, buf.getvalue())
+        assert FaceDataset.query.filter_by(name='Colliding backup').count() == 0
+        assert os.listdir(root) == []
+
+
+def test_backup_restore_extraction_failure_leaves_no_dataset_or_partial_folder(app, monkeypatch):
+    import os
+    import pytest
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDataset
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        root = svc.cfg.dataset_images_root()
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as z:
+            z.writestr('manifest.json', json.dumps({
+                'format': svc.BACKUP_FORMAT, 'version': 1,
+                'name': 'Atomic extraction', 'trigger_word': 'atomic_extract',
+            }))
+            z.writestr('images.json', json.dumps([
+                {'filename': 'partial.webp', 'status': 'keep'},
+            ]))
+            z.writestr('images/partial.webp', _png())
+
+        def fail_mid_copy(src, dst, _length):
+            dst.write(src.read(8))
+            raise OSError('injected extraction failure')
+
+        monkeypatch.setattr(svc.shutil, 'copyfileobj', fail_mid_copy)
+        with pytest.raises(OSError, match='injected extraction failure'):
+            svc.import_backup_zip(LOCAL_USER, buf.getvalue())
+
+        assert FaceDataset.query.filter_by(name='Atomic extraction').count() == 0
+        assert os.listdir(root) == []
+
+
+def test_backup_restore_commit_failure_rolls_back_promoted_folder(app, monkeypatch):
+    import os
+    import pytest
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDataset
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        root = svc.cfg.dataset_images_root()
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as z:
+            z.writestr('manifest.json', json.dumps({
+                'format': svc.BACKUP_FORMAT, 'version': 1,
+                'name': 'Atomic commit', 'trigger_word': 'atomic_commit',
+            }))
+            z.writestr('images.json', json.dumps([
+                {'filename': 'complete.webp', 'status': 'keep'},
+            ]))
+            z.writestr('images/complete.webp', _png())
+
+        promoted_before_commit = []
+        session = svc.db.session()
+
+        def fail_commit():
+            promoted_before_commit.extend(
+                entry for entry in root.iterdir() if entry.name.isdigit()
+            )
+            raise RuntimeError('injected commit failure')
+
+        monkeypatch.setattr(session, 'commit', fail_commit)
+        with pytest.raises(RuntimeError, match='injected commit failure'):
+            svc.import_backup_zip(LOCAL_USER, buf.getvalue())
+
+        assert promoted_before_commit, 'filesystem promotion must happen before commit'
+        assert FaceDataset.query.filter_by(name='Atomic commit').count() == 0
+        assert os.listdir(root) == []
 
 
 def test_batch_invalid_action_raises(app):

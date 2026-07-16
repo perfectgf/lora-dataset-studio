@@ -1,8 +1,10 @@
 """Launch validation, LEAK-SAFE provisioning (the property that matters),
 stop request, and boot reconciliation. vast_client and the monitor thread are
 always mocked -- no network, no thread started for real."""
-import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+import json
+import threading
 
 import pytest
 
@@ -478,6 +480,75 @@ def test_launch_refuses_same_dataset_twice_even_with_higher_limit(ct, app, clien
         ct.launch_cloud_training('local', ds1)
         with pytest.raises(RuntimeError, match='already has an active .*cloud run'):
             ct.launch_cloud_training('local', ds1)
+
+
+@pytest.mark.parametrize(
+    ('same_dataset', 'limit', 'error_fragment'),
+    [(True, 2, 'already has an active'),
+     (False, 1, 'limit reached')],
+)
+def test_concurrent_launch_reservation_is_atomic(
+        ct, tmp_path, monkeypatch,
+        same_dataset, limit, error_fragment):
+    """Two requests that both pass preflight may reserve exactly one slot.
+
+    The two cases independently cover the per-(dataset, family) invariant and
+    the global max_concurrent_runs cap.  The Barrier makes the old
+    check-then-insert implementation fail deterministically: both requests
+    completed its first guardrail query before either could insert a row.
+    """
+    _fake_export(monkeypatch, ct)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': limit}})
+    # The suite's normal app uses SQLite ``:memory:`` (one shared connection),
+    # which cannot safely execute two thread-local sessions at once. Production
+    # uses a file-backed WAL database, so mirror that here for the concurrency
+    # test instead of accidentally testing StaticPool internals.
+    from app import create_app
+    db_path = tmp_path / 'threaded-cloud-launch.db'
+    threaded_app = create_app({
+        'TESTING': True,
+        'WTF_CSRF_ENABLED': False,
+        'SQLALCHEMY_DATABASE_URI': f'sqlite:///{db_path}',
+    })
+    threaded_client = threaded_app.test_client()
+    first_dataset = threaded_client.post(
+        '/api/dataset/create',
+        json={'name': 'Concurrent A', 'trigger_word': 'concurrent_a'},
+    ).get_json()['id']
+    other_dataset = first_dataset if same_dataset else threaded_client.post(
+        '/api/dataset/create',
+        json={'name': 'Concurrent B', 'trigger_word': 'concurrent_b'},
+    ).get_json()['id']
+    preflight_barrier = threading.Barrier(2, timeout=5)
+    started_monitors = []
+
+    def synchronized_preflight(*_args, **_kwargs):
+        preflight_barrier.wait()
+
+    monkeypatch.setattr(ct.lt, 'assert_trainable', synchronized_preflight)
+    monkeypatch.setattr(ct, '_start_monitor', started_monitors.append)
+
+    def launch(dataset_id):
+        with threaded_app.app_context():
+            try:
+                result = ct.launch_cloud_training(
+                    'local', dataset_id, train_type='zimage')
+                return 'ok', result
+            except RuntimeError as exc:
+                return 'error', str(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(launch, (first_dataset, other_dataset)))
+
+    successes = [value for status, value in results if status == 'ok']
+    failures = [value for status, value in results if status == 'error']
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert error_fragment in failures[0]
+    assert len(started_monitors) == 1
+    with threaded_app.app_context():
+        assert ct.CloudTrainingRun.query.count() == 1
+        assert len(ct.get_active_runs()) == 1
 
 
 def test_request_stop_targets_only_the_given_run(ct, app, client, monkeypatch):

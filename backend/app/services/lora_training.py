@@ -2944,23 +2944,29 @@ def stop_training() -> None:
     """Tue le process d'entraînement (s'il tourne) PUIS lève le flag → le
     superviseur relance ComfyUI. L'ordre compte : si on levait le flag d'abord,
     ComfyUI reprendrait le GPU pendant que l'entraînement tourne encore."""
-    pid = queue_manager._get_system_state('training_pid', None)
-    if pid:
-        try:
-            if os.name == 'nt':
-                # /T tue aussi les sous-process (dataloaders, etc.).
-                subprocess.run(['taskkill', '/F', '/T', '/PID', str(int(pid))],
-                               shell=False, capture_output=True)
-            else:
-                os.kill(int(pid), 15)
-        except (ValueError, OSError) as e:
-            logger.warning(f"stop_training: kill pid {pid} échoué : {e}")
-    # Stop = arrêt voulu : on VIDE la file D'ABORD (sinon le prochain poll
-    # relancerait l'entraînement suivant), PUIS on lève le flag EN DERNIER (c'est
-    # lui qui signale à ComfyUI de reprendre le GPU - l'ordre compte).
-    _save_queue([])
-    queue_manager._set_system_state('training_pid', None, ttl_seconds=None)
-    queue_manager._set_system_state('training_in_progress', False, ttl_seconds=None)
+    # Le verrou couvre TOUTE la transition, lecture/kill du PID compris. Sinon le
+    # watcher peut constater la mort entre le kill et le clear, entrer dans
+    # process_training_queue(), lancer le job suivant, puis voir Stop effacer ses
+    # flags. L'état « process arrêté + file vide + idle » doit devenir visible en
+    # une seule fois aux autres opérations de queue.
+    with _queue_lock:
+        pid = queue_manager._get_system_state('training_pid', None)
+        if pid:
+            try:
+                if os.name == 'nt':
+                    # /T tue aussi les sous-process (dataloaders, etc.).
+                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(int(pid))],
+                                   shell=False, capture_output=True)
+                else:
+                    os.kill(int(pid), 15)
+            except (ValueError, OSError) as e:
+                logger.warning(f"stop_training: kill pid {pid} échoué : {e}")
+        # Stop = arrêt voulu : on VIDE la file D'ABORD (sinon le prochain poll
+        # relancerait l'entraînement suivant), PUIS on lève le flag EN DERNIER
+        # (c'est lui qui signale à ComfyUI de reprendre le GPU).
+        _save_queue([])
+        queue_manager._set_system_state('training_pid', None, ttl_seconds=None)
+        queue_manager._set_system_state('training_in_progress', False, ttl_seconds=None)
 
 
 def _dataset_name(dataset_id):
@@ -3204,6 +3210,13 @@ def training_progress(user_id, dataset_id, base_model=_PERSISTED, family=None) -
 # --- File d'attente d'entraînement -------------------------------------------
 TRAIN_QUEUE_KEY = 'lora_train_queue'
 
+# Sérialise TOUS les read-modify-write de la file dans ce process. Le verrou est
+# réentrant pour que l'avancement de file puisse continuer à appeler des helpers
+# de queue sans risque de deadlock. Les preflights d'enqueue restent volontairement
+# hors du verrou : seule la courte transaction duplicate-check/read/write est
+# critique.
+_queue_lock = threading.RLock()
+
 
 def _pid_alive(pid) -> bool:
     try:
@@ -3302,9 +3315,6 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
     if clash:
         raise ValueError(f"training collision with '{clash.name}' (#{clash.id}): "
                          f"same trigger + same base. Change the trigger_word before queuing.")
-    q = get_train_queue()
-    if any(int(it.get('dataset_id', -1)) == int(dataset_id) for it in q):
-        return {'queued': False, 'reason': 'already queued'}
     # Snapshot de la base/variante/type CHOISIE au moment de la mise en file (le
     # lancement différé doit garder CE choix, pas relancer sur l'officiel/zimage).
     # `not_before` (ISO, heure locale serveur) = entraînement PROGRAMMÉ : le job
@@ -3316,22 +3326,36 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
         steps_target = int(steps) if steps else None
     except (TypeError, ValueError):
         steps_target = None
-    q.append({'dataset_id': int(dataset_id), 'user_id': str(user_id), 'extra_steps': extra_steps,
-              'base_model': base, 'variant': var, 'train_type': ttype,
-              'not_before': not_before, 'masked': bool(masked), 'steps': steps_target,
-              # SDXL custom overrides ride along so the deferred launch reproduces
-              # the exact triplet (they're also persisted on ds above).
-              'vae_path': eff_vae, 'te_path': eff_te,
-              'allow_unverified_weights': bool(allow_unverified_weights)})
-    _save_queue(q)
-    return {'queued': True, 'position': len(q), 'not_before': not_before}
+    item = {'dataset_id': int(dataset_id), 'user_id': str(user_id), 'extra_steps': extra_steps,
+            'base_model': base, 'variant': var, 'train_type': ttype,
+            'not_before': not_before, 'masked': bool(masked), 'steps': steps_target,
+            # SDXL custom overrides ride along so the deferred launch reproduces
+            # the exact triplet (they're also persisted on ds above).
+            'vae_path': eff_vae, 'te_path': eff_te,
+            'allow_unverified_weights': bool(allow_unverified_weights)}
+    # Ne verrouiller qu'après tous les preflights potentiellement coûteux. La
+    # lecture, le contrôle anti-doublon et l'écriture doivent former UNE opération
+    # atomique, sinon deux requêtes concurrentes peuvent perdre un item ou accepter
+    # deux fois le même dataset.
+    with _queue_lock:
+        q = get_train_queue()
+        if any(int(it.get('dataset_id', -1)) == int(dataset_id) for it in q):
+            return {'queued': False, 'reason': 'already queued'}
+        q.append(item)
+        _save_queue(q)
+        position = len(q)
+    return {'queued': True, 'position': position, 'not_before': not_before}
 
 
 def dequeue_training(dataset_id) -> int:
-    q = get_train_queue()
-    new = [it for it in q if int(it.get('dataset_id', -1)) != int(dataset_id)]
-    _save_queue(new)
-    return len(q) - len(new)
+    # Même transaction atomique que l'enqueue : sans le verrou, deux suppressions
+    # simultanées peuvent chacune réécrire leur ancien snapshot et ressusciter
+    # l'item supprimé par l'autre requête.
+    with _queue_lock:
+        q = get_train_queue()
+        new = [it for it in q if int(it.get('dataset_id', -1)) != int(dataset_id)]
+        _save_queue(new)
+        return len(q) - len(new)
 
 
 def train_queue_view(user_id) -> list:
@@ -3370,9 +3394,6 @@ def _launch_queued_item(item) -> None:
                         vae_path=item.get('vae_path', _PERSISTED),
                         te_path=item.get('te_path', _PERSISTED),
                         allow_unverified_weights=bool(item.get('allow_unverified_weights')))
-
-
-_queue_lock = threading.Lock()
 
 
 def process_training_queue() -> str | None:

@@ -37,6 +37,12 @@ ACTIVE_STATES = ('preparing', 'provisioning', 'uploading', 'training',
 _stop_events = {}        # run_id -> threading.Event
 _monitor_threads = {}    # run_id -> threading.Thread
 _auto_retry_lock = threading.Lock()
+# Flask serves requests from multiple threads in the portable app.  SQLite
+# cannot express the two launch invariants (global active-run cap and
+# per-dataset/family uniqueness) as a simple UNIQUE constraint because both
+# depend on a set of non-terminal statuses.  Serialize the final guardrail
+# re-check and reservation row instead, before any monitor can rent a pod.
+_launch_reservation_lock = threading.Lock()
 _UNSET = object()
 _TRAIN_SETTINGS_SNAPSHOT = 'train_settings_snapshot'
 
@@ -66,6 +72,38 @@ def get_active_run():
     runs (or None). Multi-run-aware code uses get_active_runs()."""
     actives = get_active_runs()
     return actives[0] if actives else None
+
+
+def _assert_launch_guardrails(dataset_id, fam):
+    """Raise when a cloud launch cannot reserve an active slot.
+
+    Callers may use this once as a cheap fast-fail before expensive preflight,
+    but the authoritative call must happen while ``_launch_reservation_lock``
+    is held and immediately before inserting the ``preparing`` row.
+    """
+    actives = get_active_runs()
+    limit = max(1, int((cfg.get('cloud.max_concurrent_runs') or 1)))
+    # Uniqueness is per (dataset, family): a zimage run and a krea run may
+    # train the same dataset in parallel. An active run whose family is
+    # unknown (pre-feature row) blocks every family of its dataset, out of
+    # caution.
+    if any(r.dataset_id == dataset_id and (_run_family(r) or fam) == fam
+           for r in actives):
+        raise RuntimeError(f'this dataset already has an active {fam} cloud run')
+    if len(actives) >= limit:
+        raise RuntimeError(
+            f'cloud run limit reached ({len(actives)}/{limit} active) — '
+            'raise cloud.max_concurrent_runs in Settings')
+
+    # Monthly budget: block LAUNCHES only — a running pod is NEVER killed
+    # over budget (that would waste the money already spent on its training).
+    budget = float(cfg.get('cloud.monthly_budget_usd') or 0)
+    if budget > 0:
+        spent = month_spend_usd()
+        if spent >= budget:
+            raise RuntimeError(
+                f'monthly cloud budget reached (${spent:.2f} of ${budget:.2f}) — '
+                'raise cloud.monthly_budget_usd in Settings')
 
 
 def _run_param(run, key):
@@ -326,28 +364,10 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
     if fam == 'flux':
         raise ValueError('FLUX.1 training is local-only for now — '
                          'cloud training supports Z-Image, Krea and FLUX.2 Klein')
-    actives = get_active_runs()
-    limit = max(1, int((cfg.get('cloud.max_concurrent_runs') or 1)))
-    # Uniqueness is per (dataset, family): a zimage run and a krea run may
-    # train the same dataset in parallel. An active run whose family is
-    # unknown (pre-feature row, or the 'preparing' window before the params
-    # are stamped) blocks every family of its dataset, out of caution.
-    if any(r.dataset_id == dataset_id and (_run_family(r) or fam) == fam
-           for r in actives):
-        raise RuntimeError(f'this dataset already has an active {fam} cloud run')
-    if len(actives) >= limit:
-        raise RuntimeError(
-            f'cloud run limit reached ({len(actives)}/{limit} active) — '
-            'raise cloud.max_concurrent_runs in Settings')
-    # Monthly budget: block LAUNCHES only — a running pod is NEVER killed
-    # over budget (that would waste the money already spent on its training).
-    budget = float(cfg.get('cloud.monthly_budget_usd') or 0)
-    if budget > 0:
-        spent = month_spend_usd()
-        if spent >= budget:
-            raise RuntimeError(
-                f'monthly cloud budget reached (${spent:.2f} of ${budget:.2f}) — '
-                'raise cloud.monthly_budget_usd in Settings')
+    # Cheap fast-fail before the image/caption preflight below. This read is
+    # intentionally advisory: another Flask request can reserve a slot after
+    # it, so the same checks are repeated atomically at reservation time.
+    _assert_launch_guardrails(dataset_id, fam)
 
     # Same caption-mismatch preflight as launch_training (MISMATCH_CAPTION
     # contract): assert_trainable is ALREADY a standalone helper in
@@ -358,10 +378,20 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model='',
                         allow_caption_mismatch=allow_caption_mismatch,
                         allow_uncaptioned=allow_uncaptioned)
 
-    run = CloudTrainingRun(dataset_id=dataset_id, status='preparing',
-                           run_name=lt._run_name(ds, family=fam))
-    db.session.add(run)
-    db.session.commit()
+    run_name = lt._run_name(ds, family=fam)
+    with _launch_reservation_lock:
+        # Authoritative re-check + insert. Keeping the commit inside this
+        # process-wide critical section means a second request always sees the
+        # first request's preparing row before it can reserve or rent a pod.
+        _assert_launch_guardrails(dataset_id, fam)
+        run = CloudTrainingRun(
+            dataset_id=dataset_id, status='preparing', run_name=run_name,
+            # Stamp the family in the reservation itself. Without this, the
+            # short window before the complete params are saved would make a
+            # legitimate second-family launch look like an unknown-family run.
+            train_params=json.dumps({'train_type': fam}))
+        db.session.add(run)
+        db.session.commit()
     try:
         # Anything failing past this point (params, thread start) must not
         # strand the 'preparing' row forever — that would deadlock the
