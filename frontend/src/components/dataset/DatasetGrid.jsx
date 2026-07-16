@@ -168,7 +168,8 @@ function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy }) {
 }
 
 export default function DatasetGrid({ images, datasetId, onStatus, onCaption, onCrop, onDelete,
-                                      onRegenerate, onView, onBatch, busy, nonces, faceThresholds }) {
+                                      onMirror, onRegenerate, onView, onBatch, busy, nonces,
+                                      mirroringIds, faceThresholds }) {
   const [selected, setSelected] = useState(() => new Set());
   // Prune ids that vanished (deleted / poll refresh) so stale selections can't act.
   useEffect(() => {
@@ -264,7 +265,9 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
       <div className={`grid ${TILE_SIZE_COLS[tileSize]} gap-2`}>
         {images.map((img) => (
           <DatasetGridItem key={img.id} img={img} datasetId={datasetId} onStatus={onStatus} onCaption={onCaption}
-            onCrop={onCrop} onDelete={onDelete} onRegenerate={onRegenerate} onView={onView}
+            onCrop={onCrop} onDelete={onDelete} onMirror={onMirror}
+            mirrorBusy={Boolean(mirroringIds?.has(img.id))} busy={busy}
+            onRegenerate={onRegenerate} onView={onView}
             selected={selected.has(img.id)}
             onToggleSelect={onBatch && !isSmallImageRescueRow(img) ? toggle : undefined}
             nonce={(nonces && nonces[img.id]) || 0} faceThresholds={faceThresholds} tileSize={tileSize} />

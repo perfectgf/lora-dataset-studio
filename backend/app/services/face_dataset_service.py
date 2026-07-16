@@ -15,13 +15,14 @@ import os
 import posixpath
 import re
 import shutil
+import tempfile
 import threading
 import time
 import uuid
 import zipfile
 from urllib.parse import urlsplit
 
-from PIL import Image
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from ..extensions import db
 from ..models import FaceDataset, FaceDatasetImage, LoraTestImage
@@ -120,6 +121,10 @@ _SMALL_IMAGE_DERIVATIONS = (SMALL_IMAGE_SOURCE, KLEIN_SMALL_IMAGE)
 # section.  In particular, a second simultaneous lightbox click waits until the
 # first row has its job_id, then takes the idempotent return path below.
 _IMAGE_IMPROVE_LOCKS = tuple(threading.Lock() for _ in range(64))
+# A mirror is a toggle: two requests for the same image must run in order (two
+# clicks restore the original orientation), not both read the same source pixels
+# and race to promote an identical result.  Stripes avoid an unbounded lock map.
+_IMAGE_MIRROR_LOCKS = tuple(threading.Lock() for _ in range(64))
 
 
 class KleinNodesMissing(Exception):
@@ -694,6 +699,176 @@ def crop_image(user_id, image_id, x, y, w, h):
         img.upscale_ratio = scale
         db.session.commit()
     return ok
+
+
+def _valid_icc_profile(raw):
+    """Return an ICC payload only when LittleCMS can parse it.
+
+    Pillow will otherwise copy arbitrary bytes into the rewritten image, and some
+    encoders fail late on malformed profiles.  ICC is the one embedded metadata
+    item worth retaining here (colour rendering); EXIF orientation is deliberately
+    baked into the pixels by ``ImageOps.exif_transpose`` and must not be reattached.
+    """
+    if not isinstance(raw, (bytes, bytearray)) or not raw:
+        return None
+    try:
+        from PIL import ImageCms
+        ImageCms.getOpenProfile(io.BytesIO(raw))
+    except Exception:
+        return None
+    return bytes(raw)
+
+
+def _mirrored_image_bytes(path):
+    """Prepare a horizontal mirror fully in memory without touching ``path``.
+
+    Dataset rows normally point at WEBP files, but restored/legacy datasets may
+    contain PNG or JPEG bytes (even under a misleading extension).  Preserve the
+    format Pillow actually detects: PNG stays lossless, WEBP is rewritten lossless
+    so repeated toggles do not accumulate damage, and JPEG uses high-quality 4:4:4.
+    """
+    try:
+        with Image.open(path) as src:
+            fmt = (src.format or '').upper()
+            if fmt not in {'PNG', 'WEBP', 'JPEG'}:
+                raise ValueError(f'unsupported image format: {fmt or "unknown"}')
+            if getattr(src, 'n_frames', 1) != 1:
+                raise ValueError('animated images are not supported')
+            src.load()
+            icc = _valid_icc_profile(src.info.get('icc_profile'))
+            oriented = ImageOps.exif_transpose(src)
+            mirrored = ImageOps.mirror(oriented)
+
+            save_kwargs = {}
+            if icc:
+                save_kwargs['icc_profile'] = icc
+            if fmt == 'PNG':
+                # Keep the native PNG mode/bit depth and use only lossless DEFLATE.
+                save_kwargs.update(compress_level=6)
+            elif fmt == 'WEBP':
+                # WEBP input can carry alpha; RGB(A) preserves it while avoiding
+                # encoder-dependent conversions for unusual legacy modes.
+                has_alpha = 'A' in mirrored.getbands()
+                mirrored = mirrored.convert('RGBA' if has_alpha else 'RGB')
+                save_kwargs.update(lossless=True, quality=100, method=6)
+            else:  # JPEG
+                mirrored = mirrored.convert('RGB')
+                save_kwargs.update(quality=95, subsampling=0, optimize=True)
+
+            out = io.BytesIO()
+            mirrored.save(out, fmt, **save_kwargs)
+            payload = out.getvalue()
+            expected_size = mirrored.size
+    except ValueError:
+        raise
+    except (UnidentifiedImageError, OSError, SyntaxError) as e:
+        raise ValueError('invalid image file') from e
+
+    # Decode the exact encoded result before it is allowed near the live path.
+    try:
+        with Image.open(io.BytesIO(payload)) as check:
+            check.load()
+            if (check.format or '').upper() != fmt or check.size != expected_size:
+                raise OSError('encoded mirror validation failed')
+    except (UnidentifiedImageError, OSError, SyntaxError) as e:
+        raise ValueError('could not encode mirrored image') from e
+    return payload
+
+
+def mirror_image(user_id, image_id):
+    """Permanently mirror one owned dataset image horizontally.
+
+    Returns ``None`` for an unknown/foreign row, otherwise a cache-bust payload.
+    The filename and all semantic/provenance metadata remain stable.  Only
+    watermark metadata is cleared because its pixel coordinates are no longer
+    valid after a horizontal flip.
+    """
+    lock = _IMAGE_MIRROR_LOCKS[
+        hash((str(user_id), image_id)) % len(_IMAGE_MIRROR_LOCKS)]
+    with lock:
+        img = _owned_image(user_id, image_id)
+        if not img:
+            return None
+        if not img.filename:
+            raise ValueError('image file required')
+        path = _img_path(img)
+        if not os.path.isfile(path):
+            raise RuntimeError('image file missing')
+
+        try:
+            before = os.stat(path)
+            payload = _mirrored_image_bytes(path)
+        except ValueError:
+            raise
+        except OSError as e:
+            raise RuntimeError('could not read image file') from e
+
+        tmp_path = None
+        try:
+            try:
+                fd, tmp_path = tempfile.mkstemp(
+                    prefix=f'.{os.path.basename(path)}.mirror-', suffix='.tmp',
+                    dir=os.path.dirname(path),
+                )
+                with os.fdopen(fd, 'wb') as fh:
+                    fh.write(payload)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                # Validate the on-disk temp as well as the in-memory encoding.
+                with Image.open(tmp_path) as check:
+                    check.verify()
+            except (UnidentifiedImageError, OSError, SyntaxError) as e:
+                raise RuntimeError('could not prepare mirrored image') from e
+
+            # Do not overwrite a crop/clean that raced this preparation outside
+            # the mirror lock.  (All mirror requests themselves are serialized.)
+            try:
+                current = os.stat(path)
+            except OSError as e:
+                raise RuntimeError('image file missing') from e
+            if (current.st_mtime_ns, current.st_size) != (before.st_mtime_ns, before.st_size):
+                raise RuntimeError('image changed while mirroring; retry')
+
+            watermark_snapshot = (
+                img.watermark_state, img.watermark_bbox, img.watermark_regions)
+            watermark_changed = any(value is not None for value in watermark_snapshot)
+            if watermark_changed:
+                _clear_watermark_metadata(img)
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    raise
+
+            try:
+                # Same-directory replacement is atomic; the original remains live
+                # until this single operation succeeds.
+                os.replace(tmp_path, path)
+                tmp_path = None
+            except OSError as e:
+                if watermark_changed:
+                    (img.watermark_state, img.watermark_bbox,
+                     img.watermark_regions) = watermark_snapshot
+                    try:
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+                        logger.exception(
+                            'failed to restore watermark metadata after mirror promotion failure')
+                raise RuntimeError('could not update image file') from e
+
+            return {
+                'image_id': img.id,
+                # A request token is intentionally independent of filename and
+                # HTTP Last-Modified granularity; the frontend appends it to ?v=.
+                'cache_bust': time.time_ns(),
+            }
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    logger.warning('could not remove mirror temp file %s', tmp_path)
 
 
 def delete_image(user_id, image_id):

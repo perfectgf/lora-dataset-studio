@@ -771,6 +771,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
               ) : (
                 <DatasetGrid images={gridImages} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}
                   onCrop={setCropImg} onDelete={ds.deleteImage}
+                  onMirror={ds.mirrorImage} mirroringIds={ds.mirroringIds}
                   onRegenerate={(id, loraStrength, prompt) => ds.regenerate(id, loraStrength, prompt)} onView={setViewImg}
                   onBatch={ds.batchImages} busy={ds.busy}
                   nonces={ds.nonces} faceThresholds={d.face_thresholds} />
@@ -1324,7 +1325,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
       </div>{/* /workspace grid */}
 
       {cropImg && cropImg.filename && (
-        <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(cropImg.filename)}`}
+        <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(cropImg.filename)}${
+          ds.nonces?.[cropImg.id] ? `?v=${ds.nonces[cropImg.id]}` : ''}`}
           onCancel={() => setCropImg(null)}
           onConfirm={async (box) => { await ds.crop(cropImg.id, box); setCropImg(null); }} />
       )}
@@ -1344,6 +1346,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
         <DatasetLightbox img={viewImgLive} datasetId={d.id}
           nonce={(ds.nonces && ds.nonces[viewImgLive.id]) || 0}
           onClose={() => setViewImg(null)}
+          onMirror={viewImgLive._rescueReviewPreview ? undefined : ds.mirrorImage}
+          mirrorBusy={Boolean(ds.mirroringIds?.has(viewImgLive.id))}
           onImprove={canImproveViewImg ? ds.improveImage : undefined}
           improvePending={viewImgImproving}
           improveReady={viewImgImprovementReady}

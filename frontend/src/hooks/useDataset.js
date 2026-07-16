@@ -104,6 +104,12 @@ export function useDataset() {
   // Per-image cache-bust versions (M1): only the cropped image reloads,
   // plus a separate version counter for the reference photo.
   const [nonces, setNonces] = useState({});
+  // A horizontal mirror rewrites one image in place. Keep its busy state scoped
+  // to that image so other tiles remain usable, and keep a synchronous ref guard
+  // so a rapid double-click cannot enqueue the same rewrite twice before React
+  // has rendered the disabled button.
+  const [mirroringIds, setMirroringIds] = useState(() => new Set());
+  const mirroringRef = useRef(new Set());
   const [refNonce, setRefNonce] = useState(0);
   const pollRef = useRef(null);
   const busyRef = useRef(false); // re-entrancy guard for GPU-bound actions (I2)
@@ -561,6 +567,32 @@ export function useDataset() {
     await refresh();
   }, [refresh, toast]);
 
+  const mirrorImage = useCallback(async (imageId) => {
+    if (mirroringRef.current.has(imageId)) return false;
+    mirroringRef.current.add(imageId);
+    setMirroringIds((previous) => new Set(previous).add(imageId));
+    try {
+      const d = await postJson(`/api/dataset/image/${imageId}/mirror`, {});
+      if (!d.ok) {
+        toast.error(d.error || 'Could not mirror the image');
+        return false;
+      }
+      await refresh();
+      // The filename does not change, so force only this tile/lightbox/crop
+      // editor to request the rewritten pixels instead of its cached response.
+      setNonces((m) => ({ ...m, [imageId]: (m[imageId] || 0) + 1 }));
+      toast.success('Image mirrored horizontally');
+      return true;
+    } finally {
+      mirroringRef.current.delete(imageId);
+      setMirroringIds((previous) => {
+        const next = new Set(previous);
+        next.delete(imageId);
+        return next;
+      });
+    }
+  }, [refresh, toast]);
+
   const crop = useCallback(async (imageId, box) => {
     const d = await postJson(`/api/dataset/image/${imageId}/crop`, box);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -850,10 +882,10 @@ export function useDataset() {
 
   return { datasets, currentId, data, busy: busyLive, localBusy: busy, captioning: captioningLive,
            analyzing: analyzingLive, watermarking: watermarkingLive, activity,
-           nonces, refNonce, create, open,
+           nonces, mirroringIds, refNonce, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, classify, caption, recaption,
-           setStatus, setCaption, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
+           setStatus, setCaption, mirrorImage, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
            findWatermarks, cleanWatermarks, cleanWatermarkImages, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,

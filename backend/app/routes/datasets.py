@@ -775,6 +775,18 @@ def dataset_image_crop(image_id):
     return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
 
 
+@bp.post('/dataset/image/<int:image_id>/mirror')
+def dataset_image_mirror(image_id):
+    """Permanently flip one owned dataset image horizontally in place."""
+    try:
+        result = svc.mirror_image(LOCAL_USER, image_id)
+    except Exception as e:
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
+
+
 @bp.get('/dataset/<int:dataset_id>/export')
 def dataset_export(dataset_id):
     try:
