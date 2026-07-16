@@ -301,6 +301,59 @@ def test_lora_test_prompt_delete_ungated_when_comfyui_down(client, monkeypatch):
     assert resp.get_json() == {'ok': True, 'deleted': 0}
 
 
+# --- export-grid: compose one run into a shareable image ---------------------
+
+def _seed_done_cell(client, ds_id, *, filename='cell.png', aspect='16:9', run_seed=77):
+    """Create a done LoraTestImage row + its on-disk fixture tile for `ds_id`."""
+    import os
+    from PIL import Image
+    with client.application.app_context():
+        from app.services import face_dataset_service as svc
+        from app.models import LoraTestImage
+        ds_dir = svc._dataset_dir(ds_id)
+        os.makedirs(ds_dir, exist_ok=True)
+        Image.new('RGB', (64, 36), (80, 90, 120)).save(os.path.join(ds_dir, filename))
+        svc.db.session.add(LoraTestImage(
+            dataset_id=ds_id, checkpoint='z image\\lora_nova_000002000.safetensors',
+            strength=1.0, aspect=aspect, filename=filename, status='done',
+            run_seed=run_seed, seed=run_seed, prompt='p', cfg=1.0, steps=12))
+        svc.db.session.commit()
+
+
+def test_export_grid_unknown_dataset_404(client):
+    resp = client.post('/api/dataset/999999/lora-test/export-grid', json={})
+    assert resp.status_code == 404
+
+
+def test_export_grid_empty_run_returns_409(client):
+    ds_id = _create(client)
+    resp = client.post(f'/api/dataset/{ds_id}/lora-test/export-grid', json={})
+    assert resp.status_code == 409
+    assert 'export' in resp.get_json()['error'].lower()
+
+
+def test_export_grid_ungated_when_comfyui_down(client, monkeypatch):
+    """Composition is DB + PIL only — it must work with ComfyUI offline."""
+    _comfy(monkeypatch, False)
+    ds_id = _create(client)
+    _seed_done_cell(client, ds_id)
+    resp = client.post(f'/api/dataset/{ds_id}/lora-test/export-grid', json={})
+    assert resp.status_code == 200
+    assert resp.mimetype == 'image/jpeg'
+    assert resp.data[:3] == b'\xff\xd8\xff'
+    assert resp.headers['Content-Disposition'].startswith('attachment;')
+    assert resp.headers['X-Grid-Downscaled'] in ('0', '1')
+
+
+def test_export_grid_png_format_option(client):
+    ds_id = _create(client)
+    _seed_done_cell(client, ds_id)
+    resp = client.post(f'/api/dataset/{ds_id}/lora-test/export-grid',
+                       json={'format': 'png'})
+    assert resp.status_code == 200
+    assert resp.mimetype == 'image/png' and resp.data[:4] == b'\x89PNG'
+
+
 # --- /api/index_config: deterministic field inventory ------------------------
 
 def test_index_config_returns_documented_fields(client):

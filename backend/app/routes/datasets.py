@@ -18,6 +18,7 @@ from ..gpu_window import gpu_exclusive_vision_window
 from ..services import face_dataset_service as svc
 from ..services.dataset_storage import dataset_path, ensure_dataset_dir
 from ..services import lora_test_studio as lts
+from ..services import studio_grid_export as sge
 from ..services.face_variations import (NSFW_VARIATION_CATALOG, VARIATION_CATALOG,
                                         is_nsfw_label, select_preset)
 from ..utils.comfyui import KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS, get_krea_loras
@@ -1058,6 +1059,39 @@ def lora_test_score_faces(dataset_id):
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True, **res})
+
+
+@bp.post('/dataset/<int:dataset_id>/lora-test/export-grid')
+def lora_test_export_grid(dataset_id):
+    """Compose ONE run's checkpoint × strength grid into a single shareable image
+    (labels + FORMAT headers baked in) and stream it as a browser download — the
+    classic XY plot, clean, ready for Civitai/Reddit.
+
+    DB-only + PIL (no ComfyUI, so ungated). Body: {family, run_seed, prompt (run
+    identity — null = most recent run), aspect ('16:9'… or 'all'), include_prompt
+    (default false — prompts can be personal/NSFW), cell_size (512|768), format
+    ('jpeg'|'png'), footer (bool)}. 404 unknown dataset ; 409 empty/unknown run."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    d = request.get_json(silent=True) or {}
+    try:
+        data, mime, meta = sge.export_grid(
+            LOCAL_USER, dataset_id,
+            family=d.get('family'), run_seed=d.get('run_seed'), prompt=d.get('prompt'),
+            aspect=d.get('aspect'), include_prompt=bool(d.get('include_prompt')),
+            cell_size=d.get('cell_size'), fmt=d.get('format'),
+            footer=d.get('footer', True))
+    except sge.GridExportEmpty as e:
+        return jsonify({'error': str(e)}), 409
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    resp = current_app.response_class(data, mimetype=mime)
+    resp.headers['Content-Disposition'] = f'attachment; filename="{meta["download_name"]}"'
+    resp.headers['Content-Length'] = str(len(data))
+    # Surface the cap decision so the UI can note « downscaled to fit » after the fact.
+    resp.headers['X-Grid-Downscaled'] = '1' if meta['downscaled'] else '0'
+    resp.headers['X-Grid-Size'] = f'{meta["width"]}x{meta["height"]}'
+    return resp
 
 
 @bp.get('/index_config')

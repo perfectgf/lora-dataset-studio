@@ -10,12 +10,15 @@ import { useMemo, useState } from 'react';
 import { fmt } from '../../../utils/studioFormat';
 import RunSelector from './RunSelector';
 import ResultsGrid from './ResultsGrid';
+import ExportGridModal from './ExportGridModal';
 
 export default function ResultsArea({ datasetId, d, studio, vote, onOpen }) {
   // Repli des grilles de résultats (pour ne pas encombrer la page).
   const [showResults, setShowResults] = useState(true);
   // Run sélectionné (null = run le plus récent par défaut).
   const [selRun, setSelRun] = useState(null);
+  // Modale « Export grid » (compose le run affiché en UNE image partageable).
+  const [exportOpen, setExportOpen] = useState(false);
 
   // --- Regroupement par RUN (un lancement = même seed + prompt + modèle). On
   // n'affiche que le run sélectionné (le plus récent par défaut) pour ne pas
@@ -101,6 +104,13 @@ export default function ResultsArea({ datasetId, d, studio, vote, onOpen }) {
     return [...set].sort((a, b) => a - b);
   }, [displayedCells]);  // dépend des cellules affichées (pas de d) — sinon colonnes figées au changement de run
 
+  // Run actif (objet) + axes présents pour la modale d'export.
+  const activeRun = useMemo(() => runs.find((r) => r.key === activeRunKey) || null, [runs, activeRunKey]);
+  const exportAspects = useMemo(
+    () => [...new Set(displayedCells.map((c) => c.aspect).filter(Boolean))].sort(),
+    [displayedCells]);
+  const canExport = displayedCells.some((c) => c.status === 'done' && c.filename);
+
   // --- Mode vote rapide : enchaîne les images non votées (swipe / 👍 / 👎) ----
   const unvoted = displayedCells.filter((c) => c.status === 'done' && c.filename && !c.rating);
   // 2e passe : revoter UNIQUEMENT les 👍 pour resserrer (un 👎 les bascule rouge,
@@ -122,6 +132,8 @@ export default function ResultsArea({ datasetId, d, studio, vote, onOpen }) {
         displayedCount={displayedCells.length}
         showResults={showResults}
         onToggleResults={() => setShowResults((v) => !v)}
+        canExport={canExport}
+        onExport={() => setExportOpen(true)}
       />
       {showResults && (
         <ResultsGrid
@@ -137,6 +149,16 @@ export default function ResultsArea({ datasetId, d, studio, vote, onOpen }) {
           fmt={fmt}
         />
       )}
+      <ExportGridModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        datasetId={datasetId}
+        family={d.family}
+        run={activeRun}
+        aspects={exportAspects}
+        rows={gridRows.length}
+        cols={gridCols.length}
+      />
     </div>
   );
 }

@@ -15,6 +15,8 @@ export default function RunSelector({
   displayedCount,
   showResults,
   onToggleResults,
+  canExport,
+  onExport,
 }) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -38,6 +40,11 @@ export default function RunSelector({
           ♻️ Re-vote 👍 ({greenCount})
         </button>
       )}
+      <button type="button" onClick={onExport} disabled={!canExport}
+        title={canExport ? 'Compose this run into one shareable image (checkpoints × strengths)' : 'No finished image to export yet'}
+        className="px-2.5 py-1 rounded-lg border border-border bg-surface text-content-muted text-[0.6875rem] font-semibold hover:text-content disabled:opacity-40 disabled:cursor-not-allowed">
+        🖼 Export grid
+      </button>
       {runs.length > 1 && (
         <select value={activeRunKey || ''} onChange={(e) => onSelect(e.target.value)}
           aria-label="Choose the test run to display"
