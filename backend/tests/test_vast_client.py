@@ -67,6 +67,25 @@ def test_search_offers_quality_filters_and_host_fields(vc, monkeypatch):
     assert offers[0]['reliability'] == 0.997
 
 
+def test_search_offers_optional_trust_filters(vc, monkeypatch):
+    seen = []
+
+    def fake_request(method, url, **kw):
+        seen.append(kw['json'])
+        return FakeResp(200, {'offers': []})
+
+    monkeypatch.setattr(vc.requests, 'request', fake_request)
+    vc.search_offers(min_vram_gb=24, max_dph=0.8,
+                     verified_only=False, secure_cloud_only=False)
+    vc.search_offers(min_vram_gb=24, max_dph=0.8,
+                     verified_only=True, secure_cloud_only=True)
+
+    assert 'verified' not in seen[0]
+    assert 'datacenter' not in seen[0]
+    assert seen[1]['verified'] == {'eq': True}
+    assert seen[1]['datacenter'] == {'eq': True}
+
+
 def test_create_instance_returns_contract_id(vc, monkeypatch):
     seen = {}
 

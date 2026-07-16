@@ -908,6 +908,28 @@ def test_gpu_tiers_groups_ranks_and_estimates(ct, app, seeded_dataset, monkeypat
         assert all(t['est_cost'] is not None and t['est_minutes'] > 0 for t in tiers)
 
 
+def test_trust_filters_apply_to_picker_and_provision(ct, app, seeded_dataset, monkeypatch):
+    """The picker and the later rental search must use the same saved filters."""
+    _fake_export(monkeypatch, ct)
+    searches = []
+    monkeypatch.setattr(ct.vast_client, 'search_offers',
+                        lambda **kw: searches.append(kw) or _offers_multi())
+    monkeypatch.setattr(ct.vast_client, 'create_instance', lambda *a, **kw: '777')
+
+    with app.app_context():
+        ct.cfg.save_config({'cloud': {
+            'verified_only': False,
+            'secure_cloud_only': True,
+        }})
+        ct.gpu_tiers('local', seeded_dataset, train_type='krea')
+        ct.launch_cloud_training('local', seeded_dataset, train_type='krea')
+        ct._provision(ct.get_active_run())
+
+    assert len(searches) == 2
+    assert all(search['verified_only'] is False for search in searches)
+    assert all(search['secure_cloud_only'] is True for search in searches)
+
+
 def test_gpu_tiers_flags_tiers_slower_than_the_runtime_cap(ct, app, seeded_dataset, monkeypatch):
     """A 3090 doing 6000 krea steps (~15 h measured rate) blows the 8 h cap —
     the tier must say so BEFORE the user rents it; a 5090 fits."""

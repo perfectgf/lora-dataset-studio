@@ -729,7 +729,9 @@ def _provision(run):
         min_vram_gb=min_vram, max_dph=c.get('max_price_per_hour', 0.80),
         min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0),
         min_reliability=float(c.get('min_reliability') or 0.98),
-        min_disk_bw_mbps=int(c.get('min_disk_bw_mbps') or 0))
+        min_disk_bw_mbps=int(c.get('min_disk_bw_mbps') or 0),
+        verified_only=bool(c.get('verified_only', True)),
+        secure_cloud_only=bool(c.get('secure_cloud_only', False)))
     if not offers:
         raise RuntimeError(
             f'no vast.ai offer matches (>= {min_vram} GB VRAM, '
@@ -1677,7 +1679,9 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None) -> dict:
         limit=int(c.get('offer_scan_limit') or 100),
         min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0),
         min_reliability=float(c.get('min_reliability') or 0.98),
-        min_disk_bw_mbps=int(c.get('min_disk_bw_mbps') or 0)))
+        min_disk_bw_mbps=int(c.get('min_disk_bw_mbps') or 0),
+        verified_only=bool(c.get('verified_only', True)),
+        secure_cloud_only=bool(c.get('secure_cloud_only', False))))
     cheapest_by_gpu = {}
     for o in offers:
         name = o.get('gpu_name') or 'GPU'

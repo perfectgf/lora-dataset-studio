@@ -59,6 +59,8 @@
     "min_inet_down_mbps": 400,
     "min_disk_bw_mbps": 500,
     "min_reliability": 0.98,
+    "verified_only": true,
+    "secure_cloud_only": false,
     "host_blacklist_days": 3,
     "ready_timeout_minutes": 25
   },

@@ -47,11 +47,39 @@ const VAST_SECRET = {
   guide: <VastKeyGuide />,
 }
 
+function CloudOfferFilter({ id, label, help, checked, onChange }) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-surface-raised px-3 py-2.5">
+      <div>
+        <p id={`${id}-label`} className="text-sm font-medium text-content">{label}</p>
+        <p id={`${id}-help`} className="mt-0.5 text-xs text-content-muted">{help}</p>
+      </div>
+      <button
+        id={id}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-labelledby={`${id}-label`}
+        aria-describedby={`${id}-help`}
+        onClick={() => onChange(!checked)}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-emerald-500' : 'border border-border-strong bg-surface'}`}
+      >
+        <span
+          aria-hidden
+          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`}
+        />
+      </button>
+    </div>
+  )
+}
+
 /* Cloud training limits: concurrency cap, offer price ceiling, monthly budget
    and the stall watchdog timeout. Fetches the cloud status ONCE on mount for
    the "Spent this month" info line — no poll, this page is not a dashboard. */
 function CloudTrainingCard({ config, setField }) {
   const [spend, setSpend] = useState(null)
+  const verifiedOnly = config.cloud?.verified_only ?? true
+  const secureCloudOnly = config.cloud?.secure_cloud_only ?? false
   useEffect(() => {
     let alive = true
     // Raw fetch (not apiFetch): this info line is best-effort — a transient
@@ -141,6 +169,25 @@ function CloudTrainingCard({ config, setField }) {
           <p className="mt-1 text-[0.6875rem] text-content-subtle">
             Lower it (e.g. 0.95) to surface cheaper hosts in the GPU picker — at a higher risk of a pod that never boots (≈ a few wasted cents, auto-cleaned).
           </p>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-content">GPU offer filters</p>
+        <div className="grid gap-2 lg:grid-cols-2">
+          <CloudOfferFilter
+            id="cloud-verified-only"
+            label="Verified hosts only"
+            help="Only show hosts verified by vast.ai. Recommended; turning this off can reveal more or cheaper offers, with more host risk."
+            checked={verifiedOnly}
+            onChange={(value) => setField('cloud', 'verified_only', value)}
+          />
+          <CloudOfferFilter
+            id="cloud-secure-cloud-only"
+            label="Secure Cloud only"
+            help="Only show offers marked Secure Cloud by vast.ai. This excludes Community Cloud machines, so availability may be lower and prices higher."
+            checked={secureCloudOnly}
+            onChange={(value) => setField('cloud', 'secure_cloud_only', value)}
+          />
         </div>
       </div>
       {spend != null && (

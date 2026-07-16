@@ -13,6 +13,8 @@ def test_cloud_defaults_present(app):
     assert cfg.get('cloud.min_inet_down_mbps') == 400
     assert cfg.get('cloud.min_disk_bw_mbps') == 500
     assert cfg.get('cloud.min_reliability') == 0.98
+    assert cfg.get('cloud.verified_only') is True
+    assert cfg.get('cloud.secure_cloud_only') is False
     assert cfg.get('cloud.host_blacklist_days') == 3
     assert cfg.get('cloud.ready_timeout_minutes') == 25
     # 480 (not 240): the stall watchdog is the first line of defense now,

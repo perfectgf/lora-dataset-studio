@@ -35,9 +35,14 @@ def _request(method, path, *, base=API_BASE, **kwargs):
 
 def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20,
                   min_inet_down_mbps: int = 0, min_reliability: float = 0.95,
-                  min_disk_bw_mbps: int = 0) -> list:
-    """Verified-datacenter offers with enough VRAM under the price cap,
-    cheapest first. gpu_ram is expressed in MB on the vast side. inet_down
+                  min_disk_bw_mbps: int = 0, verified_only: bool = True,
+                  secure_cloud_only: bool = False) -> list:
+    """Offers matching the configured trust tier and resource constraints.
+
+    Vast calls its normal host trust flag ``verified`` and exposes Secure
+    Cloud as the ``datacenter`` search field.  Omitting either predicate means
+    "any tier"; it does not mean the inverse tier.  gpu_ram is expressed in MB
+    on the vast side. inet_down
     (Mbps) filters out hosts whose registry pull of the ~7 GB image would eat
     the whole boot budget (observed live: a retry-looping host on 2026-07-12);
     disk_bw (MB/s) filters out hosts too slow to EXTRACT it (a 5090 host froze
@@ -45,13 +50,16 @@ def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20,
     body = {
         'gpu_ram': {'gte': int(min_vram_gb) * 1024},
         'reliability': {'gte': float(min_reliability)},
-        'verified': {'eq': True},
         'rentable': {'eq': True},
         'dph_total': {'lte': float(max_dph)},
         'num_gpus': {'eq': 1},
         'type': 'ondemand',
         'limit': int(limit),
     }
+    if verified_only:
+        body['verified'] = {'eq': True}
+    if secure_cloud_only:
+        body['datacenter'] = {'eq': True}
     if min_inet_down_mbps:
         body['inet_down'] = {'gte': int(min_inet_down_mbps)}
     if min_disk_bw_mbps:
