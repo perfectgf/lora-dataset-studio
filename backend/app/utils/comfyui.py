@@ -1289,9 +1289,12 @@ def inject_krea_loras(workflow, requested, allowed, unet_node="20", consumers=("
     repoint its model consumers (KSampler node 26) to the end of the chain.
 
     `requested` = [{filename, strength}], `allowed` = whitelist of filenames
-    (path-injection guard). Strength clamped to [0.0, 20.0] — garde anti-absurde
+    (path-injection guard). Strength clamped to [-2.0, 20.0] — garde anti-absurde
     seulement : la plage UX (6 en général, 20 pour les LoRA utility type
     filter-bypass qui n'agissent qu'à strength >10) est portée par le slider front.
+    Négatif autorisé (tire un slider LoRA vers son pôle négatif — même plancher
+    que Z-Image/SDXL) ; les LoRA always-on restent clampés ≥0 EN AMONT par leurs
+    appelants (lora_test_studio), donc ce plancher ne les élargit pas.
     Returns the number of LoRAs injected; 0 leaves the workflow untouched.
     Independent of the conditioning rebalance (node 30), on the prompt path."""
     if unet_node not in workflow or not isinstance(requested, list):
@@ -1305,7 +1308,7 @@ def inject_krea_loras(workflow, requested, allowed, unet_node="20", consumers=("
         if fn not in allowed:
             continue
         try:
-            strength = max(0.0, min(20.0, float(item.get("strength", 1.0))))
+            strength = max(-2.0, min(20.0, float(item.get("strength", 1.0))))
         except (TypeError, ValueError):
             strength = 1.0
         node_id = f"krea_lora_{idx}"

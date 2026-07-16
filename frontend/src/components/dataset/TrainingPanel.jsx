@@ -37,6 +37,20 @@ import PreflightModal from './PreflightModal';
 // Plancher dur / recommandé par famille — miroir de TRAIN_MIN_IMAGES côté serveur
 // (le preflight reste l'autorité ; ceci ne sert qu'à désactiver le bouton tôt).
 const TRAIN_MIN = { zimage: [12, 20], sdxl: [20, 30], krea: [15, 20], flux: [15, 20], flux2klein: [15, 20] };
+// Slider mode: images are only a denoising substrate → mirror of
+// TRAIN_MIN_IMAGES_SLIDER server-side (the preflight stays authoritative).
+const TRAIN_MIN_SLIDER = [4, 12];
+
+// Slider LoRA (Beta) — honest per-family status. Every family can ATTEMPT a
+// slider run (ai-toolkit's concept_slider trainer has no per-arch gating), but
+// only community results back some of them; the notes say exactly what is known.
+const SLIDER_FAMILY_NOTES = {
+  krea: 'Krea 2 — reference family for sliders: the strongest-rated community sliders on Civitai are Krea-based, and the Turbo de-distillation adapter is already wired here. Still Beta: our own pipeline is untested.',
+  zimage: 'Z-Image — experimental: ai-toolkit has known upstream issues on this slider path (issue #554). The community workaround (batch 1, no embedding cache) is applied automatically, but the run may still fail.',
+  flux2klein: 'FLUX.2 Klein — experimental: BFL ships an undistilled Base checkpoint made for training, which is structurally promising for sliders, but nobody has verified this trainer path yet.',
+  flux: 'FLUX.1 — experimental: the slider method\'s own authors describe FLUX support as experimental.',
+  sdxl: 'SDXL — experimental, ironically: sliders were born on SDXL, but ai-toolkit\'s modern slider trainer routes SDXL through its legacy model class — signature-compatible, unproven.',
+};
 
 // « Custom weights… » : valeur-sentinelle de l'entrée du sélecteur de base qui
 // révèle le champ chemin. Les familles qui l'exposent + celles honorant VAE/TE
@@ -118,6 +132,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // sample_every / sample_prompts), chargés depuis base-info ; persistés par POST
   // /train/settings via ds.setTrainSettings.
   const [adv, setAdv] = useState(null);
+  // Slider LoRA mode (Beta) : état serveur (colonne dédiée train_slider) + brouillon
+  // local des champs texte (édition libre, sauvés au blur comme les sample prompts).
+  const [slider, setSlider] = useState(null);
+  const [sliderBusy, setSliderBusy] = useState(false);
+  const [sliderDraft, setSliderDraft] = useState({ positive: '', negative: '', target_class: '', anchor: '' });
   // Textarea des prompts de preview : état local (édition libre), sauvé au blur —
   // resynchronisé sur la valeur stockée canonique chaque fois que `adv` arrive/change.
   const [samplePromptsText, setSamplePromptsText] = useState('');
@@ -206,10 +225,22 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           setCheckpointVariant(safeVariant);
         }
         setAdv(info.train_settings || null);
+        setSlider(info.slider || null);
       }
     });
     return () => { alive = false; };
   }, [ds.currentId, caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-seed the slider text drafts from the canonical stored values whenever the
+  // server state (re)loads — saves happen on blur, so no mid-typing overwrite.
+  useEffect(() => {
+    setSliderDraft({
+      positive: slider?.positive ?? '',
+      negative: slider?.negative ?? '',
+      target_class: slider?.target_class ?? '',
+      anchor: slider?.anchor ?? '',
+    });
+  }, [slider?.positive, slider?.negative, slider?.target_class, slider?.anchor]);
 
   // Pendant une conversion, poll le statut toutes les 4 s. Dépend de la fonction
   // STABLE (useCallback sur currentId), pas de l'objet `ds` entier — sinon
@@ -357,6 +388,40 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     const stored = (adv?.sample_prompts ?? []).join('\n');
     if (samplePromptsText === stored) return;      // no-op → skip the round-trip
     saveAdv({ sample_prompts: samplePromptsText }); // server splits on newlines + trims
+  };
+
+  // --- Slider LoRA mode (Beta) ------------------------------------------------
+  const sliderOn = !!slider?.enabled;
+  const sliderPromptsMissing = sliderOn
+    && (!(slider?.positive || '').trim() || !(slider?.negative || '').trim());
+  const saveSlider = async (patch) => {
+    setSliderBusy(true);
+    try {
+      const d = await postTrain(`/api/dataset/${ds.currentId}/train/slider`, patch);
+      if (d.ok === false) { toastTrainError(d, 'Slider settings save failed'); return null; }
+      setSlider(d.slider);
+      return d.slider;
+    } finally {
+      setSliderBusy(false);
+    }
+  };
+  const toggleSliderMode = async () => {
+    const next = !sliderOn;
+    const saved = await saveSlider({ enabled: next });
+    if (!saved) return;
+    // Rank default (8 in slider mode) and the step policy both live server-side —
+    // refresh base-info + the checkpoint/steps panel so labels stay truthful.
+    try {
+      const info = await ds.trainBaseInfo?.();
+      if (info) { setBaseInfo(info); setAdv(info.train_settings || null); }
+      const checkpointData = await ds.listCheckpoints?.(base, trainType, variant);
+      if (checkpointData) setStepsInfo(checkpointData.recommended_steps_info || null);
+    } catch { /* labels refresh is best-effort */ }
+  };
+  const saveSliderField = (key) => () => {
+    const stored = slider?.[key] ?? '';
+    if ((sliderDraft[key] ?? '') === stored) return;   // no-op → skip round-trip
+    saveSlider({ [key]: sliderDraft[key] });
   };
 
   // --- Presets (save / apply / import / export / delete) ---------------------
@@ -615,7 +680,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Masked ON but rembg (person-mask backend) unavailable → the export silently
   // drops the masks and trains UNMASKED. Surface that instead of lying about it.
   // `=== false` (not `!caps.masks`) so we don't warn before caps have loaded.
-  const maskedRembgMissing = masked && !isConceptual && caps.masks === false;
+  const maskedRembgMissing = masked && !isConceptual && !sliderOn && caps.masks === false;
   // Plafond de steps CHOISI (vide → adaptatif). NON persisté à dessein : un cap
   // oublié (ex. 2000) ne doit pas s'appliquer en douce au prochain dataset.
   const [stepsOverride, setStepsOverride] = useState('');
@@ -842,10 +907,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // AND the always-visible reason line below: a disabled button must state its
   // reason without a hover (the owner lost time guessing on a greyed SDXL button
   // whose only explanation lived in a title attribute).
-  const cloudTooFewImages = keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12);
+  // Slider mode floors the image requirement at the substrate minimum (the
+  // preflight/assert_trainable stay authoritative server-side).
+  const trainMinFloor = sliderOn ? TRAIN_MIN_SLIDER[0] : (TRAIN_MIN[trainType]?.[0] ?? 12);
+  const cloudTooFewImages = keptCount < trainMinFloor;
   const cloudLimitReached = actives.length >= (cloudStatus.limit || 1);
   const cloudDisabledReason =
-    trainType === 'sdxl'
+    sliderOn
+      ? 'Slider training (Beta) is local-only for now — turn slider mode off to use the cloud lane'
+    : trainType === 'sdxl'
       ? 'SDXL trains locally only — the cloud lane covers Z-Image, Krea 2 and FLUX.2 Klein'
     : trainType === 'flux'
       ? 'FLUX.1 trains locally only — the cloud lane covers Z-Image, Krea 2 and FLUX.2 Klein'
@@ -1015,12 +1085,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <option value="flux">FLUX.1 (~20 img)</option>
           <option value="flux2klein">FLUX.2 Klein (~20 img)</option>
         </select>
-        <button type="button" disabled={!status.installed || keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12) || status.in_progress || baseBlocksTrain || sdxlNeedsBase || customWeightsEmpty}
+        <button type="button" disabled={!status.installed || keptCount < trainMinFloor || status.in_progress || baseBlocksTrain || sdxlNeedsBase || customWeightsEmpty || sliderPromptsMissing}
           title={baseBlocksTrain ? 'Convert the custom base first'
             : customWeightsEmpty ? 'Enter the path to your custom weights .safetensors'
             : sdxlNeedsBase ? 'Choose a base SDXL checkpoint'
-            : keptCount < (TRAIN_MIN[trainType]?.[0] ?? 12)
-              ? `${keptCount} kept image(s) — the minimum for ${typeLabel} is ${TRAIN_MIN[trainType]?.[0] ?? 12}`
+            : sliderPromptsMissing ? 'Slider mode needs both a positive and a negative prompt'
+            : keptCount < trainMinFloor
+              ? (sliderOn
+                ? `${keptCount} kept image(s) — slider training still needs ${trainMinFloor}+ images as a denoising substrate`
+                : `${keptCount} kept image(s) — the minimum for ${typeLabel} is ${trainMinFloor}`)
               : undefined}
           onClick={async () => {
             if (!(await preflightOk())) return;
@@ -1064,7 +1137,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             Finish / re-enable ComfyUI
           </button>
         )}
-        {status.in_progress && status.installed && keptCount >= (TRAIN_MIN[trainType]?.[0] ?? 12) && (
+        {status.in_progress && status.installed && keptCount >= trainMinFloor && !sliderPromptsMissing && (
           <button type="button" disabled={queued || baseBlocksTrain} onClick={enqueue}
             title={baseBlocksTrain
               ? 'Convert the selected custom base first'
@@ -1077,8 +1150,116 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             réglages eux-mêmes vivent dans « Advanced options ». */}
         <span className="ml-auto text-content-subtle text-[0.625rem]"
           title="The configuration the next run will use — change it in Advanced options below">
-          base « {zimageRecipe?.baseLabel || baseLabel} »{zimageRecipe ? ` · ${zimageRecipe.adapterActive ? 'Turbo adapter v2 ON' : 'no training adapter'}` : ''} · {maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : 'adaptive steps'}{advNetworkType === 'lokr' ? ' · LoKr' : ''}{advEma ? ` · EMA ${advEma}` : ''}
+          {sliderOn ? '🎚 slider (Beta) · ' : ''}base « {zimageRecipe?.baseLabel || baseLabel} »{zimageRecipe ? ` · ${zimageRecipe.adapterActive ? 'Turbo adapter v2 ON' : 'no training adapter'}` : ''} · {sliderOn ? 'unmasked (slider)' : maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : sliderOn ? `${stepsInfo?.steps ?? 1000} steps (slider policy)` : 'adaptive steps'}{advNetworkType === 'lokr' ? ' · LoKr' : ''}{advEma ? ` · EMA ${advEma}` : ''}
         </span>
+      </div>
+
+      {/* --- Slider LoRA (Beta) : entraîne un LoRA BIPOLAIRE (±strength) depuis une
+           paire de prompts via le trainer `concept_slider` d'ai-toolkit. Les images
+           du dataset ne servent que de substrat de débruitage (captions ignorées).
+           Feature expérimentale assumée — le badge Beta et les notes par famille
+           disent exactement ce qui est prouvé et ce qui ne l'est pas. --- */}
+      <div id="ds-training-slider" className={`rounded-lg border px-3 py-2 flex flex-col gap-2 ${
+        sliderOn ? 'border-purple-400/50 bg-purple-500/5' : 'border-border bg-surface'}`}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold text-content"><span aria-hidden>🎚</span> Slider LoRA</span>
+          <span className="px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.625rem] font-semibold uppercase tracking-wide">Beta</span>
+          <button type="button" role="switch" aria-checked={sliderOn}
+            disabled={sliderBusy || status.in_progress}
+            onClick={toggleSliderMode}
+            title={status.in_progress ? 'Wait for the current training to finish'
+              : sliderOn ? 'Turn slider mode off — back to normal LoRA training'
+                : 'Turn slider mode on for this dataset'}
+            className={`ml-auto px-2.5 py-1 rounded-lg border text-[0.75rem] font-semibold transition-colors disabled:opacity-50 ${
+              sliderOn ? 'border-purple-400/60 bg-purple-500/20 text-purple-200'
+                : 'border-border bg-surface text-content-muted'}`}>
+            {sliderOn ? 'ON' : 'OFF'}
+          </button>
+        </div>
+        <p className="m-0 text-content-subtle text-[0.6875rem]">
+          Trains a <b>bipolar concept slider</b> from a prompt pair (no captions, no masks —
+          the kept images are only a denoising substrate). Test it at negative and positive
+          strengths in the Test Studio. Experimental: expect to iterate.
+        </p>
+        {sliderOn && (
+          <>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-content-muted text-[0.625rem] uppercase">Positive prompt *</span>
+                <input type="text" value={sliderDraft.positive}
+                  onChange={(e) => setSliderDraft((d) => ({ ...d, positive: e.target.value }))}
+                  onBlur={saveSliderField('positive')}
+                  placeholder="e.g. very muscular body, defined muscles"
+                  title="What +strength amplifies (and −strength removes). Describe the EXTREME of the trait."
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-content-muted text-[0.625rem] uppercase">Negative prompt *</span>
+                <input type="text" value={sliderDraft.negative}
+                  onChange={(e) => setSliderDraft((d) => ({ ...d, negative: e.target.value }))}
+                  onBlur={saveSliderField('negative')}
+                  placeholder="e.g. skinny, frail body, thin arms"
+                  title="The polar opposite of the positive prompt — what −strength amplifies."
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-content-muted text-[0.625rem] uppercase">Target class</span>
+                <input type="text" value={sliderDraft.target_class}
+                  onChange={(e) => setSliderDraft((d) => ({ ...d, target_class: e.target.value }))}
+                  onBlur={saveSliderField('target_class')}
+                  placeholder="e.g. person — empty affects everything"
+                  title="The base concept whose representation slides (e.g. 'person'). Leave empty for a global slider (detail, lighting…)."
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-content-muted text-[0.625rem] uppercase">Anchor prompt</span>
+                <input type="text" value={sliderDraft.anchor}
+                  onChange={(e) => setSliderDraft((d) => ({ ...d, anchor: e.target.value }))}
+                  onBlur={saveSliderField('anchor')}
+                  placeholder="optional — e.g. a photo of a person"
+                  title="A nearby concept held in place while training — the paper's fix against the slider bleeding into everything. Empty = no anchor (faster, less protected)."
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]" />
+              </label>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="flex items-center gap-1.5 text-[0.6875rem] text-content-muted"
+                title="How hard the training pushes along the positive↔negative direction (trainer default 3). Higher = stronger effect per strength unit, higher collapse risk.">
+                Guidance strength
+                <select value={String(slider?.guidance ?? 3)} disabled={sliderBusy}
+                  onChange={(e) => saveSlider({ guidance: Number(e.target.value) })}
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                  {[1, 2, 3, 4, 5, 6, 8].map((v) => (
+                    <option key={v} value={String(v)}>{v}{v === 3 ? ' (default)' : ''}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5 text-[0.6875rem] text-content-muted"
+                title="Weight of the anchor loss (trainer default 1). Only used when an anchor prompt is set.">
+                Anchor strength
+                <select value={String(slider?.anchor_strength ?? 1)} disabled={sliderBusy || !(slider?.anchor || '').trim()}
+                  onChange={(e) => saveSlider({ anchor_strength: Number(e.target.value) })}
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] disabled:opacity-50">
+                  {[0.25, 0.5, 1, 2, 4].map((v) => (
+                    <option key={v} value={String(v)}>{v}{v === 1 ? ' (default)' : ''}</option>
+                  ))}
+                </select>
+              </label>
+              <span className="text-content-subtle text-[0.625rem]"
+                title="Slider defaults: low rank (public sliders ship at rank 4-8) and a fixed step target — both editable in Advanced options.">
+                rank {advEffRank} · ~{stepsInfo?.steps ?? 1000} steps · previews at −2/−1/+1/+2
+              </span>
+            </div>
+            {sliderPromptsMissing && (
+              <p className="m-0 text-amber-300 text-[0.6875rem]">
+                ⚠ Both prompts are required — they define the two ends of the slider.
+              </p>
+            )}
+            <p className="m-0 text-content-subtle text-[0.625rem]">
+              {SLIDER_FAMILY_NOTES[trainType] || ''}
+              {trainType !== 'krea' ? ' Krea 2 is the reference family for sliders — switch the LoRA type above to start there.' : ''}
+            </p>
+          </>
+        )}
       </div>
 
       {/* A disabled ☁ Train-in-cloud button always states WHY, right under the
@@ -1666,16 +1847,24 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           </details>
 
           <label className="flex items-center gap-1.5 text-[0.6875rem] text-content-muted cursor-pointer"
-            title={isStyle
+            title={sliderOn
+              ? 'Slider mode ignores masks: the slider loss never reads the masked-loss path, so the server trains unmasked regardless of this toggle.'
+              : isStyle
               ? 'Keep this OFF for Style: the aesthetic must be learned across the whole frame, including backgrounds. A person mask would discard much of the style signal.'
               : isConcept
                 ? 'Keep this OFF for a Concept dataset — a person mask could erase the recurring concept you are training.'
               : 'Masked training: a person mask is generated for every image (rembg, CPU) and the background only weighs 10% of the loss — identity binds to the face, not the room. Uncheck to train the old way.'}>
-            <input type="checkbox" checked={masked} onChange={(e) => setMasked(e.target.checked)}
+            <input type="checkbox" checked={masked && !sliderOn} disabled={sliderOn}
+              onChange={(e) => setMasked(e.target.checked)}
               aria-label="Masked training (background at 10%)"
-              className="accent-primary w-3.5 h-3.5" />
-            <span className={masked && !maskedRembgMissing ? 'text-emerald-300' : ''}>🎭 Masked (bg 10%)</span>
-            {isConceptual && masked && (
+              className="accent-primary w-3.5 h-3.5 disabled:opacity-50" />
+            <span className={masked && !sliderOn && !maskedRembgMissing ? 'text-emerald-300' : ''}>🎭 Masked (bg 10%)</span>
+            {sliderOn && (
+              <span className="text-content-subtle" title="The slider loss ignores masks — the server forces unmasked training in slider mode.">
+                off in slider mode
+              </span>
+            )}
+            {isConceptual && masked && !sliderOn && (
               <span className="text-amber-300" title={isStyle ? 'A person mask discards full-frame style information.' : 'A person mask can erase the concept.'}>
                 ⚠️ off required for {isStyle ? 'styles' : 'concepts'}
               </span>
@@ -1784,12 +1973,19 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         </p>
       )}
 
-      {keptCount < (TRAIN_MIN[trainType]?.[1] ?? 20) && (
-        <p className="m-0 text-content-subtle text-[0.625rem]">
-          {typeLabel}: minimum {TRAIN_MIN[trainType]?.[0] ?? 12} kept images,{' '}
-          {TRAIN_MIN[trainType]?.[1] ?? 20} recommended — you have {keptCount}.
-        </p>
-      )}
+      {sliderOn
+        ? keptCount < TRAIN_MIN_SLIDER[1] && (
+          <p className="m-0 text-content-subtle text-[0.625rem]">
+            Slider mode: minimum {TRAIN_MIN_SLIDER[0]} substrate images,{' '}
+            {TRAIN_MIN_SLIDER[1]}+ varied ones recommended — you have {keptCount}.
+          </p>
+        )
+        : keptCount < (TRAIN_MIN[trainType]?.[1] ?? 20) && (
+          <p className="m-0 text-content-subtle text-[0.625rem]">
+            {typeLabel}: minimum {TRAIN_MIN[trainType]?.[0] ?? 12} kept images,{' '}
+            {TRAIN_MIN[trainType]?.[1] ?? 20} recommended — you have {keptCount}.
+          </p>
+        )}
 
       {/* --- Résultats : checkpoints du run + LoRA déjà importés dans ComfyUI.
            Repliés par défaut ; le résumé du summary donne les comptes sans ouvrir. */}

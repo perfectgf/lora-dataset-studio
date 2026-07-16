@@ -396,6 +396,13 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
+    # Slider LoRA mode (Beta) is local-only in V1: the pod image/job flow has
+    # never been exercised with the `concept_slider` process, and an unproven
+    # rented run costs real money. Honest refusal instead of a silent maybe.
+    if lt.slider_mode_enabled(ds):
+        raise ValueError('Slider training (Beta) is local-only for now — '
+                         'turn slider mode off to train this dataset in the cloud, '
+                         'or run it locally.')
     fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
     # ``base_model`` is an explicit launch selection on the HTTP path.  Keep a
     # compatibility fallback for older internal callers that omitted it: use
@@ -1885,6 +1892,11 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None,
     if not ds:
         raise ValueError('dataset not found')
     fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
+    # Same slider refusal as launch_cloud_training (offers view = pre-launch UI).
+    if lt.slider_mode_enabled(ds):
+        raise ValueError('Slider training (Beta) is local-only for now — '
+                         'turn slider mode off to train this dataset in the cloud, '
+                         'or run it locally.')
     if fam == 'sdxl':
         raise ValueError('SDXL training needs a local base checkpoint — '
                          'cloud training supports Z-Image, Krea and FLUX.2 Klein')

@@ -37,6 +37,12 @@ class FaceDataset(db.Model):
     # Réglages ai-toolkit avancés éditables par dataset (JSON) : rank, resolution,
     # save_every. NULL = défauts family-aware. Cf. lora_training._train_settings.
     train_settings = db.Column(Text, nullable=True)
+    # Slider LoRA mode (Beta, ai-toolkit `concept_slider` trainer). JSON:
+    # {enabled, positive, negative, target_class, anchor, guidance, anchor_strength}.
+    # NULL = mode off. Dedicated column (NOT train_settings) so applying a training
+    # preset — which REPLACES train_settings — can never silently wipe a slider
+    # setup. Cf. lora_training._slider_settings. Additive migration in create_app.
+    train_slider = db.Column(Text, nullable=True)
     # Famille de modèle entraînée : 'zimage' (défaut/None) ou 'sdxl'. Pilote la
     # branche de build_job_config (arch/scheduler/base) et le dossier loras d'import.
     train_type = db.Column(String(16), nullable=True)

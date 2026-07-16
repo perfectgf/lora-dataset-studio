@@ -479,6 +479,9 @@ def dataset_train_base_info(dataset_id):
                     # la famille courante : rank/alpha/resolution/save_every → le panneau
                     # « Advanced options » les affiche et laisse les éditer.
                     'train_settings': lt.effective_train_settings(ds),
+                    # Slider LoRA mode (Beta) : état + prompts persistés + knobs résolus
+                    # (colonne dédiée train_slider — jamais écrasé par un preset).
+                    'slider': lt.effective_slider_settings(ds),
                     'bases_by_type': {'zimage': bases, 'sdxl': sdxl_bases,
                                       'krea': krea_bases, 'flux': flux_bases,
                                       'flux2klein': flux2klein_bases}})
@@ -497,6 +500,22 @@ def dataset_train_settings(dataset_id):
     except ValueError as e:
         return _map_error(e)
     return jsonify({'ok': True, 'train_settings': eff})
+
+
+@bp.post('/dataset/<int:dataset_id>/train/slider')
+def dataset_train_slider(dataset_id):
+    """Slider LoRA mode (Beta) : persiste un patch {enabled?, positive?, negative?,
+    target_class?, anchor?, guidance?, anchor_strength?} (validé côté service,
+    colonne dédiée train_slider). Renvoie l'état slider effectif."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    d = request.get_json(silent=True) or {}
+    try:
+        eff = lt.update_slider_settings(LOCAL_USER, dataset_id, d)
+    except ValueError as e:
+        return _map_error(e)
+    return jsonify({'ok': True, 'slider': eff})
 
 
 # --- Training presets ---------------------------------------------------------

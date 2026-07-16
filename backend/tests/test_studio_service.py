@@ -24,7 +24,19 @@ def test_build_matrix_accepts_extended_strengths_up_to_4(app):
     m = build_matrix(['a.safetensors'], [2.5, 3.5, 4.0], aspects=['9:16'])
     assert sorted({t[1] for t in m}) == [2.5, 3.5, 4.0]     # carried, not clamped to 2.0
     for bad in (4.01, 4.5, 10.0):
-        with pytest.raises(ValueError, match=r'out of range \[0.0, 4.0\]'):
+        with pytest.raises(ValueError, match=r'out of range \[-2.0, 4.0\]'):
+            build_matrix(['a.safetensors'], [bad])
+
+
+def test_build_matrix_accepts_negative_strengths_down_to_minus_2(app):
+    """Progressive-disclosure « − » exposes NEGATIVE strengths (the other pole of
+    a slider LoRA — and a legit probe on any LoRA): the sweep validation accepts
+    down to -2.0 and rejects anything below (mirror of the 4.0 ceiling)."""
+    from app.services.lora_test_studio import build_matrix
+    m = build_matrix(['a.safetensors'], [-2.0, -1.0, -0.5, 0, 1.0], aspects=['9:16'])
+    assert sorted({t[1] for t in m}) == [-2.0, -1.0, -0.5, 0.0, 1.0]   # carried as-is
+    for bad in (-2.01, -3.0, -10.0):
+        with pytest.raises(ValueError, match=r'out of range \[-2.0, 4.0\]'):
             build_matrix(['a.safetensors'], [bad])
 
 
@@ -42,6 +54,46 @@ def test_cell_workflow_carries_extended_strength_unclamped(app):
                       if isinstance(n, dict) and n.get('class_type') == 'LoraLoaderModelOnly']
         tested = [n for n in lora_nodes if n['inputs']['lora_name'] == checkpoint]
         assert tested and tested[0]['inputs']['strength_model'] == 3.5
+
+
+def test_cell_workflow_carries_negative_strength_unclamped(app):
+    """A negative test strength must reach the LoraLoader as-is — exercised on
+    the Z-Image cell path here (inject_zimage_loras floor -2.0); SDXL sets node
+    25 directly with no clamp, and the Krea injector trap is covered by
+    test_inject_krea_loras_passes_negative_strength below."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        checkpoint = 'z image\\lora_zt_000001000.safetensors'
+        workflow = lts._build_cell_workflow(
+            user_id='local', checkpoint=checkpoint, strength=-1.5, prompt='a prompt',
+            seed=42, z_model=None, allowed_loras={checkpoint}, dataset_id=1,
+            train_type='zimage', trigger_word='zt')
+        lora_nodes = [n for n in workflow.values()
+                      if isinstance(n, dict) and n.get('class_type') == 'LoraLoaderModelOnly']
+        tested = [n for n in lora_nodes if n['inputs']['lora_name'] == checkpoint]
+        assert tested and tested[0]['inputs']['strength_model'] == -1.5
+
+
+def test_inject_krea_loras_passes_negative_strength(app):
+    """The Krea injector used to clamp at max(0.0, …): a negative tested strength
+    silently became 0 (LoRA off) with no error anywhere. Floor is now -2.0."""
+    from app.utils.comfyui import inject_krea_loras
+    workflow = {
+        '20': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'krea2_turbo_fp8.safetensors'}},
+        '26': {'class_type': 'KSampler', 'inputs': {'model': ['20', 0]}},
+    }
+    n = inject_krea_loras(workflow, [{'filename': 'krea\\slider.safetensors', 'strength': -1.5}],
+                          allowed={'krea\\slider.safetensors'})
+    assert n == 1
+    assert workflow['krea_lora_0']['inputs']['strength_model'] == -1.5
+    # The anti-absurd floor still exists (mirrors the -2.0 UI/server bound).
+    workflow2 = {
+        '20': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'krea2_turbo_fp8.safetensors'}},
+        '26': {'class_type': 'KSampler', 'inputs': {'model': ['20', 0]}},
+    }
+    inject_krea_loras(workflow2, [{'filename': 'krea\\slider.safetensors', 'strength': -50}],
+                      allowed={'krea\\slider.safetensors'})
+    assert workflow2['krea_lora_0']['inputs']['strength_model'] == -2.0
 
 
 def test_wilson_ranking_prefers_confident_likes(app):

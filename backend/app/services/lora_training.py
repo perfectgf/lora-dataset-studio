@@ -798,9 +798,17 @@ def _train_settings(ds) -> dict:
     return d if isinstance(d, dict) else {}
 
 
+def _default_rank_for(ds, family) -> int:
+    """Family default rank — except in slider mode, where public concept sliders
+    ship at rank 4-8 (a slider is a low-rank direction, not an identity)."""
+    if slider_mode_enabled(ds):
+        return _SLIDER_DEFAULT_RANK
+    return _DEFAULT_RANK.get(family, 32)
+
+
 def _lora_rank(ds, family) -> int:
     r = _train_settings(ds).get('rank')
-    return r if r in _RANK_CHOICES else _DEFAULT_RANK.get(family, 32)
+    return r if r in _RANK_CHOICES else _default_rank_for(ds, family)
 
 
 def _lora_alpha(rank, family) -> int:
@@ -888,6 +896,166 @@ def _ema_fields(ds) -> dict:
     if v is None:
         return {}
     return {'ema_config': {'use_ema': True, 'ema_decay': v}}
+
+
+# --- Slider LoRA mode (Beta) -----------------------------------------------------
+# Backed by ai-toolkit's MODERN `concept_slider` extension (extensions_built_in/
+# concept_slider/ConceptSliderTrainer.py, uid 'concept_slider', extends
+# DiffusionTrainer) — NOT the legacy `type: slider`/TrainSliderProcess path.
+# The trainer learns ONE bipolar LoRA (multiplier +1/−1) from a positive/negative
+# prompt pair (LECO-style guided loss); the dataset's kept images are only a
+# DENOISING SUBSTRATE (ConceptSliderTrainer.get_guided_loss reads noisy_latents
+# from the normal training batch; captions are encoded but IGNORED by the loss).
+# A dataset therefore stays REQUIRED — that's why slider is a per-dataset MODE,
+# not a dataset kind. Schema of the emitted `slider:` block = the exact kwargs of
+# ConceptSliderTrainerConfig (guidance_strength, anchor_strength, positive_prompt,
+# negative_prompt, target_class, anchor_class).
+_SLIDER_DEFAULT_RANK = 8            # public concept sliders ship at rank 4-8
+_SLIDER_DEFAULT_GUIDANCE = 3.0      # ConceptSliderTrainerConfig default
+_SLIDER_DEFAULT_ANCHOR_STRENGTH = 1.0
+_SLIDER_GUIDANCE_RANGE = (1.0, 10.0)
+_SLIDER_ANCHOR_STRENGTH_RANGE = (0.0, 10.0)
+_SLIDER_PROMPT_MAX_LEN = 500
+# Fixed step target: a slider direction is prompt-defined, so dataset size does
+# not drive convergence (images are substrate only). Ostris' own slider recipe
+# uses 500 steps and "rarely goes over 1000"; the modern trainer trains both
+# polarities per step, so 1000 is a safe honest default with early checkpoints.
+SLIDER_DEFAULT_STEPS = 1000
+# Substrate floor: the batch only needs a few varied images to sample latents
+# from. 4 = hard floor (variety of noising targets), 12+ recommended.
+TRAIN_MIN_IMAGES_SLIDER = (4, 12)
+
+
+def _slider_settings(ds) -> dict:
+    """Parse the `train_slider` JSON blob (never raises; {} when absent/broken)."""
+    raw = getattr(ds, 'train_slider', None)
+    if not raw:
+        return {}
+    try:
+        d = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def slider_mode_enabled(ds) -> bool:
+    """True when this dataset trains in Slider LoRA mode (Beta)."""
+    return bool(_slider_settings(ds).get('enabled'))
+
+
+def effective_slider_settings(ds) -> dict:
+    """Slider mode state + resolved knobs for the TrainingPanel (and tests)."""
+    s = _slider_settings(ds)
+    return {
+        'enabled': bool(s.get('enabled')),
+        'positive': s.get('positive') or '',
+        'negative': s.get('negative') or '',
+        'target_class': s.get('target_class') or '',
+        'anchor': s.get('anchor') or '',
+        'guidance': _slider_guidance(ds),
+        'anchor_strength': _slider_anchor_strength(ds),
+        'default_rank': _SLIDER_DEFAULT_RANK,
+        'default_steps': SLIDER_DEFAULT_STEPS,
+        'min_images': TRAIN_MIN_IMAGES_SLIDER[0],
+    }
+
+
+def _slider_guidance(ds) -> float:
+    try:
+        v = float(_slider_settings(ds).get('guidance'))
+    except (TypeError, ValueError):
+        return _SLIDER_DEFAULT_GUIDANCE
+    lo, hi = _SLIDER_GUIDANCE_RANGE
+    return v if lo <= v <= hi else _SLIDER_DEFAULT_GUIDANCE
+
+
+def _slider_anchor_strength(ds) -> float:
+    try:
+        v = float(_slider_settings(ds).get('anchor_strength'))
+    except (TypeError, ValueError):
+        return _SLIDER_DEFAULT_ANCHOR_STRENGTH
+    lo, hi = _SLIDER_ANCHOR_STRENGTH_RANGE
+    return v if lo <= v <= hi else _SLIDER_DEFAULT_ANCHOR_STRENGTH
+
+
+def _clean_slider_prompt(value, field) -> str:
+    txt = re.sub(r'\s+', ' ', str(value or '')).strip()
+    if len(txt) > _SLIDER_PROMPT_MAX_LEN:
+        raise ValueError(f'{field} is too long (max {_SLIDER_PROMPT_MAX_LEN} chars)')
+    return txt
+
+
+def update_slider_settings(user_id, dataset_id, patch: dict) -> dict:
+    """Validate + merge a slider-mode patch {enabled?, positive?, negative?,
+    target_class?, anchor?, guidance?, anchor_strength?} into `train_slider`.
+    Free-text fields are whitespace-normalized and length-capped; numeric knobs
+    are range-validated (invalid → 400, never a silent clamp). Returns the
+    effective slider settings."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    cur = _slider_settings(ds)
+    if 'enabled' in patch:
+        if patch['enabled']:
+            cur['enabled'] = True
+        else:
+            cur.pop('enabled', None)
+    for key, label in (('positive', 'positive prompt'), ('negative', 'negative prompt'),
+                       ('target_class', 'target class'), ('anchor', 'anchor prompt')):
+        if key in patch:
+            txt = _clean_slider_prompt(patch[key], label)
+            if txt:
+                cur[key] = txt
+            else:
+                cur.pop(key, None)
+    for key, rng, default in (
+            ('guidance', _SLIDER_GUIDANCE_RANGE, _SLIDER_DEFAULT_GUIDANCE),
+            ('anchor_strength', _SLIDER_ANCHOR_STRENGTH_RANGE,
+             _SLIDER_DEFAULT_ANCHOR_STRENGTH)):
+        if key in patch:
+            v = patch[key]
+            if v in (None, '', 'auto'):
+                cur.pop(key, None)
+                continue
+            try:
+                fv = round(float(v), 2)
+            except (TypeError, ValueError):
+                raise ValueError(f'{key} must be a number in [{rng[0]}, {rng[1]}]')
+            if not rng[0] <= fv <= rng[1]:
+                raise ValueError(f'{key} out of range [{rng[0]}, {rng[1]}]: {fv}')
+            if fv == default:
+                cur.pop(key, None)
+            else:
+                cur[key] = fv
+    ds.train_slider = json.dumps(cur) if cur else None
+    fds.db.session.commit()
+    return effective_slider_settings(ds)
+
+
+def _aitoolkit_supports_concept_slider() -> bool:
+    """Does the installed ai-toolkit ship the `concept_slider` extension? Same
+    stakes as _aitoolkit_supports_krea (read its comment): an unknown process
+    type crashes the job at boot with a confusing traceback. We require the
+    exact extension uid string emitted by _apply_slider_overrides. Fresh read:
+    a maintainer `git pull` flips the detection without a restart."""
+    root = cfg.aitoolkit_path('dir')
+    if not root:
+        return False
+    ext_root = root / 'extensions_built_in'
+    if not ext_root.is_dir():
+        return False
+    pat = re.compile(r'uid\s*=\s*[\'"]concept_slider[\'"]')
+    for dp, _dn, files in os.walk(str(ext_root)):
+        for fn in files:
+            if not fn.endswith('.py'):
+                continue
+            try:
+                with open(os.path.join(dp, fn), encoding='utf-8', errors='ignore') as fh:
+                    if pat.search(fh.read()):
+                        return True
+            except OSError:
+                continue
+    return False
 
 
 def _train_res(ds) -> list:
@@ -1053,7 +1221,22 @@ def launch_settings_snapshot(ds, family=None) -> dict:
         'optimizer': _optimizer_eff(ds),
         'lr': _lr_eff(ds),
     }
-    if fds.is_style(ds):
+    if slider_mode_enabled(ds):
+        # Slider mode (Beta): the prompt pair IS the recipe — it must travel in
+        # provenance and ⎘ Share config. Like Style, the trigger is only an
+        # internal run/file identifier here (no activation token), so it is
+        # deliberately absent.
+        sc = _slider_settings(ds)
+        snap['slider_mode'] = True
+        snap['slider'] = {
+            'positive_prompt': sc.get('positive') or '',
+            'negative_prompt': sc.get('negative') or '',
+            'target_class': sc.get('target_class') or '',
+            'anchor_class': sc.get('anchor') or '',
+            'guidance_strength': _slider_guidance(ds),
+            'anchor_strength': _slider_anchor_strength(ds),
+        }
+    elif fds.is_style(ds):
         # The persisted trigger is only an internal run/file identifier for a
         # Style LoRA. It is deliberately absent from provenance/share snapshots
         # so nobody mistakes it for an activation token.
@@ -1107,14 +1290,14 @@ def effective_train_settings(ds, family=None) -> dict:
     fam = family or _train_type(ds)
     s = _train_settings(ds)
     stored_rank = s.get('rank') if s.get('rank') in _RANK_CHOICES else None
-    eff_rank = stored_rank if stored_rank else _DEFAULT_RANK.get(fam, 32)
+    eff_rank = stored_rank if stored_rank else _default_rank_for(ds, fam)
     res = s.get('resolution')
     trig = _safe_trigger(ds)
     stored_prompts = s.get('sample_prompts')
     return {'rank': stored_rank,                       # None → Auto (défaut family-aware)
             'effective_rank': eff_rank,                # ce qui part à ai-toolkit
             'alpha': _lora_alpha_eff(ds, eff_rank, fam),   # alpha EFFECTIF (override-aware) — libellé
-            'default_rank': _DEFAULT_RANK.get(fam, 32),
+            'default_rank': _default_rank_for(ds, fam),
             # --- Expert levers (None/off = comportement actuel ; le select recoche « Auto ») ---
             'alpha_setting': s.get('alpha') if s.get('alpha') in _ALPHA_CHOICES else None,
             'default_alpha': _lora_alpha(eff_rank, fam),
@@ -1699,7 +1882,11 @@ def _run_name(ds, base_model=_PERSISTED, family=None,
     recette (Turbo/Base/De-Turbo), afin de ne jamais reprendre des poids issus
     d'une matrice base/adapter incompatible."""
     tag = _dest_base_tag(ds, base_model, family, variant)
-    return f'u{ds.user_id}_{_safe_trigger(ds)}{tag}'
+    # Slider mode gets its own run folder: ai-toolkit AUTO-RESUMES from the
+    # training_folder, so a slider run sharing the normal run's folder would
+    # resume subject-LoRA weights into slider training (and vice versa).
+    slider = '_slider' if slider_mode_enabled(ds) else ''
+    return f'u{ds.user_id}_{_safe_trigger(ds)}{tag}{slider}'
 
 
 def find_run_collision(user_id, dataset_id, base_model=_PERSISTED,
@@ -1772,6 +1959,13 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_d
         # concept AND style datasets even if the caller/UI asked for it -- server guard.
         logger.info('dataset %s %s -> masked training forced OFF (server guard)',
                     dataset_id, ds.kind)
+        masked = False
+    if masked and slider_mode_enabled(ds):
+        # Slider mode: the guided slider loss never reads the masked-loss path
+        # (ConceptSliderTrainer.get_guided_loss ignores batch.mask_tensor), so
+        # generating person masks would only burn export time -- server guard.
+        logger.info('dataset %s -> slider mode: masked training forced OFF (server guard)',
+                    dataset_id)
         masked = False
     trigger = _safe_trigger(ds)
     out = str(dest_dir) if dest_dir else str(_datasets_dir() / _run_name(ds))
@@ -1872,6 +2066,72 @@ def _apply_style_overrides(ds, process: dict, family: str | None = None) -> dict
     return process
 
 
+def _apply_slider_overrides(ds, process: dict, family: str | None = None) -> dict:
+    """Turn one family process into a Slider LoRA (Beta) job. No-op when the
+    dataset is not in slider mode.
+
+    Emission is validated against ai-toolkit's modern `concept_slider` extension
+    (extensions_built_in/concept_slider/ConceptSliderTrainer.py):
+    - process type = the extension uid 'concept_slider' (replaces 'sd_trainer');
+    - `slider:` block = the exact ConceptSliderTrainerConfig kwargs;
+    - `trigger_word` dropped — the slider is prompt-defined, there is no
+      activation token (the ostris UI disables that section for slider jobs,
+      ui/src/app/jobs/new/options.ts:1190);
+    - `anchor_class` emitted only when set: ConceptSliderTrainerConfig defaults
+      it to None (anchors off). NB: the ostris UI default emits '' which the
+      trainer treats as an ACTIVE anchor on the unconditional prompt — we keep
+      the trainer's native default instead and document the field in the UI;
+    - masks stripped: the guided slider loss never reads the masked-loss path
+      (ConceptSliderTrainer.get_guided_loss ignores batch.mask_tensor);
+    - Z-Image: text-embedding cache force-disabled + batch_size already 1 —
+      the community workaround for ai-toolkit issue #554 (broken embedding
+      cache on the zimage slider path);
+    - previews become a bipolar sweep: the SAME prompt sampled at network
+      multipliers −2/−1/+1/+2 (SampleItem.network_multiplier, applied per image
+      in BaseSDTrainProcess.sample), so collapse is visible early."""
+    fam = _train_type(ds, family)
+    if not slider_mode_enabled(ds):
+        return process
+    sc = _slider_settings(ds)
+    process['type'] = 'concept_slider'
+    process.pop('trigger_word', None)
+    slider = {
+        'guidance_strength': _slider_guidance(ds),
+        'anchor_strength': _slider_anchor_strength(ds),
+        'positive_prompt': (sc.get('positive') or '').strip(),
+        'negative_prompt': (sc.get('negative') or '').strip(),
+        'target_class': (sc.get('target_class') or '').strip(),
+    }
+    anchor = (sc.get('anchor') or '').strip()
+    if anchor:
+        slider['anchor_class'] = anchor
+    process['slider'] = slider
+    for d in process.get('datasets', ()):
+        # Substrate only: masked loss is dead code in the slider loss path, and
+        # person masks would just burn CPU time at export.
+        d.pop('mask_path', None)
+        d.pop('mask_min_value', None)
+        if fam == 'zimage':
+            d['cache_text_embeddings'] = False   # issue #554 workaround
+    # Bipolar preview sheet. Base prompt: the user's first custom sample prompt
+    # if any, else the target class ("a photo of a <class>"), else the positive
+    # prompt (a detail-style slider with an empty target class affects
+    # everything, so the positive side is the most telling preview).
+    custom = _train_settings(ds).get('sample_prompts')
+    base_prompt = ''
+    if isinstance(custom, list) and custom:
+        base_prompt = str(custom[0]).strip()
+    if not base_prompt:
+        tc = (sc.get('target_class') or '').strip()
+        base_prompt = f'a photo of a {tc}' if tc else (sc.get('positive') or '').strip()
+    sample = process.get('sample')
+    if isinstance(sample, dict) and base_prompt:
+        sample.pop('prompts', None)
+        sample['samples'] = [{'prompt': base_prompt, 'network_multiplier': m}
+                             for m in (-2, -1, 1, 2)]
+    return process
+
+
 def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder=None) -> dict:
     """Job-config ai-toolkit pour la recette Z-Image validée (Turbo/Base/De-Turbo).
     Clés alignées sur ce que génère
@@ -1889,18 +2149,22 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
     if _train_type(ds) == 'sdxl':
         cfg_ = _build_job_config_sdxl(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0], 'sdxl')
+        _apply_slider_overrides(ds, cfg_['config']['process'][0], 'sdxl')
         return cfg_
     if _train_type(ds) == 'krea':
         cfg_ = _build_job_config_krea(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0], 'krea')
+        _apply_slider_overrides(ds, cfg_['config']['process'][0], 'krea')
         return cfg_
     if _train_type(ds) == 'flux':
         cfg_ = _build_job_config_flux(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0], 'flux')
+        _apply_slider_overrides(ds, cfg_['config']['process'][0], 'flux')
         return cfg_
     if _train_type(ds) == 'flux2klein':
         cfg_ = _build_job_config_flux2klein(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0], 'flux2klein')
+        _apply_slider_overrides(ds, cfg_['config']['process'][0], 'flux2klein')
         return cfg_
     trigger = _safe_trigger(ds)
     base_model = getattr(ds, 'train_base_model', None)
@@ -1974,6 +2238,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
         },
     }
     _apply_style_overrides(ds, cfg_['config']['process'][0], 'zimage')
+    _apply_slider_overrides(ds, cfg_['config']['process'][0], 'zimage')
     return cfg_
 
 
@@ -2847,6 +3112,12 @@ def recommended_steps(dataset_id, train_type=None, variant=None) -> int:
     """
     ds = FaceDataset.query.get(dataset_id)
     n = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
+    if ds is not None and slider_mode_enabled(ds):
+        # Slider (mode, Beta) : la direction est définie par les prompts, pas par
+        # les images (substrat) → cible FIXE, indépendante de n. Ancrage : la
+        # recette slider d'Ostris (500 steps, « rarement au-dessus de 1000 ») ;
+        # le trainer moderne entraîne les deux polarités à chaque step.
+        return SLIDER_DEFAULT_STEPS
     if ds is not None and fds.is_style(ds):
         policy = _style_steps_policy(ds, train_type, variant)
         target = int(math.ceil((50 * max(n, 1)) / 100.0) * 100)
@@ -2874,6 +3145,14 @@ def recommended_steps_info(dataset_id, train_type=None, variant=None) -> dict:
     n = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     kind = (ds.kind or 'character') if ds is not None else 'character'
     steps = recommended_steps(dataset_id, train_type=train_type, variant=variant)
+    if ds is not None and slider_mode_enabled(ds):
+        rationale = (f"Slider (Beta) — fixed {steps} steps. The slider direction is "
+                     "prompt-defined, so dataset size doesn't drive convergence (the "
+                     f"{n} kept images are only a denoising substrate). Ostris' slider "
+                     "recipe uses 500-1000 steps; watch the ± preview sheet and stop "
+                     "early if the sweep collapses.")
+        return {'steps': steps, 'kind': kind, 'n_images': n, 'rationale': rationale,
+                'slider': True}
     if kind == 'style' and ds is not None:
         policy = _style_steps_policy(ds, train_type, variant)
         views = round(steps / n, 1) if n else 0
@@ -2998,26 +3277,62 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> di
     # de faux avertissements.
     concept = fds.is_conceptual(ds)
     style = fds.is_style(ds)
+    # SLIDER mode (Beta) : les images ne sont qu'un SUBSTRAT de débruitage et les
+    # captions sont ignorées par la loss slider → plancher d'images réduit, gardes
+    # caption/composition/identité sans objet ; la vraie exigence est la paire de
+    # prompts qui définit la direction du slider.
+    slider = slider_mode_enabled(ds)
 
-    # 1) minimum d'images par famille
-    floor, reco = TRAIN_MIN_IMAGES.get(ttype, (12, 20))
+    # 1) minimum d'images par famille (slider : plancher substrat réduit)
+    floor, reco = (TRAIN_MIN_IMAGES_SLIDER if slider
+                   else TRAIN_MIN_IMAGES.get(ttype, (12, 20)))
     if n < floor:
-        blockers.append(f'{n} kept image(s) — the hard minimum for a {label} LoRA is {floor}. '
-                        'Generate or import more before training.')
+        blockers.append(
+            f'{n} kept image(s) — slider training still needs {floor}+ images as a '
+            'denoising substrate. Import a few varied images.' if slider else
+            f'{n} kept image(s) — the hard minimum for a {label} LoRA is {floor}. '
+            'Generate or import more before training.')
         _check('images', 'Enough images', 'fail',
-               f'{n} kept — the hard minimum for {label} is {floor}', 'gf-generate')
+               (f'{n} kept — slider substrate needs {floor}+ varied images' if slider
+                else f'{n} kept — the hard minimum for {label} is {floor}'), 'gf-generate')
     elif n < reco:
-        warnings.append(f'{n} kept image(s) — {reco} recommended for a solid {label} LoRA.')
+        warnings.append(
+            f'{n} kept image(s) — {reco}+ varied substrate images recommended for a '
+            'slider run.' if slider else
+            f'{n} kept image(s) — {reco} recommended for a solid {label} LoRA.')
         _check('images', 'Enough images', 'warn',
-               f'{n} kept — {reco}+ recommended for a solid {label} LoRA', 'gf-generate')
+               (f'{n} kept — {reco}+ varied substrate images recommended' if slider
+                else f'{n} kept — {reco}+ recommended for a solid {label} LoRA'),
+               'gf-generate')
     else:
-        _check('images', 'Enough images', 'ok', f'{n} kept ({reco}+ recommended)')
+        _check('images', 'Enough images', 'ok',
+               f'{n} kept ({reco}+ recommended)' + (' — substrate only in slider mode'
+                                                    if slider else ''))
+
+    # 1bis) SLIDER : la paire de prompts est LE prérequis (assert_trainable refuse
+    # le launch sans elle) + rappel honnête que les captions ne s'entraînent pas.
+    if slider:
+        sc = _slider_settings(ds)
+        pos = (sc.get('positive') or '').strip()
+        neg = (sc.get('negative') or '').strip()
+        if not pos or not neg:
+            missing = ' and '.join([w for w, v in (('positive', pos), ('negative', neg))
+                                    if not v])
+            blockers.append(f'Slider mode is ON but the {missing} prompt is empty — '
+                            'the pair defines the two ends of the slider.')
+            _check('slider_prompts', 'Slider prompt pair', 'fail',
+                   f'{missing} prompt missing — set it in the training panel', 'gf-training')
+        else:
+            _check('slider_prompts', 'Slider prompt pair', 'ok',
+                   f'“{pos[:60]}” ↔ “{neg[:60]}”')
+        _check('captioned', 'Captions', 'ok',
+               'captions are ignored by the slider loss (images are substrate only)')
 
     # 2) équilibre de composition — heuristique PERSONNAGE (viser un mix face/bust/body/
     # back pour rendre un visage à toutes les distances). Sans objet pour un CONCEPT (il
     # s'apprend sur les cadrages tels quels), et un dataset non classé (framing=None) y
     # déclencherait un faux « tout en gros plan visage » → on saute pour les concepts.
-    if n and not concept:
+    if n and not concept and not slider:
         comp = {'face': 0, 'bust': 0, 'body': 0, 'back': 0}
         for r in kept:
             if r.framing in comp:
@@ -3044,7 +3359,7 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> di
     # demande un confirm (« train anyway ») au lieu de refuser (UNCAPTIONED:
     # dans assert_trainable). Les captions restent fortement recommandées.
     uncaptioned = sum(1 for r in kept if not (r.caption or '').strip())
-    if n:
+    if n and not slider:
         if uncaptioned:
             caption_policy = ('content captions are required for always-on Style'
                               if style else 'captions are strongly recommended')
@@ -3056,9 +3371,9 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> di
         else:
             _check('captioned', 'Every kept image captioned', 'ok', f'{n}/{n} captioned')
 
-    # 3) captions suspectes (trop courtes / dupliquées)
+    # 3) captions suspectes (trop courtes / dupliquées) — sans objet en slider mode
     caps = [(r.caption or '').strip() for r in kept if (r.caption or '').strip()]
-    if caps:
+    if caps and not slider:
         _cap_ok = True
         if style:
             quality = _style_caption_quality_from_rows(ds, kept)
@@ -3093,7 +3408,7 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> di
     # On saute entièrement cette dimension (comme le badge caption_leak du payload), sinon
     # CHAQUE caption concept déclenche un faux avertissement au preflight.
     body = fds.is_body_fidelity(ds)
-    leak_images = [] if concept else [
+    leak_images = [] if (concept or slider) else [
         {'id': r.id, 'filename': r.filename, 'caption': (r.caption or '').strip()}
         for r in kept
         if (r.caption or '').strip()
@@ -3105,34 +3420,36 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> di
         _check('leaks', 'No identity leaks', 'warn',
                f'{len(leak_images)} caption(s) describe hair/face/skin — identity will bind '
                'to those words, not the trigger', 'gf-images')
-    elif caps and not concept:
+    elif caps and not concept and not slider:
         _check('leaks', 'No identity leaks', 'ok', '0 leaking caption')
 
     # 5) quasi-doublons parmi les kept (dHash pairwise, n<=~60 -> négligeable). On
     # retient les PAIRES (leurs deux images) pour que l'UI montre lesquelles rejeter.
+    # Slider : sans objet (le substrat n'est pas mémorisé) → on saute le scan.
     dup_pairs = []
-    try:
-        hp = []  # [(row, dhash)] pour les kept lisibles sur disque
-        for r in kept:
-            p = fds._img_path(r)
-            if p and os.path.exists(p):
-                with Image.open(p) as im:
-                    hp.append((r, fds._dhash(im)))
-        for i in range(len(hp)):
-            for j in range(i + 1, len(hp)):
-                if fds._hamming(hp[i][1], hp[j][1]) <= fds.SCRAPE_DHASH_MAX_DISTANCE:
-                    ra, rb = hp[i][0], hp[j][0]
-                    dup_pairs.append({'a': {'id': ra.id, 'filename': ra.filename},
-                                      'b': {'id': rb.id, 'filename': rb.filename}})
-        if dup_pairs:
-            warnings.append(f'{len(dup_pairs)} pair(s) of kept images are near-duplicates — '
-                            'the model overfits repeated content; reject one of each pair.')
-            _check('duplicates', 'No near-duplicates', 'warn',
-                   f'{len(dup_pairs)} near-duplicate pair(s) — reject one of each', 'gf-images')
-        elif n:
-            _check('duplicates', 'No near-duplicates', 'ok', '0 pair')
-    except Exception:
-        pass   # best-effort: an unreadable file must not block the preflight
+    if not slider:
+        try:
+            hp = []  # [(row, dhash)] pour les kept lisibles sur disque
+            for r in kept:
+                p = fds._img_path(r)
+                if p and os.path.exists(p):
+                    with Image.open(p) as im:
+                        hp.append((r, fds._dhash(im)))
+            for i in range(len(hp)):
+                for j in range(i + 1, len(hp)):
+                    if fds._hamming(hp[i][1], hp[j][1]) <= fds.SCRAPE_DHASH_MAX_DISTANCE:
+                        ra, rb = hp[i][0], hp[j][0]
+                        dup_pairs.append({'a': {'id': ra.id, 'filename': ra.filename},
+                                          'b': {'id': rb.id, 'filename': rb.filename}})
+            if dup_pairs:
+                warnings.append(f'{len(dup_pairs)} pair(s) of kept images are near-duplicates — '
+                                'the model overfits repeated content; reject one of each pair.')
+                _check('duplicates', 'No near-duplicates', 'warn',
+                       f'{len(dup_pairs)} near-duplicate pair(s) — reject one of each', 'gf-images')
+            elif n:
+                _check('duplicates', 'No near-duplicates', 'ok', '0 pair')
+        except Exception:
+            pass   # best-effort: an unreadable file must not block the preflight
 
     # 11) images encore en attente de tri (elles ne s'entraînent PAS)
     untriaged = sum(1 for r in rows if r.status == 'pending' and r.filename)
@@ -3371,6 +3688,13 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
         raise ValueError(
             "ai-toolkit doesn't support FLUX.2 Klein yet (flux2_klein arch missing) - "
             "update it (git pull) before training a FLUX.2 Klein LoRA.")
+    # Slider mode (Beta) : the modern `concept_slider` trainer is an ai-toolkit
+    # EXTENSION — an older install would crash at job boot on the unknown process
+    # type. Refuse early with the fix, like the krea2/flux2klein arch guards.
+    if slider_mode_enabled(ds) and not _aitoolkit_supports_concept_slider():
+        raise ValueError(
+            "ai-toolkit doesn't ship the concept_slider trainer - "
+            "update it (git pull) before training a Slider LoRA.")
     # Garde-fou anti-collision de dossier : un AUTRE dataset du user avec le même
     # (trigger, base, recette) écrirait dans le même run → LoRA mélangés. Refuser AVANT de
     # persister/lancer, en nommant le conflit pour que l'utilisateur change un trigger.
@@ -3430,6 +3754,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
             'training_target_step': int(steps),
             'training_run_token': run_token,
             'training_train_type': launch_fam,
+            'training_slider_mode': slider_mode_enabled(ds),
             'training_variant': variant,
             'training_base_model': base_model or '',
             'training_effective_base': (
@@ -3632,9 +3957,25 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
     séparément le garde trigger-only/toutes-identiques. ``variant`` est accepté pour
     garder une signature family/variant homogène avec les recommandations de steps."""
     kept = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
+    ds_ = FaceDataset.query.get(dataset_id)
+    if ds_ is not None and slider_mode_enabled(ds_):
+        # Slider mode (Beta): images are only a denoising substrate — a small
+        # varied set is enough — and captions are encoded but IGNORED by the
+        # slider loss, so every caption guard below is meaningless here. What
+        # IS required: the prompt pair that defines the slider direction.
+        floor = TRAIN_MIN_IMAGES_SLIDER[0]
+        if kept < floor:
+            raise ValueError(
+                f'not enough kept images ({kept}/{floor}) — slider training still '
+                'needs a few images as a denoising substrate')
+        sc = _slider_settings(ds_)
+        if not (sc.get('positive') or '').strip() or not (sc.get('negative') or '').strip():
+            raise ValueError(
+                'slider mode needs both a positive and a negative prompt — '
+                'they define the two ends of the slider')
+        return
     if kept < 10:
         raise ValueError(f"not enough kept images ({kept}/10)")
-    ds_ = FaceDataset.query.get(dataset_id)
     style = fds.is_style(ds_)
     missing = kept_uncaptioned_count(dataset_id)
     if missing and not allow_uncaptioned:
@@ -3702,6 +4043,9 @@ def training_status(user_id=None) -> dict:
             'run_token': queue_manager._get_system_state(
                 'training_run_token', None),
             'train_type': fam,
+            # Slider LoRA (Beta) run — the progress UI labels it honestly.
+            'slider_mode': bool(queue_manager._get_system_state(
+                'training_slider_mode', False)),
             'variant': variant,
             'base_model': base_model,
             'effective_base': effective_base,
