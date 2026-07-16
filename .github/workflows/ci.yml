@@ -65,6 +65,7 @@ jobs:
             printf '%s\n' "$changes"
             git diff -- dist
             exit 1
+          fi
 
   docker-smoke:
     name: Docker smoke test
