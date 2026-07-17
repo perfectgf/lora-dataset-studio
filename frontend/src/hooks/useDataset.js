@@ -58,7 +58,7 @@ export async function postJson(url, body, isForm) {
 /**
  * Compose the 🧽 Clean summary toast from the server's counts — PURE (no React,
  * no toast) so the honest-message logic is testable on its own.
- * Response shape: {cropped, inpainted, needs_review, failed, skipped, error}.
+ * Response shape: {cropped, inpainted, inpainted_klein, needs_review, failed, skipped, error}.
  *
  * The old code fired TWO toasts at once: a "Nothing to clean" SUCCESS (it only
  * looked at cropped/inpainted/needs_review/failed) AND a separate "N skipped"
@@ -73,7 +73,9 @@ export async function postJson(url, body, isForm) {
  */
 export function summarizeClean(d) {
   const cropped = d.cropped || 0;
-  const inpainted = d.inpainted || 0;
+  // LaMa and Klein inpaints tally together — both "repainted the mark" from the
+  // user's point of view (the batch method toggle picks which engine ran).
+  const inpainted = (d.inpainted || 0) + (d.inpainted_klein || 0);
   const skipped = d.skipped || 0;
   const needsReview = d.needs_review || 0;
   const failed = d.failed || 0;
@@ -496,14 +498,15 @@ export function useDataset() {
   // Clean the detected watermarks: border marks are CROPPED, small off-center ones
   // INPAINTED (LaMa), the rest flagged for manual review. The backend resolves the
   // configured Auto/GPU/CPU device and reserves ComfyUI only for an actual GPU pass.
-  const cleanWatermarks = useCallback(() => wrap(async () => {
+  const cleanWatermarks = useCallback((method) => wrap(async () => {
     setWatermarking(true);
     // Capture the ids whose file may change IN PLACE so we can cache-bust their
     // thumbnails (same filename → the browser would otherwise show the stale image).
     const detectedIds = (data?.images || [])
       .filter((i) => i.watermark_state === 'detected').map((i) => i.id);
     try {
-      const d = await postJson(`/api/dataset/${currentId}/watermarks/clean`);
+      const d = await postJson(`/api/dataset/${currentId}/watermarks/clean`,
+        method ? { method } : undefined);
       if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
       // A LaMa inpaint that was attempted and failed surfaces WHY (never silent).
       if (d.error) {
@@ -535,10 +538,11 @@ export function useDataset() {
   // Clean ONE (or a few) detected image(s) by id — same crop/LaMa/review routing as
   // cleanWatermarks, scoped to a subset. Cache-busts the touched thumbnails (crop/
   // inpaint edit the file IN PLACE, same filename) so the cleaned pixels show.
-  const cleanWatermarkImages = useCallback(async (ids) => {
+  const cleanWatermarkImages = useCallback(async (ids, method) => {
     const list = (ids || []).filter((v) => v != null);
-    if (!list.length) return { ok: true, cropped: 0, inpainted: 0, needs_review: 0, failed: 0, skipped: 0 };
-    const d = await postJson(`/api/dataset/${currentId}/watermarks/clean`, { image_ids: list });
+    if (!list.length) return { ok: true, cropped: 0, inpainted: 0, inpainted_klein: 0, needs_review: 0, failed: 0, skipped: 0 };
+    const d = await postJson(`/api/dataset/${currentId}/watermarks/clean`,
+      { image_ids: list, ...(method ? { method } : {}) });
     if (d.ok) {
       setNonces((m) => {
         const next = { ...m };

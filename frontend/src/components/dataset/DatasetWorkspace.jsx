@@ -131,6 +131,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [scraperOpen, setScraperOpen] = useState(false);
   const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
   const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
+  const [watermarkMethod, setWatermarkMethod] = useState('lama');  // moteur d'inpaint batch : lama | klein
   const [checkpointCount, setCheckpointCount] = useState(0);
   const [checkpointHost, setCheckpointHost] = useState(null);
   const [trainingNavigation, setTrainingNavigation] = useState({ ready: false, queueCount: 0 });
@@ -907,13 +908,40 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     : '🧽 Find watermarks'}
                 </button>
                 {watermarkDetected > 0 && (
-                  <button type="button" onClick={ds.cleanWatermarks} disabled={ds.busy}
-                    title={caps.watermark_inpaint
+                  <>
+                  {/* Inpaint engine: LaMa (fast, non-generative) vs Klein (masked
+                      Flux.2 inpaint — better on complex texture AND makes on-subject
+                      marks actionable, but GPU + slower). Klein is greyed until ComfyUI
+                      + the Klein models are ready (caps.watermark_klein). */}
+                  <div role="group" aria-label="Watermark inpaint method"
+                    className="flex items-center rounded-lg border border-border bg-surface p-0.5 text-xs">
+                    <button type="button" aria-pressed={watermarkMethod === 'lama'}
+                      onClick={() => setWatermarkMethod('lama')} disabled={ds.busy}
+                      title="LaMa: fast, non-generative. Crops border marks, repaints small off-center marks; on-subject marks go to manual review."
+                      className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${watermarkMethod === 'lama'
+                        ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
+                      LaMa <span className="font-normal opacity-70">fast</span>
+                    </button>
+                    <button type="button" aria-pressed={watermarkMethod === 'klein'}
+                      onClick={() => setWatermarkMethod('klein')} disabled={ds.busy || !caps.watermark_klein}
+                      title={caps.watermark_klein
+                        ? 'Klein: masked Flux.2 inpaint (crop-and-stitch). Better on skin/fabric/busy backgrounds and can clean marks ON the subject. Uses the GPU via ComfyUI — slower.'
+                        : 'Klein inpaint needs ComfyUI running + the Klein models installed (Setup ▸ ComfyUI).'}
+                      className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${watermarkMethod === 'klein'
+                        ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
+                      Klein <span className="font-normal opacity-70">quality</span>
+                    </button>
+                  </div>
+                  <button type="button" onClick={() => ds.cleanWatermarks(watermarkMethod)} disabled={ds.busy}
+                    title={watermarkMethod === 'klein'
+                      ? 'Removes them with masked Flux.2 Klein inpaint: border marks are cropped, every other mark (off-center AND on-subject) is repainted then composited back — only the mark changes'
+                      : caps.watermark_inpaint
                       ? 'Removes them: border marks are cropped, small off-center marks are inpainted (LaMa), on-subject marks are flagged for manual review'
                       : 'Removes border marks by cropping. Inpainting (LaMa) needs a one-time install — use ⬇ Install inpainting next to this button; off-center marks are skipped until then'}
                     className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold disabled:opacity-40">
                     🧽 Clean ({watermarkDetected})
                   </button>
+                  </>
                 )}
                 {/* Per-image control: step through the flagged images full-screen, see each
                     detected box, and Clean / dismiss (false positive) / reject one by one.
@@ -1389,7 +1417,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           caps={caps}
           nonces={ds.nonces}
           onSaveRegions={(id, regions) => ds.saveWatermarkRegions(id, regions)}
-          onClean={(id) => ds.cleanWatermarkImages([id])}
+          onClean={(id, method) => ds.cleanWatermarkImages([id], method)}
           onDismiss={(id) => ds.dismissWatermarks([id])}
           onReject={(id) => ds.setStatus(id, 'reject')}
           onClose={(recap) => {

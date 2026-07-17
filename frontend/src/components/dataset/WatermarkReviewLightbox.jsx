@@ -33,6 +33,7 @@ const ROUTE_LABEL = {
   crop: { icon: '✂', text: 'Crop the watermarked border', cls: 'text-sky-300' },
   lama: { icon: '🖌', text: 'Inpaint the mark (LaMa)', cls: 'text-emerald-300' },
   review: { icon: '👁', text: 'On the subject — needs manual review', cls: 'text-amber-300' },
+  klein: { icon: '🎨', text: 'Masked Klein inpaint (crop-and-stitch)', cls: 'text-emerald-300' },
 };
 
 // Per-image outcome after an action. Terminal ones leave the 'detected' set (badge
@@ -54,7 +55,8 @@ const AUTO_ADVANCE = new Set(['dismissed', 'rejected']);
 
 // Clean's outcome text, refined with which route actually ran (from the clean API's
 // per-request counts) once known.
-const CLEAN_DETAIL_TEXT = { cropped: 'Cleaned — cropped', inpainted: 'Cleaned — inpainted' };
+const CLEAN_DETAIL_TEXT = { cropped: 'Cleaned — cropped', inpainted: 'Cleaned — inpainted',
+  inpainted_klein: 'Cleaned — Klein inpaint' };
 
 const RECAP_ORDER = ['cleaned', 'dismissed', 'rejected', 'review', 'skipped', 'failed'];
 const RECAP_WORD = { cleaned: 'cleaned', dismissed: 'dismissed', rejected: 'rejected',
@@ -99,6 +101,11 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   const [saveStateById, setSaveStateById] = useState(initialReviewState.saveStateById);
   const [working, setWorking] = useState(false);
   const [workingKind, setWorkingKind] = useState(null); // 'clean' | 'dismiss' | 'reject' — which action is in flight
+  // Per-image inpaint engine (the batch's LaMa|Klein toggle, mirrored here). Klein is
+  // the ONLY engine that can clean an on-subject ('review') mark, so it makes those
+  // actionable; LaMa stays the fast default. Greyed when Klein isn't ready.
+  const kleinReady = caps?.watermark_klein !== false;
+  const [method, setMethod] = useState('lama');
   const [note, setNote] = useState(null);         // transient inline note {tone, text}
   const dialogRef = useRef(null);
   const workingRef = useRef(false);               // re-entrancy guard (double keypress)
@@ -117,7 +124,15 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     ? (saveStateById[item.id] || { status: 'saved', error: null })
     : { status: 'saved', error: null };
   const saveBlocked = saveState.status === 'saving' || saveState.status === 'failed';
-  const manualLamaMissing = manual && caps?.watermark_inpaint === false;
+  const kleinSelected = method === 'klein';
+  // Which engine the planned Clean actually needs, and whether it's installed. LaMa is
+  // required only for a real LaMa inpaint (manual zones or the 'lama' route); the
+  // 'review' route under LaMa is a no-op (returns needs_review) and needn't be blocked.
+  const lamaNeeded = !kleinSelected && (manual || item?.watermark_route === 'lama');
+  const engineMissing = kleinSelected
+    ? !kleinReady
+    : (lamaNeeded && caps?.watermark_inpaint === false);
+  const manualLamaMissing = engineMissing;   // drives the existing Clean gating + copy
   const allDone = total > 0 && Object.keys(outcomes).length >= total
     && queue.every((q) => outcomes[q.id]);
 
@@ -298,7 +313,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
       if (!await waitForLatestSave(it.id)) {
         return { note: { tone: 'err', text: 'Correction zones could not be saved. Retry or reset them before cleaning.' } };
       }
-      const d = await onClean(it.id);
+      const d = await onClean(it.id, method);
       if (!d || d.ok === false) {
         return { key: 'failed', note: { tone: 'err', text: (d && d.error && (d.error.detail || d.error)) || 'Clean failed' } };
       }
@@ -308,7 +323,10 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
             ? 'Inpainting isn’t installed — install it (next to the 🧽 tools) or reject/crop this one.'
             : `Inpainting failed: ${d.error.detail || d.error.kind}` } };
       }
-      if (d.cropped || d.inpainted) return { key: 'cleaned', detail: d.cropped ? 'cropped' : 'inpainted' };
+      if (d.cropped || d.inpainted || d.inpainted_klein) {
+        return { key: 'cleaned',
+          detail: d.cropped ? 'cropped' : d.inpainted_klein ? 'inpainted_klein' : 'inpainted' };
+      }
       if (d.needs_review) {
         return { key: 'review', note: { tone: 'warn',
           text: 'On the subject — auto crop/inpaint would damage the photo. Reject it or crop it manually.' } };
@@ -319,7 +337,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
       }
       return { key: 'cleaned' };   // nothing to do reported → treat as resolved
     });
-  }, [item, manualLamaMissing, onClean, outcome, regions.length, run, waitForLatestSave]);
+  }, [item, manualLamaMissing, method, onClean, outcome, regions.length, run, waitForLatestSave]);
 
   const doDismiss = useCallback(() => {
     if (!item || isSaveBlocked(item.id)) return;
@@ -361,20 +379,35 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   const url = item && item.filename
     ? `/api/dataset/${datasetId}/img/${encodeURIComponent(item.filename)}${nonce ? `?v=${nonce}` : ''}`
     : null;
-  const route = manual
-    ? {
-        icon: '🖌',
-        text: `Inpaint ${regions.length} selected zone${regions.length === 1 ? '' : 's'}`,
-        cls: 'text-emerald-300',
-      }
-    : (item ? ROUTE_LABEL[item.watermark_route] : null);
+  // Planned action, method-aware. A border ('crop') mark is always cropped (invents no
+  // pixel) regardless of engine; every OTHER mark follows the selected engine — and
+  // under Klein the on-subject ('review') mark becomes actionable instead of blocked.
+  const kleinInpaintLabel = (n) => ({
+    icon: '🎨',
+    text: manual ? `Klein inpaint ${n} selected zone${n === 1 ? '' : 's'}` : ROUTE_LABEL.klein.text,
+    cls: 'text-emerald-300',
+  });
+  let route;
+  if (manual) {
+    route = kleinSelected
+      ? kleinInpaintLabel(regions.length)
+      : { icon: '🖌', text: `Inpaint ${regions.length} selected zone${regions.length === 1 ? '' : 's'}`,
+          cls: 'text-emerald-300' };
+  } else if (item) {
+    const r = item.watermark_route;
+    route = (kleinSelected && (r === 'lama' || r === 'review'))
+      ? kleinInpaintLabel(regions.length)
+      : ROUTE_LABEL[r];
+  } else {
+    route = null;
+  }
   const oc = outcome ? OUTCOME[outcome] : null;
   const ocText = outcome === 'cleaned' && cleanDetail[item?.id]
     ? CLEAN_DETAIL_TEXT[cleanDetail[item.id]] || oc.text
     : oc?.text;
   const cleaning = working && workingKind === 'clean';   // navigation is held while true, so this always tracks `item`
   const showEditor = !(oc && oc.terminal) && !cleaning;
-  const automaticLamaMissing = !manual && item?.watermark_route === 'lama'
+  const automaticLamaMissing = !kleinSelected && !manual && item?.watermark_route === 'lama'
     && caps?.watermark_inpaint === false;
   const editorDisabled = working || saveBlocked;
   const actionBlocked = working || saveBlocked;
@@ -510,10 +543,16 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
             <span className="text-white/60">— unknown (missing box)</span>
           )}
           {manual && regions.length > 0 && (
-            <span className="text-emerald-200/70 text-xs">· one composite LaMa pass</span>
+            <span className="text-emerald-200/70 text-xs">
+              · {kleinSelected ? 'one Klein inpaint per zone' : 'one composite LaMa pass'}
+            </span>
           )}
-          {manualLamaMissing && (
-            <span className="text-amber-300/90 text-xs">· LaMa inpainting isn’t installed → install it from the 🧽 tools before Clean</span>
+          {engineMissing && (
+            <span className="text-amber-300/90 text-xs">
+              {kleinSelected
+                ? '· Klein inpaint isn’t ready → start ComfyUI + install the Klein models (Setup ▸ ComfyUI)'
+                : '· LaMa inpainting isn’t installed → install it from the 🧽 tools before Clean'}
+            </span>
           )}
           {automaticLamaMissing && (
             <span className="text-amber-300/90 text-xs">· inpainting not installed → Clean will skip</span>
@@ -526,14 +565,42 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
           </p>
         )}
 
+        {/* Inpaint engine for THIS image: Klein is the only one that can clean an
+            on-subject ('review') mark, so it makes those actionable. Greyed until
+            ComfyUI + the Klein models are ready. */}
+        <div role="group" aria-label="Inpaint method"
+          className="flex items-center justify-center gap-1 text-xs">
+          <span className="text-white/50">Engine:</span>
+          <div className="flex items-center rounded-lg border border-white/15 bg-white/5 p-0.5">
+            <button type="button" aria-pressed={!kleinSelected} onClick={() => setMethod('lama')}
+              disabled={working}
+              title="LaMa: fast, non-generative (border crop + small off-center marks). On-subject marks stay manual review."
+              className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${!kleinSelected
+                ? 'bg-amber-500/25 text-amber-100' : 'text-white/60 hover:text-white'}`}>
+              LaMa
+            </button>
+            <button type="button" aria-pressed={kleinSelected} onClick={() => setMethod('klein')}
+              disabled={working || !kleinReady}
+              title={kleinReady
+                ? 'Klein: masked Flux.2 inpaint (crop-and-stitch). Cleans complex texture and marks ON the subject; only the mark changes.'
+                : 'Klein inpaint needs ComfyUI running + the Klein models installed (Setup ▸ ComfyUI).'}
+              className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${kleinSelected
+                ? 'bg-amber-500/25 text-amber-100' : 'text-white/60 hover:text-white'}`}>
+              Klein
+            </button>
+          </div>
+        </div>
+
         <div className="flex gap-2 flex-wrap">
           <button type="button" onClick={doClean} disabled={cleanDisabled}
             title={outcome === 'cleaned'
               ? 'Already cleaned'
               : regions.length === 0
                 ? 'Add at least one correction zone before cleaning'
-                : manualLamaMissing
-                  ? 'Install LaMa inpainting before cleaning manual zones'
+                : engineMissing
+                  ? (kleinSelected
+                      ? 'Start ComfyUI and install the Klein models before cleaning with Klein'
+                      : 'Install LaMa inpainting before cleaning manual zones')
                   : saveBlocked
                     ? 'Save correction zones before cleaning'
               : "Apply this image's watermark removal now (crop / inpaint / manual review) — shortcut c"}
