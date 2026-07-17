@@ -50,6 +50,59 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-17-lora-autocomplete',
+    date: '2026-07-17',
+    title: 'Pick preset LoRAs from what is actually on disk',
+    blurb:
+      'Each row of a Klein LoRA preset is now a searchable dropdown of the LoRAs found in your ComfyUI (all folders, extra_model_paths included), with Klein-compatible ones listed first and every file badged by architecture. Free text still works for files not downloaded yet.',
+    to: '/settings/engines',
+  },
+  {
+    id: '2026-07-17-suffixes-per-batch',
+    date: '2026-07-17',
+    title: 'Tweak prompt suffixes between batches, right in the panel',
+    blurb:
+      'The generation panel now has a ✨ Prompt suffixes accordion — same per-dataset suffixes as the ⚙ Settings modal, editable without leaving the workspace. Adjust the mood, hit Generate, adjust again.',
+    to: '/datasets?section=add',
+  },
+  {
+    id: '2026-07-17-captions-uncapped',
+    date: '2026-07-17',
+    title: 'Captions finish their sentences',
+    blurb:
+      'Generated captions were silently cut at 800 characters, often mid-word. The cap is gone — JoyCaption and the vision fallback now store their full text, and captions that were truncated in the past get an amber note in the editor pointing at targeted re-captioning.',
+    to: '/datasets?section=captions&panel=tools',
+  },
+  {
+    id: '2026-07-17-klein-kv-default',
+    date: '2026-07-17',
+    title: 'Faster Klein editing — and no Hugging Face token needed',
+    blurb:
+      'New installs now download the public Klein 9B KV build: up to 2.5× faster multi-reference editing at identical quality, and no license gate to click through. Existing installs keep their current file — nothing re-downloads.',
+  },
+  {
+    id: '2026-07-17-model-file-integrity',
+    date: '2026-07-17',
+    title: 'Broken model files are caught at Setup, not at generate time',
+    blurb:
+      'A .safetensors that is really an HTML page (a license-gated download gone wrong), a truncated file or a dead symlink is now detected from its header and explained in plain words — delete and re-download — instead of failing cryptically minutes later.',
+  },
+  {
+    id: '2026-07-17-dataset-delete-fix',
+    date: '2026-07-17',
+    title: 'Deleting datasets now works on every install',
+    blurb:
+      'On databases created by older versions, deleting a dataset with Test Studio history could fail with a server error. Fixed for every vintage — deletions land in the app trash as usual, nothing is lost by accident.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-07-17-canvas-lora-chain',
+    date: '2026-07-17',
+    title: 'Dropped images rebuild the full LoRA chain in ComfyUI',
+    blurb:
+      'Drag a generated image onto the ComfyUI canvas and the reconstructed workflow now shows every LoRA of your preset, not just the last one. (Generation itself was always correct — all LoRAs were applied.)',
+  },
+  {
     id: '2026-07-17-help-mode',
     date: '2026-07-17',
     title: 'A two-way Help mode + a full Settings reference',
