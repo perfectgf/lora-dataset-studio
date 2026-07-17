@@ -16,7 +16,9 @@ Architecture — PREFILL then REFINE (GPU-derived 2026-07-17, see below):
   3. Klein REFINES the pre-filled crop as a native full-edit (VAEEncode the whole crop →
      ReferenceLatent + KSampler on that latent, denoise 1.0, cfg 1 — NO SetLatentNoiseMask,
      the improve-skin edit pattern). Klein regenerates real texture over the soft prefill;
-  4. composite the refined crop back onto the ORIGINAL in pixel space, pasting ONLY the
+  4. HARMONIZE the refined crop's tone to the surrounding original at the seam (per zone),
+     so the pasted patch has no visible tonal step — see "WHY harmonization" below;
+  5. composite the harmonized crop back onto the ORIGINAL in pixel space, pasting ONLY the
      masked region (+ a few-px feather). Every pixel outside that footprint keeps its
      ORIGINAL bytes — that is THE preservation guarantee, and it holds no matter how far
      the model drifts across the (fully re-rendered) crop.
@@ -31,6 +33,23 @@ WHY the prefill is mandatory (empirical, on a real photo):
     pre-filled crop as a FULL edit lets it regenerate genuine texture over the soft patch,
     which is exactly its improve-details core competency. A Klein pass WITHOUT a prefill is
     proven ineffective, so there is no skip-prefill path — prefill or fail.
+
+WHY harmonization is mandatory (measured on a real photo, GPU 2026-07-17):
+  * The full-edit re-renders the ENTIRE crop, so Klein's output drifts globally in tone,
+    colour and contrast even OUTSIDE the mask (measured on the seam ring of a real 1024²
+    crop: luma -8.6, per-channel means R -8.8 / G -7.7 / B -12.6, contrast std ratio ~1.3).
+  * The composite pastes ONLY the masked rectangle, so that drift lands as a hard step at
+    the paste boundary — the "visible square" grief, worst on soft flats (skin, walls,
+    knit) where a constant offset reads as a clean rectangle. The feather smooths the alpha
+    edge but CANNOT remove a tonal offset.
+  * Fix: on the "seam ring" — the band of pixels just OUTSIDE the mask, where the original
+    is the ground truth Klein was meant to reproduce — measure the per-channel mean/std of
+    original vs fill; that difference IS the drift. Apply the inverse per-channel affine
+    (gain = orig_std/fill_std, bias to match means) to the whole patch so it lines up with
+    the neighbourhood. It is a linear transform, so it PRESERVES Klein's reconstructed
+    texture; it only re-seats its tone. Done PER ZONE (each mark harmonized against its own
+    local ring) so a multi-mark crop spanning different lighting corrects each seam locally.
+    The correction touches the PATCH only — the byte-exact preservation guarantee is intact.
 
 The ComfyUI round-trip goes through the shared queue_manager (serialized against training
 / vision by the worker's own gating), then this module reads the finished crop back and
@@ -82,6 +101,13 @@ KLEIN_TARGET_MP = 1.0          # upscale the crop to ~this many megapixels for t
 KLEIN_LATENT_MULT = 16         # Flux.2 latent stride — crop dims sent to ComfyUI snap to it
 KLEIN_MASK_EXPAND_PX = 8       # grow the mark rectangle before prefill (cover its AA edge)
 KLEIN_COMPOSITE_FEATHER_PX = 6  # feather of the pixel-space paste seam (crop-native res)
+KLEIN_HARMONIZE_RING_PX = 24    # width (crop-native) of the seam ring sampled to estimate
+                                # Klein's tonal drift — local enough to track the neighbour
+                                # tone, wide enough for a stable per-channel mean/std
+KLEIN_HARMONIZE_MAX_GAIN = 1.5  # clamp the per-channel contrast correction so a high-variance
+                                # ring (strong edges just outside the mask) can't over-punch
+KLEIN_HARMONIZE_MIN_RING = 64   # too few ring pixels (mark glued to the crop edges) → skip
+                                # the correction rather than trust a noisy estimate (identity)
 KLEIN_DENOISE = 1.0            # full-edit refine: the crop's own latent is fully noised and
                                # the (pre-filled, watermark-free) crop re-enters as the
                                # ReferenceLatent — anything below 1.0 would leak the noised
@@ -216,6 +242,57 @@ def composite_inpaint(original, filled_crop, crop_box, composite_mask) -> Image.
         filled_crop = filled_crop.resize(composite_mask.size, Image.LANCZOS)
     result.paste(filled_crop.convert('RGB'), (crop_box[0], crop_box[1]), composite_mask)
     return result
+
+
+# --- Seam harmonization (kill Klein's global tonal drift at the paste boundary) ---
+# The full-edit re-renders the whole crop, so the refined patch drifts in tone/colour/
+# contrast even outside the mask; pasting only the rectangle turns that drift into a
+# visible square. These pure helpers re-seat the patch's tone to the surrounding original,
+# measured on the ring of ground-truth pixels just outside the mask. See the module
+# docstring ("WHY harmonization is mandatory") for the measured drift.
+
+_RING_THRESHOLD = 8            # GaussianBlur band cutoff (0..255) that defines the ring width
+_STD_EPS = 1e-3               # a flat ring (std≈0) → gain 1.0 (offset-only correction)
+
+
+def _seam_ring(zone_mask, exclude_mask, *, ring_px=KLEIN_HARMONIZE_RING_PX):
+    """Boolean array (crop-native, shape (H, W)) of the pixels to sample for one zone's
+    seam correction: a band just OUTSIDE `zone_mask` (a single mark rectangle), grown by
+    `ring_px`, MINUS every masked/watermark pixel (`exclude_mask` = the union of ALL zones
+    in the crop). Subtracting the union keeps the sample pure ORIGINAL ground truth — a
+    neighbouring mark's still-watermarked pixels never contaminate this zone's estimate.
+    `zone_mask`/`exclude_mask` are 'L' masks (white = inpaint)."""
+    import numpy as np
+    grown = zone_mask.filter(ImageFilter.GaussianBlur(ring_px))
+    band = np.asarray(grown) > _RING_THRESHOLD                 # zone interior + a band around it
+    inpaint = np.asarray(exclude_mask.convert('L')) > 127
+    return band & ~inpaint                                     # ...minus every mask → outside band
+
+
+def _harmonize_seam(filled_crop, original_crop, ring, *,
+                    max_gain=KLEIN_HARMONIZE_MAX_GAIN, min_ring=KLEIN_HARMONIZE_MIN_RING):
+    """Re-seat `filled_crop`'s tone onto `original_crop` using the `ring` sample, returning a
+    NEW RGB image the size of `filled_crop`. Pure numpy, deterministic.
+
+    On the ring (ground-truth pixels Klein was meant to reproduce) measure per-channel
+    mean/std of both images; the difference is Klein's drift. Apply the inverse affine
+    `(fill - fill_mean) * gain + orig_mean`, gain = orig_std/fill_std (clamped, offset-only
+    when the ring is flat), to the WHOLE patch — a linear map, so Klein's texture survives,
+    only its tone moves. When the ring is too small (mark glued to the crop edges) there is
+    no trustworthy estimate → return `filled_crop` UNCHANGED (identity)."""
+    import numpy as np
+    if int(ring.sum()) < min_ring:
+        return filled_crop
+    fill = np.asarray(filled_crop.convert('RGB'), dtype=np.float64)
+    orig = np.asarray(original_crop.convert('RGB'), dtype=np.float64)
+    out = np.empty_like(fill)
+    for c in range(3):
+        fo, oo = fill[..., c][ring], orig[..., c][ring]
+        fmean, fstd = fo.mean(), fo.std()
+        gain = oo.std() / fstd if fstd > _STD_EPS else 1.0
+        gain = min(max(gain, 1.0 / max_gain), max_gain)
+        out[..., c] = (fill[..., c] - fmean) * gain + oo.mean()
+    return Image.fromarray(np.clip(np.rint(out), 0, 255).astype(np.uint8), 'RGB')
 
 
 # --- Prefill (repaint the watermark away before Klein sees it) ----------------
@@ -428,8 +505,7 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cp
     scaled_size = _upscale_size(cw, ch)
     scaled_crop = crop_img.resize(scaled_size, Image.LANCZOS)
 
-    hard = _hard_mask(crop_box, W, H, norm)
-    composite_mask = hard.filter(ImageFilter.GaussianBlur(KLEIN_COMPOSITE_FEATHER_PX))
+    union_hard = _hard_mask(crop_box, W, H, norm)   # all zones — the ring's exclusion mask
 
     # Prefill the mark away BEFORE Klein — its ReferenceLatent is this crop, so a leftover
     # watermark would be reproduced as ghost glyphs. No prefill → no Klein (abort).
@@ -444,7 +520,19 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cp
         return False, err
     filled_crop = (filled_scaled if filled_scaled.size == (cw, ch)
                    else filled_scaled.resize((cw, ch), Image.LANCZOS))
-    result = composite_inpaint(original, filled_crop, crop_box, composite_mask)
+
+    # Per zone: harmonize the patch's tone to its OWN local ring, then paste only that
+    # zone's feathered footprint. Chaining `composite_inpaint` keeps every untouched pixel
+    # byte-exact (each paste writes only its mask), so multi-mark crops spanning different
+    # lighting get each seam corrected locally instead of by one global (wrong) offset.
+    original_crop = original.crop(crop_box)
+    result = original.convert('RGB').copy()
+    for box in norm:
+        zone_hard = _hard_mask(crop_box, W, H, [box])
+        ring = _seam_ring(zone_hard, union_hard)
+        corrected = _harmonize_seam(filled_crop, original_crop, ring)
+        zone_mask = zone_hard.filter(ImageFilter.GaussianBlur(KLEIN_COMPOSITE_FEATHER_PX))
+        result = composite_inpaint(result, corrected, crop_box, zone_mask)
     try:
         result.save(image_path, 'WEBP', quality=92)
     except (OSError, ValueError) as e:

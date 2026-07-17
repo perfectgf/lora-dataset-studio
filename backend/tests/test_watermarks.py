@@ -1415,6 +1415,113 @@ def test_composite_preserves_bytes_outside_the_mask_and_changes_them_inside():
     assert tuple(res[0, 0]) == tuple(orig[0, 0])
 
 
+# --- Seam harmonization (kill Klein's tonal drift → no visible square) -----------
+
+def test_seam_ring_excludes_other_zones_watermark_pixels():
+    """A neighbouring mark's still-watermarked pixels must never enter this zone's ring —
+    excluding the UNION of all masks keeps the sample pure original ground truth."""
+    import numpy as np
+    from PIL import ImageDraw
+    from app.services import watermark_klein as wk
+    W, H = 200, 200
+    zone = Image.new('L', (W, H), 0)
+    ImageDraw.Draw(zone).rectangle([40, 40, 60, 60], fill=255)
+    other = Image.new('L', (W, H), 0)
+    ImageDraw.Draw(other).rectangle([72, 40, 92, 60], fill=255)   # a near neighbour mark
+    union = Image.new('L', (W, H), 0)
+    ImageDraw.Draw(union).rectangle([40, 40, 60, 60], fill=255)
+    ImageDraw.Draw(union).rectangle([72, 40, 92, 60], fill=255)
+
+    ring_alone = wk._seam_ring(zone, zone)
+    ring_excl = wk._seam_ring(zone, union)
+    other_px = np.asarray(other) > 127
+    # excluding the union keeps the neighbour's masked pixels out of the sample...
+    assert not (ring_excl & other_px).any()
+    # ...and only ever REMOVES ring pixels (the outside-band is otherwise the same).
+    assert ring_excl.sum() < ring_alone.sum()
+    assert not (ring_excl & (np.asarray(zone) > 127)).any()       # never samples the zone itself
+
+
+def test_harmonize_seam_is_identity_when_no_drift():
+    """Klein didn't drift (fill == original) → the correction is a byte-for-byte no-op."""
+    import numpy as np
+    from PIL import ImageDraw
+    from app.services import watermark_klein as wk
+    rng = np.random.default_rng(7)
+    W, H = 128, 128
+    crop = Image.fromarray(rng.integers(0, 256, (H, W, 3), dtype='uint8'), 'RGB')
+    zone = Image.new('L', (W, H), 0)
+    ImageDraw.Draw(zone).rectangle([48, 48, 79, 79], fill=255)
+    ring = wk._seam_ring(zone, zone)
+
+    out = wk._harmonize_seam(crop, crop, ring)
+    assert np.array_equal(np.asarray(out), np.asarray(crop))
+
+
+def test_harmonize_seam_removes_a_flat_tonal_offset():
+    """A uniform per-channel drift on a flat crop is fully removed — the corrected patch
+    (mask included) is re-seated to the original's tone. Exercises the std≈0 gain guard."""
+    import numpy as np
+    from PIL import ImageDraw
+    from app.services import watermark_klein as wk
+    W, H = 100, 100
+    original = Image.new('RGB', (W, H), (100, 110, 120))
+    filled = Image.new('RGB', (W, H), (120, 130, 155))       # +20 / +20 / +35 tonal drift
+    zone = Image.new('L', (W, H), 0)
+    ImageDraw.Draw(zone).rectangle([40, 40, 59, 59], fill=255)
+    ring = wk._seam_ring(zone, zone)
+
+    out = np.asarray(wk._harmonize_seam(filled, original, ring))
+    assert np.array_equal(out, np.broadcast_to(np.array([100, 110, 120], 'uint8'), out.shape))
+
+
+def test_harmonize_seam_identity_when_ring_too_small():
+    """Mark glued to the crop edges (no ground-truth ring) → fill returned UNCHANGED, never
+    re-toned off a noisy estimate."""
+    import numpy as np
+    from app.services import watermark_klein as wk
+    W, H = 80, 80
+    filled = Image.new('RGB', (W, H), (30, 60, 90))
+    original = Image.new('RGB', (W, H), (200, 200, 200))
+    full = Image.new('L', (W, H), 255)                       # the whole crop is masked
+    ring = wk._seam_ring(full, full)
+
+    assert int(ring.sum()) < wk.KLEIN_HARMONIZE_MIN_RING
+    out = wk._harmonize_seam(filled, original, ring)
+    assert np.array_equal(np.asarray(out), np.asarray(filled))
+
+
+def test_harmonize_then_composite_preserves_outside_bytes_and_changes_inside():
+    """The full service wiring (per-zone harmonize → chained feathered composite) keeps every
+    pixel outside the paste footprint byte-exact, while the masked centre really changes."""
+    import numpy as np
+    from PIL import ImageFilter
+    from app.services import watermark_klein as wk
+    rng = np.random.default_rng(99)
+    W, H = 160, 160
+    original = Image.fromarray(rng.integers(0, 256, (H, W, 3), dtype='uint8'), 'RGB')
+    crop_box = (30, 30, 130, 130)                            # 100x100 crop
+    original_crop = original.crop(crop_box)
+    filled = Image.fromarray(rng.integers(0, 256, (100, 100, 3), dtype='uint8'), 'RGB')
+    boxes = [[0.40, 0.40, 0.50, 0.50]]                       # one small mark inside the crop
+
+    union = wk._hard_mask(crop_box, W, H, boxes)
+    result = original.convert('RGB').copy()
+    for box in boxes:
+        zone = wk._hard_mask(crop_box, W, H, [box])
+        ring = wk._seam_ring(zone, union)
+        corrected = wk._harmonize_seam(filled, original_crop, ring)
+        zm = zone.filter(ImageFilter.GaussianBlur(wk.KLEIN_COMPOSITE_FEATHER_PX))
+        result = wk.composite_inpaint(result, corrected, crop_box, zm)
+
+    footprint = np.zeros((H, W), dtype='uint8')
+    zm = union.filter(ImageFilter.GaussianBlur(wk.KLEIN_COMPOSITE_FEATHER_PX))
+    footprint[crop_box[1]:crop_box[3], crop_box[0]:crop_box[2]] = np.asarray(zm)
+    res, orig = np.asarray(result), np.asarray(original)
+    assert np.array_equal(res[footprint == 0], orig[footprint == 0])   # outside → byte-exact
+    assert not np.array_equal(res[footprint == 255], orig[footprint == 255])  # inside changed
+
+
 def test_clean_inpaint_engine_mapping():
     from app.services import face_dataset_service as svc
     assert svc._clean_inpaint_engine('lama', 'auto') == 'lama'
@@ -1721,6 +1828,32 @@ def test_prefill_uses_lama_worker_when_available(monkeypatch):
     prefilled, err = wk._prefill_region(crop, [[0.25, 0.25, 0.5, 0.5]])
     assert err is None and prefilled is not None and prefilled.size == (96, 96)
     assert seen['bboxes'] == [[0.25, 0.25, 0.5, 0.5]]
+
+
+def test_inpaint_klein_harmonizes_the_drifted_patch_into_the_neighbourhood(monkeypatch, tmp_path):
+    """End-to-end with prefill + Klein mocked: the real compositor must harmonize a drifted
+    Klein patch to the surrounding tone (no square) instead of pasting the raw drift."""
+    import numpy as np
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    # a uniform mid-grey photo: any un-corrected Klein drift would read as a clean square
+    img = tmp_path / 'wm.webp'
+    Image.fromarray(np.full((512, 512, 3), 120, dtype='uint8'), 'RGB').save(img, 'WEBP', quality=100)
+
+    # prefill: pass the crop through untouched; Klein: brighten the whole crop by +40 (drift)
+    monkeypatch.setattr(wk, '_prefill_region', lambda scaled, boxes, device='cpu': (scaled, None))
+
+    def _fake_klein(user_id, crop_img, *, seed, timeout=None):
+        arr = np.asarray(crop_img).astype('int16') + 40
+        return Image.fromarray(np.clip(arr, 0, 255).astype('uint8'), 'RGB'), None
+    monkeypatch.setattr(wk, '_run_klein_job', _fake_klein)
+
+    ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]], seed=1)
+
+    assert ok and err is None
+    out = np.asarray(Image.open(img).convert('RGB'))
+    centre = out[int(0.45 * 512), int(0.45 * 512), 0]
+    assert abs(int(centre) - 120) <= 3        # +40 drift removed → matches the wall, not 160
 
 
 def test_inpaint_klein_aborts_before_gpu_when_prefill_unavailable(app, monkeypatch, tmp_path):
