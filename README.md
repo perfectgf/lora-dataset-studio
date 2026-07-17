@@ -4,6 +4,8 @@
 
 **Build, train and rank Character, Concept and Style LoRAs — curation, captioning, quality checks and training behind a single browser tab, on your own machine.**
 
+🖥️ **Train locally** on your own NVIDIA GPU — or ☁️ **train in the cloud** on a rented pod (~$1–2 per run, no GPU required): same one-click flow, every epoch synced back to your machine. You can even bring your own custom base weights to either lane.
+
 The useful part of LoRA training isn't only the training — it's building a clean, varied, well-captioned image set. That job is normally scattered across a scraper, an image editor, a captioning script, and training configs. LoRA Dataset Studio puts the pipeline behind one UI: fan out a character from reference photos, import or scrape Concept/Style material, curate and caption it, run quality checks, train locally or in the cloud, then compare the resulting checkpoints — without leaving the page.
 
 <p align="center">
