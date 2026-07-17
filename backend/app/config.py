@@ -99,16 +99,17 @@ DEFAULTS = {
     'klein': {'consistency_lora': 'klein/Flux2-Klein-9B-consistency-V2.safetensors',
               'consistency_strength': 0.5,
               # Optional generation LoRAs (Idea by @waltm — Discord feature
-              # request): user-pointed extra LoRAs chained after the consistency
-              # LoRA on the local Klein edit graph. Filenames are loras-relative
-              # (like consistency_lora) and EMPTY by default — the app never
-              # hardcodes a LoRA name (klein_edit_helper exists precisely to
-              # undo the shipped workflow's hardcoded names). The strengths are
-              # only the slider defaults: both slots stay OFF until toggled on
-              # per generation, and the NSFW slot additionally requires the
-              # run's NSFW toggle.
-              'ultra_real_lora': '', 'ultra_real_strength': 0.6,
-              'nsfw_lora': '', 'nsfw_strength': 0.6,
+              # request): ORDERED list of user-pointed extra LoRAs chained after
+              # the consistency LoRA on the local Klein edit graph, in list
+              # order. Each entry: {file, strength, nsfw_only} — file is a
+              # loras-relative name (like consistency_lora; the app never
+              # hardcodes one), strength is only the per-run slider default
+              # (every slot starts OFF each visit), nsfw_only entries inject
+              # ONLY on 🔞 variations (fail-closed). Capped at 8 entries
+              # (klein_edit_helper.MAX_GENERATION_LORAS). The pre-list
+              # ultra_real_lora/nsfw_lora keys are migrated into this list by
+              # _migrate_klein_loras() and then dropped.
+              'generation_loras': [],
               # Optional instruction for small scraped-image rescue only.
               # Manual "Upscale & improve" uses its own fixed quality profile.
               # Empty is intentional: never invent a restoration prompt for the user.
@@ -128,6 +129,36 @@ def _deep_merge(base, override):
             out[k] = copy.deepcopy(v)
     return out
 
+def _migrate_klein_loras(conf: dict, convert: bool = True) -> dict:
+    """Soft migration of the short-lived klein.ultra_real_lora / klein.nsfw_lora
+    single-slot keys into the ordered klein.generation_loras LIST (in place).
+    Non-empty legacy files become list entries (nsfw_lora -> nsfw_only=True,
+    keeping their configured strengths); the legacy keys are then dropped so
+    they can't shadow the list. Idempotent (dedup on file) and applied on EVERY
+    load — a config.json that still carries the old keys keeps working — and on
+    save, which purges them from the file.
+    `convert=False` drops the legacy keys WITHOUT converting them: used when a
+    save explicitly carries `generation_loras` (the client already speaks the
+    list format, so the list is authoritative — otherwise deleting a migrated
+    row in Settings would resurrect it from the file's legacy keys)."""
+    k = conf.get('klein')
+    if not isinstance(k, dict):
+        return conf
+    lst = k.get('generation_loras')
+    lst = [dict(e) for e in lst if isinstance(e, dict)] if isinstance(lst, list) else []
+    for file_key, strength_key, nsfw_only in (
+            ('ultra_real_lora', 'ultra_real_strength', False),
+            ('nsfw_lora', 'nsfw_strength', True)):
+        f = (k.pop(file_key, '') or '')
+        f = f.strip() if isinstance(f, str) else ''
+        s = k.pop(strength_key, None)
+        if convert and f and not any(e.get('file') == f for e in lst):
+            lst.append({'file': f,
+                        'strength': float(s) if isinstance(s, (int, float)) else 0.6,
+                        'nsfw_only': nsfw_only})
+    k['generation_loras'] = lst
+    return conf
+
 def load_config(force=False) -> dict:
     global _cache
     with _lock:
@@ -140,7 +171,7 @@ def load_config(force=False) -> dict:
                 user = json.loads(p.read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 user = {}
-        _cache = _deep_merge(DEFAULTS, user)
+        _cache = _migrate_klein_loras(_deep_merge(DEFAULTS, user))
         return copy.deepcopy(_cache)
 
 def save_config(partial: dict) -> dict:
@@ -153,7 +184,12 @@ def save_config(partial: dict) -> dict:
                 current = json.loads(p.read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 current = {}
-        merged = _deep_merge(current, partial or {})
+        # convert=False when this save explicitly carries the list: the client
+        # already speaks the list format, so a legacy key left in the file must
+        # not resurrect a row the user just deleted — it is only purged.
+        merged = _migrate_klein_loras(
+            _deep_merge(current, partial or {}),
+            convert='generation_loras' not in ((partial or {}).get('klein') or {}))
         tmp = p.with_suffix('.json.tmp')
         tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding='utf-8')
         tmp.replace(p)

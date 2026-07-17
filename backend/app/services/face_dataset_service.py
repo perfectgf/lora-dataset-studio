@@ -3656,8 +3656,7 @@ def _sync_generate_activity(dataset_id):
 
 
 def generate_variations(user_id, dataset_id, variations, multiplier, klein_model,
-                        lora_strength=None, ultra_real_strength=None,
-                        nsfw_lora_strength=None):
+                        lora_strength=None, generation_loras=None):
     """For each (variation x multiplier), enqueue a Klein edit of the reference
     and create a pending FaceDatasetImage. Returns the created image ids.
 
@@ -3665,11 +3664,13 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
     leave an untracked orphan job); on enqueue failure the row is marked 'failed'
     and the error re-raised (already-enqueued variations keep their rows).
 
-    `ultra_real_strength` / `nsfw_lora_strength`: optional generation LoRAs
-    (Idea by @waltm) — None = slot off. The NSFW anatomy LoRA is gated on the
-    variation actually being NSFW (explicit flag or 🔞 catalog label, i.e. the
-    UI's NSFW toggle was on): a configured strength alone never injects it,
-    and SFW shots in a mixed batch never receive it."""
+    `generation_loras`: [{file, strength}] rows the user armed for this run
+    (optional generation LoRAs, Idea by @waltm) — crossed with the CONFIG list
+    (order + authoritative nsfw_only flags; unknown files are ignored), then
+    nsfw_only rows are gated PER VARIATION on it actually being NSFW (explicit
+    flag or 🔞 catalog label, i.e. the UI's NSFW toggle was on): a configured
+    row alone never injects, and SFW shots in a mixed batch never receive an
+    nsfw_only LoRA."""
     try:
         from .klein_edit_helper import enqueue_klein_edit
     except ImportError:
@@ -3701,6 +3702,10 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
     # Extra identity refs (multi-references) : chaînées en ReferenceLatent natifs
     # côté Klein — mêmes fichiers que le chemin Nano Banana multi-réfs.
     extra_paths = [os.path.join(_dataset_dir(ds.id), fn) for fn in extra_ref_filenames(ds)]
+    # Optional generation LoRAs: resolve the armed rows against the config ONCE
+    # (order + nsfw_only are the config's, strengths the run's).
+    from .klein_edit_helper import resolve_run_generation_loras
+    armed_loras = resolve_run_generation_loras(generation_loras)
     ids = []
     # try/finally: advertise the live 'generate' indicator even if an enqueue
     # fails partway (the already-queued rows are still in flight). Each Klein job
@@ -3730,10 +3735,10 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                             suffix=dataset_prompt_suffix(ds, v.get('framing'))),
                         klein_model=klein_model,
                         lora_strength=lora_strength, extra_ref_paths=extra_paths,
-                        ultra_real_strength=ultra_real_strength,
-                        # Fail-closed NSFW gate: the anatomy LoRA rides ONLY on
-                        # NSFW variations — never on the SFW shots of a mixed batch.
-                        nsfw_lora_strength=nsfw_lora_strength if nsfw else None,
+                        # Fail-closed NSFW gate: nsfw_only rows ride ONLY on NSFW
+                        # variations — never on the SFW shots of a mixed batch.
+                        generation_loras=[l for l in armed_loras
+                                          if nsfw or not l['nsfw_only']],
                         extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
                                         'variation_label': v.get('label')})
                 except Exception:
@@ -3860,8 +3865,7 @@ def _improve_existing_image_locked(user_id, image_id):
 
 
 def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=None,
-                     engine=None, klein_model=None, ultra_real_strength=None,
-                     nsfw_lora_strength=None):
+                     engine=None, klein_model=None, generation_loras=None):
     """Re-enqueue a single generated variation IN PLACE (same row id): cancel any
     in-flight job, drop the old file, reset the row to pending with the new
     job_id. Returns the new job_id, or None if the image is not owned / not a
@@ -3885,10 +3889,10 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     `klein_model` (optional) is the workspace's Klein model pick, used when a
     row born on an API engine switches to Klein (its klein_model column holds
     an engine TAG, not a real model file).
-    `ultra_real_strength` / `nsfw_lora_strength` (optional): the workspace's
-    optional generation LoRAs (Idea by @waltm), Klein path only — None = slot
-    off. The NSFW anatomy LoRA only ever applies to an NSFW-labelled tile
-    (fail-closed, mirroring the batch generate gate)."""
+    `generation_loras` (optional): [{file, strength}] rows the user armed —
+    the workspace's optional generation LoRAs (Idea by @waltm), Klein path
+    only, crossed with the CONFIG list. nsfw_only rows only ever apply to an
+    NSFW-labelled tile (fail-closed, mirroring the batch generate gate)."""
     img = _owned_image(user_id, image_id)
     if not img or img.source != 'generated':
         return None
@@ -3947,7 +3951,7 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
         ref_bytes = _all_ref_bytes(ds)  # principale + extras (multi-références)
     else:
         try:
-            from .klein_edit_helper import enqueue_klein_edit
+            from .klein_edit_helper import enqueue_klein_edit, resolve_run_generation_loras
         except ImportError:
             raise RuntimeError('ComfyUI is not configured')
         # Klein target: keep the row's real model file when it has one; a row born
@@ -3969,10 +3973,10 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                 suffix=dataset_prompt_suffix(ds, img.framing)),
             klein_model=model,
             lora_strength=lora_strength, extra_ref_paths=extra_paths,
-            ultra_real_strength=ultra_real_strength,
-            # Fail-closed: the anatomy LoRA only rides on an NSFW-labelled tile.
-            nsfw_lora_strength=(nsfw_lora_strength
-                                if is_nsfw_label(img.variation_label) else None),
+            # Fail-closed: nsfw_only rows only ride on an NSFW-labelled tile.
+            generation_loras=[
+                l for l in resolve_run_generation_loras(generation_loras)
+                if is_nsfw_label(img.variation_label) or not l['nsfw_only']],
             extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
                             'variation_label': img.variation_label})
 

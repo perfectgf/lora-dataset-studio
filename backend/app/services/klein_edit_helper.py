@@ -206,6 +206,58 @@ def _consistency_lora():
     return _configured_lora('klein.consistency_lora')
 
 
+# Hard cap on the optional generation-LoRA chain (Idea by @waltm): bounds the
+# graph size and the Settings list alike — the UI shows the same number.
+MAX_GENERATION_LORAS = 8
+
+
+def configured_generation_loras():
+    """Sanitized `klein.generation_loras`: ordered [{file, strength, nsfw_only}]
+    with blank/malformed rows dropped, strengths clamped to [0, 1.5] (junk ->
+    the 0.6 default) and the list capped at MAX_GENERATION_LORAS. This is the
+    single source of truth for WHICH files may chain and in WHAT order — a
+    /generate request can only arm rows that exist here, never name its own."""
+    raw = cfg.get('klein.generation_loras')
+    out = []
+    for e in (raw if isinstance(raw, list) else []):
+        if not isinstance(e, dict):
+            continue
+        f = e.get('file')
+        f = f.strip() if isinstance(f, str) else ''
+        if not f:
+            continue
+        s = e.get('strength')
+        s = float(s) if isinstance(s, (int, float)) else 0.6
+        out.append({'file': f, 'strength': max(0.0, min(1.5, s)),
+                    'nsfw_only': bool(e.get('nsfw_only'))})
+        if len(out) >= MAX_GENERATION_LORAS:
+            break
+    return out
+
+
+def resolve_run_generation_loras(requested):
+    """Cross the per-run request ([{file, strength}] rows the UI armed) with the
+    CONFIG list: only configured files count, the CONFIG keeps the chain order
+    and the authoritative nsfw_only flag (a request can't strip the 🔞 gate),
+    the request supplies the per-run strength (clamped; junk -> the row's
+    configured default). Returns ordered [{file, strength, nsfw_only}]."""
+    if not isinstance(requested, list) or not requested:
+        return []
+    by_file = {}
+    for r in requested:
+        if isinstance(r, dict) and isinstance(r.get('file'), str) and r['file'].strip():
+            by_file[r['file'].strip()] = r
+    out = []
+    for entry in configured_generation_loras():
+        r = by_file.get(entry['file'])
+        if r is None:
+            continue                       # configured but not armed this run
+        s = r.get('strength')
+        s = float(s) if isinstance(s, (int, float)) else entry['strength']
+        out.append({**entry, 'strength': max(0.0, min(1.5, s))})
+    return out
+
+
 def klein_missing_assets():
     """Which Klein assets are NOT on disk, as setup_installer action names (a
     subset of KLEIN_REQUIRED + KLEIN_RECOMMENDED). Drives both the generate-time
@@ -328,8 +380,7 @@ def _comfy_output_dir():
 def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
                        extra_metadata=None, lora_strength=None, source_path=None,
                        extra_ref_paths=None, sampler_steps=None,
-                       base_lora_strength=None, ultra_real_strength=None,
-                       nsfw_lora_strength=None):
+                       base_lora_strength=None, generation_loras=None):
     """Copy the source into ComfyUI input, configure the single Klein edit
     workflow, and enqueue it. Returns the app job_id. Raises ValueError on a
     missing source / unloadable workflow / missing required node, RuntimeError
@@ -337,12 +388,12 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     `lora_strength` overrides `klein.consistency_strength` (clamped [0.0, 1.5]);
     0 disables the consistency LoRA entirely (it anchors composition, and even
     mid strengths can suppress big restagings).
-    `ultra_real_strength` / `nsfw_lora_strength`: strengths for the OPTIONAL
-    user-pointed generation LoRAs (config `klein.ultra_real_lora` /
-    `klein.nsfw_lora`), chained after the consistency LoRA. None (the default)
-    = slot off for this generation — a configured file alone never injects
-    anything. Callers must only pass `nsfw_lora_strength` for NSFW runs (the
-    UI's 🔞 toggle); this helper stays engine-agnostic about that gate.
+    `generation_loras`: ordered [{file, strength}] of OPTIONAL user-pointed
+    generation LoRAs (Idea by @waltm) to chain after the consistency LoRA —
+    the FINAL list for THIS job, i.e. already crossed with the config via
+    resolve_run_generation_loras() and already 🔞-gated by the caller (any
+    nsfw_only row must have been dropped for a SFW job). None/[] = no extra
+    LoRAs (the default). Capped at MAX_GENERATION_LORAS.
     `source_path` overrides the default ComfyUI output dir/<source_filename> lookup
     so callers with per-dataset storage can pass the full path directly.
     `extra_ref_paths`: additional identity reference images (the dataset's extra
@@ -462,35 +513,34 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
         model_ref = ["ds_consistency_lora", 0]
 
     # Optional generation LoRAs (Idea by @waltm — Discord feature request):
-    # user-pointed extra LoRAs chained AFTER the consistency LoRA, i.e.
-    # 114 -> consistency -> ultra_real -> nsfw_anatomy -> 139. Both slots are
-    # opt-in PER GENERATION (strength None = the caller left the slot off), and
-    # the filenames come from config ONLY (klein.ultra_real_lora /
-    # klein.nsfw_lora, loras-relative, pointed by the user — never hardcoded,
-    # cf. the base-LoRA note below). Degradation mirrors the consistency block
-    # exactly: missing node 139 / missing file / strength <= 0 -> skip with a
-    # log line, never a doomed ComfyUI validation error.
-    for title, cfg_key, node_id, slot_strength in (
-            ("Ultra-real texture LoRA", 'klein.ultra_real_lora',
-             'ds_ultra_real_lora', ultra_real_strength),
-            ("NSFW anatomy LoRA", 'klein.nsfw_lora',
-             'ds_nsfw_lora', nsfw_lora_strength)):
-        if slot_strength is None:
-            continue                      # slot off for this generation (default)
-        slot_strength = max(0.0, min(1.5, float(slot_strength)))
-        slot_lora, slot_path = _configured_lora(cfg_key)
+    # user-pointed extra LoRAs chained AFTER the consistency LoRA in list
+    # order, i.e. 114 -> consistency -> gen_lora_1 -> ... -> gen_lora_N -> 139.
+    # Every row is opt-in PER GENERATION (the caller only passes the rows the
+    # user armed), the filenames come from the config list ONLY (loras-relative,
+    # pointed by the user — never hardcoded, cf. the base-LoRA note below), and
+    # degradation is PER ROW, mirroring the consistency block exactly: missing
+    # node 139 / missing file / strength <= 0 -> skip that row with a log line
+    # (the rest of the chain still links up), never a doomed ComfyUI validation
+    # error.
+    for i, entry in enumerate((generation_loras or [])[:MAX_GENERATION_LORAS], start=1):
+        slot_lora = (entry.get('file') or '').replace('/', os.sep)
+        slot_strength = entry.get('strength')
+        slot_strength = max(0.0, min(1.5, float(slot_strength))) \
+            if isinstance(slot_strength, (int, float)) else 0.0
+        node_id = f"ds_gen_lora_{i}"
+        slot_path = _lora_abs(slot_lora)
         if "139" not in workflow:
-            logger.warning("workflow node 139 missing — %s injection skipped", title)
-        elif not slot_path or not os.path.exists(slot_path):
-            logger.warning("%s not found at %s — injection skipped", title, slot_path)
+            logger.warning("workflow node 139 missing — generation LoRA %r skipped", slot_lora)
+        elif not slot_lora or not slot_path:
+            logger.warning("generation LoRA %r not found under any loras root — skipped", slot_lora)
         elif slot_strength <= 0:
-            logger.info("%s strength 0 — injection skipped (LoRA off)", title)
+            logger.info("generation LoRA %r strength 0 — skipped (row off)", slot_lora)
         else:
             workflow[node_id] = {
                 "class_type": "LoraLoaderModelOnly",
                 "inputs": {"lora_name": slot_lora,
                            "strength_model": slot_strength, "model": model_ref},
-                "_meta": {"title": title},
+                "_meta": {"title": f"Generation LoRA {i}: {os.path.basename(slot_lora)}"},
             }
             model_ref = [node_id, 0]
 

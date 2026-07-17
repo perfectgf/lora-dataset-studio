@@ -413,9 +413,9 @@ def dataset_generate(dataset_id):
                                           data.get('klein_model'),
                                           lora_strength=data.get('lora_strength'),
                                           # Optional generation LoRAs (Idea by
-                                          # @waltm) — absent/None = slot off.
-                                          ultra_real_strength=data.get('ultra_real_strength'),
-                                          nsfw_lora_strength=data.get('nsfw_lora_strength'))
+                                          # @waltm): [{file, strength}] rows the
+                                          # user armed — absent/[] = none.
+                                          generation_loras=data.get('generation_loras'))
             _autostart_optional_klein()  # bg-fetch the consistency LoRA if it's absent
     except Exception as e:
         from ..services.klein_edit_helper import KleinModelsMissing
@@ -771,8 +771,7 @@ def dataset_image_regenerate(image_id):
                                       lora_strength=data.get('lora_strength'),
                                       prompt=edited_prompt,
                                       engine=engine, klein_model=klein_model,
-                                      ultra_real_strength=data.get('ultra_real_strength'),
-                                      nsfw_lora_strength=data.get('nsfw_lora_strength'),
+                                      generation_loras=data.get('generation_loras'),
                                       app=current_app._get_current_object())
     except Exception as e:
         from ..services.klein_edit_helper import KleinModelsMissing

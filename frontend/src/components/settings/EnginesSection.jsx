@@ -15,53 +15,90 @@ const ENGINE_OPTIONS = [
 ]
 
 /* Optional generation LoRAs for the local Klein engine (Idea by @waltm —
-   Discord feature request). The files are USER-POINTED, loras-relative names
-   (e.g. klein/my-texture.safetensors) — the app never ships or hardcodes one.
-   The strengths here are only the DEFAULTS the per-generation sliders start
-   from: both slots stay off until toggled on in the 🖥️ Klein tuning panel,
-   and the NSFW slot additionally requires the workspace's 🔞 toggle. */
-const KLEIN_LORA_SLOTS = [
-  { fileKey: 'ultra_real_lora', strengthKey: 'ultra_real_strength',
-    inputId: 'klein-ultra-real-lora', label: 'Ultra-real texture LoRA',
-    help: 'Skin/texture realism — usable on SFW and NSFW generations alike.' },
-  { fileKey: 'nsfw_lora', strengthKey: 'nsfw_strength',
-    inputId: 'klein-nsfw-lora', label: 'NSFW anatomy LoRA',
-    help: 'Anatomy for uncensored shots — only ever applied to 🔞 variations when NSFW mode is on.' },
-]
+   Discord feature request): an ORDERED list of user-pointed LoRA files (any
+   files, any purpose — texture, anatomy, style…), chained after the
+   consistency LoRA in LIST ORDER. Rows are edited here (file + default
+   strength + NSFW-only flag, add/remove/reorder, capped at 8) and armed PER
+   RUN in the workspace's 🖥️ Klein tuning panel (off by default every visit).
+   NSFW-only rows only ever inject on 🔞 variations. The app never ships or
+   hardcodes a LoRA name. */
+const MAX_GENERATION_LORAS = 8   // mirrors backend klein_edit_helper.MAX_GENERATION_LORAS
 
 function KleinLorasCard({ config, setField }) {
-  const klein = config.klein || {}
+  const rows = Array.isArray(config.klein?.generation_loras) ? config.klein.generation_loras : []
+  const save = (next) => setField('klein', 'generation_loras', next)
+  const patch = (i, p) => save(rows.map((r, j) => (j === i ? { ...r, ...p } : r)))
+  const move = (i, dir) => {
+    const j = i + dir
+    if (j < 0 || j >= rows.length) return
+    const next = [...rows]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    save(next)
+  }
+  const smallBtn = 'grid h-6 w-6 place-items-center rounded border border-border text-xs ' +
+    'text-content-muted hover:bg-surface-raised disabled:opacity-30'
   return (
     <Card
       title="Klein generation LoRAs (optional)"
-      help="Extra LoRAs chained after the consistency LoRA on the local Klein engine. Point each slot at a file under ComfyUI's models/loras (relative name, e.g. klein/my-lora.safetensors). Both slots are OFF by default for every generation — you arm them per run in the workspace's 🖥️ Klein tuning panel. Idea by @waltm (Discord)."
+      help={`Your own extra LoRAs chained after the consistency LoRA on the local Klein engine, in this order (max ${MAX_GENERATION_LORAS}). Point each row at a file under ComfyUI's models/loras (relative name, e.g. klein/my-lora.safetensors) — any LoRA, any purpose. Every row is OFF by default for each generation; arm it per run in the workspace's 🖥️ Klein tuning panel. NSFW-only rows only apply to 🔞 variations. Idea by @waltm (Discord).`}
     >
-      {KLEIN_LORA_SLOTS.map((slot) => {
-        const strength = Number.isFinite(klein[slot.strengthKey]) ? klein[slot.strengthKey] : 0.6
+      {rows.length === 0 && (
+        <p className="text-sm text-content-muted">No generation LoRAs yet — add your first one below.</p>
+      )}
+      {rows.map((row, i) => {
+        const strength = Number.isFinite(Number(row?.strength)) ? Number(row.strength) : 0.6
         return (
-          <div key={slot.fileKey}>
-            <label htmlFor={slot.inputId} className="block text-sm font-medium text-content">{slot.label}</label>
-            <input
-              id={slot.inputId}
-              type="text"
-              value={klein[slot.fileKey] || ''}
-              onChange={(e) => setField('klein', slot.fileKey, e.target.value)}
-              placeholder="klein/my-lora.safetensors (empty = slot unavailable)"
-              className={INPUT_CLASS}
-            />
-            <label htmlFor={`${slot.inputId}-strength`} className="mt-2 flex items-center gap-2 text-xs text-content-muted">
-              <span className="whitespace-nowrap">Default strength: {strength.toFixed(2)}</span>
+          <div key={i} className="rounded-lg border border-border p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-content-muted w-5 shrink-0" aria-hidden="true">{i + 1}.</span>
               <input
-                id={`${slot.inputId}-strength`}
-                type="range" min={0} max={1.5} step={0.05} value={strength}
-                onChange={(e) => setField('klein', slot.strengthKey, Number(e.target.value))}
-                className="flex-1 accent-indigo-500"
+                type="text" aria-label={`LoRA file ${i + 1}`}
+                value={row?.file || ''}
+                onChange={(e) => patch(i, { file: e.target.value })}
+                placeholder="klein/my-lora.safetensors"
+                className={`${INPUT_CLASS} mt-0`}
               />
-            </label>
-            <p className="mt-1 text-xs text-content-muted">{slot.help}</p>
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0}
+                aria-label={`Move LoRA ${i + 1} up`} title="Chain earlier" className={smallBtn}>↑</button>
+              <button type="button" onClick={() => move(i, 1)} disabled={i === rows.length - 1}
+                aria-label={`Move LoRA ${i + 1} down`} title="Chain later" className={smallBtn}>↓</button>
+              <button type="button" onClick={() => save(rows.filter((_, j) => j !== i))}
+                aria-label={`Remove LoRA ${i + 1}`} title="Remove this LoRA"
+                className={`${smallBtn} hover:bg-red-500/15 hover:text-red-300`}>✕</button>
+            </div>
+            <div className="mt-2 flex items-center gap-4 flex-wrap">
+              <label className="flex items-center gap-2 text-xs text-content-muted flex-1 min-w-[180px]">
+                <span className="whitespace-nowrap">Default strength: {strength.toFixed(2)}</span>
+                <input
+                  type="range" min={0} max={1.5} step={0.05} value={strength}
+                  aria-label={`LoRA ${i + 1} default strength`}
+                  onChange={(e) => patch(i, { strength: Number(e.target.value) })}
+                  className="flex-1 accent-indigo-500"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-xs text-content">
+                <input
+                  type="checkbox" checked={!!row?.nsfw_only}
+                  onChange={(e) => patch(i, { nsfw_only: e.target.checked })}
+                  className="h-4 w-4 rounded border-border-strong"
+                />
+                🔞 NSFW-only
+              </label>
+            </div>
           </div>
         )
       })}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => save([...rows, { file: '', strength: 0.6, nsfw_only: false }])}
+          disabled={rows.length >= MAX_GENERATION_LORAS}
+          className="rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised disabled:opacity-50"
+        >
+          ＋ Add LoRA
+        </button>
+        <span className="text-xs text-content-muted">{rows.length}/{MAX_GENERATION_LORAS}</span>
+      </div>
     </Card>
   )
 }
