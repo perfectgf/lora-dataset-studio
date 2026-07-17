@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { captionCharacterLabel, isCaptionSaveShortcut } from '../../utils/captionEditor';
+import { captionCharacterLabel, isCaptionSaveShortcut, isLikelyTruncatedCaption } from '../../utils/captionEditor';
 
 export default function CaptionEditorDialog({ initialCaption, imageUrl, imageLabel, onClose, onSave }) {
   const [draft, setDraft] = useState(initialCaption || '');
@@ -55,6 +55,13 @@ export default function CaptionEditorDialog({ initialCaption, imageUrl, imageLab
                 {captionCharacterLabel(draft)}
               </span>
             </div>
+            {isLikelyTruncatedCaption(initialCaption) && (
+              <p className="m-0 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[0.6875rem] leading-relaxed text-amber-200">
+                This caption is exactly 800 characters and ends mid-sentence — an earlier
+                version of the app capped captions there. The cut-off text can’t be recovered;
+                re-caption this image to regenerate the full description.
+              </p>
+            )}
             <textarea id="expanded-caption" ref={textareaRef} value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {

@@ -55,10 +55,32 @@ def _comfy_output_dir():
     return str(d) if d else None
 
 
-# Longueur max d'une caption stockée (colonne TEXT, pas de contrainte DB). 600 coupait
-# les captions buste/environnement en plein mot ; 800 laisse passer la phrase d'ambiance
-# finale tout en restant sous la fenêtre tokenizer (~512 tokens) à l'export trigger inclus.
-CAPTION_MAX_CHARS = 800
+# Garde-fou (PAS une limite produit) sur une caption STOCKÉE : la colonne est un TEXT
+# sans contrainte DB, mais on borne quand même pour qu'une sortie vision emballée
+# (boucle, collage pathologique) ne gonfle pas la base sans fin. Le vrai budget de
+# longueur est l'encodeur de texte du trainer (T5 de FLUX/Klein, ~512 tokens ≈ bien
+# au-delà d'une caption descriptive normale) et JoyCaption/Qwen bornent déjà leur propre
+# sortie (max_new_tokens). Le plafond est donc volontairement TRÈS large et, quand il
+# mord, _cap_caption coupe à une FIN DE PHRASE — jamais en plein mot. Historique : à 800
+# il tranchait les captions descriptives en pleine phrase (« …a pale, neutral tone, and a »).
+CAPTION_MAX_CHARS = 10000
+
+
+def _cap_caption(text):
+    """Borne une caption à CAPTION_MAX_CHARS sans jamais couper en plein mot ni au
+    milieu d'une phrase. Sous le plafond, le texte (strippé) est rendu tel quel ; au
+    dessus, on garde les phrases entières jusqu'au plafond, sinon on retombe sur le
+    dernier mot entier. Rend toujours une chaîne (l'entrée vide reste vide)."""
+    text = (text or '').strip()
+    if len(text) <= CAPTION_MAX_CHARS:
+        return text
+    head = text[:CAPTION_MAX_CHARS]
+    last_end = 0
+    for m in re.finditer(r'[.!?]["\'”’)\]]?(?=\s|$)', head):
+        last_end = m.end()
+    if last_end:
+        return head[:last_end].strip()
+    return head.rsplit(' ', 1)[0].strip() or head.strip()
 
 # Padding du head-crop AUTO de la référence (côté du carré = grand côté de la bbox
 # tête × pad). Volontairement plus large que l'ancien 1.7 (jugé « trop serré ») pour
@@ -743,7 +765,7 @@ def set_image_caption(user_id, image_id, caption):
     img = _owned_image(user_id, image_id)
     if not img:
         return False
-    img.caption = (caption or '').strip()[:CAPTION_MAX_CHARS] or None
+    img.caption = _cap_caption(caption) or None
     db.session.commit()
     return True
 
@@ -1609,7 +1631,7 @@ def replace_in_captions(user_id, dataset_id, find, replace, mode='text'):
                 seen.add(nt.lower())
                 out.append(nt)
             new = ', '.join(out)
-        new = new.strip()[:CAPTION_MAX_CHARS] or None
+        new = _cap_caption(new) or None
         if new != img.caption:
             img.caption = new
             changed += 1
@@ -2129,7 +2151,7 @@ def _merge_training_images(user_id, dataset_id, entries, captions, stats=None):
             fh.write(webp)
         cap = (captions.get(stem) or '').strip() or None
         if cap:
-            cap = cap[:CAPTION_MAX_CHARS]
+            cap = _cap_caption(cap)
             if stats is not None:
                 stats['captions'] = stats.get('captions', 0) + 1
         img = FaceDatasetImage(dataset_id=dataset_id, source='import', status='keep',
@@ -2840,7 +2862,7 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None):
             except OSError:
                 data = b''
             final = _enforce_concept_omission(joycap, leak_re, data, concept_desc) or joycap
-            img.caption = final[:CAPTION_MAX_CHARS]
+            img.caption = _cap_caption(final)
             db.session.commit()
             n += 1
         return n
@@ -2901,7 +2923,7 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None):
                             db.session.commit()
                         logger.info('caption concept: no usable caption for image %s -> left blank', img.id)
                         continue
-                img.caption = final[:CAPTION_MAX_CHARS]
+                img.caption = _cap_caption(final)
                 db.session.commit()
                 n += 1
             for img, p in remaining:
@@ -2917,7 +2939,7 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None):
                     cap = _enforce_concept_omission(cap, leak_re, data, concept_desc,
                                                     describe=describe_image_ollama) or cap
                 if _usable_caption(cap):
-                    img.caption = cap[:CAPTION_MAX_CHARS]
+                    img.caption = _cap_caption(cap)
                     db.session.commit()
                     n += 1
                 else:
@@ -3065,7 +3087,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
                 cap = (jc.get(p) or '').strip().strip('"').strip()
                 if cap:
                     cleaned = cleaner(cap) or cap
-                    img.caption = cleaned[:CAPTION_MAX_CHARS]
+                    img.caption = _cap_caption(cleaned)
                     db.session.commit()
                     n += 1
                     dataset_activity.bump(token)   # this image is captioned (done)
@@ -3098,7 +3120,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
                     cap = (cap or '').strip().strip('"').strip()
                     if cap:
                         cleaned = cleaner(cap) or cap
-                        img.caption = cleaned[:CAPTION_MAX_CHARS]
+                        img.caption = _cap_caption(cleaned)
                         db.session.commit()
                         n += 1
                     dataset_activity.bump(token)   # image handled (captioned or not)

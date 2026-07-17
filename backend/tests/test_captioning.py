@@ -269,14 +269,17 @@ def test_caption_images_backend_none_raises(app):
             svc.caption_images(LOCAL_USER, ds.id)
 
 
-def test_caption_images_backend_ollama_writes_and_truncates(app, monkeypatch):
+def test_caption_images_stores_long_caption_in_full(app, monkeypatch):
+    """A long descriptive caption is stored WHOLE — the legacy 800-char slice that cut
+    captions mid-sentence (« …a pale, neutral tone, and a ») is gone. Descriptive
+    captions are wanted for FLUX/Klein and the backend no longer truncates at 800."""
     from app.services import face_dataset_service as svc
     from app.services import vision_ollama
     from app.config import LOCAL_USER, save_config
     from app.models import FaceDatasetImage
 
-    long_caption = 'a caption word ' * 100  # well over CAPTION_MAX_CHARS (800)
-    assert len(long_caption) > svc.CAPTION_MAX_CHARS
+    long_caption = 'a caption word ' * 100  # 1499 chars once stripped, well past the old 800
+    assert len(long_caption.strip()) > 800
     monkeypatch.setattr(vision_ollama.requests, 'post',
                         lambda *a, **k: _Resp({'response': long_caption}))
     with app.app_context():
@@ -285,8 +288,41 @@ def test_caption_images_backend_ollama_writes_and_truncates(app, monkeypatch):
         n = svc.caption_images(LOCAL_USER, ds.id)
         assert n == 1
         refreshed = svc.db.session.get(FaceDatasetImage, img.id)
-        assert refreshed.caption
-        assert len(refreshed.caption) <= svc.CAPTION_MAX_CHARS
+        # Full text survives (this leak-free prose passes the cleaner unchanged): no 800 cut.
+        assert len(refreshed.caption) > 800
+        assert refreshed.caption.endswith('word')
+
+
+def test_cap_caption_leaves_normal_captions_untouched():
+    from app.services import face_dataset_service as svc
+    text = 'A calm portrait. Soft light. A pale, neutral tone, and a quiet mood.'
+    assert svc._cap_caption(text) == text
+    assert svc._cap_caption('  trimmed  ') == 'trimmed'
+    assert svc._cap_caption('') == ''
+    assert svc._cap_caption(None) == ''
+
+
+def test_cap_caption_guardrail_cuts_on_sentence_boundary():
+    """When the (very high) safety ceiling is actually hit, the cut lands on a sentence
+    end — never mid-word — so a stored caption never ends like « …and a »."""
+    from app.services import face_dataset_service as svc
+    ceiling = svc.CAPTION_MAX_CHARS
+    body = 'The subject stands in a bright room. ' * ((ceiling // 37) + 5)
+    assert len(body) > ceiling
+    out = svc._cap_caption(body)
+    assert len(out) <= ceiling
+    assert out.endswith('room.')     # whole sentence kept, not a mid-word slice
+    assert not out.endswith('roo')
+
+
+def test_cap_caption_guardrail_falls_back_to_word_boundary():
+    """A run-on past the ceiling with no sentence break still never cuts mid-word."""
+    from app.services import face_dataset_service as svc
+    ceiling = svc.CAPTION_MAX_CHARS
+    body = 'word ' * ((ceiling // 5) + 20)  # over the ceiling, no . ! ?
+    out = svc._cap_caption(body)
+    assert len(out) <= ceiling
+    assert out.endswith('word')      # last WHOLE word, never a partial token
 
 
 def test_caption_images_allows_slow_local_inference(app, monkeypatch):
