@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 
 import {
   canStopLocalRun,
+  formatDuration,
+  groupRunsByDataset,
   isTrainingRecipeReplayBlocked,
   retryRequest,
+  runDurationSeconds,
   runRetryKey,
   trainingRunVariantLabel,
 } from './trainingRuns.js';
@@ -56,4 +59,47 @@ test('only incompatible recipe diagnostics block retry and continue', () => {
   assert.equal(isTrainingRecipeReplayBlocked({ status: 'error', recipe_status: 'incompatible' }), true);
   assert.equal(isTrainingRecipeReplayBlocked({ recipe: { status: 'incompatible' } }), true);
   assert.equal(isTrainingRecipeReplayBlocked({ status: 'legacy_incompatible' }), true);
+});
+
+test('runs group by dataset only when consecutive — history order is preserved', () => {
+  const runs = [
+    { dataset_id: 1, run_id: 9 },
+    { dataset_id: 1, run_id: 8 },
+    { dataset_id: 2, record_id: 3 },
+    { dataset_id: 1, run_id: 5 },
+  ];
+  const groups = groupRunsByDataset(runs);
+  assert.equal(groups.length, 3);
+  assert.deepEqual(groups.map((g) => g.datasetId), [1, 2, 1]);
+  assert.deepEqual(groups[0].runs.map((r) => r.run_id), [9, 8]);
+  assert.equal(groups[1].runs.length, 1);
+  assert.deepEqual(groupRunsByDataset([]), []);
+  assert.deepEqual(groupRunsByDataset(null), []);
+});
+
+test('run duration needs both timestamps and pins naive strings to UTC', () => {
+  assert.equal(runDurationSeconds({ created_at: '2026-07-17T10:00:00' }), null);
+  assert.equal(runDurationSeconds({ finished_at: '2026-07-17T10:00:00' }), null);
+  assert.equal(runDurationSeconds(null), null);
+  // naive strings (backend utcnow.isoformat()) diff as UTC regardless of TZ
+  assert.equal(runDurationSeconds({
+    created_at: '2026-07-17T10:00:00', finished_at: '2026-07-17T10:42:30',
+  }), 2550);
+  // explicit offsets are honored as-is
+  assert.equal(runDurationSeconds({
+    created_at: '2026-07-17T10:00:00Z', finished_at: '2026-07-17T11:00:00+00:00',
+  }), 3600);
+  // a finish BEFORE the start is bogus data, not a negative badge
+  assert.equal(runDurationSeconds({
+    created_at: '2026-07-17T10:00:00', finished_at: '2026-07-17T09:00:00',
+  }), null);
+});
+
+test('durations format compactly for the run cards', () => {
+  assert.equal(formatDuration(null), null);
+  assert.equal(formatDuration(-5), null);
+  assert.equal(formatDuration(48), '48s');
+  assert.equal(formatDuration(2550), '42m');
+  assert.equal(formatDuration(3900), '1h 05m');
+  assert.equal(formatDuration(2 * 86400 + 3 * 3600), '2d 3h');
 });

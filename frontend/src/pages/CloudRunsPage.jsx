@@ -7,8 +7,11 @@ import { DatasetVersionChip, RunIdChip } from '../components/dataset/RunIdentity
 import { runIdentityOf, runRowDomId } from '../utils/runIdentity';
 import {
   canStopLocalRun,
+  formatDuration,
+  groupRunsByDataset,
   isTrainingRecipeReplayBlocked,
   retryRequest,
+  runDurationSeconds,
   runRetryKey,
   trainingRunVariantLabel,
 } from '../utils/trainingRuns';
@@ -25,6 +28,9 @@ const FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'F
 // (same lazy-init + effect pattern as `datasetGridTileSize` in DatasetGrid.jsx /
 // `datasetGenerator` in VariationCatalog.jsx). Default open = today's behavior.
 const RECENT_COLLAPSED_KEY = 'cloudRunsRecentCollapsed';
+// Per-dataset collapse of the Recent GROUPS (a JSON map dataset_id -> 1),
+// persisted like the section collapse above so the fold survives reloads.
+const GROUPS_COLLAPSED_KEY = 'cloudRunsGroupsCollapsed';
 
 const STATUS_STYLE = {
   done: 'text-emerald-300 border-emerald-400/40 bg-emerald-500/10',
@@ -34,6 +40,36 @@ const STATUS_STYLE = {
 };
 const statusStyle = (s) =>
   STATUS_STYLE[s] || 'text-sky-300 border-sky-400/40 bg-sky-500/10';
+
+// Outcome words on the history cards (raw pipeline statuses read like logs).
+// Active phases (preparing/training/syncing…) pass through untranslated.
+const STATUS_LABEL = {
+  done: 'done',
+  error: 'failed',
+  error_pod_kept: 'failed · pod kept',
+  stopped: 'stopped',
+};
+
+// Left accent bar of a history card — the strongest at-a-glance status signal.
+const CARD_ACCENT = {
+  done: 'border-l-emerald-400/70',
+  error: 'border-l-rose-400/70',
+  error_pod_kept: 'border-l-amber-400/70',
+  stopped: 'border-l-border-strong',
+};
+const cardAccent = (s) => CARD_ACCENT[s] || 'border-l-border';
+
+/** Strong status pill (dot + word) — rank-1 information on every card. */
+function StatusBadge({ status }) {
+  if (!status) return null;
+  return (
+    <span className={'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 '
+      + `text-[0.625rem] font-semibold uppercase tracking-wide ${statusStyle(status)}`}>
+      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+      {STATUS_LABEL[status] || status}
+    </span>
+  );
+}
 
 function timeAgo(iso) {
   if (!iso) return '';
@@ -47,6 +83,48 @@ function timeAgo(iso) {
 }
 
 function famLabel(f) { return FAMILY_LABEL[f] || f || 'LoRA'; }
+
+// Short family names that fit the 5rem fallback thumbnail tile.
+const FAMILY_SHORT = { zimage: 'Z-Image', krea: 'Krea', sdxl: 'SDXL', flux: 'FLUX', flux2klein: 'Klein' };
+
+/** Card thumbnail: the LAST sample the run generated (backend stamps
+ * `preview_url` when one exists on disk). Fallback: a quiet family tile —
+ * runs that never sampled (crashed early, purged staging) stay scannable. */
+function RunThumb({ run, broken, onBroken }) {
+  if (run.preview_url && !broken) {
+    return (
+      <a href={run.preview_url} target="_blank" rel="noreferrer"
+        title="Last sample this run generated (open full size)"
+        className="relative block h-16 w-16 sm:h-20 sm:w-20 shrink-0 overflow-hidden rounded-lg border border-border hover:border-indigo-400">
+        <img src={run.preview_url} loading="lazy" onError={onBroken}
+          alt={`Last training sample of ${run.dataset_name || run.run_name || 'this run'}`}
+          className="h-full w-full object-cover" />
+      </a>
+    );
+  }
+  return (
+    <div aria-hidden
+      className="flex h-16 w-16 sm:h-20 sm:w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-border bg-app/60 text-content-subtle">
+      <span className="text-base opacity-50">🖼</span>
+      <span className="px-1 text-center text-[0.5625rem] uppercase tracking-wide leading-tight">
+        {FAMILY_SHORT[run.train_type] || 'LoRA'}
+      </span>
+    </div>
+  );
+}
+
+/** error_pod_kept billing warning — INSIDE the concerned card (it used to be
+ * an orphan full-width banner above the whole history). */
+function PodKeptNote() {
+  return (
+    <div role="alert"
+      className="w-full rounded-md border border-amber-400/40 bg-amber-500/10 px-2.5 py-2 text-amber-200 text-[0.6875rem] leading-relaxed">
+      <span className="font-semibold">⚠ Pod kept for manual checkpoint recovery</span> — it keeps
+      billing until reaped. Download its LoRA, then it is cleaned up automatically after the
+      recovery window.
+    </div>
+  );
+}
 
 function AutoRetryBadges({ run }) {
   return (
@@ -85,20 +163,19 @@ function RecipeWarning({ run }) {
 
 /* One compact line: the EFFECTIVE ai-toolkit settings this launch used
    (snapshotted at launch by the provenance registry). Absent on rows that
-   predate the snapshot feature. */
+   predate the snapshot feature. Steps and variant are NOT repeated here —
+   they are promoted to the card's metrics row. */
 function settingsLine(run) {
   const s = run.settings;
   if (!s) return null;
   return [
     s.rank ? `rank ${s.rank}${s.alpha ? `/${s.alpha}` : ''}` : null,
     Array.isArray(s.resolution) ? `${s.resolution.join('+')} px` : null,
-    run.steps ? `${run.steps} steps` : null,
     s.save_every ? `save ${s.save_every}` : null,
     s.optimizer && s.optimizer !== 'adamw8bit' ? s.optimizer : null,
     s.lr_scheduler || null,
     s.dropout ? `dropout ${s.dropout}` : null,
     s.timestep_type || null,
-    trainingRunVariantLabel(run.train_type, run.variant),
     run.masked === false ? 'unmasked' : 'masked',
   ].filter(Boolean).join(' · ');
 }
@@ -129,6 +206,26 @@ export default function CloudRunsPage() {
   useEffect(() => {
     try { localStorage.setItem(RECENT_COLLAPSED_KEY, recentCollapsed ? '1' : '0'); } catch { /* ignore — private mode */ }
   }, [recentCollapsed]);
+  // Per-dataset group folds inside Recent — same persistence pattern.
+  const [groupsCollapsed, setGroupsCollapsed] = useState(() => {
+    try {
+      const m = JSON.parse(localStorage.getItem(GROUPS_COLLAPSED_KEY) || '{}');
+      return m && typeof m === 'object' ? m : {};
+    } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(GROUPS_COLLAPSED_KEY, JSON.stringify(groupsCollapsed)); } catch { /* ignore — private mode */ }
+  }, [groupsCollapsed]);
+  const toggleGroup = (datasetId) => setGroupsCollapsed((m) => {
+    const key = String(datasetId);
+    const next = { ...m };
+    if (next[key]) delete next[key];
+    else next[key] = 1;
+    return next;
+  });
+  // Thumbnails whose image 404'd/broke since load — fall back to the family
+  // tile instead of a broken-image glyph. Keyed by the run's share_key.
+  const [brokenThumbs, setBrokenThumbs] = useState({});
 
   const poll = useCallback(async () => {
     try {
@@ -146,18 +243,39 @@ export default function CloudRunsPage() {
   }, [poll]);
 
   // Deep-link from the Checkpoints panel's "View in Runs ↗": /cloud#run-cloud-49
-  // scrolls to and briefly highlights that run's row. Runs after data arrives
-  // (the rows must exist) and re-runs if the hash changes.
+  // scrolls to and briefly highlights that run's card. Runs after data arrives
+  // (the cards must exist). A card hidden by the Recent fold or its dataset
+  // group fold is expanded first, then found on the re-render. Flashes ONCE
+  // per navigation (location.key) — not again on every 5 s poll.
+  const flashedRef = useRef(null);
+  useEffect(() => { flashedRef.current = null; }, [location.key]);
   useEffect(() => {
     const id = (location.hash || '').replace(/^#/, '');
-    if (!id || !data) return undefined;
+    if (!id || !data || flashedRef.current === id) return undefined;
     const el = document.getElementById(id);
-    if (!el) return undefined;
+    if (!el) {
+      const run = (data.recent || []).find((r) => {
+        const ident = runIdentityOf(r);
+        return ident && runRowDomId(ident.source, ident.id) === id;
+      });
+      if (run) {
+        setRecentCollapsed(false);
+        setGroupsCollapsed((m) => {
+          const key = String(run.dataset_id);
+          if (!m[key]) return m;
+          const next = { ...m };
+          delete next[key];
+          return next;
+        });
+      }
+      return undefined;
+    }
+    flashedRef.current = id;
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.classList.add('lds-run-flash');
     const to = setTimeout(() => el.classList.remove('lds-run-flash'), 2200);
     return () => clearTimeout(to);
-  }, [location.hash, data]);
+  }, [location.hash, location.key, data, recentCollapsed, groupsCollapsed]);
 
   const openDataset = (id) => {
     try { localStorage.setItem('datasetCurrentId', String(id)); } catch { /* ignore */ }
@@ -299,6 +417,122 @@ export default function CloudRunsPage() {
   const budget = data?.monthly_budget || 0;
   const spent = data?.month_spend || 0;
 
+  /* One HISTORY card. Visual hierarchy: rank 1 = thumbnail + identity chip +
+     name + a strong status pill; rank 2 = the metrics that matter (duration,
+     steps, saves, GPU, cost); rank 3 = the de-emphasized settings line. Every
+     per-run warning (Z-Image legacy recipe, kept pod billing) renders INSIDE
+     its card. Primary actions are filled buttons, Share config stays ghost. */
+  const renderRunCard = (run, i) => {
+    const ident = runIdentityOf(run);
+    const key = run.run_id ? `c${run.run_id}` : `l${run.record_id || `${run.dataset_id}-${run.created_at || i}`}`;
+    const variantLabel = trainingRunVariantLabel(run.train_type, run.variant);
+    const duration = formatDuration(runDurationSeconds(run));
+    const line = settingsLine(run);
+    const thumbKey = run.share_key || key;
+    return (
+      <div key={key} id={ident ? runRowDomId(ident.source, ident.id) : undefined}
+        className={`flex gap-2.5 sm:gap-3 rounded-lg border border-border border-l-2 bg-app/40 p-2.5 ${cardAccent(run.status)}`}>
+        <RunThumb run={run} broken={!!brokenThumbs[thumbKey]}
+          onBroken={() => setBrokenThumbs((m) => ({ ...m, [thumbKey]: true }))} />
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {ident ? (
+              <RunIdChip source={ident.source} id={ident.id} />
+            ) : (
+              <span aria-hidden title={run.source === 'cloud' ? 'Cloud run (vast.ai)' : 'Local run'}>
+                {run.source === 'cloud' ? '☁️' : '💻'}
+              </span>
+            )}
+            <button type="button" onClick={() => openDataset(run.dataset_id)}
+              title="Open this dataset"
+              className="max-w-full truncate text-content text-sm font-semibold hover:underline">
+              {run.dataset_name || run.run_name || `Dataset #${run.dataset_id}`}
+            </button>
+            <StatusBadge status={run.status} />
+            <AutoRetryBadges run={run} />
+            <span className="ml-auto whitespace-nowrap text-content-subtle text-[0.625rem]">
+              {timeAgo(run.finished_at || run.created_at)}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-content-muted">
+            <span className="text-[0.625rem] uppercase tracking-wide">
+              {famLabel(run.train_type)}{variantLabel ? ` · ${variantLabel}` : ''}
+            </span>
+            <DatasetVersionChip version={run.version} />
+            {duration && (
+              <span className="tabular-nums" title="Wall-clock run duration (launch → finish)">
+                ⏱ {duration}
+              </span>
+            )}
+            {run.steps ? <span className="tabular-nums">{run.steps} steps</span> : null}
+            {run.source === 'cloud' && run.saves > 0 && (
+              <span className="tabular-nums" title="Checkpoints this run saved (synced locally)">
+                💾 {run.saves} save{run.saves > 1 ? 's' : ''}
+              </span>
+            )}
+            {run.gpu && <span>{run.gpu}</span>}
+            {run.cost_estimate != null && (
+              <span className="tabular-nums" title="Estimated cost (price/h × run time)">
+                ${run.cost_estimate}
+              </span>
+            )}
+          </div>
+          {run.error && (run.status === 'error' || run.status === 'error_pod_kept') && (
+            <p className="m-0 truncate text-rose-300/90 text-[0.6875rem]" title={run.error}>
+              {run.error}
+            </p>
+          )}
+          {line && (
+            <p className="m-0 truncate text-content-subtle text-[0.625rem]"
+              title="The effective ai-toolkit settings this launch used">
+              ⚙ {line}
+            </p>
+          )}
+          <RecipeWarning run={run} />
+          {run.status === 'error_pod_kept' && <PodKeptNote />}
+          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+            {run.status === 'error' && (
+              <button type="button" onClick={() => retry(run)}
+                disabled={isTrainingRecipeReplayBlocked(run) || !!retrying[runRetryKey(run)]}
+                title={isTrainingRecipeReplayBlocked(run)
+                  ? 'Disabled: this legacy/incompatible Z-Image recipe cannot be replayed safely; start a fresh run'
+                  : run.source === 'local'
+                    ? 'Relaunch this run locally with the same settings'
+                    : 'Relaunch this run with the same settings on a fresh pod'}
+                className="px-3 py-1.5 rounded-lg bg-primary/90 hover:bg-primary text-white text-xs font-semibold disabled:opacity-40">
+                {retrying[runRetryKey(run)] ? '↻ Retrying…' : '↻ Retry'}
+              </button>
+            )}
+            {run.source === 'cloud' && run.status === 'done' && run.checkpoint_ready && (
+              <button type="button" onClick={() => continueRun(run)}
+                disabled={isTrainingRecipeReplayBlocked(run) || !!continuing[run.run_id]}
+                title={isTrainingRecipeReplayBlocked(run)
+                  ? 'Disabled: this legacy/incompatible Z-Image checkpoint cannot be continued safely; start a fresh run'
+                  : "Resume training from this run's last checkpoint for more steps, on a fresh pod"}
+                className="px-3 py-1.5 rounded-lg bg-sky-600/80 hover:bg-sky-600 text-white text-xs font-semibold disabled:opacity-40">
+                {continuing[run.run_id] ? '▶ Continuing…' : '▶ Continue (+1000)'}
+              </button>
+            )}
+            {run.checkpoint_ready && (
+              <a href={checkpointHref(run)}
+                title="Download this run's LoRA checkpoint"
+                className="px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white text-xs font-semibold no-underline">
+                ⬇ LoRA
+              </a>
+            )}
+            {run.share_key && (
+              <button type="button" onClick={() => shareConfig(run)}
+                title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
+                className="ml-auto rounded-lg border border-transparent px-2 py-1 text-content-muted hover:border-border hover:text-content text-xs font-medium">
+                ⎘ Share config
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <section className="flex flex-col gap-5">
       <header className="flex flex-col gap-1">
@@ -418,9 +652,7 @@ export default function CloudRunsPage() {
                   {famLabel(run.train_type)}
                 </span>
                 <DatasetVersionChip version={run.version} />
-                <span className={`rounded border px-1.5 py-0.5 text-[0.625rem] ${statusStyle(run.status)}`}>
-                  {run.status}
-                </span>
+                <StatusBadge status={run.status} />
                 <AutoRetryBadges run={run} />
                 <span className="text-content-subtle text-[0.625rem]">{timeAgo(run.created_at)}</span>
                 <span className="ml-auto text-content-muted text-[0.6875rem] tabular-nums">
@@ -472,14 +704,9 @@ export default function CloudRunsPage() {
         )}
       </div>
 
-      {/* A pod kept alive for manual recovery bills until reaped — call it out. */}
-      {recent.some((r) => r.status === 'error_pod_kept') && (
-        <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-amber-200 text-xs">
-          ⚠ A finished run kept its pod for manual checkpoint recovery — it keeps billing until reaped. Download its LoRA below, then it is cleaned up automatically after the recovery window.
-        </div>
-      )}
-
-      {/* Recent history */}
+      {/* Recent history — one card per run, grouped by dataset. The pod-kept
+          billing warning lives INSIDE the concerned card (PodKeptNote), no
+          longer as an orphan full-width banner here. */}
       {recent.length > 0 && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
@@ -492,6 +719,12 @@ export default function CloudRunsPage() {
                 <span className="sr-only">{recentCollapsed ? ' — collapsed' : ' — expanded'}</span>
               </button>
             </h2>
+            {/* the fold must not hide an active billing warning entirely */}
+            {recentCollapsed && recent.some((r) => r.status === 'error_pod_kept') && (
+              <span className="text-amber-300 text-[0.6875rem]">
+                ⚠ a kept pod is still billing — expand for details
+              </span>
+            )}
             {!recentCollapsed && (
               <button type="button"
                 onClick={async () => {
@@ -506,82 +739,41 @@ export default function CloudRunsPage() {
             )}
           </div>
           {!recentCollapsed && (
-          <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
-            {recent.map((run, i) => {
-              const ident = runIdentityOf(run);
+          <div className="flex flex-col gap-3">
+            {groupRunsByDataset(recent).map((group, gi) => {
+              const gkey = String(group.datasetId);
+              const collapsed = !!groupsCollapsed[gkey];
+              const head = group.runs[0];
+              const name = head.dataset_name || head.run_name || `Dataset #${group.datasetId}`;
               return (
-              <div key={run.run_id ? `c${run.run_id}` : `l${run.record_id || `${run.dataset_id}-${run.created_at || i}`}`}
-                id={ident ? runRowDomId(ident.source, ident.id) : undefined}
-                className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-                {ident ? (
-                  <RunIdChip source={ident.source} id={ident.id} />
-                ) : (
-                  <span aria-hidden title={run.source === 'cloud' ? 'Cloud run (vast.ai)' : 'Local run'}>
-                    {run.source === 'cloud' ? '☁️' : '💻'}
-                  </span>
-                )}
-                <button type="button" onClick={() => openDataset(run.dataset_id)}
-                  className="text-content font-medium hover:underline">
-                  {run.dataset_name || run.run_name || `Dataset #${run.dataset_id}`}
-                </button>
-                <span className="text-content-subtle text-[0.625rem] uppercase">{famLabel(run.train_type)}</span>
-                <DatasetVersionChip version={run.version} />
-                <span className={`rounded border px-1.5 py-0.5 text-[0.625rem] ${statusStyle(run.status)}`}>
-                  {run.status}
-                </span>
-                <AutoRetryBadges run={run} />
-                <span className="text-content-subtle text-[0.625rem]">{timeAgo(run.finished_at || run.created_at)}</span>
-                {run.error && (run.status === 'error' || run.status === 'error_pod_kept') && (
-                  <span className="text-content-subtle text-[0.625rem] truncate max-w-[16rem]" title={run.error}>
-                    — {run.error}
-                  </span>
-                )}
-                <span className="ml-auto text-content-muted text-[0.6875rem] tabular-nums">
-                  {run.gpu ? `${run.gpu} · ` : ''}{run.cost_estimate != null ? `$${run.cost_estimate}` : ''}
-                </span>
-                {run.checkpoint_ready && (
-                  <a href={checkpointHref(run)}
-                    className="px-2 py-1 rounded-lg border border-emerald-400/40 bg-emerald-500/10 text-emerald-200 text-xs font-semibold no-underline">
-                    ⬇ LoRA
-                  </a>
-                )}
-                {run.status === 'error' && (
-                  <button type="button" onClick={() => retry(run)}
-                    disabled={isTrainingRecipeReplayBlocked(run) || !!retrying[runRetryKey(run)]}
-                    title={isTrainingRecipeReplayBlocked(run)
-                      ? 'Disabled: this legacy/incompatible Z-Image recipe cannot be replayed safely; start a fresh run'
-                      : run.source === 'local'
-                        ? 'Relaunch this run locally with the same settings'
-                        : 'Relaunch this run with the same settings on a fresh pod'}
-                    className="px-2 py-1 rounded-lg border border-primary/40 bg-primary/15 text-white text-xs font-semibold disabled:opacity-50">
-                    {retrying[runRetryKey(run)] ? '↻ Retrying…' : '↻ Retry'}
-                  </button>
-                )}
-                {run.source === 'cloud' && run.status === 'done' && run.checkpoint_ready && (
-                  <button type="button" onClick={() => continueRun(run)}
-                    disabled={isTrainingRecipeReplayBlocked(run) || !!continuing[run.run_id]}
-                    title={isTrainingRecipeReplayBlocked(run)
-                      ? 'Disabled: this legacy/incompatible Z-Image checkpoint cannot be continued safely; start a fresh run'
-                      : "Resume training from this run's last checkpoint for more steps, on a fresh pod"}
-                    className="px-2 py-1 rounded-lg border border-sky-400/40 bg-sky-500/10 text-sky-200 text-xs font-semibold disabled:opacity-50">
-                    {continuing[run.run_id] ? '▶ Continuing…' : '▶ Continue (+1000)'}
-                  </button>
-                )}
-                {run.share_key && (
-                  <button type="button" onClick={() => shareConfig(run)}
-                    title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
-                    className="px-2 py-1 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-xs font-semibold">
-                    ⎘ Share config
-                  </button>
-                )}
-                {settingsLine(run) && (
-                  <span className="w-full text-content-subtle text-[0.625rem]"
-                    title="The effective ai-toolkit settings this launch used">
-                    ⚙ {settingsLine(run)}
-                  </span>
-                )}
-                <RecipeWarning run={run} />
-              </div>
+                <section key={`g${gi}-${gkey}`}
+                  className="flex flex-col rounded-xl border border-border bg-surface">
+                  {/* discreet group header: the dataset these consecutive runs share */}
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <button type="button" onClick={() => toggleGroup(group.datasetId)}
+                      aria-expanded={!collapsed}
+                      title={collapsed ? 'Show the runs of this dataset' : 'Fold the runs of this dataset'}
+                      className="flex min-w-0 items-center gap-1.5 text-content-muted hover:text-content text-xs">
+                      <span aria-hidden className="text-[0.625rem] leading-none">{collapsed ? '▸' : '▾'}</span>
+                      <span className="truncate font-semibold text-content">{name}</span>
+                      <span className="whitespace-nowrap text-content-subtle">
+                        · {group.runs.length} run{group.runs.length > 1 ? 's' : ''}
+                      </span>
+                    </button>
+                    {collapsed && group.runs.some((r) => r.status === 'error_pod_kept') && (
+                      <span className="whitespace-nowrap text-amber-300 text-[0.625rem]">⚠ kept pod billing</span>
+                    )}
+                    <button type="button" onClick={() => openDataset(group.datasetId)}
+                      className="ml-auto whitespace-nowrap rounded-lg px-2 py-0.5 text-content-muted hover:text-content text-[0.6875rem]">
+                      Open dataset ↗
+                    </button>
+                  </div>
+                  {!collapsed && (
+                    <div className="flex flex-col gap-2 px-2 pb-2">
+                      {group.runs.map((run, i) => renderRunCard(run, i))}
+                    </div>
+                  )}
+                </section>
               );
             })}
           </div>

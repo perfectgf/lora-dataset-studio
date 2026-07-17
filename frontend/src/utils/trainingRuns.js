@@ -37,6 +37,49 @@ export function runRetryKey(run) {
   return run?.source === 'local' ? `l${run?.record_id}` : `c${run?.run_id}`;
 }
 
+/** Consecutive Runs-page history rows of the SAME dataset merge under one
+ * group header ("Selfie · 3 runs" at a glance). Only ADJACENT rows merge: the
+ * list stays reverse-chronological, so a dataset interleaved with another
+ * starts a new group instead of silently reordering history. */
+export function groupRunsByDataset(runs) {
+  const groups = [];
+  for (const run of runs || []) {
+    const last = groups[groups.length - 1];
+    if (last && last.datasetId === run.dataset_id) last.runs.push(run);
+    else groups.push({ datasetId: run.dataset_id, runs: [run] });
+  }
+  return groups;
+}
+
+// Backend timestamps are naive UTC (isoformat of utcnow) — pin them to UTC
+// before diffing, exactly like the Runs page's timeAgo does.
+function parseNaiveUtcMs(iso) {
+  if (!iso) return NaN;
+  return new Date(/[Z+]/.test(iso) ? iso : `${iso}Z`).getTime();
+}
+
+/** Wall-clock duration of a FINISHED run in seconds. Cloud rows carry both
+ * timestamps; local registry rows only record the launch → null (the card
+ * simply drops the metric). */
+export function runDurationSeconds(run) {
+  const start = parseNaiveUtcMs(run?.created_at);
+  const end = parseNaiveUtcMs(run?.finished_at);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return (end - start) / 1000;
+}
+
+/** '48s', '42m', '1h 05m', '2d 3h' — compact human duration for run cards. */
+export function formatDuration(seconds) {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
+  const s = Math.round(seconds);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${String(m % 60).padStart(2, '0')}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
 const REPLAY_BLOCKING_RECIPE_STATUSES = new Set(['legacy_incompatible', 'incompatible']);
 
 /** Retry/Continue must not replay a checkpoint whose stamped Z-Image recipe is

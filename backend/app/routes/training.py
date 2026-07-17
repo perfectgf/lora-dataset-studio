@@ -1343,6 +1343,20 @@ def dataset_train_run_share(run_key):
         headers={'Content-Disposition': f'attachment; filename="{out["filename"]}"'})
 
 
+@bp.get('/dataset/train/runs/<run_key>/preview')
+def dataset_train_run_preview(run_key):
+    """Newest sample image a run produced — the Runs-hub card thumbnail.
+    `run_key` is 'cloud-<id>' or 'rec-<id>' (same addressing as /share). The
+    file path is resolved fully server-side from the run's own record (staging
+    dir for cloud, the stamped local run dir otherwise) — the client never
+    sends a path. Open like the other Runs-hub reads: unknown/sampleless → 404."""
+    from flask import send_file
+    p = ct.run_preview_path(run_key)
+    if not p:
+        return jsonify({'error': 'no preview for this run'}), 404
+    return send_file(p, conditional=True)
+
+
 @bp.get('/dataset/<int:dataset_id>/train/cloud/progress')
 def dataset_train_cloud_progress(dataset_id):
     try:

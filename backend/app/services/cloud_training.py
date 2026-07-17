@@ -1734,6 +1734,84 @@ def _dataset_name(dataset_id):
         return None
 
 
+def _staging_save_count(run) -> int:
+    """How many checkpoints (.safetensors) this run's staging currently holds —
+    the 'saves' figure on the Runs-hub cards. 0 when staging is gone (purged /
+    hand-deleted): the card simply drops the metric, never crashes."""
+    if not run.staging_dir:
+        return 0
+    try:
+        return sum(1 for f in os.listdir(run.staging_dir)
+                   if f.lower().endswith('.safetensors'))
+    except OSError:
+        return 0
+
+
+def _latest_sample_name(samples_dir):
+    """Filename of the NEWEST sample image in a run's samples dir (highest
+    step, then prompt index) or None. ai-toolkit names samples
+    <ts>__<step>_<promptidx>.<ext> — lt._SAMPLE_RE parses that."""
+    try:
+        names = os.listdir(samples_dir)
+    except OSError:
+        return None
+    best = None
+    for f in names:
+        m = lt._SAMPLE_RE.search(f)
+        if not m:
+            continue
+        key = (int(m.group(1)), int(m.group(2)))
+        if best is None or key > best[0]:
+            best = (key, f)
+    return best[1] if best else None
+
+
+def _run_samples_dir(crun, rec):
+    """Samples dir of a run — cloud: its staging download; local: the
+    ai-toolkit run dir stamped on its registry row. None when unresolvable
+    (purged staging, ai-toolkit not configured, deleted dataset)."""
+    if crun is not None and crun.staging_dir:
+        return os.path.join(crun.staging_dir, 'samples')
+    if rec is not None and rec.source == 'local':
+        try:
+            return os.path.join(
+                lt._run_dir(cfg.LOCAL_USER, rec.dataset_id,
+                            base_model=rec.base_model or '',
+                            family=rec.family, variant=rec.variant),
+                'samples')
+        except Exception:
+            return None
+    return None
+
+
+def run_preview_path(run_key):
+    """Absolute path of a run's newest sample image, or None — the Runs-hub
+    card thumbnail. `run_key` is the run's share key ('cloud-<id>'/'rec-<id>',
+    same addressing as the Share-config download). Resolved entirely
+    server-side from the run's own rows: the client never sends a path."""
+    from .run_share import resolve_run
+    crun, rec = resolve_run(run_key)
+    if crun is None and rec is None:
+        return None
+    d = _run_samples_dir(crun, rec)
+    if not d:
+        return None
+    name = _latest_sample_name(d)
+    if not name:
+        return None
+    p = os.path.join(d, name)
+    return p if os.path.isfile(p) else None
+
+
+def _annotate_preview(row, crun, rec):
+    """Stamp `preview_url` on a Runs-hub history row when the run left at
+    least one sample on disk — the frontend shows it as the card thumbnail
+    (and falls back to a family tile when absent)."""
+    d = _run_samples_dir(crun, rec)
+    if d and _latest_sample_name(d):
+        row['preview_url'] = f"/api/dataset/train/runs/{row['share_key']}/preview"
+
+
 def _run_payload(run) -> dict:
     family = _run_family(run)
     variant = _run_param(run, 'variant')
@@ -1757,6 +1835,10 @@ def _run_payload(run) -> dict:
             # file yields a download button that 404s.
             'checkpoint_ready': bool(run.checkpoint_local_path
                                      and os.path.isfile(run.checkpoint_local_path)),
+            # card metrics: target steps (stamped launch param) + how many
+            # checkpoints the pod saved (live count of the staging downloads)
+            'steps': _run_param(run, 'steps'),
+            'saves': _staging_save_count(run),
             'train_type': family, 'variant': variant,
             'effective_base': effective_base,
             'training_adapter': training_adapter,
@@ -1856,9 +1938,15 @@ def all_runs(limit: int = 20) -> dict:
                         'recipe_warning': diag and diag.get('warning')})
         if crun is not None:
             # cloud enrichment wins on shared keys (status/cost/checkpoint/...)
+            # — except steps, where the registry row must survive a pod row
+            # whose train_params never stamped them (payload steps = None).
+            registry_steps = row.get('steps')
             row.update(_run_payload(crun))
+            if row.get('steps') is None:
+                row['steps'] = registry_steps
             row['settings'] = settings
             row['source'] = 'cloud'
+        _annotate_preview(row, crun, rec)
         recent.append(row)
     # Legacy cloud runs that predate the provenance registry (no record row).
     seen_cloud = {r.get('run_id') for r in recent if r.get('run_id')}
@@ -1867,7 +1955,9 @@ def all_runs(limit: int = 20) -> dict:
                  .order_by(CloudTrainingRun.id.desc()).limit(limit).all()):
         if crun.id in seen_cloud:
             continue
-        recent.append({'source': 'cloud', 'settings': None, **_run_payload(crun)})
+        row = {'source': 'cloud', 'settings': None, **_run_payload(crun)}
+        _annotate_preview(row, crun, None)
+        recent.append(row)
     recent.sort(key=lambda r: r.get('created_at') or '', reverse=True)
     recent = recent[:limit]
     # Live LOCAL training: shown as its own card next to the cloud actives;

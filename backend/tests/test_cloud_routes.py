@@ -332,6 +332,88 @@ def test_all_runs_unifies_local_and_cloud_history(app, client, monkeypatch):
     assert local_row['steps'] == 2000
     enriched = next(r for r in recent if r.get('error') == 'boom')
     assert enriched['status'] == 'error' and enriched['settings'] == {'rank': 48}
+    # the registry's steps survive cloud enrichment (the pod row above never
+    # stamped steps into train_params)
+    assert enriched['steps'] == 2000
     legacy = next(r for r in recent if r.get('run_name') == 'old')
     assert legacy['settings'] is None and legacy['status'] == 'done'
     assert out['local_active'] is None
+
+
+# --- Run preview thumbnails (Runs-hub cards) --------------------------------
+
+def test_run_preview_serves_latest_cloud_sample(client, app, monkeypatch, tmp_path):
+    """cloud-<id>/preview streams the NEWEST sample (highest step) of THAT
+    run's staging, and all_runs stamps preview_url + saves on its row."""
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    ds = _mkds(client)
+    staging = tmp_path / 'run_p'
+    (staging / 'samples').mkdir(parents=True)
+    (staging / 'samples' / '168__250_0.jpg').write_bytes(b'OLD')
+    (staging / 'samples' / '169__500_1.jpg').write_bytes(b'NEWEST')
+    (staging / 'samples' / 'notes.txt').write_bytes(b'not a sample')
+    (staging / 'ck_000000500.safetensors').write_bytes(b'CK')
+    (staging / 'final.safetensors').write_bytes(b'CK')
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    with app.app_context():
+        run = CloudTrainingRun(dataset_id=ds, status='done', job_name='j',
+                               vast_label='lds-9', staging_dir=str(staging))
+        db.session.add(run)
+        db.session.commit()
+        rid = run.id
+    r = client.get(f'/api/dataset/train/runs/cloud-{rid}/preview')
+    assert r.status_code == 200 and r.data == b'NEWEST'
+    body = client.get('/api/dataset/train/cloud/runs?limit=5').get_json()
+    row = next(x for x in body['recent'] if x.get('run_id') == rid)
+    assert row['preview_url'] == f'/api/dataset/train/runs/cloud-{rid}/preview'
+    assert row['saves'] == 2
+
+
+def test_run_preview_local_record(client, app, monkeypatch, tmp_path):
+    """rec-<id>/preview resolves a LOCAL run's stamped ai-toolkit run dir; its
+    history row carries preview_url so the hub knows a thumbnail exists."""
+    ds = _mkds(client)
+    run_dir = tmp_path / 'lora_lola'
+    (run_dir / 'samples').mkdir(parents=True)
+    (run_dir / 'samples' / '170__100_0.jpg').write_bytes(b'LOCAL')
+    from app.extensions import db
+    from app.models import TrainingRunRecord
+    with app.app_context():
+        rec = TrainingRunRecord(dataset_id=ds, family='zimage', source='local',
+                                fingerprint='fp', version=1, steps=1000,
+                                masked=True)
+        db.session.add(rec)
+        db.session.commit()
+        rec_id = rec.id
+    monkeypatch.setattr('app.services.lora_training._run_dir',
+                        lambda *a, **k: str(run_dir))
+    r = client.get(f'/api/dataset/train/runs/rec-{rec_id}/preview')
+    assert r.status_code == 200 and r.data == b'LOCAL'
+    body = client.get('/api/dataset/train/cloud/runs?limit=5').get_json()
+    row = next(x for x in body['recent'] if x.get('record_id') == rec_id)
+    assert row['preview_url'] == f'/api/dataset/train/runs/rec-{rec_id}/preview'
+
+
+def test_run_preview_unknown_or_sampleless_404(client, app, monkeypatch, tmp_path):
+    """Unknown keys and runs that left no sample 404; their rows carry no
+    preview_url (the hub falls back to the family tile)."""
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    assert client.get('/api/dataset/train/runs/cloud-999/preview').status_code == 404
+    assert client.get('/api/dataset/train/runs/bogus/preview').status_code == 404
+    assert client.get('/api/dataset/train/runs/rec-999/preview').status_code == 404
+    ds = _mkds(client)
+    staging = tmp_path / 'run_nosamples'
+    staging.mkdir()
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    with app.app_context():
+        run = CloudTrainingRun(dataset_id=ds, status='error', job_name='j',
+                               vast_label='lds-10', staging_dir=str(staging))
+        db.session.add(run)
+        db.session.commit()
+        rid = run.id
+    assert client.get(f'/api/dataset/train/runs/cloud-{rid}/preview').status_code == 404
+    body = client.get('/api/dataset/train/cloud/runs?limit=5').get_json()
+    row = next(x for x in body['recent'] if x.get('run_id') == rid)
+    assert 'preview_url' not in row and row['saves'] == 0
