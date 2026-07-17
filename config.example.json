@@ -16,7 +16,7 @@
   },
   "ollama": {
     "url": "http://127.0.0.1:11434",
-    "vision_model": "qwen3-vl:8b-instruct"
+    "vision_model": "huihui_ai/qwen3-vl-abliterated:8b-instruct"
   },
   "aitoolkit": {
     "dir": "",
