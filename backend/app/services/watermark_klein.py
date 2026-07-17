@@ -1,22 +1,36 @@
-"""Watermark removal by MASKED Flux.2 Klein inpainting, crop-and-stitch — the V2
-sister of watermark_lama.
+"""Watermark removal by PREFILL + Flux.2 Klein full-edit refine, crop-and-stitch — the
+V2 sister of watermark_lama.
 
 Why a second method: LaMa (V1) is non-generative and perfect outside the mask, but on
 complex texture (skin / fabric / busy background) it smears — the "weird mask sections"
 grief — and it can't touch a mark that sits ON the subject (those stay 'review'). Klein
 reconstructs texture far better AND makes the on-subject case actionable.
 
-The catch with "Klein re-renders the whole image" is defused by doing crop-and-stitch on
-the APP side (zero custom node, the repo doctrine):
+Architecture — PREFILL then REFINE (GPU-derived 2026-07-17, see below):
 
   1. crop a padded square around the mark, upscale it to ~1 MP (the "magnifying glass" so
      a few-pixel mark in a 4K photo is big enough for the model to see);
-  2. Klein inpaints ONLY the masked region of that crop (SetLatentNoiseMask +
-     DifferentialDiffusion, denoise 1.0, cfg 1);
-  3. composite the filled crop back onto the ORIGINAL in pixel space, pasting ONLY the
+  2. PREFILL the masked region of that crop — repaint the watermark away with the LaMa
+     worker (fallback cv2 TELEA). The result is deliberately soft/blurry; that is fine,
+     its ONLY job is to hand Klein a reference with NO watermark left in it;
+  3. Klein REFINES the pre-filled crop as a native full-edit (VAEEncode the whole crop →
+     ReferenceLatent + KSampler on that latent, denoise 1.0, cfg 1 — NO SetLatentNoiseMask,
+     the improve-skin edit pattern). Klein regenerates real texture over the soft prefill;
+  4. composite the refined crop back onto the ORIGINAL in pixel space, pasting ONLY the
      masked region (+ a few-px feather). Every pixel outside that footprint keeps its
      ORIGINAL bytes — that is THE preservation guarantee, and it holds no matter how far
-     the model drifts inside the patch.
+     the model drifts across the (fully re-rendered) crop.
+
+WHY the prefill is mandatory (empirical, on a real photo):
+  * The masked-inpaint graph (SetLatentNoiseMask + DifferentialDiffusion, denoise 1.0)
+    feeds the ORIGINAL crop as the ReferenceLatent. At cfg 1 (guidance-distilled Klein)
+    the prompt barely counts against that reference — so the watermark, still visible in
+    the reference, is REPRODUCED as ghost glyphs.
+  * Pre-filling the reference (watermark gone) kills the ghosts — but if Klein is asked to
+    only paint inside the mask it just copies the prefill's blur back. Handing Klein the
+    pre-filled crop as a FULL edit lets it regenerate genuine texture over the soft patch,
+    which is exactly its improve-details core competency. A Klein pass WITHOUT a prefill is
+    proven ineffective, so there is no skip-prefill path — prefill or fail.
 
 The ComfyUI round-trip goes through the shared queue_manager (serialized against training
 / vision by the worker's own gating), then this module reads the finished crop back and
@@ -27,6 +41,7 @@ import logging
 import math
 import os
 import random
+import tempfile
 import time
 import uuid
 
@@ -41,14 +56,20 @@ logger = logging.getLogger(__name__)
 
 KLEIN_INPAINT_WORKFLOW_PATH = cfg.BACKEND_DIR / 'workflows' / 'klein_inpaint.json'
 
-# Prompt drives the fill only inside the mask; the rest of the crop is preserved by
-# SetLatentNoiseMask (and discarded by the composite anyway).
-KLEIN_INPAINT_PROMPT = ('remove ALL overlaid watermark graphics from the image: text, '
-                        'logos, lines and bars. Reconstruct the underlying surface '
-                        'seamlessly, keep everything else identical')
+# The prefill already removed the watermark, so the refine prompt is about RECONSTRUCTION,
+# not removal: push Klein to regenerate real texture over the soft prefill and keep the
+# rest of the crop identical (drift outside the mask is discarded by the composite anyway).
+# Kept in sync with node 6 of klein_inpaint.json (a test asserts the wiring).
+KLEIN_INPAINT_PROMPT = ('Reconstruct this photo as a clean, natural image: replace any '
+                        'blurred, smudged or patched areas with sharp, realistic surface '
+                        'texture (skin, fabric, hair, background) consistent with the '
+                        'surrounding pixels. Keep the subject, pose, colours and composition '
+                        'identical. No text, no logos, no watermarks.')
 
-# Nodes this module rewires — fail loudly if the shipped workflow changes shape.
-_REQUIRED_NODES = ('114', '10', '90', '52', 'mask', '6', '77', '9')
+# Nodes this module rewires — fail loudly if the shipped workflow changes shape. Node 53
+# (VAEEncode of the pre-filled crop) is the latent for BOTH the ReferenceLatent and the
+# KSampler now (full-edit), so it is checked too even though its wiring is fixed in the JSON.
+_REQUIRED_NODES = ('114', '10', '90', '52', '53', '6', '77', '9')
 
 # --- Tunables (calibrated at the GPU smoke; the study left these open) ---------
 # Crop = a square this many times the mark's larger side, so the model gets real
@@ -59,14 +80,14 @@ KLEIN_CONTEXT_FACTOR = 2.5
 KLEIN_MIN_CROP = 384            # never crop below this (a tiny mark still gets context)
 KLEIN_TARGET_MP = 1.0          # upscale the crop to ~this many megapixels for the model
 KLEIN_LATENT_MULT = 16         # Flux.2 latent stride — crop dims sent to ComfyUI snap to it
-KLEIN_MASK_EXPAND_PX = 8       # grow the mark rectangle before inpaint (cover its AA edge)
-KLEIN_COMFY_FEATHER_PX = 8     # soft mask edge fed to DifferentialDiffusion (scaled res)
+KLEIN_MASK_EXPAND_PX = 8       # grow the mark rectangle before prefill (cover its AA edge)
 KLEIN_COMPOSITE_FEATHER_PX = 6  # feather of the pixel-space paste seam (crop-native res)
-KLEIN_DENOISE = 1.0            # GPU smoke 2026-07-17 (A/B same seed): 0.9 keeps ~10% of the
-                               # underlying latent and semi-transparent bars survive; 1.0 +
-                               # explicit prompt removes them (DifferentialDiffusion bounds
-                               # the risk to the masked patch — no artefact observed)
-KLEIN_STEPS = 8               # Klein 9b is guidance-distilled (edit uses 5); a touch more
+KLEIN_DENOISE = 1.0            # full-edit refine: the crop's own latent is fully noised and
+                               # the (pre-filled, watermark-free) crop re-enters as the
+                               # ReferenceLatent — anything below 1.0 would leak the noised
+                               # crop back in, so 1.0 is required, not a tunable
+KLEIN_STEPS = 8               # Klein 9b is guidance-distilled (improve-skin edit uses 5); a
+                              # couple more for cleaner reconstructed texture over the prefill
 KLEIN_TIMEOUT = 300           # per-image ComfyUI round-trip budget (seconds)
 
 _POLL_INTERVAL = 1.0
@@ -157,6 +178,25 @@ def _hard_mask(crop_box, W, H, boxes, *, expand_px=KLEIN_MASK_EXPAND_PX) -> Imag
     return mask
 
 
+def _crop_boxes_norm(crop_box, W, H, boxes, *, expand_px=KLEIN_MASK_EXPAND_PX):
+    """The mark rectangles as normalized [x1,y1,x2,y2] WITHIN the crop (0..1), each grown
+    by `expand_px` and clamped — the geometry the PREFILL repaints. Mirror of `_hard_mask`
+    but returns boxes, because both prefill engines take rectangles (the LaMa worker's
+    `inpaint_watermarks` bboxes, and the cv2 TELEA mask). Normalized so it is valid at any
+    resolution (crop-native or the scaled crop). Drops anything degenerate."""
+    l, t, r, b = crop_box
+    cw, ch = r - l, b - t
+    out = []
+    for x1, y1, x2, y2 in boxes:
+        bx1 = max(0.0, (x1 * W - l - expand_px) / cw)
+        by1 = max(0.0, (y1 * H - t - expand_px) / ch)
+        bx2 = min(1.0, (x2 * W - l + expand_px) / cw)
+        by2 = min(1.0, (y2 * H - t + expand_px) / ch)
+        if bx2 > bx1 and by2 > by1:
+            out.append([bx1, by1, bx2, by2])
+    return out
+
+
 def _upscale_size(cw, ch, *, target_mp=KLEIN_TARGET_MP, mult=KLEIN_LATENT_MULT):
     """Target (w,h) for the crop sent to Klein: scale toward ~target_mp, snap to `mult`.
     Small crops are magnified; oversized crops are scaled DOWN to bound VRAM."""
@@ -176,6 +216,67 @@ def composite_inpaint(original, filled_crop, crop_box, composite_mask) -> Image.
         filled_crop = filled_crop.resize(composite_mask.size, Image.LANCZOS)
     result.paste(filled_crop.convert('RGB'), (crop_box[0], crop_box[1]), composite_mask)
     return result
+
+
+# --- Prefill (repaint the watermark away before Klein sees it) ----------------
+
+def _prefill_telea(scaled_crop, crop_boxes):
+    """cv2 TELEA fallback prefill: repaint the `crop_boxes` rectangles of `scaled_crop`.
+    Fast but blurry — Klein regenerates the texture over it. cv2 lives in the SAME ML
+    extras as the LaMa worker, so a missing cv2 means the extras aren't installed at all:
+    return 'unavailable' (→ the clean skips the row, actionable "install ML extras"),
+    not 'failed'. A genuine cv2 runtime error is 'failed'."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return None, {'kind': 'unavailable',
+                      'detail': 'watermark prefill unavailable: install the ML extras '
+                                '(LaMa / OpenCV) to use the Klein clean method'}
+    try:
+        rgb = np.array(scaled_crop.convert('RGB'))
+        w, h = scaled_crop.size
+        mask = np.zeros((h, w), dtype='uint8')
+        for x1, y1, x2, y2 in crop_boxes:
+            left = max(0, min(w - 1, int(x1 * w)))
+            top = max(0, min(h - 1, int(y1 * h)))
+            right = max(left + 1, min(w, int(math.ceil(x2 * w))))
+            bottom = max(top + 1, min(h, int(math.ceil(y2 * h))))
+            mask[top:bottom, left:right] = 255
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        filled = cv2.inpaint(bgr, mask, 5, cv2.INPAINT_TELEA)
+        return Image.fromarray(cv2.cvtColor(filled, cv2.COLOR_BGR2RGB)), None
+    except Exception as e:  # noqa: BLE001 — any cv2 failure is a clean, surfaced 'failed'
+        return None, {'kind': 'failed', 'detail': f'cv2 TELEA prefill failed: {e}'}
+
+
+def _prefill_region(scaled_crop, crop_boxes, *, device='cpu'):
+    """Repaint the masked rectangles of `scaled_crop` so the crop handed to Klein shows NO
+    watermark (Klein's ReferenceLatent is this crop — a reference that still contains the
+    mark makes cfg=1 Klein reproduce it as ghost glyphs). Prefer the LaMa worker (plausible
+    texture Klein then sharpens); fall back to cv2 TELEA; if neither engine is installed,
+    return 'unavailable'. There is deliberately NO skip-prefill path.
+
+    `scaled_crop` RGB, `crop_boxes` normalized [x1,y1,x2,y2] within the crop.
+    Returns (prefilled_RGB_image, None) or (None, {'kind', 'detail'})."""
+    if not crop_boxes:
+        return None, {'kind': 'failed', 'detail': 'no prefill region inside the crop'}
+    from . import watermark_lama
+    if watermark_lama.is_available():
+        fd, tmp = tempfile.mkstemp(suffix='.png', prefix='wmklein_prefill_')
+        os.close(fd)
+        try:
+            scaled_crop.convert('RGB').save(tmp, 'PNG')
+            ok, err = watermark_lama.inpaint_watermarks(tmp, crop_boxes, device=device)
+            if ok:
+                with Image.open(tmp) as im:
+                    return im.convert('RGB').copy(), None
+            # LaMa is installed but errored — degrade to TELEA (cv2 ships with it) rather
+            # than fail the whole clean; log so a systematic LaMa problem is visible.
+            logger.warning('watermark_klein: LaMa prefill failed (%s) — using cv2 TELEA', err)
+        finally:
+            _cleanup(tmp)
+    return _prefill_telea(scaled_crop, crop_boxes)
 
 
 # --- ComfyUI round-trip -------------------------------------------------------
@@ -237,12 +338,13 @@ def _wait_for_job(job_id, timeout):
         time.sleep(_POLL_INTERVAL)
 
 
-def _run_klein_job(user_id, crop_img, comfy_mask, *, seed, steps=KLEIN_STEPS,
+def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
                    denoise=KLEIN_DENOISE, timeout=KLEIN_TIMEOUT):
-    """Enqueue one masked-inpaint job on `crop_img`+`comfy_mask` and return
-    (filled_crop_image, None) or (None, error). Isolated seam so tests can mock the GPU
-    round-trip. Raises KleinModelsMissing if a required asset vanished between preflight
-    and here (so the route can 409 + auto-download)."""
+    """Enqueue one full-edit refine job on the PRE-FILLED `crop_img` and return
+    (filled_crop_image, None) or (None, error). The crop must already be watermark-free —
+    it becomes the KSampler latent AND the ReferenceLatent (no SetLatentNoiseMask). Isolated
+    seam so tests can mock the GPU round-trip. Raises KleinModelsMissing if a required asset
+    vanished between preflight and here (so the route can 409 + auto-download)."""
     workflow = load_workflow_local(str(KLEIN_INPAINT_WORKFLOW_PATH))
     if not workflow:
         return None, {'kind': 'failed', 'detail': 'failed to load klein_inpaint workflow'}
@@ -260,17 +362,13 @@ def _run_klein_job(user_id, crop_img, comfy_mask, *, seed, steps=KLEIN_STEPS,
     comfy_input = _comfy_input_dir()
     uid = uuid.uuid4().hex[:8]
     crop_name = f'wmklein_crop_{uid}.png'
-    mask_name = f'wmklein_mask_{uid}.png'
     crop_path = os.path.join(comfy_input, crop_name)
-    mask_path = os.path.join(comfy_input, mask_name)
     crop_img.convert('RGB').save(crop_path)
-    comfy_mask.convert('RGB').save(mask_path)
 
     workflow['114']['inputs']['unet_name'] = unet
     workflow['10']['inputs']['vae_name'] = vae
     workflow['90']['inputs']['clip_name'] = te
     workflow['52']['inputs']['image'] = crop_name
-    workflow['mask']['inputs']['image'] = mask_name
     workflow['6']['inputs']['text'] = KLEIN_INPAINT_PROMPT
     workflow['77']['inputs']['seed'] = int(seed)
     workflow['77']['inputs']['steps'] = max(1, int(steps))
@@ -284,7 +382,7 @@ def _run_klein_job(user_id, crop_img, comfy_mask, *, seed, steps=KLEIN_STEPS,
                               metadata={'model_name': 'watermark_klein'})
         status, filename, err_msg = _wait_for_job(job_id, timeout)
     finally:
-        _cleanup(crop_path, mask_path)
+        _cleanup(crop_path)
 
     if status != 'completed' or not filename:
         return None, {'kind': 'failed',
@@ -303,13 +401,15 @@ def _run_klein_job(user_id, crop_img, comfy_mask, *, seed, steps=KLEIN_STEPS,
     return filled, None
 
 
-def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None,
+def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cpu',
                             timeout=KLEIN_TIMEOUT) -> tuple[bool, dict | None]:
-    """Remove the watermark(s) at normalized `boxes` from `image_path` via masked Klein
-    inpaint + pixel-space composite, overwriting the file in place (WEBP q92, same as
-    LaMa; the caller preserves the .orig). Returns the `(ok, error)` tuple contract:
-    `error` is None on success, else {'kind', 'detail'} (kind 'unavailable' when Klein
-    isn't ready, 'failed' otherwise). Preserves every pixel outside the mask+feather."""
+    """Remove the watermark(s) at normalized `boxes` from `image_path` via PREFILL + Klein
+    full-edit refine + pixel-space composite, overwriting the file in place (WEBP q92, same
+    as LaMa; the caller preserves the .orig). Returns the `(ok, error)` tuple contract:
+    `error` is None on success, else {'kind', 'detail'} (kind 'unavailable' when Klein or the
+    prefill engine isn't ready, 'failed' otherwise). Preserves every pixel outside the
+    mask+feather. `device` selects the prefill LaMa device ('cpu' by default so the pending
+    ComfyUI GPU job runs alone; Klein itself always owns the GPU via ComfyUI)."""
     if not is_available():
         return False, {'kind': 'unavailable',
                        'detail': 'Klein inpaint is not ready (ComfyUI unreachable or models missing)'}
@@ -329,13 +429,17 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None,
     scaled_crop = crop_img.resize(scaled_size, Image.LANCZOS)
 
     hard = _hard_mask(crop_box, W, H, norm)
-    comfy_mask = (hard.resize(scaled_size, Image.LANCZOS)
-                  .filter(ImageFilter.GaussianBlur(KLEIN_COMFY_FEATHER_PX)))
     composite_mask = hard.filter(ImageFilter.GaussianBlur(KLEIN_COMPOSITE_FEATHER_PX))
 
+    # Prefill the mark away BEFORE Klein — its ReferenceLatent is this crop, so a leftover
+    # watermark would be reproduced as ghost glyphs. No prefill → no Klein (abort).
+    crop_boxes = _crop_boxes_norm(crop_box, W, H, norm)
+    prefilled, err = _prefill_region(scaled_crop, crop_boxes, device=device)
+    if err:
+        return False, err
+
     seed = random.randint(0, 2 ** 63 - 1) if seed is None else int(seed)
-    filled_scaled, err = _run_klein_job(user_id, scaled_crop, comfy_mask, seed=seed,
-                                        timeout=timeout)
+    filled_scaled, err = _run_klein_job(user_id, prefilled, seed=seed, timeout=timeout)
     if err:
         return False, err
     filled_crop = (filled_scaled if filled_scaled.size == (cw, ch)

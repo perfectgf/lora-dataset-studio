@@ -1615,9 +1615,8 @@ def test_run_klein_job_wires_workflow_and_returns_filled(app, monkeypatch, tmp_p
     monkeypatch.setattr(wk, '_read_comfy_output', lambda filename: _img_bytes(size=(64, 64)))
 
     with app.app_context():
-        crop = Image.new('RGB', (64, 64), (10, 20, 30))
-        mask = Image.new('L', (64, 64), 0)
-        filled, err = wk._run_klein_job('local', crop, mask, seed=7)
+        crop = Image.new('RGB', (64, 64), (10, 20, 30))   # already pre-filled by the caller
+        filled, err = wk._run_klein_job('local', crop, seed=7)
 
     assert err is None and filled is not None and filled.size == (64, 64)
     wf = captured['workflow_data']
@@ -1628,8 +1627,11 @@ def test_run_klein_job_wires_workflow_and_returns_filled(app, monkeypatch, tmp_p
     assert wf['77']['inputs']['seed'] == 7
     assert wf['77']['inputs']['denoise'] == wk.KLEIN_DENOISE
     assert wf['77']['inputs']['steps'] == wk.KLEIN_STEPS
+    # full-edit: the KSampler samples the crop's own latent, no SetLatentNoiseMask node
+    assert wf['77']['inputs']['latent_image'] == ['53', 0]
+    assert 'setmask' not in wf and 'mask' not in wf
     assert wf['6']['inputs']['text'] == wk.KLEIN_INPAINT_PROMPT
-    # the input crop/mask were cleaned up after the run
+    # the input crop was cleaned up after the run
     assert not list(tmp_path.glob('wmklein_*'))
 
 
@@ -1645,4 +1647,93 @@ def test_run_klein_job_raises_when_required_asset_missing(app, monkeypatch, tmp_
                         lambda **kw: (_ for _ in ()).throw(AssertionError('must not enqueue')))
     with app.app_context():
         with pytest.raises(keh.KleinModelsMissing):
-            wk._run_klein_job('local', Image.new('RGB', (32, 32)), Image.new('L', (32, 32)), seed=1)
+            wk._run_klein_job('local', Image.new('RGB', (32, 32)), seed=1)
+
+
+# --- Prefill (LaMa worker, cv2 TELEA fallback, abort when neither) ---------------
+
+def test_crop_boxes_norm_translates_into_crop_space():
+    from app.services import watermark_klein as wk
+    # crop is the top-right quadrant of a 1000x1000 image; a mark fully inside it.
+    crop_box = (500, 0, 1000, 500)                      # cw = ch = 500
+    boxes = wk._crop_boxes_norm(crop_box, 1000, 1000, [[0.6, 0.1, 0.7, 0.2]], expand_px=0)
+    assert len(boxes) == 1
+    x1, y1, x2, y2 = boxes[0]
+    # x: (600-500)/500=0.2 .. (700-500)/500=0.4 ; y: 100/500=0.2 .. 200/500=0.4
+    assert abs(x1 - 0.2) < 1e-9 and abs(x2 - 0.4) < 1e-9
+    assert abs(y1 - 0.2) < 1e-9 and abs(y2 - 0.4) < 1e-9
+
+
+def test_crop_boxes_norm_expand_grows_and_clamps_to_unit_range():
+    from app.services import watermark_klein as wk
+    # a mark hugging the crop's left/top edge: expand can't push coords below 0.
+    crop_box = (0, 0, 500, 500)
+    boxes = wk._crop_boxes_norm(crop_box, 500, 500, [[0.0, 0.0, 0.2, 0.2]], expand_px=10)
+    x1, y1, x2, y2 = boxes[0]
+    assert x1 == 0.0 and y1 == 0.0            # clamped, not negative
+    assert x2 == (100 + 10) / 500 and y2 == (100 + 10) / 500   # grown by expand_px
+
+
+def test_prefill_falls_back_to_telea_when_lama_absent(monkeypatch):
+    """LaMa not installed → cv2 TELEA repaints the region (a clean, usable prefill)."""
+    from app.services import watermark_klein as wk
+    from app.services import watermark_lama
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: False)
+    monkeypatch.setattr(watermark_lama, 'inpaint_watermarks',
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError('LaMa must not run when unavailable')))
+    crop = Image.new('RGB', (128, 128), (40, 90, 160))
+    prefilled, err = wk._prefill_region(crop, [[0.3, 0.3, 0.6, 0.6]])
+    assert err is None and prefilled is not None and prefilled.size == (128, 128)
+
+
+def test_prefill_aborts_cleanly_when_no_engine_available(monkeypatch):
+    """Neither LaMa nor cv2 → a clean 'unavailable' abort (no Klein without a prefill)."""
+    import sys
+    from app.services import watermark_klein as wk
+    from app.services import watermark_lama
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: False)
+    monkeypatch.setitem(sys.modules, 'cv2', None)   # force `import cv2` to raise ImportError
+    prefilled, err = wk._prefill_region(Image.new('RGB', (64, 64)), [[0.2, 0.2, 0.5, 0.5]])
+    assert prefilled is None
+    assert err and err['kind'] == 'unavailable' and 'ML extras' in err['detail']
+
+
+def test_prefill_uses_lama_worker_when_available(monkeypatch):
+    """LaMa installed → the worker is the prefill (cv2 TELEA is only a fallback)."""
+    from app.services import watermark_klein as wk
+    from app.services import watermark_lama
+    seen = {}
+
+    def _fake_inpaint(path, bboxes, **kwargs):
+        seen['path'] = path
+        seen['bboxes'] = bboxes
+        # emulate the worker: overwrite the temp file with a solid repaint
+        Image.new('RGB', Image.open(path).size, (0, 0, 0)).save(path, 'WEBP')
+        return True, None
+
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    monkeypatch.setattr(watermark_lama, 'inpaint_watermarks', _fake_inpaint)
+    monkeypatch.setattr(wk, '_prefill_telea',
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError('TELEA must not run when LaMa succeeded')))
+    crop = Image.new('RGB', (96, 96), (200, 100, 50))
+    prefilled, err = wk._prefill_region(crop, [[0.25, 0.25, 0.5, 0.5]])
+    assert err is None and prefilled is not None and prefilled.size == (96, 96)
+    assert seen['bboxes'] == [[0.25, 0.25, 0.5, 0.5]]
+
+
+def test_inpaint_klein_aborts_before_gpu_when_prefill_unavailable(app, monkeypatch, tmp_path):
+    """A failed prefill must short-circuit — never enqueue a doomed Klein job."""
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk, '_prefill_region',
+                        lambda *a, **k: (None, {'kind': 'unavailable', 'detail': 'no engine'}))
+    monkeypatch.setattr(wk, '_run_klein_job',
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError('must not reach the GPU without a prefill')))
+    img = tmp_path / 'wm.webp'
+    Image.new('RGB', (512, 512), (30, 30, 30)).save(img, 'WEBP')
+    with app.app_context():
+        ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]])
+    assert ok is False and err == {'kind': 'unavailable', 'detail': 'no engine'}

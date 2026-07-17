@@ -24,16 +24,11 @@
   "52": {
     "inputs": { "image": "wm_crop.png" },
     "class_type": "LoadImage",
-    "_meta": { "title": "Charger le crop watermarké" }
-  },
-  "mask": {
-    "inputs": { "image": "wm_mask.png", "channel": "red" },
-    "class_type": "LoadImageMask",
-    "_meta": { "title": "Charger le masque local" }
+    "_meta": { "title": "Charger le crop pré-rempli" }
   },
   "6": {
     "inputs": {
-      "text": "remove ALL overlaid watermark graphics from the image: text, logos, lines and bars. Reconstruct the underlying surface seamlessly, keep everything else identical",
+      "text": "Reconstruct this photo as a clean, natural image: replace any blurred, smudged or patched areas with sharp, realistic surface texture (skin, fabric, hair, background) consistent with the surrounding pixels. Keep the subject, pose, colours and composition identical. No text, no logos, no watermarks.",
       "clip": ["90", 0]
     },
     "class_type": "CLIPTextEncode",
@@ -47,12 +42,7 @@
   "53": {
     "inputs": { "pixels": ["52", 0], "vae": ["10", 0] },
     "class_type": "VAEEncode",
-    "_meta": { "title": "VAE Encode (crop)" }
-  },
-  "setmask": {
-    "inputs": { "samples": ["53", 0], "mask": ["mask", 0] },
-    "class_type": "SetLatentNoiseMask",
-    "_meta": { "title": "SetLatentNoiseMask (zone locale)" }
+    "_meta": { "title": "VAE Encode (crop pré-rempli)" }
   },
   "92": {
     "inputs": { "conditioning": ["6", 0], "latent": ["53", 0] },
@@ -80,11 +70,6 @@
     "class_type": "ModelSamplingFlux",
     "_meta": { "title": "ModelSamplingFlux" }
   },
-  "diff": {
-    "inputs": { "model": ["102", 0] },
-    "class_type": "DifferentialDiffusion",
-    "_meta": { "title": "DifferentialDiffusion (soft inpaint)" }
-  },
   "77": {
     "inputs": {
       "seed": 0,
@@ -93,13 +78,13 @@
       "sampler_name": "euler",
       "scheduler": "beta57",
       "denoise": 1.0,
-      "model": ["diff", 0],
+      "model": ["102", 0],
       "positive": ["92", 0],
       "negative": ["110", 0],
-      "latent_image": ["setmask", 0]
+      "latent_image": ["53", 0]
     },
     "class_type": "KSampler",
-    "_meta": { "title": "KSampler (inpaint)" }
+    "_meta": { "title": "KSampler (full-edit refine)" }
   },
   "8": {
     "inputs": { "samples": ["77", 0], "vae": ["10", 0] },
