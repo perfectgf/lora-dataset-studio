@@ -15,6 +15,7 @@ web UI, unused - this app drives the CLI) and the whole ownership subsystem
 dropped - single local user, cf. plan's Global Constraints.
 """
 from __future__ import annotations
+import filecmp
 import hashlib
 import json
 import logging
@@ -1893,6 +1894,36 @@ def _custom_combo_hash(ds, base_model=_PERSISTED, family=None) -> str:
     return '_h' + hashlib.sha1(raw.encode('utf-8')).hexdigest()[:8]
 
 
+# Source-run tag appended to a DEPLOYED LoRA's name so two runs that produce the
+# same trigger/step/base/dataset-version never collapse onto ONE ComfyUI file
+# (the overwrite report: importing step 2500 of run A, then step 2500 of run B,
+# silently replaced A's LoRA). Cloud runs tag with their CloudTrainingRun id
+# (`_rc49`), local runs with their TrainingRunRecord id (`_rl12`) — matching the
+# ☁/💻 #N chips on the Runs page. Parsed back out (parse_deployed_run) so the
+# "in ComfyUI" list can show each file's source run. It is stripped from display
+# labels (comfyui._parse_trained_stem) so it reads as a chip, not name noise.
+_DEPLOYED_RUN_TAG_RE = re.compile(r'_r([cl])(\d+)(?:_v\d+)?(?:\.[^.]+)?$')
+
+
+def _run_tag(run_source, run_id) -> str:
+    """`_rc<id>` (cloud) / `_rl<id>` (local); '' when the run id is unknown (the
+    legacy import path) — the deployed name then stays untagged, as before."""
+    if not run_id:
+        return ''
+    return f"_r{'c' if run_source == 'cloud' else 'l'}{int(run_id)}"
+
+
+def parse_deployed_run(filename):
+    """(source, run_id) recovered from a deployed LoRA's run tag, or (None, None)
+    for files imported before run tagging existed (legacy — still listed and
+    deletable, just shown as 'run unknown'). Anchored to the END of the name so a
+    base tag that merely looks like `..._rl2000` in the middle never matches."""
+    m = _DEPLOYED_RUN_TAG_RE.search(os.path.basename(str(filename)))
+    if not m:
+        return None, None
+    return ('cloud' if m.group(1) == 'c' else 'local'), int(m.group(2))
+
+
 def _run_name(ds, base_model=_PERSISTED, family=None,
               variant=_PERSISTED) -> str:
     """Nom de dossier de run unique par (user, trigger, base, FAMILLE) - évite qu'un
@@ -2697,11 +2728,18 @@ def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None,
             c['version'] = rec.version
             c['source'] = rec.source
             c['trained_at'] = rec.created_at.isoformat() if rec.created_at else None
+            # Run identity for the ☁/💻 #N chip + deep-link on the local group
+            # header — the same run the deployed file will be tagged with.
+            if rec.source == 'cloud' and rec.cloud_run_id:
+                c['run_id'], c['run_source'] = rec.cloud_run_id, 'cloud'
+            else:
+                c['run_id'], c['run_source'] = rec.id, 'local'
     return out
 
 
 def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, family=None,
-                      src_dir=None, version=None, variant=_PERSISTED) -> str:
+                      src_dir=None, version=None, variant=_PERSISTED,
+                      run_id=None, run_source=None, return_meta=False):
     """Copie le checkpoint choisi vers le dossier loras de ComfyUI : loras/z image/
     pour Z-Image, loras/sdxl/ pour SDXL, loras/krea/ pour Krea (routage par famille,
     pour ne pas polluer le Test Studio Z-Image). Anti path-traversal :
@@ -2771,15 +2809,29 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
     # the cloud import (the run knows its version); local imports resolve the
     # file's run via the provenance registry (file mtime vs launch times).
     # No registry rows (pre-feature datasets) -> no suffix, names unchanged.
+    # run_tag_*: the identity of the run that produced this checkpoint, encoded
+    # into the deployed name (_rc<id>/_rl<id>) so two runs of the SAME recipe do
+    # not overwrite each other. Cloud imports pass it from the route; local
+    # imports resolve it from the same provenance record that gives the version.
+    run_tag_source, run_tag_id = run_source, run_id
     if version is None and not src_dir:
         from . import checkpoint_registry
         try:
             mtime = os.path.getmtime(os.path.join(run_dir, filename))
             rec = checkpoint_registry.record_for_mtime(
                 dataset_id, _train_type(ds, family), mtime)
-            version = rec.version if rec else None
         except OSError:
-            version = None
+            rec = None
+        if rec is not None:
+            version = rec.version
+            if run_tag_id is None:
+                # A cloud launch recorded locally addresses by its pod-run id
+                # (matches the cloud import path AND the ☁ #N chip); everything
+                # else is a local record -> its TrainingRunRecord id.
+                if rec.source == 'cloud' and rec.cloud_run_id:
+                    run_tag_source, run_tag_id = 'cloud', rec.cloud_run_id
+                else:
+                    run_tag_source, run_tag_id = 'local', rec.id
     stem, ext = os.path.splitext(filename)
     # Cloud jobs are named `lds<run>_u<user>_<trigger>_<base>` on the pod, so
     # their checkpoints arrive as `lds12_ulocal_tata_cv_Krea-2-Raw_000000250`.
@@ -2792,12 +2844,45 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
     if re.match(r'^lds\d+_u[0-9A-Za-z]+_', stem):
         step = re.search(r'_(\d{6,10})$', stem)
         stem = f'lora_{_safe_trigger(ds)}' + (f'_{step.group(1)}' if step else '')
-    suffix = f'{tag}' + (f'_v{int(version)}' if version else '')
+    # <base tag><run tag>_v<N>: the run tag sits BEFORE the version suffix so the
+    # existing `_v\d+$` strip in list_imported_checkpoints still finds it.
+    runtag = _run_tag(run_tag_source, run_tag_id)
+    suffix = f'{tag}{runtag}' + (f'_v{int(version)}' if version else '')
     dest_name = f'{stem}{suffix}{ext}' if suffix else filename
     dest = os.path.join(dest_dir, dest_name)
-    shutil.copy2(os.path.join(run_dir, filename), dest)
-    logger.info(f'import checkpoint {filename} -> {dest}')
+    src_path = os.path.join(run_dir, filename)
+    # Last-resort anti-clobber: the run tag already keeps distinct runs apart, so
+    # a same-name collision means DIFFERENT content is already there — a legacy
+    # untagged import, or (theoretically) a run-id reuse. Never overwrite it in
+    # silence: take the next free `_N` suffix (the _dest_base_tag philosophy).
+    # Identical bytes (an idempotent re-import) are left to overwrite in place —
+    # no proliferation of `_2`, `_3` copies on repeated clicks.
+    collision = False
+    if os.path.exists(dest) and not _same_file(src_path, dest):
+        root, ext2 = os.path.splitext(dest_name)
+        i = 2
+        while os.path.exists(os.path.join(dest_dir, f'{root}_{i}{ext2}')):
+            i += 1
+        dest_name = f'{root}_{i}{ext2}'
+        dest = os.path.join(dest_dir, dest_name)
+        collision = True
+    shutil.copy2(src_path, dest)
+    logger.info(f'import checkpoint {filename} -> {dest}'
+                + (' (renamed to avoid overwriting a different LoRA)'
+                   if collision else ''))
+    if return_meta:
+        return {'dest': dest, 'name': dest_name, 'collision': collision}
     return dest
+
+
+def _same_file(a, b) -> bool:
+    """True when two files hold identical bytes (size + content). Used so a
+    re-import of the very same checkpoint overwrites in place instead of
+    spawning a `_2` copy, while genuinely different content is never clobbered."""
+    try:
+        return filecmp.cmp(a, b, shallow=False)
+    except OSError:
+        return False
 
 
 def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
@@ -2860,6 +2945,12 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
             continue
         entry = {'filename': os.path.join(subfolder, fn),
                  'label': format_trained_lora_label(fn, fam) or fn}
+        # Source run of this deployed file (☁/💻 #N chip). Files imported before
+        # run tagging carry no tag -> (None, None): shown as "run unknown", never
+        # renamed retroactively (they stay listed and deletable exactly as-is).
+        rsrc, rid = parse_deployed_run(fn)
+        if rid is not None:
+            entry['run_id'], entry['run_source'] = rid, rsrc
         # Retrofit signal for already-deployed files: if the header's real arch
         # contradicts THIS folder's family, flag it (mislabelled imports from the
         # pre-6952b11 wrong-arch bug) so the panel can badge it. No file is moved.

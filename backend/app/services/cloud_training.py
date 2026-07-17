@@ -1617,7 +1617,8 @@ def _import_result(run):
                              family=params.get('train_type'),
                              src_dir=run.staging_dir,
                              version=params.get('version'),
-                             variant=params.get('variant'))
+                             variant=params.get('variant'),
+                             run_id=run.id, run_source='cloud')
     except Exception as e:
         logger.warning('cloud import into ComfyUI failed: %s', e)
 
@@ -1829,6 +1830,9 @@ def all_runs(limit: int = 20) -> dict:
                'steps': rec.steps, 'masked': bool(rec.masked),
                'variant': rec.variant, 'base_model': rec.base_model or '',
                'settings': settings,
+               # Stable local-run identity for the 💻 #N chip + Checkpoints
+               # deep-link. Cloud rows show ☁ #<cloud run id> (run_id, below).
+               'record_id': rec.id,
                # local rows live only in the registry -> addressed by record id;
                # a cloud row overrides this with 'cloud-<id>' via _run_payload.
                'share_key': f'rec-{rec.id}',
@@ -1875,9 +1879,11 @@ def all_runs(limit: int = 20) -> dict:
         for i, r in enumerate(recent):
             if r['source'] == 'local' and r['dataset_id'] == cur_ds:
                 # its freshly-registered history row is dropped to avoid the
-                # double — carry its share_key onto the live card so it too can
-                # produce a "Share configuration" file.
-                local_active['share_key'] = recent.pop(i).get('share_key')
+                # double — carry its share_key (Share config) AND record_id
+                # (💻 #N chip) onto the live card.
+                dropped = recent.pop(i)
+                local_active['share_key'] = dropped.get('share_key')
+                local_active['record_id'] = dropped.get('record_id')
                 break
     return {'configured': bool(cfg.secret('VAST_API_KEY')),
             'limit': max(1, int((c.get('max_concurrent_runs') or 1))),
@@ -1971,15 +1977,16 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None,
             'max_runtime_minutes': max_runtime}
 
 
-def cloud_checkpoints(dataset_id, train_type=None, variant=None) -> list:
-    """Locally-synced cloud checkpoints of this dataset (+family/variant filters),
-    newest run first, step-sorted within a run — ALL the saves retrieved for a
-    finished run (final + intermediates, local parity: pick the least-overfit
-    epoch), and an in-progress run's latest synced save. Only files that
-    actually exist are listed (hand-deleting in Explorer must not 404)."""
+def cloud_checkpoint_groups(dataset_id, train_type=None, variant=None) -> list:
+    """Locally-synced cloud checkpoints GROUPED by their source run (newest run
+    first, step-sorted within a run). Each group carries the run's identity and
+    outcome — id / status / GPU / cost / timing, the SAME facts the Runs hub
+    shows — so the Checkpoints panel can label WHICH run produced which epochs
+    and deep-link back to its row, instead of listing several indistinguishable
+    step-500→final sets. Runs whose saves were all hand-deleted are omitted."""
     fam = fds.normalize_train_type(train_type) if train_type else None
     wanted_variant = str(variant).strip().lower() if variant else None
-    out = []
+    groups = []
     for run in (CloudTrainingRun.query.filter_by(dataset_id=dataset_id)
                 .order_by(CloudTrainingRun.id.desc()).all()):
         if fam and (_run_family(run) or fam) != fam:
@@ -1990,6 +1997,7 @@ def cloud_checkpoints(dataset_id, train_type=None, variant=None) -> list:
             continue
         if not run.staging_dir or not os.path.isdir(run.staging_dir):
             continue
+        run_variant = _run_param(run, 'variant')
         entries = []
         for name in os.listdir(run.staging_dir):
             if not name.lower().endswith('.safetensors'):
@@ -1998,12 +2006,36 @@ def cloud_checkpoints(dataset_id, train_type=None, variant=None) -> list:
             step = int(m.group(1)) if m else int(_run_param(run, 'steps') or 0)
             entries.append({'filename': name, 'step': step, 'cloud': True,
                             'run_id': run.id, 'version': _run_param(run, 'version'),
+                            'variant': run_variant,
                             'final': bool(not m and run.status == 'done'),
                             'active': run.status in ACTIVE_STATES,
                             'trained_at': run.created_at.isoformat()
                                           if run.created_at else None})
+        if not entries:
+            continue
         entries.sort(key=lambda e: (e['step'], e['final']))
-        out.extend(entries)
+        groups.append({
+            'run_id': run.id, 'source': 'cloud', 'status': run.status,
+            'active': run.status in ACTIVE_STATES, 'gpu': run.gpu_name,
+            'price_per_hour': run.price_per_hour,
+            'cost_estimate': _cost_estimate(run),
+            'version': _run_param(run, 'version'), 'variant': run_variant,
+            'train_type': _run_family(run),
+            'created_at': run.created_at.isoformat() if run.created_at else None,
+            'finished_at': run.finished_at.isoformat() if run.finished_at else None,
+            'checkpoints': entries,
+        })
+    return groups
+
+
+def cloud_checkpoints(dataset_id, train_type=None, variant=None) -> list:
+    """Flat view of cloud_checkpoint_groups — every synced save of this dataset
+    (+family/variant filters), newest run first, step-sorted within a run. Kept
+    for callers that reason on individual saves (import / delete / continue);
+    the panel groups them per run via cloud_checkpoint_groups."""
+    out = []
+    for g in cloud_checkpoint_groups(dataset_id, train_type, variant):
+        out.extend(g['checkpoints'])
     return out
 
 

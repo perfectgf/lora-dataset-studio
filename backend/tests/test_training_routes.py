@@ -470,7 +470,9 @@ def test_import_checkpoint_calls_service(client, monkeypatch):
 
     def fake_import(user_id, dataset_id, fn, **kw):
         captured.update(kw)
-        return f'/some/dir/{fn}'
+        # The route asks for the metadata form (return_meta=True) so it can
+        # surface a collision note; no collision here.
+        return {'dest': f'/some/dir/{fn}', 'name': fn, 'collision': False}
 
     monkeypatch.setattr('app.services.lora_training.import_checkpoint', fake_import)
     resp = client.post(f'/api/dataset/{ds_id}/train/import', json={
@@ -480,7 +482,8 @@ def test_import_checkpoint_calls_service(client, monkeypatch):
     assert resp.status_code == 200
     assert resp.get_json() == {'ok': True, 'dest': 'x.safetensors'}
     assert captured == {
-        'base_model': '', 'family': 'zimage', 'variant': 'deturbo'}
+        'base_model': '', 'family': 'zimage', 'variant': 'deturbo',
+        'return_meta': True}
 
 
 def test_variant_forwarded_to_open_delete_and_cleanup(client, monkeypatch):

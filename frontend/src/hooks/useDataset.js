@@ -819,7 +819,10 @@ export function useDataset() {
     const body = { filename, ...trainingRunSelection(baseModel, trainType, variant) };
     try {
       const d = await postJson(`/api/dataset/${currentId}/train/import`, body);
-      if (d.ok) toast.success(`LoRA imported: ${d.dest}`); else toast.error(d.error || 'Unexpected error');
+      // d.note is set when the import was renamed to avoid overwriting a
+      // DIFFERENT LoRA already at that name — surface it instead of the plain
+      // success line so the rename is never silent.
+      if (d.ok) toast.success(d.note || `LoRA imported: ${d.dest}`); else toast.error(d.error || 'Unexpected error');
     } catch (e) {
       // postJson THROWS on non-2xx and only fires a global toast for
       // 401/429/5xx — a 400/404/409 here used to be a silent no-op (the

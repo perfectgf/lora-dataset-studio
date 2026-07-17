@@ -302,6 +302,11 @@ def dataset_train_checkpoints(dataset_id):
                     # LOCAL checkpoints only
                     'cloud_checkpoints': ct.cloud_checkpoints(
                         dataset_id, fam_resolved, variant=variant),
+                    # same saves grouped BY SOURCE RUN (id/status/gpu/cost/time)
+                    # so the panel labels which run produced which epochs and
+                    # deep-links each group back to its Runs row
+                    'cloud_checkpoint_groups': ct.cloud_checkpoint_groups(
+                        dataset_id, fam_resolved, variant=variant),
                     'recommended_steps': lt.recommended_steps(
                         dataset_id, train_type=fam_resolved, variant=variant),
                     'recommended_steps_info': lt.recommended_steps_info(
@@ -1131,6 +1136,10 @@ def dataset_train_import(dataset_id):
             return jsonify({'error': 'unknown cloud run'}), 404
         kw['src_dir'] = crun.staging_dir
         kw['version'] = ct._run_param(crun, 'version')
+        # Tag the deployed name with THIS cloud run's id (☁ #N) so importing the
+        # same step from two different runs never overwrites one with the other.
+        kw['run_id'] = crun.id
+        kw['run_source'] = 'cloud'
         # Never route a cloud file through the dataset row: replay the exact
         # family/variant/base stamped at cloud launch. Legacy rows fall back to
         # the request's family/variant, but still use the official empty base.
@@ -1142,10 +1151,16 @@ def dataset_train_import(dataset_id):
         if cloud_variant:
             kw['variant'] = cloud_variant
     try:
-        dest = lt.import_checkpoint(LOCAL_USER, dataset_id, fn, **kw)
+        res = lt.import_checkpoint(LOCAL_USER, dataset_id, fn, return_meta=True, **kw)
     except Exception as e:
         return _map_error(e)
-    return jsonify({'ok': True, 'dest': os.path.basename(dest)})
+    out = {'ok': True, 'dest': os.path.basename(res['dest'])}
+    if res.get('collision'):
+        # A different LoRA already used that name — the import was renamed rather
+        # than silently overwriting it; tell the UI so it can surface the note.
+        out['note'] = (f'A different LoRA already used that name — saved as '
+                       f'{res["name"]} to avoid overwriting it.')
+    return jsonify(out)
 
 
 @bp.post('/dataset/<int:dataset_id>/train/cloud')

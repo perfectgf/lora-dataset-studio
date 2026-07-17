@@ -664,6 +664,10 @@ def free_comfyui_vram(worker_url=None):
 # Steps d'entraînement ai-toolkit : zero-paddés à 9 chiffres (000004000). Un token
 # tout-chiffres de 4+ caractères = un compteur de steps (pas une version 'v13').
 _TRAINED_STEP_RE = re.compile(r'^\d{4,}$')
+# Source-run tag token: `rc<id>` (cloud CloudTrainingRun id) / `rl<id>` (local
+# TrainingRunRecord id) appended by lora_training.import_checkpoint. It carries
+# run identity for the ☁/💻 #N chips, so it is stripped from display labels.
+_RUN_TAG_TOKEN_RE = re.compile(r'^r[cl]\d+$')
 
 # Familles d'entraînement (= pipeline). La clé interne ('zimage'/'sdxl'/'krea') et
 # son libellé d'affichage : source UNIQUE, réutilisée par le studio (sélecteur de
@@ -708,6 +712,11 @@ def _parse_trained_stem(filename: str):
     for t in tokens[1:]:
         if step is None and _TRAINED_STEP_RE.match(t):
             step = int(t)
+        elif _RUN_TAG_TOKEN_RE.match(t):
+            # `_rc<id>` / `_rl<id>` = the source-run tag import_checkpoint appends
+            # so two runs of the same recipe never collapse onto one file. It is
+            # surfaced as a ☁/💻 #N chip, not as label/group noise — drop it here.
+            continue
         else:
             rest.append(t)
     return trigger, step, rest

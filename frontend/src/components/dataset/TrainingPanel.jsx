@@ -33,6 +33,10 @@ import { runConfirmableTrainingRequest } from '../../utils/trainingConfirmations
 import { useToast } from '../common/Toast';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
+import { DatasetVersionChip, RunIdChip } from './RunIdentityBadges';
+import {
+  cloudGroupsFrom, localRunIdentity, runRowDomId,
+} from '../../utils/runIdentity';
 
 // Plancher dur / recommandé par famille — miroir de TRAIN_MIN_IMAGES côté serveur
 // (le preflight reste l'autorité ; ceci ne sert qu'à désactiver le bouton tôt).
@@ -77,6 +81,22 @@ function CheckpointPortal({ host, children }) {
   return host ? createPortal(children, host) : children;
 }
 
+// Relative "15m ago" from a naive-UTC backend timestamp — mirrors CloudRunsPage
+// so a checkpoint group's header reads exactly like its Runs row.
+function timeAgo(iso) {
+  if (!iso) return '';
+  const t = new Date(/[Z+]/.test(iso) ? iso : `${iso}Z`).getTime();
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+// Family label for a checkpoint group header — mirrors CloudRunsPage's FAMILY_LABEL.
+const GROUP_FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein' };
+const groupFamLabel = (f) => GROUP_FAMILY_LABEL[f] || f || 'LoRA';
+
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
  * Poll régulier : c'est ce poll qui fait avancer la file (fin du courant → suivant). */
@@ -101,6 +121,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Saves cloud synchronisés en local (y compris ceux d'un run EN COURS) —
   // liste séparée : le prompt Resume-or-Fresh ne raisonne que sur le local.
   const [cloudCkpts, setCloudCkpts] = useState([]);
+  // Same saves GROUPED by source run (id/status/gpu/cost/timing) — the panel
+  // renders one identity header per run so look-alike epoch sets are no longer
+  // ambiguous. Falls back to a single synthetic group if the server is older.
+  const [cloudGroups, setCloudGroups] = useState([]);
   // {run_dir_bytes, cloud_staging_bytes, deployed_bytes, total_bytes}
   const [diskUsage, setDiskUsage] = useState(null);
   // {steps, kind, n_images, rationale} renvoyé par /train/checkpoints — le POURQUOI
@@ -767,6 +791,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     // (alerte « le dataset a changé depuis vN » + numéro de la prochaine version).
     setDatasetState(data.dataset_state || null);
     setCloudCkpts(data.cloud_checkpoints || []);
+    // Prefer the per-run grouped payload; fall back to grouping the flat list
+    // by run_id so an older server still renders (single group per run).
+    setCloudGroups(cloudGroupsFrom(data));
     setDiskUsage(data.disk_usage || null);
     setCkLoaded(true);
     onCheckpointsChange?.(
@@ -2110,6 +2137,26 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
           {checkpoints.length > 0 && (
             <div className="flex flex-col gap-1">
+              {/* Identity header for the LOCAL active set: what this group IS +
+                  which run produced it + a jump back to its Runs row. */}
+              {(() => {
+                const li = localRunIdentity(checkpoints);
+                return (
+                  <div className="flex items-center gap-2 flex-wrap rounded-md border border-violet-500/25 bg-violet-500/5 px-2 py-1">
+                    {li && <RunIdChip source={li.source} id={li.id} />}
+                    <span className="text-content-muted text-[0.6875rem]">
+                      <b className="text-content">Active set</b> — used by Studio / Continue / Import; cloud epochs are mirrored here.
+                    </span>
+                    {li && (
+                      <Link to={`/cloud#${runRowDomId(li.source, li.id)}`}
+                        title="Jump to this run on the Runs page"
+                        className="ml-auto px-1 py-0.5 text-violet-300 hover:text-violet-200 text-[0.6875rem] font-medium underline decoration-violet-300/40">
+                        View in Runs ↗
+                      </Link>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-content-muted text-[0.625rem] uppercase">
                   {checkpointTypeLabel} checkpoints — base « {checkpointBaseLabel} » · {checkpointVariantDisplay} (pick the earliest one that holds the identity)
@@ -2224,50 +2271,86 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             </div>
           )}
 
-          {cloudCkpts.length > 0 && (
-            <div className="flex flex-col gap-1">
+          {cloudGroups.length > 0 && (
+            <div className="flex flex-col gap-2">
               <span className="text-content-muted text-[0.625rem] uppercase">
                 ☁ Cloud checkpoints (synced locally — every epoch harvested from the pod)
               </span>
-              {cloudCkpts.map((c) => (
-                <div key={`cr${c.run_id}-${c.filename}`} className="flex items-center gap-2 text-[0.6875rem]">
-                  <span className={c.final ? 'text-green-400 font-semibold' : 'text-content'}>
-                    {c.final ? '✓ final (training complete)' : `step ${c.step}`}
-                  </span>
-                  <span className="px-1.5 py-px rounded border border-sky-500/40 bg-sky-500/10 text-sky-200"
-                    title={`Cloud run #${c.run_id}${c.version ? ` · dataset v${c.version}` : ''}${c.trained_at ? ` · ${new Date(/[Z+]/.test(c.trained_at) ? c.trained_at : `${c.trained_at}Z`).toLocaleString()}` : ''}`}>
-                    ☁{c.version ? ` v${c.version}` : ''}{c.active ? ' · run in progress' : ''}
-                  </span>
-                  <button type="button"
-                    onClick={async () => {
-                      const d = await postTrain(`/api/dataset/${ds.currentId}/train/import`,
-                        { filename: c.filename, cloud_run_id: c.run_id,
-                          ...trainingRunSelection(checkpointBase, checkpointTrainType, c.variant || checkpointVariant) });
-                      // Success must be VISIBLE: without the toast a working
-                      // import looked like a dead button (user-observed).
-                      if (d.ok === false) toastTrainError(d, 'Import failed');
-                      else toast.success(`LoRA imported: ${d.dest || c.filename}`);
-                      loadCheckpoints(checkpointBase, checkpointTrainType, checkpointVariant);
-                    }}
-                    title={c.active ? 'Import the latest synced save — the run keeps training' : 'Import this cloud checkpoint into ComfyUI'}
-                    className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
-                    Import → {checkpointLorasLabel}
-                  </button>
-                  {!c.active && (
-                    <button type="button"
-                      onClick={async () => {
-                        if (!window.confirm(`Move « ${c.filename} » to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
-                        const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
-                          { filename: c.filename, cloud_run_id: c.run_id,
-                            ...trainingRunSelection(checkpointBase, checkpointTrainType, c.variant || checkpointVariant) });
-                        if (d.ok === false) toastTrainError(d, 'Delete failed');
-                        loadCheckpoints(checkpointBase, checkpointTrainType, checkpointVariant);
-                      }}
-                      title="Move this cloud save to the trash"
-                      className="px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">
-                      🗑
-                    </button>
-                  )}
+              {cloudGroups.map((g) => (
+                <div key={`crun${g.run_id ?? 'unknown'}`}
+                  className="flex flex-col gap-1 rounded-md border border-sky-500/20 bg-sky-500/[0.04] px-2 py-1.5">
+                  {/* Identity header: which run made these epochs — same facts as
+                      its Runs row, so "this final" ties back to "that run". */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {g.run_id != null
+                      ? <RunIdChip source="cloud" id={g.run_id} />
+                      : <span className="text-sky-200 text-[0.6875rem]" aria-hidden>☁ run unknown</span>}
+                    {g.run_id != null && (
+                      <span className="text-content-muted text-[0.6875rem] font-medium">Run #{g.run_id}</span>
+                    )}
+                    <span className="text-content-subtle text-[0.625rem] uppercase">{groupFamLabel(g.train_type)}</span>
+                    <DatasetVersionChip version={g.version} />
+                    {g.status && (
+                      <span className={`rounded border px-1.5 py-0.5 text-[0.625rem] ${g.active
+                        ? 'text-sky-300 border-sky-400/40 bg-sky-500/10'
+                        : g.status === 'done' ? 'text-emerald-300 border-emerald-400/40 bg-emerald-500/10'
+                        : 'text-content-muted border-border bg-surface'}`}>
+                        {g.status}
+                      </span>
+                    )}
+                    <span className="text-content-muted text-[0.625rem] tabular-nums">
+                      {[timeAgo(g.finished_at || g.created_at), g.gpu,
+                        g.cost_estimate != null ? `$${g.cost_estimate}` : null]
+                        .filter(Boolean).join(' · ')}
+                    </span>
+                    {g.run_id != null && (
+                      <Link to={`/cloud#${runRowDomId('cloud', g.run_id)}`}
+                        title="Jump to this run on the Runs page"
+                        className="ml-auto px-1 py-0.5 text-sky-300 hover:text-sky-200 text-[0.6875rem] font-medium underline decoration-sky-300/40">
+                        View in Runs ↗
+                      </Link>
+                    )}
+                  </div>
+                  {g.checkpoints.map((c) => (
+                    <div key={`cr${c.run_id}-${c.filename}`} className="flex items-center gap-2 text-[0.6875rem] pl-1">
+                      <span className={c.final ? 'text-green-400 font-semibold' : 'text-content'}>
+                        {c.final ? '✓ final (training complete)' : `step ${c.step}`}
+                      </span>
+                      {c.active && (
+                        <span className="text-sky-300/80 text-[0.625rem]">· run in progress</span>
+                      )}
+                      <button type="button"
+                        onClick={async () => {
+                          const d = await postTrain(`/api/dataset/${ds.currentId}/train/import`,
+                            { filename: c.filename, cloud_run_id: c.run_id,
+                              ...trainingRunSelection(checkpointBase, checkpointTrainType, c.variant || checkpointVariant) });
+                          // Success must be VISIBLE: without the toast a working
+                          // import looked like a dead button (user-observed).
+                          if (d.ok === false) toastTrainError(d, 'Import failed');
+                          else toast.success(d.note || `LoRA imported: ${d.dest || c.filename}`);
+                          loadCheckpoints(checkpointBase, checkpointTrainType, checkpointVariant);
+                        }}
+                        title={c.active ? 'Import the latest synced save — the run keeps training' : 'Import this cloud checkpoint into ComfyUI'}
+                        className="ml-auto px-2 py-0.5 rounded bg-primary/20 border border-primary/40 text-white">
+                        Import → {checkpointLorasLabel}
+                      </button>
+                      {!c.active && (
+                        <button type="button"
+                          onClick={async () => {
+                            if (!window.confirm(`Move « ${c.filename} » to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
+                            const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
+                              { filename: c.filename, cloud_run_id: c.run_id,
+                                ...trainingRunSelection(checkpointBase, checkpointTrainType, c.variant || checkpointVariant) });
+                            if (d.ok === false) toastTrainError(d, 'Delete failed');
+                            loadCheckpoints(checkpointBase, checkpointTrainType, checkpointVariant);
+                          }}
+                          title="Move this cloud save to the trash"
+                          className="px-2 py-0.5 rounded bg-red-500/15 border border-red-500/40 text-red-300">
+                          🗑
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -2286,6 +2369,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               </span>
               {imported.map((c) => (
                 <div key={c.filename} className="flex items-center gap-2 text-[0.6875rem]">
+                  {/* Source run of this deployed file: two look-alike LoRAs from
+                      different runs are now distinguishable at a glance. Files
+                      imported before run tagging carry no id → "run unknown". */}
+                  {c.run_id != null
+                    ? <RunIdChip source={c.run_source} id={c.run_id} />
+                    : <span className="text-content-subtle text-[0.625rem]"
+                        title="Imported before run tagging — its source run is unknown">run ?</span>}
                   <span className="text-content break-all">{c.label}</span>
                   {/* Retrofit signal: the file's REAL arch (read from its header)
                       contradicts this folder's family — a mislabelled deploy that

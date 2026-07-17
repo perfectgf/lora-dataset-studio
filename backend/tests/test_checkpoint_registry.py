@@ -81,8 +81,10 @@ def test_dataset_state_flags_drift(app, ds_with_images):
 
 
 def test_import_suffixes_deployed_name_with_version(app, ds_with_images, tmp_path, monkeypatch):
-    """A local import resolves the file's run via the registry and suffixes
-    _v<N>; without any registry row the name stays EXACTLY as before."""
+    """A local import resolves the file's run via the registry and suffixes the
+    run id (_rl<N>) + dataset version (_v<N>); without any registry row the name
+    stays EXACTLY as before (no run tag either — the legacy-compatible path)."""
+    import re
     from app import config as cfg
     from app.services import lora_training as lt
     from app.services import checkpoint_registry as reg
@@ -95,20 +97,27 @@ def test_import_suffixes_deployed_name_with_version(app, ds_with_images, tmp_pat
         ck = run_dir / 'lora_prov_000001000.safetensors'
         ck.write_bytes(b'W')
         monkeypatch.setattr(lt, '_run_dir', lambda *a, **k: str(run_dir))
-        # No registry row yet -> recipe suffix only (Turbo is intentionally
-        # isolated from the old suffix-less Z-Image folder/name).
+        # No registry row yet -> recipe suffix only, NO run tag (Turbo is
+        # intentionally isolated from the old suffix-less Z-Image folder/name).
         dest = lt.import_checkpoint(LOCAL_USER, ds_id, ck.name)
         assert os.path.basename(dest) == (
             'lora_prov_000001000_Z-Image-Turbo.safetensors')
-        # registered BEFORE the file was written -> _v1 suffix
-        reg.register_launch(LOCAL_USER, ds_id, 'zimage', 'local')
+        # registered BEFORE the file was written -> _rl<record id> + _v1 suffix
+        rec = reg.register_launch(LOCAL_USER, ds_id, 'zimage', 'local')
         os.utime(ck)                        # file newer than the record
         dest = lt.import_checkpoint(LOCAL_USER, ds_id, ck.name)
         assert os.path.basename(dest) == (
-            'lora_prov_000001000_Z-Image-Turbo_v1.safetensors')
+            f'lora_prov_000001000_Z-Image-Turbo_rl{rec.id}_v1.safetensors')
+        # the run tag is recovered as (source, id) and stripped from the label
+        assert lt.parse_deployed_run(os.path.basename(dest)) == ('local', rec.id)
         # both deployed files are listed (the _v suffix passes the boundary)
         names = [c['filename'] for c in lt.list_imported_checkpoints(LOCAL_USER, ds_id)]
         assert any(n.endswith('_v1.safetensors') for n in names)
+        # the deployed file carries its source-run identity for the 💻 #N chip
+        imported = lt.list_imported_checkpoints(LOCAL_USER, ds_id)
+        tagged = [e for e in imported if e['filename'].endswith('_v1.safetensors')]
+        assert tagged and tagged[0]['run_id'] == rec.id
+        assert tagged[0]['run_source'] == 'local'
 
 
 def test_record_for_mtime_prefers_oldest_for_preregistry_files(app, ds_with_images):
@@ -270,8 +279,11 @@ def test_import_route_accepts_cloud_run_id(app, client, monkeypatch, ds_with_ima
                     json={'filename': ck.name, 'train_type': 'zimage',
                           'cloud_run_id': run_id})
     assert r.status_code == 200
+    # deployed name carries the source cloud run id (_rc<id>) so importing the
+    # same step from another run never overwrites this one, plus the dataset
+    # version (_v3), before the extension.
     assert r.get_json()['dest'] == (
-        'lds10_x_000001000_Z-Image-Turbo_v3.safetensors')
+        f'lds10_x_000001000_Z-Image-Turbo_rc{run_id}_v3.safetensors')
     # unknown run / wrong dataset -> 404
     r = client.post(f'/api/dataset/{ds_id}/train/import',
                     json={'filename': ck.name, 'cloud_run_id': 999999})
@@ -358,3 +370,121 @@ def test_launch_settings_snapshot_reflects_effective_values(app, ds_with_images)
         snap2 = lt.launch_settings_snapshot(ds, 'krea')
         assert snap2['rank'] == 64
         assert snap2['dropout'] == 0.1
+
+
+def test_cloud_checkpoint_groups_carry_run_identity_and_map_epochs(app, ds_with_images, tmp_path):
+    """Two finished cloud runs of a family produce look-alike epoch sets; the
+    grouped payload must keep them apart, one group PER run, each carrying the
+    run's identity + outcome (id/status/gpu/cost) so the panel can label which
+    run made which epochs and deep-link back to its Runs row."""
+    import json as _json
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    from app.services import cloud_training as ct
+    ds_id, _ = ds_with_images
+    with app.app_context():
+        run_ids = []
+        for i in (1, 2):
+            d = tmp_path / f'run{i}'
+            d.mkdir()
+            for step in ('000000500', '000002500'):
+                (d / f'lds{i}_x_{step}.safetensors').write_bytes(b'W')
+            (d / f'lds{i}_x.safetensors').write_bytes(b'W')   # final (no step)
+            r = CloudTrainingRun(
+                dataset_id=ds_id, status='done', job_name='j',
+                vast_label=f'lds-{i}', gpu_name='RTX 5090', price_per_hour=0.5,
+                staging_dir=str(d),
+                train_params=_json.dumps({'train_type': 'krea', 'version': i}))
+            db.session.add(r)
+            db.session.commit()
+            run_ids.append(r.id)
+
+        groups = ct.cloud_checkpoint_groups(ds_id, 'krea')
+        assert [g['run_id'] for g in groups] == run_ids[::-1]   # newest run first
+        for g in groups:
+            assert g['source'] == 'cloud' and g['status'] == 'done'
+            assert g['gpu'] == 'RTX 5090' and g['cost_estimate'] >= 0
+            # every checkpoint of a group belongs to THAT run — no cross-mixing
+            assert {c['run_id'] for c in g['checkpoints']} == {g['run_id']}
+            steps = [c['step'] for c in g['checkpoints']]
+            assert steps == sorted(steps)                      # step-sorted
+            assert any(c['final'] for c in g['checkpoints'])   # final present
+        # the flat view is exactly the concatenation of the groups' checkpoints
+        flat = ct.cloud_checkpoints(ds_id, 'krea')
+        assert flat == [c for g in groups for c in g['checkpoints']]
+
+
+def test_checkpoints_route_exposes_cloud_groups(app, client, monkeypatch, ds_with_images, tmp_path):
+    """GET /train/checkpoints must surface the per-run grouped cloud saves so the
+    panel can render an identity header per checkpoint set."""
+    import json as _json
+    from app import config as cfg
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda force=False: {'aitoolkit': {'valid': True},
+                                             'cloud_training': True})
+    ds_id, _ = ds_with_images
+    with app.app_context():
+        cfg.save_config({'comfyui': {'base_dir': str(tmp_path / 'comfy')},
+                         'aitoolkit': {'dir': str(tmp_path / 'aitk')}})
+        d = tmp_path / 'run'
+        d.mkdir()
+        (d / 'lds7_x_000001000.safetensors').write_bytes(b'W')
+        r = CloudTrainingRun(dataset_id=ds_id, status='done', job_name='j',
+                             vast_label='lds-7', gpu_name='RTX 4090',
+                             price_per_hour=0.4, staging_dir=str(d),
+                             train_params=_json.dumps({'train_type': 'zimage'}))
+        db.session.add(r)
+        db.session.commit()
+        rid = r.id
+    body = client.get(
+        f'/api/dataset/{ds_id}/train/checkpoints?train_type=zimage').get_json()
+    assert 'cloud_checkpoint_groups' in body
+    grp = body['cloud_checkpoint_groups']
+    assert len(grp) == 1 and grp[0]['run_id'] == rid
+    assert grp[0]['gpu'] == 'RTX 4090'
+    assert [c['step'] for c in grp[0]['checkpoints']] == [1000]
+
+
+def test_import_never_overwrites_a_different_lora_silently(app, ds_with_images, tmp_path, monkeypatch):
+    """Last-resort anti-clobber: when the deterministic deployed name already
+    holds a DIFFERENT LoRA (e.g. a legacy untagged import), the new file is saved
+    under an incremental suffix and the caller is told — never a silent replace.
+    An IDENTICAL re-import overwrites in place (idempotent, no `_2` copies)."""
+    from app.services import lora_training as lt
+    ds = None
+    from app.services import face_dataset_service as svc
+    with app.app_context():
+        ds_id, _ = ds_with_images
+        loras = tmp_path / 'loras'
+        loras.mkdir()
+        monkeypatch.setattr(lt, '_lora_dest_dir', lambda ds, family=None: str(loras))
+        src = tmp_path / 'staging'
+        src.mkdir()
+        # pre-existing deployed file at the deterministic name, DIFFERENT content
+        ck = src / 'lora_prov_000001000.safetensors'
+        ck.write_bytes(b'NEW-CONTENT')
+        # what the deterministic name would be (no version/run tag here)
+        det = lt.import_checkpoint(LOCAL_USER, ds_id, ck.name, src_dir=str(src),
+                                   return_meta=True)
+        first_name = det['name']
+        assert det['collision'] is False
+        # a genuinely different file that resolves to the SAME name -> suffixed
+        (loras / first_name).write_bytes(b'OLD-DIFFERENT')     # squat the name
+        clash = lt.import_checkpoint(LOCAL_USER, ds_id, ck.name, src_dir=str(src),
+                                     return_meta=True)
+        assert clash['collision'] is True
+        assert clash['name'] != first_name
+        assert os.path.isfile(loras / clash['name'])
+        assert (loras / first_name).read_bytes() == b'OLD-DIFFERENT'   # untouched
+        # idempotent: re-importing the SAME bytes to a matching name does not add copies
+        before = set(os.listdir(loras))
+        again = lt.import_checkpoint(LOCAL_USER, ds_id, ck.name, src_dir=str(src),
+                                     return_meta=True)
+        assert again['collision'] is True   # first_name still squatted by OLD-DIFFERENT
+        # but importing onto the file we just wrote (same content) is a no-op rename
+        os.remove(loras / first_name)
+        lt.import_checkpoint(LOCAL_USER, ds_id, ck.name, src_dir=str(src))
+        dup = lt.import_checkpoint(LOCAL_USER, ds_id, ck.name, src_dir=str(src))
+        assert os.path.basename(dup) == first_name   # same name, overwritten in place

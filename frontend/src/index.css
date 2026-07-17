@@ -190,6 +190,17 @@
   100% { transform: scale(1); }
 }
 
+/* Deep-link landing flash: highlights the run row a "View in Runs ↗" link
+   jumps to (Checkpoints panel -> Runs page). */
+@keyframes ldsRunFlash {
+  0%   { box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.0); background-color: rgba(56, 189, 248, 0.16); }
+  100% { box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.0); background-color: transparent; }
+}
+.lds-run-flash {
+  animation: ldsRunFlash 2.2s ease-out;
+  border-radius: 0.5rem;
+}
+
 /* MessagesPage animations */
 .msg-animated-bg {
   background:

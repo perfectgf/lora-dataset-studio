@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { postJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
 import TrainingProgress from '../components/dataset/TrainingProgress';
+import { DatasetVersionChip, RunIdChip } from '../components/dataset/RunIdentityBadges';
+import { runIdentityOf, runRowDomId } from '../utils/runIdentity';
 import {
   canStopLocalRun,
   isTrainingRecipeReplayBlocked,
@@ -114,6 +116,7 @@ function checkpointHref(run) {
 export default function CloudRunsPage() {
   const toast = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const [data, setData] = useState(null);
   const [stopping, setStopping] = useState({});     // run_id -> bool
   const [stoppingLocal, setStoppingLocal] = useState(false);
@@ -141,6 +144,20 @@ export default function CloudRunsPage() {
     tick();
     return () => { alive = false; clearTimeout(t); };
   }, [poll]);
+
+  // Deep-link from the Checkpoints panel's "View in Runs ↗": /cloud#run-cloud-49
+  // scrolls to and briefly highlights that run's row. Runs after data arrives
+  // (the rows must exist) and re-runs if the hash changes.
+  useEffect(() => {
+    const id = (location.hash || '').replace(/^#/, '');
+    if (!id || !data) return undefined;
+    const el = document.getElementById(id);
+    if (!el) return undefined;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('lds-run-flash');
+    const to = setTimeout(() => el.classList.remove('lds-run-flash'), 2200);
+    return () => clearTimeout(to);
+  }, [location.hash, data]);
 
   const openDataset = (id) => {
     try { localStorage.setItem('datasetCurrentId', String(id)); } catch { /* ignore */ }
@@ -333,9 +350,12 @@ export default function CloudRunsPage() {
         </h2>
         {/* Live LOCAL training — its own card next to the cloud actives. */}
         {data?.local_active?.current && (
-          <div className="flex flex-col gap-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
+          <div id={runRowDomId('local', data.local_active.record_id)}
+            className="flex flex-col gap-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span aria-hidden>💻</span>
+              {data.local_active.record_id != null
+                ? <RunIdChip source="local" id={data.local_active.record_id} />
+                : <span aria-hidden>💻</span>}
               <button type="button" onClick={() => openDataset(data.local_active.current.dataset_id)}
                 title="Open this dataset"
                 className="text-content font-semibold text-sm hover:underline">
@@ -385,9 +405,10 @@ export default function CloudRunsPage() {
           )
         ) : (
           actives.map((run) => (
-            <div key={run.run_id}
+            <div key={run.run_id} id={runRowDomId('cloud', run.run_id)}
               className="flex flex-col gap-2 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3">
               <div className="flex flex-wrap items-center gap-2">
+                <RunIdChip source="cloud" id={run.run_id} />
                 <button type="button" onClick={() => openDataset(run.dataset_id)}
                   title="Open this dataset"
                   className="text-content font-semibold text-sm hover:underline">
@@ -396,12 +417,7 @@ export default function CloudRunsPage() {
                 <span className="rounded border border-border bg-surface px-1.5 py-0.5 text-content-muted text-[0.625rem] uppercase">
                   {famLabel(run.train_type)}
                 </span>
-                {run.version && (
-                  <span className="rounded border border-border bg-surface px-1.5 py-0.5 text-content-subtle text-[0.625rem]"
-                    title="Dataset version this run trains on">
-                    v{run.version}
-                  </span>
-                )}
+                <DatasetVersionChip version={run.version} />
                 <span className={`rounded border px-1.5 py-0.5 text-[0.625rem] ${statusStyle(run.status)}`}>
                   {run.status}
                 </span>
@@ -491,20 +507,25 @@ export default function CloudRunsPage() {
           </div>
           {!recentCollapsed && (
           <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">
-            {recent.map((run, i) => (
-              <div key={run.run_id ? `c${run.run_id}` : `l${run.dataset_id}-${run.created_at || i}`}
+            {recent.map((run, i) => {
+              const ident = runIdentityOf(run);
+              return (
+              <div key={run.run_id ? `c${run.run_id}` : `l${run.record_id || `${run.dataset_id}-${run.created_at || i}`}`}
+                id={ident ? runRowDomId(ident.source, ident.id) : undefined}
                 className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-                <span aria-hidden title={run.source === 'cloud' ? 'Cloud run (vast.ai)' : 'Local run'}>
-                  {run.source === 'cloud' ? '☁️' : '💻'}
-                </span>
+                {ident ? (
+                  <RunIdChip source={ident.source} id={ident.id} />
+                ) : (
+                  <span aria-hidden title={run.source === 'cloud' ? 'Cloud run (vast.ai)' : 'Local run'}>
+                    {run.source === 'cloud' ? '☁️' : '💻'}
+                  </span>
+                )}
                 <button type="button" onClick={() => openDataset(run.dataset_id)}
                   className="text-content font-medium hover:underline">
                   {run.dataset_name || run.run_name || `Dataset #${run.dataset_id}`}
                 </button>
                 <span className="text-content-subtle text-[0.625rem] uppercase">{famLabel(run.train_type)}</span>
-                {run.version && (
-                  <span className="text-content-subtle text-[0.625rem]" title="Dataset version">v{run.version}</span>
-                )}
+                <DatasetVersionChip version={run.version} />
                 <span className={`rounded border px-1.5 py-0.5 text-[0.625rem] ${statusStyle(run.status)}`}>
                   {run.status}
                 </span>
@@ -561,7 +582,8 @@ export default function CloudRunsPage() {
                 )}
                 <RecipeWarning run={run} />
               </div>
-            ))}
+              );
+            })}
           </div>
           )}
         </div>
