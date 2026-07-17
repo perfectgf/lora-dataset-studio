@@ -6,6 +6,7 @@ import { ToastProvider, useToast } from './components/common/Toast'
 import { CapabilitiesProvider, useCapabilities } from './context/CapabilitiesContext'
 import { setToastRef } from './api/fetchClient'
 import ErrorBoundary from './components/common/ErrorBoundary'
+import { WhatsNewButton, WhatsNewModal } from './components/common/WhatsNew'
 import DatasetPage from './pages/DatasetPage'
 import StudioPage from './pages/StudioPage'
 import SettingsPage from './pages/SettingsPage'
@@ -138,9 +139,11 @@ function NavBar() {
         {/* Workflow first (make → train in cloud → test), docs/config last. */}
         <nav className="hidden md:flex gap-1" aria-label="Main navigation">
           {navLinks}
+          <WhatsNewButton />
           <CheckUpdatesButton />
         </nav>
         <div className="ml-auto flex items-center gap-1 md:hidden">
+          <WhatsNewButton />
           <CheckUpdatesButton />
           <button type="button" onClick={() => setOpen((v) => !v)}
             aria-expanded={open} aria-label={open ? 'Close navigation menu' : 'Open navigation menu'}
@@ -292,6 +295,7 @@ function Shell() {
     <>
       <NavBar />
       <OnboardingRedirect />
+      <WhatsNewModal />
       <UpdateBanner />
       <main id="main-content" tabIndex={-1} className="mx-auto max-w-5xl px-4 py-6">
         <Outlet />
