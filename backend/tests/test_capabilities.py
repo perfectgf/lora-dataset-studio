@@ -85,6 +85,12 @@ def test_comfyui_reachable_lights_studio_and_klein(app, monkeypatch, tmp_path):
     assert caps['comfyui']['reachable'] is True
     assert caps['studio_visible'] is True
     assert caps['engines']['klein'] is True
+    # Required trio on disk -> none of them appear in the per-asset gap list the
+    # Setup UI reads (only the recommended consistency LoRA is still absent here).
+    missing = caps['comfyui']['klein_missing']
+    assert 'klein_model' not in missing
+    assert 'klein_text_encoder' not in missing
+    assert 'klein_vae' not in missing
 
 
 def test_klein_engine_stays_dark_until_all_three_assets_present(app, monkeypatch, tmp_path):
@@ -102,6 +108,12 @@ def test_klein_engine_stays_dark_until_all_three_assets_present(app, monkeypatch
             caps = capabilities.probe(force=True)
     assert caps['comfyui']['models']['klein'] == ['k.safetensors']   # picker still lists it
     assert caps['engines']['klein'] is False                          # but engine stays dark
+    # The payload names the exact gap so the Setup step lists the missing weights
+    # (and keeps their download buttons) instead of blaming the already-present unet.
+    missing = caps['comfyui']['klein_missing']
+    assert 'klein_model' not in missing          # unet IS on disk
+    assert 'klein_text_encoder' in missing
+    assert 'klein_vae' in missing
 
 
 # --- extra coverage: individual probe_* ok/detail contract --------------

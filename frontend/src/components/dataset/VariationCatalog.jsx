@@ -6,6 +6,7 @@ import { useCapabilities } from '../../context/CapabilitiesContext';
 import { apiFetch } from '../../api/fetchClient';
 import ShotIllustration, { contextEmoji } from './ShotIllustration';
 import { displayLabel } from '../../utils/labels';
+import { kleinMissingLabels } from '../../hooks/useSetupSteps';
 import {
   applyShotPreset,
   deleteShotPreset,
@@ -190,11 +191,18 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     : 'Plus/Pro';
   // Klein unavailable has THREE distinct causes — the hint must name the right
   // one (a reachable ComfyUI with no Klein model used to show "Configure
-  // ComfyUI", sending the user to re-check a step that was already green).
+  // ComfyUI", sending the user to re-check a step that was already green). When
+  // ComfyUI IS reachable, name the exact missing weight(s) (model / text encoder /
+  // VAE) instead of always blaming the UNET — the old text sent users to
+  // models/unet/klein/ even when the real gap was the TE or VAE.
+  const kleinMissingWords = kleinMissingLabels(caps.comfyui?.klein_missing);
+  const kleinAssetHint = kleinMissingWords.length
+    ? `⚠ Klein ${kleinMissingWords.join(' + ')} missing — download it in the Setup step`
+    : '⚠ Klein model missing — download it in the Setup step (models/unet/klein/)';
   const kleinHint = klAvailable ? null
     : !enabledEngines.includes('klein') ? '⚠ Klein is disabled in Settings (engines)'
     : !caps.comfyui?.reachable ? '⚠ Configure ComfyUI in Settings'
-    : '⚠ Klein model missing — download it in the Setup step (models/unet/klein/)';
+    : kleinAssetHint;
 
   useEffect(() => {
     let cancelled = false;

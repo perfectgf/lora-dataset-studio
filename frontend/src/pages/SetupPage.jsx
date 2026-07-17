@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { apiFetch, putJson, postJson } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
-import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS } from '../hooks/useSetupSteps'
+import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS, kleinMissingLabels } from '../hooks/useSetupSteps'
 import GuidedSteps from '../components/setup/GuidedSteps'
 import InstallRunner from '../components/setup/InstallRunner'
 
@@ -264,6 +264,15 @@ export default function SetupPage() {
       )
     }
     if (id === 'comfyui') {
+      // Klein needs three weights; the backend tells us which are still absent
+      // (step.kleinMissing). Each download button greys to "✓ Installed" on its own,
+      // and the header/intro name the exact gap instead of a blanket "model missing".
+      const kleinMissing = step.kleinMissing || []
+      const missingLabels = kleinMissingLabels(kleinMissing)
+      const missingSummary = missingLabels.length ? missingLabels.join(' + ') : ''
+      const installBtn = (action, label) => kleinMissing.includes(action)
+        ? <InstallRunner action={action} buttonLabel={label} onDone={() => refresh(true)} />
+        : <p className="text-xs text-emerald-400">✓ Installed</p>
       const fields = (
         <>
           {guidedField('ComfyUI API URL', 'comfyui', 'api_url', 'http://127.0.0.1:8188')}
@@ -294,6 +303,13 @@ export default function SetupPage() {
           )}
           {step.reachable && !step.hasKlein && (
             <div className="space-y-1 text-xs text-content-muted">
+              {missingSummary && (
+                <p className="text-amber-300">
+                  Klein still needs the <span className="text-content font-medium">{missingSummary}</span> — grab
+                  {missingLabels.length > 1 ? ' them' : ' it'} below. Local generation is
+                  <span className="text-content font-medium"> optional</span>: the API engines and your own photos work without it.
+                </p>
+              )}
               <p>
                 Running. The Klein model is <span className="text-content font-medium">optional</span> — add it only if you want
                 local generation (you can also use the API engines or your own photos, then export to train elsewhere).
@@ -320,29 +336,25 @@ export default function SetupPage() {
                           License-gated: accept it on the official page, then add an HF_TOKEN in Settings → API keys.
                         </span>
                       </p>
-                      <InstallRunner action="klein_model" buttonLabel="⬇ Download Klein model"
-                        onDone={() => refresh(true)} />
+                      {installBtn('klein_model', '⬇ Download Klein model')}
                     </div>
                     <div>
                       <p className="mb-1 text-[0.6875rem] text-content-muted">
                         Consistency LoRA (331 MB) → <span className="font-mono">models/loras/klein/</span>
                       </p>
-                      <InstallRunner action="klein_lora" buttonLabel="⬇ Download consistency LoRA"
-                        onDone={() => refresh(true)} />
+                      {installBtn('klein_lora', '⬇ Download consistency LoRA')}
                     </div>
                     <div>
                       <p className="mb-1 text-[0.6875rem] text-content-muted">
                         Text encoder (~8.7 GB) → <span className="font-mono">models/text_encoders/</span>
                       </p>
-                      <InstallRunner action="klein_text_encoder" buttonLabel="⬇ Download text encoder"
-                        onDone={() => refresh(true)} />
+                      {installBtn('klein_text_encoder', '⬇ Download text encoder')}
                     </div>
                     <div>
                       <p className="mb-1 text-[0.6875rem] text-content-muted">
                         VAE (336 MB) → <span className="font-mono">models/vae/</span>
                       </p>
-                      <InstallRunner action="klein_vae" buttonLabel="⬇ Download VAE"
-                        onDone={() => refresh(true)} />
+                      {installBtn('klein_vae', '⬇ Download VAE')}
                     </div>
                   </div>
                 </div>
@@ -371,7 +383,9 @@ export default function SetupPage() {
           <div className="space-y-4">
             <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content">
               ✓ ComfyUI is already running at <span className="font-mono">{step.apiUrl || 'the configured URL'}</span>.
-              {step.hasKlein ? ' Nothing to do here.' : ' It works — the Klein model (optional, for local generation) isn’t installed.'}
+              {step.hasKlein
+                ? ' Nothing to do here.'
+                : ` It works — Klein still needs the ${missingSummary} (optional, for local generation).`}
             </div>
             {fields}
           </div>

@@ -643,6 +643,13 @@ def probe(force=False) -> dict:
     klein_ready = (comfy['ok'] and bool(models['klein'])
                    and bool(_keh.resolve_klein_vae())
                    and bool(_keh.resolve_klein_text_encoder()))
+    # Per-asset gaps (setup_installer action names still absent on disk), so the
+    # Setup UI can name exactly what's missing and keep only the relevant download
+    # buttons visible — judging the whole engine on the UNET alone let the step go
+    # green and hid the TE/VAE buttons the moment the model landed. Disk-only
+    # (network-free) and reachability-independent, so the front can separate
+    # "ComfyUI unreachable" from "an asset is missing".
+    klein_missing = _keh.klein_missing_assets()
     base_dir = cfg.get('comfyui.base_dir') or ''
     comfy_dir = resolve_comfyui_base(base_dir)
 
@@ -670,6 +677,10 @@ def probe(force=False) -> dict:
             'dir_valid': comfy_dir['valid'],       # base_dir really is a ComfyUI install
             'resolved_dir': comfy_dir['resolved'],
             'models': models,
+            # setup_installer action names for the Klein assets NOT yet on disk
+            # (subset of klein_model / klein_text_encoder / klein_vae / klein_lora).
+            # Empty required-trio => the Klein engine is asset-ready.
+            'klein_missing': klein_missing,
         },
         'ollama': {
             'reachable': ollama['ok'],

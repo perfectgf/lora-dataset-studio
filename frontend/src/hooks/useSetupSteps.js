@@ -21,14 +21,52 @@ function imageStep(caps) {
   }
 }
 
+// The Klein engine needs three weights on disk (UNET + text-encoder + VAE); the
+// consistency LoRA is only recommended, so it never gates readiness. The backend
+// lists the setup_installer action names still absent in comfyui.klein_missing —
+// that is the source of truth, mirroring capabilities.klein_ready. Older payloads
+// (pre-klein_missing) fall back to the UNET-only scan.
+const KLEIN_REQUIRED_ASSETS = ['klein_model', 'klein_text_encoder', 'klein_vae']
+
+// setup_installer action name -> the short human word used in Setup/picker hints.
+export const KLEIN_ASSET_LABELS = {
+  klein_model: 'model',
+  klein_text_encoder: 'text encoder',
+  klein_vae: 'VAE',
+}
+
+// Human names of the REQUIRED Klein weights still missing (recommended LoRA
+// excluded), in a stable canonical order — so both the Setup step header and the
+// picker's Klein hint can say exactly what to download. Empty => the trio is on disk.
+export function kleinMissingLabels(kleinMissing) {
+  const m = Array.isArray(kleinMissing) ? kleinMissing : []
+  return KLEIN_REQUIRED_ASSETS.filter((a) => m.includes(a)).map((a) => KLEIN_ASSET_LABELS[a])
+}
+
+function kleinMissingRequired(c) {
+  if (Array.isArray(c.klein_missing)) {
+    return c.klein_missing.filter((a) => KLEIN_REQUIRED_ASSETS.includes(a))
+  }
+  // Legacy fallback: judge on the UNET scan alone (the old, under-strict signal).
+  return (c.models && c.models.klein && c.models.klein.length) ? [] : ['klein_model']
+}
+
 function comfyuiStep(caps) {
   const c = caps.comfyui || {}
-  const hasKlein = !!(c.models && c.models.klein && c.models.klein.length)
+  const missingRequired = kleinMissingRequired(c)
+  // hasKlein now reflects FULL readiness (all three weights), not just the UNET —
+  // so the step no longer goes "nothing to do" while the TE/VAE are still missing.
+  const hasKlein = missingRequired.length === 0
+  // Which assets to still offer a download for (required trio + recommended LoRA),
+  // so each button can grey out on its own once its file lands.
+  const kleinMissing = Array.isArray(c.klein_missing)
+    ? c.klein_missing
+    : (hasKlein ? [] : ['klein_model'])
   const status = gateStatus(c.reachable, hasKlein)
   return {
     id: 'comfyui', title: 'ComfyUI — local generation & Test Studio', recommended: false,
     unlocks: ['Klein engine', 'Test Studio'],
-    status, reachable: !!c.reachable, hasKlein, apiUrl: c.api_url || '',
+    status, reachable: !!c.reachable, hasKlein, kleinMissing, apiUrl: c.api_url || '',
     // Whether comfyui.base_dir actually points at a ComfyUI install (main.py + models/):
     // a wrong/portable-wrapper path scans an empty models/ and finds no checkpoints.
     // baseDir = the path this verdict was PROBED against — the UI must not show the
