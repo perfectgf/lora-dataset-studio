@@ -1072,6 +1072,15 @@ def delete_dataset(user_id, dataset_id):
         # db.create_all(). New databases also have ON DELETE CASCADE as a guard.
         for cell in studio_rows:
             db.session.delete(cell)
+        # Force the child DELETEs to reach the DB BEFORE the parent's. The child
+        # models declare only a table-level ForeignKey (no relationship()), so the
+        # unit of work has no ordering dependency between them and would otherwise
+        # emit `DELETE FROM face_dataset` first. On a legacy DB whose FK lacks
+        # ON DELETE CASCADE that parent-first order raises IntegrityError (the
+        # children still physically exist); on a cascade DB it works but leaves a
+        # SAWarning. Flushing the children here makes the order deterministic on
+        # every DB vintage — the belt no longer depends on the DB doing the cascade.
+        db.session.flush()
         db.session.delete(ds)
         db.session.commit()
     except trash.TrashLockError as e:

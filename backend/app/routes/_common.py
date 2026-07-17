@@ -1,8 +1,13 @@
 """Helpers shared by more than one route blueprint."""
+import logging
+
 from flask import jsonify
+from sqlalchemy.exc import IntegrityError
 
 from .. import capabilities
 from ..gpu_window import GpuBusyError
+
+logger = logging.getLogger(__name__)
 
 
 def _map_error(e: Exception):
@@ -14,6 +19,15 @@ def _map_error(e: Exception):
         return jsonify({'error': str(e)}), 400
     if isinstance(e, RuntimeError):
         return jsonify({'error': str(e)}), 409
+    if isinstance(e, IntegrityError):
+        # A referential-integrity conflict (e.g. deleting a row a legacy DB still
+        # references without ON DELETE CASCADE). The service belt should keep this
+        # from happening, but map it to a clear 409 rather than a bare 500 as a
+        # last resort — and log the raw error so a real defect is never swallowed.
+        logger.warning('database integrity error: %s', e, exc_info=True)
+        return jsonify({'error': 'This action conflicts with related data that '
+                                 'still references it. Please retry; if it keeps '
+                                 'failing, restart the app and report it.'}), 409
     raise e
 
 

@@ -646,3 +646,127 @@ def test_delete_dataset_route_returns_409_for_active_run(client, app):
     resp = client.post(f'/api/dataset/{dataset_id}/delete')
     assert resp.status_code == 409
     assert 'training run is active on this dataset' in resp.get_json()['error']
+
+
+# --- Delete on a LEGACY schema whose child FK lacks ON DELETE CASCADE ----------
+#
+# db.create_all() builds the child tables WITH ON DELETE CASCADE, but a DB first
+# created by an older schema keeps its no-cascade tables forever (create_all never
+# ALTERs an existing table). With PRAGMA foreign_keys=ON, deleting a parent that
+# still has children then raises IntegrityError -> a bare 500 in prod. The child
+# models declare only a table-level ForeignKey (no relationship()), so the unit of
+# work has no ordering dependency and used to emit `DELETE FROM face_dataset`
+# FIRST — before the explicit child deletes reached the DB. delete_dataset now
+# flushes the children before the parent, so the belt works on every DB vintage.
+
+def _rebuild_children_without_cascade(db):
+    """Recreate the child tables from their real generated DDL with ON DELETE
+    CASCADE stripped — identical columns, just the legacy (no-cascade) FK, exactly
+    like a DB first created before the cascade was declared."""
+    import re
+    for table in ('lora_test_image', 'face_dataset_image'):
+        ddl = db.session.execute(text(
+            'SELECT sql FROM sqlite_master WHERE name = :n'), {'n': table}
+        ).scalar_one()
+        legacy = re.sub(r'\s+ON DELETE CASCADE', '', ddl, flags=re.I)
+        assert 'CASCADE' not in legacy.upper()
+        db.session.execute(text(f'DROP TABLE {table}'))
+        db.session.execute(text(legacy))
+    db.session.commit()
+    # Fixture sanity: the FK exists but no longer cascades on delete.
+    for table in ('lora_test_image', 'face_dataset_image'):
+        fk = db.session.execute(text(
+            f'PRAGMA foreign_key_list({table})')).all()
+        assert any(row[2] == 'face_dataset' and row[6].upper() != 'CASCADE'
+                   for row in fk)
+
+
+def test_delete_dataset_legacy_no_cascade_with_studio_rows(app, monkeypatch):
+    """Dataset 9 case: residual face_dataset_image AND lora_test_image on a
+    no-cascade schema. The delete used to 500 on `DELETE FROM face_dataset`."""
+    from app.extensions import db
+    from app.models import FaceDatasetImage, LoraTestImage
+    from app.services import face_dataset_service as svc
+
+    with app.app_context():
+        _trash_spy(monkeypatch)
+        _rebuild_children_without_cascade(db)
+        ds = svc.create_dataset('local', 'Nine', 'ninetrig')
+        folder = svc._dataset_dir(ds.id)
+        with open(os.path.join(folder, 'shot.webp'), 'wb') as fh:
+            fh.write(b'pixels')
+        for i in range(8):
+            db.session.add(FaceDatasetImage(dataset_id=ds.id, filename=f'k{i}.webp',
+                                            status='keep', source='import'))
+        for i in range(20):
+            db.session.add(LoraTestImage(dataset_id=ds.id, checkpoint='z image\\L.safetensors',
+                                         strength=1.0, status='done'))
+        db.session.commit()
+        dataset_id = ds.id
+
+        assert svc.delete_dataset('local', dataset_id) is True
+        assert svc.get_dataset('local', dataset_id) is None
+        assert FaceDatasetImage.query.filter_by(dataset_id=dataset_id).count() == 0
+        assert LoraTestImage.query.filter_by(dataset_id=dataset_id).count() == 0
+        assert not os.path.isdir(folder)
+
+
+def test_delete_dataset_legacy_no_cascade_residual_images_only(app, monkeypatch):
+    """Dataset 26 case reproduced: 15 residual face_dataset_image, 0 studio rows,
+    on a no-cascade schema. The images survive the parent delete only because the
+    parent DELETE was emitted first; flushing children first removes them cleanly."""
+    from app.extensions import db
+    from app.models import FaceDatasetImage, LoraTestImage
+    from app.services import face_dataset_service as svc
+
+    with app.app_context():
+        _trash_spy(monkeypatch)
+        _rebuild_children_without_cascade(db)
+        ds = svc.create_dataset('local', 'TwentySix', 'ds26trig')
+        for i in range(15):
+            db.session.add(FaceDatasetImage(dataset_id=ds.id, filename=f'r{i}.webp',
+                                            status='keep', source='import'))
+        db.session.commit()
+        dataset_id = ds.id
+        assert FaceDatasetImage.query.filter_by(dataset_id=dataset_id).count() == 15
+
+        assert svc.delete_dataset('local', dataset_id) is True
+        assert svc.get_dataset('local', dataset_id) is None
+        assert FaceDatasetImage.query.filter_by(dataset_id=dataset_id).count() == 0
+        assert LoraTestImage.query.filter_by(dataset_id=dataset_id).count() == 0
+
+
+def test_delete_dataset_route_no_500_on_legacy_no_cascade(client, app, monkeypatch):
+    """End to end through the HTTP route: a legacy-schema dataset with children
+    returns 200, never the bare 500 the unmapped IntegrityError used to produce."""
+    from app.extensions import db
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+
+    with app.app_context():
+        _rebuild_children_without_cascade(db)
+        ds = svc.create_dataset('local', 'RouteLegacy', 'routelegacy')
+        db.session.add(FaceDatasetImage(dataset_id=ds.id, filename='a.webp',
+                                        status='keep', source='import'))
+        db.session.commit()
+        dataset_id = ds.id
+
+    resp = client.post(f'/api/dataset/{dataset_id}/delete')
+    assert resp.status_code == 200
+    assert resp.get_json() == {'ok': True}
+
+
+def test_map_error_maps_integrity_error_to_409(app):
+    """An IntegrityError that slips past the belt maps to a clear 409, never a
+    bare 500 (the unmapped path that produced 'Server error (500)' in prod)."""
+    from sqlalchemy.exc import IntegrityError
+    from app.routes._common import _map_error
+
+    with app.app_context():
+        err = IntegrityError('DELETE FROM face_dataset WHERE face_dataset.id = ?',
+                             params=(26,), orig=Exception('FOREIGN KEY constraint failed'))
+        body, status = _map_error(err)
+        assert status == 409
+        payload = body.get_json()
+        assert 'error' in payload
+        assert 'conflict' in payload['error'].lower()
