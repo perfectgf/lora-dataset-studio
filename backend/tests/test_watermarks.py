@@ -1644,6 +1644,77 @@ def test_clean_auto_method_never_calls_klein(app, monkeypatch):
         assert err is None and counts['inpainted'] == 1 and counts['inpainted_klein'] == 0
 
 
+def test_klein_clean_disk_equals_display_equals_export_and_keeps_dimensions(
+        client, app, monkeypatch):
+    """LOCK the 'display ≠ download' grief: after a real Klein multi-zone clean the dataset
+    file must keep the ORIGINAL dimensions (never the ~1MP upscaled crop), and the display
+    URL, the disk file and the export ZIP must all carry the SAME full-frame composite — no
+    crop / full-render leaks into any serving path."""
+    import io
+    import zipfile
+    import numpy as np
+    from app.routes import datasets as routes
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_klein as wk
+    from app.models import FaceDatasetImage
+
+    # Deterministic Klein round-trip: prefill passes the crop through; the "render" brightens
+    # the WHOLE crop by +60 — so a composite bypass would show up as a +60 shift over the
+    # entire frame (and, when the crop clamps to the image, a wrong upscaled size).
+    monkeypatch.setattr(routes, '_klein_clean_preflight', lambda: None)   # skip node/model 409
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk, '_prefill_region', lambda scaled, boxes, device='cpu': (scaled, None))
+
+    def _fake_klein(user_id, crop_img, *, seed, timeout=None):
+        arr = np.asarray(crop_img.convert('RGB')).astype('int16') + 60
+        return Image.fromarray(np.clip(arr, 0, 255).astype('uint8'), 'RGB'), None
+    monkeypatch.setattr(wk, '_run_klein_job', _fake_klein)
+
+    ds_id = _create(client, 'K', 'k').get_json()['id']
+    with app.app_context():
+        # a NON-square frame so any crop/reframe changes the aspect ratio, and two zones
+        img = _kept_image(svc, ds_id, 'wm.webp', size=(900, 640),
+                          bbox=[0.1, 0.1, 0.2, 0.2],
+                          regions=[[0.10, 0.10, 0.22, 0.22], [0.60, 0.55, 0.74, 0.68]])
+        img_id = img.id
+        path = svc._img_path(img)
+        orig = np.asarray(Image.open(path).convert('RGB'))
+
+    r = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'method': 'klein'})
+    assert r.status_code == 200 and r.get_json()['inpainted_klein'] == 1
+
+    with app.app_context():
+        img = svc.db.session.get(FaceDatasetImage, img_id)
+        path = svc._img_path(img)
+        filename = img.filename
+        disk_bytes = open(path, 'rb').read()
+        cleaned = np.asarray(Image.open(io.BytesIO(disk_bytes)).convert('RGB'))
+
+    # (1) dimensions preserved — NOT the upscaled Klein crop
+    assert cleaned.shape == orig.shape == (640, 900, 3)
+    # (2) the composite was NOT bypassed: a full-render leak would shift the WHOLE frame by
+    #     ~+60; only the two small zones may move, so the global mean barely changes.
+    assert abs(float(cleaned.mean()) - float(orig.mean())) < 10
+    # (3) the display URL serves EXACTLY the on-disk bytes
+    disp = client.get(f'/api/dataset/{ds_id}/img/{filename}')
+    assert disp.status_code == 200 and disp.data == disk_bytes
+    # (4) the export ZIP carries the SAME pixels (PNG re-encode of the same file)
+    exp = client.get(f'/api/dataset/{ds_id}/export')
+    assert exp.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(exp.data))
+    png = next(n for n in zf.namelist() if n.endswith('.png'))
+    zpix = np.asarray(Image.open(io.BytesIO(zf.read(png))).convert('RGB'))
+    assert zpix.shape == orig.shape and np.array_equal(zpix, cleaned)
+
+    # (5) restore brings back the exact original bytes AND dimensions
+    rr = client.post(f'/api/dataset/{ds_id}/image/{img_id}/watermark-restore', json={})
+    assert rr.status_code == 200
+    with app.app_context():
+        restored = np.asarray(Image.open(svc._img_path(
+            svc.db.session.get(FaceDatasetImage, img_id))).convert('RGB'))
+    assert restored.shape == orig.shape and np.array_equal(restored, orig)
+
+
 # --- Klein clean route (method, preflight, 409/503) ------------------------------
 
 def test_clean_route_forwards_method_klein(client, app, monkeypatch):
