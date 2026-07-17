@@ -7,11 +7,13 @@ export const INPUT_CLASS =
 
 /* Section heading: a small mono "rack tag" eyebrow above the title keeps every
    settings/guide section labeled the same way without shouting. */
-export function SectionHeader({ eyebrow, title, description }) {
+export function SectionHeader({ eyebrow, title, description, badge }) {
   return (
     <div>
       <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">{eyebrow}</p>
-      <h1 className="mt-1 text-xl font-semibold text-content">{title}</h1>
+      <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold text-content">
+        {title}{badge}
+      </h1>
       {description && <p className="mt-1 text-sm text-content-muted">{description}</p>}
     </div>
   )
@@ -65,9 +67,9 @@ export function TestButton({ target, onResult, beforeTest }) {
   )
 }
 
-export function Card({ title, help, children }) {
+export function Card({ title, help, children, id }) {
   return (
-    <section className="rounded-xl border border-border bg-surface p-5">
+    <section id={id} className="scroll-mt-24 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-base font-semibold text-content">{title}</h2>
       {help && <p className="mt-1 text-sm text-content-muted">{help}</p>}
       <div className="mt-4 space-y-4">{children}</div>

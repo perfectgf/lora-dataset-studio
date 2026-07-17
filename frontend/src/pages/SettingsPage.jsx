@@ -1,10 +1,14 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { apiFetch, putJson, del } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
 import { SETTINGS_SECTIONS, sectionStatus, matchesQuery } from '../components/settings/registry'
 import { SectionHeader } from '../components/settings/primitives'
+import { HelpBadge } from '../help/HelpMode'
+import { searchHelpTopics, helpTopics } from '../help/helpRegistry'
+import { buildGuideTextIndex, matchGuideAnchors } from '../help/guideTextIndex'
+import settingsReferenceRaw from '../../../docs/guide/settings-reference.md?raw'
 import OverviewSection from '../components/settings/OverviewSection'
 import EnginesSection from '../components/settings/EnginesSection'
 import ScrapingSection from '../components/settings/ScrapingSection'
@@ -191,6 +195,47 @@ export default function SettingsPage() {
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
 
+  // Deep-link focus: /settings/<section>?focus=<domId> scrolls to that field and
+  // flashes a ring. Depends on `config` so it re-runs once settings finish
+  // loading — the field only exists after the active section has rendered.
+  const [searchParams] = useSearchParams()
+  const focusId = searchParams.get('focus')
+  useEffect(() => {
+    if (!focusId || loading || !config) return undefined
+    const el = document.getElementById(focusId)
+    if (!el) return undefined
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const ring = ['ring-2', 'ring-indigo-400/70', 'ring-offset-2', 'ring-offset-app', 'rounded-md']
+    el.classList.add(...ring)
+    const t = setTimeout(() => el.classList.remove(...ring), 2000)
+    return () => clearTimeout(t)
+  }, [focusId, section, loading, config])
+
+  // Enriched search index: besides the section rail, individual settings are
+  // matched by their tutorial TEXT (docs/guide/settings-reference.md, indexed by
+  // H2) so e.g. "crop" surfaces the watermark auto-crop setting via its docs.
+  const guideIndex = useMemo(() => buildGuideTextIndex(settingsReferenceRaw), [])
+  const settingResults = useMemo(() => {
+    const q = query.trim()
+    if (!q) return []
+    const seen = new Set()
+    const out = []
+    const consider = (t) => {
+      if ((t.kind === 'setting' || t.kind === 'action') && !seen.has(t.id)) {
+        seen.add(t.id); out.push(t)
+      }
+    }
+    for (const t of searchHelpTopics(q)) consider(t)          // label / keyword / id
+    const anchors = matchGuideAnchors(guideIndex, q)          // tutorial text
+    for (const t of helpTopics) {
+      if (t.guide.chapter === 'settings-reference' && anchors.has(t.guide.anchor)) consider(t)
+    }
+    return out
+  }, [query, guideIndex])
+  // Keyboard cursor across the flat result list (sections then settings).
+  const [activeResult, setActiveResult] = useState(-1)
+  useEffect(() => { setActiveResult(-1) }, [query])
+
   const discard = () => {
     setConfig(savedConfig)
     setSecretInputs({})
@@ -216,15 +261,43 @@ export default function SettingsPage() {
     (s) => s.id === activeId || matchesQuery(s, query)
   )
 
-  const navItem = (s, chip) => {
+  const q = query.trim()
+  // Flat, keyboard-navigable result list: matched sections first, then settings.
+  const flatResults = q
+    ? [...visibleSections.map((s) => ({ type: 'section', id: s.id })),
+       ...settingResults.map((t) => ({ type: 'setting', topic: t }))]
+    : []
+  const goToSetting = (t) => {
+    const { route, focus } = t.app
+    if (!focus) { navigate(route); return }              // action topics carry no focus
+    navigate(`${route}${route.includes('?') ? '&' : '?'}focus=${focus}`)
+  }
+  const activateResult = (r) => {
+    if (!r) return
+    if (r.type === 'section') navigate(`/settings/${r.id}`)
+    else goToSetting(r.topic)
+    setActiveResult(-1)
+  }
+  const onSearchKeyDown = (e) => {
+    if (!flatResults.length) return
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveResult((i) => Math.min(flatResults.length - 1, i + 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveResult((i) => Math.max(0, i - 1)) }
+    else if (e.key === 'Enter') { e.preventDefault(); activateResult(flatResults[activeResult >= 0 ? activeResult : 0]) }
+    else if (e.key === 'Escape') { setQuery('') }
+  }
+
+  const navItem = (s, chip, resultIdx = null) => {
     const isActive = s.id === activeId
+    const activeKb = resultIdx !== null && resultIdx === activeResult
     const base = chip
       ? `flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium ${
           isActive ? 'border-border-strong bg-surface-raised text-content' : 'border-border text-content-muted hover:text-content'}`
       : `relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium ${
-          isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:bg-surface hover:text-content'}`
+          isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:bg-surface hover:text-content'} ${
+          activeKb ? 'ring-1 ring-inset ring-indigo-400/50' : ''}`
     return (
       <button key={s.id} type="button" onClick={() => navigate(`/settings/${s.id}`)}
+        onMouseEnter={resultIdx !== null ? () => setActiveResult(resultIdx) : undefined}
         aria-current={isActive ? 'page' : undefined} className={base}>
         {!chip && isActive && (
           <span aria-hidden className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded bg-gradient-primary" />
@@ -232,6 +305,21 @@ export default function SettingsPage() {
         <span aria-hidden>{s.icon}</span>
         <span>{s.title}</span>
         {!chip && <StatusLed status={sectionStatus(s.id, caps)} />}
+      </button>
+    )
+  }
+
+  const settingResultItem = (t, resultIdx) => {
+    const activeKb = resultIdx === activeResult
+    return (
+      <button key={t.id} type="button" onClick={() => goToSetting(t)}
+        onMouseEnter={() => setActiveResult(resultIdx)}
+        className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${
+          activeKb ? 'bg-surface text-content ring-1 ring-inset ring-indigo-400/50'
+            : 'text-content-muted hover:bg-surface hover:text-content'}`}>
+        <span aria-hidden className="text-content-subtle">›</span>
+        <span className="truncate">{t.title}</span>
+        <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-content-subtle">{t.kind}</span>
       </button>
     )
   }
@@ -251,23 +339,46 @@ export default function SettingsPage() {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onSearchKeyDown}
               placeholder="Find a setting…"
               aria-label="Find a setting"
               className="mb-2 w-full rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-content placeholder:text-content-subtle focus:border-primary focus:outline-none"
             />
-            {query.trim() && (
-              <p className="px-3 pb-1 text-[11px] text-content-subtle" role="status">
-                {visibleSections.length} section{visibleSections.length === 1 ? '' : 's'} match
-              </p>
+            {q ? (
+              <div className="space-y-3">
+                <div>
+                  <p className="px-3 pb-1 text-[11px] uppercase tracking-wide text-content-subtle" role="status">
+                    Sections ({visibleSections.length})
+                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    {visibleSections.map((s, i) => navItem(s, false, i))}
+                  </div>
+                </div>
+                {settingResults.length > 0 && (
+                  <div>
+                    <p className="px-3 pb-1 text-[11px] uppercase tracking-wide text-content-subtle">
+                      Settings ({settingResults.length})
+                    </p>
+                    <div className="flex flex-col gap-0.5">
+                      {settingResults.map((t, j) => settingResultItem(t, visibleSections.length + j))}
+                    </div>
+                  </div>
+                )}
+                {visibleSections.length === 0 && settingResults.length === 0 && (
+                  <p className="px-3 text-xs text-content-subtle">No matches.</p>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {visibleSections.map((s) => navItem(s, false))}
+              </div>
             )}
-            <div className="flex flex-col gap-0.5">
-              {visibleSections.map((s) => navItem(s, false))}
-            </div>
           </nav>
         </aside>
 
         <div className="mt-2 space-y-6 lg:mt-0">
-          <SectionHeader eyebrow={active.eyebrow} title={active.title} description={active.description} />
+          <SectionHeader eyebrow={active.eyebrow} title={active.title} description={active.description}
+            badge={<HelpBadge topic={`settings-${activeId}`} />} />
           <ActiveSection {...sectionProps} />
         </div>
       </div>

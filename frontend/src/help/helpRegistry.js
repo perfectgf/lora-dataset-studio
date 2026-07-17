@@ -1,0 +1,330 @@
+/* The help registry — the single pivot for the bidirectional Help mode.
+   PURE JS (zero JSX, zero Vite ?raw imports) so node --test can import it and
+   the contract test (tests/help-registry-contract.test.mjs) can validate every
+   route/anchor/focus against the real markdownHeadingId, the settings registry,
+   and the workspace sections.
+
+   Each topic maps ONE thing in the app to ONE place in the guide:
+     { id, kind, title, keywords, guide: { chapter, anchor }, app: { route, focus? }, tip? }
+   - kind    'section' | 'setting' | 'action' | 'page'
+   - guide   chapter ∈ {getting-started, using-the-app, dataset-guide,
+             troubleshooting, getting-help, settings-reference}; anchor = the id
+             of an H2 in that chapter, computed by markdownHeadingId.
+   - app     route = HashRouter path (may carry a query); focus = optional DOM id
+             of a field on the target screen (scroll + highlight on arrival).
+   - tip     { trigger, text } — an optional one-time contextual hint.
+
+   ORDER MATTERS: for a given (chapter, anchor) the FIRST topic in this array is
+   the one whose screen the guide's "Open this screen →" button opens. Section /
+   page topics are therefore listed BEFORE the field / action topics that share
+   their anchor (e.g. workspace-images before workspace-add/curation/export). */
+
+// settings-reference H2 anchor for each Settings section id.
+const SETTINGS_ANCHOR = {
+  overview: 'overview',
+  engines: 'image-engines',
+  scraping: 'scraping-sources',
+  'local-tools': 'local-tools',
+  captioning: 'captioning-quality',
+  training: 'training',
+  server: 'server-access',
+  maintenance: 'maintenance',
+};
+
+// Build a kind:'setting' topic. All fields in a Settings section share the
+// section's route and settings-reference anchor; only the DOM focus id differs.
+const setting = (id, section, focus, title, keywords, tip) => ({
+  id, kind: 'setting', title, keywords,
+  guide: { chapter: 'settings-reference', anchor: SETTINGS_ANCHOR[section] },
+  app: { route: `/settings/${section}`, focus },
+  ...(tip ? { tip } : {}),
+});
+
+const action = (id, title, keywords, route, chapter, anchor, tip) => ({
+  id, kind: 'action', title, keywords,
+  guide: { chapter, anchor },
+  app: { route },
+  ...(tip ? { tip } : {}),
+});
+
+const TOPICS = [
+  // ---- Settings: section-level topics (kind 'section') --------------------
+  { id: 'settings-how', kind: 'section', title: 'How settings work',
+    keywords: ['settings', 'how', 'save', 'secret', 'write-only', 'restart', 'config'],
+    guide: { chapter: 'settings-reference', anchor: 'how-settings-work' },
+    app: { route: '/settings' } },
+  { id: 'settings-overview', kind: 'section', title: 'Settings · Overview',
+    keywords: ['overview', 'status', 'summary', 'capabilities', 'ready', 'configured'],
+    guide: { chapter: 'settings-reference', anchor: 'overview' },
+    app: { route: '/settings/overview' } },
+  { id: 'settings-engines', kind: 'section', title: 'Settings · Image engines',
+    keywords: ['engine', 'engines', 'generation', 'gemini', 'openai', 'chatgpt', 'klein', 'nano banana', 'api key', 'lora', 'preset'],
+    guide: { chapter: 'settings-reference', anchor: 'image-engines' },
+    app: { route: '/settings/engines' } },
+  { id: 'settings-scraping', kind: 'section', title: 'Settings · Scraping & sources',
+    keywords: ['scraping', 'sources', 'reddit', 'civitai', 'pexels', 'scrape', 'import', 'rate limit', '429'],
+    guide: { chapter: 'settings-reference', anchor: 'scraping-sources' },
+    app: { route: '/settings/scraping' } },
+  { id: 'settings-local-tools', kind: 'section', title: 'Settings · Local tools',
+    keywords: ['local tools', 'comfyui', 'ollama', 'ai-toolkit', 'aitoolkit', 'integrations', 'path', 'url', 'hugging face'],
+    guide: { chapter: 'settings-reference', anchor: 'local-tools' },
+    app: { route: '/settings/local-tools' } },
+  { id: 'settings-captioning', kind: 'section', title: 'Settings · Captioning & quality',
+    keywords: ['captioning', 'quality', 'caption', 'joycaption', 'face score', 'threshold', 'watermark', 'similarity'],
+    guide: { chapter: 'settings-reference', anchor: 'captioning-quality' },
+    app: { route: '/settings/captioning' } },
+  { id: 'settings-training', kind: 'section', title: 'Settings · Training',
+    keywords: ['training', 'family', 'cloud', 'vast', 'gpu', 'budget', 'price', 'stall'],
+    guide: { chapter: 'settings-reference', anchor: 'training' },
+    app: { route: '/settings/training' } },
+  { id: 'settings-server', kind: 'section', title: 'Settings · Server & access',
+    keywords: ['server', 'access', 'port', 'lan', 'network', 'token', 'remote', 'phone'],
+    guide: { chapter: 'settings-reference', anchor: 'server-access' },
+    app: { route: '/settings/server' } },
+  { id: 'settings-maintenance', kind: 'section', title: 'Settings · Maintenance',
+    keywords: ['maintenance', 'update', 'restart', 'log', 'trash', 'data', 'storage', 'diagnostic', 'version'],
+    guide: { chapter: 'settings-reference', anchor: 'maintenance' },
+    app: { route: '/settings/maintenance' } },
+  { id: 'dataset-settings-modal', kind: 'section', title: 'Per-dataset settings',
+    keywords: ['dataset settings', 'per-dataset', 'prompt suffix', 'framing', 'trigger', 'override', 'modal'],
+    guide: { chapter: 'settings-reference', anchor: 'per-dataset-settings' },
+    app: { route: '/datasets' },
+    tip: { trigger: 'dataset-settings-open',
+      text: 'Prompt suffixes add a creative direction to every generated variation — globally or per framing.' } },
+  { id: 'settings-config-file', kind: 'section', title: 'Config-file-only settings',
+    keywords: ['config', 'config.json', 'advanced', 'file only', 'hidden', 'manual'],
+    guide: { chapter: 'settings-reference', anchor: 'config-file-only-settings' },
+    app: { route: '/settings/maintenance' } },
+
+  // ---- Workspace: section-level topics (kind 'section') -------------------
+  // workspace-images first so it owns the "Open this screen →" button for the
+  // character-walkthrough anchor it shares with add / curation / export.
+  { id: 'workspace-images', kind: 'section', title: 'Images',
+    keywords: ['images', 'review', 'keep', 'reject', 'caption', 'tiles', 'overview'],
+    guide: { chapter: 'using-the-app', anchor: 'the-character-walkthrough-reference-photo-trained-lora' },
+    app: { route: '/datasets?section=images' } },
+  { id: 'workspace-add', kind: 'section', title: 'Add images',
+    keywords: ['add images', 'generate', 'reference', 'variations', 'import', 'photos'],
+    guide: { chapter: 'using-the-app', anchor: 'the-character-walkthrough-reference-photo-trained-lora' },
+    app: { route: '/datasets?section=add' } },
+  { id: 'workspace-scrape', kind: 'section', title: 'Scrape',
+    keywords: ['scrape', 'scan', 'gallery', 'url', 'source', 'import', 'concept'],
+    guide: { chapter: 'using-the-app', anchor: 'concept-datasets-an-object-or-action-not-a-person' },
+    app: { route: '/datasets?section=scrape&panel=scan' },
+    tip: { trigger: 'add-images-visit',
+      text: 'Scraping now lives in its own 🕸 Scrape section of the sidebar.' } },
+  { id: 'workspace-curation', kind: 'section', title: 'Curation',
+    keywords: ['curation', 'quality', 'face', 'watermark', 'clean', 'cleanup', 'rescue'],
+    guide: { chapter: 'using-the-app', anchor: 'the-character-walkthrough-reference-photo-trained-lora' },
+    app: { route: '/datasets?section=curation' } },
+  { id: 'workspace-captions', kind: 'section', title: 'Captions',
+    keywords: ['captions', 'caption', 'generate', 'leak', 'edit', 'bulk', 'text'],
+    guide: { chapter: 'dataset-guide', anchor: '3-captions-the-make-or-break-step' },
+    app: { route: '/datasets?section=captions' } },
+  { id: 'workspace-export', kind: 'section', title: 'Import & export',
+    keywords: ['export', 'import', 'training zip', 'backup', 'hugging face', 'merge', 'data'],
+    guide: { chapter: 'using-the-app', anchor: 'the-character-walkthrough-reference-photo-trained-lora' },
+    app: { route: '/datasets?section=export' } },
+  { id: 'workspace-training', kind: 'section', title: 'Training',
+    keywords: ['training', 'train', 'lora', 'launch', 'cloud', 'local', 'preflight'],
+    guide: { chapter: 'dataset-guide', anchor: '5-pre-flight-checklist' },
+    app: { route: '/datasets?section=training' } },
+  { id: 'workspace-checkpoints', kind: 'section', title: 'Checkpoints & LoRAs',
+    keywords: ['checkpoints', 'lora', 'epoch', 'checkpoint', 'results', 'import', 'comfyui'],
+    guide: { chapter: 'dataset-guide', anchor: '6-after-training-pick-the-right-checkpoint' },
+    app: { route: '/datasets?section=checkpoints' } },
+  { id: 'workspace-studio', kind: 'section', title: 'Studio',
+    keywords: ['studio', 'test', 'lora', 'checkpoint', 'winning settings'],
+    guide: { chapter: 'dataset-guide', anchor: '6-after-training-pick-the-right-checkpoint' },
+    app: { route: '/datasets?section=studio' } },
+
+  // ---- Page-level topics (kind 'page') -----------------------------------
+  { id: 'page-datasets', kind: 'page', title: 'Datasets library',
+    keywords: ['datasets', 'library', 'tiles', 'browse', 'home', 'filter', 'kind'],
+    guide: { chapter: 'getting-started', anchor: 'around-the-app' },
+    app: { route: '/datasets' },
+    tip: { trigger: 'library-browse',
+      text: 'Resize tiles S/M/L, collapse sections, and filter by kind.' } },
+  { id: 'page-setup', kind: 'page', title: 'Setup wizard',
+    keywords: ['setup', 'wizard', 'onboarding', 'install', 'connect', 'tools'],
+    guide: { chapter: 'getting-started', anchor: 'the-setup-wizard' },
+    app: { route: '/setup' } },
+  { id: 'page-studio', kind: 'page', title: 'Test Studio',
+    keywords: ['studio', 'test', 'lora', 'checkpoint', 'generate', 'compare'],
+    guide: { chapter: 'dataset-guide', anchor: '6-after-training-pick-the-right-checkpoint' },
+    app: { route: '/studio' } },
+  { id: 'page-cloud', kind: 'page', title: 'Runs (cloud & local)',
+    keywords: ['runs', 'cloud', 'vast', 'stuck', 'history', 'training', 'gpu'],
+    guide: { chapter: 'troubleshooting', anchor: 'a-cloud-run-seems-stuck' },
+    app: { route: '/cloud' } },
+
+  // ---- Settings: per-field topics (kind 'setting') -----------------------
+  // engines
+  setting('engines.default', 'engines', 'engine-default', 'Default engine',
+    ['default engine', 'engine', 'preselect', 'nanobanana', 'nano banana', 'chatgpt', 'klein', 'gpt-image']),
+  setting('engines.enabled', 'engines', 'engines-enabled', 'Enabled engines',
+    ['enabled engines', 'engine', 'engines', 'show', 'hide', 'generate panel', 'nanobanana', 'chatgpt', 'klein']),
+  setting('engines.chatgpt_auth', 'engines', 'chatgpt-auth-mode', 'ChatGPT engine auth',
+    ['chatgpt', 'auth', 'subscription', 'api key', 'codex', 'oauth', 'openai']),
+  setting('klein.generation_lora_presets', 'engines', 'klein-generation-lora-presets', 'Klein generation LoRA presets',
+    ['lora', 'preset', 'presets', 'klein', 'generation', 'texture', 'anatomy', 'style', 'chain', 'nsfw'],
+    { trigger: 'klein-tuning-open',
+      text: 'Build named generation-LoRA presets in Settings → Image engines, then pick one per run.' }),
+  setting('GEMINI_API_KEY', 'engines', 'GEMINI_API_KEY', 'Gemini API key',
+    ['gemini', 'api key', 'nano banana', 'nanobanana', 'google', 'key']),
+  setting('OPENAI_API_KEY', 'engines', 'OPENAI_API_KEY', 'OpenAI API key',
+    ['openai', 'api key', 'chatgpt', 'gpt-image', 'gpt', 'key']),
+  // scraping
+  setting('REDDIT_CLIENT_ID', 'scraping', 'REDDIT_CLIENT_ID', 'Reddit client ID',
+    ['reddit', 'client id', 'scrape', '429', 'rate limit', 'quota', 'key']),
+  setting('CIVITAI_API_KEY', 'scraping', 'CIVITAI_API_KEY', 'Civitai API key',
+    ['civitai', 'api key', 'nsfw', 'adult', 'scrape', 'key']),
+  setting('PEXELS_API_KEY', 'scraping', 'PEXELS_API_KEY', 'Pexels API key',
+    ['pexels', 'api key', 'scrape', 'stock', 'key']),
+  setting('klein.small_image_prompt', 'scraping', 'klein-small-image-prompt', 'Klein image improvement',
+    ['klein', 'small image', 'rescue', 'upscale', 'improve', 'prompt', 'scrape']),
+  // local-tools
+  setting('comfyui.api_url', 'local-tools', 'comfyui-api-url', 'ComfyUI API URL',
+    ['comfyui', 'api', 'url', 'klein', 'studio', 'local']),
+  setting('comfyui.base_dir', 'local-tools', 'comfyui-base-dir', 'ComfyUI install directory',
+    ['comfyui', 'directory', 'path', 'install', 'base dir', 'models', 'loras']),
+  setting('HF_TOKEN', 'local-tools', 'HF_TOKEN', 'Hugging Face token',
+    ['hugging face', 'hf', 'token', 'gated', 'klein', 'download', 'fp8', 'key']),
+  setting('ollama.url', 'local-tools', 'ollama-url', 'Ollama URL',
+    ['ollama', 'url', 'vision', 'caption', 'local']),
+  setting('ollama.vision_model', 'local-tools', 'ollama-vision-model', 'Ollama vision model',
+    ['ollama', 'vision', 'model', 'abliterated', 'caption', 'qwen', 'uncensored']),
+  setting('aitoolkit.dir', 'local-tools', 'aitoolkit-dir', 'ai-toolkit directory',
+    ['ai-toolkit', 'aitoolkit', 'directory', 'path', 'training', 'run.py']),
+  setting('aitoolkit.python', 'local-tools', 'aitoolkit-python', 'ai-toolkit Python interpreter',
+    ['ai-toolkit', 'aitoolkit', 'python', 'interpreter', 'venv', 'conda', 'uv']),
+  setting('aitoolkit.datasets_dir', 'local-tools', 'aitoolkit-datasets-dir', 'ai-toolkit datasets directory',
+    ['ai-toolkit', 'aitoolkit', 'datasets', 'directory', 'override', 'path']),
+  setting('aitoolkit.output_dir', 'local-tools', 'aitoolkit-output-dir', 'ai-toolkit output directory',
+    ['ai-toolkit', 'aitoolkit', 'output', 'directory', 'override', 'path']),
+  setting('aitoolkit.hf_home', 'local-tools', 'aitoolkit-hf-home', 'ai-toolkit Hugging Face cache',
+    ['ai-toolkit', 'aitoolkit', 'hugging face', 'hf home', 'cache', 'override', 'path']),
+  // captioning
+  setting('captioning.backend', 'captioning', 'captioning-backend', 'Captioning backend',
+    ['caption', 'captioning', 'backend', 'joycaption', 'ollama', 'auto']),
+  setting('watermark.device', 'captioning', 'watermark-device', 'Watermark processing device',
+    ['watermark', 'device', 'gpu', 'cuda', 'cpu', 'inpaint', 'lama']),
+  setting('watermark.allow_crop', 'captioning', 'watermark-allow-crop', 'Allow automatic crop',
+    ['watermark', 'crop', 'allow crop', 'border', 'clean', 'lama', 'klein']),
+  setting('face_scoring.green', 'captioning', 'face-threshold-green', 'Face score — green threshold',
+    ['face', 'score', 'green', 'threshold', 'similarity', 'resemblance', 'insightface']),
+  setting('face_scoring.orange', 'captioning', 'face-threshold-orange', 'Face score — orange threshold',
+    ['face', 'score', 'orange', 'threshold', 'similarity', 'borderline']),
+  // training
+  setting('training.default_family', 'training', 'training-default-family', 'Default training family',
+    ['training', 'family', 'default', 'zimage', 'sdxl', 'krea', 'flux']),
+  setting('VAST_API_KEY', 'training', 'VAST_API_KEY', 'vast.ai API key',
+    ['vast', 'api key', 'cloud', 'gpu', 'rent', 'budget', 'key']),
+  setting('cloud.max_concurrent_runs', 'training', 'cloud-max-concurrent-runs', 'Max simultaneous cloud runs',
+    ['cloud', 'concurrent', 'runs', 'vast', 'gpu', 'limit']),
+  setting('cloud.max_price_per_hour', 'training', 'cloud-max-price-per-hour', 'Max price per hour',
+    ['cloud', 'price', 'hour', 'budget', 'vast', 'cost', 'ceiling']),
+  setting('cloud.monthly_budget_usd', 'training', 'cloud-monthly-budget', 'Monthly budget',
+    ['cloud', 'budget', 'monthly', 'vast', 'cost', 'limit', 'spend']),
+  setting('cloud.stall_timeout_minutes', 'training', 'cloud-stall-timeout', 'Stall timeout',
+    ['cloud', 'stall', 'timeout', 'watchdog', 'vast', 'stuck']),
+  setting('cloud.min_reliability', 'training', 'cloud-min-reliability', 'Min host reliability',
+    ['cloud', 'reliability', 'host', 'vast', 'offer', 'cheap']),
+  setting('cloud.verified_only', 'training', 'cloud-verified-only', 'Verified hosts only',
+    ['cloud', 'verified', 'host', 'vast', 'offer', 'filter']),
+  setting('cloud.secure_cloud_only', 'training', 'cloud-secure-cloud-only', 'Secure Cloud only',
+    ['cloud', 'secure', 'community', 'vast', 'offer', 'filter']),
+  // server
+  setting('server.port', 'server', 'server-port', 'Server port',
+    ['server', 'port', 'bind', 'network', '5050']),
+  setting('server.lan', 'server', 'server-lan', 'Available on the local network',
+    ['lan', 'network', 'remote', 'phone', 'wifi', 'host', 'bind']),
+  setting('server.require_token', 'server', 'server-require-token', 'Require an access token',
+    ['token', 'require', 'access', 'remote', 'phone', 'security', 'lan']),
+  setting('server.access_token', 'server', 'server-token', 'Access token',
+    ['token', 'access', 'remote', 'phone', 'password', 'qr']),
+  // maintenance
+  setting('paths.dataset_images_root', 'maintenance', 'dataset-images-root', 'Dataset images root',
+    ['data', 'storage', 'path', 'dataset', 'images', 'root', 'location', 'disk']),
+
+  // ---- Action topics (kind 'action') -------------------------------------
+  action('action-watermark-clean', 'Find & clean watermarks',
+    ['watermark', 'clean', 'find', 'lama', 'klein', 'crop', 'remove'],
+    '/datasets?section=curation&panel=watermarks', 'settings-reference', 'captioning-quality',
+    { trigger: 'watermark-batch-clean',
+      text: 'Clean has two engines — LaMa (fast) and Klein (quality) — and auto-crop can be turned off.' }),
+  action('action-caption-generate', 'Generate captions',
+    ['caption', 'generate', 'joycaption', 'ollama', 'text'],
+    '/datasets?section=captions&panel=generate', 'dataset-guide', '3-captions-the-make-or-break-step'),
+  action('action-training-launch', 'Train the LoRA',
+    ['train', 'training', 'launch', 'cloud', 'lora', 'start'],
+    '/datasets?section=training&panel=launch', 'dataset-guide', '5-pre-flight-checklist'),
+  action('action-scrape-scan', 'Scan a gallery URL',
+    ['scrape', 'scan', 'gallery', 'url', 'import', 'concept'],
+    '/datasets?section=scrape&panel=scan', 'using-the-app', 'concept-datasets-an-object-or-action-not-a-person'),
+  action('action-studio-open', 'Open Studio',
+    ['studio', 'test', 'lora', 'checkpoint', 'open'],
+    '/datasets?section=studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  action('action-recaption-targeted', 'Re-caption leaking images',
+    ['caption', 'recaption', 'leak', 'targeted', 'fix', 'review'],
+    '/datasets?section=captions&panel=leak-review', 'dataset-guide', '3-captions-the-make-or-break-step',
+    { trigger: 'leak-panel-visible',
+      text: 'You can re-caption just one leaking image (or all of them) — no full re-run.' }),
+  action('action-watermark-restore', 'Restore original',
+    ['watermark', 'restore', 'original', 'undo', 'revert', 'clean'],
+    '/datasets?section=curation&panel=review-flagged', 'settings-reference', 'captioning-quality',
+    { trigger: 'watermark-clean-done',
+      text: 'Not happy with a clean? Restore brings the original back — then try the other engine.' }),
+];
+
+Object.freeze(TOPICS);
+
+const BY_ID = new Map(TOPICS.map((t) => [t.id, t]));
+
+/** The frozen registry array (registry order preserved). */
+export const helpTopics = TOPICS;
+
+/** Look up a single topic by id, or undefined. */
+export function getHelpTopic(id) {
+  return BY_ID.get(id);
+}
+
+/** All topics whose guide.chapter === chapterId, in registry order. */
+export function helpTopicsForChapter(chapterId) {
+  return TOPICS.filter((t) => t.guide.chapter === chapterId);
+}
+
+/** Case-insensitive search over id / title / keywords. Registry order. */
+export function searchHelpTopics(query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return [];
+  return TOPICS.filter((t) =>
+    t.id.toLowerCase().includes(q)
+    || t.title.toLowerCase().includes(q)
+    || t.keywords.some((k) => k.toLowerCase().includes(q)));
+}
+
+/** All one-time tips, flattened: { topicId, trigger, text, guide }. */
+export function helpTips() {
+  return TOPICS.filter((t) => t.tip).map((t) => ({
+    topicId: t.id, trigger: t.tip.trigger, text: t.tip.text, guide: t.guide,
+  }));
+}
+
+/** Resolve a tip by its stable trigger string (or null). */
+export function getHelpTip(trigger) {
+  return helpTips().find((t) => t.trigger === trigger) || null;
+}
+
+/** The in-app HashRouter "to" for a topic's guide anchor. The Getting-help
+    chapter lives at its own /help route, every other chapter under /guide. */
+export function guideHref(chapter, anchor) {
+  const base = chapter === 'getting-help' ? '/help' : `/guide/${chapter}`;
+  return anchor ? `${base}?h=${anchor}` : base;
+}
+
+/** Same, for a topic. */
+export function topicGuideHref(topic) {
+  if (!topic) return null;
+  return guideHref(topic.guide.chapter, topic.guide.anchor);
+}

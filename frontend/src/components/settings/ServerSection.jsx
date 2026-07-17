@@ -106,10 +106,10 @@ export default function ServerSection({ config, setField, runtime, handleSave })
             Wi-Fi/LAN can reach it — e.g. from your phone — using the plain URL below.
           </p>
         </div>
-        <button type="button" role="switch" aria-checked={lan}
+        <button id="server-lan" type="button" role="switch" aria-checked={lan}
           onClick={() => setField('server', 'host', lan ? '127.0.0.1' : '0.0.0.0')}
           aria-label="Available on the local network"
-          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${lan ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
+          className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors ${lan ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
           <span aria-hidden
             className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${lan ? 'translate-x-5' : 'translate-x-0.5'}`} />
         </button>
@@ -128,10 +128,10 @@ export default function ServerSection({ config, setField, runtime, handleSave })
                   : 'Off (default): anyone on your Wi-Fi/LAN can open the app with no password. Fine for a home network; turn on if the network is shared or untrusted.'}
               </p>
             </div>
-            <button type="button" role="switch" aria-checked={requireToken}
+            <button id="server-require-token" type="button" role="switch" aria-checked={requireToken}
               onClick={() => setField('server', 'require_token', !requireToken)}
               aria-label="Require an access token"
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${requireToken ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
+              className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors ${requireToken ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
               <span aria-hidden
                 className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${requireToken ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </button>

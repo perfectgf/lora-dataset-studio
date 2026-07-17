@@ -17,6 +17,7 @@ import { postJson } from '../../hooks/useDataset';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import InstallRunner from '../setup/InstallRunner';
 import { clearScraperScanState, loadScraperScanState, saveScraperScanState } from './scraperState';
+import { HelpBadge } from '../../help/HelpMode';
 import PexelsAttribution from './PexelsAttribution';
 import {
   buildPexelsSearchUrl,
@@ -403,6 +404,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
               className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40">
               {scanning ? 'Scanning…' : 'Scan URL'}
             </button>
+            <HelpBadge topic="action-scrape-scan" className="self-center" />
           </form>
           <p className="text-content-muted text-[0.6875rem] leading-relaxed">
             Use this for supported galleries and albums, or direct Pexels photos and collections.

@@ -32,6 +32,8 @@ import {
 } from '../../utils/smallImageRescue';
 import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET } from './workspaceSections';
 import { putJson } from '../../api/fetchClient';
+import { HelpBadge } from '../../help/HelpMode';
+import { requestHelpTip } from '../../help/helpTips';
 import {
   PANEL_STATUS,
   getWorkspacePanel,
@@ -48,11 +50,11 @@ const MENU_ITEM = 'w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounde
 
 /* En-tête de section (miroir visuel du SectionHeader de Settings, en h2 : le h1
    de la page reste le nom du dataset) : eyebrow mono + titre + description. */
-function SectionHeading({ id, eyebrow, title, description }) {
+function SectionHeading({ id, eyebrow, title, description, badge }) {
   return (
     <div id={id} tabIndex={-1}>
       <p className="m-0 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">{eyebrow}</p>
-      <h2 className="m-0 mt-0.5 text-content text-base font-semibold">{title}</h2>
+      <h2 className="m-0 mt-0.5 flex items-center gap-2 text-content text-base font-semibold">{title}{badge}</h2>
       {description && <p className="m-0 mt-0.5 text-content-muted text-[0.75rem] leading-relaxed">{description}</p>}
     </div>
   );
@@ -376,6 +378,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const leakingImages = images.filter((i) => i.leak);
   // Overlaid watermarks still awaiting removal → drives the "🧽 Clean (N)" button.
   const watermarkDetected = images.filter((i) => i.watermark_state === 'detected').length;
+
+  // One-time contextual tips (best-effort; shown once ever, independent of Help
+  // mode). Each fires when the user first reaches the relevant surface.
+  useEffect(() => { if (section === 'add') requestHelpTip('add-images-visit'); }, [section]);
+  useEffect(() => { if (leakingImages.length >= 1) requestHelpTip('leak-panel-visible'); }, [leakingImages.length]);
+  useEffect(() => { if (settingsOpen) requestHelpTip('dataset-settings-open'); }, [settingsOpen]);
   // Style de caption : défaut AUTO (SDXL booru-native → booru tags ; sinon prose), surchargé par le sélecteur.
   const effCaptionMode = captionMode || (d.train_type === 'sdxl' ? 'booru' : 'prose');
   // ── Grid tag-filter (session-only) ──────────────────────────────────────────
@@ -606,6 +614,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const heading = (id) => {
     const s = sectionMeta[id];
     return <SectionHeading id={`ds-section-${id}-heading`} eyebrow={s.eyebrow} title={s.title}
+      badge={<HelpBadge topic={`workspace-${id}`} />}
       description={isStyle && id === 'add'
         ? 'Import varied images that share the aesthetic; subject and scene diversity keep the Style LoRA composable.'
         : isConceptual && s.conceptDescription ? s.conceptDescription : s.description} />;
@@ -930,6 +939,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     ? `🧽 Scanning…${act?.kind === 'watermark_detect' && act.total ? ` ${act.done}/${act.total}` : ''}`
                     : '🧽 Find watermarks'}
                 </button>
+                <HelpBadge topic="action-watermark-clean" />
                 {watermarkDetected > 0 && (
                   <>
                   {/* Inpaint engine: LaMa (fast, non-generative) vs Klein (masked
@@ -969,7 +979,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       : 'border-amber-400/50 bg-amber-500/10 text-amber-200'}`}>
                     {allowAutoCrop ? '✂ Auto-crop on' : '✂ Auto-crop off'}
                   </button>
-                  <button type="button" onClick={() => ds.cleanWatermarks(watermarkMethod)}
+                  <button type="button"
+                    onClick={() => { requestHelpTip('watermark-batch-clean'); ds.cleanWatermarks(watermarkMethod); }}
                     disabled={ds.busy || savingAllowCrop}
                     title={watermarkMethod === 'klein'
                       ? (allowAutoCrop
@@ -1084,6 +1095,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
                   {ds.captioning ? `✨ ${keptCaptioned}/${kept} captioned…` : '✨ Caption the kept ones'}
                 </button>
+                <HelpBadge topic="action-caption-generate" />
                 <button type="button" disabled={ds.busy || !keptCaptioned}
                   onClick={() => {
                     if (window.confirm(recaptionConfirmation(d.kind || 'character', keptCaptioned))) ds.recaption(effCaptionMode);
@@ -1240,6 +1252,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                               {isConcept
                                 ? <>Captions naming the concept ({d.caption_leak?.leaking}) — remove the concept words, or 🔄 Re-caption. Edits save when you click away.</>
                                 : <>Captions leaking identity ({d.caption_leak?.leaking}) — remove the highlighted words, or 🔄 Re-caption. Edits save when you click away.</>}
+                              <HelpBadge topic="action-recaption-targeted" className="ml-1" />
                             </span>
                             {leakingImages.length > 1 && (
                               <button type="button"
@@ -1444,6 +1457,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   Configure ComfyUI in Settings to use the LoRA testing Studio.
                 </p>
               )}
+              <div><HelpBadge topic="action-studio-open" /></div>
             </div>
           </div>
         </div>{/* /right column */}

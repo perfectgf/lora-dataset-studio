@@ -30,6 +30,7 @@ import {
   trainingPresetSnapshotScope,
 } from '../../utils/trainingPresets';
 import { runConfirmableTrainingRequest } from '../../utils/trainingConfirmations';
+import { HelpBadge } from '../../help/HelpMode';
 import { useToast } from '../common/Toast';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
@@ -1153,6 +1154,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
           <span aria-hidden>🚀</span> Train the LoRA
         </button>
+        <HelpBadge topic="action-training-launch" />
         {caps.cloud_training && (
           <button type="button"
             disabled={!!cloudDisabledReason}

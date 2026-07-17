@@ -8,6 +8,7 @@ import ShotIllustration, { contextEmoji } from './ShotIllustration';
 import { displayLabel } from '../../utils/labels';
 import { kleinMissingLabels } from '../../hooks/useSetupSteps';
 import { generationLoraPresetPayload, sanitizeGenerationLoraPresets } from '../../utils/generationLoras';
+import { requestHelpTip } from '../../help/helpTips';
 import {
   applyShotPreset,
   deleteShotPreset,
@@ -797,7 +798,8 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           A <details> so the defaults stay out of a newcomer's way — children
           remain mounted, so the model picker still reports its choice. */}
       {isKlein && klAvailable && (
-        <details className="rounded-lg border border-border bg-app/30 open:pb-2">
+        <details className="rounded-lg border border-border bg-app/30 open:pb-2"
+          onToggle={(e) => { if (e.currentTarget.open) requestHelpTip('klein-tuning-open'); }}>
           <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
             🖥️ Klein tuning
             <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">

@@ -6,6 +6,12 @@
    elle sortira en texte brut — visible d'un coup d'œil, jamais dangereux
    (aucun dangerouslySetInnerHTML : tout passe par des éléments React). */
 
+// Shared slugifier — lives in utils/headingId.js so the help registry and the
+// node --test contract can import it without pulling JSX/Vite in. Re-exported
+// here because GuidePage (and other callers) import it from this module.
+import { markdownHeadingId } from '../../utils/headingId'
+export { markdownHeadingId }
+
 // ---- inline: **bold**, *italic*, `code`, [text](url) ----
 function renderInline(text, keyBase = 'i') {
   const out = [];
@@ -93,12 +99,6 @@ function parseBlocks(md) {
   return blocks;
 }
 
-export const markdownHeadingId = (text) => String(text || '')
-  .replace(/[`*_]/g, '')
-  .toLocaleLowerCase()
-  .replace(/[^a-z0-9]+/g, '-')
-  .replace(/^-|-$/g, '');
-
 function renderBlock(b, idx, guide = false) {
   const key = `b${idx}`;
   switch (b.t) {
@@ -167,7 +167,7 @@ function renderBlock(b, idx, guide = false) {
   }
 }
 
-export default function Markdown({ source, variant = 'default' }) {
+export default function Markdown({ source, variant = 'default', sectionActions = null }) {
   const blocks = parseBlocks(source || '');
   if (variant === 'guide') {
     const visible = blocks.filter((block, index) => !(index === 0 && block.t === 'h1'));
@@ -188,18 +188,23 @@ export default function Markdown({ source, variant = 'default' }) {
             {intro.map(({ block, index }) => renderBlock(block, index, true))}
           </div>
         )}
-        {sections.map(({ heading, blocks: sectionBlocks, index }) => (
-          <section key={`section-${index}`} id={markdownHeadingId(heading.body)}
+        {sections.map(({ heading, blocks: sectionBlocks, index }) => {
+          const headingId = markdownHeadingId(heading.body);
+          const action = sectionActions ? sectionActions[headingId] : null;
+          return (
+          <section key={`section-${index}`} id={headingId}
             className="scroll-mt-24 rounded-xl border border-border bg-surface px-4 py-4 shadow-sm shadow-black/10 sm:px-5 sm:py-5">
             <div className="mb-4 flex items-start gap-3 border-b border-border pb-3">
               <span aria-hidden className="mt-1 h-5 w-1 shrink-0 rounded-full bg-gradient-primary" />
-              {renderBlock(heading, index, true)}
+              <div className="min-w-0 flex-1">{renderBlock(heading, index, true)}</div>
+              {action && <div className="shrink-0">{action}</div>}
             </div>
             <div className="flex flex-col gap-3">
               {sectionBlocks.map(({ block, index: blockIndex }) => renderBlock(block, blockIndex, true))}
             </div>
           </section>
-        ))}
+          );
+        })}
       </div>
     );
   }

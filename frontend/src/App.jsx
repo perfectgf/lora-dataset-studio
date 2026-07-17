@@ -14,6 +14,7 @@ import SetupPage from './pages/SetupPage'
 import GuidePage from './pages/GuidePage'
 import CloudRunsPage from './pages/CloudRunsPage'
 import { recommendedMet } from './hooks/useSetupSteps'
+import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
 
 const NAV_ITEM_BASE =
   'px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors'
@@ -90,6 +91,26 @@ function CheckUpdatesButton() {
   )
 }
 
+/** Header toggle for Help mode. When on, every instrumented heading/action
+ * shows a "?" badge that jumps to the matching spot in the guide. aria-pressed
+ * spells the state out; the indigo ring makes "on" visually unmistakable. */
+function HelpModeToggle({ onToggle }) {
+  const { enabled, toggle } = useHelpMode()
+  return (
+    <button type="button" onClick={() => { toggle(); onToggle?.() }}
+      aria-pressed={enabled}
+      title={enabled
+        ? 'Help mode is on — click any ? badge to jump to the guide'
+        : 'Turn on Help mode to reveal ? badges that link to the guide'}
+      className={`${NAV_ITEM_BASE} inline-flex items-center gap-1.5 ${enabled
+        ? 'bg-indigo-500/20 text-indigo-200 ring-1 ring-inset ring-indigo-400/50'
+        : 'text-content-muted hover:text-content hover:bg-surface-raised'}`}>
+      <span aria-hidden className="grid h-4 w-4 place-items-center rounded-full border border-current text-[10px] font-bold leading-none">?</span>
+      <span>Help mode</span>
+    </button>
+  )
+}
+
 function NavBar() {
   const { caps } = useCapabilities()
   // Below `md` the horizontal link row has nowhere to go (it used to just wrap
@@ -127,6 +148,7 @@ function NavBar() {
       </NavLink>
       <NavLink to="/settings" className={navItemClass} onClick={() => setOpen(false)}>Settings</NavLink>
       <NavLink to="/help" className={navItemClass} onClick={() => setOpen(false)}>Help</NavLink>
+      <HelpModeToggle onToggle={() => setOpen(false)} />
     </>
   )
   return (
@@ -300,6 +322,7 @@ function Shell() {
       <main id="main-content" tabIndex={-1} className="mx-auto max-w-5xl px-4 py-6">
         <Outlet />
       </main>
+      <TipHost />
     </>
   )
 }
@@ -321,6 +344,7 @@ function AppInner() {
         Skip to main content
       </a>
       <HashRouter>
+        <HelpModeProvider>
         <Routes>
           <Route element={<Shell />}>
             <Route path="/" element={<Navigate to="/datasets" replace />} />
@@ -338,6 +362,7 @@ function AppInner() {
             <Route path="*" element={<Navigate to="/datasets" replace />} />
           </Route>
         </Routes>
+        </HelpModeProvider>
       </HashRouter>
     </>
   )

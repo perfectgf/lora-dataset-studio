@@ -4,6 +4,7 @@ import { postJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
 import TrainingProgress from '../components/dataset/TrainingProgress';
 import { DatasetVersionChip, RunIdChip } from '../components/dataset/RunIdentityBadges';
+import { HelpBadge } from '../help/HelpMode';
 import { runIdentityOf, runRowDomId } from '../utils/runIdentity';
 import {
   canStopLocalRun,
@@ -537,8 +538,9 @@ export default function CloudRunsPage() {
     <section className="flex flex-col gap-5">
       <header className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="m-0 text-content text-xl font-bold">
-            <span aria-hidden>🏋️</span> Training runs
+          <h1 className="m-0 flex items-center gap-2 text-content text-xl font-bold">
+            <span><span aria-hidden>🏋️</span> Training runs</span>
+            <HelpBadge topic="page-cloud" />
           </h1>
           {/* Escape hatch to the provider: see the pod's own console (billing,
               logs, manual destroy) when something looks off app-side. */}

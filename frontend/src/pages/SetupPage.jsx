@@ -6,6 +6,7 @@ import { useCapabilities } from '../context/CapabilitiesContext'
 import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS, kleinMissingLabels } from '../hooks/useSetupSteps'
 import GuidedSteps from '../components/setup/GuidedSteps'
 import InstallRunner from '../components/setup/InstallRunner'
+import { HelpBadge } from '../help/HelpMode'
 
 const INPUT_CLASS =
   'mt-1 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 text-sm text-content ' +
@@ -918,6 +919,7 @@ export default function SetupPage() {
                   Recommended
                 </span>
               )}
+              <HelpBadge topic="page-setup" className="ml-2" />
             </h1>
             <p className="mt-1 text-xs text-content-muted">Unlocks: {step.unlocks.join(' · ')}</p>
           </div>

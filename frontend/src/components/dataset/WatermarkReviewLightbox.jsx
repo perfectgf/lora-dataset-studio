@@ -22,6 +22,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { HelpBadge } from '../../help/HelpMode';
+import { requestHelpTip } from '../../help/helpTips';
 import { displayLabel } from '../../utils/labels';
 import {
   MAX_WATERMARK_REGIONS,
@@ -123,6 +125,8 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   const total = queue.length;
   const item = idx >= 0 && idx < total ? queue[idx] : null;
   const outcome = item ? outcomes[item.id] : null;
+  // One-time tip: the first time a clean lands, point out Restore + the other engine.
+  useEffect(() => { if (outcome === 'cleaned') requestHelpTip('watermark-clean-done'); }, [outcome]);
   const regions = item ? (regionsById[item.id] || []) : [];
   const manual = item ? Boolean(manualById[item.id]) : false;
   const selectedRegion = item ? selectedById[item.id] : null;
@@ -688,6 +692,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
               {cleaning ? '🧽 Cleaning…' : <>🧽 Clean <kbd className="text-[10px] text-white/50">c</kbd></>}
             </button>
           )}
+          <HelpBadge topic="action-watermark-restore" className="self-center" />
           <button type="button" onClick={doDismiss} disabled={actionBlocked}
             title="This is NOT a watermark (false positive) — clears the flag, future scans skip it — shortcut d"
             className={`${btn} bg-emerald-600/20 border border-emerald-400/40 text-emerald-100 hover:bg-emerald-600/30`}>

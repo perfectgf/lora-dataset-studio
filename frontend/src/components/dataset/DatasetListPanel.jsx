@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import ShotIllustration from './ShotIllustration';
 import TileSizeControl from '../shared/TileSizeControl';
+import { HelpBadge } from '../../help/HelpMode';
+import { requestHelpTip } from '../../help/helpTips';
 import {
   datasetKind, datasetMatches, groupDatasets, kindsPresent,
   normalizeCollapsedMap, normalizeTileSize,
@@ -479,6 +481,9 @@ export default function DatasetListPanel({
   const restoreRef = useRef(null);
   const empty = datasets.length === 0;
   const formOpen = creating || empty;
+  // One-time tip: once the library is sizeable, point out tile sizing / folding /
+  // filtering. Gated at ≥6 so it never fires for a first-time, near-empty library.
+  useEffect(() => { if (datasets.length >= 6) requestHelpTip('library-browse'); }, [datasets.length]);
   const filtered = datasets.filter((d) => datasetMatches(d, query, kindFilter));
   const groups = groupDatasets(filtered);
   const kinds = kindsPresent(datasets);
@@ -492,7 +497,7 @@ export default function DatasetListPanel({
       <div>
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">library</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold text-content">Datasets</h1>
+          <h1 className="text-xl font-semibold text-content flex items-center gap-2">Datasets<HelpBadge topic="page-datasets" /></h1>
           {!empty && <span className="text-sm text-content-subtle">{datasets.length}</span>}
           <div className="ml-auto flex items-center gap-2">
             <button type="button"

@@ -127,6 +127,7 @@ function KleinLorasCard({ config, setField }) {
   const save = (next) => setField('klein', 'generation_lora_presets', next)
   return (
     <Card
+      id="klein-generation-lora-presets"
       title="Klein generation LoRA presets (optional)"
       help={`Named combinations of your own LoRA files, chained after the consistency LoRA on the local Klein engine — inside a preset the order is the chain order (max ${MAX_GENERATION_LORAS} LoRAs each, ${MAX_GENERATION_LORA_PRESETS} presets). Point each row at a file under ComfyUI's models/loras (relative name, e.g. klein/my-lora.safetensors) — any LoRA, any purpose. Per run, pick a preset in the workspace's 🖥️ Klein tuning panel ("None" by default). Idea by @waltm (Discord).`}
     >
@@ -302,7 +303,7 @@ export default function EnginesSection(props) {
           </select>
         </div>
 
-        <fieldset>
+        <fieldset id="engines-enabled" className="scroll-mt-24">
           <legend className="mb-1 block text-sm font-medium text-content">Enabled engines</legend>
           <div className="flex flex-col gap-2">
             {ENGINE_OPTIONS.map((o) => (

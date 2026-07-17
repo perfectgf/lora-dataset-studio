@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Markdown, { markdownHeadingId } from '../components/common/Markdown'
 import DiagnosticReport from '../components/common/DiagnosticReport'
+import { helpTopicsForChapter } from '../help/helpRegistry'
 // Vite inlines every chapter as a string at build time (?raw) → the guide
 // lives in the bundle, no fetch, nothing extra to ship in the portable build.
 // DATASET_GUIDE.md keeps its historical path (linked from GitHub); the other
@@ -9,6 +10,7 @@ import DiagnosticReport from '../components/common/DiagnosticReport'
 import gettingStarted from '../../../docs/guide/getting-started.md?raw'
 import usingTheApp from '../../../docs/guide/using-the-app.md?raw'
 import datasetGuide from '../../../docs/DATASET_GUIDE.md?raw'
+import settingsReference from '../../../docs/guide/settings-reference.md?raw'
 import troubleshooting from '../../../docs/guide/troubleshooting.md?raw'
 import gettingHelp from '../../../docs/guide/getting-help.md?raw'
 
@@ -19,15 +21,25 @@ const CHAPTERS = [
   { id: 'getting-started', num: '01', title: 'Getting started', description: 'Install the app, connect the tools you need, and understand the workspace.', source: gettingStarted },
   { id: 'using-the-app', num: '02', title: 'Using the app', description: 'Follow the complete workflow for character, concept, and style datasets.', source: usingTheApp },
   { id: 'dataset-guide', num: '03', title: 'Building a good dataset', description: 'Make stronger choices about images, captions, settings, and checkpoints.', source: datasetGuide },
-  { id: 'troubleshooting', num: '04', title: 'Troubleshooting', description: 'Find a symptom, understand the cause, and apply the shortest reliable fix.', source: troubleshooting },
+  { id: 'settings-reference', num: '04', title: 'Settings reference', description: 'Every setting explained — what it does, its default, and when to change it.', source: settingsReference },
+  { id: 'troubleshooting', num: '05', title: 'Troubleshooting', description: 'Find a symptom, understand the cause, and apply the shortest reliable fix.', source: troubleshooting },
 ]
-const HELP_CHAPTER = { id: 'getting-help', num: '05', title: 'Getting help', description: 'Create a useful report and share the details needed to solve a problem.', source: gettingHelp, extra: 'diagnostic' }
+const HELP_CHAPTER = { id: 'getting-help', num: '06', title: 'Getting help', description: 'Create a useful report and share the details needed to solve a problem.', source: gettingHelp, extra: 'diagnostic' }
 
 const cleanHeading = (heading) => heading.replace(/[`*_]/g, '')
+
+// Append focus=<id> to a topic's app route, preserving any query already there
+// (e.g. /datasets?section=scrape&panel=scan → …&focus=ds-scrape-scan).
+const routeWithFocus = (app) => {
+  if (!app.focus) return app.route
+  return `${app.route}${app.route.includes('?') ? '&' : '?'}focus=${app.focus}`
+}
 
 export default function GuidePage({ helpOnly = false }) {
   const { section } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const targetHeading = searchParams.get('h')
   const chapters = helpOnly ? [HELP_CHAPTER] : CHAPTERS
   const idx = helpOnly ? 0 : Math.max(0, chapters.findIndex((c) => c.id === section))
   const chapter = chapters[idx]
@@ -39,9 +51,39 @@ export default function GuidePage({ helpOnly = false }) {
   const readingMinutes = Math.max(1, Math.ceil(chapter.source.trim().split(/\s+/).length / 210))
   const jumpToHeading = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
-  // A chapter switch is a new "page" — land the reader at its top, not at the
-  // scroll depth of the previous chapter.
-  useEffect(() => { window.scrollTo(0, 0) }, [chapter.id])
+  // doc → app: an "Open this screen →" button in each guide section header that
+  // has a matching help topic. Keyed by heading anchor; the FIRST topic in the
+  // registry for that anchor wins (see helpRegistry ordering).
+  const sectionActions = useMemo(() => {
+    const map = {}
+    for (const t of helpTopicsForChapter(chapter.id)) {
+      if (map[t.guide.anchor]) continue
+      map[t.guide.anchor] = (
+        <button type="button" onClick={() => navigate(routeWithFocus(t.app))}
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-indigo-400/40 bg-indigo-500/10 px-2.5 py-1 text-xs font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20">
+          Open this screen →
+        </button>
+      )
+    }
+    return map
+  }, [chapter.id, navigate])
+
+  // A chapter switch is a new "page" — land the reader at its top, unless the
+  // link asked for a specific heading (?h=), which the effect below handles.
+  useEffect(() => { if (!targetHeading) window.scrollTo(0, 0) }, [chapter.id, targetHeading])
+
+  // app → doc landing: scroll to the requested heading and flash a ring so the
+  // eye catches where it landed. Runs after render, so the element exists.
+  useEffect(() => {
+    if (!targetHeading) return undefined
+    const el = document.getElementById(targetHeading)
+    if (!el) return undefined
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const ring = ['ring-2', 'ring-indigo-400/70', 'ring-offset-2', 'ring-offset-app']
+    el.classList.add(...ring)
+    const t = setTimeout(() => el.classList.remove(...ring), 2000)
+    return () => clearTimeout(t)
+  }, [targetHeading, chapter.id])
 
   const navItem = (c, chip) => {
     const isActive = c.id === chapter.id
@@ -108,7 +150,7 @@ export default function GuidePage({ helpOnly = false }) {
           </nav>
         )}
 
-        <Markdown source={chapter.source} variant="guide" />
+        <Markdown source={chapter.source} variant="guide" sectionActions={sectionActions} />
 
         {chapter.extra === 'diagnostic' && (
           <div className="mt-6">
