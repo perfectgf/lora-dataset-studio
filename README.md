@@ -33,6 +33,17 @@ The whole pipeline, grouped by stage — every item links to the section that de
 
 ## Recent improvements
 
+- **❓ A two-way Help mode** — flip the **?** toggle in the header and clickable help badges appear across the app, each one opening the Guide at the exact section that explains that control. Every Guide section carries an **Open this screen →** link the other way, the Settings search now finds **both sections and individual settings**, and discreet one-time tips surface in context.
+- **📖 New "Settings reference" Guide chapter** — every setting in the app now has a written entry: **what it does, its default, and the traps to avoid**. It ships as the in-app Guide's newest chapter and is also readable on GitHub at [docs/guide/settings-reference.md](docs/guide/settings-reference.md).
+- **🕸 Scrape is its own workspace destination** — the scraper moved out of the bottom of *Add images* into a first-class stop on the workspace rail (a discreet link stays where it used to live), and it now deep-links: **`?section=scrape`** opens a dataset straight on the scraper.
+- **🧽 Finer watermark-cleanup control** — a new **Allow auto-crop** preference (in **Settings** *and* the Clean bar) decides whether border marks are cropped or repainted, the review lightbox gains a per-image **Crop | Inpaint** choice, and **↩ Restore original** undoes any LaMa/Klein/crop edit so you can retry with the other engine — the `.orig` original survives every cycle. The Klein refine pass was also tuned so its seam blends into the surrounding image.
+- **🎨 Named Klein generation-LoRA presets** — build named LoRA stacks under **Settings → Image engines** (up to **8 LoRAs and 12 presets**), then pick one **per run** in Klein tuning; presets resolve by name and **fail closed** — an unknown name simply runs with no extra LoRAs. Automatic NSFW gating is gone: the preset you choose carries the intent. *(Idea from @waltm.)*
+- **✍️ Per-dataset prompt suffixes** — give a dataset a global creative direction plus per-framing suffixes (face/bust/body/back) that are appended to **generated** shots without ever touching the identity lock. They apply at generation time, so a regenerate uses the **current** suffix and never doubles it. *(Idea from @waltm.)*
+- **🔄 Targeted re-caption from the Identity-leak panel** — re-caption a single leaking image or **every** flagged one straight from the panel, using the same engine and mode as the last batch.
+- **🗂 Library split into Trained / Not trained yet** — the dataset library now groups on the model families you've **actually trained**, in two clear sections, and switching the type selector no longer shuffles a tile between them.
+- **🩹 Self-healing venv on boot** — a Pillow install corrupted by the ML extras is auto-repaired at startup (and **`start.bat`** rebuilds a sick venv), and the incompatible extra no longer installs into the Flask venv in the first place.
+- **📂 Root-level Klein models recognized everywhere** — Klein weights dropped at the root of `diffusion_models/` are now found by the picker, the probe and the resolver alike, and Klein readiness is judged on **all three** required weights.
+- **🛡 Robustness fixes** — deleting a dataset is refused while one of its runs is active, a Windows file-lock during deletion no longer throws a 500, and underscore triggers are preserved in deployed filenames.
 - **🧽 Klein engine for watermark cleanup** — Clean now has two engines: **LaMa (fast)**, the default, and **Klein (quality)**, which pre-fills the mark with LaMa and then regenerates real texture over it with a FLUX.2 Klein refine pass — far better on skin, fabric and busy backgrounds. The refined crop is composited back **in pixel space**, so every pixel outside the mark keeps its original bytes. Marks sitting **on the subject** — previously parked in "needs review" — become cleanable straight from the review lightbox, and batch Clean takes an engine picker.
 - **☁🎚 Slider LoRAs go cloud** — slider training is no longer local-only: the cloud lane now accepts `concept_slider` jobs, and slider settings are **snapshotted at launch** so a mid-run edit can never retarget a rented run. The first paid slider run is still unproven — treat cloud sliders as extra-Beta.
 - **🖼 Flip through Test Studio results** — the result lightbox now navigates: swipe on touch, **‹ ›** buttons and **arrow keys** on desktop, with an *i / n* counter and wrap-around. Strength variants of the same render sit **adjacent** in the order, so flipping compares strengths directly.
@@ -464,12 +475,14 @@ The app scales from "no GPU at all" to a full local training rig — each capabi
 
 ## Configuration reference
 
+> **The living, complete reference is inside the app:** **Guide → Settings reference** documents every setting with its default and traps (also readable on GitHub at [docs/guide/settings-reference.md](docs/guide/settings-reference.md)). The table below is the condensed cheat-sheet.
+
 Copy `config.example.json` to `config.json` (git-ignored) and adjust. Main keys:
 
 | Key | Meaning |
 |---|---|
 | `server.host` | Interface the Flask server binds to (default `127.0.0.1`, local-only). |
-| `server.port` | Port the server listens on (default `5000`). |
+| `server.port` | Port the server listens on (default `5050`). |
 | `server.require_token` | On a non-loopback bind, require remote clients to present an access token (default `false` — a trusted LAN needs none). Toggle and token also live in Settings → Server & access. |
 | `paths.dataset_images_root` | Where dataset images are stored. Empty string defaults to `<data dir>/datasets`. |
 | `comfyui.api_url` | Base URL of your ComfyUI instance (default `http://127.0.0.1:8188`). |
@@ -487,8 +500,17 @@ Copy `config.example.json` to `config.json` (git-ignored) and adjust. Main keys:
 | `aitoolkit.python` | Full path to the Python interpreter to run ai-toolkit with. Empty = auto-detect a `venv/`/`.venv/` next to `run.py`; set it for conda/uv/system-Python installs that have no venv folder. |
 | `engines.default` | Default image-generation engine selected in the UI (`nanobanana`, `chatgpt`, or `klein`). |
 | `engines.enabled` | List of engines shown as options in the UI. |
+| `engines.chatgpt_auth` | Which credential the ChatGPT engine uses: `auto` (subscription when connected, else API key), `api`, or `subscription`. |
+| `engines.chatgpt_subscription_model` | Codex **router** model for the subscription lane (default `gpt-5.4-mini`); the image model stays `gpt-image-2` regardless. |
 | `captioning.backend` | Caption backend: `auto` (prefer JoyCaption, fall back to Ollama), `joycaption`, `ollama`, or `none`. |
 | `training.default_family` | Default model family preselected for new training runs (`zimage`, `sdxl`, `krea`, `flux`, or `flux2klein`). |
+| `cloud.max_concurrent_runs` | Simultaneous cloud pods allowed (default `1`, 1–10). Also in Settings → Training. |
+| `cloud.max_price_per_hour` | Safety cap on the hourly offer price in $ (default `0.80`); pricier hosts are skipped before launch. |
+| `cloud.monthly_budget_usd` | Hard monthly spend ceiling in $ (default `0` = unlimited); launches are blocked past it. |
+| `cloud.stall_timeout_minutes` | Kill + rescue a cloud run after this many minutes without step progress (default `30`, 5–240). |
+| `cloud.min_reliability` | vast.ai host-reliability floor (default `0.98`, 0.9–0.999); lower surfaces cheaper, riskier hosts. |
+| `cloud.verified_only` | Restrict to vast.ai verified hosts (default `true`). |
+| `cloud.secure_cloud_only` | Restrict to vast.ai's Secure Cloud (datacenter) tier (default `false`; narrows the market, raises price). |
 | `face_scoring.python` | Python interpreter used to run the InsightFace subprocess (empty = current interpreter). |
 | `face_scoring.models_root` | Directory where InsightFace model weights are stored/downloaded. |
 | `face_scoring.green` | Similarity score threshold (0–1) above which an image is flagged "green" (strong match). |
@@ -496,9 +518,12 @@ Copy `config.example.json` to `config.json` (git-ignored) and adjust. Main keys:
 | `masks.python` | Python interpreter used to run the rembg subprocess (empty = current interpreter). |
 | `watermark.python` | Python interpreter used to run the LaMa watermark-inpainting subprocess (empty = reuse `masks.python`, then the current interpreter). |
 | `watermark.device` | LaMa processing device: `auto` (CUDA when available, otherwise CPU), `cuda`, or `cpu`. |
+| `watermark.allow_crop` | When `true` (default), a border watermark is cropped off; when `false`, it is repainted instead. Also editable in the Clean bar. |
 | `klein.consistency_lora` | Filename of the Klein consistency LoRA, relative to ComfyUI's LoRA folder. |
 | `klein.consistency_strength` | Strength (0–1) applied to the Klein consistency LoRA. |
+| `klein.generation_lora_presets` | Named generation-LoRA stacks (default empty) picked per run in Klein tuning; each has a name and up to 8 `{file, strength}` rows. Managed in Settings → Image engines. |
 | `klein.small_image_prompt` | Optional shared instruction for scraper rescue and single/bulk image improvement (empty = reference image only). |
+| `updates.repo` | GitHub repo the update checker reads its release feed from (default `perfectgf/lora-dataset-studio`). |
 
 Secrets such as `GEMINI_API_KEY`, `OPENAI_API_KEY`, `HF_TOKEN`, `VAST_API_KEY` and optional scraper credentials live in `.env`, not `config.json` — copy `.env.example` to `.env`, or paste keys into Settings and let the app write them for you.
 
