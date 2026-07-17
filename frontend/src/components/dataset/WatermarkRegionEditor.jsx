@@ -232,7 +232,7 @@ export default function WatermarkRegionEditor({
 
   return (
     <div
-      className="relative inline-block max-h-[70vh] max-w-[92vw] leading-none"
+      className="relative inline-block max-h-[min(70vh,calc(100cqh_-_1.5rem))] max-w-[min(92vw,100cqw)] leading-none"
       role="group"
       aria-label="Watermark correction region editor"
       aria-describedby={countId}
@@ -250,7 +250,7 @@ export default function WatermarkRegionEditor({
         alt={alt}
         draggable={false}
         onDragStart={(event) => event.preventDefault()}
-        className="block max-h-[70vh] max-w-[92vw] select-none"
+        className="block max-h-[min(70vh,calc(100cqh_-_1.5rem))] max-w-[min(92vw,100cqw)] select-none"
       />
 
       <span id={countId} className="sr-only" aria-live="polite">

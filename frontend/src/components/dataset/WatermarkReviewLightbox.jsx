@@ -442,9 +442,14 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
           className="ml-auto w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-lg leading-none disabled:opacity-40">✕</button>
       </div>
 
-      {/* Image + editable correction-zone overlays */}
+      {/* Image + editable correction-zone overlays.
+          [container-type:size] turns this cell into a size-query container so the
+          media below can cap its height to the cell (100cqh) — without it a portrait
+          image keeps its natural height, overflows this flex-1 cell on a short mobile
+          viewport, and the absolutely-positioned region box/handles paint over (and
+          steal pointer events from) the controls bar underneath. */}
       <div onClick={(e) => e.stopPropagation()}
-        className="flex-1 min-h-0 flex items-center justify-center p-3">
+        className="flex-1 min-h-0 flex items-center justify-center p-3 [container-type:size]">
         {url ? (
           showEditor ? (
             <WatermarkRegionEditor
@@ -468,7 +473,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
             </WatermarkRegionEditor>
           ) : (
             <div className="relative">
-              <img src={url} alt={alt} className="block max-h-[70vh] max-w-[92vw] select-none" />
+              <img src={url} alt={alt} className="block max-h-[min(70vh,calc(100cqh_-_1.5rem))] max-w-[min(92vw,100cqw)] select-none" />
               {cleaning ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-sm">
                   <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/75 text-amber-200 text-sm font-semibold">
