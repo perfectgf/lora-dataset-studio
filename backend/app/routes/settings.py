@@ -162,6 +162,28 @@ def get_capabilities():
     return jsonify(capabilities.probe(force=force))
 
 
+@bp.get('/loras/list')
+def loras_list():
+    """LoRAs on disk for the Klein generation-LoRA preset picker: the whole loras
+    tree (base ``models/loras`` + every ``extra_model_paths.yaml`` root, recursive),
+    each badged with its architecture — ``{loras: [{name, arch, label, compatible}]}``,
+    Klein-compatible first. ``name`` is the exact ComfyUI-relative value a preset row
+    stores and the generate path resolves (``comfy_model_paths.list_models('loras')``).
+    ``compatible`` is judged against the Klein graph (its only consumer today).
+    ``?force=1`` bypasses the mtime cache (the ↻ rescan button). Degrades to
+    ``{loras: []}`` — never an error — when no loras root exists (ComfyUI
+    unconfigured) or the scan fails, so the picker falls back to a free-text field
+    instead of a blocking empty dropdown."""
+    from ..services import klein_lora_picker
+    force = bool(request.args.get('force'))
+    try:
+        loras = klein_lora_picker.scan_generation_loras(force=force)
+    except Exception:
+        current_app.logger.exception('loras list scan failed')
+        loras = []
+    return jsonify({'loras': loras})
+
+
 @bp.post('/settings/test/<target>')
 def test_connection(target):
     probe_fn = _TEST_TARGETS.get(target)

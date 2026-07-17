@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, postJson } from '../../api/fetchClient'
 import { INPUT_CLASS, Card, StatusBadge, SecretField } from './primitives'
+import KleinLoraCombobox, { useKleinGenerationLoras } from './KleinLoraCombobox'
 
 const ENGINE_SECRETS = [
   { key: 'GEMINI_API_KEY', label: 'Gemini API key', testTarget: 'gemini', help: 'Powers the Nano Banana engine.' },
@@ -39,7 +40,7 @@ function freeName(presets, base) {
   }
 }
 
-function KleinLoraPresetCard({ preset, index, presets, save }) {
+function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
   const rows = Array.isArray(preset?.loras) ? preset.loras : []
   const patchPreset = (p) => save(presets.map((x, j) => (j === index ? { ...x, ...p } : x)))
   const patchRow = (i, p) => patchPreset({ loras: rows.map((r, j) => (j === i ? { ...r, ...p } : r)) })
@@ -81,12 +82,11 @@ function KleinLoraPresetCard({ preset, index, presets, save }) {
         return (
           <div key={i} className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-content-muted w-4 shrink-0" aria-hidden="true">{i + 1}.</span>
-            <input
-              type="text" aria-label={`Preset ${index + 1} LoRA file ${i + 1}`}
+            <KleinLoraCombobox
+              ariaLabel={`Preset ${index + 1} LoRA file ${i + 1}`}
               value={row?.file || ''}
-              onChange={(e) => patchRow(i, { file: e.target.value })}
-              placeholder="klein/my-lora.safetensors"
-              className={`${INPUT_CLASS} mt-0 flex-1 min-w-[180px]`}
+              onChange={(next) => patchRow(i, { file: next })}
+              {...loraScan}
             />
             <label className="flex items-center gap-1.5 text-xs text-content-muted">
               <span className="whitespace-nowrap">{strength.toFixed(2)}</span>
@@ -125,17 +125,20 @@ function KleinLorasCard({ config, setField }) {
   const presets = Array.isArray(config.klein?.generation_lora_presets)
     ? config.klein.generation_lora_presets : []
   const save = (next) => setField('klein', 'generation_lora_presets', next)
+  // ONE scan of ComfyUI's loras folder, shared by every row's picker (never one
+  // fetch per row). Degrades to free-text on any failure — see the hook.
+  const loraScan = useKleinGenerationLoras()
   return (
     <Card
       id="klein-generation-lora-presets"
       title="Klein generation LoRA presets (optional)"
-      help={`Named combinations of your own LoRA files, chained after the consistency LoRA on the local Klein engine — inside a preset the order is the chain order (max ${MAX_GENERATION_LORAS} LoRAs each, ${MAX_GENERATION_LORA_PRESETS} presets). Point each row at a file under ComfyUI's models/loras (relative name, e.g. klein/my-lora.safetensors) — any LoRA, any purpose. Per run, pick a preset in the workspace's 🖥️ Klein tuning panel ("None" by default). Idea by @waltm (Discord).`}
+      help={`Named combinations of your own LoRA files, chained after the consistency LoRA on the local Klein engine — inside a preset the order is the chain order (max ${MAX_GENERATION_LORAS} LoRAs each, ${MAX_GENERATION_LORA_PRESETS} presets). Pick each row from the LoRAs found under ComfyUI's models/loras (Klein-compatible ones are listed first; you can still type a path for a file not on disk yet) — any LoRA, any purpose. Per run, pick a preset in the workspace's 🖥️ Klein tuning panel ("None" by default). Presets idea by @waltm; LoRA autocomplete by vvilams (Discord).`}
     >
       {presets.length === 0 && (
         <p className="text-sm text-content-muted">No presets yet — create your first combination below.</p>
       )}
       {presets.map((preset, i) => (
-        <KleinLoraPresetCard key={i} preset={preset} index={i} presets={presets} save={save} />
+        <KleinLoraPresetCard key={i} preset={preset} index={i} presets={presets} save={save} loraScan={loraScan} />
       ))}
       <div className="flex items-center gap-3">
         <button
