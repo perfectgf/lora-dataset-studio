@@ -186,7 +186,11 @@ def test_base_lora_node_kept_when_its_file_is_present(app, tmp_path, monkeypatch
                                edit_prompt='p', source_path=str(src))
         wf = captured['workflow_data']
         assert '139' in wf   # base LoRA present -> not bypassed
-        assert wf['139']['inputs']['model'] == ['ds_consistency_lora', 0]
+        # The injected consistency node now carries a NUMERIC id — find it by title.
+        cons_id = next(k for k, n in wf.items()
+                       if (n.get('_meta') or {}).get('title') == 'Dataset consistency LoRA')
+        assert cons_id.isdigit()
+        assert wf['139']['inputs']['model'] == [cons_id, 0]
 
 
 # --- Route: auto-download on missing models --------------------------------
@@ -277,7 +281,8 @@ def test_lora_strength_zero_skips_consistency_lora(app, tmp_path, monkeypatch):
         keh.enqueue_klein_edit(user_id='local', source_filename='ref.png',
                                edit_prompt='p', source_path=str(src), lora_strength=0)
         wf = captured['workflow_data']
-        assert 'ds_consistency_lora' not in wf
+        assert not any((n.get('_meta') or {}).get('title') == 'Dataset consistency LoRA'
+                       for n in wf.values())
         # Base 'realistic' LoRA absent too -> node 139 bypassed -> 102 wired to the UNET.
         assert wf['102']['inputs']['model'] == ['114', 0]
 

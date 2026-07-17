@@ -79,11 +79,31 @@ def _enqueue(keh, queue_manager, monkeypatch, tmp_path, **kwargs):
     return captured['workflow_data']
 
 
+def _node_by_title(wf, title):
+    """(id, node) of the single injected node carrying this exact _meta title,
+    else (None, None). Injected nodes now use NUMERIC ids so they can't be named
+    by key — identify them by title instead."""
+    for k, n in wf.items():
+        if (n.get('_meta') or {}).get('title') == title:
+            return k, n
+    return None, None
+
+
+def _gen_nodes(wf):
+    """Injected generation-LoRA (id, node) pairs, ordered by their preset index
+    from the 'Generation LoRA {i}: …' title (the ids are numeric now)."""
+    tagged = []
+    for k, n in wf.items():
+        title = (n.get('_meta') or {}).get('title', '')
+        if title.startswith('Generation LoRA '):
+            idx = int(title[len('Generation LoRA '):].split(':', 1)[0])
+            tagged.append((idx, k, n))
+    return [(k, n) for _, k, n in sorted(tagged)]
+
+
 def _gen_chain(wf):
-    """Ordered lora_name list of the injected ds_gen_lora_* nodes."""
-    keys = sorted((k for k in wf if k.startswith('ds_gen_lora_')),
-                  key=lambda k: int(k.rsplit('_', 1)[1]))
-    return [wf[k]['inputs']['lora_name'] for k in keys]
+    """Ordered lora_name list of the injected generation-LoRA nodes."""
+    return [n['inputs']['lora_name'] for _, n in _gen_nodes(wf)]
 
 
 # --- Defaults & migration ----------------------------------------------------
@@ -229,17 +249,28 @@ def test_chain_of_three_in_preset_order(app, tmp_path, monkeypatch):
         _comfy(tmp_path, cfg, base_lora=True)
         wf = _enqueue(keh, queue_manager, monkeypatch, tmp_path,
                       generation_loras=keh.resolve_generation_lora_preset('Full stack'))
-        assert wf['ds_consistency_lora']['inputs']['model'] == ['114', 0]
-        assert wf['ds_gen_lora_1']['inputs']['model'] == ['ds_consistency_lora', 0]
-        assert wf['ds_gen_lora_2']['inputs']['model'] == ['ds_gen_lora_1', 0]
-        assert wf['ds_gen_lora_3']['inputs']['model'] == ['ds_gen_lora_2', 0]
-        assert wf['139']['inputs']['model'] == ['ds_gen_lora_3', 0]
+        cons_id, cons = _node_by_title(wf, 'Dataset consistency LoRA')
+        gens = _gen_nodes(wf)
+        assert cons is not None and len(gens) == 3
+        (g1_id, g1), (g2_id, g2), (g3_id, g3) = gens
+        # 114 -> consistency -> gen_1 -> gen_2 -> gen_3 -> 139, each link hanging
+        # off the previous one.
+        assert cons['inputs']['model'] == ['114', 0]
+        assert g1['inputs']['model'] == [cons_id, 0]
+        assert g2['inputs']['model'] == [g1_id, 0]
+        assert g3['inputs']['model'] == [g2_id, 0]
+        assert wf['139']['inputs']['model'] == [g3_id, 0]
         assert _gen_chain(wf) == [os.path.join('klein', 'gen-a.safetensors'),
                                   os.path.join('klein', 'gen-b.safetensors'),
                                   os.path.join('klein', 'gen-c.safetensors')]
-        assert wf['ds_gen_lora_1']['inputs']['strength_model'] == 0.6
-        assert all(wf[f'ds_gen_lora_{i}']['class_type'] == 'LoraLoaderModelOnly'
-                   for i in (1, 2, 3))
+        assert g1['inputs']['strength_model'] == 0.6
+        assert all(n['class_type'] == 'LoraLoaderModelOnly' for _, n in gens)
+        # Regression guard for the dropped-canvas bug: injected loader nodes carry
+        # NUMERIC ids (allocated above the shipped workflow's numeric nodes), so
+        # ComfyUI's rebuild-from-image reconstructs the full chain past consistency.
+        inj = [cons_id, g1_id, g2_id, g3_id]
+        assert all(x.isdigit() for x in inj)
+        assert len(set(inj)) == 4 and all(int(x) > 114 for x in inj)
 
 
 def test_chain_survives_base_lora_bypass(app, tmp_path, monkeypatch):
@@ -250,8 +281,11 @@ def test_chain_survives_base_lora_bypass(app, tmp_path, monkeypatch):
         _comfy(tmp_path, cfg)              # no realistic.safetensors on disk
         wf = _enqueue(keh, queue_manager, monkeypatch, tmp_path,
                       generation_loras=keh.resolve_generation_lora_preset('Full stack'))
-        assert '139' not in wf
-        assert wf['102']['inputs']['model'] == ['ds_gen_lora_3', 0]
+        gens = _gen_nodes(wf)
+        assert '139' not in wf and len(gens) == 3
+        last_id = gens[-1][0]
+        assert wf['102']['inputs']['model'] == [last_id, 0]
+        assert last_id.isdigit()
 
 
 def test_chain_hangs_off_unet_when_consistency_is_off(app, tmp_path, monkeypatch):
@@ -262,9 +296,13 @@ def test_chain_hangs_off_unet_when_consistency_is_off(app, tmp_path, monkeypatch
         _comfy(tmp_path, cfg)
         wf = _enqueue(keh, queue_manager, monkeypatch, tmp_path, lora_strength=0,
                       generation_loras=keh.resolve_generation_lora_preset('Just one'))
-        assert 'ds_consistency_lora' not in wf
-        assert wf['ds_gen_lora_1']['inputs']['model'] == ['114', 0]
-        assert wf['102']['inputs']['model'] == ['ds_gen_lora_1', 0]
+        cons_id, _ = _node_by_title(wf, 'Dataset consistency LoRA')
+        gens = _gen_nodes(wf)
+        assert cons_id is None and len(gens) == 1
+        (g1_id, g1), = gens
+        assert g1['inputs']['model'] == ['114', 0]           # hangs straight off the UNET
+        assert wf['102']['inputs']['model'] == [g1_id, 0]
+        assert g1_id.isdigit()
 
 
 def test_enqueue_caps_the_chain(app, tmp_path, monkeypatch):
@@ -288,8 +326,10 @@ def test_no_preset_means_no_extra_nodes(app, tmp_path, monkeypatch):
     with app.app_context():
         _comfy(tmp_path, cfg)
         wf = _enqueue(keh, queue_manager, monkeypatch, tmp_path)
-        assert not any(k.startswith('ds_gen_lora_') for k in wf)
-        assert wf['102']['inputs']['model'] == ['ds_consistency_lora', 0]
+        cons_id, _ = _node_by_title(wf, 'Dataset consistency LoRA')
+        assert _gen_nodes(wf) == []                          # no generation LoRAs
+        assert cons_id is not None
+        assert wf['102']['inputs']['model'] == [cons_id, 0]
 
 
 def test_missing_middle_file_degrades_that_row_only(app, tmp_path, monkeypatch):
@@ -302,10 +342,15 @@ def test_missing_middle_file_degrades_that_row_only(app, tmp_path, monkeypatch):
         _comfy(tmp_path, cfg, gen_files=('gen-a', 'gen-c'))   # gen-b absent
         wf = _enqueue(keh, queue_manager, monkeypatch, tmp_path,
                       generation_loras=keh.resolve_generation_lora_preset('Full stack'))
-        assert 'ds_gen_lora_2' not in wf                       # degraded row
-        assert wf['ds_gen_lora_1']['inputs']['model'] == ['ds_consistency_lora', 0]
-        assert wf['ds_gen_lora_3']['inputs']['model'] == ['ds_gen_lora_1', 0]
-        assert wf['102']['inputs']['model'] == ['ds_gen_lora_3', 0]
+        cons_id, _ = _node_by_title(wf, 'Dataset consistency LoRA')
+        gens = _gen_nodes(wf)                                  # gen-b (row 2) skipped
+        assert [n['inputs']['lora_name'] for _, n in gens] == [
+            os.path.join('klein', 'gen-a.safetensors'),
+            os.path.join('klein', 'gen-c.safetensors')]
+        (ga_id, ga), (gc_id, gc) = gens
+        assert ga['inputs']['model'] == [cons_id, 0]
+        assert gc['inputs']['model'] == [ga_id, 0]            # gen-c hangs off gen-a, not the gap
+        assert wf['102']['inputs']['model'] == [gc_id, 0]
 
 
 def test_zero_strength_row_is_skipped(app, tmp_path, monkeypatch):
@@ -317,9 +362,13 @@ def test_zero_strength_row_is_skipped(app, tmp_path, monkeypatch):
         wf = _enqueue(keh, queue_manager, monkeypatch, tmp_path,
                       generation_loras=[{'file': 'klein/gen-a.safetensors', 'strength': 0},
                                         {'file': 'klein/gen-c.safetensors', 'strength': 0.5}])
-        assert 'ds_gen_lora_1' not in wf
-        assert wf['ds_gen_lora_2']['inputs']['model'] == ['ds_consistency_lora', 0]
-        assert wf['102']['inputs']['model'] == ['ds_gen_lora_2', 0]
+        cons_id, _ = _node_by_title(wf, 'Dataset consistency LoRA')
+        gens = _gen_nodes(wf)                                  # gen-a (row 1, strength 0) skipped
+        assert [n['inputs']['lora_name'] for _, n in gens] == [
+            os.path.join('klein', 'gen-c.safetensors')]
+        (gc_id, gc), = gens
+        assert gc['inputs']['model'] == [cons_id, 0]
+        assert wf['102']['inputs']['model'] == [gc_id, 0]
 
 
 # --- Preset selection at the service/route level -----------------------------

@@ -601,6 +601,16 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     # advances as LoRA loaders are chained onto it, so every injected node hangs
     # off the previous one and 139 is rewired once, to the LAST link.
     model_ref = ["114", 0]
+    # Injected loader nodes get NUMERIC ids (like every hand-authored ComfyUI
+    # node), allocated just above the workflow's existing numeric ids. The
+    # executed graph is identical either way — ComfyUI's server keys the prompt
+    # dict by string — but its "rebuild the graph from a dropped image"
+    # reconstructs the links reliably only for numeric ids: the old non-numeric
+    # 'ds_consistency_lora' / 'ds_gen_lora_1' keys made the dropped-in canvas show
+    # the chain collapsed to the LAST LoRA past the consistency node, even though
+    # every LoRA WAS applied at generation (bug report by @vvilams). The counter
+    # advances only when a node is actually added, so a degraded row burns no id.
+    _next_node_id = max((int(k) for k in workflow if k.isdigit()), default=0)
     if "139" not in workflow:
         logger.warning("workflow node 139 missing — consistency LoRA injection skipped")
     elif not lora_path or not os.path.exists(lora_path):
@@ -608,13 +618,15 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     elif not strength or float(strength) <= 0:
         logger.info("consistency LoRA strength 0 — injection skipped (LoRA off)")
     else:
-        workflow["ds_consistency_lora"] = {
+        _next_node_id += 1
+        cons_id = str(_next_node_id)
+        workflow[cons_id] = {
             "class_type": "LoraLoaderModelOnly",
             "inputs": {"lora_name": consistency_lora,
                        "strength_model": strength, "model": model_ref},
             "_meta": {"title": "Dataset consistency LoRA"},
         }
-        model_ref = ["ds_consistency_lora", 0]
+        model_ref = [cons_id, 0]
 
     # Optional generation LoRAs (Idea by @waltm — Discord feature request):
     # the rows of the PRESET the run picked, chained AFTER the consistency
@@ -630,7 +642,6 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
         slot_strength = entry.get('strength')
         slot_strength = max(0.0, min(1.5, float(slot_strength))) \
             if isinstance(slot_strength, (int, float)) else 0.0
-        node_id = f"ds_gen_lora_{i}"
         slot_path = _lora_abs(slot_lora)
         if "139" not in workflow:
             logger.warning("workflow node 139 missing — generation LoRA %r skipped", slot_lora)
@@ -639,6 +650,8 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
         elif slot_strength <= 0:
             logger.info("generation LoRA %r strength 0 — skipped (row off)", slot_lora)
         else:
+            _next_node_id += 1
+            node_id = str(_next_node_id)
             workflow[node_id] = {
                 "class_type": "LoraLoaderModelOnly",
                 "inputs": {"lora_name": slot_lora,

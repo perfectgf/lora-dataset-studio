@@ -375,8 +375,11 @@ def test_workflow_json_loads_and_consistency_lora_from_config(app, tmp_path, mon
 
         assert captured, 'add_job should have been called'
         workflow = captured['workflow_data']
-        assert 'ds_consistency_lora' in workflow
-        lora_node = workflow['ds_consistency_lora']
+        # The injected consistency node now carries a NUMERIC id — find it by title.
+        cons_id = next((k for k, n in workflow.items()
+                        if (n.get('_meta') or {}).get('title') == 'Dataset consistency LoRA'), None)
+        assert cons_id is not None and cons_id.isdigit()
+        lora_node = workflow[cons_id]
         # Verify consistency_lora path separators are normalized to the OS (backslash on Windows)
         expected_lora_name = patched_lora.replace('/', os.sep)
         assert lora_node['inputs']['lora_name'] == expected_lora_name
@@ -389,4 +392,4 @@ def test_workflow_json_loads_and_consistency_lora_from_config(app, tmp_path, mon
         # The base 'realistic' LoRA (node 139) isn't installed here -> it's bypassed
         # and removed, and its consumer (102.model) is rewired to the consistency LoRA.
         assert '139' not in workflow
-        assert workflow['102']['inputs']['model'] == ['ds_consistency_lora', 0]
+        assert workflow['102']['inputs']['model'] == [cons_id, 0]
