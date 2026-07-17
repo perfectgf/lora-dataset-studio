@@ -1,5 +1,5 @@
 /** Variation catalog: presets + per-entry toggles + multiplier + Klein picker. */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Flux2KleinModelPicker from '../shared/Flux2KleinModelPicker';
 import { useToast } from '../common/Toast';
 import { useCapabilities } from '../../context/CapabilitiesContext';
@@ -9,6 +9,7 @@ import { displayLabel } from '../../utils/labels';
 import { kleinMissingLabels } from '../../hooks/useSetupSteps';
 import { generationLoraPresetPayload, sanitizeGenerationLoraPresets } from '../../utils/generationLoras';
 import { requestHelpTip } from '../../help/helpTips';
+import { HelpBadge } from '../../help/HelpMode';
 import {
   applyShotPreset,
   deleteShotPreset,
@@ -19,6 +20,8 @@ import {
 } from '../../utils/shotPresets';
 
 const FRAMING_LABEL = { face: 'Face', bust: 'Bust', body: 'Body', back: 'Back' };
+// The framings a prompt suffix can target (same buckets the backend wraps by).
+const SUFFIX_KEYS = ['face', 'bust', 'body', 'back'];
 // Framing accent colors — shared by the section headers, the preset composition
 // bars and the legend so the same hue always means the same framing.
 const FRAMING_COLOR = {
@@ -84,7 +87,7 @@ function GpuIcon({ className }) {
   );
 }
 
-export default function VariationCatalog({ onGenerate, busy, generating = null, hasRef, composition, images = [], bodyFidelity = false }) {
+export default function VariationCatalog({ onGenerate, busy, generating = null, hasRef, composition, images = [], bodyFidelity = false, promptSuffix = '', promptSuffixes = null, onSaveSuffixes = null }) {
   const toast = useToast();
   const { caps } = useCapabilities();
   const [catalog, setCatalog] = useState([]);
@@ -349,7 +352,43 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     setCustomPresets((items) => deleteShotPreset(items, preset.id));
   };
 
-  const go = () => {
+  // ✨ Prompt suffixes (Idea by vvilams — Discord): the dataset's creative-
+  // direction text (one global + one per framing), surfaced here so it can be
+  // tuned PER BATCH without opening the Settings modal. These are the SAME
+  // dataset fields the modal edits (one shared truth) — pre-filled from the
+  // dataset and, on Generate, saved back to it. The backend then applies the
+  // dataset's current suffix at wrap time for every engine.
+  const baseSuffixes = promptSuffixes || {};
+  const [gSuffix, setGSuffix] = useState(promptSuffix || '');
+  const [fSuffix, setFSuffix] = useState(
+    () => Object.fromEntries(SUFFIX_KEYS.map((k) => [k, baseSuffixes[k] || ''])));
+  const [suffixOpen, setSuffixOpen] = useState(() => Boolean(
+    (promptSuffix || '').trim() || SUFFIX_KEYS.some((k) => (baseSuffixes[k] || '').trim())));
+  // Adopt an EXTERNAL change to the shared truth (the Settings modal saved new
+  // suffixes) without clobbering an in-progress edit on an unrelated refresh:
+  // re-sync the fields only when the dataset's stored value actually changed.
+  const baselineKey = useMemo(
+    () => JSON.stringify([(promptSuffix || '').trim(),
+      SUFFIX_KEYS.map((k) => (baseSuffixes[k] || '').trim())]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [promptSuffix, promptSuffixes]);
+  const appliedSuffixKey = useRef(baselineKey);
+  useEffect(() => {
+    if (appliedSuffixKey.current === baselineKey) return;
+    appliedSuffixKey.current = baselineKey;
+    setGSuffix(promptSuffix || '');
+    setFSuffix(Object.fromEntries(SUFFIX_KEYS.map((k) => [k, baseSuffixes[k] || ''])));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baselineKey]);
+  const suffixDirty = (gSuffix || '').trim() !== (promptSuffix || '').trim()
+    || SUFFIX_KEYS.some((k) => (fSuffix[k] || '').trim() !== (baseSuffixes[k] || '').trim());
+  const suffixPayload = () => ({
+    prompt_suffix: (gSuffix || '').trim(),
+    prompt_suffixes: Object.fromEntries(
+      SUFFIX_KEYS.map((k) => [k, (fSuffix[k] || '').trim()]).filter(([, v]) => v)),
+  });
+
+  const go = async () => {
     const variations = catalog.filter((e) => selected.has(e.id))
       .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing }));
     // NSFW shots: local Klein only (the toggle is gated on the Klein engine,
@@ -392,6 +431,13 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     if (cost > 5 && !window.confirm(
       `This will launch ${toGen.length * multiplier} API generation(s) `
       + `≈ $${cost.toFixed(2)} (${isNB ? 'Nano Banana' : 'ChatGPT'}).\n\nProceed?`)) return;
+    // Persist any per-batch suffix edit BEFORE enqueueing: the backend applies
+    // the dataset's CURRENT suffix at wrap time, so the save must land first or
+    // the batch would generate with the old creative direction (Idea by vvilams).
+    if (suffixDirty && onSaveSuffixes) {
+      const res = await onSaveSuffixes(suffixPayload());
+      if (!res?.ok) return;   // save failed → don't generate with a stale suffix
+    }
     // Optional generation-LoRA preset (Klein only): only the NAME rides — the
     // backend resolves the chain from its own config (fail-closed).
     onGenerate(toGen, multiplier, klein, loraStrength, generator,
@@ -791,6 +837,47 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
               ＋ Add
             </button>
           </div>
+        </div>
+      </details>
+
+      {/* ✨ Prompt suffixes — the dataset's creative-direction text, editable
+          right here so it can be adjusted per batch (Idea by vvilams — Discord).
+          Applies to EVERY engine at generation time and shares the dataset
+          fields with the ⚙️ Settings modal; persisted just before the batch is
+          enqueued. Collapsed unless a suffix is already set. */}
+      <details className="rounded-lg border border-border bg-app/30 open:pb-2"
+        open={suffixOpen} onToggle={(e) => setSuffixOpen(e.currentTarget.open)}>
+        <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold flex items-center gap-1.5">
+          ✨ Prompt suffixes
+          <span className="font-normal text-content-subtle text-[0.625rem]">
+            creative direction added to every generated shot{suffixDirty ? ' · applied when you generate' : ''}
+          </span>
+          <HelpBadge topic="prompt-suffixes" className="ml-1" />
+        </summary>
+        <div className="px-2.5 pt-1 flex flex-col gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-content-muted text-[0.6875rem]">All shots</span>
+            <input value={gSuffix} maxLength={300}
+              onChange={(e) => setGSuffix(e.target.value)}
+              placeholder="e.g. shot on 35mm film, warm tones"
+              className="bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content" />
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {SUFFIX_KEYS.map((k) => (
+              <label key={k} className="flex flex-col gap-1">
+                <span className="text-content-muted text-[0.6875rem]">{FRAMING_LABEL[k]} shots</span>
+                <input value={fSuffix[k]} maxLength={300}
+                  onChange={(e) => setFSuffix((s) => ({ ...s, [k]: e.target.value }))}
+                  aria-label={`${FRAMING_LABEL[k]} prompt suffix`}
+                  className="bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content" />
+              </label>
+            ))}
+          </div>
+          <p className="text-content-subtle text-[0.625rem]">
+            Free text appended to every <b>generated</b> variation — the identity lock is
+            untouched. A framing suffix applies to that shot type first, then the global one.
+            Saved to the dataset when you generate, and shared with ⚙️ Dataset settings.
+          </p>
         </div>
       </details>
 

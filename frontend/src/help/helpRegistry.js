@@ -91,6 +91,14 @@ const TOPICS = [
     app: { route: '/datasets' },
     tip: { trigger: 'dataset-settings-open',
       text: 'Prompt suffixes add a creative direction to every generated variation — globally or per framing.' } },
+  // Same suffixes, second surface: the generation panel exposes them inline so
+  // they can be tuned per batch. Listed AFTER dataset-settings-modal so the modal
+  // keeps the anchor's "Open this screen →" button.
+  { id: 'prompt-suffixes', kind: 'setting', title: 'Prompt suffixes (generation panel)',
+    keywords: ['prompt suffix', 'suffixes', 'creative direction', 'framing', 'per batch',
+      'per-batch', 'generation', 'face', 'bust', 'body', 'back'],
+    guide: { chapter: 'settings-reference', anchor: 'per-dataset-settings' },
+    app: { route: '/datasets?section=add' } },
   { id: 'settings-config-file', kind: 'section', title: 'Config-file-only settings',
     keywords: ['config', 'config.json', 'advanced', 'file only', 'hidden', 'manual'],
     guide: { chapter: 'settings-reference', anchor: 'config-file-only-settings' },

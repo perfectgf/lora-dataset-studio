@@ -880,7 +880,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
                         ds.generate(...args);
                       }}
                       hasRef={!!d.ref_filename} composition={d.composition} images={images}
-                      bodyFidelity={bodyFid} />
+                      bodyFidelity={bodyFid}
+                      promptSuffix={d.prompt_suffix || ''}
+                      promptSuffixes={d.prompt_suffixes || null}
+                      onSaveSuffixes={(patch) => ds.updateSettings(patch, { quiet: true })} />
                   </div>
                   {/* Head-crop optional: ON tags framing='face' at import (I2); OFF keeps
                       the original framing so bust/body photos import as-is. Body-fidelity

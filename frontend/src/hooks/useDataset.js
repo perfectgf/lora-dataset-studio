@@ -270,14 +270,18 @@ export function useDataset() {
   // generation time only, '' / {} clears, absent (undefined) leaves untouched.
   const updateSettings = useCallback(async ({
     name, trigger_word, concept_desc, prompt_suffix, prompt_suffixes,
-  }) => {
+  }, opts = {}) => {
     if (!currentId) return { ok: false };
     const d = await postJson(`/api/dataset/${currentId}/settings`,
       { name, trigger_word, concept_desc, prompt_suffix, prompt_suffixes });
     if (!d.ok) { toast.error(d.error || 'Could not save settings'); return d; }
-    toast.success(d.concept_desc_changed
-      ? 'Saved — concept changed; re-caption to apply it to existing captions'
-      : 'Settings saved');
+    // quiet: the generation panel persists suffix edits silently right before a
+    // batch (the "Generating…" state is the feedback); the modal stays verbose.
+    if (!opts.quiet) {
+      toast.success(d.concept_desc_changed
+        ? 'Saved — concept changed; re-caption to apply it to existing captions'
+        : 'Settings saved');
+    }
     await refresh();
     fetchList();
     return d;

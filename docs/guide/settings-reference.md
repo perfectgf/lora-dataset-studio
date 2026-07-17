@@ -222,6 +222,8 @@ Separate from everything above: these live **per dataset**, in the **⚙ Dataset
 
   Key behaviours: these are **applied at generation time and never stored into a tile's own prompt** (so a regenerate can't double-apply them), the **identity lock always comes first** — a suffix can't override it, clearing a field removes that suffix, and existing images stay as they are until you **regenerate** to apply.
 
+  You can also edit the very same suffixes **inline in the generation panel** (the collapsible *✨ Prompt suffixes* row under the shot picker), which is handy for tuning them **per batch** without opening this modal — both surfaces read and write the one dataset value, and an edit made there is saved the moment you press **Generate**.
+
 ## Config-file-only settings
 
 These have no UI control — they're for advanced users editing `config.json` by hand (copy `config.example.json` to `config.json` first). Most people never touch them; the defaults are tuned. Values below are the shipped defaults.
