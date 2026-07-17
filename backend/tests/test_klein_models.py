@@ -171,16 +171,18 @@ def test_generate_missing_models_409_autostarts_public_not_gated(app, client, tm
     body = resp.get_json()
     assert body['ok'] is False
     assert {'klein_model', 'klein_text_encoder', 'klein_vae'}.issubset(set(body['klein_missing']))
-    assert body['needs_token'] is True                       # gated model + no HF_TOKEN
-    assert 'klein_text_encoder' in started and 'klein_vae' in started
-    assert 'klein_model' not in started                      # gated -> not fired without a token
+    assert body['needs_token'] is False                      # every Klein download is public now
+    # the KV UNET is a public download → it fires without a token, like the others
+    assert {'klein_model', 'klein_text_encoder', 'klein_vae'}.issubset(set(started))
 
 
-def test_generate_missing_gated_model_fires_when_token_present(app, client, tmp_path, monkeypatch):
+def test_generate_missing_model_fires_without_token(app, client, tmp_path, monkeypatch):
+    """The KV UNET is public: when it's the only missing asset it auto-downloads
+    even with NO HF_TOKEN (the old gated behaviour refused to fire without one)."""
     from app import config as cfg, setup_installer
     started = []
     monkeypatch.setattr(setup_installer, 'start', lambda a: started.append(a))
-    monkeypatch.setenv('HF_TOKEN', 'hf_token')
+    monkeypatch.delenv('HF_TOKEN', raising=False)
     with app.app_context():
         _comfy(tmp_path, cfg, unet=False, vae=True, te=True, lora=True)  # only the model missing
     ds_id = _make_ds(client)
@@ -188,7 +190,7 @@ def test_generate_missing_gated_model_fires_when_token_present(app, client, tmp_
     assert resp.status_code == 409
     body = resp.get_json()
     assert body['needs_token'] is False
-    assert started == ['klein_model']   # token present -> the gated download IS fired
+    assert started == ['klein_model']   # public → fires with no token
 
 
 def test_generate_all_present_proceeds_and_bg_fetches_lora(app, client, tmp_path, monkeypatch):
@@ -327,8 +329,10 @@ def test_resolver_honours_pick_from_diffusion_models_folder(app, tmp_path):
                  'flux-2-klein-9b-kv-fp8.safetensors')
         assert keh.resolve_klein_unet('flux-2-klein-9b-kv-fp8.safetensors') == \
             os.path.join('Flux2 klein', 'flux-2-klein-9b-kv-fp8.safetensors')
-        # No pick -> canonical download still wins.
-        assert keh.resolve_klein_unet() == os.path.join('klein', 'flux-2-klein-9b-fp8.safetensors')
+        # No pick -> the canonical download wins; the canonical is now the KV build,
+        # so it is preferred over a co-installed legacy (pre-KV) file.
+        assert keh.resolve_klein_unet() == \
+            os.path.join('Flux2 klein', 'flux-2-klein-9b-kv-fp8.safetensors')
 
 
 # --- Flat / Stability-Matrix layout: klein model at the ROOT of a search folder ---

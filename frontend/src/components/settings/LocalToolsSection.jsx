@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { Card, TextField, TestResult, TestButton, SecretField } from './primitives'
 import { postJson } from '../../api/fetchClient'
 
-/* HF token unlocks the auto-download of license-gated models (Klein fp8) that
-   the ComfyUI setup step offers — which is why it lives with the ComfyUI card
-   rather than in the engines' API-keys list. */
+/* HF token is for gated TRAINING bases (Krea 2 / FLUX.1 / FLUX.2 Klein) and reading
+   your private custom-base repos — it lives with the ComfyUI card because that's
+   where local training/generation is set up. The Klein generation download itself
+   (9B KV) is public and needs no token. */
 const HF_SECRET = {
   key: 'HF_TOKEN', label: 'Hugging Face token', testTarget: null,
-  help: 'Only needed to auto-download license-gated models (the Klein fp8 model). Read token from hf.co/settings/tokens, after accepting the model license.',
+  help: 'Needed for gated training bases (Krea 2, FLUX.1, FLUX.2 Klein) and to read your private custom-base cloud repos — accept each model license, then read a token from hf.co/settings/tokens. Local Klein generation (9B KV) downloads without a token.',
 }
 
 /* Ollama's three live states, from capabilities (installed + reachable):

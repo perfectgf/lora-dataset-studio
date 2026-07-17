@@ -17,9 +17,12 @@ thread and expose their live state for polling. Actions:
    per capability, requirements-ml.txt pinned as a -c constraint, probe cache invalidated
    on success so the capability flips without a restart.)
   ollama_model       -> stream Ollama's /api/pull for the configured vision model
-  klein_model        -> download the Klein fp8 diffusion model into <ComfyUI>/models/unet/klein/
-                        (BFL repo is LICENSE-GATED: needs the agreement accepted on HF +
-                        an HF_TOKEN secret; a 401 logs the exact recovery steps)
+  klein_model        -> download the Klein 9B (KV) fp8 diffusion model into
+                        <ComfyUI>/models/unet/klein/ — a PUBLIC download (no token). The KV
+                        build caches the reference images' KV pairs on the first denoising
+                        step, so multi-reference editing (the dataset engine's whole job) runs
+                        up to 2.5x faster at identical quality. A 401 still logs recovery
+                        steps as a safety net (see license_url below)
   klein_lora         -> download the consistency LoRA into <ComfyUI>/models/loras/klein/
   klein_text_encoder -> qwen_3_8b_fp8mixed into <ComfyUI>/models/text_encoders/
   klein_vae          -> flux2-vae into <ComfyUI>/models/vae/
@@ -41,14 +44,25 @@ from . import config as cfg
 
 logger = logging.getLogger(__name__)
 
-# Fixed catalog of the Klein downloads (checked 2026-07-10): the three Comfy-Org/
-# dx8152 files are public; the BFL diffusion model is gated (401 without a token).
+# Fixed catalog of the Klein downloads (re-checked 2026-07-17): all four files are
+# PUBLIC downloads. The default UNET is the KV-cache build (flux-2-klein-9b-kv-fp8):
+# it caches the reference images' KV pairs on the first denoising step, so multi-
+# reference editing (the dataset engine's whole job) runs up to 2.5x faster at
+# identical quality — same VAE/text-encoder. Unlike the plain 9b-fp8 repo (which is
+# license-gated → 401 without a token), the KV repo is NOT access-gated: HF serves it
+# publicly (verified: API gated=false, resolve → public CDN). The FLUX Non-Commercial
+# License still governs USE. `license_url` is kept so a future re-gating (or a stale
+# token) still degrades into actionable recovery steps rather than a bare 401.
+# `legacy_names` = earlier default filenames still accepted as "already installed",
+# so an install that fetched the pre-KV model never re-downloads ~10 GB (both variants
+# resolve by name at generate time — see klein_edit_helper.resolve_klein_unet).
 _KLEIN_DOWNLOADS = {
     'klein_model': {
-        'url': 'https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/resolve/main/flux-2-klein-9b-fp8.safetensors',
-        'dest': ('unet', 'klein', 'flux-2-klein-9b-fp8.safetensors'),
-        'min_free_gb': 15, 'gated': True,
-        'license_url': 'https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8',
+        'url': 'https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-kv-fp8/resolve/main/flux-2-klein-9b-kv-fp8.safetensors',
+        'dest': ('unet', 'klein', 'flux-2-klein-9b-kv-fp8.safetensors'),
+        'min_free_gb': 15, 'gated': False,
+        'license_url': 'https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-kv-fp8',
+        'legacy_names': ('flux-2-klein-9b-fp8.safetensors',),
     },
     'klein_lora': {
         'url': 'https://huggingface.co/dx8152/Flux2-Klein-9B-Consistency/resolve/main/Flux2-Klein-9B-consistency-V2.safetensors',
@@ -577,34 +591,65 @@ def _run_ml_capability(action) -> int:
 
 
 def _klein_present_in_extra(action) -> bool:
-    """Is the canonical Klein asset for `action` already on disk under an
-    extra_model_paths.yaml root? We still DOWNLOAD into the base is-default tree
-    (dest is unchanged, per the "install location doesn't move" rule) — this only
-    skips a redundant multi-GB fetch when the file already lives somewhere ComfyUI
-    will load it. EXTRA roots only (base presence is the os.path.isfile(dest) check),
-    so with no yaml this is a no-op and behaviour is identical."""
+    """Is the Klein asset for `action` already on disk under an extra_model_paths.yaml
+    root? We still DOWNLOAD into the base is-default tree (dest is unchanged, per the
+    "install location doesn't move" rule) — this only skips a redundant multi-GB fetch
+    when the file already lives somewhere ComfyUI will load it. Accepts the canonical
+    filename AND any earlier default name (`legacy_names`): an install that fetched the
+    pre-KV UNET into an extra root still resolves it by name, so it must not re-download.
+    EXTRA roots only (base presence is the os.path.isfile(dest) + _klein_variant_already_present
+    checks), so with no yaml this is a no-op and behaviour is identical."""
     spec = _KLEIN_DOWNLOADS[action]
     dest_parts = spec['dest']                 # e.g. ('unet','klein','flux-2-...safetensors')
     comfy_type = dest_parts[0]                # 'unet'|'loras'|'text_encoders'|'vae'
-    rel = os.path.join(*dest_parts[1:]) if len(dest_parts) > 1 else dest_parts[-1]
+    subdirs = dest_parts[1:-1]                # e.g. ('klein',) for the UNET, () otherwise
+    names = (dest_parts[-1], *(spec.get('legacy_names') or ()))
     try:
         from .services import comfy_model_paths
-        return any(os.path.isfile(os.path.join(root, rel))
-                   for root in comfy_model_paths.extra_roots(comfy_type))
+        return any(os.path.isfile(os.path.join(root, *subdirs, name))
+                   for root in comfy_model_paths.extra_roots(comfy_type)
+                   for name in names)
     except Exception:
         logger.debug('extra-path klein presence check failed for %s', action, exc_info=True)
         return False
+
+
+def _klein_variant_already_present(action):
+    """Basename of a previously-accepted filename for `action` already on disk in the
+    BASE dest folder (today: the pre-KV Klein UNET flux-2-klein-9b-fp8.safetensors),
+    else None. When the default download filename changes, an install that fetched the
+    old one stays valid — both variants resolve by name at generate time — so either
+    counts as "already installed" instead of re-fetching ~10 GB. (extra_model_paths
+    roots are covered by _klein_present_in_extra, which accepts the same alternates.)
+    None when the spec lists no `legacy_names` (every other action)."""
+    spec = _KLEIN_DOWNLOADS[action]
+    alts = spec.get('legacy_names') or ()
+    if not alts:
+        return None
+    try:
+        dest_dir = os.path.dirname(_klein_dest_path(action))
+    except Precondition:
+        return None
+    for name in alts:
+        if os.path.isfile(os.path.join(dest_dir, name)):
+            return name
+    return None
 
 
 def _run_klein_download(action) -> int:
     """Stream one Klein asset into the validated ComfyUI tree. Writes to a .part
     file then renames (a killed download never leaves a half file the model
     scanners would pick up). Progress lines land in the ring log (~every 512 MB).
-    Gated repo without credentials -> actionable recovery steps, rc 1."""
+    An access-denied repo (401/403) with a license_url -> actionable recovery steps, rc 1."""
     spec = _KLEIN_DOWNLOADS[action]
     dest = _klein_dest_path(action)
     if os.path.isfile(dest):
         _append(action, f'already present: {dest}')
+        return 0
+    variant = _klein_variant_already_present(action)
+    if variant:
+        _append(action, f'already present ({variant}) — an earlier Klein UNET build is '
+                        'installed and still resolves; skipping download')
         return 0
     if _klein_present_in_extra(action):
         _append(action, 'already available via a configured extra_model_paths.yaml root - skipping download')
@@ -621,9 +666,12 @@ def _run_klein_download(action) -> int:
         with requests.get(spec['url'], stream=True, timeout=(10, 120),
                           headers=headers, allow_redirects=True) as resp:
             if resp.status_code in (401, 403):
-                if spec.get('gated'):
-                    _append(action, f'HTTP {resp.status_code} - this repository is license-gated.')
-                    _append(action, f"1. Open {spec['license_url']} and accept the agreement (free)")
+                if spec.get('gated') or spec.get('license_url'):
+                    # Normally public (KV UNET); a 401/403 here means HF is denying
+                    # access anyway (re-gated, or a stale HF_TOKEN was sent) -> the
+                    # fix is still: accept the licence + provide a valid token.
+                    _append(action, f'HTTP {resp.status_code} - Hugging Face denied access to this file.')
+                    _append(action, f"1. Open {spec['license_url']} and accept the licence (free)")
                     _append(action, '2. Create a read token at https://huggingface.co/settings/tokens')
                     _append(action, '3. Paste it as HF_TOKEN in Settings -> API keys, then retry')
                     _append(action, '   (or download the file manually into the folder above)')

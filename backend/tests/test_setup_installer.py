@@ -298,7 +298,7 @@ def test_klein_model_dest_is_unet_klein(app, tmp_path):
         config.save_config({'comfyui': {'base_dir': str(base)}})
         dest = setup_installer._klein_dest_path('klein_model')
     assert dest.endswith(os.path.join('models', 'unet', 'klein',
-                                      'flux-2-klein-9b-fp8.safetensors'))
+                                      'flux-2-klein-9b-kv-fp8.safetensors'))
 
 
 def test_klein_dest_path_requires_valid_comfyui(app, tmp_path):
@@ -331,7 +331,11 @@ def test_manual_command_klein_uses_placeholder_when_unconfigured(app, tmp_path):
     assert 'flux2-vae.safetensors' in cmd
 
 
-def test_run_klein_download_gated_401_logs_recovery_steps(app, tmp_path, monkeypatch):
+def test_run_klein_download_401_logs_recovery_steps(app, tmp_path, monkeypatch):
+    """The KV UNET is a public download, but if HF ever denies access (re-gated, or
+    a stale token was sent) a 401/403 must still log actionable recovery steps —
+    that safety net is keyed on the spec's license_url, not the (now-False) gated
+    flag."""
     from app import setup_installer, config
     base = _make_comfyui(tmp_path)
     with app.app_context():
@@ -341,8 +345,33 @@ def test_run_klein_download_gated_401_logs_recovery_steps(app, tmp_path, monkeyp
         rc = setup_installer._run_klein_download('klein_model')
     assert rc == 1
     log = setup_installer._runs['klein_model']['log']
-    assert any('license-gated' in l for l in log)
+    assert any('denied access' in l for l in log)
+    assert any('accept the licence' in l for l in log)
     assert any('HF_TOKEN' in l for l in log)
+
+
+def test_run_klein_download_accepts_legacy_unet_variant(app, tmp_path, monkeypatch):
+    """An install that fetched the pre-KV model (flux-2-klein-9b-fp8.safetensors)
+    must NOT be told to re-download the KV build: the legacy filename sitting in
+    models/unet/klein/ counts as already installed (both resolve by name), so the
+    network is never touched."""
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    def boom(*a, **k):
+        raise AssertionError('network must not be hit when a legacy Klein UNET exists')
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        legacy = os.path.join(os.path.dirname(setup_installer._klein_dest_path('klein_model')),
+                              'flux-2-klein-9b-fp8.safetensors')
+        os.makedirs(os.path.dirname(legacy), exist_ok=True)
+        with open(legacy, 'wb') as f:
+            f.write(b'pre-KV klein unet')
+        monkeypatch.setattr(setup_installer.requests, 'get', boom)
+        setup_installer._runs['klein_model'] = setup_installer._new_run()
+        rc = setup_installer._run_klein_download('klein_model')
+    assert rc == 0
+    assert any('already present' in l and 'flux-2-klein-9b-fp8.safetensors' in l
+               for l in setup_installer._runs['klein_model']['log'])
 
 
 def test_run_klein_download_streams_to_part_then_renames(app, tmp_path, monkeypatch):

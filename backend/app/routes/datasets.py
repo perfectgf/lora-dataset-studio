@@ -307,13 +307,18 @@ _KLEIN_ASSET_LABELS = {
 def _autostart_klein_downloads(missing):
     """Kick off background downloads for the missing Klein assets. Returns
     (started, needs_token). Never raises — a download that can't start (already
-    running, disk precondition) is reported, not fatal. The license-gated Klein
-    model is only fired when an HF_TOKEN exists (it would 401 otherwise)."""
+    running, disk precondition) is reported, not fatal. An asset flagged `gated`
+    in setup_installer._KLEIN_DOWNLOADS is only fired when an HF_TOKEN exists (it
+    would 401 otherwise); public assets always fire. Every Klein download is public
+    today — the KV UNET included — so needs_token stays False unless a future asset
+    re-gates (the flag is data-driven, not hardcoded to a filename)."""
     from .. import setup_installer, config as cfg
     has_token = bool(cfg.secret('HF_TOKEN'))
-    started = []
+    started, needs_token = [], False
     for action in missing:
-        if action == 'klein_model' and not has_token:
+        spec = setup_installer._KLEIN_DOWNLOADS.get(action, {})
+        if spec.get('gated') and not has_token:
+            needs_token = True
             continue  # gated: can't succeed without a token — instruct instead of firing
         try:
             setup_installer.start(action)
@@ -322,7 +327,7 @@ def _autostart_klein_downloads(missing):
             started.append(action)  # already in flight still counts as "downloading"
         except Exception:
             pass  # Precondition (disk) — surfaced via the message, never a crash
-    return started, ('klein_model' in missing and not has_token)
+    return started, needs_token
 
 
 def _klein_missing_response(missing, missing_nodes=None):

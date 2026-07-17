@@ -314,12 +314,14 @@ export default function SetupPage() {
               <p>
                 Running. The Klein model is <span className="text-content font-medium">optional</span> — add it only if you want
                 local generation (you can also use the API engines or your own photos, then export to train elsewhere).
-                To enable it, download <span className="font-mono">flux-2-klein-9b-fp8.safetensors</span> ({KLEIN_MODEL_VRAM}) into
-                <span className="font-mono"> &lt;ComfyUI&gt;/models/unet/klein/</span>.
+                To enable it, download <span className="font-mono">flux-2-klein-9b-kv-fp8.safetensors</span> ({KLEIN_MODEL_VRAM}) into
+                <span className="font-mono"> &lt;ComfyUI&gt;/models/unet/klein/</span> — the <span className="text-content font-medium">KV build</span>,
+                up to 2.5× faster on multi-reference edits at the same quality, and a public download (no token).
               </p>
               <p>
                 Also recommended: the <span className="text-content font-medium">consistency LoRA</span>{' '}
-                <span className="font-mono">Flux2-Klein-9B-consistency-V2.safetensors</span> (331 MB) into{' '}
+                <span className="font-mono">Flux2-Klein-9B-consistency-V2.safetensors</span> (331 MB) — a community LoRA by
+                <span className="text-content font-medium"> dx8152</span> (apache-2.0) — into{' '}
                 <span className="font-mono">&lt;ComfyUI&gt;/models/loras/klein/</span> — it anchors the composition between
                 edits (the "Consistency LoRA" slider drives its strength; ~0.5 is balanced, high values suppress
                 pose changes). Face identity itself comes from the reference photo(s).
@@ -332,9 +334,9 @@ export default function SetupPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <p className="mb-1 text-[0.6875rem] text-content-muted">
-                        Klein model (fp8) → <span className="font-mono">models/unet/klein/</span>
-                        <span className="block text-amber-300/90">
-                          License-gated: accept it on the official page, then add an HF_TOKEN in Settings → API keys.
+                        Klein 9B KV (fp8) → <span className="font-mono">models/unet/klein/</span>
+                        <span className="block text-content-subtle">
+                          Direct public download — no token needed. The FLUX Non-Commercial License governs use.
                         </span>
                       </p>
                       {installBtn('klein_model', '⬇ Download Klein model')}
@@ -365,10 +367,10 @@ export default function SetupPage() {
                 </p>
               )}
               <p className="flex flex-wrap gap-x-4 gap-y-1">
-                <a href="https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8" target="_blank" rel="noreferrer"
-                  className="text-primary underline">Official Klein model page →</a>
+                <a href="https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-kv-fp8" target="_blank" rel="noreferrer"
+                  className="text-primary underline">Official Klein 9B KV model page →</a>
                 <a href="https://huggingface.co/dx8152/Flux2-Klein-9B-Consistency" target="_blank" rel="noreferrer"
-                  className="text-primary underline">Official consistency LoRA page →</a>
+                  className="text-primary underline">Community consistency LoRA (dx8152) →</a>
                 <a href="https://docs.comfy.org/tutorials/flux/flux-2-klein" target="_blank" rel="noreferrer"
                   className="text-primary underline">ComfyUI setup guide →</a>
               </p>
