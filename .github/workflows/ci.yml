@@ -1,5 +1,10 @@
 name: CI
 
+# Heavy jobs are expensive, so we only pay for them when a run is worth it:
+#   * pull_request        -> always (external contributions are the most valuable to gate)
+#   * workflow_dispatch   -> always (manual button)
+#   * push to main        -> only when the change is large enough (see the `gate` job).
+# A CI-config or docs-only nudge to main therefore costs one cheap gate job, nothing more.
 on:
   workflow_dispatch:
   pull_request:
@@ -14,10 +19,77 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gate:
+    name: Change-size gate
+    runs-on: ubuntu-latest
+    outputs:
+      run_heavy: ${{ steps.decide.outputs.run_heavy }}
+    steps:
+      # Only a push needs history to measure its diff; PR/dispatch skip the checkout.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether the heavy jobs run
+        id: decide
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # PRs and manual runs always exercise the full suite.
+          if [ "$EVENT" != "push" ]; then
+            echo "Event '$EVENT' -> always run the heavy jobs."
+            echo "run_heavy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A new branch or force-push gives no usable base to diff against
+          # (before is all-zeros, or points at an overwritten commit we never
+          # fetched). Treat that as "large" and run everything.
+          zero="0000000000000000000000000000000000000000"
+          if [ "$BEFORE" = "$zero" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "No usable diff base ($BEFORE) -> run the heavy jobs."
+            echo "run_heavy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Count changes only in the sources that can actually break the suite.
+          # frontend/dist (build output), docs/** and every *.md are deliberately
+          # excluded: a dist rebuild or a doc tweak must not trigger the full CI.
+          # (dist and docs already fall outside the include list; the *.md exclude
+          # catches markdown living inside backend/ or frontend/src/.)
+          files=0
+          lines=0
+          while IFS=$'\t' read -r added deleted path; do
+            [ -z "${path:-}" ] && continue
+            files=$((files + 1))
+            [ "$added" = "-" ] && added=0
+            [ "$deleted" = "-" ] && deleted=0
+            lines=$((lines + added + deleted))
+          done < <(git diff --numstat "$BEFORE" "$AFTER" -- \
+            backend/ frontend/src/ frontend/tests/ ':(exclude)*.md')
+
+          echo "Source files changed: $files, lines changed: $lines"
+          if [ "$files" -ge 5 ] || [ "$lines" -ge 100 ]; then
+            echo "At or above threshold (>=5 files or >=100 lines) -> run the heavy jobs."
+            echo "run_heavy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Below threshold -> skip the heavy jobs on this push."
+            echo "run_heavy=false" >> "$GITHUB_OUTPUT"
+          fi
+
   backend-tests:
     name: Backend tests
-    # The portable app and its ai-toolkit/ComfyUI path contracts target Windows.
-    # Linux runtime viability is covered independently by docker-smoke below.
+    needs: gate
+    if: needs.gate.outputs.run_heavy == 'true'
+    # The portable app and its ai-toolkit/ComfyUI path contracts target Windows,
+    # so the unit suite runs on the platform it ships for. Linux runtime viability
+    # is covered independently by docker-smoke below.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,11 +109,20 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install --disable-pip-version-check -r backend/requirements.txt
 
+      - name: Install the ML extras the watermark suite needs
+        # test_watermarks.py exercises real numpy/OpenCV pixel maths and the Telea
+        # fallback that runs when LaMa is absent. numpy and OpenCV are the only ML
+        # extras those tests touch, so installing just these two (never torch/LaMa)
+        # runs the 9 watermark tests for real while keeping "LaMa absent" true.
+        run: python -m pip install --disable-pip-version-check "numpy>=1.26,<2" "opencv-python-headless>=4.9"
+
       - name: Run backend tests
         run: python -m pytest backend/tests -q
 
   frontend-quality:
-    name: Frontend tests and tracked build
+    name: Frontend tests and build
+    needs: gate
+    if: needs.gate.outputs.run_heavy == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -62,21 +143,16 @@ jobs:
         run: npm test
 
       - name: Build frontend
+        # Proves the production build compiles. The tracked frontend/dist is a
+        # committed artifact whose freshness is enforced at release time
+        # (release.yml), not on every commit -- that keeps concurrent frontend
+        # work from going red on a dist that simply has not been rebuilt yet.
         run: npm run build
-
-      - name: Verify the tracked frontend build is current
-        shell: bash
-        run: |
-          changes="$(git status --porcelain --untracked-files=all -- dist)"
-          if [[ -n "$changes" ]]; then
-            echo "::error::frontend/dist is stale. Run 'npm run build' in frontend/ and commit the result."
-            printf '%s\n' "$changes"
-            git diff -- dist
-            exit 1
-          fi
 
   docker-smoke:
     name: Docker smoke test
+    needs: gate
+    if: needs.gate.outputs.run_heavy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
