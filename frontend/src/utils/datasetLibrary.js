@@ -5,8 +5,12 @@
  */
 
 // Model families offered at creation + section order/labels of the library.
-// The library is GROUPED by this family (d.train_type): easier upkeep when
-// datasets span several pipelines. Third value = the section emoji.
+// The library is GROUPED by the family a dataset was ACTUALLY trained in (its
+// primary trained family — see primaryFamily/groupDatasets), NOT by the mutable
+// d.train_type scalar: train_type is only the training panel's current pick and
+// gets rewritten on a mere dropdown change, so grouping on it made a dataset
+// jump sections without any real run. This order also decides which trained
+// family wins when a dataset has several. Third value = the section emoji.
 export const FAMILY_ORDER = [
   ['zimage', 'Z-Image', '🌀'],
   ['sdxl', 'SDXL', '🎨'],
@@ -15,10 +19,15 @@ export const FAMILY_ORDER = [
   ['flux2klein', 'FLUX.2 Klein', '🌹'],
 ];
 
-// A dataset whose train_type this build does not know (e.g. a family added by
-// a newer server) must still be reachable — it lands in a trailing section
+// A dataset trained only in a family this build does not know (e.g. one added
+// by a newer server) must still be reachable — it lands in a trailing section
 // instead of silently vanishing from the library.
 export const OTHER_FAMILY = ['other', 'Other', '📁'];
+
+// Datasets no LoRA has ever been trained from — their own trailing section,
+// AFTER every family (Other included), so the top of the library is the trained
+// work. The family value below is the section's collapse key.
+export const NOT_TRAINED = ['not-trained', 'Not trained yet', '🚫'];
 
 // Tile size: 'S' compact list rows (maximum density), 'M' the historical
 // photo grid, 'L' large previews. Same 3-step segmented idiom as the
@@ -63,23 +72,33 @@ export function kindsPresent(datasets = []) {
   return ['character', 'concept', 'style'].filter((k) => present.has(k));
 }
 
-/** Group datasets into ordered non-empty sections:
- *  [{family, label, emoji, items}] following FAMILY_ORDER, with unknown
- *  train_types collected into the trailing OTHER_FAMILY section. */
+/** The section a dataset belongs to: the FIRST family in FAMILY_ORDER it has
+ *  actually been trained in — deterministic and independent of how the server
+ *  orders trained_families (it sorts them alphabetically, which is NOT the
+ *  section order). Trained only in families this build doesn't know → OTHER_FAMILY;
+ *  never trained → NOT_TRAINED. Any extra trained families stay visible as the
+ *  existing per-tile badges, so one dataset still maps to exactly one section. */
+export function primaryFamily(d) {
+  const trained = Array.isArray(d?.trained_families) ? d.trained_families : [];
+  if (trained.length === 0) return NOT_TRAINED[0];
+  const trainedSet = new Set(trained);
+  const known = FAMILY_ORDER.find(([fam]) => trainedSet.has(fam));
+  return known ? known[0] : OTHER_FAMILY[0];
+}
+
+/** Group datasets into ordered non-empty sections [{family, label, emoji,
+ *  items}]: FAMILY_ORDER families first (each holding the datasets whose PRIMARY
+ *  trained family is that one), then Other, then "Not trained yet" — always last.
+ *  Each dataset lands in exactly one section (its primaryFamily), so the header
+ *  counts sum to the library size and changing train_type never moves a tile. */
 export function groupDatasets(datasets = []) {
-  const known = new Set(FAMILY_ORDER.map(([fam]) => fam));
-  const sections = FAMILY_ORDER.map(([family, label, emoji]) => ({
-    family,
-    label,
-    emoji,
-    items: datasets.filter((d) => (d.train_type || 'zimage') === family),
-  }));
-  const [family, label, emoji] = OTHER_FAMILY;
-  sections.push({
-    family,
-    label,
-    emoji,
-    items: datasets.filter((d) => !known.has(d.train_type || 'zimage')),
-  });
-  return sections.filter((s) => s.items.length > 0);
+  const byFamily = new Map();
+  for (const d of datasets) {
+    const fam = primaryFamily(d);
+    if (!byFamily.has(fam)) byFamily.set(fam, []);
+    byFamily.get(fam).push(d);
+  }
+  return [...FAMILY_ORDER, OTHER_FAMILY, NOT_TRAINED]
+    .filter(([family]) => byFamily.has(family))
+    .map(([family, label, emoji]) => ({ family, label, emoji, items: byFamily.get(family) }));
 }
