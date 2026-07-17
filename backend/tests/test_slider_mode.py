@@ -15,6 +15,8 @@ What matters here:
 - settings live in the dedicated `train_slider` column, so applying a training
   preset (which REPLACES train_settings) can never wipe a slider setup.
 """
+import json
+
 import pytest
 
 from app.config import LOCAL_USER
@@ -423,21 +425,98 @@ def test_effective_train_settings_reports_slider_768_default(app, tmp_path):
         assert eff2['resolution_explicit'] is True
 
 
-# --- 6) cloud refusal (local-only V1) -------------------------------------------
+# --- 6) cloud lane: slider rides the same pod, frozen per run -------------------
 
-def test_cloud_launch_refuses_slider_mode(app, monkeypatch):
+def test_cloud_launch_accepts_slider_and_snapshots_settings(app, monkeypatch):
+    """Slider mode no longer refuses the cloud lane (the pod's ai-toolkit runs
+    the concept_slider trainer). The launch proceeds and FREEZES the slider blob
+    into the run params (dedicated snapshot key), so a later toggle-off can't
+    retarget the in-flight run — same immutability contract as train_settings."""
     monkeypatch.setenv('VAST_API_KEY', 'k-test')
     from app.services import cloud_training as ct
     monkeypatch.setattr(ct, '_start_monitor', lambda *a, **k: None)
     monkeypatch.setattr(ct, '_reconcile_before_launch', lambda a: None)
+    monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: [])
     with app.app_context():
         ds = _mk(app, n_keep=6)
         _enable_slider(ds)
-        with pytest.raises(ValueError, match='local-only'):
-            ct.launch_cloud_training(LOCAL_USER, ds.id)
-        # the pre-launch offers view refuses identically (no dead-end dialog)
-        with pytest.raises(ValueError, match='local-only'):
-            ct.gpu_tiers(LOCAL_USER, ds.id)
+        res = ct.launch_cloud_training(LOCAL_USER, ds.id)
+        run = ct.CloudTrainingRun.query.get(res['run_id'])
+        params = json.loads(run.train_params)
+        snap = json.loads(params['train_slider_snapshot'])
+        assert snap['enabled'] is True
+        assert snap['positive'] == 'very muscular body'
+        # the pre-launch offers view no longer refuses either (returns a dict)
+        assert isinstance(ct.gpu_tiers(LOCAL_USER, ds.id), dict)
+
+
+def test_cloudify_preserves_concept_slider_type(app):
+    """_cloudify_job_config retypes the standard local 'sd_trainer' to the pod's
+    'diffusion_trainer', but a 'concept_slider' job keeps its uid: the pod runs
+    that built-in extension as-is, and flattening it would silently drop the
+    slider loss and train an ordinary LoRA."""
+    from app.services import cloud_training as ct
+    pod = {'DATASETS_FOLDER': '/pod/ds', 'TRAINING_FOLDER': '/pod/out'}
+
+    def _cfg(ptype):
+        return {'config': {'name': 'x', 'process': [{
+            'type': ptype, 'training_folder': '__POD__', 'device': 'cpu',
+            'datasets': [{'folder_path': 'C:\\staging\\dataset'}]}]}}
+
+    out = ct._cloudify_job_config(_cfg('concept_slider'), 'job1',
+                                  'C:\\staging\\dataset', pod)
+    assert out['config']['process'][0]['type'] == 'concept_slider'
+    out2 = ct._cloudify_job_config(_cfg('sd_trainer'), 'job1',
+                                   'C:\\staging\\dataset', pod)
+    assert out2['config']['process'][0]['type'] == 'diffusion_trainer'
+
+
+def test_slider_snapshot_freezes_pod_job_against_later_edits(app, tmp_path):
+    """The pod job is built minutes after launch through _run_config_dataset,
+    which must read the LAUNCH-TIME slider snapshot: disabling slider mode on the
+    dataset in between cannot turn an in-flight slider run into a plain LoRA."""
+    from app.services import cloud_training as ct
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        ds = _mk(app, train_type='krea', trigger='sl_snap', name='SlSnap')
+        ds.train_variant = 'turbo'
+        svc.db.session.commit()
+        _enable_slider(ds)
+        # The frozen blob, exactly as launch_cloud_training stamps it.
+        params = {'train_type': 'krea', 'variant': 'turbo', 'base_model': '',
+                  'train_slider_snapshot': ds.train_slider}
+        # User disables slider on the dataset AFTER the launch was stamped.
+        lt.update_slider_settings(LOCAL_USER, ds.id, {'enabled': False})
+        assert lt.slider_mode_enabled(ds) is False
+        folder = tmp_path / 'ds_krea'; folder.mkdir()
+        view = ct._run_config_dataset(ds, params)
+        p = lt.build_job_config(view, str(folder), steps=1000)['config']['process'][0]
+        assert p['type'] == 'concept_slider'
+        assert p['slider']['positive_prompt'] == 'very muscular body'
+
+
+def test_legacy_run_without_slider_snapshot_reads_live_column(app, tmp_path):
+    """A pre-feature run row carries no train_slider snapshot: _run_config_dataset
+    then falls back to the live dataset column (never crashes on the missing key,
+    mirroring the train_settings legacy fallback)."""
+    from app.services import cloud_training as ct
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        ds = _mk(app, train_type='krea', trigger='sl_leg', name='SlLeg')
+        ds.train_variant = 'turbo'
+        svc.db.session.commit()
+        _enable_slider(ds)
+        params = {'train_type': 'krea', 'variant': 'turbo', 'base_model': ''}
+        folder = tmp_path / 'ds_leg'; folder.mkdir()
+        view = ct._run_config_dataset(ds, params)
+        p = lt.build_job_config(view, str(folder), steps=1000)['config']['process'][0]
+        assert p['type'] == 'concept_slider'
 
 
 # --- 7) API surface --------------------------------------------------------------

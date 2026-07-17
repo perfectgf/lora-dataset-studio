@@ -947,9 +947,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const cloudTooFewImages = keptCount < trainMinFloor;
   const cloudLimitReached = actives.length >= (cloudStatus.limit || 1);
   const cloudDisabledReason =
-    sliderOn
-      ? 'Slider training (Beta) is local-only for now — turn slider mode off to use the cloud lane'
-    : trainType === 'sdxl'
+    trainType === 'sdxl'
       ? 'SDXL trains locally only — the cloud lane covers Z-Image, Krea 2 and FLUX.2 Klein'
     : trainType === 'flux'
       ? 'FLUX.1 trains locally only — the cloud lane covers Z-Image, Krea 2 and FLUX.2 Klein'
@@ -960,7 +958,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     : baseBlocksTrain
       ? 'Convert the custom base first — the cloud lane pushes the converted copy to your Hugging Face account'
     : cloudTooFewImages
-      ? `Only ${keptCount} image(s) kept — the cloud minimum for ${typeLabel} is ${TRAIN_MIN[trainType]?.[0] ?? 12}`
+      ? `Only ${keptCount} image(s) kept — the cloud minimum for ${sliderOn ? 'a slider' : typeLabel} is ${trainMinFloor}`
     : cloudActiveHere
       ? `A ${typeLabel} cloud run is already active on this dataset`
     : cloudLimitReached

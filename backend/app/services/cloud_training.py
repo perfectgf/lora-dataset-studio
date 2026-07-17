@@ -45,6 +45,13 @@ _auto_retry_lock = threading.Lock()
 _launch_reservation_lock = threading.Lock()
 _UNSET = object()
 _TRAIN_SETTINGS_SNAPSHOT = 'train_settings_snapshot'
+# Slider LoRA mode (Beta) settings live in a DEDICATED column (train_slider),
+# not train_settings, so they need their own per-run snapshot: the pod job is
+# built minutes after launch (and later on retry/continue), and a toggle-off or
+# prompt edit in that window must not retarget an already-launched slider run
+# into a plain LoRA (same immutability contract as _TRAIN_SETTINGS_SNAPSHOT —
+# see _RunConfigDataset / incident 2026-07-14).
+_TRAIN_SLIDER_SNAPSHOT = 'train_slider_snapshot'
 _CONFIRMATION_FLAGS = (
     'allow_caption_mismatch',
     'allow_uncaptioned',
@@ -160,12 +167,13 @@ class _RunConfigDataset:
     no DB mutation, nothing to restore, and both concurrent runs stay isolated."""
 
     def __init__(self, ds, train_type, train_variant, train_base_model='',
-                 train_settings_snapshot=_UNSET):
+                 train_settings_snapshot=_UNSET, train_slider_snapshot=_UNSET):
         self._ds = ds
         self._train_type = train_type
         self._train_variant = train_variant
         self._train_base_model = train_base_model
         self._train_settings_snapshot = train_settings_snapshot
+        self._train_slider_snapshot = train_slider_snapshot
 
     @property
     def train_type(self):
@@ -192,6 +200,18 @@ class _RunConfigDataset:
                 if self._train_settings_snapshot is _UNSET
                 else self._train_settings_snapshot)
 
+    @property
+    def train_slider(self):
+        # Slider mode (Beta) is read off this column by build_job_config
+        # (slider_mode_enabled -> _apply_slider_overrides). Frozen per run like
+        # train_settings: ``None`` means "not a slider run at launch"; only
+        # _UNSET (a legacy row that predates the snapshot) falls back to the
+        # live dataset column. A @property is resolved by normal lookup, so it
+        # deliberately shadows the __getattr__ delegation below.
+        return (getattr(self._ds, 'train_slider', None)
+                if self._train_slider_snapshot is _UNSET
+                else self._train_slider_snapshot)
+
     def __getattr__(self, name):
         # Reached only for attributes not resolved normally (i.e. everything
         # except _ds / _train_* / the two properties) -> delegate to the real ds.
@@ -210,7 +230,8 @@ def _run_config_dataset(ds, params):
     var = params.get('variant')
     base = params.get('base_model', '')
     advanced = params.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET)
-    return _RunConfigDataset(ds, fam, var, base, advanced)
+    slider = params.get(_TRAIN_SLIDER_SNAPSHOT, _UNSET)
+    return _RunConfigDataset(ds, fam, var, base, advanced, slider)
 
 
 def _recipe_replay_diagnostic(params):
@@ -293,7 +314,8 @@ def retry_cloud_run(user_id, run_id) -> dict:
         gpu_name=p.get('requested_gpu'),
         resume_ckpt_path=p.get('resume_ckpt_path'),
         resume_step=p.get('resume_step'),
-        train_settings_snapshot=p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET))
+        train_settings_snapshot=p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET),
+        train_slider_snapshot=p.get(_TRAIN_SLIDER_SNAPSHOT, _UNSET))
 
 
 def _run_staging_checkpoints(run) -> list:
@@ -363,7 +385,8 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
         **_confirmation_flags(p),
         gpu_name=p.get('requested_gpu'),
         resume_ckpt_path=latest['path'], resume_step=latest['step'],
-        train_settings_snapshot=p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET))
+        train_settings_snapshot=p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET),
+        train_slider_snapshot=p.get(_TRAIN_SLIDER_SNAPSHOT, _UNSET))
     res['resumed_from'] = latest['step']
     res['target_steps'] = latest['step'] + extra
     return res
@@ -376,7 +399,8 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                           allow_unverified_weights=False,
                           gpu_name=None, resume_ckpt_path=None, resume_step=None,
                           auto_retry_count=0, auto_retry_of=None,
-                          strict_gpu=False, train_settings_snapshot=_UNSET) -> dict:
+                          strict_gpu=False, train_settings_snapshot=_UNSET,
+                          train_slider_snapshot=_UNSET) -> dict:
     if not cfg.secret('VAST_API_KEY'):
         raise RuntimeError('vast.ai API key is not configured — add it in Settings')
     # A user launching after days away is exactly when an expired
@@ -396,13 +420,14 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
-    # Slider LoRA mode (Beta) is local-only in V1: the pod image/job flow has
-    # never been exercised with the `concept_slider` process, and an unproven
-    # rented run costs real money. Honest refusal instead of a silent maybe.
-    if lt.slider_mode_enabled(ds):
-        raise ValueError('Slider training (Beta) is local-only for now — '
-                         'turn slider mode off to train this dataset in the cloud, '
-                         'or run it locally.')
+    # Slider LoRA mode (Beta) rides the SAME pod as every other family: the
+    # pod's ai-toolkit registers `concept_slider` as a built-in trainer uid
+    # (extends DiffusionTrainer — the very path _cloudify_job_config targets),
+    # build_job_config already emits the full concept_slider process for the
+    # cloud families, and the prompt-pair/substrate preflight below is family-
+    # agnostic. The launch-time slider settings are frozen into the run params
+    # (train_slider snapshot) exactly like train_settings, so a later toggle or
+    # prompt edit cannot retarget an in-flight run.
     fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
     # ``base_model`` is an explicit launch selection on the HTTP path.  Keep a
     # compatibility fallback for older internal callers that omitted it: use
@@ -553,6 +578,14 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
         if train_settings_snapshot is _UNSET:
             train_settings_snapshot = getattr(ds, 'train_settings', None)
         params[_TRAIN_SETTINGS_SNAPSHOT] = train_settings_snapshot
+        # Freeze the slider column the same way: a fresh launch snapshots the
+        # dataset's current train_slider blob; retry/continue replay the source
+        # run's snapshot (passed in) so a slider run stays a slider run even if
+        # the dataset's mode was toggled off in between. ``None`` = not a slider
+        # run at launch (build_job_config then emits the normal process).
+        if train_slider_snapshot is _UNSET:
+            train_slider_snapshot = getattr(ds, 'train_slider', None)
+        params[_TRAIN_SLIDER_SNAPSHOT] = train_slider_snapshot
         if gpu_name:
             params['requested_gpu'] = str(gpu_name)
         if auto_retry_count:
@@ -1124,7 +1157,15 @@ def _cloudify_job_config(job_config: dict, job_name: str,
     conf = out['config']
     conf['name'] = job_name
     proc = conf['process'][0]
-    proc['type'] = 'diffusion_trainer'
+    # The local build emits the legacy 'sd_trainer' uid; the pod's ai-toolkit
+    # runs the modern 'diffusion_trainer' path (the universal ui/api trainer
+    # whose progress events the pod UI's DB understands), so retype it here. A
+    # slider run already emits 'concept_slider' — a first-class built-in
+    # extension that itself extends DiffusionTrainer — which the pod runs as-is;
+    # flattening it to diffusion_trainer would silently drop the slider loss and
+    # train an ordinary LoRA. Only the standard trainer is retyped.
+    if proc.get('type') == 'sd_trainer':
+        proc['type'] = 'diffusion_trainer'
     proc['training_folder'] = pod_settings['TRAINING_FOLDER']
     proc['device'] = 'cuda:0'
     base_repo = (run_params or {}).get('base_repo_id')
@@ -1998,11 +2039,8 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None,
     if not ds:
         raise ValueError('dataset not found')
     fam = fds.normalize_train_type(train_type or getattr(ds, 'train_type', None))
-    # Same slider refusal as launch_cloud_training (offers view = pre-launch UI).
-    if lt.slider_mode_enabled(ds):
-        raise ValueError('Slider training (Beta) is local-only for now — '
-                         'turn slider mode off to train this dataset in the cloud, '
-                         'or run it locally.')
+    # Slider mode rides the same offers/pods as its family (see
+    # launch_cloud_training) — no separate refusal here.
     if fam == 'sdxl':
         raise ValueError('SDXL training needs a local base checkpoint — '
                          'cloud training supports Z-Image, Krea and FLUX.2 Klein')
