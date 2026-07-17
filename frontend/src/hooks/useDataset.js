@@ -123,6 +123,11 @@ export function useDataset() {
   // has rendered the disabled button.
   const [mirroringIds, setMirroringIds] = useState(() => new Set());
   const mirroringRef = useRef(new Set());
+  // Per-image re-caption in flight (Identity-leak panel's targeted 🔄): keep the busy
+  // state scoped to the offending row so the rest of the panel stays usable, with a
+  // synchronous ref guard against a double-click enqueuing the same image twice.
+  const [recaptioningIds, setRecaptioningIds] = useState(() => new Set());
+  const recaptioningRef = useRef(new Set());
   const [refNonce, setRefNonce] = useState(0);
   const pollRef = useRef(null);
   const busyRef = useRef(false); // re-entrancy guard for GPU-bound actions (I2)
@@ -453,6 +458,42 @@ export function useDataset() {
       setCaptioning(false);
     }
   }), [wrap, currentId, refresh, toast]);
+
+  // Re-caption ciblé : ré-écrit la caption d'un sous-ensemble d'images gardées (une
+  // ligne fuyante, ou « toutes les fuyantes ») avec le MÊME moteur/mode/contexte que le
+  // lot. Volontairement HORS `wrap` : le spinner reste sur la/les ligne(s) concernée(s)
+  // (recaptioningIds), le reste du panneau reste utilisable. Sérialisé côté serveur par
+  // la fenêtre vision GPU (503 si un autre passage tourne). Retourne le résultat parsé.
+  const recaptionImages = useCallback(async (ids, mode) => {
+    const list = (ids || []).map((v) => Number(v)).filter((v) => Number.isInteger(v));
+    const fresh = list.filter((id) => !recaptioningRef.current.has(id));
+    if (!fresh.length) return { ok: false, error: 'nothing to re-caption' };
+    fresh.forEach((id) => recaptioningRef.current.add(id));
+    setRecaptioningIds((prev) => {
+      const next = new Set(prev);
+      fresh.forEach((id) => next.add(id));
+      return next;
+    });
+    try {
+      const d = await postJson(`/api/dataset/${currentId}/caption`,
+        { image_ids: fresh, ...(mode ? { mode } : {}) });
+      if (!d.ok) {
+        // GPU-busy (a batch/training pass holds the vision window) carries a detail.
+        toast.error(d.detail ? `${d.error} — ${d.detail}` : (d.error || 'Could not re-caption'));
+        return d;
+      }
+      toast.success(`${d.captioned} re-captioned`);
+      await refresh();  // re-pulls captions + the live leak flags (scan is server-side)
+      return d;
+    } finally {
+      fresh.forEach((id) => recaptioningRef.current.delete(id));
+      setRecaptioningIds((prev) => {
+        const next = new Set(prev);
+        fresh.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+  }, [currentId, refresh, toast]);
 
   // Analyse de ressemblance faciale (InsightFace antelopev2, CPU — ~1-2 min, pas de
   // pause ComfyUI). Persiste face_score/face_state -> badges sur la grille.
@@ -928,9 +969,9 @@ export function useDataset() {
 
   return { datasets, currentId, data, busy: busyLive, localBusy: busy, captioning: captioningLive,
            analyzing: analyzingLive, watermarking: watermarkingLive, activity,
-           nonces, mirroringIds, refNonce, create, open,
+           nonces, mirroringIds, refNonce, recaptioningIds, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
-           generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, classify, caption, recaption,
+           generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, classify, caption, recaption, recaptionImages,
            setStatus, setCaption, mirrorImage, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
            findWatermarks, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,

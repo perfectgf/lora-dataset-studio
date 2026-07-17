@@ -399,6 +399,103 @@ def test_caption_images_backend_joycaption_unavailable_raises(app, monkeypatch):
             svc.caption_images(LOCAL_USER, ds.id)
 
 
+def _dataset_with_two_kept_images(svc, LOCAL_USER):
+    """A FaceDataset with two kept images, each already carrying a (leaking) caption —
+    the state the Identity-leak panel targets when it re-captions a single row."""
+    from app.models import FaceDatasetImage
+    ds = svc.create_dataset(LOCAL_USER, 'SubsetTest', 'subset')
+    d = svc._dataset_dir(ds.id)
+    os.makedirs(d, exist_ok=True)
+    imgs = []
+    for i, color in enumerate([(255, 0, 0), (0, 0, 255)]):
+        fn = f'kept{i}.webp'
+        with open(os.path.join(d, fn), 'wb') as fh:
+            fh.write(_png(color))
+        img = FaceDatasetImage(dataset_id=ds.id, source='import', status='keep',
+                               filename=fn, framing='face', caption='old leaking caption')
+        svc.db.session.add(img)
+        imgs.append(img)
+    svc.db.session.commit()
+    return ds, imgs
+
+
+def test_caption_images_scopes_to_image_ids_subset(app, monkeypatch):
+    """The Identity-leak panel's targeted 🔄 Re-caption re-writes ONE image, leaving the
+    rest of the dataset untouched — even though both already have captions."""
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    from app.config import LOCAL_USER, save_config
+    from app.models import FaceDatasetImage
+
+    monkeypatch.setattr(vision_ollama.requests, 'post',
+                        lambda *a, **k: _Resp({'response': 'fresh caption'}))
+    with app.app_context():
+        save_config({'captioning': {'backend': 'ollama'}})
+        ds, (img_a, img_b) = _dataset_with_two_kept_images(svc, LOCAL_USER)
+        n = svc.caption_images(LOCAL_USER, ds.id, force=True, image_ids=[img_a.id])
+        assert n == 1
+        assert svc.db.session.get(FaceDatasetImage, img_a.id).caption == 'fresh caption'
+        # The image OUTSIDE the subset keeps its original caption verbatim.
+        assert svc.db.session.get(FaceDatasetImage, img_b.id).caption == 'old leaking caption'
+
+
+def test_caption_images_empty_subset_captions_nothing(app, monkeypatch):
+    """An empty subset must short-circuit to 0 — never fall through to captioning the
+    whole dataset. The vision backend is stubbed to blow up if it is ever reached."""
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    from app.config import LOCAL_USER, save_config
+    from app.models import FaceDatasetImage
+
+    def _boom(*a, **k):
+        raise AssertionError('an empty subset must not caption any image')
+
+    monkeypatch.setattr(vision_ollama.requests, 'post', _boom)
+    with app.app_context():
+        save_config({'captioning': {'backend': 'ollama'}})
+        ds, (img_a, img_b) = _dataset_with_two_kept_images(svc, LOCAL_USER)
+        assert svc.caption_images(LOCAL_USER, ds.id, force=True, image_ids=[]) == 0
+        assert svc.db.session.get(FaceDatasetImage, img_a.id).caption == 'old leaking caption'
+        assert svc.db.session.get(FaceDatasetImage, img_b.id).caption == 'old leaking caption'
+
+
+def test_caption_route_scopes_and_implies_force(client, app, monkeypatch):
+    """{image_ids:[...]} reaches the service scoped, and a targeted call OVERWRITES —
+    the route forces even when the body omits force (the leaking captions exist already)."""
+    from app.services import face_dataset_service as svc
+    seen = {}
+
+    def _fake(user, dataset_id, force=False, mode=None, image_ids=None):
+        seen.update(force=force, mode=mode, image_ids=image_ids)
+        return len(image_ids or [])
+
+    ds_id = client.post('/api/dataset/create',
+                        json={'name': 'R', 'trigger_word': 'r'}).get_json()['id']
+    monkeypatch.setattr(svc, 'caption_images', _fake)
+    resp = client.post(f'/api/dataset/{ds_id}/caption', json={'image_ids': [4, 7]})
+    assert resp.status_code == 200 and resp.get_json()['captioned'] == 2
+    assert seen == {'force': True, 'mode': None, 'image_ids': [4, 7]}
+
+
+def test_caption_route_rejects_non_list_image_ids(client, app):
+    ds_id = client.post('/api/dataset/create',
+                        json={'name': 'R', 'trigger_word': 'r'}).get_json()['id']
+    resp = client.post(f'/api/dataset/{ds_id}/caption', json={'image_ids': '4'})
+    assert resp.status_code == 400 and 'image_ids' in resp.get_json()['error']
+
+
+def test_caption_route_subset_503_while_vision_running(client, app):
+    """A targeted re-caption is serialized against any other vision/training pass by the
+    same GPU window as the batch — it returns 503 GPU busy rather than running concurrently."""
+    from app.job_queue import queue_manager
+    ds_id = client.post('/api/dataset/create',
+                        json={'name': 'R', 'trigger_word': 'r'}).get_json()['id']
+    with app.app_context():
+        queue_manager._set_system_state('vision_in_progress', True, ttl_seconds=300)
+    resp = client.post(f'/api/dataset/{ds_id}/caption', json={'image_ids': [1]})
+    assert resp.status_code == 503 and 'GPU busy' in resp.get_json()['error']
+
+
 def test_caption_images_backend_auto_falls_back_to_ollama(app, monkeypatch):
     """backend='auto' (SRC/default behavior): JoyCaption tried first, Ollama
     fills in whatever it missed."""

@@ -357,6 +357,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
     && !isSmallImageRescueRow(i)).length;
   const keptUncaptioned = images.filter((i) => i.status === 'keep' && !i.caption).length;
   const keptCaptioned = kept - keptUncaptioned;
+  // Captions that still leak identity/concept — the Identity-leak panel lists them for
+  // in-place edit AND targeted 🔄 Re-caption (per row + a "Re-caption all leaking" header).
+  const leakingImages = images.filter((i) => i.leak);
   // Overlaid watermarks still awaiting removal → drives the "🧽 Clean (N)" button.
   const watermarkDetected = images.filter((i) => i.watermark_state === 'detected').length;
   // Style de caption : défaut AUTO (SDXL booru-native → booru tags ; sinon prose), surchargé par le sélecteur.
@@ -1187,25 +1190,62 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     </p>
                   ) : (
                     <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 p-2.5 flex flex-col gap-2">
-                      <span className="text-amber-300 text-[0.8125rem] font-semibold">
-                        {isConcept
-                          ? <>Captions naming the concept ({d.caption_leak?.leaking}) — remove the concept words, or 🔄 Re-caption. Edits save when you click away.</>
-                          : <>Captions leaking identity ({d.caption_leak?.leaking}) — remove the highlighted words, or 🔄 Re-caption. Edits save when you click away.</>}
-                      </span>
-                      {images.filter((i) => i.leak).map((img) => (
-                        <div key={img.id} className="flex gap-2 items-start">
-                          <img src={`/api/dataset/${d.id}/img/${encodeURIComponent(img.filename)}`}
-                            alt={img.variation_label || 'dataset image'} loading="lazy"
-                            className="w-14 h-14 rounded-lg object-cover shrink-0 bg-black" />
-                          <textarea defaultValue={img.caption || ''} rows={2}
-                            onBlur={(e) => {
-                              if (e.target.value !== (img.caption || '')) ds.setCaption(img.id, e.target.value);
-                            }}
-                            aria-label={`Caption of image ${img.id}`}
-                            className="flex-1 bg-app/60 border border-amber-400/30 rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
-                        </div>
-                      ))}
-                      {images.filter((i) => i.leak).length === 0 && (
+                      {/* Targeted re-caption is scoped, so it stays disabled only while a
+                          full batch/other vision pass is running (ds.captioning) or another
+                          targeted row is in flight — the offending row shows its own spinner. */}
+                      {(() => {
+                        const recaptionLocked = ds.busy || ds.captioning || ds.recaptioningIds.size > 0;
+                        return (
+                          <div className="flex items-start justify-between gap-2 flex-wrap">
+                            <span className="text-amber-300 text-[0.8125rem] font-semibold">
+                              {isConcept
+                                ? <>Captions naming the concept ({d.caption_leak?.leaking}) — remove the concept words, or 🔄 Re-caption. Edits save when you click away.</>
+                                : <>Captions leaking identity ({d.caption_leak?.leaking}) — remove the highlighted words, or 🔄 Re-caption. Edits save when you click away.</>}
+                            </span>
+                            {leakingImages.length > 1 && (
+                              <button type="button"
+                                disabled={recaptionLocked}
+                                onClick={() => ds.recaptionImages(leakingImages.map((i) => i.id), effCaptionMode)}
+                                title={isConcept
+                                  ? 'Re-generate every leaking caption while keeping the concept unspoken'
+                                  : 'Re-generate every leaking caption without describing identity (face/hair)'}
+                                className="shrink-0 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-200 text-[0.75rem] font-semibold border border-amber-400/40 hover:bg-amber-500/25 disabled:opacity-40">
+                                🔄 Re-caption all leaking ({leakingImages.length})
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      {leakingImages.map((img) => {
+                        const rowBusy = ds.recaptioningIds.has(img.id);
+                        const recaptionLocked = ds.busy || ds.captioning || ds.recaptioningIds.size > 0;
+                        return (
+                          <div key={img.id} className="flex gap-2 items-start">
+                            <img src={`/api/dataset/${d.id}/img/${encodeURIComponent(img.filename)}`}
+                              alt={img.variation_label || 'dataset image'} loading="lazy"
+                              className="w-14 h-14 rounded-lg object-cover shrink-0 bg-black" />
+                            <div className="flex-1 min-w-0 flex flex-col gap-1">
+                              <textarea defaultValue={img.caption || ''} rows={2}
+                                key={`${img.id}:${img.caption || ''}`}
+                                onBlur={(e) => {
+                                  if (e.target.value !== (img.caption || '')) ds.setCaption(img.id, e.target.value);
+                                }}
+                                aria-label={`Caption of image ${img.id}`}
+                                className="w-full bg-app/60 border border-amber-400/30 rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
+                              <button type="button"
+                                disabled={recaptionLocked}
+                                onClick={() => ds.recaptionImages([img.id], effCaptionMode)}
+                                title={isConcept
+                                  ? 'Re-generate this caption while keeping the concept unspoken'
+                                  : 'Re-generate this caption without describing identity (face/hair)'}
+                                className="self-start px-2 py-0.5 rounded-lg bg-surface text-content text-[0.6875rem] border border-border hover:bg-surface-raised disabled:opacity-40">
+                                {rowBusy ? '⏳ Re-captioning…' : '🔄 Re-caption'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {leakingImages.length === 0 && (
                         <p className="m-0 text-emerald-400 text-[0.8125rem]">✅ All clear — no leaking caption left.</p>
                       )}
                     </div>

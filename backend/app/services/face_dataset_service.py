@@ -2671,7 +2671,7 @@ def _enforce_concept_omission(caption, leak_re, image_bytes, concept_desc, descr
     return caption
 
 
-def _caption_concept(ds, force, backend, token=None):
+def _caption_concept(ds, force, backend, token=None, image_ids=None):
     """Concept caption pipeline (INVERTED logic): describe everything INCLUDING identity
     but OMIT the recurring act so it binds to the trigger. JoyCaption is literal (it NAMES
     the act/fluids/watermark) -> its drafts are REFINED by Qwen, then every caption passes
@@ -2687,6 +2687,8 @@ def _caption_concept(ds, force, backend, token=None):
     # concepts. This is the generation-side half of the leg_behind fix.
     cap_prompt = caption_prompt_for_concept(concept_desc)
     q = FaceDatasetImage.query.filter_by(dataset_id=ds.id, status='keep')
+    if image_ids is not None:
+        q = q.filter(FaceDatasetImage.id.in_(image_ids))
     if not force:
         q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))
     todo = [(img, _img_path(img)) for img in q.all() if img.filename]
@@ -2825,11 +2827,16 @@ def _caption_concept(ds, force, backend, token=None):
     return n
 
 
-def caption_images(user_id, dataset_id, force=False, mode=None):
+def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
     """Caption les images gardees. Defaut: seulement celles SANS caption ; force=True
     re-capte TOUTES les gardees (ecrase) - pour rejouer apres un changement de prompt.
     Chaque caption passe par drop_identity_sentences (retire une eventuelle phrase
     d'identite isolee).
+
+    `image_ids` (optionnel) restreint la passe a ce sous-ensemble d'images gardees —
+    utilise par le bouton 🔄 Re-caption cible du panneau Identity-leak (une seule image
+    ou « toutes les fuyantes ») ; None -> tout le dataset (comportement batch). Meme
+    moteur, meme mode, meme contexte kind et memes regles de nettoyage que le lot complet.
 
     `captioning.backend` (réglages) pilote qui capte quoi :
       - 'none'       -> désactivé, RuntimeError (mappée 409 par la route).
@@ -2843,6 +2850,15 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return 0
+    # A targeted subset (Identity-leak panel): normalize to ints once, drop non-numeric.
+    # `None` = whole dataset; an EMPTY subset (nothing to re-caption) short-circuits to 0
+    # rather than silently captioning everything.
+    ids = None
+    if image_ids is not None:
+        ids = [int(i) for i in image_ids
+               if isinstance(i, (int, float, str)) and str(i).lstrip('-').isdigit()]
+        if not ids:
+            return 0
     # Dataset CONCEPT : logique INVERSÉE (décrire tout SAUF l'acte récurrent → il se lie
     # au trigger). Pipeline dédié Joy→Qwen + garantie d'omission (ban-list) : entièrement
     # à part du chemin character ci-dessous. Respecte le backend gating.
@@ -2856,7 +2872,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
         logger.info('captioning started: dataset=%s backend=%s force=%s kind=concept',
                     dataset_id, backend, force)
         try:
-            n = _caption_concept(ds, force, backend, token=token)
+            n = _caption_concept(ds, force, backend, token=token, image_ids=ids)
             logger.info('captioning finished: dataset=%s backend=%s captioned=%s elapsed=%.1fs',
                         dataset_id, backend, n, time.monotonic() - started)
             return n
@@ -2888,6 +2904,8 @@ def caption_images(user_id, dataset_id, force=False, mode=None):
         def cleaner(text):
             return base_cleaner(text, body=body)
     q = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
+    if ids is not None:
+        q = q.filter(FaceDatasetImage.id.in_(ids))
     if not force:
         q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))
     rows = q.all()

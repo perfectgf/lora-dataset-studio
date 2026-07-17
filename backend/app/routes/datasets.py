@@ -509,14 +509,23 @@ def dataset_classify(dataset_id):
 
 @bp.post('/dataset/<int:dataset_id>/caption')
 def dataset_caption(dataset_id):
+    """Caption the kept images. Optional {image_ids:[...]} scopes the pass to a subset
+    (the Identity-leak panel re-captions one leaking image, or all of them, in place) —
+    a targeted call always OVERWRITES (those captions already exist), so it implies
+    force. Omitted → the whole-dataset batch, gated by {force} as before. Same engine,
+    mode and kind rules for both; serialized against training by the vision window."""
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
     data = request.get_json(silent=True) or {}
-    force = bool(data.get('force'))
+    image_ids = data.get('image_ids')
+    if image_ids is not None and not isinstance(image_ids, list):
+        return jsonify({'error': "'image_ids' must be a list"}), 400
+    force = bool(data.get('force')) or image_ids is not None
     mode = data.get('mode')  # 'prose' | 'booru' | None (None → auto selon train_type)
     try:
         with gpu_exclusive_vision_window(flag_ttl=1800):
-            n = svc.caption_images(LOCAL_USER, dataset_id, force=force, mode=mode)
+            n = svc.caption_images(LOCAL_USER, dataset_id, force=force, mode=mode,
+                                   image_ids=image_ids)
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, 'captioned': n})
