@@ -341,6 +341,16 @@ export default function DatasetWorkspace({ ds, onBack }) {
     return () => cancelAnimationFrame(frame);
   }, [section, panel]);
 
+  // One-time contextual tips (best-effort; shown once ever, independent of Help
+  // mode). Each fires when the user first reaches the relevant surface.
+  // MUST live above the `!d` early return: hooks after a conditional return
+  // change the hook count between the Loading render and the loaded one
+  // (React #310 crash — caught by runtime verification).
+  const leakingCount = ((d && d.images) || []).filter((i) => i.leak).length;
+  useEffect(() => { if (d && section === 'add') requestHelpTip('add-images-visit'); }, [d, section]);
+  useEffect(() => { if (leakingCount >= 1) requestHelpTip('leak-panel-visible'); }, [leakingCount]);
+  useEffect(() => { if (settingsOpen) requestHelpTip('dataset-settings-open'); }, [settingsOpen]);
+
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
   const images = d.images || [];
@@ -378,12 +388,6 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const leakingImages = images.filter((i) => i.leak);
   // Overlaid watermarks still awaiting removal → drives the "🧽 Clean (N)" button.
   const watermarkDetected = images.filter((i) => i.watermark_state === 'detected').length;
-
-  // One-time contextual tips (best-effort; shown once ever, independent of Help
-  // mode). Each fires when the user first reaches the relevant surface.
-  useEffect(() => { if (section === 'add') requestHelpTip('add-images-visit'); }, [section]);
-  useEffect(() => { if (leakingImages.length >= 1) requestHelpTip('leak-panel-visible'); }, [leakingImages.length]);
-  useEffect(() => { if (settingsOpen) requestHelpTip('dataset-settings-open'); }, [settingsOpen]);
   // Style de caption : défaut AUTO (SDXL booru-native → booru tags ; sinon prose), surchargé par le sélecteur.
   const effCaptionMode = captionMode || (d.train_type === 'sdxl' ? 'booru' : 'prose');
   // ── Grid tag-filter (session-only) ──────────────────────────────────────────

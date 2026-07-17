@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-17-help-mode',
+    date: '2026-07-17',
+    title: 'A two-way Help mode + a full Settings reference',
+    blurb:
+      'Flip the ? toggle in the header and help badges appear across the app, each opening the Guide at the exact section that explains that control — and Guide sections link back with "Open this screen →". A new Settings reference chapter documents every setting (role, default, traps), and the Settings search now finds individual settings, not just sections.',
+    to: '/guide/settings-reference',
+  },
+  {
     id: '2026-07-17-watermark-engine',
     date: '2026-07-17',
     title: 'Watermark cleanup that actually restores the image',
