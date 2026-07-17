@@ -3220,21 +3220,41 @@ def dismiss_watermarks(user_id, dataset_id, image_ids):
     return len(rows)
 
 
-def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu'):
-    """Apply the crop/LaMa/review routing to every image marked 'detected'. Returns
-    ({'cropped', 'inpainted', 'needs_review', 'failed', 'skipped'}, error|None) -- same
-    tuple contract as score_dataset_faces: `error` is None unless a LaMa inpaint that
-    was ATTEMPTED failed (never a silent swallow). Crop stays in PIL; LaMa uses the
-    resolved CPU/GPU device. GPU mode is protected by the route's exclusive window.
+def _clean_inpaint_engine(route, method):
+    """Which inpaint engine a NON-crop image gets, given the batch `method`
+    ('auto'|'lama'|'klein'). Crop-routed images always crop (invents no pixel) — this
+    only decides how a mark is *repainted*:
+      - method 'klein' → Klein for both the small-off-center ('lama') route AND the
+        on-subject ('review') route, so review becomes actionable (the whole V2 point);
+      - otherwise → LaMa for 'lama', and 'review' stays manual review (unchanged V1)."""
+    if method == 'klein':
+        return 'klein'
+    return 'lama' if route == 'lama' else 'review'
+
+
+def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='auto'):
+    """Apply the crop/inpaint/review routing to every image marked 'detected'. Returns
+    ({'cropped', 'inpainted', 'inpainted_klein', 'needs_review', 'failed', 'skipped'},
+    error|None) -- same tuple contract as score_dataset_faces: `error` is None unless an
+    inpaint that was ATTEMPTED failed (never a silent swallow). Crop stays in PIL.
+
+    `method` selects the inpaint engine (the batch UI's LaMa|Klein toggle):
+      - 'auto'/'lama' → LaMa (fast, non-generative) for small off-center marks; on-subject
+        marks stay 'review'. Uses the resolved CPU/GPU `device`; GPU mode is protected by
+        the route's exclusive window.
+      - 'klein' → masked Flux.2 Klein inpaint + pixel-space composite for the off-center
+        AND the on-subject marks (making 'review' actionable). Each image is one serialized
+        ComfyUI round-trip; `device` is irrelevant (ComfyUI owns the GPU).
 
     LaMa absent (probe False) is NOT an error: LaMa-routed images are counted as
-    `skipped` (crop still runs) so the UI can nudge "install the ML extras".
+    `skipped` (crop still runs) so the UI can nudge "install the ML extras". Klein absent
+    is likewise `skipped`.
 
     image_ids (optional): restrict the pass to this subset -- the review lightbox cleans
     ONE image at a time. The filter still requires watermark_state='detected' AND
     dataset ownership, so a stale/foreign id is a no-op (never touches another dataset,
     never re-edits an already-cleaned image). None = every detected image (bulk button)."""
-    from . import watermark_lama
+    from . import watermark_lama, watermark_klein
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
@@ -3246,10 +3266,35 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu'):
                if isinstance(i, (int, float, str)) and str(i).lstrip('-').isdigit()]
         q = q.filter(FaceDatasetImage.id.in_(ids or [-1]))   # empty subset -> match nothing
     rows = q.all()
-    out = {'cropped': 0, 'inpainted': 0, 'needs_review': 0, 'failed': 0, 'skipped': 0}
+    out = {'cropped': 0, 'inpainted': 0, 'inpainted_klein': 0, 'needs_review': 0,
+           'failed': 0, 'skipped': 0}
     error = None
     lama_ok = watermark_lama.is_available()
+    klein_ok = method == 'klein' and watermark_klein.is_available()
     lama_pending = []  # (img, path, bboxes, manual_regions)
+
+    def _run_klein(img, path, boxes, manual):
+        """One serialized Klein inpaint of `img` in place. Preserves the .orig first;
+        on success flips to 'cleaned' (+ clears manual regions like the LaMa path)."""
+        nonlocal error
+        if not klein_ok:
+            out['skipped'] += 1               # leave 'detected' (Klein not ready)
+            return
+        _preserve_original(path)
+        ok, err = watermark_klein.inpaint_watermark_klein(user_id, path, boxes)
+        if ok:
+            img.watermark_state = 'cleaned'
+            if manual:
+                img.watermark_regions = None
+            out['inpainted_klein'] += 1
+        elif err and err.get('kind') == 'unavailable':
+            out['skipped'] += 1
+        else:
+            if not manual:                    # keep manual retry metadata (like LaMa)
+                img.watermark_state = 'failed'
+            out['failed'] += 1
+            if err:
+                error = err
     # Persistent progress indicator (survives a page reload). The device is included
     # so the UI can honestly state whether ComfyUI is paused for the GPU pass.
     device_label = 'GPU' if device == 'cuda' else 'CPU'
@@ -3277,6 +3322,10 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu'):
                     continue
                 if not os.path.exists(path):
                     out['failed'] += 1
+                    db.session.commit()
+                    continue
+                if method == 'klein':
+                    _run_klein(img, path, regions, True)
                     db.session.commit()
                     continue
                 if not lama_ok:
@@ -3316,14 +3365,18 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu'):
                 else:
                     img.watermark_state = 'failed'
                     out['failed'] += 1
-            elif route == 'lama':
-                if not lama_ok:
-                    out['skipped'] += 1          # leave state='detected' (crop-only mode)
-                else:
-                    _preserve_original(path)
-                    lama_pending.append((img, path, [bbox], False))
-            else:  # 'review' -> stays 'detected' so the badge/count keep flagging it
-                out['needs_review'] += 1
+            else:
+                engine = _clean_inpaint_engine(route, method)
+                if engine == 'klein':
+                    _run_klein(img, path, [bbox], False)
+                elif engine == 'lama':
+                    if not lama_ok:
+                        out['skipped'] += 1      # leave state='detected' (crop-only mode)
+                    else:
+                        _preserve_original(path)
+                        lama_pending.append((img, path, [bbox], False))
+                else:  # 'review' -> stays 'detected' so the badge/count keep flagging it
+                    out['needs_review'] += 1
             db.session.commit()
         if lama_pending:
             if len(lama_pending) == 1:

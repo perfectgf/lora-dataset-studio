@@ -1,0 +1,114 @@
+{
+  "114": {
+    "inputs": {
+      "unet_name": "klein\\flux-2-klein-9b-fp8.safetensors",
+      "weight_dtype": "fp8_e4m3fn"
+    },
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Charger Modèle Diffusion (Klein)" }
+  },
+  "10": {
+    "inputs": { "vae_name": "flux2-vae.safetensors" },
+    "class_type": "VAELoader",
+    "_meta": { "title": "Charger VAE" }
+  },
+  "90": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Charger CLIP" }
+  },
+  "52": {
+    "inputs": { "image": "wm_crop.png" },
+    "class_type": "LoadImage",
+    "_meta": { "title": "Charger le crop watermarké" }
+  },
+  "mask": {
+    "inputs": { "image": "wm_mask.png", "channel": "red" },
+    "class_type": "LoadImageMask",
+    "_meta": { "title": "Charger le masque local" }
+  },
+  "6": {
+    "inputs": {
+      "text": "remove the overlaid text/logo watermark, seamlessly reconstruct the underlying texture, keep everything else identical",
+      "clip": ["90", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Positive)" }
+  },
+  "100": {
+    "inputs": { "text": "", "clip": ["90", 0] },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "CLIP Text Encode (Negative)" }
+  },
+  "53": {
+    "inputs": { "pixels": ["52", 0], "vae": ["10", 0] },
+    "class_type": "VAEEncode",
+    "_meta": { "title": "VAE Encode (crop)" }
+  },
+  "setmask": {
+    "inputs": { "samples": ["53", 0], "mask": ["mask", 0] },
+    "class_type": "SetLatentNoiseMask",
+    "_meta": { "title": "SetLatentNoiseMask (zone locale)" }
+  },
+  "92": {
+    "inputs": { "conditioning": ["6", 0], "latent": ["53", 0] },
+    "class_type": "ReferenceLatent",
+    "_meta": { "title": "ReferenceLatent (Positive)" }
+  },
+  "110": {
+    "inputs": { "conditioning": ["100", 0], "latent": ["53", 0] },
+    "class_type": "ReferenceLatent",
+    "_meta": { "title": "ReferenceLatent (Negative)" }
+  },
+  "175": {
+    "inputs": { "image": ["52", 0] },
+    "class_type": "GetImageSize",
+    "_meta": { "title": "Obtenir la taille du crop" }
+  },
+  "102": {
+    "inputs": {
+      "max_shift": 1.15,
+      "base_shift": 0.6,
+      "width": ["175", 0],
+      "height": ["175", 1],
+      "model": ["114", 0]
+    },
+    "class_type": "ModelSamplingFlux",
+    "_meta": { "title": "ModelSamplingFlux" }
+  },
+  "diff": {
+    "inputs": { "model": ["102", 0] },
+    "class_type": "DifferentialDiffusion",
+    "_meta": { "title": "DifferentialDiffusion (soft inpaint)" }
+  },
+  "77": {
+    "inputs": {
+      "seed": 0,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "beta57",
+      "denoise": 0.9,
+      "model": ["diff", 0],
+      "positive": ["92", 0],
+      "negative": ["110", 0],
+      "latent_image": ["setmask", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler (inpaint)" }
+  },
+  "8": {
+    "inputs": { "samples": ["77", 0], "vae": ["10", 0] },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
+  },
+  "9": {
+    "inputs": { "filename_prefix": "wmklein", "images": ["8", 0] },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Enregistrer Image" }
+  }
+}

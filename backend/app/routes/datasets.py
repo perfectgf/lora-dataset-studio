@@ -553,28 +553,63 @@ def dataset_watermarks_detect(dataset_id):
     return jsonify({'ok': True, **counts})
 
 
+def _klein_clean_preflight():
+    """None if a Klein-inpaint clean can run, else the (body, status) to return:
+    503 when the GPU is held by training/vision (the job would just wait), a 409 that
+    lists + auto-downloads any missing Klein model or names a missing custom node (same
+    shape as the generate path). Mirrors lora_test_studio.gpu_busy_reason + the Klein
+    generate preflight so the batch never enqueues a doomed round-trip."""
+    from ..job_queue import queue_manager
+    from ..services import klein_edit_helper as keh
+    if queue_manager._get_system_state('training_in_progress', False):
+        return jsonify({'error': 'GPU busy', 'detail': 'LoRA training in progress'}), 503
+    if queue_manager._get_system_state('vision_in_progress', False):
+        return jsonify({'error': 'GPU busy', 'detail': 'a vision pass is running'}), 503
+    missing = keh.klein_missing_assets()
+    missing_nodes = keh.klein_missing_nodes()
+    if any(a in missing for a in keh.KLEIN_REQUIRED) or missing_nodes:
+        return _klein_missing_response(missing, missing_nodes)
+    return None
+
+
 @bp.post('/dataset/<int:dataset_id>/watermarks/clean')
 def dataset_watermarks_clean(dataset_id):
-    """Apply crop/LaMa/review routing to the 'detected' images. Crop uses PIL and
-    LaMa follows Settings > Captioning & quality (Auto/GPU/CPU). GPU mode pauses
-    ComfyUI through the exclusive vision window. Returns counts + LaMa error.
-    Optional {image_ids:[...]} scopes the pass to a subset (the review lightbox cleans
-    one image at a time); omitted → every detected image (the bulk 🧽 Clean button)."""
+    """Apply crop/inpaint/review routing to the 'detected' images. Crop uses PIL. The
+    inpaint engine follows {method:'auto'|'lama'|'klein'} (default 'auto'): LaMa follows
+    Settings > Captioning & quality (Auto/GPU/CPU) and pauses ComfyUI through the
+    exclusive vision window on a GPU pass; Klein does masked crop-and-stitch inpaint
+    through the serialized ComfyUI queue (no vision window — that would deadlock the
+    worker). Returns counts + the inpaint error. Optional {image_ids:[...]} scopes the
+    pass to a subset (the review lightbox cleans one image at a time); omitted → every
+    detected image (the bulk 🧽 Clean button)."""
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
     data = request.get_json(silent=True) or {}
     image_ids = data.get('image_ids')
     if image_ids is not None and not isinstance(image_ids, list):
         return jsonify({'error': "'image_ids' must be a list"}), 400
+    method = (data.get('method') or 'auto')
+    if method not in ('auto', 'lama', 'klein'):
+        return jsonify({'error': "'method' must be 'auto', 'lama' or 'klein'"}), 400
     try:
-        from contextlib import nullcontext
-        from ..services import watermark_lama
-        device = watermark_lama.resolve_device()
-        window = gpu_exclusive_vision_window(flag_ttl=1800) if device == 'cuda' else nullcontext()
-        with window:
+        if method == 'klein':
+            resp = _klein_clean_preflight()
+            if resp is not None:
+                return resp
             counts, error = svc.clean_watermarks(
-                LOCAL_USER, dataset_id, image_ids=image_ids, device=device)
+                LOCAL_USER, dataset_id, image_ids=image_ids, method='klein')
+        else:
+            from contextlib import nullcontext
+            from ..services import watermark_lama
+            device = watermark_lama.resolve_device()
+            window = gpu_exclusive_vision_window(flag_ttl=1800) if device == 'cuda' else nullcontext()
+            with window:
+                counts, error = svc.clean_watermarks(
+                    LOCAL_USER, dataset_id, image_ids=image_ids, device=device, method=method)
     except Exception as e:
+        from ..services.klein_edit_helper import KleinModelsMissing
+        if isinstance(e, KleinModelsMissing):
+            return _klein_missing_response(e.missing)
         return _map_error(e)
     return jsonify({'ok': True, 'error': error, **counts})
 

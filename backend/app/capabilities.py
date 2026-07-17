@@ -704,6 +704,10 @@ def probe(force=False) -> dict:
         # Lets the front adapt the watermark Clean tooltip: when False, Clean is
         # crop-only (LaMa-routed watermarks are skipped with an install hint).
         'watermark_inpaint': watermark_inpaint['ok'],
+        # Klein-inpaint (V2, quality) readiness = same as the Klein engine (ComfyUI
+        # reachable + Klein models on disk). The custom-node preflight is a clean-time
+        # 409. Greys the batch's "Klein (quality)" option when False.
+        'watermark_klein': klein_ready,
         'python': python_ml_status(),
         'scrape_deps': probe_scrape_deps()['ok'],
         'training_visible': aitoolkit['ok'] or bool(cfg.secret('VAST_API_KEY')),

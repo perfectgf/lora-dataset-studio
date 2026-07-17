@@ -523,7 +523,8 @@ def test_clean_manual_regions_force_one_composite_inpaint_at_edge_and_clear_on_s
 
         assert err is None
         assert counts == {
-            'cropped': 0, 'inpainted': 1, 'needs_review': 0, 'failed': 0, 'skipped': 0,
+            'cropped': 0, 'inpainted': 1, 'inpainted_klein': 0, 'needs_review': 0,
+            'failed': 0, 'skipped': 0,
         }
         assert calls == [(path, regions)]
         stem, ext = os.path.splitext(path)
@@ -562,7 +563,8 @@ def test_clean_empty_manual_override_needs_review_without_touching_pixels(app, m
 
         assert err is None
         assert counts == {
-            'cropped': 0, 'inpainted': 0, 'needs_review': 1, 'failed': 0, 'skipped': 0,
+            'cropped': 0, 'inpainted': 0, 'inpainted_klein': 0, 'needs_review': 1,
+            'failed': 0, 'skipped': 0,
         }
         assert open(path, 'rb').read() == before
         stem, ext = os.path.splitext(path)
@@ -663,7 +665,7 @@ def test_clean_route_lama_present(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None: ({'cropped': 2, 'inpainted': 1, 'needs_review': 0,
+                        lambda u, d, image_ids=None, device=None, method=None: ({'cropped': 2, 'inpainted': 1, 'needs_review': 0,
                                        'failed': 0, 'skipped': 0}, None))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
     assert resp.status_code == 200
@@ -675,7 +677,7 @@ def test_clean_route_lama_absent_reports_skipped(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None: ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
+                        lambda u, d, image_ids=None, device=None, method=None: ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
                                        'failed': 0, 'skipped': 3}, None))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
     body = resp.get_json()
@@ -686,7 +688,7 @@ def test_clean_route_surfaces_error(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None: ({'cropped': 0, 'inpainted': 0, 'needs_review': 0,
+                        lambda u, d, image_ids=None, device=None, method=None: ({'cropped': 0, 'inpainted': 0, 'needs_review': 0,
                                        'failed': 1, 'skipped': 0},
                                       {'kind': 'failed', 'detail': 'boom'}))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
@@ -1073,7 +1075,7 @@ def test_clean_route_accepts_image_ids(client, app, monkeypatch):
     ds_id = _create(client, 'R', 'r').get_json()['id']
     seen = {}
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None: (seen.update(ids=image_ids)
+                        lambda u, d, image_ids=None, device=None, method=None: (seen.update(ids=image_ids)
                                                       or ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
                                                            'failed': 0, 'skipped': 0}, None)))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'image_ids': [7, 8]})
@@ -1098,7 +1100,7 @@ def test_clean_route_uses_gpu_window_only_for_cuda(client, app, monkeypatch):
 
     monkeypatch.setattr(routes, 'gpu_exclusive_vision_window', _window)
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None: (
+                        lambda u, d, image_ids=None, device=None, method=None: (
                             {'cropped': 0, 'inpainted': 0, 'needs_review': 0,
                              'failed': 0, 'skipped': 0}, None))
     monkeypatch.setattr(watermark_lama, 'resolve_device', lambda requested=None: 'cpu')
@@ -1350,3 +1352,297 @@ def test_inpaint_watermark_crash_reports_stderr_tail(app, monkeypatch):
                 fh.write(_img_bytes())
             ok, err = watermark_lama.inpaint_watermark(p, [0.1, 0.1, 0.2, 0.2])
             assert ok is False and err['kind'] == 'failed' and err['detail'] == 'ValueError: bad mask'
+
+
+# --- Klein inpaint (V2): crop geometry, byte-exact composite, method routing ----
+
+def test_klein_crop_box_is_square_and_contains_the_mark():
+    from app.services import watermark_klein as wk
+    box = wk._klein_crop_box(1000, 1000, [[0.45, 0.45, 0.55, 0.55]])
+    l, t, r, b = box
+    assert r - l == b - t                          # square
+    # contains the mark (450..550 px on both axes)
+    assert l <= 450 and t <= 450 and r >= 550 and b >= 550
+    assert 0 <= l and 0 <= t and r <= 1000 and b <= 1000
+
+
+def test_klein_crop_box_slides_in_bounds_near_a_corner():
+    from app.services import watermark_klein as wk
+    box = wk._klein_crop_box(1000, 1000, [[0.0, 0.0, 0.1, 0.1]])
+    l, t, r, b = box
+    assert (l, t) == (0, 0)                         # slid flush to the corner
+    assert r - l == b - t                           # still square
+    assert r >= 100 and b >= 100                     # still contains the mark
+
+
+def test_klein_crop_box_unions_multiple_regions():
+    from app.services import watermark_klein as wk
+    box = wk._klein_crop_box(1000, 1000, [[0.1, 0.1, 0.15, 0.15], [0.8, 0.8, 0.85, 0.85]])
+    l, t, r, b = box
+    # the crop must span both marks (100..850 px)
+    assert l <= 100 and t <= 100 and r >= 850 and b >= 850
+
+
+def test_composite_preserves_bytes_outside_the_mask_and_changes_them_inside():
+    """THE preservation guarantee, verified byte-for-byte: every pixel where the
+    composite mask is 0 keeps its ORIGINAL bytes; pixels under the mask change."""
+    import numpy as np
+    from PIL import ImageDraw, ImageFilter
+    from app.services import watermark_klein as wk
+
+    rng = np.random.default_rng(1234)
+    W, H = 200, 200
+    original = Image.fromarray(rng.integers(0, 256, (H, W, 3), dtype='uint8'), 'RGB')
+    crop_box = (50, 50, 150, 150)                  # 100x100 crop region
+    filled = Image.new('RGB', (100, 100), (255, 0, 0))
+    # A white rectangle in the crop's centre, feathered — the paste footprint.
+    hard = Image.new('L', (100, 100), 0)
+    ImageDraw.Draw(hard).rectangle([30, 30, 69, 69], fill=255)
+    composite_mask = hard.filter(ImageFilter.GaussianBlur(6))
+
+    result = wk.composite_inpaint(original, filled, crop_box, composite_mask)
+
+    mask_full = np.zeros((H, W), dtype='uint8')
+    mask_full[50:150, 50:150] = np.array(composite_mask)
+    res = np.array(result)
+    orig = np.array(original)
+    # Byte-for-byte identical everywhere the mask is exactly 0.
+    assert np.array_equal(res[mask_full == 0], orig[mask_full == 0])
+    # And the fully-masked centre really changed (it became red).
+    assert np.array_equal(res[mask_full == 255], np.broadcast_to(
+        np.array([255, 0, 0], dtype='uint8'), res[mask_full == 255].shape))
+    # A far corner (well outside the feather) is untouched.
+    assert tuple(res[0, 0]) == tuple(orig[0, 0])
+
+
+def test_clean_inpaint_engine_mapping():
+    from app.services import face_dataset_service as svc
+    assert svc._clean_inpaint_engine('lama', 'auto') == 'lama'
+    assert svc._clean_inpaint_engine('lama', 'lama') == 'lama'
+    assert svc._clean_inpaint_engine('lama', 'klein') == 'klein'
+    assert svc._clean_inpaint_engine('review', 'auto') == 'review'
+    assert svc._clean_inpaint_engine('review', 'klein') == 'klein'   # review → actionable
+
+
+def _stub_klein(monkeypatch, *, available=True, result=(True, None), recorder=None):
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: available)
+
+    def _fake(user_id, path, boxes, **kwargs):
+        if recorder is not None:
+            recorder.append({'path': path, 'boxes': boxes})
+        return result
+
+    monkeypatch.setattr(wk, 'inpaint_watermark_klein', _fake)
+
+
+def test_clean_klein_inpaints_the_lama_route_and_preserves_original(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    calls = []
+    _stub_klein(monkeypatch, recorder=calls)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'K', 'k')
+        img = _kept_image(svc, ds.id, 'wm.webp', bbox=[0.35, 0.35, 0.45, 0.45])
+        path = svc._img_path(img)
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, method='klein')
+        assert err is None and counts['inpainted_klein'] == 1 and counts['inpainted'] == 0
+        assert calls == [{'path': path, 'boxes': [[0.35, 0.35, 0.45, 0.45]]}]
+        stem, ext = os.path.splitext(path)
+        assert os.path.exists(f'{stem}.orig{ext}')          # original preserved
+        assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'cleaned'
+
+
+def test_clean_klein_makes_the_review_route_actionable(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    calls = []
+    _stub_klein(monkeypatch, recorder=calls)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'K', 'k')
+        # centre-overlapping mark → 'review' under LaMa, now cleaned under Klein
+        img = _kept_image(svc, ds.id, 'wm.webp', bbox=[0.45, 0.45, 0.55, 0.55])
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, method='klein')
+        assert err is None and counts['inpainted_klein'] == 1 and counts['needs_review'] == 0
+        assert calls == [{'path': svc._img_path(img), 'boxes': [[0.45, 0.45, 0.55, 0.55]]}]
+        assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'cleaned'
+
+
+def test_clean_klein_uses_manual_regions_and_clears_them(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    regions = [[0.1, 0.1, 0.2, 0.2], [0.7, 0.7, 0.8, 0.8]]
+    calls = []
+    _stub_klein(monkeypatch, recorder=calls)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'K', 'k')
+        img = _kept_image(svc, ds.id, 'wm.webp', bbox=[0.0, 0.0, 1.0, 0.05], regions=regions)
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, image_ids=[img.id], method='klein')
+        assert err is None and counts['inpainted_klein'] == 1
+        assert calls == [{'path': svc._img_path(img), 'boxes': regions}]
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.watermark_state == 'cleaned' and row.watermark_regions is None
+
+
+def test_clean_klein_unavailable_skips_and_leaves_detected(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    calls = []
+    _stub_klein(monkeypatch, available=False, recorder=calls)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'K', 'k')
+        img = _kept_image(svc, ds.id, 'wm.webp', bbox=[0.35, 0.35, 0.45, 0.45])
+        path = svc._img_path(img)
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, method='klein')
+        assert err is None and counts['skipped'] == 1 and counts['inpainted_klein'] == 0
+        assert calls == []                                  # never attempted
+        stem, ext = os.path.splitext(path)
+        assert not os.path.exists(f'{stem}.orig{ext}')      # nothing preserved
+        assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'detected'
+
+
+def test_clean_klein_failure_surfaces_error_and_fails_the_row(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    failure = {'kind': 'failed', 'detail': 'ComfyUI KSampler: boom'}
+    _stub_klein(monkeypatch, result=(False, failure))
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'K', 'k')
+        img = _kept_image(svc, ds.id, 'wm.webp', bbox=[0.35, 0.35, 0.45, 0.45])
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id, method='klein')
+        assert counts['failed'] == 1 and counts['inpainted_klein'] == 0
+        assert err == failure
+        assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'failed'
+
+
+def test_clean_auto_method_never_calls_klein(app, monkeypatch):
+    """Regression: the default method still routes through LaMa, untouched."""
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama, watermark_klein
+    from app.config import LOCAL_USER
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    monkeypatch.setattr(watermark_lama, 'inpaint_watermark', lambda *a, **k: (True, None))
+    monkeypatch.setattr(watermark_klein, 'inpaint_watermark_klein',
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError('auto method must not call Klein')))
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'A', 'a')
+        img = _kept_image(svc, ds.id, 'wm.webp', bbox=[0.35, 0.35, 0.45, 0.45])
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id)   # method defaults to auto
+        assert err is None and counts['inpainted'] == 1 and counts['inpainted_klein'] == 0
+
+
+# --- Klein clean route (method, preflight, 409/503) ------------------------------
+
+def test_clean_route_forwards_method_klein(client, app, monkeypatch):
+    from app.routes import datasets as routes
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'R', 'r').get_json()['id']
+    monkeypatch.setattr(routes, '_klein_clean_preflight', lambda: None)
+    seen = {}
+    monkeypatch.setattr(svc, 'clean_watermarks',
+                        lambda u, d, image_ids=None, method='auto': (
+                            seen.update(method=method)
+                            or ({'cropped': 0, 'inpainted': 0, 'inpainted_klein': 2,
+                                 'needs_review': 0, 'failed': 0, 'skipped': 0}, None)))
+    resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'method': 'klein'})
+    assert resp.status_code == 200 and resp.get_json()['inpainted_klein'] == 2
+    assert seen['method'] == 'klein'
+
+
+def test_clean_route_rejects_unknown_method(client):
+    ds_id = _create(client, 'R', 'r').get_json()['id']
+    resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'method': 'nope'})
+    assert resp.status_code == 400
+
+
+def test_clean_route_klein_503_when_training(client, app):
+    from app.job_queue import queue_manager
+    ds_id = _create(client, 'R', 'r').get_json()['id']
+    with app.app_context():
+        queue_manager._set_system_state('training_in_progress', True, ttl_seconds=300)
+    try:
+        resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'method': 'klein'})
+        assert resp.status_code == 503 and 'GPU busy' in resp.get_json()['error']
+    finally:
+        with app.app_context():
+            queue_manager._set_system_state('training_in_progress', None)
+
+
+def test_clean_route_klein_409_when_models_missing(client, app, monkeypatch):
+    from app.routes import datasets as routes
+    from app.services import klein_edit_helper as keh
+    from app.job_queue import queue_manager
+    ds_id = _create(client, 'R', 'r').get_json()['id']
+    with app.app_context():
+        queue_manager._set_system_state('training_in_progress', None)
+        queue_manager._set_system_state('vision_in_progress', None)
+    from app import capabilities as caps_mod
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda: ['klein_model'])
+    monkeypatch.setattr(keh, 'klein_missing_nodes', lambda: [])
+    # a valid ComfyUI base so we reach the real "missing model" 409 (not the
+    # "configure ComfyUI first" short-circuit), and neutralise the auto-download.
+    monkeypatch.setattr(caps_mod, 'resolve_comfyui_base',
+                        lambda p: {'valid': True, 'resolved': p, 'nested': False})
+    monkeypatch.setattr(routes, '_autostart_klein_downloads', lambda missing: ([], False))
+    resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'method': 'klein'})
+    assert resp.status_code == 409
+    assert resp.get_json()['klein_missing'] == ['klein_model']
+
+
+# --- Klein ComfyUI round-trip wiring (queue + output mocked) ---------------------
+
+def test_run_klein_job_wires_workflow_and_returns_filled(app, monkeypatch, tmp_path):
+    from app.services import watermark_klein as wk
+    from app.services import klein_edit_helper as keh
+
+    monkeypatch.setattr(wk, '_comfy_input_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(wk, '_comfy_output_dir', lambda: None)
+    monkeypatch.setattr(keh, 'resolve_klein_unet', lambda selected=None: 'klein\\unet.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_vae', lambda: 'flux2-vae.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_text_encoder', lambda: 'qwen_3_8b_fp8mixed.safetensors')
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda: [])
+    captured = {}
+    monkeypatch.setattr(wk.queue_manager, 'add_job',
+                        lambda **kw: captured.update(kw) or kw['job_id'])
+    monkeypatch.setattr(wk, '_wait_for_job',
+                        lambda job_id, timeout: ('completed', 'wmklein_out.png', None))
+    monkeypatch.setattr(wk, '_read_comfy_output', lambda filename: _img_bytes(size=(64, 64)))
+
+    with app.app_context():
+        crop = Image.new('RGB', (64, 64), (10, 20, 30))
+        mask = Image.new('L', (64, 64), 0)
+        filled, err = wk._run_klein_job('local', crop, mask, seed=7)
+
+    assert err is None and filled is not None and filled.size == (64, 64)
+    wf = captured['workflow_data']
+    assert captured['metadata'] == {'model_name': 'watermark_klein'}
+    assert wf['114']['inputs']['unet_name'] == 'klein\\unet.safetensors'
+    assert wf['10']['inputs']['vae_name'] == 'flux2-vae.safetensors'
+    assert wf['90']['inputs']['clip_name'] == 'qwen_3_8b_fp8mixed.safetensors'
+    assert wf['77']['inputs']['seed'] == 7
+    assert wf['77']['inputs']['denoise'] == wk.KLEIN_DENOISE
+    assert wf['77']['inputs']['steps'] == wk.KLEIN_STEPS
+    assert wf['6']['inputs']['text'] == wk.KLEIN_INPAINT_PROMPT
+    # the input crop/mask were cleaned up after the run
+    assert not list(tmp_path.glob('wmklein_*'))
+
+
+def test_run_klein_job_raises_when_required_asset_missing(app, monkeypatch, tmp_path):
+    from app.services import watermark_klein as wk
+    from app.services import klein_edit_helper as keh
+    monkeypatch.setattr(wk, '_comfy_input_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(keh, 'resolve_klein_unet', lambda selected=None: None)
+    monkeypatch.setattr(keh, 'resolve_klein_vae', lambda: None)
+    monkeypatch.setattr(keh, 'resolve_klein_text_encoder', lambda: None)
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda: ['klein_model', 'klein_vae'])
+    monkeypatch.setattr(wk.queue_manager, 'add_job',
+                        lambda **kw: (_ for _ in ()).throw(AssertionError('must not enqueue')))
+    with app.app_context():
+        with pytest.raises(keh.KleinModelsMissing):
+            wk._run_klein_job('local', Image.new('RGB', (32, 32)), Image.new('L', (32, 32)), seed=1)
