@@ -116,6 +116,13 @@ _TRASH_LOCK_MESSAGE = (
     "Couldn't delete this because one of its files is still open in another "
     "program — most often an antivirus scan of a just-cleaned image, or an open "
     "preview. Close it or wait a few seconds, then try again.")
+# Shown when a delete is refused because a training run (local or cloud) is still
+# running on the dataset. Deleting under it would orphan the run's provenance row
+# and — for a cloud run — leave a paid vast pod training against images we just
+# trashed. RuntimeError -> 409 (routes._common._map_error); dataset untouched.
+_ACTIVE_RUN_MESSAGE = (
+    'A training run is active on this dataset — stop it (or let it finish) '
+    'before deleting.')
 SMALL_IMAGE_SOURCE = 'small_image_source'
 KLEIN_SMALL_IMAGE = 'klein_small_image'
 KLEIN_IMAGE_IMPROVE = 'klein_image_improve'
@@ -912,16 +919,44 @@ def delete_image(user_id, image_id):
     return True
 
 
+def _guard_no_active_training(dataset_id):
+    """Raise RuntimeError (-> 409) when a LOCAL or CLOUD training run is mid-flight
+    on this dataset, so delete_dataset refuses instead of silently orphaning the
+    run. Lazy imports dodge the cloud_training/lora_training <-> face_dataset_service
+    import cycle; a module absent in a phase-1 install just means 'no such run'.
+
+    TERMINAL runs (done/stopped/error/error_pod_kept) don't block: their provenance
+    rows stay behind with an orphaned dataset_id (the existing no-FK pattern), which
+    preserves run history and importable-checkpoint records after the dataset is gone."""
+    try:
+        from . import cloud_training as ct
+    except ImportError:
+        ct = None
+    if ct is not None and ct.active_runs_for(dataset_id):
+        raise RuntimeError(_ACTIVE_RUN_MESSAGE)
+    try:
+        from . import lora_training as lt
+    except ImportError:
+        lt = None
+    if lt is not None and lt.is_local_run_active(dataset_id):
+        raise RuntimeError(_ACTIVE_RUN_MESSAGE)
+
+
 def delete_dataset(user_id, dataset_id):
     """Delete an owned dataset and move its complete folder to app trash.
 
-    Child image and Studio rows are explicitly removed for legacy databases
-    whose foreign key had neither enforcement nor ``ON DELETE CASCADE``.
-    Cancels any in-flight generations first. Returns False if not owned.
+    Refuses (RuntimeError -> 409) while a local or cloud training run is active on
+    the dataset — deleting under a running run orphans its record and abandons a
+    paid vast pod. Child image and Studio rows are explicitly removed for legacy
+    databases whose foreign key had neither enforcement nor ``ON DELETE CASCADE``;
+    terminal training-run records are intentionally left behind (orphaned
+    dataset_id) to keep run history. Cancels any in-flight generations first.
+    Returns False if not owned.
     """
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return False
+    _guard_no_active_training(dataset_id)
     # Capture le trigger AVANT de supprimer la ligne : sert à purger les artefacts
     # d'entraînement orphelins (LoRA déployés dans ComfyUI, run/export ai-toolkit,
     # job config) qui survivaient à la suppression du dataset et restaient

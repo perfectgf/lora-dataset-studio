@@ -529,3 +529,120 @@ def test_delete_dataset_locked_file_reports_instead_of_500(app, monkeypatch):
         assert svc.delete_dataset('local', dataset_id) is True
         assert not os.path.isdir(folder)
         assert svc.get_dataset('local', dataset_id) is None
+
+
+# --- Refuse deleting a dataset with a training run mid-flight (409, not orphan) -
+#
+# Deleting a dataset while a run is training used to silently succeed: the folder
+# went to Trash, the FaceDataset row vanished, and the CloudTrainingRun row was
+# left with a dangling dataset_id while its paid vast pod kept training against
+# images we just moved out from under it. delete_dataset now refuses with a
+# RuntimeError the route maps to a 409, so nothing is touched until the run stops.
+
+@pytest.mark.parametrize('active_state',
+                         ['preparing', 'provisioning', 'uploading', 'training',
+                          'downloading', 'terminating'])
+def test_delete_dataset_refused_while_cloud_run_active(app, monkeypatch, active_state):
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    from app.services import face_dataset_service as svc
+
+    with app.app_context():
+        calls = _trash_spy(monkeypatch)
+        ds = svc.create_dataset('local', 'Demo', 'demotrig')
+        folder = svc._dataset_dir(ds.id)
+        with open(os.path.join(folder, 'shot.webp'), 'wb') as fh:
+            fh.write(b'pixels')
+        run = CloudTrainingRun(dataset_id=ds.id, status=active_state,
+                               run_name='r', job_name='j')
+        db.session.add(run)
+        db.session.commit()
+        dataset_id, run_id = ds.id, run.id
+
+        with pytest.raises(RuntimeError, match='training run is active'):
+            svc.delete_dataset('local', dataset_id)
+
+        # Nothing touched: folder, dataset row and the run all intact, no trashing.
+        assert os.path.isdir(folder)
+        assert svc.get_dataset('local', dataset_id) is not None
+        assert db.session.get(CloudTrainingRun, run_id) is not None
+        assert calls == []
+
+
+def test_delete_dataset_allowed_once_cloud_run_terminal(app, monkeypatch):
+    """A finished run doesn't block delete, and its provenance rows survive with
+    an orphaned dataset_id — run history stays after the dataset is gone."""
+    from app.extensions import db
+    from app.models import CloudTrainingRun, TrainingRunRecord
+    from app.services import cloud_training as ct
+    from app.services import face_dataset_service as svc
+
+    with app.app_context():
+        _trash_spy(monkeypatch)
+        ds = svc.create_dataset('local', 'Demo', 'demotrig')
+        folder = svc._dataset_dir(ds.id)
+        with open(os.path.join(folder, 'shot.webp'), 'wb') as fh:
+            fh.write(b'pixels')
+        dataset_id = ds.id
+        # One row per terminal state + a provenance record -> none should block.
+        for st in ('done', 'stopped', 'error', 'error_pod_kept'):
+            db.session.add(CloudTrainingRun(dataset_id=dataset_id, status=st,
+                                            run_name=st, job_name=st))
+        db.session.add(TrainingRunRecord(dataset_id=dataset_id, family='zimage',
+                                         source='cloud', fingerprint='abc', version=1))
+        db.session.commit()
+
+        assert ct.active_runs_for(dataset_id) == []
+        assert svc.delete_dataset('local', dataset_id) is True
+        assert not os.path.isdir(folder)
+        assert svc.get_dataset('local', dataset_id) is None
+        # Provenance preserved (orphaned dataset_id) — the existing no-FK pattern.
+        assert CloudTrainingRun.query.filter_by(dataset_id=dataset_id).count() == 4
+        assert TrainingRunRecord.query.filter_by(dataset_id=dataset_id).count() == 1
+
+
+def test_delete_dataset_refused_while_local_run_active(app, monkeypatch):
+    from app.extensions import db
+    from app.job_queue import queue_manager
+    from app.services import face_dataset_service as svc
+
+    with app.app_context():
+        calls = _trash_spy(monkeypatch)
+        ds = svc.create_dataset('local', 'Demo', 'demotrig')
+        other = svc.create_dataset('local', 'Other', 'othertrig')
+        dataset_id, other_id = ds.id, other.id
+
+        queue_manager._set_system_state('training_in_progress', True)
+        queue_manager._set_system_state('training_dataset_id', dataset_id)
+
+        with pytest.raises(RuntimeError, match='training run is active'):
+            svc.delete_dataset('local', dataset_id)
+        assert svc.get_dataset('local', dataset_id) is not None
+        assert calls == []
+
+        # A run on a DIFFERENT dataset never blocks this one.
+        assert svc.delete_dataset('local', other_id) is True
+
+        # Run finished -> the original dataset deletes cleanly.
+        queue_manager._set_system_state('training_in_progress', False)
+        assert svc.delete_dataset('local', dataset_id) is True
+        assert svc.get_dataset('local', dataset_id) is None
+
+
+def test_delete_dataset_route_returns_409_for_active_run(client, app):
+    """The route funnels the guard's RuntimeError through _map_error -> 409 with
+    the message in the body, which the library toast surfaces verbatim."""
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    from app.services import face_dataset_service as svc
+
+    with app.app_context():
+        ds = svc.create_dataset('local', 'Demo', 'demotrig')
+        db.session.add(CloudTrainingRun(dataset_id=ds.id, status='training',
+                                        run_name='r', job_name='j'))
+        db.session.commit()
+        dataset_id = ds.id
+
+    resp = client.post(f'/api/dataset/{dataset_id}/delete')
+    assert resp.status_code == 409
+    assert 'training run is active on this dataset' in resp.get_json()['error']

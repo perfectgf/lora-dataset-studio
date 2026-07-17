@@ -101,6 +101,16 @@ def get_active_run():
     return actives[0] if actives else None
 
 
+def active_runs_for(dataset_id):
+    """Non-terminal cloud runs of ONE dataset (empty list when none). Scoped
+    twin of get_active_runs(); delete_dataset uses it to refuse deleting a
+    dataset out from under a running pod."""
+    return (CloudTrainingRun.query
+            .filter_by(dataset_id=int(dataset_id))
+            .filter(CloudTrainingRun.status.in_(ACTIVE_STATES))
+            .order_by(CloudTrainingRun.id.asc()).all())
+
+
 def _assert_launch_guardrails(dataset_id, fam):
     """Raise when a cloud launch cannot reserve an active slot.
 

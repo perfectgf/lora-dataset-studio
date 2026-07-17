@@ -4146,6 +4146,16 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
                 "expects prose. Re-caption in 'Prose' mode, or force the training.")
 
 
+def is_local_run_active(dataset_id) -> bool:
+    """True when the single-flight LOCAL trainer is mid-run on THIS dataset.
+    delete_dataset uses it (alongside cloud_training.active_runs_for) to refuse
+    deleting a dataset whose training is still running."""
+    if not queue_manager._get_system_state('training_in_progress', False):
+        return False
+    cur = queue_manager._get_system_state('training_dataset_id', None)
+    return cur is not None and str(cur) == str(dataset_id)
+
+
 def training_status(user_id=None) -> dict:
     cur_id = queue_manager._get_system_state('training_dataset_id', None)
     in_progress = bool(queue_manager._get_system_state('training_in_progress', False))
