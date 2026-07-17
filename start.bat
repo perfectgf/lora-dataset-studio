@@ -75,6 +75,24 @@ if "%VENV_BAD%"=="1" if "%PY_SUPPORTED%"=="0" (
   echo [!] .venv runs an unsupported Python and no CPython 3.10-3.12 is installed.
   echo     Core features work; ML extras stay unavailable until you install 3.12.
 )
+
+REM --- Health check: a .venv can EXIST and be on a supported Python yet still be
+REM     broken. An "unzip the new release over the same folder" update leaves .venv
+REM     untouched, so a half-written site-packages (interrupted install, an extra
+REM     that clobbered a core dep) survives every update -- and `pip -r` below can't
+REM     repair a package it still thinks is satisfied. If an EXISTING venv can't
+REM     import the core stack, rebuild it from scratch. Only worthwhile when a
+REM     supported Python is available. NOTE: a Pillow-only MIX (Image.py 12 + old
+REM     plugin) still imports here and is repaired at app boot by
+REM     bootstrap_dependencies.ensure_pillow_consistent -- no need to nuke for that.
+if "%REBUILD%"=="0" if "%PY_SUPPORTED%"=="1" (
+  "%VPY%" -c "import flask, werkzeug, sqlalchemy, PIL.Image" >nul 2>nul
+  if errorlevel 1 (
+    echo [i] Existing .venv is present but its core packages won't import -- rebuilding it.
+    set "REBUILD=1"
+  )
+)
+
 if "%REBUILD%"=="1" (
   if exist .venv rmdir /s /q .venv
   %PY% -m venv .venv || exit /b 1

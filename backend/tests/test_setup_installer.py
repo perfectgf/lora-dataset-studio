@@ -19,13 +19,17 @@ def test_status_idle_when_never_started():
 def test_manual_command_ml_extras_is_scoped_to_this_interpreter():
     """The manual fallback must target THIS app's interpreter (sys.executable),
     not a bare `pip` on PATH -- otherwise a copy-paste installs into the wrong
-    environment and the extras stay unimportable."""
+    environment and the extras stay unimportable. It installs the Flask-safe subset
+    (requirements-ml.txt pinned as a -c constraint) with Pillow pinned, and NEVER
+    the Pillow-incompatible extra (that one needs its own env)."""
     import sys
     from app import setup_installer
     cmd = setup_installer.manual_command('ml_extras')
     assert sys.executable in cmd
-    assert '-m pip install -r' in cmd
-    assert 'requirements-ml.txt' in cmd
+    assert '-m pip install' in cmd
+    assert '-c ' in cmd and 'requirements-ml.txt' in cmd   # the file rides as a constraint
+    assert 'simple-lama-inpainting' not in cmd             # the poison never lands here
+    assert 'Pillow==' in cmd                               # app's Pillow pinned as a guard
     assert not cmd.startswith('pip ')   # never bare pip
 
 def test_manual_command_quotes_paths_with_spaces(monkeypatch):
@@ -730,3 +734,112 @@ def test_manual_command_masks_scoped(app):
     assert '/masks/py' in cmd
     assert f'"{rembg}"' in cmd
     assert '-c ' in cmd and 'requirements-ml.txt' in cmd
+
+
+# --- Flask-venv Pillow isolation ------------------------------------------
+# The root of the "corrupted environment that survives updates" bug: simple-lama-
+# inpainting hard-requires Pillow<10, so installing it into the app's own venv
+# downgrades Pillow 12 and leaves a mixed/broken install. These lock in that NO
+# Setup action can put that package (or any Pillow-incompatible one) into the Flask
+# venv, and that every Flask-venv-targeted install pins Pillow so a transitive dep
+# can't downgrade it either.
+
+
+def test_flask_safe_ml_specs_exclude_the_incompatible_package():
+    """The monolithic ml_extras package list is requirements-ml.txt MINUS the
+    Pillow-incompatible extra — sourced from the file, so a new line is picked up."""
+    from app import setup_installer
+    specs = setup_installer._ml_requirement_specs(
+        exclude=setup_installer._INCOMPATIBLE_CANON)
+    joined = ' '.join(specs).lower()
+    assert 'rembg' in joined and 'insightface' in joined     # the safe extras stay
+    assert 'simple-lama-inpainting' not in joined            # the poison is dropped
+    # and the poison IS still in the file (only excluded, not deleted — the version
+    # floor for the dedicated install is read from there)
+    all_specs = ' '.join(setup_installer._ml_requirement_specs()).lower()
+    assert 'simple-lama-inpainting' in all_specs
+
+
+def test_app_pillow_spec_is_pinned():
+    from app import setup_installer
+    spec = setup_installer._app_pillow_spec()
+    assert spec.lower().startswith('pillow==')
+
+
+def test_flask_pillow_guard_only_for_flask_venv(monkeypatch):
+    import sys
+    from app import setup_installer
+    # the Flask venv (== sys.executable) is guarded...
+    assert setup_installer._flask_pillow_guard(sys.executable) == [setup_installer._app_pillow_spec()]
+    # ...a dedicated ML env is not (it may legitimately need pillow<10)
+    assert setup_installer._flask_pillow_guard('/some/other/ml/python') == []
+
+
+def test_run_ml_extras_installs_flask_safe_set_and_pins_pillow(monkeypatch):
+    """The core guarantee: ml_extras installs the safe subset into THIS interpreter
+    with Pillow pinned, never the Pillow-incompatible extra — so a full Setup can't
+    downgrade the Flask venv's Pillow."""
+    import sys
+    from app import setup_installer
+    seen = {}
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen',
+                        _fake_popen_capturing(seen, 0))
+    setup_installer._runs['ml_extras'] = setup_installer._new_run()
+    rc = setup_installer._run_ml_extras('ml_extras')
+    assert rc == 0
+    cmd = seen['cmd']
+    assert cmd[0] == sys.executable and cmd[1:4] == ['-m', 'pip', 'install']
+    assert any('rembg' in str(p) for p in cmd)
+    assert any('insightface' in str(p) for p in cmd)
+    assert not any('simple' in str(p).lower() and 'lama' in str(p).lower() for p in cmd)
+    assert '-c' in cmd and any('requirements-ml.txt' in str(p) for p in cmd)
+    assert any(str(p).lower().startswith('pillow==') for p in cmd)   # Pillow guarded
+    # the log directs the user to the safe way to add inpainting
+    assert any('simple-lama-inpainting' in l and "own Python" in l
+               for l in setup_installer._runs['ml_extras']['log'])
+
+
+def test_run_watermark_inpaint_refuses_flask_venv(app, monkeypatch):
+    """With no dedicated watermark.python/masks.python the resolver falls back to
+    the Flask venv — the worker must REFUSE (return 1, no pip) so simple-lama's
+    pillow<10 can't downgrade the app's Pillow."""
+    from app import setup_installer, config
+    def boom(*a, **k):
+        raise AssertionError('must not run pip against the Flask venv')
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', boom)
+    with app.app_context():
+        config.save_config({})   # nothing dedicated -> falls back to sys.executable
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+    assert rc == 1
+    log = setup_installer._runs['watermark_inpaint']['log']
+    assert any('Pillow<10' in l for l in log)
+    assert any('watermark.python' in l for l in log)
+
+
+def test_manual_command_watermark_inpaint_points_to_separate_env_when_unconfigured(app):
+    """No dedicated env -> the copy-paste must NOT target the app's own Python
+    (that would break Pillow); it points at a separate 3.10-3.12 env instead."""
+    from app import setup_installer
+    with app.app_context():
+        cmd = setup_installer.manual_command('watermark_inpaint')
+    assert 'separate Python' in cmd
+    assert 'pip install' in cmd and 'simple-lama-inpainting' in cmd
+    assert not cmd.startswith('pip ')
+
+
+def test_run_ml_capability_pins_pillow_when_targeting_flask_venv(app, monkeypatch):
+    """A scoped face_scoring/masks install that falls back to the Flask venv pins
+    Pillow too, so pulling insightface/rembg deps can't downgrade it."""
+    import sys
+    from app import setup_installer, config
+    seen = {}
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen',
+                        _fake_popen_capturing(seen, 0))
+    with app.app_context():
+        config.save_config({})   # no masks.python -> Flask venv
+        setup_installer._runs['masks'] = setup_installer._new_run()
+        setup_installer._run_ml_capability('masks')
+    cmd = seen['cmd']
+    assert cmd[0] == sys.executable
+    assert any(str(p).lower().startswith('pillow==') for p in cmd)

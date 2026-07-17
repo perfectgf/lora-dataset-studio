@@ -80,6 +80,20 @@ _PIP_REQUIREMENTS = {'ml_extras': _ML_REQUIREMENTS, 'scrape_extras': _SCRAPE_REQ
 # so there's exactly one place a version floor is ever written.
 _WATERMARK_PKG = 'simple-lama-inpainting'
 
+# The app's core requirements — Pillow is PINNED here (Pillow==12.x). An install
+# that targets the Flask venv appends this pin so pip can never downgrade Pillow to
+# satisfy an ML dependency (see _flask_pillow_guard).
+_APP_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements.txt'
+
+# ML packages that must NEVER install into the Flask (app's own) venv: their pins
+# would drag Pillow below the version the app REQUIRES (simple-lama-inpainting
+# hard-requires pillow<10 vs the app's Pillow 12). They install ONLY into a
+# dedicated ML interpreter (watermark.python / masks.python — a separate 3.10-3.12
+# env); with none configured the install is refused with an actionable message,
+# never forced into the Flask venv. That silent Pillow downgrade is the root of the
+# "corrupted Python environment that survives updates" bug this module guards.
+_FLASK_VENV_INCOMPATIBLE = frozenset({_WATERMARK_PKG})
+
 # --- ML extras, split per capability -------------------------------------------
 # requirements-ml.txt is a FLAT pip file (not grouped by feature), so the
 # package->capability grouping lives HERE. The VERSIONS are never duplicated: each
@@ -163,6 +177,10 @@ def _canon(name: str) -> str:
     return re.sub(r'[-_.]+', '-', name).lower()
 
 
+# Canonical names of the Flask-venv-incompatible packages, for membership tests.
+_INCOMPATIBLE_CANON = frozenset(_canon(n) for n in _FLASK_VENV_INCOMPATIBLE)
+
+
 def _requirement_spec(name: str, requirements=_ML_REQUIREMENTS) -> str:
     """The full requirement line for `name` as written in a requirements file
     (e.g. 'simple-lama-inpainting>=0.1.2') — the version floor lives in ONE place
@@ -201,6 +219,54 @@ def _ml_requirement_names(requirements=_ML_REQUIREMENTS) -> set:
     return names
 
 
+def _ml_requirement_specs(*, exclude=frozenset(), requirements=_ML_REQUIREMENTS) -> list:
+    """Requirement lines from requirements-ml.txt in FILE ORDER, dropping any whose
+    canonical name is in `exclude`. One source of truth for the ML versions — the
+    monolithic ml_extras install builds its Flask-safe package list from here."""
+    out = []
+    try:
+        for raw in requirements.read_text(encoding='utf-8').splitlines():
+            line = raw.split('#', 1)[0].strip()
+            if not line:
+                continue
+            token = re.split(r'[<>=!~;\[\s]', line, maxsplit=1)[0]
+            if _canon(token) in exclude:
+                continue
+            out.append(line)
+    except OSError:
+        pass
+    return out
+
+
+def _app_pillow_spec() -> str:
+    """The Pillow pin from requirements.txt (e.g. 'Pillow==12.2.0') — the version the
+    Flask venv MUST keep. Appended as an explicit requirement to any install that
+    targets the Flask venv so pip REFUSES (clean error) rather than silently
+    DOWNGRADES Pillow to satisfy an ML dependency. Bare-name fallback still blocks
+    the known-bad <10 downgrade if the pin can't be parsed."""
+    spec = _requirement_spec('Pillow', requirements=_APP_REQUIREMENTS)
+    return spec if spec.lower() != 'pillow' else 'Pillow>=10'
+
+
+def _is_flask_venv(python: str) -> bool:
+    """True when `python` resolves to the app's OWN interpreter (the Flask venv) —
+    the environment whose Pillow must never be downgraded. Case/separator-insensitive
+    on Windows; never raises."""
+    try:
+        return os.path.samefile(python, sys.executable)
+    except OSError:
+        return (os.path.normcase(os.path.abspath(python))
+                == os.path.normcase(os.path.abspath(sys.executable)))
+
+
+def _flask_pillow_guard(python: str) -> list:
+    """Pillow pin to append to a pip install ONLY when it targets the Flask venv:
+    pip then can't silently downgrade the app's Pillow (it keeps it or fails clean).
+    A dedicated ML env is exempt — it may legitimately need pillow<10 for
+    simple-lama-inpainting."""
+    return [_app_pillow_spec()] if _is_flask_venv(python) else []
+
+
 def _watermark_python() -> str:
     """Interpreter the watermark LaMa wrapper resolves. Reuse the wrapper's OWN
     resolver (watermark.python > masks.python > sys.executable) so the install
@@ -227,20 +293,39 @@ def manual_command(action) -> str:
     the dev venv -- instead of whatever bare `pip` happens to be first on PATH
     (which is the whole point of the user's question: a plain `pip install` would
     land in the wrong environment and the extras would never be importable)."""
-    if action in _PIP_REQUIREMENTS:
+    if action == 'ml_extras':
+        # Install EVERYTHING in requirements-ml.txt EXCEPT the Pillow-incompatible
+        # extra (that one needs its own env — see watermark_inpaint below), into this
+        # interpreter, with Pillow PINNED so pip can't downgrade the app's Pillow.
+        specs = ' '.join(f'"{s}"' for s in _ml_requirement_specs(exclude=_INCOMPATIBLE_CANON))
+        guard = ' '.join(f'"{g}"' for g in _flask_pillow_guard(sys.executable))
+        cmd = (f'{_quote(sys.executable)} -m pip install {specs} '
+               f'-c {_quote(str(_ML_REQUIREMENTS))}')
+        return f'{cmd} {guard}' if guard else cmd
+    if action in _PIP_REQUIREMENTS:        # scrape_extras: pure-python -r install
         return f'{_quote(sys.executable)} -m pip install -r {_quote(str(_PIP_REQUIREMENTS[action]))}'
     if action in _CAPABILITY_ML_ACTIONS:
         # One scoped capability (face_scoring | masks): the exact version-pinned
         # lines from requirements-ml.txt, quoted (the '>=' / '<' are shell
         # redirection unquoted), plus that file as a -c constraint. Interpreter =
-        # the same one the capability's probe resolves.
+        # the same one the capability's probe resolves; when that's the Flask venv,
+        # Pillow is pinned too so the scoped install can't downgrade it either.
+        python = _capability_python(action)
         specs = ' '.join(f'"{_requirement_spec(p)}"' for p in _CAPABILITY_PACKAGES[action])
-        return (f'{_quote(_capability_python(action))} -m pip install {specs} '
-                f'-c {_quote(str(_ML_REQUIREMENTS))}')
+        guard = ' '.join(f'"{g}"' for g in _flask_pillow_guard(python))
+        cmd = (f'{_quote(python)} -m pip install {specs} '
+               f'-c {_quote(str(_ML_REQUIREMENTS))}')
+        return f'{cmd} {guard}' if guard else cmd
     if action == 'watermark_inpaint':
         # Quote the spec: the '>=' in 'simple-lama-inpainting>=0.1.2' is shell
-        # redirection unquoted. Interpreter = the wrapper's resolved python.
-        return f'{_quote(_watermark_python())} -m pip install "{_requirement_spec(_WATERMARK_PKG)}"'
+        # redirection unquoted. Interpreter = the wrapper's resolved python — but
+        # NEVER the Flask venv (simple-lama needs pillow<10 and would break the app),
+        # so when nothing dedicated is configured point at a separate env instead.
+        python = _watermark_python()
+        spec = _requirement_spec(_WATERMARK_PKG)
+        if _is_flask_venv(python):
+            return f'"<a separate Python 3.10-3.12>" -m pip install "{spec}"'
+        return f'{_quote(python)} -m pip install "{spec}"'
     if action == 'ollama_model':
         model = (cfg.get('ollama.vision_model') or '').strip() or '<vision-model>'
         return f'ollama pull {model}'
@@ -348,52 +433,100 @@ def _execute(action):
 
 
 def _run_ml_extras(action) -> int:
-    """Generic `pip install -r` worker (name kept for existing callers/tests):
-    serves ml_extras AND scrape_extras via _PIP_REQUIREMENTS."""
+    """pip-install worker for the two bundle actions (name kept for callers/tests):
+      scrape_extras -> `pip install -r requirements-scrape.txt` (pure python) into THIS venv
+      ml_extras     -> the Flask-SAFE ML extras only (face-scoring + masks packages),
+                       into THIS venv, with Pillow PINNED so no dependency can
+                       downgrade it. The Pillow-incompatible extra (simple-lama-
+                       inpainting, which hard-requires pillow<10) is NEVER installed
+                       here — it goes to a dedicated ML interpreter (see
+                       _run_watermark_inpaint), so a full Setup can't corrupt the
+                       Flask venv's Pillow. That corruption is the "environment that
+                       survives updates" bug this split closes at the source.
+    """
+    if action != 'ml_extras':
+        # scrape_extras: pure-python, safe to install straight into this interpreter.
+        proc = subprocess.Popen(
+            [sys.executable, '-m', 'pip', 'install', '-r',
+             str(_PIP_REQUIREMENTS.get(action, _ML_REQUIREMENTS))],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+        )
+        for line in proc.stdout:
+            _append(action, line)
+        proc.wait()
+        return proc.returncode
+
     # ml_extras (insightface/numpy<2/onnx) has no wheels outside Python 3.10–3.12;
     # on a newer interpreter pip source-builds and fails with a cryptic numpy
     # conflict. Lead the log with a plain-English explanation + the fix so the
-    # traceback that follows is already contextualized. (scrape_extras is pure
-    # Python — no such ceiling — so it's exempt.)
-    if action == 'ml_extras':
-        ps = capabilities.python_ml_status()
-        if not ps['ml_supported']:
-            for line in (
-                '=' * 64,
-                f"NOTE: this app runs on Python {ps['version']}, but the ML extras",
-                f"need Python {ps['ml_range']} (insightface / numpy<2 / onnxruntime",
-                "publish no wheels for newer versions → pip will try to BUILD them",
-                "from source and the install will likely fail below.",
-                "",
-                "These extras are OPTIONAL — they only add face-resemblance scoring",
-                "and background masking. You can:",
-                "  1. Skip them (the app works without them), or",
-                "  2. Install them into a separate Python 3.11/3.12 venv and set",
-                "     face_scoring.python + masks.python to it in Settings.",
-                '=' * 64,
-            ):
-                _append(action, line)
-    proc = subprocess.Popen(
-        [sys.executable, '-m', 'pip', 'install', '-r',
-         str(_PIP_REQUIREMENTS.get(action, _ML_REQUIREMENTS))],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
-    )
+    # traceback that follows is already contextualized.
+    ps = capabilities.python_ml_status()
+    if not ps['ml_supported']:
+        for line in (
+            '=' * 64,
+            f"NOTE: this app runs on Python {ps['version']}, but the ML extras",
+            f"need Python {ps['ml_range']} (insightface / numpy<2 / onnxruntime",
+            "publish no wheels for newer versions → pip will try to BUILD them",
+            "from source and the install will likely fail below.",
+            "",
+            "These extras are OPTIONAL — they only add face-resemblance scoring",
+            "and background masking. You can:",
+            "  1. Skip them (the app works without them), or",
+            "  2. Install them into a separate Python 3.11/3.12 venv and set",
+            "     face_scoring.python + masks.python to it in Settings.",
+            '=' * 64,
+        ):
+            _append(action, line)
+    # Flask-safe subset (everything except the Pillow-incompatible extra) + Pillow
+    # pinned so a transitive dep can never downgrade the app's Pillow.
+    specs = _ml_requirement_specs(exclude=_INCOMPATIBLE_CANON)
+    cmd = ([sys.executable, '-m', 'pip', 'install', *specs,
+            '-c', str(_ML_REQUIREMENTS)] + _flask_pillow_guard(sys.executable))
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
     for line in proc.stdout:
         _append(action, line)
     proc.wait()
-    return proc.returncode
+    rc = proc.returncode
+    # The Pillow-incompatible extra is deliberately absent from the Flask venv: say
+    # so and how to add it safely, so "install everything" never silently half-does
+    # the job (and never breaks Pillow doing it).
+    for pkg in sorted(_FLASK_VENV_INCOMPATIBLE):
+        _append(action, f"note: {pkg} is NOT installed into the app's own Python "
+                        f"(it needs Pillow<10, which would break the app). Enable it "
+                        f"with the 'Install inpainting' button after pointing "
+                        f"watermark.python at a separate Python 3.10-3.12 env.")
+    return rc
 
 
 def _run_watermark_inpaint(action) -> int:
     """Install JUST the watermark-inpainting package (simple-lama-inpainting, plus
-    its torch/opencv deps) into the interpreter the LaMa wrapper resolves — NOT
-    necessarily this app's venv (the ML extras can live in a separate 3.10–3.12
-    env pointed to by watermark.python/masks.python). A user who already ran the
-    ML extras step keeps rembg/insightface: pip skips the already-satisfied ones.
-    The version floor is READ from requirements-ml.txt (single source of truth),
-    and that file rides along as a CONSTRAINT (-c) so pulling torch can never bump
-    numpy past insightface's <2 ceiling and silently break face scoring."""
+    its torch/opencv deps) into the interpreter the LaMa wrapper resolves — which
+    MUST NOT be the Flask venv: the package hard-requires Pillow<10 and installing
+    it into the app's own environment would downgrade (break) Pillow 12. When no
+    dedicated ML interpreter is configured (watermark.python / masks.python), that
+    resolver falls back to the Flask venv → refuse cleanly with an actionable
+    message instead of corrupting Pillow. That refusal IS the graceful degradation
+    for the 'corrupted env that survives updates' bug: nothing installs, the app
+    stays intact, and the log says exactly how to enable the feature safely.
+
+    On a real dedicated env: a user who already ran the ML extras step keeps
+    rembg/insightface (pip skips the already-satisfied ones). The version floor is
+    READ from requirements-ml.txt (single source of truth), and that file rides
+    along as a CONSTRAINT (-c) so pulling torch can never bump numpy past
+    insightface's <2 ceiling and silently break face scoring."""
     python = _watermark_python()
+    if _is_flask_venv(python):
+        for line in (
+            "watermark inpainting needs its OWN Python: simple-lama-inpainting requires",
+            "Pillow<10, and installing it into the app's own environment would downgrade",
+            "Pillow 12 and break the app. Nothing was installed.",
+            "Fix: create a separate Python 3.10-3.12 environment, then set its",
+            "python(.exe) as watermark.python in Settings and click Install again.",
+            f"(refused target — the app's own interpreter: {sys.executable})",
+        ):
+            _append(action, line)
+        return 1
     spec = _requirement_spec(_WATERMARK_PKG)
     _append(action, f'target interpreter: {python}')
     _append(action, f'installing {spec}  (constraints: requirements-ml.txt)')
@@ -430,8 +563,11 @@ def _run_ml_capability(action) -> int:
                             "separate 3.11/3.12 env and set face_scoring.python instead.")
     _append(action, f'target interpreter: {python}')
     _append(action, f"installing {', '.join(specs)}  (constraints: requirements-ml.txt)")
+    # When this capability targets the Flask venv (no dedicated python), pin Pillow
+    # so pulling insightface/rembg deps can't downgrade the app's Pillow either.
     proc = subprocess.Popen(
-        [python, '-m', 'pip', 'install', *specs, '-c', str(_ML_REQUIREMENTS)],
+        [python, '-m', 'pip', 'install', *specs, '-c', str(_ML_REQUIREMENTS),
+         *_flask_pillow_guard(python)],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
     )
     for line in proc.stdout:
