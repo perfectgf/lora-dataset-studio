@@ -488,29 +488,15 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
               onAddModeChange={(next) => setAddModeFor(item.id, next)}
               onSelectedIndexChange={(next) => setSelectedFor(item.id, next)}
               onCommit={commitRegions}
-            >
-              {oc && (
-                <div className="absolute inset-x-0 bottom-0 z-50 flex justify-center pb-2 pointer-events-none">
-                  <span className={`px-2 py-1 rounded-lg bg-black/75 text-xs font-semibold leading-normal ${oc.cls}`}>
-                    {oc.icon} {ocText}
-                  </span>
-                </div>
-              )}
-            </WatermarkRegionEditor>
+            />
           ) : (
             <div className="relative">
               <img src={url} alt={alt} className="block max-h-[min(70vh,calc(100cqh_-_1.5rem))] max-w-[min(92vw,100cqw)] select-none" />
-              {(cleaning || restoring) ? (
+              {(cleaning || restoring) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-sm">
                   <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/75 text-amber-200 text-sm font-semibold">
                     <span aria-hidden className="w-4 h-4 rounded-full border-2 border-amber-200/40 border-t-amber-200 animate-spin" />
                     {cleaning ? 'Cleaning…' : 'Restoring…'}
-                  </span>
-                </div>
-              ) : oc && (
-                <div className="absolute inset-x-0 bottom-0 flex justify-center pb-2 pointer-events-none">
-                  <span className={`px-2 py-1 rounded-lg bg-black/75 text-xs font-semibold ${oc.cls}`}>
-                    {oc.icon} {ocText}
                   </span>
                 </div>
               )}
@@ -526,6 +512,13 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
         className="shrink-0 bg-black/70 border-t border-white/10 px-3 py-2.5 flex flex-col gap-2">
 
         <div className="flex items-center justify-center gap-2 text-xs flex-wrap">
+          {/* Outcome badge lives HERE, off the photo — on the image it covered the
+              exact pixels the user needs to judge after a clean. */}
+          {oc && (
+            <span className={`px-2 py-1 rounded-lg bg-black/60 font-semibold ${oc.cls}`}>
+              {oc.icon} {ocText}
+            </span>
+          )}
           <span className="text-white/70 tabular-nums">
             {regions.length} correction zone{regions.length === 1 ? '' : 's'}
           </span>
