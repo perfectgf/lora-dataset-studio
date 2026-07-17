@@ -46,12 +46,19 @@ function StudioBody({ datasetId, family, onFamilyChange }) {
   const form = useStudioForm(d, datasetId, d?.family || family);
   const vote = useQuickVote(studio.rate);
   const [lbImg, setLbImg] = useState(null);
+  // Set navigable ORDONNÉ figé à l'ouverture (fourni par ResultsArea, cf. flipOrder).
+  // On garde un instantané plutôt que le live : le set de feuilletage reste stable
+  // pendant qu'on compare (le polling ne le réordonne pas sous les doigts).
+  const [lbItems, setLbItems] = useState([]);
+  const openLightbox = (cell, items) => { setLbImg(cell); setLbItems(items || []); };
 
-  // La lightbox délègue le vote ici ; on met à jour l'image affichée pour que le
-  // bouton 👍/👎 reflète l'état immédiatement (comme l'ancien setLbImg local).
+  // La lightbox délègue le vote ici ; on met à jour l'image affichée ET l'instantané
+  // du set pour que le bouton 👍/👎 reflète l'état immédiatement, même en revenant
+  // sur une image déjà notée pendant le feuilletage (comme l'ancien setLbImg local).
   const rateLightbox = (id, nv) => {
     studio.rate(id, nv);
     setLbImg((p) => (p && p.id === id ? { ...p, rating: nv } : p));
+    setLbItems((arr) => arr.map((c) => (c.id === id ? { ...c, rating: nv } : c)));
   };
 
   if (!d || !d.checkpoints?.length) {
@@ -96,14 +103,14 @@ function StudioBody({ datasetId, family, onFamilyChange }) {
           <BestPerModelList items={d.best_per_model} breakdown={d.checkpoint_breakdown} datasetId={datasetId}
             onMemorize={studio.setBest} fmt={fmt} />
           <ModelComparison items={d.model_comparison} />
-          <ResultsArea datasetId={datasetId} d={d} studio={studio} vote={vote} onOpen={setLbImg} />
+          <ResultsArea datasetId={datasetId} d={d} studio={studio} vote={vote} onOpen={openLightbox} />
         </main>
       </div>
 
       <QuickVoteModal vote={vote} datasetId={datasetId} fmt={fmt} />
       {lbImg && (
-        <ResultLightbox img={lbImg} datasetId={datasetId}
-          onRate={rateLightbox} onClose={() => setLbImg(null)} fmt={fmt} />
+        <ResultLightbox img={lbImg} items={lbItems} datasetId={datasetId}
+          onRate={rateLightbox} onNavigate={setLbImg} onClose={() => setLbImg(null)} fmt={fmt} />
       )}
     </div>
   );

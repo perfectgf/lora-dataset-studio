@@ -18,6 +18,7 @@ import { useToast } from '../../common/Toast';
 import { useStudioRun } from '../../../hooks/useStudioRun';
 import { useQuickVote } from '../../../hooks/useQuickVote';
 import { fmt } from '../../../utils/studioFormat';
+import { flipOrder } from './flipOrder';
 import { DEFAULT_STRENGTHS, FAMILY_LABELS } from './constants';
 import StudioRunSetup from './StudioRunSetup';
 import StudioGenerationSettings from './StudioGenerationSettings';
@@ -94,6 +95,14 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
   );
   const greens = useMemo(
     () => cells.filter((c) => c.status === 'done' && c.filename && c.rating === 1),
+    [cells],
+  );
+
+  // Set navigable de la lightbox : les strengths d'un même rendu (même LoRA + même
+  // seed) adjacentes → LoRA (dataset_id) → aspect → seed → STRENGTH en dernier. Ici
+  // les cellules sont live (déjà dans ce composant) → on passe le set directement.
+  const navImages = useMemo(
+    () => flipOrder(cells, (c) => [c.dataset_id ?? 0, c.aspect || '', c.seed ?? 0, c.strength ?? 0]),
     [cells],
   );
 
@@ -238,8 +247,8 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
 
       <QuickVoteModal vote={vote} datasetId={vote.current?.dataset_id} fmt={fmt} />
       {lbImg && (
-        <ResultLightbox img={lbImg} datasetId={lbImg.dataset_id}
-          onRate={rateLightbox} onClose={() => setLbImg(null)} fmt={fmt} />
+        <ResultLightbox img={lbImg} items={navImages} datasetId={lbImg.dataset_id}
+          onRate={rateLightbox} onNavigate={setLbImg} onClose={() => setLbImg(null)} fmt={fmt} />
       )}
 
       {/* Barre de commande fixe : Run toujours visible + raccourcis de sections. */}

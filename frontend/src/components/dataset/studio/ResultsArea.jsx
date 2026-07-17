@@ -6,8 +6,9 @@
  * (extraction behavior-preserving depuis l'ancien LoraTestStudio.jsx), puis rend
  * le sélecteur de run + une grille par variante (format × cfg × steps).
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { fmt } from '../../../utils/studioFormat';
+import { flipOrder } from './flipOrder';
 import RunSelector from './RunSelector';
 import ResultsGrid from './ResultsGrid';
 import ExportGridModal from './ExportGridModal';
@@ -68,6 +69,21 @@ export default function ResultsArea({ datasetId, d, studio, vote, onOpen }) {
     for (const arr of m.values()) arr.sort((a, b) => (a.seed || 0) - (b.seed || 0));
     return m;
   }, [displayedCells]);
+
+  // --- Ordre de FEUILLETAGE de la lightbox --------------------------------------
+  // Le set navigable = les cellules AFFICHÉES (run courant), triées pour que les
+  // variantes de strength d'un même rendu soient adjacentes : variante (z_model /
+  // aspect / cfg / steps) → checkpoint → seed → STRENGTH en dernier. Voir flipOrder.
+  const navImages = useMemo(
+    () => flipOrder(displayedCells, (c) => [
+      c.z_model_label || c.z_model || '', c.aspect || '', c.cfg ?? 0,
+      c.steps ?? 0, c.steps2 ?? 0, c.label || '', c.seed ?? 0, c.strength ?? 0,
+    ]),
+    [displayedCells],
+  );
+  // On remonte le set ordonné À CÔTÉ de la cellule ouverte (le parent tient l'état
+  // lightbox mais ne connaît pas ce tri — il vit ici avec displayedCells).
+  const handleOpen = useCallback((cell) => onOpen(cell, navImages), [onOpen, navImages]);
 
   // Score cross-runs PAR CONFIG (modèle + cfg + steps inclus) — aligné backend.
   const scoreMap = useMemo(() => {
@@ -145,7 +161,7 @@ export default function ResultsArea({ datasetId, d, studio, vote, onOpen }) {
           best={d.best_cell}
           datasetId={datasetId}
           onRate={studio.rate}
-          onOpen={onOpen}
+          onOpen={handleOpen}
           fmt={fmt}
         />
       )}
