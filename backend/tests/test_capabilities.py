@@ -116,6 +116,32 @@ def test_klein_engine_stays_dark_until_all_three_assets_present(app, monkeypatch
     assert 'klein_vae' in missing
 
 
+def test_klein_engine_lights_for_flat_root_layout_unet(app, monkeypatch, tmp_path):
+    """vvilams' flat / Stability-Matrix layout: the UNET sits straight in
+    diffusion_models/ with NO klein/ subfolder. The engine gate now runs on
+    resolve_klein_unet() (symmetric with the vae/te resolvers), so a root-level
+    model that the picker lists and the resolver can build ALSO lights the engine —
+    picker == probe == resolver at the readiness gate too."""
+    monkeypatch.setenv('OPENAI_API_KEY', '')
+    with app.app_context():
+        from app import capabilities, config
+        base = tmp_path / 'Comfy'
+        # UNET dropped at the root of diffusion_models/ (no klein/ subfolder).
+        (base / 'models' / 'diffusion_models').mkdir(parents=True)
+        (base / 'models' / 'diffusion_models' / 'flux-2-klein-9b-fp8.safetensors').touch()
+        (base / 'models' / 'vae').mkdir(parents=True)
+        (base / 'models' / 'vae' / 'flux2-vae.safetensors').touch()
+        (base / 'models' / 'text_encoders').mkdir(parents=True)
+        (base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors').touch()
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        with patch('app.capabilities._http_ok', return_value=True):
+            caps = capabilities.probe(force=True)
+    # Picker lists the bare root name, and the engine lights (all three resolvable).
+    assert caps['comfyui']['models']['klein'] == ['flux-2-klein-9b-fp8.safetensors']
+    assert caps['engines']['klein'] is True
+    assert caps['comfyui']['klein_missing'] == ['klein_lora']   # only the optional LoRA
+
+
 # --- extra coverage: individual probe_* ok/detail contract --------------
 
 def test_probe_gemini_missing_key(app, monkeypatch):

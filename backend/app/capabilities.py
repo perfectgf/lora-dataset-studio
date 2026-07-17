@@ -433,8 +433,9 @@ def _scan_models() -> dict:
     unet_default = os.path.normpath(str(models_dir / 'unet')) if models_dir else None
 
     for root in comfy_model_paths.search_roots('diffusion_models'):
+        root_path = Path(root)
         try:
-            subfolders = [p for p in Path(root).iterdir() if p.is_dir()]
+            subfolders = [p for p in root_path.iterdir() if p.is_dir()]
         except OSError:
             continue
         krea_eligible = (os.path.normpath(root) == unet_default)
@@ -450,6 +451,15 @@ def _scan_models() -> dict:
                 result['klein'].extend(_model_files(sub))
             elif krea_eligible and name.lower().startswith('krea'):
                 result['krea'].extend(_model_files(sub))
+        # Flat / Stability-Matrix layouts drop the model straight INTO
+        # diffusion_models/ with no klein/ subfolder — scan the root's own files
+        # too and bucket the 'klein'-named ones. These are bare names (no prefix),
+        # which is exactly what UNETLoader loads for a file at the root of a
+        # registered folder. Mirrors klein_edit_helper._klein_unet_folders so the
+        # picker lists only what the resolver can build.
+        for name in _model_files(root_path):
+            if 'klein' in name.lower():
+                result['klein'].append(name)
 
     result['klein'] = sorted(set(result['klein']))
     sdxl = []
@@ -634,13 +644,17 @@ def probe(force=False) -> dict:
     joycaption = probe_joycaption(aitoolkit)
     models = _scan_models()
     # Klein engine readiness is now honest tri-component: the graph needs the UNET
-    # AND the VAE AND the text-encoder. The old check was unet-only (bool(models
-    # ['klein'])), so the engine lit up while a generate would 409 for the missing
-    # vae/te. That 409 already names + auto-downloads the missing files, so a badge
-    # that flips to "not ready" here is actionable. resolvers are cheap listdir,
-    # network-free, and extra_model_paths-aware. Lazy import avoids an import cycle.
+    # AND the VAE AND the text-encoder. All three gate on the RESOLVER (the exact
+    # value the generate would feed each loader node), not the raw scan — so the
+    # UNET check matches the vae/te ones and a model the resolver can build but the
+    # old bool(models['klein']) scan structure differed on can never disagree with
+    # it (picker == probe == resolver). The old unet-only check also lit the engine
+    # while a generate would 409 for the missing vae/te; that 409 already names +
+    # auto-downloads the gap, so a badge that flips to "not ready" here is
+    # actionable. Resolvers are cheap listdir, network-free, and
+    # extra_model_paths-aware. Lazy import avoids an import cycle.
     from .services import klein_edit_helper as _keh
-    klein_ready = (comfy['ok'] and bool(models['klein'])
+    klein_ready = (comfy['ok'] and bool(_keh.resolve_klein_unet())
                    and bool(_keh.resolve_klein_vae())
                    and bool(_keh.resolve_klein_text_encoder()))
     # Per-asset gaps (setup_installer action names still absent on disk), so the

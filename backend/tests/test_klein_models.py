@@ -331,6 +331,63 @@ def test_resolver_honours_pick_from_diffusion_models_folder(app, tmp_path):
         assert keh.resolve_klein_unet() == os.path.join('klein', 'flux-2-klein-9b-fp8.safetensors')
 
 
+# --- Flat / Stability-Matrix layout: klein model at the ROOT of a search folder ---
+# vvilams (Discord dev-chat) hit this: his flux-2-klein-9b-fp8.safetensors sat
+# straight in diffusion_models/ with NO klein/ subfolder, so the scan (subfolders
+# only) never bucketed it and the picker/resolver were both blind. The scan and the
+# resolver must now BOTH see a root-level file — and stay in lockstep.
+def test_scan_and_resolve_klein_at_diffusion_models_root(app, tmp_path):
+    from app import config as cfg, capabilities
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg, unet=False)     # no unet/klein/ subfolder at all
+        # Flat layout: the model file sits directly in diffusion_models/.
+        _install(base, 'models', 'diffusion_models', 'flux-2-klein-9b-fp8.safetensors')
+        # Picker: the scan lists the bare name.
+        assert 'flux-2-klein-9b-fp8.safetensors' in capabilities._scan_models()['klein']
+        # Resolver: a root-level file loads by its BARE name (no subfolder prefix) —
+        # os.path.join('', name) == name, exactly what UNETLoader wants here.
+        assert keh.resolve_klein_unet() == 'flux-2-klein-9b-fp8.safetensors'
+        assert keh.resolve_klein_unet('flux-2-klein-9b-fp8.safetensors') == \
+            'flux-2-klein-9b-fp8.safetensors'
+        # Probe: the model is no longer "missing" for the generate preflight.
+        assert 'klein_model' not in keh.klein_missing_assets()
+
+
+def test_root_file_without_klein_in_name_is_ignored(app, tmp_path):
+    """A non-Klein model dropped at the root of diffusion_models/ must NOT leak into
+    the klein bucket or the resolver — the root scan buckets by name like the
+    subfolder scan does."""
+    from app import config as cfg, capabilities
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg, unet=False)
+        _install(base, 'models', 'diffusion_models', 'some-random-sdxl.safetensors')
+        assert capabilities._scan_models()['klein'] == []
+        assert keh.resolve_klein_unet() is None
+        assert 'klein_model' in keh.klein_missing_assets()
+
+
+def test_klein_root_file_and_subfolder_both_discovered(app, tmp_path):
+    """Mixed install: the canonical unet/klein/ download AND a flat root-level file
+    under diffusion_models/. Both feed the picker (deduped), and a pick of each
+    resolves to the RIGHT location — bare name for the root file, subfolder prefix
+    for the subfolder file."""
+    from app import config as cfg, capabilities
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg)                 # unet/klein/flux-2-klein-9b-fp8
+        _install(base, 'models', 'diffusion_models', 'flux-2-klein-9b-kv-fp8.safetensors')
+        klein = capabilities._scan_models()['klein']
+        assert 'flux-2-klein-9b-fp8.safetensors' in klein      # subfolder file
+        assert 'flux-2-klein-9b-kv-fp8.safetensors' in klein   # root file
+        # The root pick loads bare; the subfolder pick keeps its prefix.
+        assert keh.resolve_klein_unet('flux-2-klein-9b-kv-fp8.safetensors') == \
+            'flux-2-klein-9b-kv-fp8.safetensors'
+        assert keh.resolve_klein_unet('flux-2-klein-9b-fp8.safetensors') == \
+            os.path.join('klein', 'flux-2-klein-9b-fp8.safetensors')
+
+
 # --- NSFW mode (local Klein only) -------------------------------------------
 def test_nsfw_catalog_entries_are_well_formed():
     from app.services.face_variations import NSFW_VARIATION_CATALOG, is_nsfw_label

@@ -103,19 +103,25 @@ def _find_model_file(comfy_type, canonical, tokens):
 
 
 def _klein_unet_folders():
-    """(subfolder_name, [model files]) for every 'klein'-named subfolder under each
-    diffusion-model search root (base models/unet + models/diffusion_models, then any
+    """(prefix, [model files]) candidates for the Klein UNET across each diffusion-
+    model search root (base models/unet + models/diffusion_models, then any
     extra_model_paths roots) — mirrors capabilities._scan_models, so anything the
-    picker lists is resolvable here. Base unet/ first (the canonical download
-    location), then shared-install folders like 'Flux2 klein', then extra roots. With
-    no extra_model_paths.yaml the roots are exactly [unet, diffusion_models] as before."""
+    picker lists is resolvable here. `prefix` is a 'klein'-named subfolder (e.g.
+    'klein', 'Flux2 klein') OR '' for a file dropped straight into the root of a
+    search folder: flat / Stability-Matrix installs place the model in
+    diffusion_models/ with no klein/ subfolder, and os.path.join('', name) == name
+    is exactly what UNETLoader loads for a root-level file. Per root, subfolders
+    first (sorted), then the root entry; across roots, base unet/ first (the
+    canonical download location), then shared-install folders, then extra roots.
+    With no extra_model_paths.yaml the roots are exactly [unet, diffusion_models]."""
     out = []
     for base_dir in comfy_model_paths.search_roots('diffusion_models'):
         try:
-            subs = sorted(d for d in os.listdir(base_dir)
-                          if 'klein' in d.lower() and os.path.isdir(os.path.join(base_dir, d)))
+            entries = os.listdir(base_dir)
         except OSError:
             continue
+        subs = sorted(d for d in entries
+                      if 'klein' in d.lower() and os.path.isdir(os.path.join(base_dir, d)))
         for sub in subs:
             try:
                 names = sorted(n for n in os.listdir(os.path.join(base_dir, sub))
@@ -124,6 +130,11 @@ def _klein_unet_folders():
                 continue
             if names:
                 out.append((sub, names))
+        root_names = sorted(n for n in entries
+                            if 'klein' in n.lower() and n.lower().endswith(_MODEL_SUFFIXES)
+                            and os.path.isfile(os.path.join(base_dir, n)))
+        if root_names:
+            out.append(('', root_names))
     return out
 
 
