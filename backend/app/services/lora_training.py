@@ -2943,8 +2943,13 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
                 and fn not in cloud_names and stem not in cloud_names \
                 and not any(fn.startswith(p) for p in cloud_prefixes):
             continue
+        # Pass the dataset's real trigger so a multi-token trigger (`leg_behind`)
+        # labels faithfully rather than truncating to `leg` and leaking `behind`
+        # into the base tag (the deployed filename alone can't tell the trigger's
+        # underscores from the field separators).
         entry = {'filename': os.path.join(subfolder, fn),
-                 'label': format_trained_lora_label(fn, fam) or fn}
+                 'label': format_trained_lora_label(
+                     fn, fam, trigger=getattr(ds, 'trigger_word', None)) or fn}
         # Source run of this deployed file (☁/💻 #N chip). Files imported before
         # run tagging carry no tag -> (None, None): shown as "run unknown", never
         # renamed retroactively (they stay listed and deletable exactly as-is).

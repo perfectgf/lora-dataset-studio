@@ -256,8 +256,14 @@ def _trigger_match_checkpoints(ds, family=None) -> list[dict]:
         if norm.startswith('lora_'):  # tolère le préfixe brut ai-toolkit
             norm = norm[len('lora_'):]
         if _trigger_token_match(norm, trigger):
+            # Pass the dataset's REAL trigger (not the safe/lowercased match form) so
+            # a multi-token trigger like `leg_behind` labels faithfully instead of
+            # splitting into `leg · behind` (the deployed filename can't disambiguate
+            # the trigger's own underscores from the field separators on its own).
             entry = {'filename': lora['filename'],
-                     'label': format_trained_lora_label(lora['filename'], fam) or stem}
+                     'label': format_trained_lora_label(
+                         lora['filename'], fam,
+                         trigger=getattr(ds, 'trigger_word', None)) or stem}
             # Discreet retrofit badge for a mislabelled deploy: read the file's
             # REAL arch and flag it when it contradicts the folder's family, so a
             # wrong-family checkpoint is visible in the picker (not silently no-op).

@@ -558,6 +558,29 @@ def test_trigger_match_still_respects_token_boundary_after_slugify(app, monkeypa
         assert cks == [own]   # NOT the glued 'raw_testupscale' non-sibling
 
 
+def test_underscore_trigger_labels_faithfully_in_studio(app, monkeypatch):
+    """A character/concept trigger can itself contain an underscore (`leg_behind`).
+    The deployed filename embeds it verbatim (`lora_leg_behind_…`), where its own
+    underscore is indistinguishable from the field separators. The Studio checkpoint
+    label must stay faithful (`leg_behind · …`), never split into `leg · behind`
+    (bug reported 2026-07-17): `_trigger_match_checkpoints` passes the dataset's real
+    trigger to the label formatter for an exact parse."""
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'leg behind pose', 'leg_behind',
+                                kind='concept', concept_desc='a leg-behind yoga pose',
+                                train_type='krea')
+        deployed = 'krea\\lora_leg_behind_000002000_Krea-2-Turbo_rc52_v1.safetensors'
+        monkeypatch.setattr(lts, 'get_krea_loras', lambda: [{'filename': deployed}])
+        cks = lts.list_test_checkpoints(ds, 'krea')
+        assert [c['filename'] for c in cks] == [deployed]           # still discoverable
+        label = cks[0]['label']
+        assert label.startswith('leg_behind · ')                   # faithful trigger
+        assert 'leg · behind' not in label                         # not split
+        assert '2000 steps' in label
+
+
 def _configure_comfy(tmp_path, monkeypatch):
     """A tmp ComfyUI base with an empty models/ tree; returns its path."""
     from app import config

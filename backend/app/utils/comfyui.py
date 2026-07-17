@@ -675,6 +675,29 @@ _RUN_TAG_TOKEN_RE = re.compile(r'^r[cl]\d+$')
 FAMILY_LABELS = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2', 'flux': 'FLUX.1',
                  'flux2klein': 'FLUX.2 Klein'}
 
+# Tags de base OFFICIELS qu'apposent lora_training._dest_base_tag aux LoRA déployés
+# sur une base de famille (pas de merge). Chacun est UN token (tirets, pas
+# d'underscore) → un checkpoint FINAL sans compteur de steps
+# (`lora_<trigger>_<tag>`) reste parsable : le trigger est tout ce qui PRÉCÈDE ce
+# tag, même s'il contient lui-même des underscores. Miroir des constantes de
+# lora_training (KREA_BASE_LABEL / FLUX_BASE_LABEL / FLUX2KLEIN_BASE_LABELS +
+# suffixes recette Z-Image) — dupliqué ici pour éviter un import circulaire ;
+# à garder synchronisé si une famille/variante est ajoutée là-bas.
+_FAMILY_BASE_TAGS = frozenset({
+    'Z-Image-Turbo', 'Z-Image-Base', 'Z-Image-De-Turbo',
+    'Krea-2-Turbo', 'Krea-2-Raw',
+    'FLUX-1-dev', 'FLUX2-Klein-4B', 'FLUX2-Klein-9B',
+})
+
+
+def _safe_trigger_token(trigger: str) -> str:
+    """Forme du trigger telle qu'elle est ENCODÉE dans le nom de fichier déployé —
+    miroir EXACT de lora_training._safe_trigger (tout caractère hors alphanumérique
+    et hors '_'/'-' devient '_'). Dupliqué ici (pas d'import du service, circulaire)
+    pour retrouver la frontière du trigger dans le stem quand le caller connaît le
+    trigger réel du dataset."""
+    return ''.join(c if (c.isalnum() or c in '_-') else '_' for c in (trigger or ''))
+
 
 def family_of_lora(filename: str) -> str | None:
     """Déduit la famille (pipeline) d'un LoRA de son DOSSIER ComfyUI : les LoRA
@@ -697,32 +720,76 @@ def family_of_lora(filename: str) -> str | None:
     return None
 
 
-def _parse_trained_stem(filename: str):
-    """Décompose un nom de LoRA entraîné ai-toolkit ``lora_<trigger>_<step?>_<base?>``
-    en (trigger, step|None, [tokens_de_base]). Renvoie None si le nom ne suit PAS la
-    convention (le caller retombe alors sur un label générique). Source UNIQUE du
-    parse, partagée par le libellé lisible ET la clé de regroupement des checkpoints."""
-    stem = os.path.basename(filename).rsplit('.', 1)[0]
-    if not stem.lower().startswith('lora_'):
-        return None
-    tokens = [t for t in stem[len('lora_'):].split('_') if t]
-    if not tokens:
-        return None
-    trigger, step, rest = tokens[0], None, []
-    for t in tokens[1:]:
+def _finish_parse(trigger: str, rest_tokens):
+    """Partage final du parse : depuis un trigger déjà isolé et les tokens qui le
+    SUIVENT, extrait le step (1er token tout-chiffres 4+) et le reste (base/merge),
+    en jetant le tag de run `rc<id>`/`rl<id>` (surfacé en chip ☁/💻 #N, pas du bruit
+    de label)."""
+    step, rest = None, []
+    for t in rest_tokens:
         if step is None and _TRAINED_STEP_RE.match(t):
             step = int(t)
         elif _RUN_TAG_TOKEN_RE.match(t):
-            # `_rc<id>` / `_rl<id>` = the source-run tag import_checkpoint appends
-            # so two runs of the same recipe never collapse onto one file. It is
-            # surfaced as a ☁/💻 #N chip, not as label/group noise — drop it here.
             continue
         else:
             rest.append(t)
     return trigger, step, rest
 
 
-def trained_lora_group(filename: str, family: str | None = None):
+def _parse_trained_stem(filename: str, trigger: str | None = None):
+    """Décompose un nom de LoRA entraîné ai-toolkit ``lora_<trigger>_<step?>_<base?>``
+    en (trigger, step|None, [tokens_de_base]). Renvoie None si le nom ne suit PAS la
+    convention (le caller retombe alors sur un label générique). Source UNIQUE du
+    parse, partagée par le libellé lisible ET la clé de regroupement des checkpoints.
+
+    ⚠️ Le trigger peut LUI-MÊME contenir des underscores (ex. ``leg_behind``) : il
+    s'étale alors sur plusieurs tokens. Prendre bêtement ``tokens[0]`` le tronquait
+    (« leg ») et poussait le reste (« behind ») dans la base — d'où un label
+    « leg · behind » et un chip d'auto-injection erroné (bug rapporté 2026-07-17).
+    On reconstitue donc le trigger COMPLET :
+
+      1. `trigger` fourni (caller qui connaît le dataset) → on retire ce préfixe EXACT
+         (via `_safe_trigger_token`, la forme encodée dans le fichier) et on parse le
+         reste. C'est la seule voie 100 % fidèle : ``_safe_trigger`` est lossy (un
+         trigger à espaces ET un trigger à underscores donnent le même nom de fichier).
+      2. Sinon, ancre sur le STEP (token 6-10 chiffres, frontière non ambiguë) : le
+         trigger = tout ce qui le précède. Couvre tous les checkpoints intermédiaires.
+      3. Sinon (checkpoint FINAL sans step), si le dernier token est un tag de base de
+         famille connu (`_FAMILY_BASE_TAGS`), le trigger = tout ce qui le précède.
+      4. Sinon, repli legacy : ``tokens[0]`` (triggers mono-token + noms de merge
+         tiers ``lora_Lola2_mopMix_pornmaster`` où la frontière est indevinable)."""
+    stem = os.path.basename(filename).rsplit('.', 1)[0]
+    if not stem.lower().startswith('lora_'):
+        return None
+    body = stem[len('lora_'):]
+    tokens = [t for t in body.split('_') if t]
+    if not tokens:
+        return None
+
+    # 1) Trigger connu du caller : frontière EXACTE, affichage fidèle (verbatim).
+    if trigger:
+        safe = _safe_trigger_token(trigger).strip('_')
+        if safe and body.lower().startswith(safe.lower()):
+            after = body[len(safe):]
+            if after == '' or after[0] == '_':
+                return _finish_parse(trigger, [t for t in after.split('_') if t])
+        # Le hint ne colle pas (nom legacy) → on retombe sur les heuristiques.
+
+    # 2) Ancre sur le step : le trigger = tokens AVANT le compteur (multi-token OK).
+    step_idx = next((i for i, t in enumerate(tokens) if _TRAINED_STEP_RE.match(t)), None)
+    if step_idx is not None and step_idx > 0:
+        return _finish_parse('_'.join(tokens[:step_idx]), tokens[step_idx:])
+
+    # 3) Pas de step : tag de base de famille en fin → trigger = tout ce qui précède.
+    if len(tokens) > 1 and tokens[-1] in _FAMILY_BASE_TAGS:
+        return _finish_parse('_'.join(tokens[:-1]), [tokens[-1]])
+
+    # 4) Repli legacy : premier token = trigger.
+    return _finish_parse(tokens[0], tokens[1:])
+
+
+def trained_lora_group(filename: str, family: str | None = None,
+                       trigger: str | None = None):
     """Clé de REGROUPEMENT (trigger + base, SANS le step) + le step, pour empiler les
     checkpoints d'un même dataset sous une entrée dépliable dans le picker. Deux
     checkpoints frères (ex. ``lora_lola3869_000002000_Krea-2-Turbo`` et
@@ -731,8 +798,9 @@ def trained_lora_group(filename: str, family: str | None = None):
 
     La clé = le displayName AMPUTÉ du segment « N steps » → cohérente avec le label
     affiché (cf. format_trained_lora_label) : le checkpoint final (sans step) a un
-    displayName EXACTEMENT égal à la clé de son groupe."""
-    parsed = _parse_trained_stem(filename)
+    displayName EXACTEMENT égal à la clé de son groupe. `trigger` (optionnel) = le
+    trigger réel du dataset pour un parse EXACT (cf. _parse_trained_stem)."""
+    parsed = _parse_trained_stem(filename, trigger)
     if not parsed:
         return None, None
     trigger, step, rest = parsed
@@ -745,7 +813,8 @@ def trained_lora_group(filename: str, family: str | None = None):
     return group, step
 
 
-def format_trained_lora_label(filename: str, family: str | None = None) -> str:
+def format_trained_lora_label(filename: str, family: str | None = None,
+                              trigger: str | None = None) -> str:
     """Libellé lisible pour un LoRA de personnage ai-toolkit nommé
     ``lora_<trigger>_<step?>_<mergebase?>.safetensors``.
 
@@ -757,14 +826,18 @@ def format_trained_lora_label(filename: str, family: str | None = None) -> str:
     de la famille, ex. ``lora_Lola2_000002000`` en Krea), on affiche au moins la
     PIPELINE (Krea 2 / SDXL / Z-Image) — sinon on ne sait pas avec quoi il a été fait.
     `family` est passée par les getters (le nom seul n'a pas le dossier) ; sinon
-    déduite du chemin. Renvoie '' si le nom ne suit PAS la convention ai-toolkit
-    (le caller retombe alors sur ``_clean_klein_lora_label``).
+    déduite du chemin. `trigger` (optionnel) = le trigger réel du dataset : les
+    callers qui l'ont (Test Studio, liste des checkpoints déployés) le passent pour
+    un label EXACT même quand le trigger contient des underscores. Renvoie '' si le
+    nom ne suit PAS la convention ai-toolkit (le caller retombe alors sur
+    ``_clean_klein_lora_label``).
 
     Ex. 'lora_Lola2_000004000_bigLove_zt3'         -> 'Lola2 · 4000 steps · bigLove zt3'
         'krea/lora_Lola2_000002000' (family krea)  -> 'Lola2 · 2000 steps · Krea 2'
         'sdxl/lora_Lola2_mopMix_pornmaster'        -> 'Lola2 · mopMix pornmaster'
+        'lora_leg_behind_000002000_Krea-2-Turbo'   -> 'leg_behind · 2000 steps · Krea 2'
     """
-    parsed = _parse_trained_stem(filename)
+    parsed = _parse_trained_stem(filename, trigger)
     if not parsed:
         return ''
     trigger, step, rest = parsed
@@ -837,22 +910,20 @@ def _normalize_trigger_entry(entry):
             return {"label": str(entry), "prompt": str(entry)}
 
 
-def _trained_lora_trigger(filename: str) -> str | None:
+def _trained_lora_trigger(filename: str, trigger: str | None = None) -> str | None:
     """Trigger word of an ai-toolkit TRAINED LoRA named ``lora_<trigger>_<step?>_<base?>``.
 
-    The first filename token after ``lora_`` IS the training trigger (the token the
-    user baked into the captions, e.g. ``lora_Lola2_000002000`` -> ``Lola2``). User
-    LoRAs carry no ``TRIGGER$..$`` marker and aren't in the curated map, so without
-    this their keyword was lost (no auto-inject, no chip). Mirrors the parsing in
-    format_trained_lora_label(). Returns None if the name isn't ai-toolkit-shaped or
-    the first token is a step counter (e.g. ``lora_000002000``)."""
-    stem = os.path.basename(filename).rsplit('.', 1)[0]
-    if not stem.lower().startswith('lora_'):
+    The trigger is the token(s) the user baked into the captions (e.g.
+    ``lora_Lola2_000002000`` -> ``Lola2``). User LoRAs carry no ``TRIGGER$..$`` marker
+    and aren't in the curated map, so without this their keyword was lost (no
+    auto-inject, no chip). Shares the SINGLE parse of format_trained_lora_label() so a
+    multi-token trigger (``lora_leg_behind_000002000`` -> ``leg_behind``) auto-injects
+    whole instead of truncating to ``leg``. Returns None if the name isn't
+    ai-toolkit-shaped or the trigger resolves to a step counter (``lora_000002000``)."""
+    parsed = _parse_trained_stem(filename, trigger)
+    if not parsed:
         return None
-    tokens = [t for t in stem[len('lora_'):].split('_') if t]
-    if not tokens:
-        return None
-    trig = tokens[0].strip()
+    trig = (parsed[0] or '').strip()
     if not trig or _TRAINED_STEP_RE.match(trig):
         return None
     return trig

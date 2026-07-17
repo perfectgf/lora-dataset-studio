@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from app.utils.comfyui import (
     trained_lora_group, format_trained_lora_label, family_of_lora,
-    inject_zimage_loras,
+    inject_zimage_loras, _trained_lora_trigger,
 )
 
 
@@ -74,6 +74,66 @@ def test_base_tag_separates_groups():
     x = r'z image\lora_Lola_000002000_bigLove.safetensors'
     y = r'z image\lora_Lola_000002000.safetensors'
     assert trained_lora_group(x, 'zimage')[0] != trained_lora_group(y, 'zimage')[0]
+
+
+def test_underscore_trigger_recovered_via_step_anchor():
+    """A trigger that itself contains '_' (`leg_behind`) spans several filename
+    tokens. The step counter is an unambiguous boundary, so the WHOLE trigger is
+    recovered instead of truncating to `leg` and leaking `behind` into the base
+    (bug reported 2026-07-17). Faithful for the auto-inject chip AND the label."""
+    f = r'krea\lora_leg_behind_000002000_Krea-2-Turbo.safetensors'
+    assert _trained_lora_trigger(f) == 'leg_behind'
+    label = format_trained_lora_label(f, 'krea')
+    assert label == 'leg_behind · 2000 steps · Krea-2-Turbo'
+    assert 'leg · behind' not in label           # the old truncation/split is gone
+
+
+def test_underscore_trigger_siblings_group_together():
+    """Two step checkpoints of the same `leg_behind` dataset must collapse into one
+    expandable group (same key, differ only by step) — grouping keyed on the FULL
+    trigger, not the truncated first token."""
+    a = r'krea\lora_leg_behind_000002000_Krea-2-Turbo.safetensors'
+    b = r'krea\lora_leg_behind_000002500_Krea-2-Turbo.safetensors'
+    ga, sa = trained_lora_group(a, 'krea')
+    gb, sb = trained_lora_group(b, 'krea')
+    assert ga == gb == 'leg_behind · Krea-2-Turbo'
+    assert (sa, sb) == (2000, 2500)
+
+
+def test_underscore_trigger_final_checkpoint_uses_family_tag():
+    """The FINAL checkpoint carries no step, only a family base tag
+    (`lora_leg_behind_Krea-2-Turbo`). Recognizing the known tag still recovers the
+    full trigger rather than the legacy first-token truncation."""
+    f = r'krea\lora_leg_behind_Krea-2-Turbo.safetensors'
+    assert _trained_lora_trigger(f) == 'leg_behind'
+    assert format_trained_lora_label(f, 'krea') == 'leg_behind · Krea-2-Turbo'
+
+
+def test_trigger_hint_is_exact_even_for_ambiguous_names():
+    """When the caller knows the dataset trigger it is passed as a hint: the exact
+    prefix is stripped and the pretty form displayed — the only 100%-faithful path,
+    since `_safe_trigger` is lossy (spaces AND underscores both encode as '_')."""
+    # No step, no family tag → filename alone can't disambiguate; the hint can.
+    bare = r'z image\lora_leg_behind.safetensors'
+    assert _trained_lora_trigger(bare) == 'leg'                       # heuristic best-effort
+    assert _trained_lora_trigger(bare, 'leg_behind') == 'leg_behind'  # hint = exact
+    assert format_trained_lora_label(bare, 'zimage', 'leg_behind') == 'leg_behind · Z-Image'
+    # A SPACE trigger is slugified to underscores on disk; the hint restores it.
+    spaced = r'z image\lora_raw_test_upscale_000001500.safetensors'
+    assert format_trained_lora_label(spaced, 'zimage', 'raw test upscale') \
+        == 'raw test upscale · 1500 steps · Z-Image'
+
+
+def test_single_token_and_merge_parses_unchanged():
+    """Regression guard: single-token triggers and third-party merge names (no step,
+    unknown tail) keep the legacy first-token parse — the new recovery must not
+    perturb them."""
+    assert format_trained_lora_label(r'z image\lora_Lola_000002000.safetensors',
+                                     'zimage') == 'Lola · 2000 steps · Z-Image'
+    assert format_trained_lora_label(r'sdxl\lora_Lola2_mopMix_pornmaster.safetensors',
+                                     'sdxl') == 'Lola2 · mopMix pornmaster'
+    # A step-first name has no trigger → chip is None (never a step counter).
+    assert _trained_lora_trigger(r'z image\lora_000002000.safetensors') is None
 
 
 def test_family_of_lora():
