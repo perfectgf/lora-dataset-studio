@@ -1,5 +1,10 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ShotIllustration from './ShotIllustration';
+import TileSizeControl from '../shared/TileSizeControl';
+import {
+  datasetKind, datasetMatches, groupDatasets, kindsPresent,
+  normalizeCollapsedMap, normalizeTileSize,
+} from '../../utils/datasetLibrary';
 
 // Fixed gradient palette for the dataset avatars — deterministic per name so a
 // dataset keeps its color across sessions (Tailwind needs literal class names).
@@ -96,16 +101,29 @@ const FAMILY_BADGE = {
   flux2klein: ['FLUX.2 Klein', 'border-rose-400/40 bg-rose-500/10 text-rose-300'],
 };
 
-// Familles de modèle proposées à la création + ordre/labels des sections du menu.
-// Le menu est GROUPÉ par cette famille (d.train_type) : gestion plus simple quand on
-// entretient des datasets de plusieurs pipelines. La 3e valeur = l'emoji de section.
-const FAMILY_ORDER = [
-  ['zimage', 'Z-Image', '🌀'],
-  ['sdxl', 'SDXL', '🎨'],
-  ['krea', 'Krea 2', '✨'],
-  ['flux', 'FLUX.1', '⚡'],
-  ['flux2klein', 'FLUX.2 Klein', '🌹'],
-];
+// Display preferences — persisted globally (display settings, not dataset
+// data; same pattern as datasetGridTileSize / the CloudRuns group folds).
+// S = compact list rows (maximum density — the library is often browsed from
+// a phone), M = the historical 2/3-column photo grid, L = large previews.
+const TILE_SIZE_KEY = 'datasetLibraryTileSize';
+const COLLAPSED_KEY = 'datasetLibraryCollapsed_v1';
+const TILE_SIZE_TITLE = {
+  S: 'Compact list — maximum density, browse many datasets at once',
+  M: 'Medium tiles (default)',
+  L: 'Large tiles — big reference previews',
+};
+const GRID_COLS = {
+  M: 'grid grid-cols-2 gap-2.5 sm:grid-cols-3',
+  L: 'grid grid-cols-1 gap-2.5 sm:grid-cols-2',
+};
+
+// Kind filter chips — only rendered when at least two kinds coexist in the
+// library. Transient on purpose: a persisted filter reads as lost datasets.
+const KIND_CHIPS = {
+  character: '🧑 Character',
+  concept: '💡 Concept',
+  style: '🎨 Style',
+};
 
 /** One-line status of a tile: how big, how far along. Text, not color-only. */
 function tileStats(d) {
@@ -199,6 +217,85 @@ function DatasetTile({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
           🗑
         </button>
       )}
+    </div>
+  );
+}
+
+/** Compact row for the S size: identity at a glance, one dataset per line,
+ *  icon-only actions. Everything the photo tile shows, at list density. */
+function DatasetRow({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
+  const canExportZip = (d.images_kept ?? 0) > 0;
+  const kind = datasetKind(d);
+  const iconBtn = 'grid h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-app/50 text-xs text-content-muted transition-colors hover:border-primary/40 hover:bg-surface-raised hover:text-content';
+  return (
+    <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface pr-1.5 transition-colors hover:border-primary/40">
+      <button type="button" onClick={() => onOpen(d.id)}
+        aria-label={`Open the dataset ${d.name}`}
+        className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-1.5 text-left">
+        <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md bg-app/60">
+          {d.ref_filename ? (
+            <img
+              src={`/api/dataset/${d.id}/img/${encodeURIComponent(d.ref_filename)}`}
+              alt="" loading="lazy" aria-hidden="true"
+              className="h-full w-full object-cover" />
+          ) : (
+            <span className={`grid h-full w-full place-items-center bg-gradient-to-br ${gradientFor(d.name)} text-base font-bold text-white`}
+              aria-hidden="true">
+              {(d.name || '?').charAt(0).toUpperCase()}
+            </span>
+          )}
+        </span>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="flex min-w-0 items-center gap-1.5">
+            {kind !== 'character' && (
+              <span title={kind === 'concept' ? 'Concept dataset' : 'Style dataset'} aria-hidden="true"
+                className="shrink-0 text-[0.6875rem]">{kind === 'concept' ? '💡' : '🎨'}</span>
+            )}
+            <span className="truncate text-xs font-semibold text-content">{d.name}</span>
+            {(d.trained_families || []).map((f) => {
+              const [lbl, cls] = FAMILY_BADGE[f] || [f, 'border-border bg-white/5 text-content-muted'];
+              return (
+                <span key={f} className={`shrink-0 rounded border px-1 py-px text-[0.5rem] font-semibold uppercase ${cls}`}
+                  title={`A ${lbl} LoRA has been trained from this dataset`}>
+                  {lbl}
+                </span>
+              );
+            })}
+          </span>
+          <span className="truncate text-[0.625rem] text-content-subtle">
+            <span className={kind === 'style' ? 'text-cyan-300' : 'font-mono text-indigo-300'}>
+              {kind === 'style' ? 'always-on' : (d.trigger_word || '—')}
+            </span>
+            {' · '}{tileStats(d)}
+          </span>
+        </span>
+      </button>
+      <div className="flex shrink-0 items-center gap-1">
+        <button type="button" onClick={() => onExportZip?.(d.id)} disabled={!canExportZip}
+          title={canExportZip
+            ? 'Download the kept images and captions as a training-ready ZIP'
+            : 'Keep at least one image before exporting a training ZIP'}
+          aria-label={`Export training ZIP for ${d.name}`}
+          className={`${iconBtn} disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-app/50 disabled:hover:text-content-muted`}>
+          ⬇
+        </button>
+        <button type="button" onClick={() => onExportBackup?.(d.id)}
+          title="Download a portable backup with all images, captions and settings"
+          aria-label={`Export portable backup for ${d.name}`}
+          className={iconBtn}>
+          💾
+        </button>
+        {onDelete && (
+          <button type="button"
+            onClick={() => {
+              if (window.confirm(`Permanently delete the dataset "${d.name}" and all its images? This cannot be undone.`)) onDelete(d.id);
+            }}
+            title="Delete this dataset" aria-label={`Delete the dataset ${d.name}`}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-red-500/40 bg-app/50 text-xs text-red-300 transition-colors hover:bg-red-500/25">
+            🗑
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -357,33 +454,47 @@ export default function DatasetListPanel({
   // is the only meaningful action.
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState('');
+  // Kind chip filter — transient (see KIND_CHIPS): reset on every page load.
+  const [kindFilter, setKindFilter] = useState('all');
+  // Tile size + collapsed sections: persisted display preferences (same lazy
+  // init + save effect as datasetGridTileSize / the CloudRuns group folds).
+  const [tileSize, setTileSize] = useState(() => {
+    try { return normalizeTileSize(localStorage.getItem(TILE_SIZE_KEY)); } catch { return 'M'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(TILE_SIZE_KEY, tileSize); } catch { /* ignore — private mode */ }
+  }, [tileSize]);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return normalizeCollapsedMap(localStorage.getItem(COLLAPSED_KEY)); } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed)); } catch { /* ignore — private mode */ }
+  }, [collapsed]);
+  const toggleSection = (family) => setCollapsed((m) => {
+    const next = { ...m };
+    if (next[family]) delete next[family];
+    else next[family] = 1;
+    return next;
+  });
   const restoreRef = useRef(null);
   const empty = datasets.length === 0;
   const formOpen = creating || empty;
-  const q = query.trim().toLowerCase();
-  const matches = (d) => !q
-    || (d.name || '').toLowerCase().includes(q)
-    || (d.trigger_word || '').toLowerCase().includes(q);
-  const filtered = datasets.filter(matches);
+  const filtered = datasets.filter((d) => datasetMatches(d, query, kindFilter));
+  const groups = groupDatasets(filtered);
+  const kinds = kindsPresent(datasets);
+  // While a search/filter is active every section is forced open: a fold that
+  // hides matches would read as lost datasets. Folding resumes when cleared.
+  const filterActive = Boolean(query.trim()) || kindFilter !== 'all';
   return (
     <div className="flex flex-col gap-4">
-      {/* Header: the page IS the library. */}
+      {/* Header: the page IS the library. Row 1 = title + primary actions;
+          row 2 (below, non-empty library only) = search + filters + size. */}
       <div>
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">library</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-semibold text-content">Datasets</h1>
           {!empty && <span className="text-sm text-content-subtle">{datasets.length}</span>}
           <div className="ml-auto flex items-center gap-2">
-            {!empty && (
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Find a dataset…"
-                aria-label="Find a dataset"
-                className="w-40 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-content placeholder:text-content-subtle focus:border-primary focus:outline-none sm:w-52"
-              />
-            )}
             <button type="button"
               onClick={() => {
                 if (empty) document.getElementById('new-dataset-name')?.focus();
@@ -399,7 +510,7 @@ export default function DatasetListPanel({
                 <button type="button" onClick={() => restoreRef.current?.click()}
                   title="Import a portable dataset backup — a new dataset will be created"
                   className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-content transition-colors hover:border-primary/40 hover:bg-surface-raised">
-                  📦 Import backup
+                  📦<span className="hidden sm:inline"> Import backup</span>
                 </button>
                 <input ref={restoreRef} type="file" accept=".zip,application/zip" className="hidden"
                   aria-label="Choose a dataset backup ZIP"
@@ -412,6 +523,35 @@ export default function DatasetListPanel({
             )}
           </div>
         </div>
+        {!empty && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find a dataset…"
+              aria-label="Find a dataset"
+              className="min-w-[9rem] flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-content placeholder:text-content-subtle focus:border-primary focus:outline-none sm:max-w-xs"
+            />
+            {kinds.length >= 2 && (
+              <div role="group" aria-label="Filter by dataset kind" className="flex items-center gap-1">
+                {['all', ...kinds].map((k) => (
+                  <button key={k} type="button"
+                    onClick={() => setKindFilter(k)}
+                    aria-pressed={kindFilter === k}
+                    className={`rounded-full border px-2.5 py-1 text-[0.6875rem] font-semibold transition-colors ${
+                      kindFilter === k
+                        ? 'border-primary/60 bg-primary/15 text-content'
+                        : 'border-border bg-surface text-content-muted hover:bg-surface-raised'}`}>
+                    {k === 'all' ? 'All' : KIND_CHIPS[k]}
+                  </button>
+                ))}
+              </div>
+            )}
+            <TileSizeControl size={tileSize} onChange={setTileSize}
+              titles={TILE_SIZE_TITLE} className="ml-auto" />
+          </div>
+        )}
       </div>
 
       {formOpen && (
@@ -421,28 +561,53 @@ export default function DatasetListPanel({
 
       {empty ? (
         <EmptyState />
-      ) : filtered.length === 0 ? (
+      ) : groups.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border bg-app/30 px-4 py-8 text-center text-sm text-content-muted">
-          No dataset matches “{query.trim()}”.
+          {query.trim()
+            ? <>No dataset matches “{query.trim()}”{kindFilter !== 'all' ? ` in ${KIND_CHIPS[kindFilter]}` : ''}.</>
+            : <>No {KIND_CHIPS[kindFilter]} dataset.</>}
         </p>
       ) : (
         <>
-          {FAMILY_ORDER.map(([fam, label, emoji]) => {
-            const group = filtered.filter((d) => (d.train_type || 'zimage') === fam);
-            if (!group.length) return null;
+          {groups.map(({ family, label, emoji, items }) => {
+            const open = filterActive || !collapsed[family];
             return (
-              <div key={fam} className="flex flex-col gap-2">
-                <h2 className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-content-subtle">
-                  <span aria-hidden="true">{emoji}</span> {label}
-                  <span className="font-normal normal-case tracking-normal">({group.length})</span>
+              <section key={family} className="flex flex-col gap-2">
+                <h2>
+                  <button type="button"
+                    onClick={() => toggleSection(family)}
+                    disabled={filterActive}
+                    aria-expanded={open}
+                    title={filterActive
+                      ? 'Sections stay open while a search or filter is active'
+                      : (open ? `Collapse the ${label} section` : `Expand the ${label} section`)}
+                    className="flex w-full items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-content-subtle transition-colors hover:text-content disabled:cursor-default disabled:hover:text-content-subtle">
+                    <span aria-hidden="true"
+                      className={`text-[0.625rem] transition-transform ${open ? 'rotate-90' : ''} ${filterActive ? 'opacity-40' : ''}`}>
+                      ▶
+                    </span>
+                    <span aria-hidden="true">{emoji}</span> {label}
+                    <span className="font-normal normal-case tracking-normal">({items.length})</span>
+                  </button>
                 </h2>
-                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-                  {group.map((d) => (
-                    <DatasetTile key={d.id} d={d} onOpen={onOpen} onDelete={onDelete}
-                      onExportZip={onExportZip} onExportBackup={onExportBackup} />
-                  ))}
-                </div>
-              </div>
+                {open && (
+                  tileSize === 'S' ? (
+                    <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+                      {items.map((d) => (
+                        <DatasetRow key={d.id} d={d} onOpen={onOpen} onDelete={onDelete}
+                          onExportZip={onExportZip} onExportBackup={onExportBackup} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className={GRID_COLS[tileSize]}>
+                      {items.map((d) => (
+                        <DatasetTile key={d.id} d={d} onOpen={onOpen} onDelete={onDelete}
+                          onExportZip={onExportZip} onExportBackup={onExportBackup} />
+                      ))}
+                    </div>
+                  )
+                )}
+              </section>
             );
           })}
         </>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DatasetGridItem from './DatasetGridItem';
+import TileSizeControl from '../shared/TileSizeControl';
 import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
 import {
   partitionKleinImproveSelection,
@@ -34,27 +35,6 @@ const TILE_SIZE_TITLE = {
   M: 'Medium tiles (default)',
   L: 'Large tiles — see the full composition before you crop/keep/reject',
 };
-
-// Discreet segmented S/M/L control, not a slider (mouse-fragile, no useful
-// granularity for 3 steps). Lives in the grid header, next to "select all".
-function TileSizeControl({ size, onChange, className = '' }) {
-  return (
-    <div role="group" aria-label="Thumbnail size" className={`flex items-center gap-1 shrink-0 ${className}`}>
-      <span aria-hidden className="text-content-subtle text-xs">🔳</span>
-      {['S', 'M', 'L'].map((s) => (
-        <button key={s} type="button" onClick={() => onChange(s)}
-          aria-pressed={size === s} title={TILE_SIZE_TITLE[s]}
-          aria-label={`${TILE_SIZE_TITLE[s]}${size === s ? ' (active)' : ''}`}
-          className={`w-6 h-6 rounded-md border text-[0.6875rem] font-semibold transition-colors ${
-            size === s
-              ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
-              : 'border-border bg-surface text-content-muted hover:bg-surface-raised'}`}>
-          {s}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 /* Auto-triage (A2): pre-mark scorable images by face-score threshold —
    score >= t -> keep, below -> reject. It marks the currently UNDECIDED scorable
@@ -354,7 +334,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
             </div>
           )
         )}
-        <TileSizeControl size={tileSize} onChange={setTileSize} className="ml-auto" />
+        <TileSizeControl size={tileSize} onChange={setTileSize} titles={TILE_SIZE_TITLE} className="ml-auto" />
       </div>
       <div className={`grid ${TILE_SIZE_COLS[tileSize]} gap-2`}>
         {images.map((img) => (
