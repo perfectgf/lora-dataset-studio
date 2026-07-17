@@ -40,6 +40,20 @@ export default function CaptioningSection({ config, setField }) {
             <option value="cpu">CPU (keeps the GPU free)</option>
           </select>
         </div>
+        <label className="mt-3 flex items-start gap-2 text-sm text-content">
+          <input id="watermark-allow-crop" type="checkbox"
+            checked={config.watermark?.allow_crop !== false}
+            onChange={(e) => setField('watermark', 'allow_crop', e.target.checked)}
+            className="mt-0.5" />
+          <span>
+            <span className="font-medium">Allow automatic crop</span>
+            <span className="block text-xs text-content-muted">
+              On: a watermark sitting in a border is cropped off (no invented pixels). Off:
+              border marks are repainted instead (LaMa/Klein). You can still override this per
+              image in the watermark review. Also toggleable from the Clean bar.
+            </span>
+          </span>
+        </label>
       </Card>
 
       <Card

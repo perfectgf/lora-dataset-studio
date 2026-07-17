@@ -87,7 +87,11 @@ DEFAULTS = {
     # Watermark inpainting (simple-lama-inpainting, extra ML). Dedicated key so a
     # user can override it, but defaults empty -> reuse the same ML interpreter as
     # rembg/insightface (masks.python) then sys.executable. Never imported in-process.
-    'watermark': {'python': '', 'device': 'auto'},  # auto|cuda|cpu
+    # allow_crop (default True = the shipped behaviour): when False the auto-routing
+    # NEVER crops a border mark — it repaints it instead (LaMa/Klein per the chosen
+    # engine). A persisted user preference (Settings ▸ Watermark inpainting AND the
+    # batch Clean bar both edit it); the review lightbox can still override it per image.
+    'watermark': {'python': '', 'device': 'auto', 'allow_crop': True},  # auto|cuda|cpu
     # consistency_strength: the dx8152 LoRA anchors STRUCTURE (composition/
     # background), not the face — its own guide says start at 0.5 and that
     # 0.8-1.0 "can prevent edits from applying". 0.9 made every variation a

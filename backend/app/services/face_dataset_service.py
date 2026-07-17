@@ -1694,25 +1694,37 @@ def recrop_reference_auto(user_id, dataset_id):
     return True, detected
 
 
-def _payload_watermark_route(img):
-    """The route Clean WOULD take for a 'detected' image ('crop' | 'lama' | 'review'),
-    or None. It needs the pixel dims (the grid doesn't carry them), so it opens the
-    file -- but ONLY for 'detected' rows (a bounded subset), so the single-dataset
-    payload never reads every image header. Lets the review lightbox and the 🚩 tooltip
-    name the EXACT planned action without duplicating _route_watermark in JS. Defensive:
-    any read/parse error yields None and the UI falls back to the generic hint."""
+def _watermark_route_payload(img):
+    """The routes Clean WOULD take for a 'detected' image, as a dict spread into the
+    image payload:
+      - 'watermark_route'        : the DEFAULT route ('crop' | 'lama' | 'review'), used
+                                   by the 🚩 tooltip and the batch/lightbox planned line;
+      - 'watermark_route_nocrop' : the SAME routing with auto-crop disabled ('lama' |
+                                   'review') -- only ever differs when the default is
+                                   'crop'. It lets the review lightbox offer a per-image
+                                   crop-vs-inpaint choice (and name the inpaint fallback)
+                                   without duplicating _route_watermark in JS.
+    Both are None for a non-'detected' row. It needs the pixel dims (the grid doesn't
+    carry them), so it opens the file ONCE -- but only for 'detected' rows (a bounded
+    subset), so the single-dataset payload never reads every image header. Defensive: any
+    read/parse error yields None routes and the UI falls back to the generic hint."""
+    none = {'watermark_route': None, 'watermark_route_nocrop': None}
     if img.watermark_state != 'detected':
-        return None
+        return none
     bbox = _safe_json(img.watermark_bbox)
     if not (isinstance(bbox, list) and len(bbox) == 4):
-        return None
+        return none
     try:
         with Image.open(_img_path(img)) as im:
             W, H = im.size
     except (OSError, ValueError):
-        return None
-    route, _box = _route_watermark(tuple(bbox), W, H)
-    return route
+        return none
+    box = tuple(bbox)
+    route, _ = _route_watermark(box, W, H)
+    # Only recompute the crop-disabled route when crop is what the default picked --
+    # otherwise the two are identical, so skip the redundant pure-function call.
+    route_nc = route if route != 'crop' else _route_watermark(box, W, H, allow_crop=False)[0]
+    return {'watermark_route': route, 'watermark_route_nocrop': route_nc}
 
 
 def dataset_payload(user_id, dataset_id):
@@ -1797,12 +1809,13 @@ def dataset_payload(user_id, dataset_id):
                     'face_score': i.face_score, 'face_state': i.face_state,
                     # Watermark V1: state drives the tile badge (🚩 detected / ⊘ dismissed
                     # / ✨ cleaned / ⚠ failed) and the "Clean (N)" count; bbox lets the UI
-                    # draw the detected box (review lightbox); watermark_route names the
-                    # EXACT planned action ('crop'|'lama'|'review') for detected images.
+                    # draw the detected box (review lightbox); watermark_route(_nocrop)
+                    # name the planned action ('crop'|'lama'|'review') with auto-crop on
+                    # and off, so the lightbox can offer a per-image crop-vs-inpaint choice.
                     'watermark_state': i.watermark_state,
                     'watermark_bbox': _safe_json(i.watermark_bbox),
                     **_watermark_regions_payload(i),
-                    'watermark_route': _payload_watermark_route(i)} for i in imgs],
+                    **_watermark_route_payload(i)} for i in imgs],
         # Kind-specific leak count (see _img_leaks): character = identity, concept = the
         # caption naming the concept (NEVER forced 0 any more), style = 0 (not applicable).
         # `captioned` bounds the badge ("N leaking / M checked") so a 0 reads as a real
@@ -3218,7 +3231,7 @@ def set_watermark_regions(user_id, dataset_id, image_id, regions) -> dict | None
     return _watermark_regions_payload(img)
 
 
-def _route_watermark(bbox, W, H, *, min_side=WATERMARK_MIN_SIDE):
+def _route_watermark(bbox, W, H, *, min_side=WATERMARK_MIN_SIDE, allow_crop=True):
     """Decide how to remove the watermark at normalized `bbox` (x1,y1,x2,y2) on a
     W x H image. Returns ('crop', (left, top, right, bottom)) | ('lama', None) |
     ('review', None). PURE function (no I/O) so the routing is unit-testable.
@@ -3228,19 +3241,26 @@ def _route_watermark(bbox, W, H, *, min_side=WATERMARK_MIN_SIDE):
     BOTH sides >= min_side -- we cut the band up to the mark's INNER edge. LaMa when
     the mark is small (area <= WATERMARK_MAX_INPAINT_AREA) and does not straddle the
     image center. Otherwise (large, or on the central subject with no safe crop) ->
-    manual review, never a risky auto-edit."""
+    manual review, never a risky auto-edit.
+
+    allow_crop=False (the "Allow auto-crop" preference turned off, or a per-image
+    "force inpaint" from the review lightbox) SKIPS the crop branches entirely: a
+    border mark then falls through to the inpaint/review logic below and is repainted
+    (LaMa/Klein per the chosen engine) instead of cropped. Nothing else changes -- the
+    min_side guard still governs whether crop is ever offered when it IS allowed."""
     x1, y1, x2, y2 = bbox
     px1, py1, px2, py2 = x1 * W, y1 * H, x2 * W, y2 * H
     band = WATERMARK_BORDER_BAND
     # Border-band crops, tried top/bottom/left/right. The kept box is (left,top,right,bottom).
-    if y2 <= band and (H - py2) >= min_side and W >= min_side:            # top band
-        return 'crop', (0, int(round(py2)), W, H)
-    if y1 >= 1 - band and py1 >= min_side and W >= min_side:              # bottom band
-        return 'crop', (0, 0, W, int(round(py1)))
-    if x2 <= band and (W - px2) >= min_side and H >= min_side:            # left band
-        return 'crop', (int(round(px2)), 0, W, H)
-    if x1 >= 1 - band and px1 >= min_side and H >= min_side:              # right band
-        return 'crop', (0, 0, int(round(px1)), H)
+    if allow_crop:
+        if y2 <= band and (H - py2) >= min_side and W >= min_side:        # top band
+            return 'crop', (0, int(round(py2)), W, H)
+        if y1 >= 1 - band and py1 >= min_side and W >= min_side:          # bottom band
+            return 'crop', (0, 0, W, int(round(py1)))
+        if x2 <= band and (W - px2) >= min_side and H >= min_side:        # left band
+            return 'crop', (int(round(px2)), 0, W, H)
+        if x1 >= 1 - band and px1 >= min_side and H >= min_side:          # right band
+            return 'crop', (0, 0, int(round(px1)), H)
     # Not a safe border crop (off-band, or the crop would fall below min_side).
     area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
     overlaps_center = (x1 < 0.5 < x2) and (y1 < 0.5 < y2)
@@ -3382,11 +3402,18 @@ def _clean_inpaint_engine(route, method):
     return 'lama' if route == 'lama' else 'review'
 
 
-def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='auto'):
+def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='auto',
+                     allow_crop=None):
     """Apply the crop/inpaint/review routing to every image marked 'detected'. Returns
     ({'cropped', 'inpainted', 'inpainted_klein', 'needs_review', 'failed', 'skipped'},
     error|None) -- same tuple contract as score_dataset_faces: `error` is None unless an
     inpaint that was ATTEMPTED failed (never a silent swallow). Crop stays in PIL.
+
+    `allow_crop` gates the border-crop route (see _route_watermark). None (the default)
+    resolves the persisted `watermark.allow_crop` preference, so a plain call and the
+    batch Clean button both honour Settings; the review lightbox passes an explicit
+    True/False to force crop or inpaint for ONE image. When False, a border mark is
+    repainted (LaMa/Klein per `method`) instead of cropped -- nothing else changes.
 
     `method` selects the inpaint engine (the batch UI's LaMa|Klein toggle):
       - 'auto'/'lama' → LaMa (fast, non-generative) for small off-center marks; on-subject
@@ -3408,6 +3435,10 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
+    # None = "no explicit choice" -> fall back to the persisted preference (default
+    # True), so the batch button follows Settings; the lightbox passes a real bool.
+    if allow_crop is None:
+        allow_crop = bool(cfg.get('watermark.allow_crop'))
     q = (FaceDatasetImage.query
          .filter_by(dataset_id=dataset_id, watermark_state='detected')
          .filter(FaceDatasetImage.filename.isnot(None)))
@@ -3499,7 +3530,7 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
                 out['failed'] += 1
                 db.session.commit()
                 continue
-            route, box = _route_watermark(tuple(bbox), W, H)
+            route, box = _route_watermark(tuple(bbox), W, H, allow_crop=allow_crop)
             if route == 'crop':
                 _preserve_original(path)
                 if _apply_watermark_crop(path, box):
@@ -3603,7 +3634,7 @@ def restore_watermark_original(user_id, dataset_id, image_id) -> dict | None:
     img.watermark_state = 'detected'
     db.session.commit()
     return {'watermark_state': img.watermark_state,
-            'watermark_route': _payload_watermark_route(img),
+            **_watermark_route_payload(img),
             **_watermark_regions_payload(img)}
 
 

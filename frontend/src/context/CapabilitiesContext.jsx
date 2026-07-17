@@ -18,6 +18,7 @@ const EMPTY_CAPS = {
   face_scoring: false,
   masks: false,
   watermark_inpaint: false,
+  watermark_allow_crop: true,
   training_visible: false,
   cloud_training: false,
   studio_visible: false,

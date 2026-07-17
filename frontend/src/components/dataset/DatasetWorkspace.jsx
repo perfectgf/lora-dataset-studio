@@ -31,6 +31,7 @@ import {
   isSmallImageRescueRow,
 } from '../../utils/smallImageRescue';
 import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET } from './workspaceSections';
+import { putJson } from '../../api/fetchClient';
 import {
   PANEL_STATUS,
   getWorkspacePanel,
@@ -131,6 +132,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
   const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
   const [watermarkMethod, setWatermarkMethod] = useState('lama');  // moteur d'inpaint batch : lama | klein
+  const [savingAllowCrop, setSavingAllowCrop] = useState(false);  // write-through of the auto-crop pref
   const [checkpointCount, setCheckpointCount] = useState(0);
   const [checkpointHost, setCheckpointHost] = useState(null);
   const [trainingNavigation, setTrainingNavigation] = useState({ ready: false, queueCount: 0 });
@@ -141,6 +143,22 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [excludeTags, setExcludeTags] = useState([]);
   const [includeTags, setIncludeTags] = useState([]);
   const [searchParams, setSearchParams] = useSearchParams();
+  // "Allow auto-crop" is a persisted preference (Settings ▸ Watermark inpainting). The
+  // batch Clean bar shows the SAME setting and writes it through here, so there's one
+  // source of truth: Clean then reads it server-side. Best-effort — a failed save leaves
+  // the toggle where it was and tells the user, never silently diverging from Settings.
+  const allowAutoCrop = caps.watermark_allow_crop !== false;
+  const setWatermarkAllowCrop = useCallback(async (value) => {
+    setSavingAllowCrop(true);
+    try {
+      await putJson('/api/settings', { config: { watermark: { allow_crop: Boolean(value) } } });
+      await refreshCaps(true);
+    } catch {
+      toast.error('Could not save the auto-crop preference');
+    } finally {
+      setSavingAllowCrop(false);
+    }
+  }, [refreshCaps, toast]);
   const navImages = d?.images || EMPTY_IMAGES;
   const navContext = useMemo(() => ({
     kind: d?.kind || 'character',
@@ -937,11 +955,30 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       Klein <span className="font-normal opacity-70">quality</span>
                     </button>
                   </div>
-                  <button type="button" onClick={() => ds.cleanWatermarks(watermarkMethod)} disabled={ds.busy}
+                  {/* Allow auto-crop: the SAME persisted preference as Settings ▸ Watermark
+                      inpainting (write-through). Off → a border mark is repainted (LaMa/
+                      Klein) instead of cropped; the per-image review can still override it. */}
+                  <button type="button" role="switch" aria-checked={allowAutoCrop}
+                    onClick={() => setWatermarkAllowCrop(!allowAutoCrop)}
+                    disabled={ds.busy || savingAllowCrop}
+                    title={allowAutoCrop
+                      ? 'Auto-crop ON: watermarks in a border are cropped off (no invented pixels). Click to repaint them instead. Saved as a preference.'
+                      : 'Auto-crop OFF: border watermarks are repainted (LaMa/Klein) instead of cropped. Click to allow cropping again. Saved as a preference.'}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold disabled:opacity-40 ${allowAutoCrop
+                      ? 'border-border bg-surface text-content-subtle hover:text-content'
+                      : 'border-amber-400/50 bg-amber-500/10 text-amber-200'}`}>
+                    {allowAutoCrop ? '✂ Auto-crop on' : '✂ Auto-crop off'}
+                  </button>
+                  <button type="button" onClick={() => ds.cleanWatermarks(watermarkMethod)}
+                    disabled={ds.busy || savingAllowCrop}
                     title={watermarkMethod === 'klein'
-                      ? 'Removes them with masked Flux.2 Klein inpaint: border marks are cropped, every other mark (off-center AND on-subject) is repainted then composited back — only the mark changes'
+                      ? (allowAutoCrop
+                        ? 'Removes them with masked Flux.2 Klein inpaint: border marks are cropped, every other mark (off-center AND on-subject) is repainted then composited back — only the mark changes'
+                        : 'Auto-crop off: EVERY mark (border included) is repainted with masked Flux.2 Klein inpaint then composited back — only the mark changes')
                       : caps.watermark_inpaint
-                      ? 'Removes them: border marks are cropped, small off-center marks are inpainted (LaMa), on-subject marks are flagged for manual review'
+                      ? (allowAutoCrop
+                        ? 'Removes them: border marks are cropped, small off-center marks are inpainted (LaMa), on-subject marks are flagged for manual review'
+                        : 'Auto-crop off: border marks are repainted (LaMa) instead of cropped; large/on-subject marks are flagged for manual review')
                       : 'Removes border marks by cropping. Inpainting (LaMa) needs a one-time install — use ⬇ Install inpainting next to this button; off-center marks are skipped until then'}
                     className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold disabled:opacity-40">
                     🧽 Clean ({watermarkDetected})
@@ -1459,7 +1496,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           caps={caps}
           nonces={ds.nonces}
           onSaveRegions={(id, regions) => ds.saveWatermarkRegions(id, regions)}
-          onClean={(id, method) => ds.cleanWatermarkImages([id], method)}
+          onClean={(id, method, allowCrop) => ds.cleanWatermarkImages([id], method, allowCrop)}
           onRestore={(id) => ds.restoreWatermarkImage(id)}
           onDismiss={(id) => ds.dismissWatermarks([id])}
           onReject={(id) => ds.setStatus(id, 'reject')}

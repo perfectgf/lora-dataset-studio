@@ -109,6 +109,10 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   // actionable; LaMa stays the fast default. Greyed when Klein isn't ready.
   const kleinReady = caps?.watermark_klein !== false;
   const [method, setMethod] = useState('lama');
+  // Per-image crop-vs-inpaint choice (id -> 'crop' | 'inpaint'). Only offered when a
+  // SAFE border crop exists for the image (watermark_route === 'crop') and no manual
+  // zones are drawn. Unset entries fall back to the persisted "Allow auto-crop" default.
+  const [cropChoiceById, setCropChoiceById] = useState({});
   const [note, setNote] = useState(null);         // transient inline note {tone, text}
   const dialogRef = useRef(null);
   const workingRef = useRef(false);               // re-entrancy guard (double keypress)
@@ -128,10 +132,25 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     : { status: 'saved', error: null };
   const saveBlocked = saveState.status === 'saving' || saveState.status === 'failed';
   const kleinSelected = method === 'klein';
+  // Crop-vs-inpaint for THIS image. `canCrop` = a safe border crop exists (and no manual
+  // zones, which are always repainted). The choice defaults to the persisted "Allow
+  // auto-crop" preference; `useCrop` is the resolved decision. `effectiveRoute` is what
+  // Clean will actually do — crop, or the crop-disabled fallback (watermark_route_nocrop)
+  // — and drives both the planned-action label and the LaMa-needed gating below.
+  const canCrop = Boolean(item) && !manual && item.watermark_route === 'crop';
+  const cropChoice = item ? cropChoiceById[item.id] : undefined;
+  const defaultUseCrop = caps?.watermark_allow_crop !== false;
+  const useCrop = canCrop && (cropChoice ? cropChoice === 'crop' : defaultUseCrop);
+  const effectiveRoute = !item || manual
+    ? null
+    : useCrop ? 'crop' : (canCrop ? item.watermark_route_nocrop : item.watermark_route);
+  // What Clean forwards as allow_crop: an explicit per-image override only when a crop is
+  // actually on the table; otherwise undefined → the backend uses the persisted default.
+  const allowCropArg = canCrop ? useCrop : undefined;
   // Which engine the planned Clean actually needs, and whether it's installed. LaMa is
-  // required only for a real LaMa inpaint (manual zones or the 'lama' route); the
-  // 'review' route under LaMa is a no-op (returns needs_review) and needn't be blocked.
-  const lamaNeeded = !kleinSelected && (manual || item?.watermark_route === 'lama');
+  // required only for a real LaMa inpaint (manual zones or an effective 'lama' route);
+  // a crop needs no engine, and the 'review' route under LaMa is a no-op (needs_review).
+  const lamaNeeded = !kleinSelected && (manual || effectiveRoute === 'lama');
   const engineMissing = kleinSelected
     ? !kleinReady
     : (lamaNeeded && caps?.watermark_inpaint === false);
@@ -316,7 +335,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
       if (!await waitForLatestSave(it.id)) {
         return { note: { tone: 'err', text: 'Correction zones could not be saved. Retry or reset them before cleaning.' } };
       }
-      const d = await onClean(it.id, method);
+      const d = await onClean(it.id, method, allowCropArg);
       if (!d || d.ok === false) {
         return { key: 'failed', note: { tone: 'err', text: (d && d.error && (d.error.detail || d.error)) || 'Clean failed' } };
       }
@@ -340,7 +359,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
       }
       return { key: 'cleaned' };   // nothing to do reported → treat as resolved
     });
-  }, [item, manualLamaMissing, method, onClean, outcome, regions.length, run, waitForLatestSave]);
+  }, [item, manualLamaMissing, method, allowCropArg, onClean, outcome, regions.length, run, waitForLatestSave]);
 
   // Undo a Clean: the user didn't like the result (LaMa vs Klein, a bad crop…). Bring
   // the preserved original back, drop the 'cleaned' outcome so the editor returns, and
@@ -416,8 +435,11 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
       : { icon: '🖌', text: `Inpaint ${regions.length} selected zone${regions.length === 1 ? '' : 's'}`,
           cls: 'text-emerald-300' };
   } else if (item) {
-    const r = item.watermark_route;
-    route = (kleinSelected && (r === 'lama' || r === 'review'))
+    // effectiveRoute already folds in the per-image crop/inpaint choice ('crop' when the
+    // user keeps the crop, else the crop-disabled fallback). Crop needs no engine; every
+    // other route follows the selected engine, and Klein makes 'review' actionable.
+    const r = effectiveRoute;
+    route = (r !== 'crop' && kleinSelected && (r === 'lama' || r === 'review'))
       ? kleinInpaintLabel(regions.length)
       : ROUTE_LABEL[r];
   } else {
@@ -433,7 +455,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   // undo. The "nothing to do" cleaned fallback sets no detail, so Restore stays hidden.
   const restorable = outcome === 'cleaned' && Boolean(cleanDetail[item?.id]);
   const showEditor = !(oc && oc.terminal) && !cleaning;
-  const automaticLamaMissing = !kleinSelected && !manual && item?.watermark_route === 'lama'
+  const automaticLamaMissing = !kleinSelected && !manual && effectiveRoute === 'lama'
     && caps?.watermark_inpaint === false;
   const editorDisabled = working || saveBlocked;
   const actionBlocked = working || saveBlocked;
@@ -589,22 +611,49 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
           </p>
         )}
 
+        {/* Crop-vs-inpaint for THIS image — shown only when a safe border crop exists.
+            Crop cuts the band off (invents no pixel); Inpaint repaints the mark with the
+            chosen engine. Overrides the persisted "Allow auto-crop" default for this one. */}
+        {canCrop && !(oc && oc.terminal) && (
+          <div role="group" aria-label="Removal method"
+            className="flex items-center justify-center gap-1 text-xs">
+            <span className="text-white/50">Method:</span>
+            <div className="flex items-center rounded-lg border border-white/15 bg-white/5 p-0.5">
+              <button type="button" aria-pressed={useCrop} disabled={working}
+                onClick={() => setCropChoiceById((m) => ({ ...m, [item.id]: 'crop' }))}
+                title="Crop the watermarked border off — invents no pixel (aspect ratio changes; ai-toolkit buckets it)."
+                className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${useCrop
+                  ? 'bg-sky-500/25 text-sky-100' : 'text-white/60 hover:text-white'}`}>
+                ✂ Crop
+              </button>
+              <button type="button" aria-pressed={!useCrop} disabled={working}
+                onClick={() => setCropChoiceById((m) => ({ ...m, [item.id]: 'inpaint' }))}
+                title="Repaint the mark instead of cropping — keeps the full frame (uses the engine below)."
+                className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${!useCrop
+                  ? 'bg-amber-500/25 text-amber-100' : 'text-white/60 hover:text-white'}`}>
+                🖌 Inpaint
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Inpaint engine for THIS image: Klein is the only one that can clean an
             on-subject ('review') mark, so it makes those actionable. Greyed until
-            ComfyUI + the Klein models are ready. */}
+            ComfyUI + the Klein models are ready, or while Crop is the chosen method
+            (a crop uses no engine). */}
         <div role="group" aria-label="Inpaint method"
           className="flex items-center justify-center gap-1 text-xs">
-          <span className="text-white/50">Engine:</span>
+          <span className={useCrop ? 'text-white/30' : 'text-white/50'}>Engine:</span>
           <div className="flex items-center rounded-lg border border-white/15 bg-white/5 p-0.5">
             <button type="button" aria-pressed={!kleinSelected} onClick={() => setMethod('lama')}
-              disabled={working}
+              disabled={working || useCrop}
               title="LaMa: fast, non-generative (border crop + small off-center marks). On-subject marks stay manual review."
               className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${!kleinSelected
                 ? 'bg-amber-500/25 text-amber-100' : 'text-white/60 hover:text-white'}`}>
               LaMa
             </button>
             <button type="button" aria-pressed={kleinSelected} onClick={() => setMethod('klein')}
-              disabled={working || !kleinReady}
+              disabled={working || useCrop || !kleinReady}
               title={kleinReady
                 ? 'Klein: masked Flux.2 inpaint (crop-and-stitch). Cleans complex texture and marks ON the subject; only the mark changes.'
                 : 'Klein inpaint needs ComfyUI running + the Klein models installed (Setup ▸ ComfyUI).'}

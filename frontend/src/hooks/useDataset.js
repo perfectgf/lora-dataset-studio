@@ -586,11 +586,14 @@ export function useDataset() {
   // Clean ONE (or a few) detected image(s) by id — same crop/LaMa/review routing as
   // cleanWatermarks, scoped to a subset. Cache-busts the touched thumbnails (crop/
   // inpaint edit the file IN PLACE, same filename) so the cleaned pixels show.
-  const cleanWatermarkImages = useCallback(async (ids, method) => {
+  const cleanWatermarkImages = useCallback(async (ids, method, allowCrop) => {
     const list = (ids || []).filter((v) => v != null);
     if (!list.length) return { ok: true, cropped: 0, inpainted: 0, inpainted_klein: 0, needs_review: 0, failed: 0, skipped: 0 };
+    // allowCrop is the review lightbox's per-image crop-vs-inpaint override; forwarded
+    // only when set (undefined → the backend uses the persisted preference, like the batch).
     const d = await postJson(`/api/dataset/${currentId}/watermarks/clean`,
-      { image_ids: list, ...(method ? { method } : {}) });
+      { image_ids: list, ...(method ? { method } : {}),
+        ...(typeof allowCrop === 'boolean' ? { allow_crop: allowCrop } : {}) });
     if (d.ok) {
       setNonces((m) => {
         const next = { ...m };

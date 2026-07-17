@@ -63,3 +63,39 @@ test('workspace wires onRestore and the hook exposes restoreWatermarkImage', () 
   // Cache-busts the touched thumbnail so the restored original actually shows.
   assert.match(hook, /if \(d\.ok\) \{\s*setNonces/);
 });
+
+// --- crop-vs-inpaint choice (user controls the removal method) --------------
+
+test('lightbox offers a per-image crop/inpaint choice only when a safe crop exists', () => {
+  // canCrop is gated on a border crop being available AND no manual zones.
+  assert.match(lightbox, /const canCrop = Boolean\(item\) && !manual && item\.watermark_route === 'crop'/);
+  // The choice defaults to the persisted preference and resolves to useCrop.
+  assert.match(lightbox, /caps\?\.watermark_allow_crop !== false/);
+  assert.match(lightbox, /const useCrop = canCrop &&/);
+  // The Method group only renders when a crop is actually on the table.
+  assert.match(lightbox, /\{canCrop && !\(oc && oc\.terminal\) && \(/);
+  assert.match(lightbox, /aria-label="Removal method"/);
+  assert.match(lightbox, /✂ Crop/);
+  assert.match(lightbox, /🖌 Inpaint/);
+});
+
+test('the chosen method flows into the planned route and the clean call', () => {
+  // effectiveRoute folds the choice in (crop, or the crop-disabled fallback).
+  assert.match(lightbox, /useCrop \? 'crop' : \(canCrop \? item\.watermark_route_nocrop : item\.watermark_route\)/);
+  // Clean forwards allow_crop only when a crop is on the table.
+  assert.match(lightbox, /const allowCropArg = canCrop \? useCrop : undefined/);
+  assert.match(lightbox, /await onClean\(it\.id, method, allowCropArg\)/);
+  // The engine toggle is greyed while Crop is chosen (a crop needs no engine).
+  assert.match(lightbox, /disabled=\{working \|\| useCrop\}/);
+});
+
+test('workspace + hook thread allow_crop through clean, and the batch bar toggles the preference', () => {
+  // Per-image override reaches the hook.
+  assert.match(workspace, /onClean=\{\(id, method, allowCrop\) => ds\.cleanWatermarkImages\(\[id\], method, allowCrop\)\}/);
+  assert.match(hook, /const cleanWatermarkImages = useCallback\(async \(ids, method, allowCrop\)/);
+  assert.match(hook, /typeof allowCrop === 'boolean' \? \{ allow_crop: allowCrop \}/);
+  // The batch bar exposes + persists the same "Allow auto-crop" preference.
+  assert.match(workspace, /const allowAutoCrop = caps\.watermark_allow_crop !== false/);
+  assert.match(workspace, /config: \{ watermark: \{ allow_crop: Boolean\(value\) \} \}/);
+  assert.match(workspace, /aria-checked=\{allowAutoCrop\}/);
+});

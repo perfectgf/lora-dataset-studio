@@ -719,6 +719,11 @@ def probe(force=False) -> dict:
         # reachable + Klein models on disk). The custom-node preflight is a clean-time
         # 409. Greys the batch's "Klein (quality)" option when False.
         'watermark_klein': klein_ready,
+        # Persisted "allow automatic crop" preference (Settings ▸ Watermark inpainting).
+        # The batch Clean bar reads it here to seed/reflect its inline toggle and the
+        # review lightbox uses it as the per-image crop-vs-inpaint default; when False,
+        # auto-routing repaints border marks instead of cropping them.
+        'watermark_allow_crop': bool(cfg.get('watermark.allow_crop')),
         'python': python_ml_status(),
         'scrape_deps': probe_scrape_deps()['ok'],
         'training_visible': aitoolkit['ok'] or bool(cfg.secret('VAST_API_KEY')),

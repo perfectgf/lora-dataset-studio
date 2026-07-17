@@ -601,7 +601,9 @@ def dataset_watermarks_clean(dataset_id):
     through the serialized ComfyUI queue (no vision window — that would deadlock the
     worker). Returns counts + the inpaint error. Optional {image_ids:[...]} scopes the
     pass to a subset (the review lightbox cleans one image at a time); omitted → every
-    detected image (the bulk 🧽 Clean button)."""
+    detected image (the bulk 🧽 Clean button). Optional {allow_crop:bool} overrides the
+    persisted crop preference: omitted → Settings' watermark.allow_crop; True/False →
+    force crop / force inpaint (the lightbox's per-image crop-vs-inpaint choice)."""
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
     data = request.get_json(silent=True) or {}
@@ -611,13 +613,21 @@ def dataset_watermarks_clean(dataset_id):
     method = (data.get('method') or 'auto')
     if method not in ('auto', 'lama', 'klein'):
         return jsonify({'error': "'method' must be 'auto', 'lama' or 'klein'"}), 400
+    # allow_crop is optional: omitted -> clean_watermarks resolves the persisted
+    # watermark.allow_crop preference (so the batch button follows Settings); a bool
+    # forces crop (True) or inpaint (False) — the review lightbox's per-image choice.
+    # Forwarded only when present so a plain {method:...} call keeps its exact old shape.
+    allow_crop = data.get('allow_crop')
+    if allow_crop is not None and not isinstance(allow_crop, bool):
+        return jsonify({'error': "'allow_crop' must be a boolean"}), 400
+    crop_kw = {} if allow_crop is None else {'allow_crop': allow_crop}
     try:
         if method == 'klein':
             resp = _klein_clean_preflight()
             if resp is not None:
                 return resp
             counts, error = svc.clean_watermarks(
-                LOCAL_USER, dataset_id, image_ids=image_ids, method='klein')
+                LOCAL_USER, dataset_id, image_ids=image_ids, method='klein', **crop_kw)
         else:
             from contextlib import nullcontext
             from ..services import watermark_lama
@@ -625,7 +635,8 @@ def dataset_watermarks_clean(dataset_id):
             window = gpu_exclusive_vision_window(flag_ttl=1800) if device == 'cuda' else nullcontext()
             with window:
                 counts, error = svc.clean_watermarks(
-                    LOCAL_USER, dataset_id, image_ids=image_ids, device=device, method=method)
+                    LOCAL_USER, dataset_id, image_ids=image_ids, device=device,
+                    method=method, **crop_kw)
     except Exception as e:
         from ..services.klein_edit_helper import KleinModelsMissing
         if isinstance(e, KleinModelsMissing):
