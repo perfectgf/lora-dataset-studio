@@ -11,6 +11,9 @@ import re
 # Verrou d'identité renforcé (deep-research 2026-06-14, source primaire Google AI) :
 # nommer les traits + interdire l'embellissement améliore la cohérence du visage.
 # NB : la qualité de la photo de référence reste le facteur déterminant.
+# English: Enhanced identity lock (deep-research 2026-06-14, primary source Google AI):
+# naming features + prohibiting beautification improves facial consistency.
+# Note: the quality of the reference photo remains the determining factor.
 IDENTITY_GUARD = (
     "This is the SAME person as the reference image. Preserve their facial identity "
     "EXACTLY: same eye shape and color, nose, jawline, lips, skin tone and texture, "
@@ -23,6 +26,9 @@ IDENTITY_GUARD = (
 # Variante multi-références (Nano Banana) : avec un guard au singulier le modèle
 # peut s'ancrer sur une seule image ; on lui dit EXPLICITEMENT que toutes les refs
 # montrent la même personne et qu'il doit s'appuyer sur chacune d'elles.
+# English: Multi-reference variant (Nano Banana): with a singular guard the model
+# may anchor on a single image; we EXPLICITLY tell it that all refs show the same
+# person and it must rely on each of them.
 IDENTITY_GUARD_MULTI = (
     "ALL the reference images show the SAME person (different angles, expressions or "
     "framings). Use EVERY reference image together to lock the identity. Preserve their "
@@ -91,6 +97,11 @@ def wrap_variation(prompt: str, ref_count: int = 1, suffix: str = '') -> str:
 # CONCRÈTES et détaillées (hiérarchie sujet → cadre → technique) — les tags
 # télégraphiques du catalogue suffisent aux moteurs API (qui brodent seuls)
 # mais SOUS-spécifient Klein, qui comble les trous arbitrairement.
+# English: Framing‑specific enrichment for Klein (prompt study 2026-07-10, sources:
+# fal.ai Flux2‑klein guide + BFL FLUX.2 guide): Klein requires CONCRETE and
+# detailed descriptions (subject → framing → technique hierarchy) — the
+# telegraphic tags from the catalog are sufficient for API engines (which
+# embellish on their own) but UNDER‑specify Klein, which fills gaps arbitrarily.
 _KLEIN_FRAMING_DETAIL = {
     'face': ('Close-up head-and-shoulders portrait: the face fills most of the frame, '
              'both eyes in crisp focus, 85mm portrait lens look with gentle background '
@@ -160,6 +171,22 @@ def wrap_variation_klein(prompt: str, nsfw: bool = False, framing: str | None = 
 #     CONCRÈTE mais variée (les modèles d'édition suivent mieux une consigne « porte X »
 #     qu'un vide qu'ils comblent par la réf). Baker la directive dans le TEXTE du prompt
 #     la propage partout (API + Klein + persistance variation_prompt + régénération).
+# English: Outfit/expression anti-leak (field observation 2026-07-14):
+# The editing engines (Nano Banana, ChatGPT-image, Klein) PRESERVE what is not
+# explicitly contradicted. Real symptoms reported by the owner:
+#   1) on bust shots, the model reproduces the SAME outfit as the reference →
+#      the outfit becomes tied to identity in the LoRA;
+#   2) the reference's expression (smile, grimace) propagates to ALL shots.
+# Two complementary fixes at the right level:
+#   • WRAPPERS (IDENTITY_GUARD / IDENTITY_GUARD_MULTI / wrap_variation_klein):
+#     the reference is used ONLY for facial identity; outfit + expression come
+#     from the description, never copied from the reference. GENERAL directive
+#     → also covers edited/custom prompts, both engine families and regeneration.
+#   • CATALOGUE: each entry WITHOUT explicit outfit/expression receives a
+#     CONCRETE but varied target (editing models follow a 'wear X' instruction
+#     better than a void they fill from the reference). Baking the directive
+#     into the prompt TEXT propagates it everywhere (API + Klein + persistence
+#     variation_prompt + regeneration).
 OUTFIT_VARY = ('wearing a different casual everyday outfit, varied in style and colour '
                '(not the outfit from the reference image)')
 EXPRESSION_NEUTRAL = ('a calm neutral facial expression, not copying the expression from '
@@ -170,6 +197,11 @@ EXPRESSION_NEUTRAL = ('a calm neutral facial expression, not copying the express
 # les entrées à tenue nommée (veste, robe, bikini…) ou expression nommée (sourire,
 # sérieux…) gardent la leur. OUTFIT_VARY contient « outfit » et EXPRESSION_NEUTRAL
 # « expression » → la passe d'augmentation est idempotente.
+# English: Detectors "does the text ALREADY name an outfit / an expression?" (whole words).
+# Used to only add the default directive to entries that don't have one —
+# entries with named outfit (jacket, dress, bikini…) or named expression
+# (smile, serious…) keep theirs. OUTFIT_VARY contains 'outfit' and
+# EXPRESSION_NEUTRAL contains 'expression' → the augmentation pass is idempotent.
 _HAS_OUTFIT = re.compile(
     r'\b(outfit|top|clothes|clothing|jacket|dress|bikini|swimsuit|swimwear|sportswear|'
     r'leggings|jeans|lingerie|towel|shirt|blouse|coat|skirt|gown|suit)\b', re.I)
@@ -207,139 +239,147 @@ def _augment_prompt(entry, *, allow_outfit=True):
 
 
 VARIATION_CATALOG = [
-    _e('face_front_neutral', 'expression', 'face', 'Visage face, neutre',
+    # Face
+    _e('face_front_neutral', 'expression', 'face', 'Face front, neutral',
        'close-up portrait, front view, neutral expression, soft light, plain neutral background', cb=True),
-    _e('face_front_smile', 'expression', 'face', 'Visage face, sourire',
+    _e('face_front_smile', 'expression', 'face', 'Face front, smile',
        'close-up portrait, front view, slight smile, soft window light, blurred home interior background', cb=True),
-    _e('face_34l_smile', 'angle', 'face', 'Visage 3/4 gauche, sourire',
+    _e('face_34l_smile', 'angle', 'face', 'Face 3/4 left, smile',
        'close-up portrait, three-quarter left view, smiling'),
-    _e('face_34l_serious', 'angle', 'face', 'Visage 3/4 gauche, serieux',
+    _e('face_34l_serious', 'angle', 'face', 'Face 3/4 left, serious',
        'close-up portrait, three-quarter left view, serious expression'),
-    _e('face_34r_laugh', 'angle', 'face', 'Visage 3/4 droite, rire',
+    _e('face_34r_laugh', 'angle', 'face', 'Face 3/4 right, laugh',
        'close-up portrait, three-quarter right view, laughing'),
-    _e('face_34r_soft', 'angle', 'face', 'Visage 3/4 droite, doux',
+    _e('face_34r_soft', 'angle', 'face', 'Face 3/4 right, gentle',
        'close-up portrait, three-quarter right view, gentle expression'),
-    _e('face_profile_l', 'angle', 'face', 'Profil gauche',
+    _e('face_profile_l', 'angle', 'face', 'Profile left',
        'close-up portrait, left profile view, neutral'),
-    _e('face_profile_r', 'angle', 'face', 'Profil droite',
+    _e('face_profile_r', 'angle', 'face', 'Profile right',
        'close-up portrait, right profile view, neutral'),
-    _e('face_profile_l_smile', 'angle', 'face', 'Profil gauche, sourire',
+    _e('face_profile_l_smile', 'angle', 'face', 'Profile left, smile',
        'close-up portrait, strict left profile view, slight smile, soft window light, blurred background', cb=True),
-    _e('face_profile_r_smile', 'angle', 'face', 'Profil droite, sourire',
+    _e('face_profile_r_smile', 'angle', 'face', 'Profile right, smile',
        'close-up portrait, strict right profile view, slight smile, soft window light, blurred background', cb=True),
-    _e('face_profile_l_serious', 'angle', 'face', 'Profil gauche, serieux',
+    _e('face_profile_l_serious', 'angle', 'face', 'Profile left, serious',
        'close-up portrait, strict left profile view, serious expression, even studio light, plain background', cb=True),
-    _e('face_profile_r_serious', 'angle', 'face', 'Profil droite, serieux',
+    _e('face_profile_r_serious', 'angle', 'face', 'Profile right, serious',
        'close-up portrait, strict right profile view, serious expression, even studio light, plain background', cb=True),
-    _e('face_profile_l_look_up', 'angle', 'face', 'Profil gauche, regard haut',
+    _e('face_profile_l_look_up', 'angle', 'face', 'Profile left, looking up',
        'close-up portrait, strict left profile view, head tilted slightly upward, eyes looking up, pensive expression, soft daylight, blurred outdoor background', cb=True),
-    _e('face_profile_r_look_up', 'angle', 'face', 'Profil droite, regard haut',
+    _e('face_profile_r_look_up', 'angle', 'face', 'Profile right, looking up',
        'close-up portrait, strict right profile view, head tilted slightly upward, eyes looking up, pensive expression, soft daylight, blurred outdoor background', cb=True),
-    _e('face_profile_l_rim_light', 'lighting', 'face', 'Profil gauche, lumiere cinema',
+    _e('face_profile_l_rim_light', 'lighting', 'face', 'Profile left, rim light',
        'close-up portrait, strict left profile view, neutral expression, cinematic rim light, dark blurred background', cb=True),
-    _e('face_profile_r_rim_light', 'lighting', 'face', 'Profil droite, lumiere cinema',
+    _e('face_profile_r_rim_light', 'lighting', 'face', 'Profile right, rim light',
        'close-up portrait, strict right profile view, neutral expression, cinematic rim light, dark blurred background', cb=True),
-    _e('face_window', 'lighting', 'face', 'Visage, lumiere fenetre',
+    _e('face_window', 'lighting', 'face', 'Face, window light',
        'close-up portrait, front view, soft window light, blurred background', cb=True),
-    _e('face_studio', 'lighting', 'face', 'Visage, studio',
+    _e('face_studio', 'lighting', 'face', 'Face, studio',
        'close-up portrait, studio lighting, plain background', cb=True),
-    _e('face_golden', 'lighting', 'face', 'Visage, golden hour',
+    _e('face_golden', 'lighting', 'face', 'Face, golden hour',
        'close-up portrait, three-quarter view, warm golden hour light, outdoor', cb=True),
-    _e('face_surprise', 'expression', 'face', 'Visage, surprise',
+    _e('face_surprise', 'expression', 'face', 'Face, surprise',
        'close-up portrait, front view, surprised expression'),
-    _e('face_look_up', 'angle', 'face', 'Visage, regard haut',
+    _e('face_look_up', 'angle', 'face', 'Face, looking up',
        'close-up portrait, looking slightly upward, soft daylight, outdoor blurred background', cb=True),
-    _e('face_look_down', 'angle', 'face', 'Visage, regard bas',
+    _e('face_look_down', 'angle', 'face', 'Face, looking down',
        'close-up portrait, looking slightly downward, pensive, indoor blurred background', cb=True),
-    _e('bust_front', 'framing', 'bust', 'Buste face',
+    # Bust
+    _e('bust_front', 'framing', 'bust', 'Bust, front',
        'upper body portrait, front view, neutral, wearing a casual top different from the reference outfit',
        co=True, cb=True),
-    _e('bust_34', 'framing', 'bust', 'Buste 3/4',
+    _e('bust_34', 'framing', 'bust', 'Bust, three-quarter',
        'upper body portrait, three-quarter view, smiling, different outfit, indoor', co=True, cb=True),
-    _e('bust_outdoor', 'background', 'bust', 'Buste exterieur',
+    _e('bust_outdoor', 'background', 'bust', 'Bust, outdoor',
        'upper body portrait, front view, outdoor park background', cb=True),
-    _e('bust_studio', 'background', 'bust', 'Buste studio',
+    _e('bust_studio', 'background', 'bust', 'Bust, studio',
        'upper body portrait, three-quarter view, studio backdrop', cb=True),
-    _e('bust_jacket', 'outfit', 'bust', 'Buste, veste',
+    _e('bust_jacket', 'outfit', 'bust', 'Bust, jacket',
        'upper body portrait, wearing a jacket different from the reference outfit, urban background',
        co=True, cb=True),
-    _e('bust_evening', 'outfit', 'bust', 'Buste, tenue soiree',
+    _e('bust_evening', 'outfit', 'bust', 'Bust, evening outfit',
        'upper body portrait, elegant evening look, different from the reference outfit, dim ambient light',
        co=True, cb=True),
-    _e('body_stand_front', 'framing', 'body', 'Corps debout face',
+    # Body
+    _e('body_stand_front', 'framing', 'body', 'Body standing, front',
        'full body shot, standing, front view, casual clothes different from the reference outfit, street',
        co=True, cb=True),
-    _e('body_stand_34', 'framing', 'body', 'Corps debout 3/4',
+    _e('body_stand_34', 'framing', 'body', 'Body standing, three-quarter',
        'full body shot, standing, three-quarter view, different outfit, outdoor', co=True, cb=True),
-    _e('body_sit', 'framing', 'body', 'Corps assis',
+    _e('body_sit', 'framing', 'body', 'Body sitting',
        'full body shot, sitting on a chair, relaxed, indoor', co=True, cb=True),
-    _e('body_walk', 'framing', 'body', 'Corps en marche',
+    _e('body_walk', 'framing', 'body', 'Body walking',
        'full body shot, walking, dynamic pose, city background', co=True, cb=True),
-    _e('body_cafe', 'background', 'body', 'Corps, cafe',
+    _e('body_cafe', 'background', 'body', 'Body, café',
        'full body shot, standing in a cafe, warm light', co=True, cb=True),
-    _e('body_beach', 'background', 'body', 'Corps, plage (habille)',
+    _e('body_beach', 'background', 'body', 'Body, beach (clothed)',
        'full body shot, standing on a beach, summer casual clothes different from the reference outfit, daylight',
        co=True, cb=True),
-    _e('back_34', 'framing', 'back', 'Dos 3/4',
+    _e('back_34', 'framing', 'back', 'Back, three-quarter',
        'full body shot, three-quarter back view, showing hairstyle and silhouette', co=True, cb=True),
-    _e('body_wide_env', 'framing', 'body', 'Corps, plan large urbain',
+    # Wide / landscape
+    _e('body_wide_env', 'framing', 'body', 'Body, wide urban shot',
        'full body shot, wide environmental framing, subject off-center, lots of background, urban plaza',
        co=True, cb=True, aspect='16:9'),
-    _e('body_walk_wide', 'framing', 'body', 'Corps en marche, large',
+    _e('body_walk_wide', 'framing', 'body', 'Body walking, wide shot',
        'full body shot, walking across a wide street, dynamic, cinematic wide framing',
        co=True, cb=True, aspect='16:9'),
-    _e('body_land_outdoor', 'framing', 'body', 'Corps, paysage exterieur',
+    _e('body_land_outdoor', 'framing', 'body', 'Body, outdoor landscape',
        'full body shot, standing outdoors, wide natural landscape background, daylight',
        co=True, cb=True, aspect='4:3'),
-    _e('body_sit_terrace', 'framing', 'body', 'Corps assis, terrasse large',
+    _e('body_sit_terrace', 'framing', 'body', 'Body sitting, wide terrace',
        'full body shot, sitting on a cafe terrace, wide framing, warm light',
        co=True, cb=True, aspect='4:3'),
-    _e('body_field_wide', 'framing', 'body', 'Corps, champ large',
+    _e('body_field_wide', 'framing', 'body', 'Body, wide open field',
        'full body shot, standing in an open field, wide nature background, soft daylight',
        co=True, cb=True, aspect='16:9'),
-    _e('bust_land', 'framing', 'bust', 'Buste, cadre paysage',
+    _e('bust_land', 'framing', 'bust', 'Bust, landscape framing',
        'upper body portrait, landscape framing, environment visible on the sides, outdoor',
        cb=True, aspect='4:3'),
     # --- Body emphasis (fidélité corps) : silhouette RÉELLEMENT visible mais dans
     # le registre AUTORISÉ des moteurs API (vêtements ajustés, maillot de bain en
     # contexte plage/piscine, tenue de sport, robe moulante, contre-jour). Pas de
     # contournement de filtre : pour du contenu explicite → Klein en local.
-    _e('bust_fitted_top', 'outfit', 'bust', 'Buste, haut ajusté',
+    # English: Body emphasis (body fidelity): silhouette VISIBLE but within the
+    # AUTHORIZED register of API engines (fitted clothes, swimsuit in beach/pool
+    # context, sportswear, bodycon dress, backlight). No filter bypass: for
+    # explicit content → local Klein.
+    _e('bust_fitted_top', 'outfit', 'bust', 'Bust, fitted top',
        'upper body portrait, fitted ribbed knit top, natural relaxed pose, soft indoor light',
        co=True, cb=True),
-    _e('bust_summer_dress', 'outfit', 'bust', 'Buste, robe d\'été',
+    _e('bust_summer_dress', 'outfit', 'bust', 'Bust, summer dress',
        'upper body portrait, fitted summer dress with thin straps, golden hour light, outdoor',
        co=True, cb=True),
-    _e('bust_swim', 'outfit', 'bust', 'Buste, maillot (plage)',
+    _e('bust_swim', 'outfit', 'bust', 'Bust, swimsuit (beach)',
        'upper body portrait, wearing a bikini top, sunny beach in the background, bright '
        'daylight, natural relaxed pose', co=True, cb=True),
-    _e('body_bodycon', 'outfit', 'body', 'Corps, robe moulante',
+    _e('body_bodycon', 'outfit', 'body', 'Body, bodycon dress',
        'full body shot, elegant fitted bodycon evening dress, standing, upscale hotel lobby, '
        'warm ambient light', co=True, cb=True),
-    _e('body_athletic', 'outfit', 'body', 'Corps, tenue de sport',
+    _e('body_athletic', 'outfit', 'body', 'Body, sportswear',
        'full body shot, athletic sportswear, fitted leggings and sports top, gym setting, '
        'confident stance', co=True, cb=True),
-    _e('body_swim_beach', 'outfit', 'body', 'Corps, bikini plage',
+    _e('body_swim_beach', 'outfit', 'body', 'Body, bikini beach',
        'full body shot, wearing a bikini, standing on a sunny beach, natural relaxed pose, '
        'bright daylight', co=True, cb=True, aspect='3:4'),
-    _e('body_swim_pool', 'outfit', 'body', 'Corps, maillot piscine',
+    _e('body_swim_pool', 'outfit', 'body', 'Body, swimsuit pool',
        'full body shot, one-piece swimsuit, standing at the edge of a swimming pool, summer '
        'daylight', co=True, cb=True, aspect='3:4'),
-    _e('body_jeans_fit', 'outfit', 'body', 'Corps, jean ajusté',
+    _e('body_jeans_fit', 'outfit', 'body', 'Body, fitted jeans',
        'full body shot, fitted high-waisted jeans and tucked-in top, urban street, daylight',
        co=True, cb=True),
-    _e('body_silhouette', 'lighting', 'body', 'Corps, silhouette contre-jour',
+    _e('body_silhouette', 'lighting', 'body', 'Body, backlit silhouette',
        'full body shot, backlit near a large window, figure outlined by rim light, elegant '
        'fitted dress, moody interior', co=True, cb=True),
-    # Gros plans VISAGE en formats variés (preset visage-centré) : la robustesse de
-    # format sur le visage lui-même, sans plan corps (corps reste générique).
-    _e('face_land', 'framing', 'face', 'Visage, cadre paysage',
+    # Close‑up FACE shots in various formats (face-focused preset): format
+    # robustness on the face itself, without body shots (body remains generic).
+    _e('face_land', 'framing', 'face', 'Face, landscape framing',
        'close-up portrait, three-quarter view, landscape framing, face to one side with environment, outdoor',
        cb=True, aspect='4:3'),
-    _e('face_tall', 'framing', 'face', 'Visage, cadre vertical',
+    _e('face_tall', 'framing', 'face', 'Face, tall framing',
        'close-up portrait, front view, tall vertical framing, head and shoulders, soft natural light',
        cb=True, aspect='9:16'),
-    _e('face_wide', 'framing', 'face', 'Visage, cadre cinema',
+    _e('face_wide', 'framing', 'face', 'Face, cinematic framing',
        'close-up portrait, wide cinematic framing, face off-center, blurred background',
        cb=True, aspect='16:9'),
 ]
@@ -351,35 +391,42 @@ VARIATION_CATALOG = [
 # d'acte : c'est un dataset de PERSONNAGE, l'acte appartient au prompt d'usage.
 # Le caption doit décrire l'état (nude/lingerie) pour qu'il reste promptable et
 # ne se lie pas au trigger (principe d'inversion).
+# English: NSFW catalog (local Klein ONLY):
+# Uncensored body shots for body fidelity: never sent to API engines
+# (route + service refuse), generated by local Klein which has no filter.
+# The register remains "state + pose + setting" (lingerie/topless/nude) —
+# no act: this is a CHARACTER dataset, the act belongs to the usage prompt.
+# The caption must describe the state (nude/lingerie) so that it remains
+# promptable and does not bind to the trigger (inversion principle).
 NSFW_VARIATION_CATALOG = [
-    _e('nsfw_bust_lingerie', 'nsfw', 'bust', 'Buste, lingerie',
+    _e('nsfw_bust_lingerie', 'nsfw', 'bust', 'Bust, lingerie',
        'bust shot, wearing delicate lace lingerie, bedroom, soft window light',
        co=True, cb=True),
-    _e('nsfw_bust_topless', 'nsfw', 'bust', 'Buste, topless',
+    _e('nsfw_bust_topless', 'nsfw', 'bust', 'Bust, topless',
        'bust shot, topless, bare chest, neutral indoor background, natural light',
        co=True, cb=True),
-    _e('nsfw_bust_towel', 'nsfw', 'bust', 'Buste, serviette',
+    _e('nsfw_bust_towel', 'nsfw', 'bust', 'Bust, towel',
        'bust shot, wrapped in a bath towel, bare shoulders, bathroom, soft light',
        co=True, cb=True),
-    _e('nsfw_body_lingerie', 'nsfw', 'body', 'Corps, lingerie debout',
+    _e('nsfw_body_lingerie', 'nsfw', 'body', 'Body, lingerie standing',
        'full body shot, standing, matching lace lingerie set, bedroom interior, soft light',
        co=True, cb=True, aspect='3:4'),
-    _e('nsfw_body_nude_stand', 'nsfw', 'body', 'Corps, nu debout',
+    _e('nsfw_body_nude_stand', 'nsfw', 'body', 'Body, nude standing',
        'full body shot, standing fully nude, natural anatomy, relaxed pose, neutral studio '
        'background, soft even light', co=True, cb=True, aspect='3:4'),
-    _e('nsfw_body_nude_34', 'nsfw', 'body', 'Corps, nu trois-quarts',
+    _e('nsfw_body_nude_34', 'nsfw', 'body', 'Body, nude three-quarter',
        'full body shot, three-quarter view, fully nude, natural anatomy, standing by a large '
        'window, soft daylight', co=True, cb=True, aspect='3:4'),
-    _e('nsfw_body_nude_sit', 'nsfw', 'body', 'Corps, nu assis lit',
+    _e('nsfw_body_nude_sit', 'nsfw', 'body', 'Body, nude sitting on bed',
        'full body shot, sitting nude on the edge of a bed, relaxed natural pose, warm bedroom '
        'light', co=True, cb=True, aspect='3:4'),
-    _e('nsfw_body_nude_lying', 'nsfw', 'body', 'Corps, nu allongé',
+    _e('nsfw_body_nude_lying', 'nsfw', 'body', 'Body, nude lying',
        'full body shot, lying nude on a bed on her side, natural anatomy, soft morning light',
        co=True, cb=True, aspect='4:3'),
-    _e('nsfw_body_shower', 'nsfw', 'body', 'Corps, nu douche',
+    _e('nsfw_body_shower', 'nsfw', 'body', 'Body, nude shower',
        'full body shot, nude in the shower, wet skin and hair, water droplets, glass and tile '
        'background', co=True, cb=True, aspect='9:16'),
-    _e('nsfw_back_nude', 'nsfw', 'back', 'Dos, nu',
+    _e('nsfw_back_nude', 'nsfw', 'back', 'Back, nude',
        'full body shot from behind, standing nude, back and buttocks visible, natural anatomy, '
        'neutral background', co=True, cb=True, aspect='3:4'),
 ]
@@ -408,6 +455,9 @@ def is_nsfw_label(label) -> bool:
 # Préréglage face-heavy (deep-research 2026-06-14) : majorité de visages — c'est là
 # que se joue la cohérence d'identité — et ≤4 plein-pied (le reste du catalogue
 # body/cafe/beach reste sélectionnable manuellement). 14 visage / 6 buste / 4 corps / 1 dos.
+# English: Face-heavy preset (deep-research 2026-06-14): majority of faces — that's
+# where identity consistency matters — and ≤4 full‑body (the rest of the
+# catalog body/cafe/beach remains manually selectable). 14 face / 6 bust / 4 body / 1 back.
 _BALANCED_25 = [
     'face_front_neutral', 'face_front_smile', 'face_34l_smile', 'face_34l_serious',
     'face_34r_laugh', 'face_34r_soft', 'face_profile_l', 'face_profile_r',
@@ -429,6 +479,10 @@ _BALANCED_MULTIFORMAT = _BALANCED_25 + [
 # Visage-centré : QUE du visage + buste, en formats variés, ZÉRO plan corps. Pour un
 # LoRA où l'identité (visage) prime et où le corps doit rester générique/pilotable
 # (ne pas l'entraîner = ne pas le graver). 17 visage / 7 buste, formats 1:1/3:4/4:3/9:16/16:9.
+# English: Face-centered: ONLY face + bust, in various formats, ZERO body shots.
+# For a LoRA where identity (face) is paramount and body should remain
+# generic/controllable (not training it = not engraving it).
+# 17 face / 7 bust, formats 1:1/3:4/4:3/9:16/16:9.
 _FACE_FOCUSED = [
     'face_front_neutral', 'face_front_smile', 'face_34l_smile', 'face_34l_serious',
     'face_34r_laugh', 'face_34r_soft', 'face_profile_l', 'face_profile_r',
@@ -442,6 +496,12 @@ _FACE_FOCUSED = [
 # corps (11) + dos, et un noyau visage/buste resserré pour rester ~50/50 — entraîner
 # surtout sur des plans corps dégraderait le visage (identité qui dérive). ZÉRO
 # nouvelle variation : tout est déjà dans le catalogue. 10 visage / 4 buste / 11 corps / 1 dos.
+# English: Full‑body focused (deep-research 2026-06-16): for a LoRA that must render
+# the BODY robustly (the character breaks in landscape/full‑body). We take ALL
+# body shots (11) + back, and a tight core of face/bust to stay ~50/50 —
+# training mostly on body shots would degrade the face (identity drift).
+# ZERO new variations: everything is already in the catalog.
+# 10 face / 4 bust / 11 body / 1 back.
 _FULLBODY_FOCUSED = [
     'face_front_neutral', 'face_front_smile', 'face_34l_smile', 'face_34r_laugh',
     'face_34r_soft', 'face_profile_l', 'face_window', 'face_golden', 'face_studio',
@@ -457,6 +517,11 @@ _FULLBODY_FOCUSED = [
 # plans buste/corps privilégient les tenues qui MONTRENT la silhouette (ajusté,
 # maillot, sport, moulant, contre-jour) tout en restant dans le registre accepté
 # par les moteurs API. Le visage garde son noyau identité.
+# English: Body-emphasis (body fidelity, 25 = 8 face / 8 bust / 8 body / 1 back —
+# aligned with body‑fidelity target 8/8/8/2, back is generated x2): bust/body
+# shots favour outfits that SHOW the silhouette (fitted, swimsuit, sport,
+# bodycon, backlight) while staying within the accepted register of API engines.
+# Face keeps its identity core.
 _BODY_EMPHASIS = [
     'face_front_neutral', 'face_front_smile', 'face_34l_smile', 'face_34r_laugh',
     'face_profile_l', 'face_window', 'face_golden', 'face_studio',
@@ -486,6 +551,9 @@ def prompt_by_label(label):
 # Aspect ratio par cadrage (deep-research 2026-06-14) : forcer tout en carré
 # letterboxe les plans corps (bandes noires apprises par le LoRA). On demande à
 # Nano Banana un ratio adapté ; ai-toolkit gère le bucketing non-carré.
+# English: Aspect ratio by framing (deep-research 2026-06-14): forcing everything to
+# square letterboxes body shots (black bars learned by the LoRA). We ask Nano
+# Banana for an adapted ratio; ai‑toolkit handles non‑square bucketing.
 ASPECT_BY_FRAMING = {'face': '1:1', 'bust': '3:4', 'body': '3:4', 'back': '3:4'}
 
 
@@ -494,14 +562,18 @@ def aspect_for_framing(framing: str) -> str:
 
 
 def aspect_for_entry(entry) -> str:
-    """Ratio d'une ENTRÉE de catalogue : override explicite, sinon défaut du cadrage."""
+    """Ratio d'une ENTRÉE de catalogue : override explicite, sinon défaut du cadrage.
+    English: Aspect ratio of a catalog entry: explicit override, else framing default."""
     return entry.get('aspect') or aspect_for_framing(entry.get('framing'))
 
 
 def aspect_for_label(label, framing='face') -> str:
     """Ratio résolu PAR LABEL sur le catalogue serveur (autoritatif) — le frontend
     n'envoie pas l'aspect, et la régénération n'a que la ligne DB. Retrouve l'entrée
-    par son label → son override ; label inconnu → fallback cadrage."""
+    par son label → son override ; label inconnu → fallback cadrage.
+    English: Resolve aspect ratio BY LABEL from the server catalog (authoritative) —
+    the frontend does not send aspect, and regeneration only has the DB row.
+    Finds the entry by label → its override; unknown label → framing fallback."""
     e = next((x for x in VARIATION_CATALOG + NSFW_VARIATION_CATALOG
               if x['label'] == label), None)
     return aspect_for_entry(e) if e else aspect_for_framing(framing)
@@ -535,6 +607,9 @@ CAPTION_PROMPT = (
 # JoyCaption et le fallback Qwen3-VL partagent ce prompt POSITIF + mode entrainé
 # "Straightforward". Validé empiriquement (24/31 fuites -> 0/31). La consigne negative
 # precedente etait ignoree par JoyCaption ("not a general instruction follower").
+# English: JoyCaption and the Qwen3-VL fallback share this POSITIVE prompt + "Straightforward"
+# trained mode. Empirically validated (24/31 leaks -> 0/31). The previous negative
+# instruction was ignored by JoyCaption ("not a general instruction follower").
 JOYCAPTION_PROMPT = CAPTION_PROMPT
 
 
@@ -543,6 +618,12 @@ JOYCAPTION_PROMPT = CAPTION_PROMPT
 # ce qui est captionné reste contrôlable par le prompt, ce qui est tu est absorbé.
 # On décrit donc le CONTENU librement (sujets, scène, composition — l'identité est
 # conservée, les sujets varient) et on tait tout vocabulaire de style/rendu.
+# English: Dataset STYLE: the set's invariant is the RENDER (aesthetic, medium, palette,
+# line…), which must be absorbed by the LoRA — therefore never described.
+# Mirror rule of concept: what is captioned remains controllable by prompt,
+# what is silenced is absorbed. So we describe the CONTENT freely (subjects,
+# scene, composition — identity is preserved, subjects vary) and silence all
+# style/rendering vocabulary.
 CAPTION_PROMPT_STYLE = (
     "Caption Type: Straightforward.\n\n"
     "This is one image from a STYLE training set: every image shares the same artistic "
@@ -578,6 +659,13 @@ def caption_prompt_for_style(mode) -> str:
 # reçoit la description EXACTE du concept ({concept}, saisie à la création du dataset) pour
 # savoir précisément quoi taire, plutôt que de deviner l'action dominante. Aucun post-filtre
 # d'identité (on GARDE l'identité).
+# English: Dataset CONCEPT (inverse logic): the set's invariant is no longer identity
+# but the recurring act/effect that we OMIT so that it binds to the trigger.
+# So we describe everything — people, pose, framing, light, setting — EXCEPT
+# the repeated central act. The captioner receives the EXACT description of
+# the concept ({concept}, entered at dataset creation) to know precisely what
+# to silence, rather than guessing the dominant action.
+# No identity post-filter (we KEEP identity).
 CAPTION_PROMPT_CONCEPT = (
     "Caption Type: Straightforward.\n\n"
     "This is one image from a CONCEPT training set. The single element every image in the "
@@ -605,6 +693,11 @@ CAPTION_PROMPT_CONCEPT = (
 # pour se lier au trigger). Qwen relit la caption Joy + l'image et RÉÉCRIT en retirant
 # uniquement le focal explicite + le texte incrusté, en gardant tout le contexte riche.
 # => détail de JoyCaption + adhérence de Qwen (mesuré : Joy nomme le concept ~4/4).
+# English: Concept REFINEMENT pass (Joy→Qwen): JoyCaption is very detailed but LITERAL —
+# it NAMES the act/fluids/watermark (which, for a concept, must stay silent to
+# bind to the trigger). Qwen reads the Joy caption + image and REWRITES by
+# removing only the explicit focal point + embedded text, keeping all rich context.
+# => JoyCaption detail + Qwen adherence (measured: Joy names the concept ~4/4).
 CAPTION_REFINE_CONCEPT_PROMPT = (
     "Below is a draft caption describing this exact image:\n\n"
     "\"\"\"\n{existing}\n\"\"\"\n\n"
@@ -642,6 +735,21 @@ CAPTION_REFINE_CONCEPT_PROMPT = (
 # json.loads rejected → empty ban-list → the concept leaked into every caption. So: no
 # seeding examples, "each term once, then STOP", 6-15 terms, and an explicit ban on
 # listing the PEOPLE/body/clothing (which must stay DESCRIBED, never scrubbed).
+# English: Expansion of the concept ban-list: from the concept description, the LLM lists
+# the words/phrases a captioner would use to NAME it (synonyms, slang, verb forms).
+# Used for the LEAK DETECTOR (regex), not the caption prompt — literature on
+# negative prompting shows that listing forbidden words in the GENERATION prompt
+# triggers the 'pink elephant' effect; robustness comes from output verification +
+# targeted correction. JSON object format (Ollama's grammar-mode produces an object
+# more reliably than a bare array). DOUBLE braces → survive .format(concept=…).
+# Loop-resistant on purpose: the earlier version listed residue examples
+# ("glistening, dripping, sticky, white substance") and asked for 8-25 terms —
+# the abliterated Qwen latched onto the examples and looped combinatorially
+# ("mirror selfie shot", "self-portrait photograph"…) past the token budget,
+# leaving an UNCLOSED array that json.loads rejected → empty ban-list → the
+# concept leaked into every caption. So: no seeding examples, "each term once,
+# then STOP", 6-15 terms, and an explicit ban on listing the PEOPLE/body/clothing
+# (which must stay DESCRIBED, never scrubbed).
 EXPAND_CONCEPT_TERMS_PROMPT = (
     "Ignore the attached image entirely. You are building a caption BLOCKLIST for a "
     "CONCEPT training set.\n"
@@ -657,6 +765,8 @@ EXPAND_CONCEPT_TERMS_PROMPT = (
 
 # Réécriture CORRECTIVE après détection de fuite : on nomme les mots EXACTS qui ont fui
 # (feedback ciblé ≫ instruction générique). Placeholders : existing / concept / leaked.
+# English: Corrective REWRITE after leak detection: we name the EXACT words that leaked
+# (targeted feedback ≫ generic instruction). Placeholders: existing / concept / leaked.
 CAPTION_LEAK_FIX_PROMPT = (
     "Below is a caption for this exact image:\n\n"
     "\"\"\"\n{existing}\n\"\"\"\n\n"
@@ -679,6 +789,12 @@ CAPTION_LEAK_FIX_PROMPT = (
 # l'identité au même titre que le visage : les décrire dans la caption les lierait
 # aux mots au lieu du trigger. Blocs AJOUTÉS aux prompts de base (la morphologie —
 # body build, breast size… — y est déjà bannie).
+# English: Body FIDELITY mode (fidelity='body'):
+# For a LoRA that must also reproduce morphology, PERMANENT body marks
+# (tattoos, scars, birthmarks, piercings) are identity just like the face:
+# describing them in the caption would bind them to words instead of the trigger.
+# Blocks ADDED to base prompts (morphology — body build, breast size… —
+# is already banned).
 BODY_FIDELITY_PROSE_SUFFIX = (
     "\n\nBODY-FIDELITY RULE - this subject's BODY is part of the learned identity. "
     "Additionally NEVER mention: tattoos, scars, birthmarks, moles, piercings or any "
@@ -703,6 +819,9 @@ def caption_prompt_for(mode, body=False) -> str:
 # Detecteur INDICATIF de VRAIS descripteurs d'identite (cheveux/peau/couleur d'yeux/
 # forme de visage/traits). Ne flague PAS "the face" (lumiere) ni "eyes open/looking"
 # (expression) — calibre empiriquement sur 31 captions reelles.
+# English: Indicative detector of TRUE identity descriptors (hair/skin/eye colour/face
+# shape/features). Does NOT flag "the face" (lighting) nor "eyes open/looking"
+# (expression) — empirically calibrated on 31 real captions.
 _IDENTITY_LEAK = re.compile(
     r'\bhair\b'
     r'|\bcomplexion\b|\bfreckles?\b|\bjawline\b|\beyebrows?\b|\bfacial\s+features?\b'
@@ -712,6 +831,7 @@ _IDENTITY_LEAK = re.compile(
     re.I)
 
 # Marques corporelles permanentes = identité en mode body-fidelity (détection + drop).
+# English: Permanent body marks = identity in body-fidelity mode (detection + drop).
 _BODY_LEAK = re.compile(
     r'\btattoos?\b|\btattooed\b|\bscars?\b|\bscarred\b|\bbirthmarks?\b|\bmoles?\b'
     r'|\bpiercings?\b|\bpierced\b', re.I)
@@ -719,7 +839,9 @@ _BODY_LEAK = re.compile(
 
 def caption_has_identity_leak(caption, body=False) -> bool:
     """True si la caption mentionne un VRAI trait d'identite. Detecteur SEUL (badge).
-    body=True (fidélité corps) flague AUSSI les marques corporelles permanentes."""
+    body=True (fidélité corps) flague AUSSI les marques corporelles permanentes.
+    English: True if the caption mentions a TRUE identity trait. Detector ONLY (badge).
+    body=True (body fidelity) also flags permanent body marks."""
     if not caption:
         return False
     return bool(_IDENTITY_LEAK.search(caption) or (body and _BODY_LEAK.search(caption)))
@@ -729,6 +851,10 @@ def caption_has_identity_leak(caption, body=False) -> bool:
 # "Straightforward", la rare fuite est isolee dans sa propre phrase -> suppression
 # propre (pas de casse grammaticale). NE drop PAS expression ("eyes closed") ni
 # lumiere ("shadow on the face").
+# English: Post-filter: drop SENTENCES describing an identity trait. With the
+# "Straightforward" prompt, the rare leak is isolated in its own sentence -> clean
+# removal (no grammatical breakage). Does NOT drop expression ("eyes closed") nor
+# lighting ("shadow on the face").
 _DROP_SENT = re.compile(
     r'\bhair\b|\bcomplexion\b|\bfreckles?\b|\bjawline\b|\beyebrows?\b|\bfacial\s+features?\b'
     r'|\bskin\s+(?:tone|texture)\b', re.I)
@@ -736,7 +862,9 @@ _DROP_SENT = re.compile(
 
 def drop_identity_sentences(caption, body=False) -> str:
     """Retire les phrases d'identite isolees d'une caption (post-captioning).
-    body=True retire aussi les phrases décrivant une marque corporelle permanente."""
+    body=True retire aussi les phrases décrivant une marque corporelle permanente.
+    English: Remove isolated identity sentences from a caption (post-captioning).
+    body=True also removes sentences describing a permanent body mark."""
     parts = re.split(r'(?<=[.!?])\s+', caption or '')
     kept = [s for s in parts if s.strip() and not _DROP_SENT.search(s)
             and not (body and _BODY_LEAK.search(s))]
@@ -880,7 +1008,7 @@ def caption_concept_leaks(caption, concept_desc, concept_terms=None) -> list:
 
 
 def caption_has_concept_leak(caption, concept_desc, concept_terms=None) -> bool:
-    """True if `caption` names the concept (kind=concept). Detector SEUL (badge), the
+    """True if `caption` names the concept (kind=concept). Detector ONLY (badge), the
     concept-side twin of caption_has_identity_leak."""
     return bool(caption_concept_leaks(caption, concept_desc, concept_terms))
 
@@ -941,6 +1069,11 @@ def caption_prompt_for_concept(concept_desc) -> str:
 # un mismatch de style (recherche 2026-06-14). On demande à JoyCaption le mode
 # "Booru tag list" en EXCLUANT l'identité (même principe que la prose : l'identité
 # se lie au trigger, pas aux mots).
+# English: Booru mode (SDXL booru-native type bigLove):
+# SDXL booru fine-tunes are prompted with danbooru tags (comma-separated);
+# prose is a style mismatch (research 2026-06-14). We ask JoyCaption for
+# "Booru tag list" while EXCLUDING identity (same principle as prose:
+# identity binds to the trigger, not to words).
 CAPTION_PROMPT_BOORU = (
     "Caption Type: Booru tag list.\n\n"
     "ABSOLUTE RULE - the subject's physical identity is already known and must NEVER be "
@@ -959,6 +1092,9 @@ CAPTION_PROMPT_BOORU = (
 # Tags booru d'IDENTITÉ à filtrer en post-traitement (le filtre prose par PHRASES est
 # inutilisable sur des tags virgule). On drop par sous-chaîne, par valeur exacte, et un
 # cas spécial 'eyes' (garder l'expression closed_eyes/wink, drop la couleur).
+# English: Booru identity tags to filter in post-processing (the prose filter by SENTENCES
+# is unusable on comma-separated tags). Drop by substring, exact match, and a
+# special case for 'eyes' (keep expression closed_eyes/wink, drop colour).
 _IDENTITY_TAG_CONTAINS = (
     'hair', 'bangs', 'braid', 'ponytail', 'twintail', 'sideburn', 'eyebrow', 'eyelash',
     'freckle', 'complexion', 'jawline',
@@ -975,8 +1111,9 @@ _IDENTITY_TAG_EXACT = frozenset({
     'dark-skinned_male', 'pointy_ears',
 })
 
-
 # Marques corporelles permanentes (mode body-fidelity) — par sous-chaîne : couvre
+# tattoo/arm_tattoo/tattooed, scar/scar_on_face, piercing/ear_piercing…
+# English: Permanent body marks (body-fidelity mode) — substring: covers
 # tattoo/arm_tattoo/tattooed, scar/scar_on_face, piercing/ear_piercing…
 _BODY_TAG_CONTAINS = ('tattoo', 'scar', 'birthmark', 'piercing', 'pierced')
 
@@ -997,7 +1134,9 @@ def _is_identity_tag(tag, body=False) -> bool:
 def drop_identity_tags(caption, body=False) -> str:
     """Retire les tags booru d'identité d'une caption en liste de tags (mode booru),
     pendant booru de drop_identity_sentences (mode prose). body=True retire aussi
-    les marques corporelles permanentes (fidélité corps)."""
+    les marques corporelles permanentes (fidélité corps).
+    English: Remove booru identity tags from a caption (tag list mode), counterpart of
+    drop_identity_sentences (prose mode). body=True also removes permanent body marks."""
     if not caption:
         return ''
     kept = [t.strip() for t in caption.split(',') if t.strip() and not _is_identity_tag(t, body=body)]
@@ -1006,7 +1145,9 @@ def drop_identity_tags(caption, body=False) -> str:
 
 def caption_style(text) -> str:
     """Heuristique PURE : 'booru' (liste de tags virgule courts) vs 'prose' (phrases).
-    Sert au garde-fou de cohérence caption↔type au lancement de l'entraînement."""
+    Sert au garde-fou de cohérence caption↔type au lancement de l'entraînement.
+    English: PURE heuristic: 'booru' (short comma-separated tags) vs 'prose' (sentences).
+    Used as a consistency guardrail at training launch."""
     t = (text or '').strip()
     if not t:
         return 'prose'
