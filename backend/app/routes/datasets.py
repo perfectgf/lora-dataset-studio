@@ -671,7 +671,12 @@ def dataset_image_status(image_id):
 
 @bp.post('/dataset/<int:dataset_id>/delete')
 def dataset_delete(dataset_id):
-    ok = svc.delete_dataset(LOCAL_USER, dataset_id)
+    try:
+        ok = svc.delete_dataset(LOCAL_USER, dataset_id)
+    except Exception as e:
+        # A file still open in another process (antivirus scan of a just-cleaned
+        # image) surfaces as a clear 409 toast instead of a bare 500.
+        return _map_error(e)
     return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
 
 

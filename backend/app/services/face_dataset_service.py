@@ -108,6 +108,14 @@ def _ref_path(ds) -> str:
 
 _VALID_STATUS = ('pending', 'keep', 'reject', 'failed')
 MAX_FANOUT = 60
+# Shown when a delete can't move a file to Trash because it's still open in
+# another process (typically an antivirus scan of a just-cleaned image, or an
+# open preview). Raised as a RuntimeError so the route maps it to a clean 409
+# toast instead of a bare 500. The dataset is left fully intact (DB + disk).
+_TRASH_LOCK_MESSAGE = (
+    "Couldn't delete this because one of its files is still open in another "
+    "program — most often an antivirus scan of a just-cleaned image, or an open "
+    "preview. Close it or wait a few seconds, then try again.")
 SMALL_IMAGE_SOURCE = 'small_image_source'
 KLEIN_SMALL_IMAGE = 'klein_small_image'
 KLEIN_IMAGE_IMPROVE = 'klein_image_improve'
@@ -893,6 +901,10 @@ def delete_image(user_id, image_id):
                 original_path, context=f'dataset-{img.dataset_id}-image-{img.id}')
         db.session.delete(img)
         db.session.commit()
+    except trash.TrashLockError as e:
+        db.session.rollback()
+        _restore_from_trash(trashed_path, original_path)
+        raise RuntimeError(_TRASH_LOCK_MESSAGE) from e
     except Exception:
         db.session.rollback()
         _restore_from_trash(trashed_path, original_path)
@@ -950,6 +962,10 @@ def delete_dataset(user_id, dataset_id):
             db.session.delete(cell)
         db.session.delete(ds)
         db.session.commit()
+    except trash.TrashLockError as e:
+        db.session.rollback()
+        _restore_from_trash(trashed_path, dataset_path)
+        raise RuntimeError(_TRASH_LOCK_MESSAGE) from e
     except Exception:
         db.session.rollback()
         _restore_from_trash(trashed_path, dataset_path)

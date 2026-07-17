@@ -429,3 +429,103 @@ def test_training_artifact_purge_moves_matches_to_trash(app, tmp_path, monkeypat
         assert len(calls) == 3
         assert all(context == 'training-TrashMe'
                    for _src, context, _destination in calls)
+
+
+# --- Windows sharing-violation robustness on delete (WinError 32) -------------
+#
+# A dataset freshly cleaned by the Klein engine can have one of its images still
+# held open by an antivirus scan (Bitdefender ATD) the instant the user hits the
+# trash button. On Windows that open handle blocks the folder move, and the delete
+# used to bubble a bare PermissionError up to a 500 — while shutil.move's
+# copytree+rmtree fallback left a full COPY of the "undeleted" dataset in Trash.
+
+def _lock_file(path):
+    """Open `path` the way Windows locks a file (no FILE_SHARE_DELETE), so a move
+    of it — or of its parent folder — raises WinError 32/5, exactly like an
+    antivirus mid-scan. A real handle: no mock, faithful on Windows."""
+    return open(path, 'rb')
+
+
+def test_send_to_trash_locked_file_aborts_without_partial_copy(app, monkeypatch):
+    from app.services import trash
+
+    with app.app_context():
+        monkeypatch.setattr(trash, '_LOCK_RETRY_DELAY', 0.01)  # keep the test fast
+        folder = trash.trash_root().parent / 'datasets' / 'locked'
+        folder.mkdir(parents=True)
+        locked = folder / 'shot.png'
+        locked.write_bytes(b'pixels')
+        before = set(trash.trash_root().iterdir())
+        handle = _lock_file(locked)
+        try:
+            with pytest.raises(trash.TrashLockError):
+                trash.send_to_trash(folder, context='dataset-locked')
+        finally:
+            handle.close()
+        # Clean abort: source untouched, and NOTHING copied into Trash (no stray
+        # staging dir left behind — the pre-fix bug left a full duplicate).
+        assert locked.exists()
+        assert set(trash.trash_root().iterdir()) == before
+        # TrashLockError stays an OSError so blanket `except OSError` still catches.
+        assert issubclass(trash.TrashLockError, OSError)
+
+
+def test_send_to_trash_retries_over_a_transient_lock(app, monkeypatch):
+    from app.services import trash
+
+    with app.app_context():
+        monkeypatch.setattr(trash, '_LOCK_RETRY_DELAY', 0.01)
+        folder = trash.trash_root().parent / 'datasets' / 'transient'
+        folder.mkdir(parents=True)
+        locked = folder / 'shot.png'
+        locked.write_bytes(b'pixels')
+        handle = _lock_file(locked)
+        # Release the handle during the first backoff: the next rename then wins.
+        released = {'done': False}
+
+        def release(_delay):
+            if not released['done']:
+                handle.close()
+                released['done'] = True
+
+        monkeypatch.setattr(trash.time, 'sleep', release)
+        dest = trash.send_to_trash(folder, context='dataset-transient')
+        assert os.path.exists(dest)
+        assert not folder.exists()
+
+
+def test_delete_dataset_locked_file_reports_instead_of_500(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.services import trash
+    from app.extensions import db
+    from app.models import FaceDatasetImage
+
+    with app.app_context():
+        monkeypatch.setattr(trash, '_LOCK_RETRY_DELAY', 0.01)
+        ds = svc.create_dataset('local', 'Demo', 'demo')
+        folder = svc._dataset_dir(ds.id)
+        # Post-clean state: the cleaned image plus its .orig sibling on disk.
+        shot = os.path.join(folder, 'shot.png')
+        with open(shot, 'wb') as fh:
+            fh.write(b'cleaned')
+        with open(os.path.join(folder, 'shot.png.orig'), 'wb') as fh:
+            fh.write(b'original')
+        db.session.add(FaceDatasetImage(dataset_id=ds.id, filename='shot.png',
+                                        status='keep', source='import'))
+        db.session.commit()
+        dataset_id = ds.id
+
+        handle = _lock_file(shot)
+        try:
+            with pytest.raises(RuntimeError, match='still open in another program'):
+                svc.delete_dataset('local', dataset_id)
+        finally:
+            handle.close()
+        # Fully intact: nothing half-deleted on disk, DB row still there.
+        assert os.path.isdir(folder)
+        assert svc.get_dataset('local', dataset_id) is not None
+        assert not any(trash.trash_root().iterdir())
+        # Handle released -> a retry now trashes the whole folder (.orig included).
+        assert svc.delete_dataset('local', dataset_id) is True
+        assert not os.path.isdir(folder)
+        assert svc.get_dataset('local', dataset_id) is None

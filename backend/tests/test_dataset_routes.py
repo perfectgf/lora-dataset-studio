@@ -366,6 +366,31 @@ def test_delete_unknown_dataset_404(client):
     assert resp.status_code == 404
 
 
+def test_delete_dataset_locked_file_returns_actionable_409(app, client, monkeypatch):
+    """A file still held open (antivirus scan of a just-cleaned image) must give a
+    clear 409 toast, never a bare 500."""
+    import os
+    from app.services import face_dataset_service as svc
+    from app.services import trash
+
+    with app.app_context():
+        monkeypatch.setattr(trash, '_LOCK_RETRY_DELAY', 0.01)
+        ds_id = _create(client, 'Demo', 'demo').get_json()['id']
+        folder = svc._dataset_dir(ds_id)
+        shot = os.path.join(folder, 'shot.png')
+        with open(shot, 'wb') as fh:
+            fh.write(b'cleaned')
+        handle = open(shot, 'rb')          # Windows lock: blocks the folder move
+        try:
+            resp = client.post(f'/api/dataset/{ds_id}/delete')
+        finally:
+            handle.close()
+        assert resp.status_code == 409
+        assert 'still open' in resp.get_json()['error']
+        # The dataset survived the failed delete and can be deleted once unlocked.
+        assert client.post(f'/api/dataset/{ds_id}/delete').status_code == 200
+
+
 # --- Import from folder (kohya folder already on the server's disk) ----------
 def _patterned_png(seed, base=(255, 255, 255)):
     """Distinct NON-uniform image: solid colors all share the same (zero) dHash
