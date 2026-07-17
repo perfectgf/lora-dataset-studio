@@ -6,12 +6,28 @@
 
 🖥️ **Train locally** on your own NVIDIA GPU — or ☁️ **train in the cloud** on a rented pod (~$1–2 per run, no GPU required): same one-click flow, every epoch synced back to your machine. You can even bring your own custom base weights to either lane.
 
+📑 **Not sure which settings to use?** Fifteen researched presets ship built-in — a Character, Style and Concept recipe for each family, sourced from Ostris' ai-toolkit defaults, vendor guidance and documented community consensus. One click applies the whole recipe.
+
 The useful part of LoRA training isn't only the training — it's building a clean, varied, well-captioned image set. That job is normally scattered across a scraper, an image editor, a captioning script, and training configs. LoRA Dataset Studio puts the pipeline behind one UI: fan out a character from reference photos, import or scrape Concept/Style material, curate and caption it, run quality checks, train locally or in the cloud, then compare the resulting checkpoints — without leaving the page.
 
 <p align="center">
   <img src="docs/screenshots/03-curate.png" alt="Curation grid: framing badges, face-similarity scores, per-image captions, keep/reject" width="900">
 </p>
 <p align="center"><em>The curation grid — every image tagged by framing (face / bust / body), scored against the reference face, captioned, and one click from keep or reject.<br>All screenshots in this README use a synthetic, AI-generated demo person — no real individual is depicted.</em></p>
+
+---
+
+## Everything it does, at a glance
+
+The whole pipeline, grouped by stage — every item links to the section that details it.
+
+| Stage | What you get |
+| :-- | :-- |
+| 🏗️ **Build** | 🎭 **[3 dataset types](#1-three-dataset-types-character--concept--style)** — character, concept or style; each rewires captioning, masking and step-scaling to match.<br>🖼️ **[3 image sources](#2-three-ways-to-source-images)** — generate from references, import your own, or scrape supported web sources.<br>🧭 **[Guided workspace](#3-the-guided-workspace)** — a progress rail maps each stage and shows what's blocking Train.<br>✏️ **[Edit & regenerate](#8-edit-the-prompt-regenerate-the-shot)** — tweak any generated tile's prompt in place and re-shoot it. |
+| 🎯 **Curate & caption** | 📐 **[Auto-framing + meter](#5-auto-framing-classification)** — auto-tags character shots face/bust/body/back and scores the set against a 12/6/6/1 target.<br>👤 **[Face scoring + auto-triage](#4-face-similarity-scoring)** — InsightFace flags off-identity shots and can sort undecided scored images while preserving later manual status changes.<br>☑️ **[Bulk curation](#3-the-guided-workspace)** — Keep, Reject, Undecide, clear captions, delete, or create Klein candidates for a selection.<br>📝 **[Model-matched captions](#6-captioning-that-matches-the-model)** — prose or booru tags, picked for the model and written by JoyCaption or Ollama.<br>🧽 **[Watermark cleanup](#7-auto-clean-scraped-watermarks)** — finds overlaid logos/URLs, then crops or locally inpaints them with a review step. |
+| 🎓 **Train** | 🎛️ **[Guided training with advanced controls](#9-guided-training-advanced-when-you-need-it)** — adaptive defaults plus rank/alpha, resolution, LoRA/LoKr, optimizer, scheduler, timestep, EMA and save/sample controls.<br>🧬 **[5 model families](#9-guided-training-advanced-when-you-need-it)** — Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein, with distinct variants and safety checks.<br>📑 **[Training presets](#9-guided-training-advanced-when-you-need-it)** — fifteen researched read-only recipes ship, one Character, Style and Concept preset per family, every value sourced; custom presets import/export as JSON.<br>🎚 **[Slider LoRAs (Beta)](#9-guided-training-advanced-when-you-need-it)** — learn one bipolar LoRA from a prompt pair; all five families, local-only, expect to iterate.<br>☁️ **[Cloud training](#cloud-training-vastai--experimental)** — rent a vast.ai pod with price/runtime caps, retry and continue, on an official *or* your own custom base.<br>🏋️ **[Runs hub](#9-guided-training-advanced-when-you-need-it)** — local and cloud progress, Stop, retry/continue, downloads and paste-safe config sharing. |
+| 🚀 **Test & ship** | 🧪 **[Test Studio](#10-test-studio--pick-the-best-checkpoint)** — compare checkpoint/LoRA × strength (−2.0 → 4.0) within one supported family, vote, rank, and export the grid as a shareable image.<br>📦 **[Export, backup and publish](#11-export-backup-and-publish)** — training ZIPs, full portable backups, merges from existing datasets and private-by-default Hugging Face publishing. |
+| 🌐 **Comfort & access** | 📱 **[Phone access](#exposing-the-app-beyond-localhost)** — scan a QR to open the app on your phone over LAN or Tailscale.<br>🧰 **[Setup wizard](#setup--install)** — scans your machine and installs only what's missing.<br>📖 **[Guide + diagnostics](#troubleshooting)** — a 5-chapter in-app manual and a one-click, paste-safe diagnostic report. |
 
 ---
 
@@ -32,18 +48,6 @@ The useful part of LoRA training isn't only the training — it's building a cle
 
 Klein restoration is generative and may alter fine details, which is why improved images never enter training without explicit validation.
 
----
-## Everything it does, at a glance
-
-The whole pipeline, grouped by stage — every item links to the section that details it.
-
-| Stage | What you get |
-| :-- | :-- |
-| 🏗️ **Build** | 🎭 **[3 dataset types](#1-three-dataset-types-character--concept--style)** — character, concept or style; each rewires captioning, masking and step-scaling to match.<br>🖼️ **[3 image sources](#2-three-ways-to-source-images)** — generate from references, import your own, or scrape supported web sources.<br>🧭 **[Guided workspace](#3-the-guided-workspace)** — a progress rail maps each stage and shows what's blocking Train.<br>✏️ **[Edit & regenerate](#8-edit-the-prompt-regenerate-the-shot)** — tweak any generated tile's prompt in place and re-shoot it. |
-| 🎯 **Curate & caption** | 📐 **[Auto-framing + meter](#5-auto-framing-classification)** — auto-tags character shots face/bust/body/back and scores the set against a 12/6/6/1 target.<br>👤 **[Face scoring + auto-triage](#4-face-similarity-scoring)** — InsightFace flags off-identity shots and can sort undecided scored images while preserving later manual status changes.<br>☑️ **[Bulk curation](#3-the-guided-workspace)** — Keep, Reject, Undecide, clear captions, delete, or create Klein candidates for a selection.<br>📝 **[Model-matched captions](#6-captioning-that-matches-the-model)** — prose or booru tags, picked for the model and written by JoyCaption or Ollama.<br>🧽 **[Watermark cleanup](#7-auto-clean-scraped-watermarks)** — finds overlaid logos/URLs, then crops or locally inpaints them with a review step. |
-| 🎓 **Train** | 🎛️ **[Guided training with advanced controls](#9-guided-training-advanced-when-you-need-it)** — adaptive defaults plus rank/alpha, resolution, LoRA/LoKr, optimizer, scheduler, timestep, EMA and save/sample controls.<br>🧬 **[5 model families](#9-guided-training-advanced-when-you-need-it)** — Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein, with distinct variants and safety checks.<br>📑 **[Training presets](#9-guided-training-advanced-when-you-need-it)** — fifteen researched read-only recipes ship, one Character, Style and Concept preset per family, every value sourced; custom presets import/export as JSON.<br>🎚 **[Slider LoRAs (Beta)](#9-guided-training-advanced-when-you-need-it)** — learn one bipolar LoRA from a prompt pair; all five families, local-only, expect to iterate.<br>☁️ **[Cloud training](#cloud-training-vastai--experimental)** — rent a vast.ai pod with price/runtime caps, retry and continue, on an official *or* your own custom base.<br>🏋️ **[Runs hub](#9-guided-training-advanced-when-you-need-it)** — local and cloud progress, Stop, retry/continue, downloads and paste-safe config sharing. |
-| 🚀 **Test & ship** | 🧪 **[Test Studio](#10-test-studio--pick-the-best-checkpoint)** — compare checkpoint/LoRA × strength (−2.0 → 4.0) within one supported family, vote, rank, and export the grid as a shareable image.<br>📦 **[Export, backup and publish](#11-export-backup-and-publish)** — training ZIPs, full portable backups, merges from existing datasets and private-by-default Hugging Face publishing. |
-| 🌐 **Comfort & access** | 📱 **[Phone access](#exposing-the-app-beyond-localhost)** — scan a QR to open the app on your phone over LAN or Tailscale.<br>🧰 **[Setup wizard](#setup--install)** — scans your machine and installs only what's missing.<br>📖 **[Guide + diagnostics](#troubleshooting)** — a 5-chapter in-app manual and a one-click, paste-safe diagnostic report. |
 
 ---
 
