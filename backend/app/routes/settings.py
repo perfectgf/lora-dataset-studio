@@ -320,6 +320,117 @@ def _log_tail_lines(n):
     return None, []
 
 
+# A logging record starts with the file handler's timestamp+level prefix
+# ('%(asctime)s %(levelname)s %(name)s: …', see create_app). Any line that does
+# NOT match is a continuation of the record above — i.e. a traceback frame. This
+# lets the diagnostic reassemble whole ERROR records (message + full stack)
+# instead of the plain last-N-lines tail, which routinely cuts a traceback in half.
+import re as _re
+_LOG_RECORD_RE = _re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} (\w+) ')
+
+
+def _error_log_records(max_records=2, max_lines_per_record=30):
+    """The last ERROR/CRITICAL records from the app log, each WITH its full
+    traceback — this is what a bug report actually needs (volksrods had to hunt for
+    and paste his stack by hand). Path-redacted (home dir -> ~) and capped so a
+    runaway stack can't bloat the pasted report. [] when nothing errored."""
+    _, lines = _log_tail_lines(400)          # wider window than the plain tail
+    if not lines:
+        return []
+    records = []                             # [(level, [physical lines]), ...]
+    for line in lines:
+        m = _LOG_RECORD_RE.match(line)
+        if m:
+            records.append((m.group(1), [line]))
+        elif records:                        # traceback frame of the record above
+            records[-1][1].append(line)
+        # a leading orphan (window cut mid-record) has no owner -> dropped
+    errors = [r for r in records if r[0] in ('ERROR', 'CRITICAL')]
+    out = []
+    for _level, rec_lines in errors[-max_records:]:
+        kept = rec_lines[:max_lines_per_record]
+        if len(rec_lines) > max_lines_per_record:
+            kept.append(f'    … +{len(rec_lines) - max_lines_per_record} more line(s)')
+        out.extend(_redact_user_paths(l) for l in kept)
+    return out
+
+
+def _pillow_health() -> dict:
+    """Pillow version + a healthy/mixed verdict, computed from the FILES on disk by
+    the SAME check the boot self-heal runs (bootstrap_dependencies): a half-swapped
+    Pillow raises "property 'mode' has no setter" on the first image decode. Lets a
+    report say 'Pillow mixed' instead of the cryptic decode crash that produced it.
+    version None => not installed; healthy None => couldn't inspect (frozen build)."""
+    try:
+        from bootstrap_dependencies import incompatible_pillow_plugins
+        version, bad = incompatible_pillow_plugins()
+    except Exception:
+        return {'version': None, 'healthy': None, 'incompatible_plugins': []}
+    if version is None:
+        return {'version': None, 'healthy': None, 'incompatible_plugins': []}
+    return {'version': version, 'healthy': not bad,
+            'incompatible_plugins': [p.name for p in bad]}   # basenames only, no path
+
+
+def _disk_free() -> dict:
+    """Free/total space of the volume the app lives on, in GB (numbers only — the
+    path itself never leaves the machine). 'no space left' is a silent killer of
+    generation + downloads, so the number belongs in the report. {} on failure."""
+    import shutil
+    try:
+        u = shutil.disk_usage(str(cfg.REPO_ROOT))
+        return {'free_gb': round(u.free / 1024 ** 3, 1),
+                'total_gb': round(u.total / 1024 ** 3, 1)}
+    except OSError:
+        return {}
+
+
+def _recent_generation_errors(scan=40) -> dict:
+    """Most-recent failed-generation reason PER engine, plus the last Studio (LoRA
+    test) failure — the text shown on a "failed" tile. Answers "it fails at every
+    generation" with the real cause instead of a guess. Paste-safe: fail_reason /
+    error hold engine/API/save/ComfyUI messages (prompts live in a SEPARATE column),
+    still path-redacted and length-capped here. {} when nothing has failed."""
+    def _clean(s):
+        return _redact_user_paths((s or '').strip())[:300]
+
+    engines = {}
+    try:
+        from ..models import FaceDatasetImage
+        rows = (FaceDatasetImage.query
+                .filter(FaceDatasetImage.status == 'failed',
+                        FaceDatasetImage.fail_reason.isnot(None))
+                .order_by(FaceDatasetImage.id.desc()).limit(scan).all())
+        for r in rows:                       # rows are newest-first
+            reason = _clean(r.fail_reason)
+            if not reason:
+                continue
+            low = reason.lower()
+            # fail_reason is written as f'{engine}: …' on the generation path, so the
+            # engine is the prefix; anything else lands in 'other' (save/queue errors).
+            eng = next((e for e in ('klein', 'chatgpt', 'nanobanana')
+                        if low.startswith(e)), 'other')
+            engines.setdefault(eng, reason)  # first hit == most recent for that engine
+    except Exception:
+        pass
+    studio = None
+    try:
+        from ..models import LoraTestImage
+        srow = (LoraTestImage.query
+                .filter(LoraTestImage.status == 'failed', LoraTestImage.error.isnot(None))
+                .order_by(LoraTestImage.id.desc()).first())
+        if srow:
+            studio = _clean(srow.error) or None
+    except Exception:
+        pass
+    out = {}
+    if engines:
+        out['engines'] = engines
+    if studio:
+        out['studio'] = studio
+    return out
+
+
 @bp.get('/logs/tail')
 def logs_tail():
     """Last N lines of the server log for the in-app viewer — so a novice can
@@ -349,6 +460,7 @@ def diagnostic():
     e = caps.get('engines') or {}
     comfy = caps.get('comfyui') or {}
     oll = caps.get('ollama') or {}
+    sub = caps.get('chatgpt_subscription') or {}
     # Redact ONLY in this paste-safe payload — /api/logs/tail (the in-app log
     # viewer) keeps the raw lines, they're local-only and never meant to be
     # copy-pasted into a public thread.
@@ -359,6 +471,16 @@ def diagnostic():
         'git_sha': updater.current_sha(),
         'os': f'{platform.system()} {platform.release()}',
         'python': sys.version.split()[0],
+        # This interpreter vs the wheel-supported ML range (3.10–3.12): a 3.13+ Flask
+        # venv is the cryptic "pip install -r requirements-ml.txt fails" a fresh clone
+        # hits (no numpy<2 / insightface wheels), so it belongs up front in a report.
+        'python_ml': capabilities.python_ml_status(),
+        # Health of the app's Pillow, from the files on disk (the boot self-heal's own
+        # check): a mixed install is the "property 'mode' has no setter" decode crash.
+        'pillow': _pillow_health(),
+        # Free disk on the app's volume — "no space left" silently kills generation
+        # and model downloads. Numbers only; the path never leaves the machine.
+        'disk': _disk_free(),
         'secrets_present': _secret_presence(),
         'capabilities': {
             'engines': {'nanobanana': bool(e.get('nanobanana')),
@@ -366,6 +488,13 @@ def diagnostic():
                         'klein': bool(e.get('klein'))},
             'comfyui_reachable': bool(comfy.get('reachable')),
             'klein_model': bool((comfy.get('models') or {}).get('klein')),
+            # setup_installer action names for the Klein assets NOT yet on disk — the
+            # exact gap antonp's report couldn't name (issue: missing Klein assets not
+            # listed). Empty required-trio => the engine is asset-ready.
+            'klein_missing': list(comfy.get('klein_missing') or []),
+            # ChatGPT engine can be lit by an API key OR a connected subscription — a
+            # report that shows neither key nor subscription explains a dark engine.
+            'chatgpt_subscription': bool(sub.get('connected')),
             'ollama_reachable': bool(oll.get('reachable')),
             'vision_model_ready': bool(oll.get('vision_model_ready')),
             'face_scoring': bool(caps.get('face_scoring')),
@@ -375,6 +504,10 @@ def diagnostic():
             'studio_visible': bool(caps.get('studio_visible')),
             'cloud_training': bool(caps.get('cloud_training')),
         },
+        # Live ComfyUI runtime (version / GPU / VRAM / queue) when it answers — {}
+        # when unreachable. Tells a "generation hangs" apart from a busy queue or a
+        # VRAM-starved GPU. Network, so outside the network-free probe() above.
+        'comfyui_runtime': capabilities.comfyui_runtime(),
         'config': {
             'captioning_backend': (conf.get('captioning') or {}).get('backend'),
             'default_engine': (conf.get('engines') or {}).get('default'),
@@ -382,6 +515,9 @@ def diagnostic():
             'training_default_family': (conf.get('training') or {}).get('default_family'),
             'comfyui_base_dir_set': bool((conf.get('comfyui') or {}).get('base_dir')),
             'aitoolkit_dir_set': bool((conf.get('aitoolkit') or {}).get('dir')),
+            # allow_crop is the watermark auto-routing default (the trap: crop vs
+            # inpaint). A non-sensitive knob whose value silently changes behaviour.
+            'watermark_allow_crop': bool((conf.get('watermark') or {}).get('allow_crop')),
             'lan_enabled': (conf.get('server') or {}).get('host') not in (None, '', '127.0.0.1', 'localhost', '::1'),
         },
         # The configured vision-model string + the tags the probe actually sees at
@@ -390,6 +526,13 @@ def diagnostic():
         # slightly different identifier (namespace/registry/field variance, issue #7).
         # Model names are not secrets; paths are still absent from this block.
         'ollama': capabilities.ollama_diagnostic(),
+        # Last failed-generation reason per engine + the last Studio failure — the
+        # real cause behind "it fails every time". Redacted + capped (see helper).
+        'generation_errors': _recent_generation_errors(),
+        # Last ERROR/CRITICAL records WITH their tracebacks (not just the raw tail),
+        # so the stack is in the report instead of asked for in a follow-up. Like
+        # log_tail it is log-derived and may still cite non-home file names.
+        'error_log': _error_log_records(),
         'log_tail': log_lines,
         'generated_at': int(time.time()),
     })

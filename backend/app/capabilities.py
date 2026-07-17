@@ -264,6 +264,50 @@ def ollama_diagnostic() -> dict:
     return {'vision_model': configured, 'tags_seen': [t[:80] for t in tags[:20]]}
 
 
+def comfyui_runtime(timeout=3) -> dict:
+    """Live ComfyUI runtime snapshot for /api/diagnostic: version, GPU + VRAM and
+    the current queue depth. NETWORK — deliberately kept OUT of probe() (which must
+    stay network-free, it runs on every /api/capabilities call); the diagnostic is a
+    manual one-click action, so a couple of short GETs are fine here.
+
+    Returns {} when ComfyUI isn't configured / doesn't answer. Paste-safe: only the
+    ComfyUI version string, the GPU name + VRAM totals (GPU model is not identity)
+    and the queue counts — never a path or a secret. Never raises."""
+    api = (cfg.get('comfyui.api_url') or '').rstrip('/')
+    if not api:
+        return {}
+    out = {}
+    try:
+        r = requests.get(f'{api}/system_stats', timeout=timeout)
+        if r.status_code == 200:
+            j = r.json() or {}
+            sysinfo = j.get('system') or {}
+            out['version'] = ((sysinfo.get('comfyui_version') or '').strip() or None)
+            devs = j.get('devices') or []
+            if devs and isinstance(devs[0], dict):
+                d0 = devs[0]
+                name = (d0.get('name') or '').strip()
+                if name:
+                    out['gpu'] = name[:60]
+                total = d0.get('vram_total')
+                free = d0.get('vram_free')
+                if isinstance(total, (int, float)) and total > 0:
+                    out['vram_total_gb'] = round(total / 1024 ** 3, 1)
+                if isinstance(free, (int, float)) and free >= 0:
+                    out['vram_free_gb'] = round(free / 1024 ** 3, 1)
+    except Exception:
+        pass
+    try:
+        r = requests.get(f'{api}/queue', timeout=timeout)
+        if r.status_code == 200:
+            j = r.json() or {}
+            out['queue_running'] = len(j.get('queue_running') or [])
+            out['queue_pending'] = len(j.get('queue_pending') or [])
+    except Exception:
+        pass
+    return out
+
+
 def clear_import_cache() -> None:
     """Drop cached import-probe results and the main probe cache so the next
     probe re-checks freshly installed packages instead of a stale 600s 'False'."""
