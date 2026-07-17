@@ -9,9 +9,16 @@ turns that into a 409 that auto-starts the downloads (public now, gated model on
 when an HF_TOKEN exists)."""
 import io
 import os
+import struct
 
 import pytest
 from PIL import Image
+
+# Smallest structurally-valid safetensors header (8-byte LE length + '{}'), so a
+# fixture file reads as REAL (if tiny) weights. model_integrity now treats a bare
+# stub as a broken file, and the readiness gate keys off it — the default here keeps
+# every "asset present" fixture honest without writing multi-GB test data.
+_VALID_ST = struct.pack('<Q', 2) + b'{}'
 
 
 def _png(color=(0, 128, 255)):
@@ -19,7 +26,7 @@ def _png(color=(0, 128, 255)):
     return buf.getvalue()
 
 
-def _install(base, *relparts, data=b'x'):
+def _install(base, *relparts, data=_VALID_ST):
     p = base.joinpath(*relparts)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
@@ -120,6 +127,44 @@ def test_missing_assets_all_when_unconfigured(app):
     with app.app_context():
         missing = keh.klein_missing_assets()
         assert set(keh.KLEIN_REQUIRED).issubset(set(missing))
+
+
+# --- Present-but-INVALID: the state between "missing" and "ready" ------------
+def test_invalid_assets_flag_present_but_unloadable_file(app, tmp_path):
+    """The #help incident at the resolver layer: the UNET file EXISTS (so it is NOT
+    in klein_missing_assets) but its bytes are the HTML licence-gate page saved by a
+    browser download without the licence. klein_invalid_assets names it as a
+    distinct, actionable 'present but INVALID' state — not 'missing'."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh, model_integrity
+    with app.app_context():
+        base = _comfy(tmp_path, cfg)   # all three present + valid
+        _install(base, 'models', 'unet', 'klein', 'flux-2-klein-9b-fp8.safetensors',
+                 data=b'<!doctype html><html>Access to this model is gated</html>')
+        model_integrity.clear_cache()
+        assert 'klein_model' not in keh.klein_missing_assets()      # it IS on disk
+        inv = {i['asset']: i for i in keh.klein_invalid_assets()}
+        assert 'klein_model' in inv
+        assert inv['klein_model']['blocking'] is True
+        assert inv['klein_model']['verdict'] == 'html_or_text'
+        assert 'flux-2-klein-9b-fp8.safetensors' in inv['klein_model']['reason']
+
+
+def test_invalid_assets_never_blocking_when_headers_valid(app, tmp_path):
+    """Valid (if tiny) headers are never *blocking*-invalid — only the advisory
+    too_small may appear for a stub, so nothing here blocks."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh, model_integrity
+    with app.app_context():
+        _comfy(tmp_path, cfg, lora=True)
+        model_integrity.clear_cache()
+        assert all(not i['blocking'] for i in keh.klein_invalid_assets())
+
+
+def test_invalid_assets_empty_when_unconfigured(app):
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        assert keh.klein_invalid_assets() == []
 
 
 # --- Node 139 bypass is conditional on the base LoRA existing ---------------

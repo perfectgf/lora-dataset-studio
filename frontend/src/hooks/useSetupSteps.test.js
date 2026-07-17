@@ -34,6 +34,33 @@ test('reachable with nothing missing -> ready', () => {
   assert.equal(step.status, 'ready');
 });
 
+test('a present-but-INVALID required asset keeps the step from going green', () => {
+  // The #help incident: the UNET file is on disk (so klein_missing is empty) but
+  // it is really an HTML licence-gate page. The step must NOT go "ready" — otherwise
+  // Setup stays green and the user hits the cryptic UNETLoader crash at generate.
+  const step = comfyStep({
+    reachable: true,
+    klein_missing: [],
+    klein_invalid: [{
+      asset: 'klein_model', filename: 'flux-2-klein-9b-fp8.safetensors', blocking: true,
+      verdict: 'html_or_text', reason: 'flux-2-klein-9b-fp8.safetensors is not a real model (looks like an HTML page …)',
+    }],
+  });
+  assert.equal(step.hasKlein, false);
+  assert.equal(step.status, 'partial'); // reachable but a required weight is broken
+  assert.equal(step.kleinInvalid.length, 1);
+});
+
+test('an advisory too_small invalid does NOT gate readiness', () => {
+  const step = comfyStep({
+    reachable: true,
+    klein_missing: [],
+    klein_invalid: [{ asset: 'klein_model', filename: 'k.safetensors', blocking: false, verdict: 'too_small', reason: 'k.safetensors is only 10 B …' }],
+  });
+  assert.equal(step.hasKlein, true);
+  assert.equal(step.status, 'ready');
+});
+
 test('unreachable ComfyUI is "available" regardless of assets on disk', () => {
   const step = comfyStep({ reachable: false, klein_missing: [] });
   assert.equal(step.status, 'available');

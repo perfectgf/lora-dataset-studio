@@ -1,6 +1,14 @@
 from unittest.mock import patch
 import pathlib
+import struct
 import pytest
+
+# Smallest structurally-valid safetensors: 8-byte LE header length + a 2-byte empty
+# JSON object ('{}'). model_integrity now reads a 0-byte touch()ed stub as a broken
+# file, so a fixture that needs a PRESENT-and-VALID model writes these bytes. It is
+# tiny (far below the type floor), so it also reads as the advisory `too_small` —
+# which, being non-blocking, never gates the engine (only a hard-invalid file does).
+_VALID_ST = struct.pack('<Q', 2) + b'{}'
 
 
 @pytest.fixture(autouse=True)
@@ -71,14 +79,15 @@ def test_comfyui_reachable_lights_studio_and_klein(app, monkeypatch, tmp_path):
         from app import capabilities, config
         base = tmp_path / 'Comfy'
         (base / 'models' / 'unet' / 'klein').mkdir(parents=True)
-        (base / 'models' / 'unet' / 'klein' / 'k.safetensors').touch()
-        # Klein readiness is now tri-component (unet + vae + text-encoder): the
-        # engine only lights when a generate could actually run, not on the unet
-        # alone. Materialise the canonical vae + text-encoder too.
+        (base / 'models' / 'unet' / 'klein' / 'k.safetensors').write_bytes(_VALID_ST)
+        # Klein readiness is now tri-component (unet + vae + text-encoder), and each
+        # must be REAL weights, not just a file with the right name: the engine only
+        # lights when a generate could actually run. Materialise the canonical vae +
+        # text-encoder too, with valid headers.
         (base / 'models' / 'vae').mkdir(parents=True)
-        (base / 'models' / 'vae' / 'flux2-vae.safetensors').touch()
+        (base / 'models' / 'vae' / 'flux2-vae.safetensors').write_bytes(_VALID_ST)
         (base / 'models' / 'text_encoders').mkdir(parents=True)
-        (base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors').touch()
+        (base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors').write_bytes(_VALID_ST)
         config.save_config({'comfyui': {'base_dir': str(base)}})
         with patch('app.capabilities._http_ok', return_value=True):
             caps = capabilities.probe(force=True)
@@ -102,7 +111,7 @@ def test_klein_engine_stays_dark_until_all_three_assets_present(app, monkeypatch
         from app import capabilities, config
         base = tmp_path / 'Comfy'
         (base / 'models' / 'unet' / 'klein').mkdir(parents=True)
-        (base / 'models' / 'unet' / 'klein' / 'k.safetensors').touch()
+        (base / 'models' / 'unet' / 'klein' / 'k.safetensors').write_bytes(_VALID_ST)
         config.save_config({'comfyui': {'base_dir': str(base)}})
         with patch('app.capabilities._http_ok', return_value=True):
             caps = capabilities.probe(force=True)
@@ -128,11 +137,11 @@ def test_klein_engine_lights_for_flat_root_layout_unet(app, monkeypatch, tmp_pat
         base = tmp_path / 'Comfy'
         # UNET dropped at the root of diffusion_models/ (no klein/ subfolder).
         (base / 'models' / 'diffusion_models').mkdir(parents=True)
-        (base / 'models' / 'diffusion_models' / 'flux-2-klein-9b-fp8.safetensors').touch()
+        (base / 'models' / 'diffusion_models' / 'flux-2-klein-9b-fp8.safetensors').write_bytes(_VALID_ST)
         (base / 'models' / 'vae').mkdir(parents=True)
-        (base / 'models' / 'vae' / 'flux2-vae.safetensors').touch()
+        (base / 'models' / 'vae' / 'flux2-vae.safetensors').write_bytes(_VALID_ST)
         (base / 'models' / 'text_encoders').mkdir(parents=True)
-        (base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors').touch()
+        (base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors').write_bytes(_VALID_ST)
         config.save_config({'comfyui': {'base_dir': str(base)}})
         with patch('app.capabilities._http_ok', return_value=True):
             caps = capabilities.probe(force=True)
@@ -140,6 +149,67 @@ def test_klein_engine_lights_for_flat_root_layout_unet(app, monkeypatch, tmp_pat
     assert caps['comfyui']['models']['klein'] == ['flux-2-klein-9b-fp8.safetensors']
     assert caps['engines']['klein'] is True
     assert caps['comfyui']['klein_missing'] == ['klein_lora']   # only the optional LoRA
+
+
+def test_klein_engine_dark_when_unet_is_html_gate_page(app, monkeypatch, tmp_path):
+    """The #help incident: a licence-gated model downloaded from a browser WITHOUT
+    accepting the licence saves the HTML gate PAGE to <name>.safetensors. The file
+    EXISTS, so the old existence check went green — then UNETLoader crashed at
+    generate time on 'Expecting value: line 1 column 1'. The engine must now stay
+    dark, and the payload must report the file as present-but-INVALID (distinct from
+    missing) so the Setup step can say 'delete it and re-download'."""
+    monkeypatch.setenv('OPENAI_API_KEY', '')
+    with app.app_context():
+        from app import capabilities, config
+        from app.services import model_integrity
+        model_integrity.clear_cache()
+        base = tmp_path / 'Comfy'
+        (base / 'models' / 'unet' / 'klein').mkdir(parents=True)
+        # A real-looking filename, but the bytes are the HTML licence-gate page.
+        (base / 'models' / 'unet' / 'klein' / 'flux-2-klein-9b-fp8.safetensors').write_bytes(
+            b'<!doctype html><html><head><title>Access gated</title></head></html>')
+        (base / 'models' / 'vae').mkdir(parents=True)
+        (base / 'models' / 'vae' / 'flux2-vae.safetensors').write_bytes(_VALID_ST)
+        (base / 'models' / 'text_encoders').mkdir(parents=True)
+        (base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors').write_bytes(_VALID_ST)
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        with patch('app.capabilities._http_ok', return_value=True):
+            caps = capabilities.probe(force=True)
+    # NOT missing — the file is on disk ...
+    assert 'klein_model' not in caps['comfyui']['klein_missing']
+    # ... but present-and-INVALID, so the engine stays dark instead of luring the
+    # user into a generate that crashes ComfyUI.
+    assert caps['engines']['klein'] is False
+    invalid = {i['asset']: i for i in caps['comfyui']['klein_invalid']}
+    assert 'klein_model' in invalid
+    assert invalid['klein_model']['blocking'] is True
+    assert invalid['klein_model']['verdict'] == 'html_or_text'
+    assert 'HTML' in invalid['klein_model']['reason']
+
+
+def test_klein_invalid_too_small_is_advisory_and_does_not_gate(app, monkeypatch, tmp_path):
+    """A tiny-but-structurally-valid stub (a download that stopped right after the
+    header) is reported in klein_invalid as an advisory `too_small` — but being
+    non-blocking it does NOT darken the engine; only a hard-invalid file does."""
+    monkeypatch.setenv('OPENAI_API_KEY', '')
+    with app.app_context():
+        from app import capabilities, config
+        from app.services import model_integrity
+        model_integrity.clear_cache()
+        base = tmp_path / 'Comfy'
+        (base / 'models' / 'unet' / 'klein').mkdir(parents=True)
+        (base / 'models' / 'unet' / 'klein' / 'flux-2-klein-9b-fp8.safetensors').write_bytes(_VALID_ST)
+        (base / 'models' / 'vae').mkdir(parents=True)
+        (base / 'models' / 'vae' / 'flux2-vae.safetensors').write_bytes(_VALID_ST)
+        (base / 'models' / 'text_encoders').mkdir(parents=True)
+        (base / 'models' / 'text_encoders' / 'qwen_3_8b_fp8mixed.safetensors').write_bytes(_VALID_ST)
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        with patch('app.capabilities._http_ok', return_value=True):
+            caps = capabilities.probe(force=True)
+    assert caps['engines']['klein'] is True                      # advisory never gates
+    invalid = {i['asset']: i for i in caps['comfyui']['klein_invalid']}
+    assert invalid['klein_model']['verdict'] == 'too_small'
+    assert all(not i['blocking'] for i in caps['comfyui']['klein_invalid'])
 
 
 # --- extra coverage: individual probe_* ok/detail contract --------------

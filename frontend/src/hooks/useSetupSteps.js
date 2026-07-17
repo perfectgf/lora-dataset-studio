@@ -54,9 +54,18 @@ function kleinMissingRequired(c) {
 function comfyuiStep(caps) {
   const c = caps.comfyui || {}
   const missingRequired = kleinMissingRequired(c)
-  // hasKlein now reflects FULL readiness (all three weights), not just the UNET —
-  // so the step no longer goes "nothing to do" while the TE/VAE are still missing.
-  const hasKlein = missingRequired.length === 0
+  // Present-but-INVALID required assets (a licence-gate HTML page saved as
+  // .safetensors, a truncated download): the file exists so it is NOT in
+  // klein_missing, yet it can't load. Without this the step would go green and let
+  // a doomed generate crash ComfyUI (the #help "Expecting value: line 1 column 1").
+  // Only *blocking* invalids gate readiness; the advisory too_small does not.
+  const kleinInvalid = Array.isArray(c.klein_invalid) ? c.klein_invalid : []
+  const blockingInvalid = kleinInvalid.filter(
+    (i) => i && i.blocking && KLEIN_REQUIRED_ASSETS.includes(i.asset))
+  // hasKlein now reflects FULL readiness (all three weights, each a real file), not
+  // just the UNET — so the step no longer goes "nothing to do" while the TE/VAE are
+  // still missing or while a present asset is actually an unusable stub.
+  const hasKlein = missingRequired.length === 0 && blockingInvalid.length === 0
   // Which assets to still offer a download for (required trio + recommended LoRA),
   // so each button can grey out on its own once its file lands.
   const kleinMissing = Array.isArray(c.klein_missing)
@@ -66,7 +75,7 @@ function comfyuiStep(caps) {
   return {
     id: 'comfyui', title: 'ComfyUI — local generation & Test Studio', recommended: false,
     unlocks: ['Klein engine', 'Test Studio'],
-    status, reachable: !!c.reachable, hasKlein, kleinMissing, apiUrl: c.api_url || '',
+    status, reachable: !!c.reachable, hasKlein, kleinMissing, kleinInvalid, apiUrl: c.api_url || '',
     // Whether comfyui.base_dir actually points at a ComfyUI install (main.py + models/):
     // a wrong/portable-wrapper path scans an empty models/ and finds no checkpoints.
     // baseDir = the path this verdict was PROBED against — the UI must not show the

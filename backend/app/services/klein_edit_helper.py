@@ -294,6 +294,91 @@ def klein_missing_assets():
     return missing
 
 
+# Minimum plausible on-disk size per Klein asset, for model_integrity's advisory
+# `too_small` floor (a partial download / broken symlink that still carries a
+# complete header). Deliberately conservative — well under the real size — so it
+# never cries wolf on a legitimate file: an fp8 9B UNET is ~9-11 GB and the 8B
+# text-encoder ~8 GB, while the VAE (~330 MB) and the consistency LoRA (tens of
+# MB) are genuinely small, so their floors only catch a near-empty stub. The hard
+# "this isn't weights at all" cases (an HTML gate page, a truncated download) are
+# caught structurally and need no floor.
+KLEIN_MIN_BYTES = {
+    'klein_model': 1024 ** 3,               # 1 GB   (real ≈ 9-11 GB)
+    'klein_text_encoder': 512 * 1024 ** 2,  # 512 MB (real ≈ 8 GB)
+    'klein_vae': 8 * 1024 ** 2,             # 8 MB   (real ≈ 330 MB)
+    'klein_lora': 512 * 1024,               # 512 KB (real ≈ tens of MB)
+}
+
+
+def _abs_under_roots(comfy_type, rel_name):
+    """Absolute path of a <comfy_type>-relative model name (as the resolvers return
+    it — bare or subfolder-prefixed) under the FIRST search root that holds it, else
+    None. Mirrors how ComfyUI itself resolves a loader value, so the file we validate
+    is exactly the one the loader node would open."""
+    if not rel_name:
+        return None
+    for root in comfy_model_paths.search_roots(comfy_type):
+        cand = os.path.join(root, rel_name)
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def _klein_asset_paths():
+    """{setup_installer action name: absolute path} for each Klein asset PRESENT on
+    disk. The resolvers return ComfyUI-relative loader names; this maps each back to
+    the concrete file so model_integrity can read its header. Absent assets are
+    omitted — klein_missing_assets() owns the 'missing' case; this owns 'present'."""
+    paths = {}
+    unet = resolve_klein_unet()
+    if unet:
+        p = _abs_under_roots('diffusion_models', unet)   # same roots _klein_unet_folders scans
+        if p:
+            paths['klein_model'] = p
+    te = resolve_klein_text_encoder()
+    if te:
+        p = _abs_under_roots('text_encoders', te)
+        if p:
+            paths['klein_text_encoder'] = p
+    vae = resolve_klein_vae()
+    if vae:
+        p = _abs_under_roots('vae', vae)
+        if p:
+            paths['klein_vae'] = p
+    _, lora_path = _consistency_lora()
+    if lora_path and os.path.exists(lora_path):
+        paths['klein_lora'] = lora_path
+    return paths
+
+
+def klein_invalid_assets():
+    """Klein assets that ARE on disk under the resolved name but are NOT real,
+    loadable weights — the state BETWEEN 'missing' and 'ready'. This is the case a
+    plain existence check misses: a licence-gated model downloaded from a browser
+    without the licence/token saves the HTML gate PAGE to <name>.safetensors, which
+    passes Setup ('the file is there') and then dies at generate time on
+    ``UNETLoader: Expecting value: line 1 column 1 (char 0)`` (json.loads choking on
+    ``<!doctype html>``); a truncated / half-symlinked download instead renders
+    silently distorted images.
+
+    Returns ``[{asset, filename, verdict, blocking, reason}]`` — ``asset`` the
+    setup_installer action name — and ``[]`` when every present asset is
+    structurally valid. Header-only + cached (model_integrity), so it is cheap
+    enough for the readiness probe. ``blocking`` True means the file can't load at
+    all (html_or_text / truncated) → the actionable 'delete & re-download'; False is
+    the advisory ``too_small`` (structurally intact but suspiciously small)."""
+    from . import model_integrity
+    out = []
+    for asset, path in _klein_asset_paths().items():
+        res = model_integrity.validate_model_file(path, min_bytes=KLEIN_MIN_BYTES.get(asset))
+        if res['ok']:
+            continue
+        out.append({'asset': asset, 'filename': res['filename'],
+                    'verdict': res['verdict'], 'blocking': res['blocking'],
+                    'reason': res['reason']})
+    return out
+
+
 # --- Custom-node preflight -------------------------------------------------
 # The class_types the shipped 'improve skin.json' historically pulled from custom
 # packs, mapped to the pack that ships each + its GitHub page. Setup installs

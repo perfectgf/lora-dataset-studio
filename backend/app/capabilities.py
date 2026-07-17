@@ -698,9 +698,6 @@ def probe(force=False) -> dict:
     # actionable. Resolvers are cheap listdir, network-free, and
     # extra_model_paths-aware. Lazy import avoids an import cycle.
     from .services import klein_edit_helper as _keh
-    klein_ready = (comfy['ok'] and bool(_keh.resolve_klein_unet())
-                   and bool(_keh.resolve_klein_vae())
-                   and bool(_keh.resolve_klein_text_encoder()))
     # Per-asset gaps (setup_installer action names still absent on disk), so the
     # Setup UI can name exactly what's missing and keep only the relevant download
     # buttons visible — judging the whole engine on the UNET alone let the step go
@@ -708,6 +705,20 @@ def probe(force=False) -> dict:
     # (network-free) and reachability-independent, so the front can separate
     # "ComfyUI unreachable" from "an asset is missing".
     klein_missing = _keh.klein_missing_assets()
+    # Present-but-INVALID assets: the file EXISTS under the resolved name but is not
+    # real weights — a licence-gate HTML page saved as .safetensors (the #help crash:
+    # Setup green, then UNETLoader dies on "Expecting value: line 1 column 1"), a
+    # truncated download, or a suspiciously tiny stub. Header-only + cached, so cheap
+    # here. A REQUIRED asset that is *blocking*-invalid must NOT light the engine
+    # green (advisory too_small does not gate) — an honest badge points the user at
+    # the broken file instead of letting a doomed generate crash ComfyUI.
+    klein_invalid = _keh.klein_invalid_assets()
+    klein_blocking_invalid = any(
+        i['blocking'] and i['asset'] in _keh.KLEIN_REQUIRED for i in klein_invalid)
+    klein_ready = (comfy['ok'] and bool(_keh.resolve_klein_unet())
+                   and bool(_keh.resolve_klein_vae())
+                   and bool(_keh.resolve_klein_text_encoder())
+                   and not klein_blocking_invalid)
     base_dir = cfg.get('comfyui.base_dir') or ''
     comfy_dir = resolve_comfyui_base(base_dir)
 
@@ -739,6 +750,12 @@ def probe(force=False) -> dict:
             # (subset of klein_model / klein_text_encoder / klein_vae / klein_lora).
             # Empty required-trio => the Klein engine is asset-ready.
             'klein_missing': klein_missing,
+            # Klein assets PRESENT on disk but not real, loadable weights:
+            # [{asset, filename, verdict, blocking, reason}]. Distinct from
+            # klein_missing (the file exists, it just can't load) — drives the Setup
+            # "present but INVALID: <asset> (<reason>)" line and the diagnostic, and
+            # a blocking-invalid required asset also keeps engines.klein dark above.
+            'klein_invalid': klein_invalid,
         },
         'ollama': {
             'reachable': ollama['ok'],
