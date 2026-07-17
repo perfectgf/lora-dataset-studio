@@ -4,29 +4,15 @@
  * Extracted from the component so it runs under node --test without a DOM.
  */
 
-// Model families offered at creation + section order/labels of the library.
-// The library is GROUPED by the family a dataset was ACTUALLY trained in (its
-// primary trained family — see primaryFamily/groupDatasets), NOT by the mutable
-// d.train_type scalar: train_type is only the training panel's current pick and
-// gets rewritten on a mere dropdown change, so grouping on it made a dataset
-// jump sections without any real run. This order also decides which trained
-// family wins when a dataset has several. Third value = the section emoji.
-export const FAMILY_ORDER = [
-  ['zimage', 'Z-Image', '🌀'],
-  ['sdxl', 'SDXL', '🎨'],
-  ['krea', 'Krea 2', '✨'],
-  ['flux', 'FLUX.1', '⚡'],
-  ['flux2klein', 'FLUX.2 Klein', '🌹'],
-];
-
-// A dataset trained only in a family this build does not know (e.g. one added
-// by a newer server) must still be reachable — it lands in a trailing section
-// instead of silently vanishing from the library.
-export const OTHER_FAMILY = ['other', 'Other', '📁'];
-
-// Datasets no LoRA has ever been trained from — their own trailing section,
-// AFTER every family (Other included), so the top of the library is the trained
-// work. The family value below is the section's collapse key.
+// The library is split in exactly TWO sections: datasets a LoRA has actually
+// been trained from, and the rest. Per-family sectioning (tried 2026-07-17)
+// fragmented the page into 1-3 tile groups while the per-tile family badges
+// already carry that information — the badges do the job, the sections only
+// answer "is this dataset trained work or still raw material?". Grouping reads
+// d.trained_families (real runs), NEVER the mutable d.train_type scalar: that
+// one is just the training panel's current pick and gets rewritten on a mere
+// dropdown change. First value = the section's collapse key.
+export const TRAINED = ['trained', 'Trained', '🎓'];
 export const NOT_TRAINED = ['not-trained', 'Not trained yet', '🚫'];
 
 // Tile size: 'S' compact list rows (maximum density), 'M' the historical
@@ -72,33 +58,23 @@ export function kindsPresent(datasets = []) {
   return ['character', 'concept', 'style'].filter((k) => present.has(k));
 }
 
-/** The section a dataset belongs to: the FIRST family in FAMILY_ORDER it has
- *  actually been trained in — deterministic and independent of how the server
- *  orders trained_families (it sorts them alphabetically, which is NOT the
- *  section order). Trained only in families this build doesn't know → OTHER_FAMILY;
- *  never trained → NOT_TRAINED. Any extra trained families stay visible as the
- *  existing per-tile badges, so one dataset still maps to exactly one section. */
-export function primaryFamily(d) {
-  const trained = Array.isArray(d?.trained_families) ? d.trained_families : [];
-  if (trained.length === 0) return NOT_TRAINED[0];
-  const trainedSet = new Set(trained);
-  const known = FAMILY_ORDER.find(([fam]) => trainedSet.has(fam));
-  return known ? known[0] : OTHER_FAMILY[0];
+/** True when at least one LoRA has actually been trained from this dataset
+ *  (any family — the per-tile badges say which ones). */
+export function isTrained(d) {
+  return Array.isArray(d?.trained_families) && d.trained_families.length > 0;
 }
 
 /** Group datasets into ordered non-empty sections [{family, label, emoji,
- *  items}]: FAMILY_ORDER families first (each holding the datasets whose PRIMARY
- *  trained family is that one), then Other, then "Not trained yet" — always last.
- *  Each dataset lands in exactly one section (its primaryFamily), so the header
- *  counts sum to the library size and changing train_type never moves a tile. */
+ *  items}]: "Trained" first, "Not trained yet" last. Each dataset lands in
+ *  exactly one section, so the header counts sum to the library size and
+ *  changing train_type never moves a tile. Section shape is unchanged from the
+ *  per-family era, so collapse keys / force-open / S-M-L grids apply as-is. */
 export function groupDatasets(datasets = []) {
-  const byFamily = new Map();
+  const buckets = new Map([[TRAINED[0], []], [NOT_TRAINED[0], []]]);
   for (const d of datasets) {
-    const fam = primaryFamily(d);
-    if (!byFamily.has(fam)) byFamily.set(fam, []);
-    byFamily.get(fam).push(d);
+    buckets.get(isTrained(d) ? TRAINED[0] : NOT_TRAINED[0]).push(d);
   }
-  return [...FAMILY_ORDER, OTHER_FAMILY, NOT_TRAINED]
-    .filter(([family]) => byFamily.has(family))
-    .map(([family, label, emoji]) => ({ family, label, emoji, items: byFamily.get(family) }));
+  return [TRAINED, NOT_TRAINED]
+    .filter(([family]) => buckets.get(family).length > 0)
+    .map(([family, label, emoji]) => ({ family, label, emoji, items: buckets.get(family) }));
 }

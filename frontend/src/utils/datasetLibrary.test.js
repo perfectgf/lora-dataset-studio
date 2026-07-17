@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FAMILY_ORDER, OTHER_FAMILY, NOT_TRAINED, normalizeTileSize, normalizeCollapsedMap,
-  datasetKind, datasetMatches, kindsPresent, primaryFamily, groupDatasets,
+  TRAINED, NOT_TRAINED, normalizeTileSize, normalizeCollapsedMap,
+  datasetKind, datasetMatches, kindsPresent, isTrained, groupDatasets,
 } from './datasetLibrary.js';
 
 test('tile size preference only accepts S/M/L and defaults to M', () => {
@@ -58,85 +58,55 @@ test('kindsPresent lists kinds in canonical order (chips need >= 2)', () => {
     ['character', 'concept', 'style']);
 });
 
-test('groupDatasets sections by primary trained family, in FAMILY_ORDER, dropping empties', () => {
-  const ds = [
-    { id: 1, trained_families: ['sdxl'] },
-    { id: 2, trained_families: ['zimage'] },
-    { id: 3, trained_families: ['sdxl'] },
-  ];
-  const groups = groupDatasets(ds);
-  assert.deepEqual(groups.map((g) => g.family), ['zimage', 'sdxl']);
-  assert.deepEqual(groups[0].items.map((d) => d.id), [2]);
-  assert.deepEqual(groups[1].items.map((d) => d.id), [1, 3]); // input order kept
-  // Section metadata comes straight from FAMILY_ORDER (label + emoji).
-  const sdxl = FAMILY_ORDER.find(([fam]) => fam === 'sdxl');
-  assert.equal(groups[1].label, sdxl[1]);
-  assert.equal(groups[1].emoji, sdxl[2]);
-});
-
-test('a multi-family dataset lands in ONE section: primary by FAMILY_ORDER, not array order', () => {
-  // The server returns trained_families sorted alphabetically (['flux','zimage']);
-  // FAMILY_ORDER puts zimage first, so the section is zimage even though flux is
-  // first in the array. The secondary family stays a badge — no second section.
-  const groups = groupDatasets([{ id: 1, trained_families: ['flux', 'zimage'] }]);
-  assert.deepEqual(groups.map((g) => g.family), ['zimage']);
-  assert.deepEqual(groups[0].items.map((d) => d.id), [1]);
-  assert.equal(groups.length, 1);
-});
-
-test('a dataset with no trained family lands in the trailing "Not trained yet" section', () => {
+test('groupDatasets splits into Trained then Not trained yet, keeping input order', () => {
   const groups = groupDatasets([
-    { id: 1, trained_families: ['zimage'] },
+    { id: 1, trained_families: ['sdxl'] },
     { id: 2, trained_families: [] },
-    { id: 3 },   // missing trained_families → treated as none
+    { id: 3, trained_families: ['zimage'] },
+    { id: 4 },   // missing trained_families → treated as none
   ]);
-  assert.deepEqual(groups.map((g) => g.family), ['zimage', NOT_TRAINED[0]]);
-  assert.deepEqual(groups.at(-1).items.map((d) => d.id), [2, 3]);
+  assert.deepEqual(groups.map((g) => g.family), [TRAINED[0], NOT_TRAINED[0]]);
+  assert.deepEqual(groups[0].items.map((d) => d.id), [1, 3]);
+  assert.deepEqual(groups[1].items.map((d) => d.id), [2, 4]);
+  assert.equal(groups[0].label, TRAINED[1]);
+  assert.equal(groups[0].emoji, TRAINED[2]);
   assert.equal(groups.at(-1).label, NOT_TRAINED[1]);
   assert.equal(groups.at(-1).emoji, NOT_TRAINED[2]);
 });
 
+test('one section per dataset: multi-family and unknown families are still just "Trained"', () => {
+  // The family detail lives in the per-tile badges, not in the sections.
+  const groups = groupDatasets([
+    { id: 1, trained_families: ['flux', 'zimage'] },
+    { id: 2, trained_families: ['future-family'] },
+  ]);
+  assert.deepEqual(groups.map((g) => g.family), [TRAINED[0]]);
+  assert.deepEqual(groups[0].items.map((d) => d.id), [1, 2]);
+});
+
 test('grouping ignores train_type entirely — only real training runs place a dataset', () => {
-  // train_type says sdxl but the only trained LoRA is zimage → zimage section;
-  // an untrained dataset stays in "Not trained yet" whatever its train_type is.
   const groups = groupDatasets([
     { id: 1, train_type: 'sdxl', trained_families: ['zimage'] },
     { id: 2, train_type: 'flux', trained_families: [] },
   ]);
-  assert.deepEqual(groups.map((g) => g.family), ['zimage', NOT_TRAINED[0]]);
+  assert.deepEqual(groups.map((g) => g.family), [TRAINED[0], NOT_TRAINED[0]]);
   assert.deepEqual(groups[0].items.map((d) => d.id), [1]);
   assert.deepEqual(groups.at(-1).items.map((d) => d.id), [2]);
 });
 
-test('trained only in a family this build does not know → Other, before Not trained yet', () => {
-  const groups = groupDatasets([
-    { id: 1, trained_families: ['zimage'] },
-    { id: 2, trained_families: ['future-family'] },
-    { id: 3, trained_families: [] },
-  ]);
-  assert.deepEqual(groups.map((g) => g.family), ['zimage', OTHER_FAMILY[0], NOT_TRAINED[0]]);
-  assert.deepEqual(groups[1].items.map((d) => d.id), [2]);
-  assert.equal(groups[1].label, OTHER_FAMILY[1]);
+test('empty sections are dropped (all-trained / none-trained libraries)', () => {
+  assert.deepEqual(groupDatasets([{ id: 1, trained_families: ['sdxl'] }])
+    .map((g) => g.family), [TRAINED[0]]);
+  assert.deepEqual(groupDatasets([{ id: 1, trained_families: [] }])
+    .map((g) => g.family), [NOT_TRAINED[0]]);
 });
 
-test('full section order: known families, then Other, then Not trained yet (always last)', () => {
-  const groups = groupDatasets([
-    { id: 1, trained_families: [] },
-    { id: 2, trained_families: ['weird'] },
-    { id: 3, trained_families: ['flux2klein'] },
-    { id: 4, trained_families: ['zimage'] },
-  ]);
-  assert.deepEqual(groups.map((g) => g.family),
-    ['zimage', 'flux2klein', OTHER_FAMILY[0], NOT_TRAINED[0]]);
-});
-
-test('primaryFamily: first FAMILY_ORDER match, else Other, else Not trained', () => {
-  assert.equal(primaryFamily({ trained_families: ['sdxl'] }), 'sdxl');
-  assert.equal(primaryFamily({ trained_families: ['flux', 'zimage'] }), 'zimage');
-  assert.equal(primaryFamily({ trained_families: ['unknown'] }), OTHER_FAMILY[0]);
-  assert.equal(primaryFamily({ trained_families: [] }), NOT_TRAINED[0]);
-  assert.equal(primaryFamily({}), NOT_TRAINED[0]);
-  assert.equal(primaryFamily(null), NOT_TRAINED[0]);
+test('isTrained: any real trained family counts, absence/malformed does not', () => {
+  assert.equal(isTrained({ trained_families: ['sdxl'] }), true);
+  assert.equal(isTrained({ trained_families: ['future-family'] }), true);
+  assert.equal(isTrained({ trained_families: [] }), false);
+  assert.equal(isTrained({}), false);
+  assert.equal(isTrained(null), false);
 });
 
 test('groupDatasets on an empty library returns no sections', () => {
