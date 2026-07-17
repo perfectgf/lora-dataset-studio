@@ -207,139 +207,139 @@ def _augment_prompt(entry, *, allow_outfit=True):
 
 
 VARIATION_CATALOG = [
-    _e('face_front_neutral', 'expression', 'face', 'Visage face, neutre',
+    _e('face_front_neutral', 'expression', 'face', 'Face front, neutral',
        'close-up portrait, front view, neutral expression, soft light, plain neutral background', cb=True),
-    _e('face_front_smile', 'expression', 'face', 'Visage face, sourire',
+    _e('face_front_smile', 'expression', 'face', 'Face front, smile',
        'close-up portrait, front view, slight smile, soft window light, blurred home interior background', cb=True),
-    _e('face_34l_smile', 'angle', 'face', 'Visage 3/4 gauche, sourire',
+    _e('face_34l_smile', 'angle', 'face', 'Face 3/4 left, smile',
        'close-up portrait, three-quarter left view, smiling'),
-    _e('face_34l_serious', 'angle', 'face', 'Visage 3/4 gauche, serieux',
+    _e('face_34l_serious', 'angle', 'face', 'Face 3/4 left, serious',
        'close-up portrait, three-quarter left view, serious expression'),
-    _e('face_34r_laugh', 'angle', 'face', 'Visage 3/4 droite, rire',
+    _e('face_34r_laugh', 'angle', 'face', 'Face 3/4 right, laugh',
        'close-up portrait, three-quarter right view, laughing'),
-    _e('face_34r_soft', 'angle', 'face', 'Visage 3/4 droite, doux',
+    _e('face_34r_soft', 'angle', 'face', 'Face 3/4 right, gentle',
        'close-up portrait, three-quarter right view, gentle expression'),
-    _e('face_profile_l', 'angle', 'face', 'Profil gauche',
+    _e('face_profile_l', 'angle', 'face', 'Profile left',
        'close-up portrait, left profile view, neutral'),
-    _e('face_profile_r', 'angle', 'face', 'Profil droite',
+    _e('face_profile_r', 'angle', 'face', 'Profile right',
        'close-up portrait, right profile view, neutral'),
-    _e('face_profile_l_smile', 'angle', 'face', 'Profil gauche, sourire',
+    _e('face_profile_l_smile', 'angle', 'face', 'Profile left, smile',
        'close-up portrait, strict left profile view, slight smile, soft window light, blurred background', cb=True),
-    _e('face_profile_r_smile', 'angle', 'face', 'Profil droite, sourire',
+    _e('face_profile_r_smile', 'angle', 'face', 'Profile right, smile',
        'close-up portrait, strict right profile view, slight smile, soft window light, blurred background', cb=True),
-    _e('face_profile_l_serious', 'angle', 'face', 'Profil gauche, serieux',
+    _e('face_profile_l_serious', 'angle', 'face', 'Profile left, serious',
        'close-up portrait, strict left profile view, serious expression, even studio light, plain background', cb=True),
-    _e('face_profile_r_serious', 'angle', 'face', 'Profil droite, serieux',
+    _e('face_profile_r_serious', 'angle', 'face', 'Profile right, serious',
        'close-up portrait, strict right profile view, serious expression, even studio light, plain background', cb=True),
-    _e('face_profile_l_look_up', 'angle', 'face', 'Profil gauche, regard haut',
+    _e('face_profile_l_look_up', 'angle', 'face', 'Profile left, looking up',
        'close-up portrait, strict left profile view, head tilted slightly upward, eyes looking up, pensive expression, soft daylight, blurred outdoor background', cb=True),
-    _e('face_profile_r_look_up', 'angle', 'face', 'Profil droite, regard haut',
+    _e('face_profile_r_look_up', 'angle', 'face', 'Profile right, looking up',
        'close-up portrait, strict right profile view, head tilted slightly upward, eyes looking up, pensive expression, soft daylight, blurred outdoor background', cb=True),
-    _e('face_profile_l_rim_light', 'lighting', 'face', 'Profil gauche, lumiere cinema',
+    _e('face_profile_l_rim_light', 'lighting', 'face', 'Profile left, rim light',
        'close-up portrait, strict left profile view, neutral expression, cinematic rim light, dark blurred background', cb=True),
-    _e('face_profile_r_rim_light', 'lighting', 'face', 'Profil droite, lumiere cinema',
+    _e('face_profile_r_rim_light', 'lighting', 'face', 'Profile right, rim light',
        'close-up portrait, strict right profile view, neutral expression, cinematic rim light, dark blurred background', cb=True),
-    _e('face_window', 'lighting', 'face', 'Visage, lumiere fenetre',
+    _e('face_window', 'lighting', 'face', 'Face, window light',
        'close-up portrait, front view, soft window light, blurred background', cb=True),
-    _e('face_studio', 'lighting', 'face', 'Visage, studio',
+    _e('face_studio', 'lighting', 'face', 'Face, studio',
        'close-up portrait, studio lighting, plain background', cb=True),
-    _e('face_golden', 'lighting', 'face', 'Visage, golden hour',
+    _e('face_golden', 'lighting', 'face', 'Face, golden hour',
        'close-up portrait, three-quarter view, warm golden hour light, outdoor', cb=True),
-    _e('face_surprise', 'expression', 'face', 'Visage, surprise',
+    _e('face_surprise', 'expression', 'face', 'Face, surprise',
        'close-up portrait, front view, surprised expression'),
-    _e('face_look_up', 'angle', 'face', 'Visage, regard haut',
+    _e('face_look_up', 'angle', 'face', 'Face, looking up',
        'close-up portrait, looking slightly upward, soft daylight, outdoor blurred background', cb=True),
-    _e('face_look_down', 'angle', 'face', 'Visage, regard bas',
+    _e('face_look_down', 'angle', 'face', 'Face, looking down',
        'close-up portrait, looking slightly downward, pensive, indoor blurred background', cb=True),
-    _e('bust_front', 'framing', 'bust', 'Buste face',
+    _e('bust_front', 'framing', 'bust', 'Bust, front',
        'upper body portrait, front view, neutral, wearing a casual top different from the reference outfit',
        co=True, cb=True),
-    _e('bust_34', 'framing', 'bust', 'Buste 3/4',
+    _e('bust_34', 'framing', 'bust', 'Bust, three-quarter',
        'upper body portrait, three-quarter view, smiling, different outfit, indoor', co=True, cb=True),
-    _e('bust_outdoor', 'background', 'bust', 'Buste exterieur',
+    _e('bust_outdoor', 'background', 'bust', 'Bust, outdoor',
        'upper body portrait, front view, outdoor park background', cb=True),
-    _e('bust_studio', 'background', 'bust', 'Buste studio',
+    _e('bust_studio', 'background', 'bust', 'Bust, studio',
        'upper body portrait, three-quarter view, studio backdrop', cb=True),
-    _e('bust_jacket', 'outfit', 'bust', 'Buste, veste',
+    _e('bust_jacket', 'outfit', 'bust', 'Bust, jacket',
        'upper body portrait, wearing a jacket different from the reference outfit, urban background',
        co=True, cb=True),
-    _e('bust_evening', 'outfit', 'bust', 'Buste, tenue soiree',
+    _e('bust_evening', 'outfit', 'bust', 'Bust, evening outfit',
        'upper body portrait, elegant evening look, different from the reference outfit, dim ambient light',
        co=True, cb=True),
-    _e('body_stand_front', 'framing', 'body', 'Corps debout face',
+    _e('body_stand_front', 'framing', 'body', 'Body standing, front',
        'full body shot, standing, front view, casual clothes different from the reference outfit, street',
        co=True, cb=True),
-    _e('body_stand_34', 'framing', 'body', 'Corps debout 3/4',
+    _e('body_stand_34', 'framing', 'body', 'Body standing, three-quarter',
        'full body shot, standing, three-quarter view, different outfit, outdoor', co=True, cb=True),
-    _e('body_sit', 'framing', 'body', 'Corps assis',
+    _e('body_sit', 'framing', 'body', 'Body sitting',
        'full body shot, sitting on a chair, relaxed, indoor', co=True, cb=True),
-    _e('body_walk', 'framing', 'body', 'Corps en marche',
+    _e('body_walk', 'framing', 'body', 'Body walking',
        'full body shot, walking, dynamic pose, city background', co=True, cb=True),
-    _e('body_cafe', 'background', 'body', 'Corps, cafe',
+    _e('body_cafe', 'background', 'body', 'Body, café',
        'full body shot, standing in a cafe, warm light', co=True, cb=True),
-    _e('body_beach', 'background', 'body', 'Corps, plage (habille)',
+    _e('body_beach', 'background', 'body', 'Body, beach (clothed)',
        'full body shot, standing on a beach, summer casual clothes different from the reference outfit, daylight',
        co=True, cb=True),
-    _e('back_34', 'framing', 'back', 'Dos 3/4',
+    _e('back_34', 'framing', 'back', 'Back, three-quarter',
        'full body shot, three-quarter back view, showing hairstyle and silhouette', co=True, cb=True),
-    _e('body_wide_env', 'framing', 'body', 'Corps, plan large urbain',
+    _e('body_wide_env', 'framing', 'body', 'Body, wide urban shot',
        'full body shot, wide environmental framing, subject off-center, lots of background, urban plaza',
        co=True, cb=True, aspect='16:9'),
-    _e('body_walk_wide', 'framing', 'body', 'Corps en marche, large',
+    _e('body_walk_wide', 'framing', 'body', 'Body walking, wide shot',
        'full body shot, walking across a wide street, dynamic, cinematic wide framing',
        co=True, cb=True, aspect='16:9'),
-    _e('body_land_outdoor', 'framing', 'body', 'Corps, paysage exterieur',
+    _e('body_land_outdoor', 'framing', 'body', 'Body, outdoor landscape',
        'full body shot, standing outdoors, wide natural landscape background, daylight',
        co=True, cb=True, aspect='4:3'),
-    _e('body_sit_terrace', 'framing', 'body', 'Corps assis, terrasse large',
+    _e('body_sit_terrace', 'framing', 'body', 'Body sitting, wide terrace',
        'full body shot, sitting on a cafe terrace, wide framing, warm light',
        co=True, cb=True, aspect='4:3'),
-    _e('body_field_wide', 'framing', 'body', 'Corps, champ large',
+    _e('body_field_wide', 'framing', 'body', 'Body, wide open field',
        'full body shot, standing in an open field, wide nature background, soft daylight',
        co=True, cb=True, aspect='16:9'),
-    _e('bust_land', 'framing', 'bust', 'Buste, cadre paysage',
+    _e('bust_land', 'framing', 'bust', 'Bust, landscape framing',
        'upper body portrait, landscape framing, environment visible on the sides, outdoor',
        cb=True, aspect='4:3'),
     # --- Body emphasis (fidélité corps) : silhouette RÉELLEMENT visible mais dans
     # le registre AUTORISÉ des moteurs API (vêtements ajustés, maillot de bain en
     # contexte plage/piscine, tenue de sport, robe moulante, contre-jour). Pas de
     # contournement de filtre : pour du contenu explicite → Klein en local.
-    _e('bust_fitted_top', 'outfit', 'bust', 'Buste, haut ajusté',
+    _e('bust_fitted_top', 'outfit', 'bust', 'Bust, fitted top',
        'upper body portrait, fitted ribbed knit top, natural relaxed pose, soft indoor light',
        co=True, cb=True),
-    _e('bust_summer_dress', 'outfit', 'bust', 'Buste, robe d\'été',
+    _e('bust_summer_dress', 'outfit', 'bust', 'Bust, summer dress',
        'upper body portrait, fitted summer dress with thin straps, golden hour light, outdoor',
        co=True, cb=True),
-    _e('bust_swim', 'outfit', 'bust', 'Buste, maillot (plage)',
+    _e('bust_swim', 'outfit', 'bust', 'Bust, swimsuit (beach)',
        'upper body portrait, wearing a bikini top, sunny beach in the background, bright '
        'daylight, natural relaxed pose', co=True, cb=True),
-    _e('body_bodycon', 'outfit', 'body', 'Corps, robe moulante',
+    _e('body_bodycon', 'outfit', 'body', 'Body, bodycon dress',
        'full body shot, elegant fitted bodycon evening dress, standing, upscale hotel lobby, '
        'warm ambient light', co=True, cb=True),
-    _e('body_athletic', 'outfit', 'body', 'Corps, tenue de sport',
+    _e('body_athletic', 'outfit', 'body', 'Body, sportswear',
        'full body shot, athletic sportswear, fitted leggings and sports top, gym setting, '
        'confident stance', co=True, cb=True),
-    _e('body_swim_beach', 'outfit', 'body', 'Corps, bikini plage',
+    _e('body_swim_beach', 'outfit', 'body', 'Body, bikini beach',
        'full body shot, wearing a bikini, standing on a sunny beach, natural relaxed pose, '
        'bright daylight', co=True, cb=True, aspect='3:4'),
-    _e('body_swim_pool', 'outfit', 'body', 'Corps, maillot piscine',
+    _e('body_swim_pool', 'outfit', 'body', 'Body, swimsuit pool',
        'full body shot, one-piece swimsuit, standing at the edge of a swimming pool, summer '
        'daylight', co=True, cb=True, aspect='3:4'),
-    _e('body_jeans_fit', 'outfit', 'body', 'Corps, jean ajusté',
+    _e('body_jeans_fit', 'outfit', 'body', 'Body, fitted jeans',
        'full body shot, fitted high-waisted jeans and tucked-in top, urban street, daylight',
        co=True, cb=True),
-    _e('body_silhouette', 'lighting', 'body', 'Corps, silhouette contre-jour',
+    _e('body_silhouette', 'lighting', 'body', 'Body, backlit silhouette',
        'full body shot, backlit near a large window, figure outlined by rim light, elegant '
        'fitted dress, moody interior', co=True, cb=True),
     # Gros plans VISAGE en formats variés (preset visage-centré) : la robustesse de
     # format sur le visage lui-même, sans plan corps (corps reste générique).
-    _e('face_land', 'framing', 'face', 'Visage, cadre paysage',
+    _e('face_land', 'framing', 'face', 'Face, landscape framing',
        'close-up portrait, three-quarter view, landscape framing, face to one side with environment, outdoor',
        cb=True, aspect='4:3'),
-    _e('face_tall', 'framing', 'face', 'Visage, cadre vertical',
+    _e('face_tall', 'framing', 'face', 'Face, tall framing',
        'close-up portrait, front view, tall vertical framing, head and shoulders, soft natural light',
        cb=True, aspect='9:16'),
-    _e('face_wide', 'framing', 'face', 'Visage, cadre cinema',
+    _e('face_wide', 'framing', 'face', 'Face, cinematic framing',
        'close-up portrait, wide cinematic framing, face off-center, blurred background',
        cb=True, aspect='16:9'),
 ]
@@ -352,34 +352,34 @@ VARIATION_CATALOG = [
 # Le caption doit décrire l'état (nude/lingerie) pour qu'il reste promptable et
 # ne se lie pas au trigger (principe d'inversion).
 NSFW_VARIATION_CATALOG = [
-    _e('nsfw_bust_lingerie', 'nsfw', 'bust', 'Buste, lingerie',
+    _e('nsfw_bust_lingerie', 'nsfw', 'bust', 'Bust, lingerie',
        'bust shot, wearing delicate lace lingerie, bedroom, soft window light',
        co=True, cb=True),
-    _e('nsfw_bust_topless', 'nsfw', 'bust', 'Buste, topless',
+    _e('nsfw_bust_topless', 'nsfw', 'bust', 'Bust, topless',
        'bust shot, topless, bare chest, neutral indoor background, natural light',
        co=True, cb=True),
-    _e('nsfw_bust_towel', 'nsfw', 'bust', 'Buste, serviette',
+    _e('nsfw_bust_towel', 'nsfw', 'bust', 'Bust, towel',
        'bust shot, wrapped in a bath towel, bare shoulders, bathroom, soft light',
        co=True, cb=True),
-    _e('nsfw_body_lingerie', 'nsfw', 'body', 'Corps, lingerie debout',
+    _e('nsfw_body_lingerie', 'nsfw', 'body', 'Body, lingerie standing',
        'full body shot, standing, matching lace lingerie set, bedroom interior, soft light',
        co=True, cb=True, aspect='3:4'),
-    _e('nsfw_body_nude_stand', 'nsfw', 'body', 'Corps, nu debout',
+    _e('nsfw_body_nude_stand', 'nsfw', 'body', 'Body, nude standing',
        'full body shot, standing fully nude, natural anatomy, relaxed pose, neutral studio '
        'background, soft even light', co=True, cb=True, aspect='3:4'),
-    _e('nsfw_body_nude_34', 'nsfw', 'body', 'Corps, nu trois-quarts',
+    _e('nsfw_body_nude_34', 'nsfw', 'body', 'Body, nude three-quarter',
        'full body shot, three-quarter view, fully nude, natural anatomy, standing by a large '
        'window, soft daylight', co=True, cb=True, aspect='3:4'),
-    _e('nsfw_body_nude_sit', 'nsfw', 'body', 'Corps, nu assis lit',
+    _e('nsfw_body_nude_sit', 'nsfw', 'body', 'Body, nude sitting on bed',
        'full body shot, sitting nude on the edge of a bed, relaxed natural pose, warm bedroom '
        'light', co=True, cb=True, aspect='3:4'),
-    _e('nsfw_body_nude_lying', 'nsfw', 'body', 'Corps, nu allongé',
+    _e('nsfw_body_nude_lying', 'nsfw', 'body', 'Body, nude lying',
        'full body shot, lying nude on a bed on her side, natural anatomy, soft morning light',
        co=True, cb=True, aspect='4:3'),
-    _e('nsfw_body_shower', 'nsfw', 'body', 'Corps, nu douche',
+    _e('nsfw_body_shower', 'nsfw', 'body', 'Body, nude shower',
        'full body shot, nude in the shower, wet skin and hair, water droplets, glass and tile '
        'background', co=True, cb=True, aspect='9:16'),
-    _e('nsfw_back_nude', 'nsfw', 'back', 'Dos, nu',
+    _e('nsfw_back_nude', 'nsfw', 'back', 'Back, nude',
        'full body shot from behind, standing nude, back and buttocks visible, natural anatomy, '
        'neutral background', co=True, cb=True, aspect='3:4'),
 ]
@@ -398,10 +398,104 @@ del _entry
 _NSFW_LABELS = {e['label'] for e in NSFW_VARIATION_CATALOG}
 
 
+# Legacy label aliases (old French persisted key -> current English catalog label).
+# The catalog labels used to be French and are stored verbatim on every generated
+# row (FaceDatasetImage.variation_label) AND inside dataset backups. Regeneration,
+# the NSFW/Klein-only guard and the aspect-ratio resolver all look a stored label
+# up against the live catalog, so translating the labels would ORPHAN every dataset
+# created before the migration (wrong prompt fallback, NSFW shots leaking to API
+# engines, lost aspect overrides). Every by-label lookup routes the incoming label
+# through this map first, so old rows keep resolving exactly as they used to.
+# One entry per translated label; keys are the pre-migration French strings, values
+# must each be a current catalog label (guarded by test_legacy_aliases_resolve).
+LEGACY_LABEL_ALIASES = {
+    # Face
+    'Visage face, neutre': 'Face front, neutral',
+    'Visage face, sourire': 'Face front, smile',
+    'Visage 3/4 gauche, sourire': 'Face 3/4 left, smile',
+    'Visage 3/4 gauche, serieux': 'Face 3/4 left, serious',
+    'Visage 3/4 droite, rire': 'Face 3/4 right, laugh',
+    'Visage 3/4 droite, doux': 'Face 3/4 right, gentle',
+    'Profil gauche': 'Profile left',
+    'Profil droite': 'Profile right',
+    'Profil gauche, sourire': 'Profile left, smile',
+    'Profil droite, sourire': 'Profile right, smile',
+    'Profil gauche, serieux': 'Profile left, serious',
+    'Profil droite, serieux': 'Profile right, serious',
+    'Profil gauche, regard haut': 'Profile left, looking up',
+    'Profil droite, regard haut': 'Profile right, looking up',
+    'Profil gauche, lumiere cinema': 'Profile left, rim light',
+    'Profil droite, lumiere cinema': 'Profile right, rim light',
+    'Visage, lumiere fenetre': 'Face, window light',
+    'Visage, studio': 'Face, studio',
+    'Visage, golden hour': 'Face, golden hour',
+    'Visage, surprise': 'Face, surprise',
+    'Visage, regard haut': 'Face, looking up',
+    'Visage, regard bas': 'Face, looking down',
+    # Bust
+    'Buste face': 'Bust, front',
+    'Buste 3/4': 'Bust, three-quarter',
+    'Buste exterieur': 'Bust, outdoor',
+    'Buste studio': 'Bust, studio',
+    'Buste, veste': 'Bust, jacket',
+    'Buste, tenue soiree': 'Bust, evening outfit',
+    'Buste, cadre paysage': 'Bust, landscape framing',
+    'Buste, haut ajusté': 'Bust, fitted top',
+    "Buste, robe d'été": 'Bust, summer dress',
+    'Buste, maillot (plage)': 'Bust, swimsuit (beach)',
+    # Body
+    'Corps debout face': 'Body standing, front',
+    'Corps debout 3/4': 'Body standing, three-quarter',
+    'Corps assis': 'Body sitting',
+    'Corps en marche': 'Body walking',
+    'Corps, cafe': 'Body, café',
+    'Corps, plage (habille)': 'Body, beach (clothed)',
+    'Corps, plan large urbain': 'Body, wide urban shot',
+    'Corps en marche, large': 'Body walking, wide shot',
+    'Corps, paysage exterieur': 'Body, outdoor landscape',
+    'Corps assis, terrasse large': 'Body sitting, wide terrace',
+    'Corps, champ large': 'Body, wide open field',
+    'Corps, robe moulante': 'Body, bodycon dress',
+    'Corps, tenue de sport': 'Body, sportswear',
+    'Corps, bikini plage': 'Body, bikini beach',
+    'Corps, maillot piscine': 'Body, swimsuit pool',
+    'Corps, jean ajusté': 'Body, fitted jeans',
+    'Corps, silhouette contre-jour': 'Body, backlit silhouette',
+    # Back
+    'Dos 3/4': 'Back, three-quarter',
+    # Face formats
+    'Visage, cadre paysage': 'Face, landscape framing',
+    'Visage, cadre vertical': 'Face, tall framing',
+    'Visage, cadre cinema': 'Face, cinematic framing',
+    # NSFW catalog (local Klein only)
+    'Buste, lingerie': 'Bust, lingerie',
+    'Buste, topless': 'Bust, topless',
+    'Buste, serviette': 'Bust, towel',
+    'Corps, lingerie debout': 'Body, lingerie standing',
+    'Corps, nu debout': 'Body, nude standing',
+    'Corps, nu trois-quarts': 'Body, nude three-quarter',
+    'Corps, nu assis lit': 'Body, nude sitting on bed',
+    'Corps, nu allongé': 'Body, nude lying',
+    'Corps, nu douche': 'Body, nude shower',
+    'Dos, nu': 'Back, nude',
+}
+
+
+def canonical_label(label):
+    """Resolve a stored variation label to its current catalog label. Pre-migration
+    rows (and backups) persisted the French labels; those strings are still what the
+    DB hands back on regeneration, so every by-label lookup passes through here first.
+    Current English labels, 🔞 custom-prompt labels and empty/None all pass through
+    unchanged (they are absent from LEGACY_LABEL_ALIASES)."""
+    return LEGACY_LABEL_ALIASES.get(label, label)
+
+
 def is_nsfw_label(label) -> bool:
     """True when a variation label belongs to the NSFW catalog or carries the 🔞
     custom-prompt prefix — drives the Klein-only guard and the NSFW wrapper on
-    regeneration (the DB row only stores the label)."""
+    regeneration (the DB row only stores the label). A legacy French NSFW label is
+    canonicalised first so pre-migration nude shots stay fail-closed on local Klein."""
+    label = canonical_label(label)
     return bool(label) and (label in _NSFW_LABELS or label.startswith('🔞'))
 
 
@@ -478,7 +572,9 @@ def select_preset(name: str):
 
 def prompt_by_label(label):
     """Raw catalog prompt for a display label (fallback for pre-migration rows).
-    Searches the SFW catalog then the NSFW one (regenerate needs both)."""
+    Searches the SFW catalog then the NSFW one (regenerate needs both). The label is
+    canonicalised first so a legacy French label still recovers its prompt."""
+    label = canonical_label(label)
     return next((e['prompt'] for e in VARIATION_CATALOG + NSFW_VARIATION_CATALOG
                  if e['label'] == label), None)
 
@@ -501,7 +597,9 @@ def aspect_for_entry(entry) -> str:
 def aspect_for_label(label, framing='face') -> str:
     """Ratio résolu PAR LABEL sur le catalogue serveur (autoritatif) — le frontend
     n'envoie pas l'aspect, et la régénération n'a que la ligne DB. Retrouve l'entrée
-    par son label → son override ; label inconnu → fallback cadrage."""
+    par son label → son override ; label inconnu → fallback cadrage. Le label est
+    d'abord canonicalisé pour qu'un ancien label français retrouve son override."""
+    label = canonical_label(label)
     e = next((x for x in VARIATION_CATALOG + NSFW_VARIATION_CATALOG
               if x['label'] == label), None)
     return aspect_for_entry(e) if e else aspect_for_framing(framing)

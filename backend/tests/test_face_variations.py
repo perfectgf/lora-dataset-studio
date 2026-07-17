@@ -3,7 +3,9 @@ import re
 from app.services.face_variations import (VARIATION_CATALOG, NSFW_VARIATION_CATALOG,
     select_preset, aspect_for_framing, composition_counts, drop_identity_tags,
     OUTFIT_VARY, EXPRESSION_NEUTRAL, _HAS_OUTFIT, _HAS_EXPRESSION,
-    wrap_variation, wrap_variation_klein)
+    wrap_variation, wrap_variation_klein,
+    LEGACY_LABEL_ALIASES, canonical_label, is_nsfw_label, prompt_by_label,
+    aspect_for_label)
 
 
 def test_catalog_shape():
@@ -102,9 +104,9 @@ def test_nsfw_shots_keep_state_but_neutralise_expression():
 
 
 def test_catalog_prompts_are_english():
-    """Generation PROMPTS must be English. (Display LABELS stay as their French
-    persisted keys by design — they key is_nsfw_label / prompt_by_label on stored
-    DB rows, so translating them is a data migration, not a prompt tweak.)"""
+    """Generation PROMPTS must be English. (Display LABELS are now English too — see
+    test_catalog_labels_are_english — after the FR->EN translation from waltm's PR;
+    the pre-migration French labels stay resolvable through LEGACY_LABEL_ALIASES.)"""
     french = re.compile(
         r'\b(buste|corps|dos|visage|robe|haut|tenue|maillot|assis|debout|marche|'
         r'moulante|ajust\w*|s[ée]rieux|sourire|veste|plage|piscine|champ|paysage|'
@@ -122,3 +124,80 @@ def test_wrappers_scope_reference_to_face_identity():
     assert 'do NOT copy the outfit' in api_multi
     kl = wrap_variation_klein('upper body portrait', framing='bust')
     assert 'do not copy' in kl and 'outfit' in kl and 'facial expression' in kl
+
+
+# --- Label translation + legacy alias (rattraper l'existant) -----------------
+# The catalog labels used to be French and are persisted verbatim on every
+# generated row (variation_label) and inside dataset backups. is_nsfw_label /
+# prompt_by_label / aspect_for_label all resolve a stored label against the live
+# catalog, so the FR->EN translation would orphan pre-migration datasets without
+# LEGACY_LABEL_ALIASES. (Empirical orphaning-vs-repair proof: prove_orphaning.py.)
+_CUR_LABELS = {e['label'] for e in VARIATION_CATALOG + NSFW_VARIATION_CATALOG}
+
+
+def test_catalog_labels_are_english():
+    """The display labels are English now (they used to be French persisted keys).
+    Guards against a French label sneaking back into the catalog."""
+    french = re.compile(
+        r'\b(visage|buste|corps|dos|profil|gauche|droite|serieux|sourire|rire|'
+        r'veste|robe|maillot|plage|piscine|champ|paysage|lumiere|fenetre|serviette|'
+        r'debout|assis|marche|allong\w*|douche|regard|cadre|habille|exterieur)\b', re.I)
+    for e in VARIATION_CATALOG + NSFW_VARIATION_CATALOG:
+        assert not french.search(e['label']), f"French label survived: {e['label']!r}"
+
+
+def test_all_labels_unique():
+    """No two entries share a display label, so a stored label resolves to one entry."""
+    labels = [e['label'] for e in VARIATION_CATALOG + NSFW_VARIATION_CATALOG]
+    assert len(labels) == len(set(labels))
+
+
+def test_legacy_aliases_are_well_formed():
+    """Every alias VALUE is a live catalog label; every KEY is a retired (French)
+    label, never a current one; and the targets cover the whole catalog 1:1."""
+    assert len(LEGACY_LABEL_ALIASES) == len(VARIATION_CATALOG) + len(NSFW_VARIATION_CATALOG)
+    for fr, en in LEGACY_LABEL_ALIASES.items():
+        assert en in _CUR_LABELS, f"alias target not in catalog: {en!r}"
+        assert fr not in _CUR_LABELS, f"alias key is still a live label: {fr!r}"
+    assert set(LEGACY_LABEL_ALIASES.values()) == _CUR_LABELS
+
+
+def test_canonical_label_passthrough():
+    assert canonical_label('Face front, neutral') == 'Face front, neutral'   # current
+    assert canonical_label('Visage face, neutre') == 'Face front, neutral'   # legacy
+    assert canonical_label('\U0001f51e custom scene').startswith('\U0001f51e')  # custom prompt
+    assert canonical_label('') == '' and canonical_label(None) is None
+
+
+def test_legacy_labels_resolve_identically_to_new_labels():
+    """A pre-migration row (French label) resolves to the SAME prompt, NSFW verdict
+    and aspect as the current English label of the same shot — the orphaning the
+    alias prevents (without it: None prompt, NSFW->False, aspect override lost)."""
+    for fr, en in LEGACY_LABEL_ALIASES.items():
+        assert is_nsfw_label(fr) == is_nsfw_label(en), fr
+        assert prompt_by_label(fr) is not None, fr
+        assert prompt_by_label(fr) == prompt_by_label(en), fr
+        assert aspect_for_label(fr) == aspect_for_label(en), fr
+
+
+def test_legacy_nsfw_labels_stay_fail_closed():
+    """Every retired French NSFW label must still read as NSFW so the row stays
+    pinned to local Klein and never leaks to a third-party API engine."""
+    for e in NSFW_VARIATION_CATALOG:
+        fr = next(k for k, v in LEGACY_LABEL_ALIASES.items() if v == e['label'])
+        assert is_nsfw_label(fr) is True, fr
+
+
+def test_mixed_era_dataset_resolves_without_duplication():
+    """A dataset mixing a legacy FR row and a new EN row of the same shot resolves
+    both to one entry (identical prompt + aspect)."""
+    assert prompt_by_label('Corps, nu debout') == prompt_by_label('Body, nude standing')
+    assert aspect_for_label('Corps, plan large urbain') == aspect_for_label('Body, wide urban shot') == '16:9'
+
+
+def test_unknown_label_is_inert():
+    """An unknown/custom label is not NSFW, has no catalog prompt, and falls back to
+    the framing aspect (unchanged behaviour, alias must not swallow it)."""
+    assert is_nsfw_label('totally unknown shot') is False
+    assert prompt_by_label('totally unknown shot') is None
+    assert aspect_for_label('totally unknown shot', 'body') == '3:4'
