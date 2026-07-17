@@ -16,6 +16,36 @@ def test_autodetect_ollama_reachable_picks_vl_model(monkeypatch):
     assert r['comfyui'] == {} and r['aitoolkit'] == {}
 
 
+_ABLIT_INSTRUCT = 'huihui_ai/qwen3-vl-abliterated:8b-instruct'
+
+
+def test_autodetect_prefers_abliterated_over_vanilla_instruct(monkeypatch):
+    """Both -instruct tags installed: the uncensored abliterated build must win over the
+    censored vanilla one (which refuses the NSFW describe/caption work the app relies on)."""
+    monkeypatch.setattr(cap, '_http_ok', lambda url, timeout=3: '11434' in url)
+    monkeypatch.setattr(cap, '_ollama_tags',
+                        lambda url, timeout=3: ['qwen3-vl:8b-instruct', _ABLIT_INSTRUCT])
+    monkeypatch.setattr(cap, '_find_install_dir', lambda names, marker: '')
+    assert cap.autodetect()['ollama']['vision_model'] == _ABLIT_INSTRUCT
+
+
+def test_autodetect_abliterated_only(monkeypatch):
+    """Abliterated is the only vision model present -> it is selected."""
+    monkeypatch.setattr(cap, '_http_ok', lambda url, timeout=3: '11434' in url)
+    monkeypatch.setattr(cap, '_ollama_tags', lambda url, timeout=3: ['llama3:8b', _ABLIT_INSTRUCT])
+    monkeypatch.setattr(cap, '_find_install_dir', lambda names, marker: '')
+    assert cap.autodetect()['ollama']['vision_model'] == _ABLIT_INSTRUCT
+
+
+def test_autodetect_vanilla_only_unchanged(monkeypatch):
+    """No abliterated build installed: the prior instruct-over-thinking pick is unchanged."""
+    monkeypatch.setattr(cap, '_http_ok', lambda url, timeout=3: '11434' in url)
+    monkeypatch.setattr(cap, '_ollama_tags',
+                        lambda url, timeout=3: ['qwen3-vl:8b', 'qwen3-vl:8b-instruct'])
+    monkeypatch.setattr(cap, '_find_install_dir', lambda names, marker: '')
+    assert cap.autodetect()['ollama']['vision_model'] == 'qwen3-vl:8b-instruct'
+
+
 def test_autodetect_ollama_up_but_no_vl_model(monkeypatch):
     monkeypatch.setattr(cap, '_http_ok', lambda url, timeout=3: '11434' in url)
     monkeypatch.setattr(cap, '_ollama_tags', lambda url, timeout=3: ['llama3:8b'])  # no vision model

@@ -503,11 +503,17 @@ def _detect_ollama() -> dict:
     out = {'url': _OLLAMA_DEFAULT_URL}
     names = _ollama_tags(_OLLAMA_DEFAULT_URL)
     vls = [n for n in names if 'vl' in (n or '').lower() or 'vision' in (n or '').lower()]
-    # Prefer an -instruct tag over the Thinking variant: on a caption/omission task the
-    # Thinking model reasons out loud instead of captioning (see get_vision_model), so if
-    # both are installed, pick instruct; failing that, anything that isn't 'thinking'.
-    vl = (next((n for n in vls if 'instruct' in (n or '').lower()), '')
-          or next((n for n in vls if 'thinking' not in (n or '').lower()), '')
+    # Preference among installed vision models. The uncensored *abliterated* build wins
+    # first: the app's describe/caption work is NSFW-heavy and the vanilla qwen3-vl
+    # refuses it outright, so an abliterated model must beat a censored one even when the
+    # censored one is an -instruct tag. WITHIN a tier we still prefer -instruct over the
+    # Thinking variant (Thinking reasons out loud instead of captioning; see
+    # get_vision_model), then anything non-thinking. First match wins (order preserved).
+    lo = [(n, (n or '').lower()) for n in vls]
+    vl = (next((n for n, low in lo if 'abliterated' in low and 'instruct' in low), '')
+          or next((n for n, low in lo if 'abliterated' in low), '')
+          or next((n for n, low in lo if 'instruct' in low), '')
+          or next((n for n, low in lo if 'thinking' not in low), '')
           or (vls[0] if vls else ''))
     if vl:
         out['vision_model'] = vl
