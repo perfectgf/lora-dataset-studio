@@ -90,7 +90,9 @@ def dataset_create():
         ds = svc.create_dataset(LOCAL_USER, name, trigger, kind=data.get('kind'),
                                 concept_desc=data.get('concept_desc'),
                                 train_type=data.get('train_type'),
-                                fidelity=data.get('fidelity'))
+                                fidelity=data.get('fidelity'),
+                                prompt_suffix=data.get('prompt_suffix'),
+                                prompt_suffixes=data.get('prompt_suffixes'))
     except ValueError as e:
         # concept dataset without a concept description -> 400 (not a 500)
         return jsonify({'error': str(e)}), 400
@@ -121,12 +123,17 @@ def dataset_update_settings(dataset_id):
     """Edit name / trigger word / (concept) description after creation. Changing the
     trigger is safe (it's prepended at export — no re-caption). Changing a concept
     dataset's description resets the caption avoid-list cache; re-caption to apply it
-    to existing captions (response flags concept_desc_changed for the UI hint)."""
+    to existing captions (response flags concept_desc_changed for the UI hint).
+    Also edits the creative-direction prompt suffixes (global text +
+    {face,bust,body,back} map) — applied to FUTURE generations at wrap time;
+    absent = untouched, '' / {} = cleared."""
     data = request.get_json(silent=True) or {}
     try:
         res = svc.update_dataset_settings(
             LOCAL_USER, dataset_id, name=data.get('name'),
-            trigger_word=data.get('trigger_word'), concept_desc=data.get('concept_desc'))
+            trigger_word=data.get('trigger_word'), concept_desc=data.get('concept_desc'),
+            prompt_suffix=data.get('prompt_suffix'),
+            prompt_suffixes=data.get('prompt_suffixes'))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return (jsonify(res), 200) if res else (jsonify({'error': 'not found'}), 404)

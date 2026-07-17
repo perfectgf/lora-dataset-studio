@@ -65,6 +65,8 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset', 'train_slider', 'TEXT'),
     ('face_dataset', 'train_vae_path', 'TEXT'),
     ('face_dataset', 'train_te_path', 'TEXT'),
+    ('face_dataset', 'prompt_suffix', 'TEXT'),
+    ('face_dataset', 'prompt_suffixes', 'TEXT'),
     ('face_dataset_image', 'fail_reason', 'TEXT'),
     ('face_dataset_image', 'parent_image_id', 'INTEGER'),
     ('face_dataset_image', 'derivation_kind', 'VARCHAR(32)'),

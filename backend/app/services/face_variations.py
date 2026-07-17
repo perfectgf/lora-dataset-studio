@@ -34,9 +34,56 @@ IDENTITY_GUARD_MULTI = (
     "SFW, realistic photographic portrait.")
 
 
-def wrap_variation(prompt: str, ref_count: int = 1) -> str:
+# --- Prompt suffixes (community feature request) -----------------------------
+# A FREE creative direction the user attaches to the DATASET (global text and/or a
+# per-framing map {face,bust,body,back}) that rides on every generated variation.
+# Applied at WRAP time ONLY: the stored variation_prompt stays raw, so a later
+# regenerate re-applies the CURRENT suffix exactly once (baking it into the stored
+# prompt would double-apply on regeneration). The suffix always lands in the
+# DESCRIPTIVE portion of the wrapper — never ahead of (or inside) the identity
+# lock, which stays byte-identical.
+def _append_suffix(prompt: str, suffix: str) -> str:
+    """Splice the creative-direction suffix into the descriptive prompt text.
+    Empty/blank suffix -> the prompt comes back byte-identical (the no-suffix
+    regression invariant). Trailing '.'/',' are trimmed on both sides so the
+    join always reads as one clean comma-separated description."""
+    s = (suffix or '').strip().rstrip('.,').strip()
+    if not s:
+        return prompt
+    p = (prompt or '').rstrip().rstrip('.,').rstrip()
+    return f'{p}, {s}'
+
+
+def compose_prompt_suffix(global_suffix, framing_suffixes=None, framing=None) -> str:
+    """Effective suffix for ONE shot. `framing_suffixes` is the per-framing map
+    {face,bust,body,back} — as a dict or the JSON string stored on the dataset
+    row (defensively parsed). Composition order: the per-framing suffix FIRST
+    (the more specific direction sits closest to the shot description), then the
+    global one, comma-joined; an exact duplicate collapses to one. Returns ''
+    when nothing applies. Pure — no DB, no Flask."""
+    m = framing_suffixes
+    if isinstance(m, str):
+        try:
+            m = json.loads(m)
+        except (ValueError, TypeError):
+            m = None
+    per = ''
+    if isinstance(m, dict) and framing:
+        v = m.get(framing)
+        per = v.strip() if isinstance(v, str) else ''
+    g = (global_suffix or '').strip()
+    if per and g and per.lower() == g.lower():
+        g = ''
+    parts = [x for x in (per.rstrip('.,').strip(), g.rstrip('.,').strip()) if x]
+    return ', '.join(parts)
+
+
+def wrap_variation(prompt: str, ref_count: int = 1, suffix: str = '') -> str:
+    """Guard-FIRST wrapper (API engines). The identity guard stays the very first
+    thing the model reads; the dataset suffix extends the descriptive tail AFTER
+    it (appended to the creative prompt), so the lock is never diluted."""
     guard = IDENTITY_GUARD_MULTI if ref_count > 1 else IDENTITY_GUARD
-    return f"{guard} {prompt}"
+    return f"{guard} {_append_suffix(prompt, suffix)}"
 
 
 # Enrichissement PAR CADRAGE pour Klein (étude prompts 2026-07-10, sources :
@@ -58,7 +105,8 @@ _KLEIN_FRAMING_DETAIL = {
 }
 
 
-def wrap_variation_klein(prompt: str, nsfw: bool = False, framing: str | None = None) -> str:
+def wrap_variation_klein(prompt: str, nsfw: bool = False, framing: str | None = None,
+                         suffix: str = '') -> str:
     """Klein (FLUX.2, Kontext-lineage) is an INSTRUCTION-edit model: it follows
     imperative edit commands (the consistency LoRA's own usage example is "Turn
     this cat into a dog"). The API-engine wrapper above — preservation order
@@ -74,13 +122,18 @@ def wrap_variation_klein(prompt: str, nsfw: bool = False, framing: str | None = 
     ignores the negative conditioning entirely; ComfyUI-NAG would be needed to
     restore them). All steering therefore lives in the POSITIVE prompt.
     `nsfw=True` (local Klein only — the route refuses NSFW on API engines) drops
-    the SFW clamp and allows explicit nudity with natural anatomy."""
+    the SFW clamp and allows explicit nudity with natural anatomy.
+    `suffix` (dataset prompt-suffix) joins the DESCRIPTIVE portion (2. — appended
+    to the creative prompt, before the framing detail): instruction-first means
+    the description IS the command, so the suffix steers the intended result and
+    never touches the restage/identity constraints that follow. Empty suffix ->
+    byte-identical output."""
     detail = _KLEIN_FRAMING_DETAIL.get(framing or '', '')
     ending = ("Explicit nudity is allowed; render natural, anatomically correct forms. "
               "Professional realistic photograph.") if nsfw else \
              "Professional realistic photograph, SFW."
     return (
-        f"Create a new photograph of the same person as the reference image: {prompt}. "
+        f"Create a new photograph of the same person as the reference image: {_append_suffix(prompt, suffix)}. "
         + (f"{detail} " if detail else "")
         + "Restage the shot to match this description — change the pose, camera angle, "
           "framing, clothing and facial expression accordingly; do not copy the "

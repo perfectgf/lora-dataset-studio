@@ -266,10 +266,14 @@ export function useDataset() {
   // Edit name / trigger / (concept) description after creation. Trigger change is
   // safe (prepended at export); a concept-desc change resets the avoid-list → the
   // toast nudges a re-caption (same contract as fidelity). Refreshes both views.
-  const updateSettings = useCallback(async ({ name, trigger_word, concept_desc }) => {
+  // prompt_suffix / prompt_suffixes (creative direction) ride along: applied at
+  // generation time only, '' / {} clears, absent (undefined) leaves untouched.
+  const updateSettings = useCallback(async ({
+    name, trigger_word, concept_desc, prompt_suffix, prompt_suffixes,
+  }) => {
     if (!currentId) return { ok: false };
     const d = await postJson(`/api/dataset/${currentId}/settings`,
-      { name, trigger_word, concept_desc });
+      { name, trigger_word, concept_desc, prompt_suffix, prompt_suffixes });
     if (!d.ok) { toast.error(d.error || 'Could not save settings'); return d; }
     toast.success(d.concept_desc_changed
       ? 'Saved — concept changed; re-caption to apply it to existing captions'

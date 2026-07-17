@@ -42,7 +42,7 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU,
                               JOYCAPTION_PROMPT, aspect_for_label, caption_prompt_for,
                               caption_prompt_for_style, caption_prompt_for_concept,
                               caption_has_identity_leak, caption_has_concept_leak,
-                              concept_lexical_field,
+                              compose_prompt_suffix, concept_lexical_field,
                               drop_identity_sentences, drop_identity_tags,
                               is_nsfw_label, prompt_by_label, wrap_variation,
                               wrap_variation_klein)
@@ -401,8 +401,71 @@ def normalize_train_type(t) -> str:
     return t if t in TRAIN_TYPES else 'zimage'
 
 
+# --- Prompt suffixes (creative direction, community feature request) ----------
+# Free user text that rides on every generated variation: a GLOBAL suffix plus an
+# optional per-framing map (same buckets as the composition). Persisted on the
+# dataset row, applied at WRAP time only (never baked into variation_prompt — a
+# regenerate would double-apply it). Composition: per-framing first, then global
+# (see face_variations.compose_prompt_suffix).
+SUFFIX_FRAMINGS = ('face', 'bust', 'body', 'back')
+MAX_SUFFIX_LEN = 300
+
+
+def _normalize_prompt_suffix(value):
+    """Provided global-suffix string -> stripped/capped text or None (cleared)."""
+    if not isinstance(value, str):
+        raise ValueError('prompt_suffix must be a string')
+    return value.strip()[:MAX_SUFFIX_LEN] or None
+
+
+def _normalize_prompt_suffixes(value):
+    """Provided per-framing map -> JSON text keeping only non-empty known keys,
+    or None when nothing remains ({} therefore CLEARS the map). The whole map is
+    replaced on each write — simple, predictable modal semantics."""
+    if not isinstance(value, dict):
+        raise ValueError('prompt_suffixes must be an object {face,bust,body,back}')
+    out = {}
+    for k in SUFFIX_FRAMINGS:
+        v = value.get(k)
+        if v is None:
+            continue
+        if not isinstance(v, str):
+            raise ValueError(f'prompt_suffixes.{k} must be a string')
+        v = v.strip()[:MAX_SUFFIX_LEN]
+        if v:
+            out[k] = v
+    return json.dumps(out, ensure_ascii=False) if out else None
+
+
+def prompt_suffixes_dict(ds) -> dict:
+    """The stored per-framing suffix map as a clean dict (defensive JSON parse;
+    unknown keys / non-string values dropped). {} when unset."""
+    raw = getattr(ds, 'prompt_suffixes', None) if ds else None
+    if not raw:
+        return {}
+    try:
+        m = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(m, dict):
+        return {}
+    return {k: v.strip() for k, v in m.items()
+            if k in SUFFIX_FRAMINGS and isinstance(v, str) and v.strip()}
+
+
+def dataset_prompt_suffix(ds, framing=None) -> str:
+    """The dataset's EFFECTIVE creative-direction suffix for one shot (per-framing
+    then global). Every wrap call site funnels through here so the suffix is
+    applied exactly once, at generation time — the stored variation_prompt stays
+    raw and regeneration can never double-apply it."""
+    if not ds:
+        return ''
+    return compose_prompt_suffix(getattr(ds, 'prompt_suffix', None),
+                                 getattr(ds, 'prompt_suffixes', None), framing)
+
+
 def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, train_type=None,
-                   fidelity=None, *, commit=True):
+                   fidelity=None, prompt_suffix=None, prompt_suffixes=None, *, commit=True):
     """Create a dataset and return its row.
 
     ``commit=False`` is reserved for callers that need to coordinate the row with
@@ -425,7 +488,13 @@ def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, tr
                      train_type=normalize_train_type(train_type),
                      # fidelity ne concerne que les personnages (concept : l'acte est
                      # omis ; style : les sujets varient, aucune identité à protéger).
-                     fidelity=(normalize_fidelity(fidelity) if k is None else None))
+                     fidelity=(normalize_fidelity(fidelity) if k is None else None),
+                     # Direction créative optionnelle (globale + par cadrage) appliquée
+                     # au wrap de chaque variation générée — cf. dataset_prompt_suffix.
+                     prompt_suffix=(_normalize_prompt_suffix(prompt_suffix)
+                                    if prompt_suffix is not None else None),
+                     prompt_suffixes=(_normalize_prompt_suffixes(prompt_suffixes)
+                                      if prompt_suffixes is not None else None))
     db.session.add(ds)
     db.session.flush()
     if k == 'style' and not (trigger_word or '').strip():
@@ -451,7 +520,7 @@ def set_train_type(user_id, dataset_id, train_type) -> bool:
 
 
 def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None,
-                            concept_desc=None):
+                            concept_desc=None, prompt_suffix=None, prompt_suffixes=None):
     """Edit a dataset's identity AFTER creation. Returns {'ok', 'concept_desc_changed'}
     or None if the dataset is absent; raises ValueError on invalid input.
 
@@ -459,7 +528,11 @@ def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None
     without it (it's prepended at export). Changing a concept dataset's **description**
     (what the captions must omit) invalidates the cached LLM avoid-list (concept_terms)
     so it regenerates — but images already captioned keep the OLD omission until
-    re-captioned (same 'future captions' contract as set_fidelity)."""
+    re-captioned (same 'future captions' contract as set_fidelity).
+
+    **prompt_suffix** (global text) / **prompt_suffixes** (map {face,bust,body,back}):
+    None = untouched; '' / {} = cleared. Applied at generation time only, so editing
+    them changes FUTURE generations/regenerations — existing images are untouched."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return None
@@ -481,6 +554,10 @@ def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None
             ds.concept_desc = d[:500]
             ds.concept_terms = None   # invalidate the cached LLM avoid-list → regenerated next caption
             concept_changed = True
+    if prompt_suffix is not None:
+        ds.prompt_suffix = _normalize_prompt_suffix(prompt_suffix)
+    if prompt_suffixes is not None:
+        ds.prompt_suffixes = _normalize_prompt_suffixes(prompt_suffixes)
     db.session.commit()
     return {'ok': True, 'concept_desc_changed': concept_changed}
 
@@ -1689,6 +1766,10 @@ def dataset_payload(user_id, dataset_id):
         'kind': (ds.kind or 'character'),
         'fidelity': (ds.fidelity or 'face') if not concept else 'face',
         'concept_desc': (ds.concept_desc or '') if concept else '',
+        # Creative-direction suffixes (global + per-framing) → settings modal
+        # prefill. Applied at wrap time; never part of the stored per-image prompt.
+        'prompt_suffix': ds.prompt_suffix or '',
+        'prompt_suffixes': prompt_suffixes_dict(ds),
         'ref_filename': ds.ref_filename,
         'ref_original_filename': ds.ref_original_filename or '',
         'ref_extra_filenames': extra_ref_filenames(ds), 'composition': comp,
@@ -3603,8 +3684,12 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                     job_id = enqueue_klein_edit(
                         user_id=str(user_id), source_filename=ds.ref_filename,
                         source_path=_ref_path(ds),
-                        edit_prompt=wrap_variation_klein(v['prompt'], nsfw=nsfw,
-                                                         framing=v.get('framing')),
+                        # Dataset suffix applied AT WRAP — the row above keeps the
+                        # raw catalog prompt, so regenerate re-applies the CURRENT
+                        # suffix exactly once (never a double application).
+                        edit_prompt=wrap_variation_klein(
+                            v['prompt'], nsfw=nsfw, framing=v.get('framing'),
+                            suffix=dataset_prompt_suffix(ds, v.get('framing'))),
                         klein_model=klein_model,
                         lora_strength=lora_strength, extra_ref_paths=extra_paths,
                         extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
@@ -3831,7 +3916,10 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
             source_path=ref_path,
             edit_prompt=wrap_variation_klein(
                 prompt, nsfw=is_nsfw_label(img.variation_label),
-                framing=img.framing),
+                framing=img.framing,
+                # CURRENT dataset suffix, applied at wrap: `prompt` is the raw
+                # stored/edited creative prompt, so this is the ONLY application.
+                suffix=dataset_prompt_suffix(ds, img.framing)),
             klein_model=model,
             lora_strength=lora_strength, extra_ref_paths=extra_paths,
             extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
@@ -3897,8 +3985,9 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
             # batch — every concurrent action stays disabled until it finishes.
             try:
                 threading.Thread(target=_run_nanobanana_batch,
-                                 args=(app, [(img.id, prompt, aspect)], ref_bytes, engine,
-                                       img.dataset_id),
+                                 args=(app, [(img.id, prompt, aspect,
+                                              dataset_prompt_suffix(ds, img.framing))],
+                                       ref_bytes, engine, img.dataset_id),
                                  daemon=True).start()
             except Exception as e:
                 img.status = 'failed'
@@ -3918,8 +4007,11 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                 from .chatgpt_image import _use_subscription
                 gen_kwargs['force_lane'] = 'subscription' if _use_subscription() else 'api'
             try:
-                out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=len(ref_bytes)),
-                                   **gen_kwargs)
+                out = api_generate(
+                    ref_bytes,
+                    wrap_variation(prompt, ref_count=len(ref_bytes),
+                                   suffix=dataset_prompt_suffix(ds, img.framing)),
+                    **gen_kwargs)
             except SubscriptionQuotaExceeded:
                 out = None
                 img.status = 'failed'
@@ -4019,9 +4111,12 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana', dataset_id
         if dataset_id is not None else None
 
     def _run_one(item):
-        # item = (image_id, prompt, aspect) ; aspect optionnel (rétro-compat → '1:1').
+        # item = (image_id, prompt, aspect, suffix) ; aspect optionnel (rétro-compat
+        # → '1:1'), suffix optionnel (direction créative du dataset, déjà composée
+        # par cadrage au call-site — rétro-compat → '').
         image_id, prompt = item[0], item[1]
         aspect = item[2] if len(item) > 2 else '1:1'
+        suffix = item[3] if len(item) > 3 else ''
         # Stop AVANT l'appel API : cancel_pending supprime les lignes en vol — si
         # celle-ci a disparu, ne pas payer une génération qui sera jetée (le bouton
         # Stop doit économiser le RESTE du batch, pas seulement masquer les tuiles).
@@ -4049,7 +4144,8 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana', dataset_id
         if engine == 'chatgpt':
             gen_kwargs['force_lane'] = force_lane
         try:
-            out = api_generate(ref_bytes, wrap_variation(prompt, ref_count=n_refs),
+            out = api_generate(ref_bytes,
+                               wrap_variation(prompt, ref_count=n_refs, suffix=suffix),
                                **gen_kwargs)
             if not out:
                 # api_generate signale certains refus/vides par un retour falsy
@@ -4146,7 +4242,11 @@ def generate_variations_nanobanana(app, user_id, dataset_id, variations, multipl
             db.session.add(img)
             db.session.commit()
             ids.append(img.id)
-            items.append((img.id, v['prompt'], aspect_for_label(v.get('label'), v.get('framing'))))
+            # Suffix composed HERE (per-framing) and carried by the work item: the
+            # row keeps the raw prompt, the batch worker applies it at wrap time.
+            items.append((img.id, v['prompt'],
+                          aspect_for_label(v.get('label'), v.get('framing')),
+                          dataset_prompt_suffix(ds, v.get('framing'))))
 
     threading.Thread(target=_run_nanobanana_batch,
                      args=(app, items, ref_bytes, engine, dataset_id),

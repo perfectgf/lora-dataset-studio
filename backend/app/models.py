@@ -63,6 +63,14 @@ class FaceDataset(db.Model):
     # leaks — both are additive columns (migration in create_app).
     concept_desc = db.Column(Text, nullable=True)
     concept_terms = db.Column(Text, nullable=True)
+    # Creative-direction PROMPT SUFFIXES (community feature request): free user
+    # text that rides on every generated variation. prompt_suffix = global text;
+    # prompt_suffixes = JSON map {face,bust,body,back} per framing. Applied at
+    # WRAP time only (face_variations.compose_prompt_suffix) — NEVER baked into
+    # the stored variation_prompt, otherwise a regenerate would double-apply it.
+    # Additive columns (migration in create_app).
+    prompt_suffix = db.Column(Text, nullable=True)
+    prompt_suffixes = db.Column(Text, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
 
