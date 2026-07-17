@@ -868,13 +868,18 @@ class StudioAssetsMissing(Exception):
 
     `.family` = pipeline key ('zimage'/'sdxl'/'krea'); `.missing_files` =
     [{path, kind}] with `path` a display path like 'models/vae/…'; `.missing_nodes`
-    = [class_type]."""
-    def __init__(self, family, missing_files, missing_nodes):
+    = [class_type]; `.invalid_files` = [{path, kind, reason}] for a referenced model
+    that IS on disk but is NOT real, loadable weights (an HTML gate page saved as
+    .safetensors, a truncated download) — the same silent-empty-tile failure as a
+    missing file, but the fix is 'delete + re-download', not 'place the file'."""
+    def __init__(self, family, missing_files, missing_nodes, invalid_files=None):
         self.family = family
         self.missing_files = list(missing_files)
         self.missing_nodes = list(missing_nodes)
-        n_f, n_n = len(self.missing_files), len(self.missing_nodes)
-        super().__init__(f'{family} studio assets missing: {n_f} file(s), {n_n} node(s)')
+        self.invalid_files = list(invalid_files or [])
+        n_f, n_n, n_i = len(self.missing_files), len(self.missing_nodes), len(self.invalid_files)
+        super().__init__(f'{family} studio assets missing: {n_f} file(s), '
+                         f'{n_n} node(s), {n_i} invalid file(s)')
 
 
 class StudioArchMismatch(Exception):
@@ -970,12 +975,13 @@ def _models_root():
     return str(d) if d else None
 
 
-def _ci_join_exists(root, rel):
-    """os.path.exists(root/rel) with each component matched case-INSENSITIVELY
-    below `root`. ComfyUI on Windows is case-insensitive and the workflow templates
-    carry mixed folder casing (node refs 'Z image\\…' / 'Krea\\…' vs the on-disk
-    'z image' / 'krea') — a case-sensitive filesystem (cloud) must NOT read those
-    as missing. `root` is assumed to exist."""
+def _ci_resolve(root, rel):
+    """The real absolute path of root/rel with each component matched
+    case-INSENSITIVELY below `root`, or None when no such entry exists. ComfyUI on
+    Windows is case-insensitive and the workflow templates carry mixed folder casing
+    (node refs 'Z image\\…' / 'Krea\\…' vs the on-disk 'z image' / 'krea') — a
+    case-sensitive filesystem (cloud) must NOT read those as missing. `root` is
+    assumed to exist."""
     cur = root
     for part in rel.split(os.sep):
         if not part or part == '.':
@@ -987,11 +993,41 @@ def _ci_join_exists(root, rel):
         try:
             match = next((e for e in os.listdir(cur) if e.lower() == part.lower()), None)
         except OSError:
-            return False
+            return None
         if match is None:
-            return False
+            return None
         cur = os.path.join(cur, match)
-    return os.path.exists(cur)
+    return cur if os.path.exists(cur) else None
+
+
+def _ci_join_exists(root, rel):
+    """os.path.exists(root/rel) with each component matched case-INSENSITIVELY below
+    `root` — the boolean form of _ci_resolve (see it for why casing is tolerated)."""
+    return _ci_resolve(root, rel) is not None
+
+
+def _resolve_model_abs(models_root, subfolders, ref):
+    """Absolute path of a PRESENT loader ref (mirrors _model_file_present's search:
+    models_root/<subfolder>/ then extra_model_paths roots, case-insensitive), or None
+    when it isn't on disk. Lets the preflight read the exact file ComfyUI would open
+    and check it is real weights, not just present."""
+    rel_ref = (ref or '').replace('\\', os.sep).replace('/', os.sep).lstrip(os.sep)
+    if not rel_ref:
+        return None
+    for sub in subfolders:
+        p = _ci_resolve(models_root, os.path.join(sub, rel_ref))
+        if p:
+            return p
+    try:
+        from . import comfy_model_paths
+        for sub in subfolders:
+            for root in comfy_model_paths.extra_roots(sub):
+                p = _ci_resolve(root, rel_ref)
+                if p:
+                    return p
+    except Exception:
+        pass
+    return None
 
 
 def _model_file_present(models_root, subfolders, ref):
@@ -1019,11 +1055,15 @@ def _model_file_present(models_root, subfolders, ref):
 
 
 def _scan_workflow_assets(workflow, models_root):
-    """(missing_files, class_types) for a BUILT cell workflow. missing_files =
-    [{path, kind}] for every model-loader reference NOT on disk (skipped entirely
-    when models_root is unknown — the base-pool guards already caught that case);
-    class_types = every node class in the graph (for the /object_info node check)."""
-    missing, classes = [], set()
+    """(missing_files, invalid_files, class_types) for a BUILT cell workflow.
+    missing_files = [{path, kind}] for every model-loader reference NOT on disk;
+    invalid_files = [{path, kind, reason}] for a reference that IS on disk but is not
+    real, loadable weights (an HTML gate page saved as .safetensors, a truncated
+    download) — this would fail ComfyUI validation and leave every tile silently
+    EMPTY, the same silent-failure class as a missing file, so the preflight owns it
+    too. Both are skipped entirely when models_root is unknown (the base-pool guards
+    already caught that case). class_types = every node class in the graph."""
+    missing, invalid, classes = [], [], set()
     for node in workflow.values():
         if not isinstance(node, dict):
             continue
@@ -1040,31 +1080,48 @@ def _scan_workflow_assets(workflow, models_root):
             ref = inputs.get(k)
             if not isinstance(ref, str) or not ref.strip():
                 continue
-            if _model_file_present(models_root, subfolders, ref):
+            display = f'models/{subfolders[0]}/{ref}'.replace('\\', '/')
+            abs_path = _resolve_model_abs(models_root, subfolders, ref)
+            if abs_path is None:
+                entry = {'path': display, 'kind': kind}
+                if entry not in missing:
+                    missing.append(entry)
                 continue
-            entry = {'path': f'models/{subfolders[0]}/{ref}'.replace('\\', '/'), 'kind': kind}
-            if entry not in missing:
-                missing.append(entry)
-    return missing, classes
+            # Present — but is it real weights? Only a BLOCKING verdict (an HTML/text
+            # file or a truncated header) counts: those can't load at all. No size
+            # floor here — a legitimately small Studio VAE/LoRA must not be flagged.
+            from . import model_integrity
+            verdict = model_integrity.validate_model_file(abs_path)
+            if verdict['blocking']:
+                entry = {'path': display, 'kind': kind, 'reason': verdict['reason']}
+                if entry not in invalid:
+                    invalid.append(entry)
+    return missing, invalid, classes
 
 
 def preflight_family(family, workflows):
     """Raise StudioAssetsMissing if the target ComfyUI is missing any model file or
-    custom node the family's BUILT workflow(s) need. `workflows` = representative
-    built cell workflow(s) (one per base) — checking the ACTUAL built graph means
-    zero divergence from what will be enqueued. Best-effort: only raises on a
-    CONCRETE absence; a build that couldn't be produced or an unreachable
-    /object_info fails OPEN (the per-tile error capture still surfaces the reason).
+    custom node the family's BUILT workflow(s) need, OR if a referenced model file is
+    present but not real weights (an HTML gate page saved as .safetensors, a truncated
+    download — it would fail ComfyUI validation and leave every tile silently empty).
+    `workflows` = representative built cell workflow(s) (one per base) — checking the
+    ACTUAL built graph means zero divergence from what will be enqueued. Best-effort:
+    only raises on a CONCRETE absence/invalidity; a build that couldn't be produced or
+    an unreachable /object_info fails OPEN (the per-tile error capture still surfaces
+    the reason).
     """
     models_root = _models_root()
-    missing_files, all_classes = [], set()
+    missing_files, invalid_files, all_classes = [], [], set()
     for wf in workflows:
         if not wf:
             continue
-        mf, classes = _scan_workflow_assets(wf, models_root)
+        mf, inv, classes = _scan_workflow_assets(wf, models_root)
         for e in mf:
             if e not in missing_files:
                 missing_files.append(e)
+        for e in inv:
+            if e not in invalid_files:
+                invalid_files.append(e)
         all_classes |= classes
     # Custom nodes: compare the graph's class_types to /object_info. Fail-OPEN when
     # it can't be fetched (None) — never block on a transient probe failure.
@@ -1073,8 +1130,8 @@ def preflight_family(family, workflows):
     available = fetch_object_info_classes()
     if available is not None and all_classes:
         missing_nodes = sorted(c for c in all_classes if c not in available)
-    if missing_files or missing_nodes:
-        raise StudioAssetsMissing(family, missing_files, missing_nodes)
+    if missing_files or invalid_files or missing_nodes:
+        raise StudioAssetsMissing(family, missing_files, missing_nodes, invalid_files)
 
 
 def _preflight_run(user_id, run_family, checkpoint, bases, allowed, prompt, seed,

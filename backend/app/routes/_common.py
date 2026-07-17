@@ -56,20 +56,24 @@ def _studio_missing_response(e):
     files at all — a clear 'place X here / install node Y' is the P0 contract.
     Shared by the per-dataset run and the comparison run."""
     fam = _STUDIO_FAMILY_LABELS.get(e.family, e.family)
-    bits = []
+    invalid = getattr(e, 'invalid_files', None) or []
+    msg = f"The {fam} test pipeline can't run. "
     if e.missing_files:
-        bits.append(f"{len(e.missing_files)} required model file(s)")
+        msg += (f"{len(e.missing_files)} required model file(s) are missing — place "
+                f"them at the shown path(s) inside your ComfyUI folder. ")
+    if invalid:
+        # Present-but-unloadable: the file is on disk but is not real weights (e.g. an
+        # HTML licence-gate page saved as .safetensors, or a truncated download).
+        msg += (f"{len(invalid)} model file(s) are present but not real weights "
+                f"(an HTML download page saved as .safetensors, or a truncated "
+                f"download) — delete and re-download them. ")
     if e.missing_nodes:
-        bits.append(f"{len(e.missing_nodes)} custom node(s)")
-    msg = f"The {fam} test pipeline can't run — your ComfyUI is missing " + " and ".join(bits) + ". "
-    if e.missing_files:
-        msg += "Place the file(s) at the shown path(s) inside your ComfyUI folder. "
-    if e.missing_nodes:
-        msg += "Install the missing custom node(s) into ComfyUI. "
+        msg += f"{len(e.missing_nodes)} custom node(s) are missing — install them into ComfyUI. "
     msg += "Then relaunch the test."
     return jsonify({'ok': False, 'error': msg,
                     'studio_missing': {'family': e.family,
                                        'files': e.missing_files,
+                                       'invalid': invalid,
                                        'nodes': e.missing_nodes}}), 409
 
 

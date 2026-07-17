@@ -276,6 +276,31 @@ def test_dataset_lora_test_run_missing_assets_returns_structured_409(client, mon
     assert 'SDXL' in body['error']  # human-readable, actionable summary
 
 
+def test_dataset_lora_test_run_present_but_invalid_returns_structured_409(client, monkeypatch):
+    """A present-but-INVALID model file (an HTML page saved as .safetensors, a
+    truncated download) surfaces in the same structured 409 under a DISTINCT `invalid`
+    list, with an actionable 'delete + re-download' message — not lumped in with the
+    'missing' files."""
+    _comfy(monkeypatch, True)
+    ds_id = _create(client)
+    from app.services import lora_test_studio as lts
+
+    def boom(*a, **k):
+        raise lts.StudioAssetsMissing(
+            'sdxl', [], [],
+            invalid_files=[{'path': 'models/checkpoints/base.safetensors', 'kind': 'checkpoint',
+                            'reason': 'base.safetensors is not a real model (looks like an HTML page).'}])
+    monkeypatch.setattr('app.services.lora_test_studio.create_run', boom)
+    resp = client.post(f'/api/dataset/{ds_id}/lora-test/run',
+                       json={'checkpoints': ['x'], 'strengths': [1.0]})
+    assert resp.status_code == 409
+    body = resp.get_json()
+    sm = body['studio_missing']
+    assert sm['files'] == [] and sm['nodes'] == []
+    assert sm['invalid'][0]['path'] == 'models/checkpoints/base.safetensors'
+    assert 'not real weights' in body['error'] and 'SDXL' in body['error']
+
+
 def test_studio_comparison_run_missing_assets_returns_structured_409(client, monkeypatch):
     _comfy(monkeypatch, True)
     from app.services import lora_test_studio as lts

@@ -3,7 +3,14 @@
 ComfyUI is never contacted: `queue_manager.add_job`/`_build_cell_workflow` are
 monkeypatched for the enqueue-path tests, and the workflow-build test loads
 the real copied workflow JSON but stops short of a network call."""
+import struct
 import pytest
+
+# Smallest structurally-valid safetensors header (8-byte LE length + '{}'). The
+# Studio preflight now rejects a present-but-unloadable model file (an HTML gate
+# page, a truncated stub), so a fixture whose file must read as REAL weights writes
+# these bytes instead of touch()ing a 0-byte stub.
+_ST = struct.pack('<Q', 2) + b'{}'
 
 
 def test_build_matrix_shape_and_validation(app):
@@ -151,7 +158,7 @@ def test_create_run_commits_rows_before_enqueue(app, monkeypatch, tmp_path):
         # is required for get_zimage_models() to return non-empty.
         unet_dir = base / 'models' / 'unet' / 'z image'
         unet_dir.mkdir(parents=True)
-        (unet_dir / 'zmodel.safetensors').touch()
+        (unet_dir / 'zmodel.safetensors').write_bytes(_ST)
         config.save_config({'comfyui': {'base_dir': str(base)}})
         # get_zimage_models() has a 5-minute TTL cache (app.utils.comfyui); reset it so
         # this test's real directory is seen instead of another test's stale result.
@@ -187,7 +194,7 @@ def test_create_run_with_resolution_tier_resolves_dims_via_lifted_resolution_mod
         (lora_dir / 'lora_t_000002000.safetensors').touch()
         unet_dir = base / 'models' / 'unet' / 'z image'
         unet_dir.mkdir(parents=True)
-        (unet_dir / 'zmodel.safetensors').touch()
+        (unet_dir / 'zmodel.safetensors').write_bytes(_ST)
         config.save_config({'comfyui': {'base_dir': str(base)}})
         import app.utils.comfyui as comfyui_utils
         monkeypatch.setattr(comfyui_utils, '_zimage_models_cache', {'data': None, 'timestamp': 0})
@@ -227,7 +234,7 @@ def test_create_comparison_run_commits_rows_before_enqueue(app, monkeypatch, tmp
         (lora_dir / 'lora_c_000002000.safetensors').touch()
         unet_dir = base / 'models' / 'unet' / 'z image'
         unet_dir.mkdir(parents=True)
-        (unet_dir / 'zmodel.safetensors').touch()
+        (unet_dir / 'zmodel.safetensors').write_bytes(_ST)
         config.save_config({'comfyui': {'base_dir': str(base)}})
         import app.utils.comfyui as comfyui_utils
         monkeypatch.setattr(comfyui_utils, '_zimage_models_cache', {'data': None, 'timestamp': 0})
@@ -599,7 +606,7 @@ def test_preflight_family_flags_missing_model_file(app, tmp_path, monkeypatch):
     with app.app_context():
         base = _configure_comfy(tmp_path, monkeypatch)
         (base / 'models' / 'unet').mkdir(parents=True)
-        (base / 'models' / 'unet' / 'present.safetensors').touch()
+        (base / 'models' / 'unet' / 'present.safetensors').write_bytes(_ST)
         # object_info: every node available → isolate the file check.
         monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
                             lambda *a, **k: {'UNETLoader', 'VAELoader'})
@@ -622,7 +629,7 @@ def test_preflight_family_flags_missing_custom_node_via_object_info(app, tmp_pat
     with app.app_context():
         base = _configure_comfy(tmp_path, monkeypatch)
         (base / 'models' / 'unet').mkdir(parents=True)
-        (base / 'models' / 'unet' / 'present.safetensors').touch()
+        (base / 'models' / 'unet' / 'present.safetensors').write_bytes(_ST)
         monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
                             lambda *a, **k: {'UNETLoader'})  # no Krea2RebalanceConditioning
         wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}},
@@ -638,11 +645,38 @@ def test_preflight_family_passes_when_everything_present(app, tmp_path, monkeypa
     with app.app_context():
         base = _configure_comfy(tmp_path, monkeypatch)
         (base / 'models' / 'unet').mkdir(parents=True)
-        (base / 'models' / 'unet' / 'present.safetensors').touch()
+        (base / 'models' / 'unet' / 'present.safetensors').write_bytes(_ST)
         monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
                             lambda *a, **k: {'UNETLoader'})
         wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}}}
         lts.preflight_family('zimage', [wf])  # no raise
+
+
+def test_preflight_family_flags_present_but_invalid_model_file(app, tmp_path, monkeypatch):
+    """kostas212 / #help at the Studio layer: a model the built graph references IS on
+    disk but is really an HTML licence-gate page saved as .safetensors (or a truncated
+    download). It would fail ComfyUI validation and leave every tile SILENTLY empty, so
+    the preflight flags it INVALID — a distinct, actionable state from 'missing'
+    (delete + re-download, not 'place the file here')."""
+    from app.services import lora_test_studio as lts, model_integrity
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        (base / 'models' / 'unet').mkdir(parents=True)
+        # Present, real-looking name — but the bytes are the HTML gate page.
+        (base / 'models' / 'unet' / 'present.safetensors').write_bytes(
+            b'<!doctype html><html>Access to this model is gated</html>')
+        model_integrity.clear_cache()
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: {'UNETLoader'})
+        wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}}}
+        with pytest.raises(lts.StudioAssetsMissing) as ei:
+            lts.preflight_family('zimage', [wf])
+        e = ei.value
+        assert e.missing_files == []                 # NOT missing — it is on disk
+        assert len(e.invalid_files) == 1
+        assert e.invalid_files[0]['path'] == 'models/unet/present.safetensors'
+        assert e.invalid_files[0]['kind'] == 'diffusion model'
+        assert 'HTML' in e.invalid_files[0]['reason']
 
 
 def test_preflight_object_info_unreachable_fails_open_on_nodes(app, tmp_path, monkeypatch):
@@ -653,7 +687,7 @@ def test_preflight_object_info_unreachable_fails_open_on_nodes(app, tmp_path, mo
     with app.app_context():
         base = _configure_comfy(tmp_path, monkeypatch)
         (base / 'models' / 'unet').mkdir(parents=True)
-        (base / 'models' / 'unet' / 'present.safetensors').touch()
+        (base / 'models' / 'unet' / 'present.safetensors').write_bytes(_ST)
         monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes', lambda *a, **k: None)
         wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}},
               '9': {'class_type': 'SomeMissingCustomNode', 'inputs': {}}}
@@ -668,7 +702,7 @@ def test_preflight_matches_folder_casing_insensitively(app, tmp_path, monkeypatc
         base = _configure_comfy(tmp_path, monkeypatch)
         te_dir = base / 'models' / 'text_encoders' / 'z image'
         te_dir.mkdir(parents=True)
-        (te_dir / 'qwen_3_4b.safetensors').touch()
+        (te_dir / 'qwen_3_4b.safetensors').write_bytes(_ST)
         monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
                             lambda *a, **k: {'CLIPLoader'})
         wf = {'2': {'class_type': 'CLIPLoader',
@@ -689,10 +723,10 @@ def test_create_run_preflights_missing_zimage_vae_and_text_encoder(app, tmp_path
         lora_dir = base / 'models' / 'loras' / 'z image'
         lora_dir.mkdir(parents=True)
         ck = 'z image\\lora_pf_000002000.safetensors'
-        (lora_dir / 'lora_pf_000002000.safetensors').touch()
+        (lora_dir / 'lora_pf_000002000.safetensors').write_bytes(_ST)
         unet_dir = base / 'models' / 'unet' / 'z image'
         unet_dir.mkdir(parents=True)
-        (unet_dir / 'zmodel.safetensors').touch()
+        (unet_dir / 'zmodel.safetensors').write_bytes(_ST)
         # Deliberately NO models/vae/z ae.safetensors and NO text_encoders/…/qwen_3_4b.
         import app.utils.comfyui as comfyui_utils
         monkeypatch.setattr(comfyui_utils, '_zimage_models_cache', {'data': None, 'timestamp': 0})
@@ -864,7 +898,7 @@ def test_sdxl_preflight_scan_drops_httpnotify_keeps_detaildaemon():
     from app.services import lora_test_studio as lts
     with open(str(lts.WORKFLOW_HQ_PATH), encoding='utf-8') as f:
         data = json.load(f)
-    _missing, classes = lts._scan_workflow_assets(data, None)
+    _missing, _invalid, classes = lts._scan_workflow_assets(data, None)
     assert 'HttpNotifyNode' not in classes
     assert 'SaveImage' in classes
     assert 'DetailDaemonSamplerNode' in classes
