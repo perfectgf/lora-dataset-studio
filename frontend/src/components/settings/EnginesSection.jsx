@@ -14,6 +14,58 @@ const ENGINE_OPTIONS = [
   { id: 'klein', label: 'Klein (ComfyUI, local)' },
 ]
 
+/* Optional generation LoRAs for the local Klein engine (Idea by @waltm —
+   Discord feature request). The files are USER-POINTED, loras-relative names
+   (e.g. klein/my-texture.safetensors) — the app never ships or hardcodes one.
+   The strengths here are only the DEFAULTS the per-generation sliders start
+   from: both slots stay off until toggled on in the 🖥️ Klein tuning panel,
+   and the NSFW slot additionally requires the workspace's 🔞 toggle. */
+const KLEIN_LORA_SLOTS = [
+  { fileKey: 'ultra_real_lora', strengthKey: 'ultra_real_strength',
+    inputId: 'klein-ultra-real-lora', label: 'Ultra-real texture LoRA',
+    help: 'Skin/texture realism — usable on SFW and NSFW generations alike.' },
+  { fileKey: 'nsfw_lora', strengthKey: 'nsfw_strength',
+    inputId: 'klein-nsfw-lora', label: 'NSFW anatomy LoRA',
+    help: 'Anatomy for uncensored shots — only ever applied to 🔞 variations when NSFW mode is on.' },
+]
+
+function KleinLorasCard({ config, setField }) {
+  const klein = config.klein || {}
+  return (
+    <Card
+      title="Klein generation LoRAs (optional)"
+      help="Extra LoRAs chained after the consistency LoRA on the local Klein engine. Point each slot at a file under ComfyUI's models/loras (relative name, e.g. klein/my-lora.safetensors). Both slots are OFF by default for every generation — you arm them per run in the workspace's 🖥️ Klein tuning panel. Idea by @waltm (Discord)."
+    >
+      {KLEIN_LORA_SLOTS.map((slot) => {
+        const strength = Number.isFinite(klein[slot.strengthKey]) ? klein[slot.strengthKey] : 0.6
+        return (
+          <div key={slot.fileKey}>
+            <label htmlFor={slot.inputId} className="block text-sm font-medium text-content">{slot.label}</label>
+            <input
+              id={slot.inputId}
+              type="text"
+              value={klein[slot.fileKey] || ''}
+              onChange={(e) => setField('klein', slot.fileKey, e.target.value)}
+              placeholder="klein/my-lora.safetensors (empty = slot unavailable)"
+              className={INPUT_CLASS}
+            />
+            <label htmlFor={`${slot.inputId}-strength`} className="mt-2 flex items-center gap-2 text-xs text-content-muted">
+              <span className="whitespace-nowrap">Default strength: {strength.toFixed(2)}</span>
+              <input
+                id={`${slot.inputId}-strength`}
+                type="range" min={0} max={1.5} step={0.05} value={strength}
+                onChange={(e) => setField('klein', slot.strengthKey, Number(e.target.value))}
+                className="flex-1 accent-indigo-500"
+              />
+            </label>
+            <p className="mt-1 text-xs text-content-muted">{slot.help}</p>
+          </div>
+        )
+      })}
+    </Card>
+  )
+}
+
 const CHATGPT_AUTH_OPTIONS = [
   { id: 'auto', label: 'Auto — subscription when connected, otherwise API key' },
   { id: 'api', label: 'API key only' },
@@ -184,6 +236,8 @@ export default function EnginesSection(props) {
           </div>
         </fieldset>
       </Card>
+
+      <KleinLorasCard config={config} setField={setField} />
     </div>
   )
 }

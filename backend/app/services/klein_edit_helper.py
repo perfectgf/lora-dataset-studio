@@ -183,14 +183,15 @@ def _lora_abs(rel_name):
     return None
 
 
-def _consistency_lora():
-    """(relative_name, absolute_path) of the configured consistency LoRA. The path is
-    where it was FOUND (base or an extra_model_paths loras root); when absent it is the
-    base-expected path (for a stable log message), or None when no loras root exists.
-    The relative name is unchanged (e.g. 'klein\\Flux2-...safetensors') — it carries
-    'klein/' because the file lives under loras/klein/, which is exactly the string a
-    LoraLoader wants regardless of which registered loras root holds it."""
-    name = (cfg.get('klein.consistency_lora') or '').replace('/', os.sep)
+def _configured_lora(cfg_key):
+    """(relative_name, absolute_path) of a loras-relative LoRA named by config key
+    `cfg_key`. The path is where it was FOUND (base or an extra_model_paths loras
+    root); when absent it is the base-expected path (for a stable log message), or
+    None when no loras root exists. The relative name is unchanged (e.g.
+    'klein\\Flux2-...safetensors') — it carries 'klein/' when the file lives under
+    loras/klein/, which is exactly the string a LoraLoader wants regardless of
+    which registered loras root holds it."""
+    name = (cfg.get(cfg_key) or '').replace('/', os.sep)
     if not name:
         return None, None
     found = _lora_abs(name)
@@ -198,6 +199,11 @@ def _consistency_lora():
         return name, found
     roots = comfy_model_paths.search_roots('loras')
     return name, (os.path.join(roots[0], name) if roots else None)
+
+
+def _consistency_lora():
+    """(relative_name, absolute_path) of the configured consistency LoRA."""
+    return _configured_lora('klein.consistency_lora')
 
 
 def klein_missing_assets():
@@ -322,7 +328,8 @@ def _comfy_output_dir():
 def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
                        extra_metadata=None, lora_strength=None, source_path=None,
                        extra_ref_paths=None, sampler_steps=None,
-                       base_lora_strength=None):
+                       base_lora_strength=None, ultra_real_strength=None,
+                       nsfw_lora_strength=None):
     """Copy the source into ComfyUI input, configure the single Klein edit
     workflow, and enqueue it. Returns the app job_id. Raises ValueError on a
     missing source / unloadable workflow / missing required node, RuntimeError
@@ -330,6 +337,12 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     `lora_strength` overrides `klein.consistency_strength` (clamped [0.0, 1.5]);
     0 disables the consistency LoRA entirely (it anchors composition, and even
     mid strengths can suppress big restagings).
+    `ultra_real_strength` / `nsfw_lora_strength`: strengths for the OPTIONAL
+    user-pointed generation LoRAs (config `klein.ultra_real_lora` /
+    `klein.nsfw_lora`), chained after the consistency LoRA. None (the default)
+    = slot off for this generation — a configured file alone never injects
+    anything. Callers must only pass `nsfw_lora_strength` for NSFW runs (the
+    UI's 🔞 toggle); this helper stays engine-agnostic about that gate.
     `source_path` overrides the default ComfyUI output dir/<source_filename> lookup
     so callers with per-dataset storage can pass the full path directly.
     `extra_ref_paths`: additional identity reference images (the dataset's extra
@@ -429,6 +442,10 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     strength = cfg.get('klein.consistency_strength')
     if lora_strength is not None:
         strength = max(0.0, min(1.5, float(lora_strength)))
+    # model_ref = the model output feeding node 139: starts at the UNET (114) and
+    # advances as LoRA loaders are chained onto it, so every injected node hangs
+    # off the previous one and 139 is rewired once, to the LAST link.
+    model_ref = ["114", 0]
     if "139" not in workflow:
         logger.warning("workflow node 139 missing — consistency LoRA injection skipped")
     elif not lora_path or not os.path.exists(lora_path):
@@ -439,10 +456,46 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
         workflow["ds_consistency_lora"] = {
             "class_type": "LoraLoaderModelOnly",
             "inputs": {"lora_name": consistency_lora,
-                       "strength_model": strength, "model": ["114", 0]},
+                       "strength_model": strength, "model": model_ref},
             "_meta": {"title": "Dataset consistency LoRA"},
         }
-        workflow["139"]["inputs"]["model"] = ["ds_consistency_lora", 0]
+        model_ref = ["ds_consistency_lora", 0]
+
+    # Optional generation LoRAs (Idea by @waltm — Discord feature request):
+    # user-pointed extra LoRAs chained AFTER the consistency LoRA, i.e.
+    # 114 -> consistency -> ultra_real -> nsfw_anatomy -> 139. Both slots are
+    # opt-in PER GENERATION (strength None = the caller left the slot off), and
+    # the filenames come from config ONLY (klein.ultra_real_lora /
+    # klein.nsfw_lora, loras-relative, pointed by the user — never hardcoded,
+    # cf. the base-LoRA note below). Degradation mirrors the consistency block
+    # exactly: missing node 139 / missing file / strength <= 0 -> skip with a
+    # log line, never a doomed ComfyUI validation error.
+    for title, cfg_key, node_id, slot_strength in (
+            ("Ultra-real texture LoRA", 'klein.ultra_real_lora',
+             'ds_ultra_real_lora', ultra_real_strength),
+            ("NSFW anatomy LoRA", 'klein.nsfw_lora',
+             'ds_nsfw_lora', nsfw_lora_strength)):
+        if slot_strength is None:
+            continue                      # slot off for this generation (default)
+        slot_strength = max(0.0, min(1.5, float(slot_strength)))
+        slot_lora, slot_path = _configured_lora(cfg_key)
+        if "139" not in workflow:
+            logger.warning("workflow node 139 missing — %s injection skipped", title)
+        elif not slot_path or not os.path.exists(slot_path):
+            logger.warning("%s not found at %s — injection skipped", title, slot_path)
+        elif slot_strength <= 0:
+            logger.info("%s strength 0 — injection skipped (LoRA off)", title)
+        else:
+            workflow[node_id] = {
+                "class_type": "LoraLoaderModelOnly",
+                "inputs": {"lora_name": slot_lora,
+                           "strength_model": slot_strength, "model": model_ref},
+                "_meta": {"title": title},
+            }
+            model_ref = [node_id, 0]
+
+    if "139" in workflow and model_ref != ["114", 0]:
+        workflow["139"]["inputs"]["model"] = model_ref
 
     # The base style LoRA in node 139 (klein\realistic.safetensors) belongs to the
     # source app's ComfyUI and is NOT part of the Klein install — bypass it when

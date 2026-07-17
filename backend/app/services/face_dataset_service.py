@@ -3625,13 +3625,20 @@ def _sync_generate_activity(dataset_id):
 
 
 def generate_variations(user_id, dataset_id, variations, multiplier, klein_model,
-                        lora_strength=None):
+                        lora_strength=None, ultra_real_strength=None,
+                        nsfw_lora_strength=None):
     """For each (variation x multiplier), enqueue a Klein edit of the reference
     and create a pending FaceDatasetImage. Returns the created image ids.
 
     The row is committed BEFORE enqueuing (so an enqueue/commit failure can never
     leave an untracked orphan job); on enqueue failure the row is marked 'failed'
-    and the error re-raised (already-enqueued variations keep their rows)."""
+    and the error re-raised (already-enqueued variations keep their rows).
+
+    `ultra_real_strength` / `nsfw_lora_strength`: optional generation LoRAs
+    (Idea by @waltm) — None = slot off. The NSFW anatomy LoRA is gated on the
+    variation actually being NSFW (explicit flag or 🔞 catalog label, i.e. the
+    UI's NSFW toggle was on): a configured strength alone never injects it,
+    and SFW shots in a mixed batch never receive it."""
     try:
         from .klein_edit_helper import enqueue_klein_edit
     except ImportError:
@@ -3692,6 +3699,10 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                             suffix=dataset_prompt_suffix(ds, v.get('framing'))),
                         klein_model=klein_model,
                         lora_strength=lora_strength, extra_ref_paths=extra_paths,
+                        ultra_real_strength=ultra_real_strength,
+                        # Fail-closed NSFW gate: the anatomy LoRA rides ONLY on
+                        # NSFW variations — never on the SFW shots of a mixed batch.
+                        nsfw_lora_strength=nsfw_lora_strength if nsfw else None,
                         extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
                                         'variation_label': v.get('label')})
                 except Exception:
@@ -3818,7 +3829,8 @@ def _improve_existing_image_locked(user_id, image_id):
 
 
 def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=None,
-                     engine=None, klein_model=None):
+                     engine=None, klein_model=None, ultra_real_strength=None,
+                     nsfw_lora_strength=None):
     """Re-enqueue a single generated variation IN PLACE (same row id): cancel any
     in-flight job, drop the old file, reset the row to pending with the new
     job_id. Returns the new job_id, or None if the image is not owned / not a
@@ -3841,7 +3853,11 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     NSFW never goes to third-party APIs, mirroring the batch generate rule).
     `klein_model` (optional) is the workspace's Klein model pick, used when a
     row born on an API engine switches to Klein (its klein_model column holds
-    an engine TAG, not a real model file)."""
+    an engine TAG, not a real model file).
+    `ultra_real_strength` / `nsfw_lora_strength` (optional): the workspace's
+    optional generation LoRAs (Idea by @waltm), Klein path only — None = slot
+    off. The NSFW anatomy LoRA only ever applies to an NSFW-labelled tile
+    (fail-closed, mirroring the batch generate gate)."""
     img = _owned_image(user_id, image_id)
     if not img or img.source != 'generated':
         return None
@@ -3922,6 +3938,10 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                 suffix=dataset_prompt_suffix(ds, img.framing)),
             klein_model=model,
             lora_strength=lora_strength, extra_ref_paths=extra_paths,
+            ultra_real_strength=ultra_real_strength,
+            # Fail-closed: the anatomy LoRA only rides on an NSFW-labelled tile.
+            nsfw_lora_strength=(nsfw_lora_strength
+                                if is_nsfw_label(img.variation_label) else None),
             extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
                             'variation_label': img.variation_label})
 

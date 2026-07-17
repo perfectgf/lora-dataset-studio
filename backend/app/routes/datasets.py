@@ -411,7 +411,11 @@ def dataset_generate(dataset_id):
             ids = svc.generate_variations(LOCAL_USER, dataset_id,
                                           data.get('variations') or [], data.get('multiplier', 1),
                                           data.get('klein_model'),
-                                          lora_strength=data.get('lora_strength'))
+                                          lora_strength=data.get('lora_strength'),
+                                          # Optional generation LoRAs (Idea by
+                                          # @waltm) — absent/None = slot off.
+                                          ultra_real_strength=data.get('ultra_real_strength'),
+                                          nsfw_lora_strength=data.get('nsfw_lora_strength'))
             _autostart_optional_klein()  # bg-fetch the consistency LoRA if it's absent
     except Exception as e:
         from ..services.klein_edit_helper import KleinModelsMissing
@@ -756,6 +760,8 @@ def dataset_image_regenerate(image_id):
                                       lora_strength=data.get('lora_strength'),
                                       prompt=edited_prompt,
                                       engine=engine, klein_model=klein_model,
+                                      ultra_real_strength=data.get('ultra_real_strength'),
+                                      nsfw_lora_strength=data.get('nsfw_lora_strength'),
                                       app=current_app._get_current_object())
     except Exception as e:
         from ..services.klein_edit_helper import KleinModelsMissing

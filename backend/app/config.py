@@ -94,6 +94,17 @@ DEFAULTS = {
     # near-copy of the reference. 0 disables the LoRA entirely.
     'klein': {'consistency_lora': 'klein/Flux2-Klein-9B-consistency-V2.safetensors',
               'consistency_strength': 0.5,
+              # Optional generation LoRAs (Idea by @waltm — Discord feature
+              # request): user-pointed extra LoRAs chained after the consistency
+              # LoRA on the local Klein edit graph. Filenames are loras-relative
+              # (like consistency_lora) and EMPTY by default — the app never
+              # hardcodes a LoRA name (klein_edit_helper exists precisely to
+              # undo the shipped workflow's hardcoded names). The strengths are
+              # only the slider defaults: both slots stay OFF until toggled on
+              # per generation, and the NSFW slot additionally requires the
+              # run's NSFW toggle.
+              'ultra_real_lora': '', 'ultra_real_strength': 0.6,
+              'nsfw_lora': '', 'nsfw_strength': 0.6,
               # Optional instruction for small scraped-image rescue only.
               # Manual "Upscale & improve" uses its own fixed quality profile.
               # Empty is intentional: never invent a restoration prompt for the user.

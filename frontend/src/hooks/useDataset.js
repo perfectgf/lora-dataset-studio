@@ -332,10 +332,13 @@ export function useDataset() {
     await refresh();
   }, [currentId, refresh, toast]);
 
-  const generate = useCallback((variations, multiplier, kleinModel, loraStrength, generator) => wrap(async () => {
+  // `extraLoras`: optional generation-LoRA strengths for this run (Idea by
+  // @waltm) — an already-gated `{ ultra_real_strength?, nsfw_lora_strength? }`
+  // fragment from optionalLoraPayload(); absent keys mean "slot off".
+  const generate = useCallback((variations, multiplier, kleinModel, loraStrength, generator, extraLoras) => wrap(async () => {
     const d = await postJson(`/api/dataset/${currentId}/generate`,
       { variations, multiplier, klein_model: kleinModel, lora_strength: loraStrength,
-        generator: generator || 'klein' });
+        generator: generator || 'klein', ...(extraLoras || {}) });
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     toast.success(`${d.created} variation(s) queued`);
     await refresh();
