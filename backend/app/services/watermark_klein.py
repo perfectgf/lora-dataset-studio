@@ -12,7 +12,7 @@ the APP side (zero custom node, the repo doctrine):
   1. crop a padded square around the mark, upscale it to ~1 MP (the "magnifying glass" so
      a few-pixel mark in a 4K photo is big enough for the model to see);
   2. Klein inpaints ONLY the masked region of that crop (SetLatentNoiseMask +
-     DifferentialDiffusion, denoise ~0.9, cfg 1);
+     DifferentialDiffusion, denoise 1.0, cfg 1);
   3. composite the filled crop back onto the ORIGINAL in pixel space, pasting ONLY the
      masked region (+ a few-px feather). Every pixel outside that footprint keeps its
      ORIGINAL bytes — that is THE preservation guarantee, and it holds no matter how far
@@ -43,8 +43,9 @@ KLEIN_INPAINT_WORKFLOW_PATH = cfg.BACKEND_DIR / 'workflows' / 'klein_inpaint.jso
 
 # Prompt drives the fill only inside the mask; the rest of the crop is preserved by
 # SetLatentNoiseMask (and discarded by the composite anyway).
-KLEIN_INPAINT_PROMPT = ('remove the overlaid text/logo watermark, seamlessly reconstruct '
-                        'the underlying texture, keep everything else identical')
+KLEIN_INPAINT_PROMPT = ('remove ALL overlaid watermark graphics from the image: text, '
+                        'logos, lines and bars. Reconstruct the underlying surface '
+                        'seamlessly, keep everything else identical')
 
 # Nodes this module rewires — fail loudly if the shipped workflow changes shape.
 _REQUIRED_NODES = ('114', '10', '90', '52', 'mask', '6', '77', '9')
@@ -61,7 +62,10 @@ KLEIN_LATENT_MULT = 16         # Flux.2 latent stride — crop dims sent to Comf
 KLEIN_MASK_EXPAND_PX = 8       # grow the mark rectangle before inpaint (cover its AA edge)
 KLEIN_COMFY_FEATHER_PX = 8     # soft mask edge fed to DifferentialDiffusion (scaled res)
 KLEIN_COMPOSITE_FEATHER_PX = 6  # feather of the pixel-space paste seam (crop-native res)
-KLEIN_DENOISE = 0.9            # study: ~0.9, NOT 1.0 (1.0 → artefacts)
+KLEIN_DENOISE = 1.0            # GPU smoke 2026-07-17 (A/B same seed): 0.9 keeps ~10% of the
+                               # underlying latent and semi-transparent bars survive; 1.0 +
+                               # explicit prompt removes them (DifferentialDiffusion bounds
+                               # the risk to the masked patch — no artefact observed)
 KLEIN_STEPS = 8               # Klein 9b is guidance-distilled (edit uses 5); a touch more
 KLEIN_TIMEOUT = 300           # per-image ComfyUI round-trip budget (seconds)
 

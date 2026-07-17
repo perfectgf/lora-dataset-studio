@@ -33,7 +33,7 @@
   },
   "6": {
     "inputs": {
-      "text": "remove the overlaid text/logo watermark, seamlessly reconstruct the underlying texture, keep everything else identical",
+      "text": "remove ALL overlaid watermark graphics from the image: text, logos, lines and bars. Reconstruct the underlying surface seamlessly, keep everything else identical",
       "clip": ["90", 0]
     },
     "class_type": "CLIPTextEncode",
@@ -92,7 +92,7 @@
       "cfg": 1,
       "sampler_name": "euler",
       "scheduler": "beta57",
-      "denoise": 0.9,
+      "denoise": 1.0,
       "model": ["diff", 0],
       "positive": ["92", 0],
       "negative": ["110", 0],
