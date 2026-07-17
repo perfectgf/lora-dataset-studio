@@ -65,7 +65,7 @@ function EmptyState() {
     { framing: 'back', label: '' },
   ];
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mx-auto w-full max-w-4xl flex flex-col gap-3">
       <div className="rounded-xl border border-border bg-gradient-to-br from-surface to-app/60 p-3 flex flex-col gap-2.5">
         <p className="text-content-subtle text-xs">
           Build a consistent character: one reference photo becomes a curated,
@@ -113,7 +113,7 @@ const TILE_SIZE_TITLE = {
   L: 'Large tiles — big reference previews',
 };
 const GRID_COLS = {
-  M: 'grid grid-cols-2 gap-2.5 sm:grid-cols-3',
+  M: 'grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4',
   L: 'grid grid-cols-1 gap-2.5 sm:grid-cols-2',
 };
 
@@ -142,7 +142,7 @@ function tileStats(d) {
 function DatasetTile({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
   const canExportZip = (d.images_kept ?? 0) > 0;
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-surface transition-colors hover:border-primary/40">
+    <div className="library-card group relative overflow-hidden rounded-xl border border-border bg-surface transition-colors hover:border-primary/40">
       <button type="button" onClick={() => onOpen(d.id)}
         aria-label={`Open the dataset ${d.name}`}
         className="block w-full text-left">
@@ -188,7 +188,7 @@ function DatasetTile({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
           <span className="text-[0.6875rem] text-content-subtle">{tileStats(d)}</span>
         </div>
       </button>
-      <div className="grid grid-cols-2 gap-1.5 border-t border-border px-2 py-2">
+      <div className="library-card__actions grid grid-cols-2 gap-1.5 border-t border-border px-2 py-2">
         <button type="button"
           onClick={() => onExportZip?.(d.id)}
           disabled={!canExportZip}
@@ -213,7 +213,7 @@ function DatasetTile({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
             if (window.confirm(`Permanently delete the dataset "${d.name}" and all its images? This cannot be undone.`)) onDelete(d.id);
           }}
           title="Delete this dataset" aria-label={`Delete the dataset ${d.name}`}
-          className="absolute right-1.5 top-1.5 rounded-lg border border-red-500/40 bg-black/50 px-2 py-1 text-xs text-red-300 opacity-70 backdrop-blur-sm transition-opacity hover:bg-red-500/25 hover:opacity-100">
+          className="library-card__actions absolute right-1.5 top-1.5 rounded-lg border border-red-500/40 bg-black/50 px-2 py-1 text-xs text-red-300 opacity-70 backdrop-blur-sm transition-opacity hover:bg-red-500/25 hover:opacity-100">
           🗑
         </button>
       )}
@@ -228,7 +228,7 @@ function DatasetRow({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
   const kind = datasetKind(d);
   const iconBtn = 'grid h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-app/50 text-xs text-content-muted transition-colors hover:border-primary/40 hover:bg-surface-raised hover:text-content';
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface pr-1.5 transition-colors hover:border-primary/40">
+    <div className="library-card flex items-center gap-1.5 rounded-lg border border-border bg-surface pr-1.5 transition-colors hover:border-primary/40">
       <button type="button" onClick={() => onOpen(d.id)}
         aria-label={`Open the dataset ${d.name}`}
         className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-1.5 text-left">
@@ -270,7 +270,7 @@ function DatasetRow({ d, onOpen, onDelete, onExportZip, onExportBackup }) {
           </span>
         </span>
       </button>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="library-card__actions flex shrink-0 items-center gap-1">
         <button type="button" onClick={() => onExportZip?.(d.id)} disabled={!canExportZip}
           title={canExportZip
             ? 'Download the kept images and captions as a training-ready ZIP'
@@ -330,7 +330,7 @@ function NewDatasetForm({ onCreate, onClose }) {
   // server with the button enabled and 400 silently (no toast, no feedback).
   const canCreate = name.trim() && (!concept || conceptDesc.trim()) && (style || trigger.trim());
   return (
-    <div id="new-dataset-form" className="rounded-xl border border-border bg-surface p-3 flex flex-col gap-2.5">
+    <div id="new-dataset-form" className="mx-auto w-full max-w-4xl rounded-xl border border-border bg-surface p-3 flex flex-col gap-2.5">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-content font-semibold text-sm flex items-center gap-2">
           <span aria-hidden="true">🆕</span> New dataset
@@ -592,7 +592,7 @@ export default function DatasetListPanel({
                 </h2>
                 {open && (
                   tileSize === 'S' ? (
-                    <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                       {items.map((d) => (
                         <DatasetRow key={d.id} d={d} onOpen={onOpen} onDelete={onDelete}
                           onExportZip={onExportZip} onExportBackup={onExportBackup} />

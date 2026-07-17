@@ -114,6 +114,29 @@
   }
 }
 
+/* Same at-rest/hover contract for the Datasets library cards (photo tiles and
+   compact S rows): touch devices keep every control visible; a device with a
+   precise hover pointer gets quieter cards, and card hover or keyboard focus
+   reveals the actions without adding/removing layout space. */
+.library-card__actions {
+  transition: opacity 140ms ease, visibility 140ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .library-card .library-card__actions {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .library-card:hover .library-card__actions,
+  .library-card:focus-within .library-card__actions {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+
 /* Toast slide-in animation */
 @keyframes slideIn {
   from { transform: translateX(100%); opacity: 0; }

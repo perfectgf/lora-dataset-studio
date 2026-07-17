@@ -14,11 +14,12 @@ export default function DatasetPage() {
       {ds.currentId ? (
         <DatasetWorkspace ds={ds} onBack={() => ds.setCurrentId(null)} />
       ) : (
-        <div className="max-w-4xl mx-auto">
-          <DatasetListPanel datasets={ds.datasets} onOpen={ds.open} onCreate={ds.create}
-            onDelete={ds.deleteDataset} onRestore={ds.importBackup}
-            onExportZip={ds.exportZipFor} onExportBackup={ds.exportBackupFor} />
-        </div>
+        /* Full page width (max-w-6xl above): the library is a desktop-first
+           browsing surface — more columns beat a narrower reading measure.
+           The empty-state hero and the creation form re-cap themselves. */
+        <DatasetListPanel datasets={ds.datasets} onOpen={ds.open} onCreate={ds.create}
+          onDelete={ds.deleteDataset} onRestore={ds.importBackup}
+          onExportZip={ds.exportZipFor} onExportBackup={ds.exportBackupFor} />
       )}
     </div>
   );
