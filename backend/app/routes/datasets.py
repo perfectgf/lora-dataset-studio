@@ -645,6 +645,20 @@ def dataset_image_watermark_regions(dataset_id, image_id):
     return jsonify({'ok': True, **result})
 
 
+@bp.post('/dataset/<int:dataset_id>/image/<int:image_id>/watermark-restore')
+def dataset_image_watermark_restore(dataset_id, image_id):
+    """Undo a watermark Clean on ONE image: restore the preserved original in place and
+    re-flag it 'detected' so it can be re-cleaned (e.g. with the other engine). 404 when
+    the image isn't found/owned OR no original was preserved (it was never cleaned)."""
+    try:
+        result = svc.restore_watermark_original(LOCAL_USER, dataset_id, image_id)
+    except FileNotFoundError:
+        return jsonify({'error': 'no original to restore'}), 404
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
+
+
 @bp.post('/dataset/image/<int:image_id>/status')
 def dataset_image_status(image_id):
     data = request.get_json(silent=True) or {}

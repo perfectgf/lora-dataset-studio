@@ -8,9 +8,12 @@
  * Clean does NOT auto-advance: the user asked to actually SEE the cleaned pixels before
  * moving on. A successful clean reloads the same tile (existing nonce/cache-bust), hides
  * the now-stale bbox, and shows a "Cleaned — cropped/inpainted" badge; the user then
- * presses → themselves. Dismiss/Reject don't touch pixels — nothing to look at — so they
+ * presses → themselves. If they don't like the result, ↩ Restore original (shortcut r)
+ * takes the Clean button's place: it brings the preserved original back, drops the
+ * cleaned outcome so the editor returns, and lets them re-clean straight away — often
+ * with the other engine. Dismiss/Reject don't touch pixels — nothing to look at — so they
  * keep the original auto-advance. Navigation is held (arrows + buttons) while an action
- * is in flight so the "Cleaning…" spinner can't end up drawn over the wrong image.
+ * is in flight so the "Cleaning…"/"Restoring…" spinner can't end up drawn over the wrong image.
  *
  * The queue is FROZEN on open (a snapshot of the currently-detected images): actions
  * remove images from the live 'detected' set, but the filmstrip stays stable so the
@@ -84,7 +87,7 @@ function isInteractiveShortcutTarget(target) {
 }
 
 export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces = {},
-                                                  onSaveRegions, onClean, onDismiss,
+                                                  onSaveRegions, onClean, onRestore, onDismiss,
                                                   onReject, onClose }) {
   const initialReviewStateRef = useRef(null);
   if (!initialReviewStateRef.current) {
@@ -339,6 +342,24 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     });
   }, [item, manualLamaMissing, method, onClean, outcome, regions.length, run, waitForLatestSave]);
 
+  // Undo a Clean: the user didn't like the result (LaMa vs Klein, a bad crop…). Bring
+  // the preserved original back, drop the 'cleaned' outcome so the editor returns, and
+  // let them re-clean straight away (often with the OTHER engine). Only offered once a
+  // real pixel edit happened (cleanDetail set) — the backend still 404s if no .orig.
+  const doRestore = useCallback(() => {
+    if (!item || outcome !== 'cleaned' || !cleanDetail[item.id]) return;
+    return run('restore', async (it) => {
+      const d = await onRestore(it.id);
+      if (!d || d.ok === false) {
+        return { note: { tone: 'err',
+          text: (d && d.error && (d.error.detail || d.error)) || 'Could not restore the original' } };
+      }
+      setOutcomes((m) => { const n = { ...m }; delete n[it.id]; return n; });
+      setCleanDetail((m) => { const n = { ...m }; delete n[it.id]; return n; });
+      return { note: { tone: 'warn', text: 'Original restored — re-clean it, or switch engine and clean again.' } };
+    });
+  }, [item, outcome, cleanDetail, onRestore, run]);
+
   const doDismiss = useCallback(() => {
     if (!item || isSaveBlocked(item.id)) return;
     return run('dismiss', async (it) => {
@@ -365,12 +386,13 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
       if (e.key === 'ArrowRight') { e.preventDefault(); go(1); return; }
       const k = e.key.toLowerCase();
       if (k === 'c') { e.preventDefault(); doClean(); }
+      else if (k === 'r') { e.preventDefault(); doRestore(); }
       else if (k === 'd') { e.preventDefault(); doDismiss(); }
       else if (k === 'x') { e.preventDefault(); doReject(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [close, go, doClean, doDismiss, doReject]);
+  }, [close, go, doClean, doRestore, doDismiss, doReject]);
 
   if (!total) return null;
 
@@ -406,6 +428,10 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     ? CLEAN_DETAIL_TEXT[cleanDetail[item.id]] || oc.text
     : oc?.text;
   const cleaning = working && workingKind === 'clean';   // navigation is held while true, so this always tracks `item`
+  const restoring = working && workingKind === 'restore';
+  // A real pixel edit ran (cleanDetail set on crop/inpaint/Klein) → a .orig exists to
+  // undo. The "nothing to do" cleaned fallback sets no detail, so Restore stays hidden.
+  const restorable = outcome === 'cleaned' && Boolean(cleanDetail[item?.id]);
   const showEditor = !(oc && oc.terminal) && !cleaning;
   const automaticLamaMissing = !kleinSelected && !manual && item?.watermark_route === 'lama'
     && caps?.watermark_inpaint === false;
@@ -474,11 +500,11 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
           ) : (
             <div className="relative">
               <img src={url} alt={alt} className="block max-h-[min(70vh,calc(100cqh_-_1.5rem))] max-w-[min(92vw,100cqw)] select-none" />
-              {cleaning ? (
+              {(cleaning || restoring) ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-sm">
                   <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/75 text-amber-200 text-sm font-semibold">
                     <span aria-hidden className="w-4 h-4 rounded-full border-2 border-amber-200/40 border-t-amber-200 animate-spin" />
-                    Cleaning…
+                    {cleaning ? 'Cleaning…' : 'Restoring…'}
                   </span>
                 </div>
               ) : oc && (
@@ -597,21 +623,29 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
         </div>
 
         <div className="flex gap-2 flex-wrap">
-          <button type="button" onClick={doClean} disabled={cleanDisabled}
-            title={outcome === 'cleaned'
-              ? 'Already cleaned'
-              : regions.length === 0
-                ? 'Add at least one correction zone before cleaning'
-                : engineMissing
-                  ? (kleinSelected
-                      ? 'Start ComfyUI and install the Klein models before cleaning with Klein'
-                      : 'Install LaMa inpainting before cleaning manual zones')
-                  : saveBlocked
-                    ? 'Save correction zones before cleaning'
-              : "Apply this image's watermark removal now (crop / inpaint / manual review) — shortcut c"}
-            className={`${btn} bg-amber-500/20 border border-amber-400/50 text-amber-100 hover:bg-amber-500/30`}>
-            {cleaning ? '🧽 Cleaning…' : <>🧽 Clean <kbd className="text-[10px] text-white/50">c</kbd></>}
-          </button>
+          {restorable ? (
+            <button type="button" onClick={doRestore} disabled={working}
+              title="Undo the clean — bring the watermarked original back so you can re-clean it (e.g. with the other engine) — shortcut r"
+              className={`${btn} bg-sky-500/20 border border-sky-400/50 text-sky-100 hover:bg-sky-500/30`}>
+              {restoring ? '↩ Restoring…' : <>↩ Restore original <kbd className="text-[10px] text-white/50">r</kbd></>}
+            </button>
+          ) : (
+            <button type="button" onClick={doClean} disabled={cleanDisabled}
+              title={outcome === 'cleaned'
+                ? 'Already cleaned'
+                : regions.length === 0
+                  ? 'Add at least one correction zone before cleaning'
+                  : engineMissing
+                    ? (kleinSelected
+                        ? 'Start ComfyUI and install the Klein models before cleaning with Klein'
+                        : 'Install LaMa inpainting before cleaning manual zones')
+                    : saveBlocked
+                      ? 'Save correction zones before cleaning'
+                : "Apply this image's watermark removal now (crop / inpaint / manual review) — shortcut c"}
+              className={`${btn} bg-amber-500/20 border border-amber-400/50 text-amber-100 hover:bg-amber-500/30`}>
+              {cleaning ? '🧽 Cleaning…' : <>🧽 Clean <kbd className="text-[10px] text-white/50">c</kbd></>}
+            </button>
+          )}
           <button type="button" onClick={doDismiss} disabled={actionBlocked}
             title="This is NOT a watermark (false positive) — clears the flag, future scans skip it — shortcut d"
             className={`${btn} bg-emerald-600/20 border border-emerald-400/40 text-emerald-100 hover:bg-emerald-600/30`}>
@@ -629,7 +663,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
             title="Previous (←)" aria-label="Previous image"
             className="px-3 min-h-[2.5rem] rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm disabled:opacity-30">← Prev</button>
           <span className="text-white/40 text-[11px] text-center hidden sm:block">
-            ← → navigate · <kbd>c</kbd> clean · <kbd>d</kbd> dismiss · <kbd>x</kbd> reject · Esc close
+            ← → navigate · <kbd>c</kbd> clean · <kbd>r</kbd> restore · <kbd>d</kbd> dismiss · <kbd>x</kbd> reject · Esc close
           </span>
           {allDone ? (
             <button type="button" onClick={close} disabled={actionBlocked}

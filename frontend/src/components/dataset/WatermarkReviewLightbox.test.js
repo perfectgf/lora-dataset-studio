@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const lightbox = readFileSync(new URL('./WatermarkReviewLightbox.jsx', import.meta.url), 'utf8');
 const editor = readFileSync(new URL('./WatermarkRegionEditor.jsx', import.meta.url), 'utf8');
+const workspace = readFileSync(new URL('./DatasetWorkspace.jsx', import.meta.url), 'utf8');
+const hook = readFileSync(new URL('../../hooks/useDataset.js', import.meta.url), 'utf8');
 
 // The review lightbox stacks a fixed image cell over a controls bar. On a short
 // mobile viewport a portrait image used to keep its natural height, overflow the
@@ -31,4 +33,33 @@ test('every rendered image caps its height to the cell, not just 70vh', () => {
 test('no image is left with the old unbounded 70vh-only cap', () => {
   assert.doesNotMatch(lightbox, /max-h-\[70vh\] max-w-\[92vw\]/);
   assert.doesNotMatch(editor, /max-h-\[70vh\] max-w-\[92vw\]/);
+});
+
+// --- Restore original (undo a clean) --------------------------------------
+
+test('Restore original takes the Clean slot once a real edit ran, calling onRestore', () => {
+  assert.match(lightbox, /onRestore/);                    // prop threaded through
+  // Gated on a real pixel edit (cleanDetail set), not the "nothing to do" fallback.
+  assert.match(lightbox,
+    /const restorable = outcome === 'cleaned' && Boolean\(cleanDetail\[item\?\.id\]\)/);
+  assert.match(lightbox, /\{restorable \? \(/);           // toggles the primary action button
+  assert.match(lightbox, /↩ Restore original/);
+  assert.match(lightbox, /await onRestore\(it\.id\)/);
+});
+
+test('restore drops the cleaned outcome + detail so the editor returns for a re-clean', () => {
+  assert.match(lightbox, /setOutcomes\(\(m\) => \{ const n = \{ \.\.\.m \}; delete n\[it\.id\]; return n; \}\)/);
+  assert.match(lightbox, /setCleanDetail\(\(m\) => \{ const n = \{ \.\.\.m \}; delete n\[it\.id\]; return n; \}\)/);
+});
+
+test('r triggers restore, mirroring the c/d/x shortcuts', () => {
+  assert.match(lightbox, /k === 'r'[\s\S]{0,50}doRestore\(\)/);
+});
+
+test('workspace wires onRestore and the hook exposes restoreWatermarkImage', () => {
+  assert.match(workspace, /onRestore=\{\(id\) => ds\.restoreWatermarkImage\(id\)\}/);
+  assert.match(hook, /const restoreWatermarkImage = useCallback/);
+  assert.match(hook, /image\/\$\{imageId\}\/watermark-restore/);
+  // Cache-busts the touched thumbnail so the restored original actually shows.
+  assert.match(hook, /if \(d\.ok\) \{\s*setNonces/);
 });

@@ -1418,6 +1418,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           nonces={ds.nonces}
           onSaveRegions={(id, regions) => ds.saveWatermarkRegions(id, regions)}
           onClean={(id, method) => ds.cleanWatermarkImages([id], method)}
+          onRestore={(id) => ds.restoreWatermarkImage(id)}
           onDismiss={(id) => ds.dismissWatermarks([id])}
           onReject={(id) => ds.setStatus(id, 'reject')}
           onClose={(recap) => {

@@ -1737,3 +1737,150 @@ def test_inpaint_klein_aborts_before_gpu_when_prefill_unavailable(app, monkeypat
     with app.app_context():
         ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]])
     assert ok is False and err == {'kind': 'unavailable', 'detail': 'no engine'}
+
+
+# --- restore (undo a clean) -------------------------------------------------
+
+def test_restore_recovers_cropped_original_and_keeps_orig(app, monkeypatch):
+    """Clean (crop) then restore: the exact original bytes AND dimensions come back, the
+    row is 'detected' again (re-cleanable), and the .orig sibling is kept."""
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'R', 'r')
+        img = _kept_image(svc, ds.id, 'wm.webp', size=(1024, 1024), bbox=[0.0, 0.0, 1.0, 0.05])
+        path = svc._img_path(img)
+        before = open(path, 'rb').read()
+        counts, err = svc.clean_watermarks(LOCAL_USER, ds.id)
+        assert err is None and counts['cropped'] == 1
+        with Image.open(path) as im:
+            assert im.height < 1024                       # cropped in place
+        assert open(path, 'rb').read() != before
+
+        result = svc.restore_watermark_original(LOCAL_USER, ds.id, img.id)
+        assert result is not None
+        assert result['watermark_state'] == 'detected'
+        assert result['watermark_route'] == 'crop'        # recomputed on the restored 1024²
+        assert open(path, 'rb').read() == before          # exact original bytes back
+        with Image.open(path) as im:
+            assert im.size == (1024, 1024)                # original dimensions back
+        stem, ext = os.path.splitext(path)
+        assert os.path.exists(f'{stem}.orig{ext}')        # .orig kept (source of truth)
+        assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'detected'
+
+
+def test_restore_then_reclean_reuses_write_once_original(app, monkeypatch):
+    """clean -> restore -> clean -> restore: _preserve_original is write-once, so the
+    .orig is never clobbered by an already-edited image and the true original survives
+    every cycle."""
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_lama
+    from app.config import LOCAL_USER
+
+    monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Cycle', 'cycle')
+        img = _kept_image(svc, ds.id, 'wm.webp', size=(1024, 1024), bbox=[0.0, 0.0, 1.0, 0.05])
+        path = svc._img_path(img)
+        stem, ext = os.path.splitext(path)
+        orig = f'{stem}.orig{ext}'
+        before = open(path, 'rb').read()
+
+        assert svc.clean_watermarks(LOCAL_USER, ds.id)[0]['cropped'] == 1      # crop #1
+        assert open(orig, 'rb').read() == before
+        svc.restore_watermark_original(LOCAL_USER, ds.id, img.id)
+        assert open(path, 'rb').read() == before
+
+        assert svc.clean_watermarks(LOCAL_USER, ds.id)[0]['cropped'] == 1      # crop #2 (detected again)
+        assert open(orig, 'rb').read() == before                              # write-once: still the original
+        svc.restore_watermark_original(LOCAL_USER, ds.id, img.id)
+        assert open(path, 'rb').read() == before                              # original recovered after N cycles
+
+
+def test_restore_without_original_raises_filenotfound(app):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'NoOrig', 'noorig')
+        img = _kept_image(svc, ds.id, 'clean.webp', state='cleaned')
+        with pytest.raises(FileNotFoundError):
+            svc.restore_watermark_original(LOCAL_USER, ds.id, img.id)
+
+
+def test_restore_foreign_or_missing_returns_none(app):
+    """A missing id, or an image that belongs to a DIFFERENT dataset, is a no-op None
+    (never restores across datasets) — same ownership guard as set_watermark_regions."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'A', 'a')
+        assert svc.restore_watermark_original(LOCAL_USER, ds.id, 999999) is None
+        other = svc.create_dataset(LOCAL_USER, 'B', 'b')
+        img = _kept_image(svc, other.id, 'x.webp', state='cleaned')
+        assert svc.restore_watermark_original(LOCAL_USER, ds.id, img.id) is None
+
+
+def _seed_cleaned_with_orig(svc, ds_id, filename, *, orig_bytes, current_bytes, bbox):
+    """A 'cleaned' row backed by a shrunk file + a preserved <stem>.orig sibling."""
+    from app.models import FaceDatasetImage
+    d = svc._dataset_dir(ds_id)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, filename), 'wb') as fh:
+        fh.write(current_bytes)
+    stem, ext = os.path.splitext(filename)
+    with open(os.path.join(d, f'{stem}.orig{ext}'), 'wb') as fh:
+        fh.write(orig_bytes)
+    img = FaceDatasetImage(dataset_id=ds_id, source='import', status='keep',
+                           filename=filename, framing='body',
+                           watermark_state='cleaned', watermark_bbox=json.dumps(bbox))
+    svc.db.session.add(img)
+    svc.db.session.commit()
+    return img
+
+
+def test_watermark_restore_route_recovers_original(client, app):
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    ds_id = _create(client, 'Restore', 'restore').get_json()['id']
+    orig = _img_bytes(color=(10, 200, 10), size=(1024, 1024))
+    with app.app_context():
+        img = _seed_cleaned_with_orig(
+            svc, ds_id, 'wm.webp',
+            orig_bytes=orig,
+            current_bytes=_img_bytes(color=(200, 10, 10), size=(1024, 300)),
+            bbox=[0.0, 0.0, 1.0, 0.05])
+        img_id = img.id
+        path = svc._img_path(img)
+
+    resp = client.post(f'/api/dataset/{ds_id}/image/{img_id}/watermark-restore', json={})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['ok'] is True and body['watermark_state'] == 'detected'
+    assert body['watermark_route'] == 'crop'
+    with app.app_context():
+        assert open(path, 'rb').read() == orig
+        assert svc.db.session.get(FaceDatasetImage, img_id).watermark_state == 'detected'
+        stem, ext = os.path.splitext(path)
+        assert os.path.exists(f'{stem}.orig{ext}')
+
+
+def test_watermark_restore_route_404_without_original(client, app):
+    from app.services import face_dataset_service as svc
+    ds_id = _create(client, 'NoOrig', 'noorig').get_json()['id']
+    with app.app_context():
+        img_id = _kept_image(svc, ds_id, 'c.webp', state='cleaned').id
+    resp = client.post(f'/api/dataset/{ds_id}/image/{img_id}/watermark-restore', json={})
+    assert resp.status_code == 404
+    assert 'original' in (resp.get_json().get('error') or '')
+
+
+def test_watermark_restore_route_404_when_image_missing(client):
+    ds_id = _create(client, 'X', 'x').get_json()['id']
+    resp = client.post(f'/api/dataset/{ds_id}/image/999999/watermark-restore', json={})
+    assert resp.status_code == 404

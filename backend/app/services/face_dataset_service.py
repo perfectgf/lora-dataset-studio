@@ -3417,6 +3417,46 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
         dataset_activity.end(token)
 
 
+def restore_watermark_original(user_id, dataset_id, image_id) -> dict | None:
+    """Undo a watermark Clean on ONE image: copy the preserved `<stem>.orig<ext>` back
+    over the current file and flip the row from 'cleaned' (or 'failed') back to
+    'detected', so it re-enters the Clean set and the user can re-clean it -- e.g. retry
+    with the OTHER engine, or re-edit the zones. Returns a payload dict (state + planned
+    route + regions) on success, None when the image isn't found/owned, and raises
+    FileNotFoundError when no original was preserved (the image was never cleaned, or the
+    sibling was removed) -> the route maps that to a 404.
+
+    Design: the `.orig` is KEPT after a restore. It stays the single source of truth for
+    the original pixels, so any number of clean -> restore -> clean cycles never loses it:
+    _preserve_original is write-once (guarded by os.path.exists), so a later re-clean sees
+    the existing sibling and won't overwrite it with an already-edited image. bbox/regions
+    are preserved as-is (a crop/inpaint doesn't move the normalized box, and the user may
+    want to re-clean the same zones). The crop route shrinks the image; restoring the
+    .orig also restores the ORIGINAL dimensions -- nothing stored depends on them (the
+    planned-route recompute reads the file live in _payload_watermark_route)."""
+    owned_query = (FaceDatasetImage.query
+                   .join(FaceDataset, FaceDatasetImage.dataset_id == FaceDataset.id)
+                   .filter(FaceDatasetImage.id == image_id,
+                           FaceDatasetImage.dataset_id == dataset_id,
+                           FaceDataset.user_id == str(user_id)))
+    img = owned_query.one_or_none()
+    if not img or not img.filename:
+        return None
+    path = _img_path(img)
+    stem, ext = os.path.splitext(path)
+    backup = f'{stem}.orig{ext or ".webp"}'
+    if not os.path.exists(backup):
+        raise FileNotFoundError('no original to restore')
+    shutil.copy2(backup, path)   # bring the watermarked original back in place
+    # Re-flag as 'detected' so the badge/Clean count pick it up again; bbox and manual
+    # regions are left exactly as stored (re-cleanable, possibly with the other engine).
+    img.watermark_state = 'detected'
+    db.session.commit()
+    return {'watermark_state': img.watermark_state,
+            'watermark_route': _payload_watermark_route(img),
+            **_watermark_regions_payload(img)}
+
+
 # --- Fan-out generation (Klein edit) ---------------------------------------
 def _sync_generate_activity(dataset_id):
     """Reconcile the Klein 'generate' indicator with the dataset's live count of

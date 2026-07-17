@@ -554,6 +554,18 @@ export function useDataset() {
     return d;
   }, [currentId, refresh]);
 
+  // Undo a Clean on ONE image: restore the preserved original in place and re-flag it
+  // 'detected' so it can be re-cleaned (e.g. with the other engine). Cache-busts the
+  // touched thumbnail (same filename, pixels change back) so the restored original shows.
+  const restoreWatermarkImage = useCallback(async (imageId) => {
+    const d = await postJson(`/api/dataset/${currentId}/image/${imageId}/watermark-restore`, {});
+    if (d.ok) {
+      setNonces((m) => ({ ...m, [imageId]: (m[imageId] || 0) + 1 }));
+    }
+    await refresh();
+    return d;
+  }, [currentId, refresh]);
+
   // Mark flagged image(s) as NOT a watermark (false positive) — badge clears and
   // future 🧽 Find passes skip them.
   const dismissWatermarks = useCallback(async (ids) => {
@@ -920,7 +932,7 @@ export function useDataset() {
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, classify, caption, recaption,
            setStatus, setCaption, mirrorImage, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
-           findWatermarks, cleanWatermarks, cleanWatermarkImages, dismissWatermarks, saveWatermarkRegions,
+           findWatermarks, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };
