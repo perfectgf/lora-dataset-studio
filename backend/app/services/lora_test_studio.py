@@ -234,8 +234,16 @@ def _trigger_match_checkpoints(ds, family=None) -> list[dict]:
     des LoRA dans plusieurs dossiers (loras/sdxl, loras/krea, loras/z image) → c'est
     `family` qui choisit lequel exposer. Le match est délimité par un séparateur
     (cf. `_trigger_token_match`) : un trigger préfixe d'un autre ('lola' ⊂ 'lola3869')
-    ne s'offre PAS les LoRA du voisin. Returns [{filename, label}] (forme LoraLoader)."""
-    trigger = (ds.trigger_word or '').strip().lower()
+    ne s'offre PAS les LoRA du voisin. Returns [{filename, label}] (forme LoraLoader).
+
+    ⚠️ Le trigger est CANONICALISÉ via `lt._safe_trigger` (la MÊME fonction qui nomme
+    le fichier côté entraînement/déploiement) avant le match : un trigger multi-mots
+    ('raw test upscale') se déploie en 'lora_raw_test_upscale_…' (espaces → '_'), donc
+    matcher le trigger brut avec espaces ne préfixait JAMAIS le nom sous-scoré et le
+    dataset disparaissait silencieusement du sélecteur du Studio (bug 2026-07-17).
+    Aucun consommateur de noms ne doit re-slugifier à la main : tous passent par
+    `_safe_trigger`."""
+    trigger = lt._safe_trigger(ds).lower()
     if not trigger:
         return []
     fam = (family or getattr(ds, 'train_type', None) or 'zimage').lower()

@@ -516,6 +516,48 @@ def test_build_cell_workflow_krea_honors_local_base(app, monkeypatch):
         assert wf2['20']['inputs']['unet_name'] == 'Krea\\krea2_turbo_fp8.safetensors'
 
 
+def test_multiword_trigger_style_lora_is_discoverable_in_studio(app, monkeypatch):
+    """A style dataset's trigger can contain spaces ('raw test upscale'), but the
+    training/deploy side slugifies it into the filename via _safe_trigger
+    ('lora_raw_test_upscale_…'). The Studio's checkpoint match must canonicalize
+    the trigger the SAME way, or the trained LoRA silently vanishes from the picker.
+
+    Regression (2026-07-17): `_trigger_match_checkpoints` matched the RAW, still
+    space-containing trigger against the underscored filename → no prefix match →
+    the whole dataset disappeared from `/api/studio/checkpoints`."""
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'raw test upscale', 'raw test upscale',
+                                kind='style', train_type='krea')
+        # The exact on-disk deploy name, incl. eecc080's _rc<id>_v<N> import tag.
+        deployed = 'krea\\lora_raw_test_upscale_Krea-2-Raw_rc52_v1.safetensors'
+        monkeypatch.setattr(lts, 'get_krea_loras', lambda: [{'filename': deployed}])
+        cks = lts.list_test_checkpoints(ds, 'krea')
+        assert [c['filename'] for c in cks] == [deployed]
+        assert 'krea' in [f['family'] for f in lts.available_families(ds)]
+
+
+def test_trigger_match_still_respects_token_boundary_after_slugify(app, monkeypatch):
+    """Canonicalizing the trigger must NOT loosen the token-boundary guard: the
+    slugified trigger still only matches when the checkpoint continues with a
+    separator (`_`/`-`) or ends — a prefix glued to more letters is rejected.
+    Mirror of the historical 'lola' ⊂ 'lola3869' fix, but on a multi-word
+    (post-slugify) trigger 'raw test' → 'raw_test'."""
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'raw test', 'raw test',
+                                kind='style', train_type='krea')
+        # 'raw_testupscale' glues more letters onto the slug (no separator) → reject.
+        glued = 'krea\\lora_raw_testupscale_Krea-2-Raw_rc52_v1.safetensors'
+        own = 'krea\\lora_raw_test_Krea-2-Raw_rc60_v1.safetensors'
+        monkeypatch.setattr(lts, 'get_krea_loras', lambda: [{'filename': glued},
+                                                            {'filename': own}])
+        cks = [c['filename'] for c in lts.list_test_checkpoints(ds, 'krea')]
+        assert cks == [own]   # NOT the glued 'raw_testupscale' non-sibling
+
+
 def _configure_comfy(tmp_path, monkeypatch):
     """A tmp ComfyUI base with an empty models/ tree; returns its path."""
     from app import config
