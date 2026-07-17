@@ -1232,6 +1232,23 @@ def dataset_train_cloud_custom_base_push(dataset_id):
     return jsonify({'ok': True, **out})
 
 
+@bp.post('/dataset/train/retry')
+def dataset_train_retry():
+    """↻ Retry a FAILED LOCAL run (Runs page): relaunch training with the exact
+    identity params stamped for that launch. A real launch_training — normal
+    preflight, GPU-collision refusal, no bypass — replaying the live dataset
+    (slider settings included), not a resurrection of the dead process."""
+    gate = _require_aitoolkit()
+    if gate:
+        return gate
+    d = request.get_json(silent=True) or {}
+    try:
+        res = lt.retry_local_run(LOCAL_USER, int(d.get('record_id') or 0))
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
 @bp.post('/dataset/train/cloud/retry')
 def dataset_train_cloud_retry():
     """↻ Retry d'un run en erreur (page Cloud) : relance avec les paramètres

@@ -359,6 +359,70 @@ def test_launch_refuses_when_concept_slider_extension_missing(app, tmp_path, mon
         assert lt._aitoolkit_supports_concept_slider() is True
 
 
+# --- 5b) VRAM default: slider trains at 768 only unless overridden --------------
+
+def test_slider_defaults_to_768_only_resolution(app, tmp_path):
+    """The concept_slider loss makes several prediction passes per step, so its
+    VRAM peak sits far above a normal run — multi-scale 768+1024 OOMs on 24 GB.
+    A slider run with no explicit resolution therefore emits 768 only, and the
+    stamped snapshot agrees (provenance can never disagree with the job)."""
+    from app.services import lora_training as lt
+    with app.app_context():
+        ds, p = _slider_process(app, tmp_path, 'krea', variant='turbo')
+        assert p['datasets'][0]['resolution'] == [768]
+        assert lt.launch_settings_snapshot(ds)['resolution'] == [768]
+
+
+def test_slider_respects_explicit_resolution(app, tmp_path):
+    """A DEFAULT, not a clamp: an explicit user resolution is obeyed in slider
+    mode — both 768+1024 and 1024 ride straight through to the job + snapshot."""
+    from app.services import lora_training as lt
+    with app.app_context():
+        ds, _ = _slider_process(app, tmp_path, 'krea', variant='turbo')
+        folder = str(tmp_path / 'ds_krea')
+        lt.update_train_settings(LOCAL_USER, ds.id, {'resolution': '768,1024'})
+        p = lt.build_job_config(ds, folder, steps=1000)['config']['process'][0]
+        assert p['datasets'][0]['resolution'] == [768, 1024]
+        assert lt.launch_settings_snapshot(ds)['resolution'] == [768, 1024]
+        lt.update_train_settings(LOCAL_USER, ds.id, {'resolution': '1024'})
+        p2 = lt.build_job_config(ds, folder, steps=1000)['config']['process'][0]
+        assert p2['datasets'][0]['resolution'] == [1024]
+        assert lt.launch_settings_snapshot(ds)['resolution'] == [1024]
+
+
+def test_non_slider_resolution_default_unchanged(app, tmp_path):
+    """Regression guard: a NORMAL run still defaults to the 768+1024 multi-scale
+    family default — the 768-only default is slider-specific."""
+    from app.services import lora_training as lt
+    from app import config as cfg
+    from app.services import face_dataset_service as svc
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        ds = _mk(app, train_type='krea', trigger='res_norm', name='ResNorm')
+        ds.train_variant = 'turbo'
+        svc.db.session.commit()
+        folder = tmp_path / 'ds_norm'; folder.mkdir()
+        p = lt.build_job_config(ds, str(folder), steps=1000)['config']['process'][0]
+        assert p['datasets'][0]['resolution'] == [768, 1024]
+        assert lt.launch_settings_snapshot(ds)['resolution'] == [768, 1024]
+
+
+def test_effective_train_settings_reports_slider_768_default(app, tmp_path):
+    """The training panel reads effective_train_settings: it must report the
+    768-only slider default (and flip once the user picks a resolution) so the
+    control + summary never claim 768+1024 for a run that emits 768."""
+    from app.services import lora_training as lt
+    with app.app_context():
+        ds, _ = _slider_process(app, tmp_path, 'zimage')
+        eff = lt.effective_train_settings(ds)
+        assert eff['effective_resolution'] == [768]
+        assert eff['resolution_explicit'] is False
+        lt.update_train_settings(LOCAL_USER, ds.id, {'resolution': '1024'})
+        eff2 = lt.effective_train_settings(ds)
+        assert eff2['effective_resolution'] == [1024]
+        assert eff2['resolution_explicit'] is True
+
+
 # --- 6) cloud refusal (local-only V1) -------------------------------------------
 
 def test_cloud_launch_refuses_slider_mode(app, monkeypatch):

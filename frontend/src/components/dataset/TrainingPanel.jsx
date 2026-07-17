@@ -369,7 +369,14 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const advEma = adv?.ema ?? 0;
   const advEmaChoices = adv?.ema_choices ?? [0.99, 0.999];
   const LR_SCHED_LABELS = { constant: 'Constant (default)', constant_with_warmup: 'Warmup → constant', linear: 'Linear decay', cosine: 'Cosine decay', cosine_with_restarts: 'Cosine + restarts' };
-  const advRes = adv?.resolution ?? '768,1024';
+  // The resolution the next run will actually train at. Slider mode defaults to
+  // 768 only (the slider loss makes several prediction passes per step — much
+  // higher VRAM peak; multi-scale 768+1024 OOMs on 24 GB) unless the user picked
+  // one explicitly. Reflected in both the control and the panel summary so they
+  // never claim 768+1024 for a run that will emit 768.
+  const advResStored = adv?.resolution ?? '768,1024';
+  const advRes = (!!slider?.enabled && !adv?.resolution_explicit) ? '768' : advResStored;
+  const advResLabel = { '768': '768px', '1024': '1024px', '768,1024': '768+1024px' }[advRes] || advRes;
   const advSave = adv?.save_every ?? 250;
   const advSampleEvery = adv?.sample_every ?? 250;
   const advSampleEveryChoices = adv?.sample_every_choices ?? [100, 250, 500, 1000];
@@ -1150,7 +1157,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             réglages eux-mêmes vivent dans « Advanced options ». */}
         <span className="ml-auto text-content-subtle text-[0.625rem]"
           title="The configuration the next run will use — change it in Advanced options below">
-          {sliderOn ? '🎚 slider (Beta) · ' : ''}base « {zimageRecipe?.baseLabel || baseLabel} »{zimageRecipe ? ` · ${zimageRecipe.adapterActive ? 'Turbo adapter v2 ON' : 'no training adapter'}` : ''} · {sliderOn ? 'unmasked (slider)' : maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {stepsOverride.trim() ? `${stepsN} steps` : sliderOn ? `${stepsInfo?.steps ?? 1000} steps (slider policy)` : 'adaptive steps'}{advNetworkType === 'lokr' ? ' · LoKr' : ''}{advEma ? ` · EMA ${advEma}` : ''}
+          {sliderOn ? '🎚 slider (Beta) · ' : ''}base « {zimageRecipe?.baseLabel || baseLabel} »{zimageRecipe ? ` · ${zimageRecipe.adapterActive ? 'Turbo adapter v2 ON' : 'no training adapter'}` : ''} · {sliderOn ? 'unmasked (slider)' : maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {advResLabel} · {stepsOverride.trim() ? `${stepsN} steps` : sliderOn ? `${stepsInfo?.steps ?? 1000} steps (slider policy)` : 'adaptive steps'}{advNetworkType === 'lokr' ? ' · LoKr' : ''}{advEma ? ` · EMA ${advEma}` : ''}
         </span>
       </div>
 
@@ -1596,6 +1603,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 the LoRA holds up from a close-up face to a full-body shot; single 1024 is a bit faster.
                 <b className="text-content-muted font-medium"> 768 only</b> cuts memory use sharply and trains much
                 faster — your best shot at Krea 2 on a GPU under 24 GB, at some cost in fine detail.
+                {sliderOn && (
+                  <span className="block mt-1 text-purple-200/90">
+                    <b className="font-medium">Slider default: 768 only</b> — the slider loss makes several passes per
+                    step, so its VRAM peak is much higher than a normal run. Pick a resolution here to override.
+                  </span>
+                )}
               </span>
             </div>
 

@@ -6,6 +6,8 @@ import TrainingProgress from '../components/dataset/TrainingProgress';
 import {
   canStopLocalRun,
   isTrainingRecipeReplayBlocked,
+  retryRequest,
+  runRetryKey,
   trainingRunVariantLabel,
 } from '../utils/trainingRuns';
 
@@ -196,23 +198,30 @@ export default function CloudRunsPage() {
     }
   };
 
-  // ↻ Retry of a failed run: fresh pod, exact same settings as the failed
-  // launch (steps/variant/family/masked/GPU class) — the two field failures
-  // (vanished vast offer, pod never ready) are transient by nature.
-  const [retrying, setRetrying] = useState({});      // run_id -> bool
+  // ↻ Retry of a failed run: exact same settings as the failed launch
+  // (steps/variant/family/masked, + GPU class for cloud). Cloud runs replay
+  // their pod params on a fresh pod; a LOCAL run replays its stamped provenance
+  // record through launch_training (normal preflight, GPU-collision refusal).
+  const [retrying, setRetrying] = useState({});      // runRetryKey -> bool
   const retry = async (run) => {
     if (isTrainingRecipeReplayBlocked(run)) {
       toast.error('This run uses an incompatible legacy Z-Image recipe. Start a fresh validated run instead.');
       return;
     }
-    setRetrying((m) => ({ ...m, [run.run_id]: true }));
+    const req = retryRequest(run);
+    if (!req) return;
+    const isLocal = run.source === 'local';
+    const key = runRetryKey(run);
+    setRetrying((m) => ({ ...m, [key]: true }));
     try {
-      const d = await postJson('/api/dataset/train/cloud/retry', { run_id: run.run_id });
+      const d = await postJson(req.url, req.body);
       if (d.ok === false) toast.error(d.error || 'Retry failed');
-      else toast.success('Run relaunched — provisioning a fresh pod…');
+      else toast.success(isLocal
+        ? 'Run relaunched locally — watch it under In progress…'
+        : 'Run relaunched — provisioning a fresh pod…');
       poll();
     } finally {
-      setRetrying((m) => ({ ...m, [run.run_id]: false }));
+      setRetrying((m) => ({ ...m, [key]: false }));
     }
   };
 
@@ -507,7 +516,7 @@ export default function CloudRunsPage() {
                   </span>
                 )}
                 <span className="ml-auto text-content-muted text-[0.6875rem] tabular-nums">
-                  {run.gpu ? `${run.gpu} · ` : ''}${run.cost_estimate}
+                  {run.gpu ? `${run.gpu} · ` : ''}{run.cost_estimate != null ? `$${run.cost_estimate}` : ''}
                 </span>
                 {run.checkpoint_ready && (
                   <a href={checkpointHref(run)}
@@ -517,12 +526,14 @@ export default function CloudRunsPage() {
                 )}
                 {run.status === 'error' && (
                   <button type="button" onClick={() => retry(run)}
-                    disabled={isTrainingRecipeReplayBlocked(run) || !!retrying[run.run_id]}
+                    disabled={isTrainingRecipeReplayBlocked(run) || !!retrying[runRetryKey(run)]}
                     title={isTrainingRecipeReplayBlocked(run)
                       ? 'Disabled: this legacy/incompatible Z-Image recipe cannot be replayed safely; start a fresh run'
-                      : 'Relaunch this run with the same settings on a fresh pod'}
+                      : run.source === 'local'
+                        ? 'Relaunch this run locally with the same settings'
+                        : 'Relaunch this run with the same settings on a fresh pod'}
                     className="px-2 py-1 rounded-lg border border-primary/40 bg-primary/15 text-white text-xs font-semibold disabled:opacity-50">
-                    {retrying[run.run_id] ? '↻ Retrying…' : '↻ Retry'}
+                    {retrying[runRetryKey(run)] ? '↻ Retrying…' : '↻ Retry'}
                   </button>
                 )}
                 {run.source === 'cloud' && run.status === 'done' && run.checkpoint_ready && (

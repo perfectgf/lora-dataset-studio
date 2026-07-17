@@ -1808,6 +1808,11 @@ def all_runs(limit: int = 20) -> dict:
     cloud_by_id = ({r.id: r for r in CloudTrainingRun.query
                     .filter(CloudTrainingRun.id.in_(cloud_ids)).all()}
                    if cloud_ids else {})
+    # Local runs have no status column — the failed one (at most a single row,
+    # local training is single-flight) is derived from the transient crash state
+    # so its row can carry status='error' + a ↻ Retry affordance.
+    _failed_local = lt.failed_local_run()
+    failed_local_id, failed_local_msg = _failed_local or (None, None)
     recent = []
     for rec in recs:
         crun = cloud_by_id.get(rec.cloud_run_id)
@@ -1827,7 +1832,12 @@ def all_runs(limit: int = 20) -> dict:
                # local rows live only in the registry -> addressed by record id;
                # a cloud row overrides this with 'cloud-<id>' via _run_payload.
                'share_key': f'rec-{rec.id}',
+               # Stable retry target for a LOCAL run (cloud rows retry by run_id).
+               'record_id': rec.id,
                'created_at': rec.created_at.isoformat() if rec.created_at else None}
+        if rec.source == 'local' and rec.id == failed_local_id:
+            row['status'] = 'error'
+            row['error'] = failed_local_msg
         if rec.family == 'zimage':
             safe_settings = settings if isinstance(settings, dict) else {}
             diag = lt.zimage_recipe_diagnostic(

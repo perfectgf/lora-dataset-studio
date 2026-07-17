@@ -1062,6 +1062,25 @@ def _train_res(ds) -> list:
     return _RES_CHOICES.get(_train_settings(ds).get('resolution'), [768, 1024])
 
 
+def _resolution_is_explicit(ds) -> bool:
+    """Did the user PICK a resolution (vs. riding the family default)? A stored
+    value outside the valid set counts as "not chosen"."""
+    return _train_settings(ds).get('resolution') in _RES_CHOICES
+
+
+def _effective_resolution(ds) -> list:
+    """The resolution list this run will ACTUALLY emit.
+
+    Slider mode defaults to 768 only: the concept_slider loss runs several
+    prediction passes per step, so its VRAM peak sits far above a normal run —
+    multi-scale 768+1024 really OOMs on 24 GB (Jeremy's first slider run died
+    with 'bad allocation' at step 21 when Discord grabbed some VRAM). This is a
+    DEFAULT, not a clamp: an explicit user resolution is always obeyed."""
+    if slider_mode_enabled(ds) and not _resolution_is_explicit(ds):
+        return [768]
+    return _train_res(ds)
+
+
 def _save_every(ds) -> int:
     v = _train_settings(ds).get('save_every')
     return v if v in _SAVE_CHOICES else 250
@@ -1215,7 +1234,9 @@ def launch_settings_snapshot(ds, family=None) -> dict:
     snap = {
         'rank': rank,
         'alpha': _lora_alpha_eff(ds, rank, fam),
-        'resolution': _train_res(ds),
+        # The resolution ACTUALLY emitted (slider mode defaults to 768 only), so
+        # provenance / ⎘ Share config never disagree with what the job used.
+        'resolution': _effective_resolution(ds),
         'save_every': _save_every(ds),
         'max_step_saves': _max_step_saves(ds),
         'optimizer': _optimizer_eff(ds),
@@ -1325,6 +1346,11 @@ def effective_train_settings(ds, family=None) -> dict:
             'ema': s.get('ema') if s.get('ema') in _EMA_CHOICES else None,   # None → off
             'ema_choices': list(_EMA_CHOICES),
             'resolution': res if res in _RES_CHOICES else '768,1024',
+            # `resolution` above is the STORED choice (default label when unset);
+            # these two report what the run will actually train at — slider mode
+            # defaults to 768 only, so the panel control + summary stay truthful.
+            'resolution_explicit': res in _RES_CHOICES,
+            'effective_resolution': _effective_resolution(ds),
             'save_every': _save_every(ds),
             'max_step_saves': _max_step_saves(ds),
             'max_step_saves_choices': list(_MAX_SAVES_CHOICES),
@@ -2106,11 +2132,18 @@ def _apply_slider_overrides(ds, process: dict, family: str | None = None) -> dic
     if anchor:
         slider['anchor_class'] = anchor
     process['slider'] = slider
+    # Slider VRAM default: emit 768 only unless the user explicitly chose a
+    # resolution. The slider loss makes several prediction passes per step, so
+    # multi-scale 768+1024 peaks far higher and OOMs on 24 GB. Recomputed here
+    # (not read off the family process) so the same rule covers every family and
+    # matches launch_settings_snapshot's stamped resolution.
+    res = _effective_resolution(ds)
     for d in process.get('datasets', ()):
         # Substrate only: masked loss is dead code in the slider loss path, and
         # person masks would just burn CPU time at export.
         d.pop('mask_path', None)
         d.pop('mask_min_value', None)
+        d['resolution'] = res
         if fam == 'zimage':
             d['cache_text_embeddings'] = False   # issue #554 workaround
     # Bipolar preview sheet. Base prompt: the user's first custom sample prompt
@@ -4061,6 +4094,85 @@ def training_status(user_id=None) -> dict:
             # Dernier crash d'entraînement (rc≠0) remonté par le watcher, pour l'UI.
             'error': queue_manager._get_system_state('training_error', None),
             'queue': train_queue_view(user_id) if user_id is not None else []}
+
+
+# --- Retry d'un run LOCAL raté (page Runs) --------------------------------------
+# Local runs carry no status column: their launch is recorded once in the
+# provenance registry (TrainingRunRecord, source='local'), and the ONLY signal
+# that one crashed is the transient global `training_error` the watcher writes on
+# rc≠0 — cleared on the next launch, TTL-capped. Local training is single-flight,
+# so at most one local run is "failed" at a time: the newest local record of the
+# dataset the last crash points at. This mirrors the cloud ↻ Retry, which replays
+# the stamped launch params (CloudTrainingRun.train_params) on a fresh pod.
+
+def last_local_error() -> dict | None:
+    """The last local-training crash, as {dataset_id, rc, log_tail}, or None."""
+    err = queue_manager._get_system_state('training_error', None)
+    return err if isinstance(err, dict) else None
+
+
+def local_error_message(err) -> str:
+    """One-line, paste-safe summary of a local crash for the Runs page."""
+    if not isinstance(err, dict):
+        return 'Training crashed.'
+    rc = err.get('rc')
+    tail = (err.get('log_tail') or '').strip()
+    last = tail.splitlines()[-1].strip() if tail else ''
+    base = f'Training crashed (exit code {rc}).' if rc is not None else 'Training crashed.'
+    return f'{base} {last}' if last else base
+
+
+def _failed_local_record_id() -> int | None:
+    """Registry id of the local run the last crash belongs to, or None. Pure
+    error→record mapping (ignores whether a NEW run is now in progress — that
+    refusal belongs to launch_training's collision guard)."""
+    err = last_local_error()
+    if not err or err.get('dataset_id') is None:
+        return None
+    from ..models import TrainingRunRecord
+    rec = (TrainingRunRecord.query
+           .filter_by(dataset_id=int(err['dataset_id']), source='local')
+           .order_by(TrainingRunRecord.id.desc()).first())
+    return rec.id if rec else None
+
+
+def failed_local_run() -> tuple | None:
+    """(record_id, message) of the local run the Runs page should offer a ↻ Retry
+    for, or None. None while a run is in progress: its launch cleared the error
+    state, so nothing is "failed" during a live run."""
+    if queue_manager._get_system_state('training_in_progress', False):
+        return None
+    rec_id = _failed_local_record_id()
+    if rec_id is None:
+        return None
+    return rec_id, local_error_message(last_local_error())
+
+
+def retry_local_run(user_id, record_id) -> dict:
+    """↻ Retry a FAILED local run: a REAL launch_training replaying the identity
+    params stamped for that launch (family / variant / base / masked / steps) —
+    same guardrails as any launch (GPU-collision refusal, normal preflight, no
+    bypass), not a resurrection of a dead process. The live dataset (images,
+    captions, advanced + slider settings) is the source of truth and is replayed
+    as-is, so a slider run re-emits its slider recipe — now with the 768-only
+    default that keeps its VRAM peak under 24 GB."""
+    from ..models import TrainingRunRecord
+    rec = fds.db.session.get(TrainingRunRecord, int(record_id))
+    if rec is None:
+        raise ValueError('unknown training run')
+    if rec.source != 'local':
+        raise ValueError('only a local run can be retried here')
+    # Run-in-progress → the exact collision message launch_training would raise,
+    # surfaced before any preflight work.
+    if (queue_manager._get_system_state('training_in_progress', False)
+            and _pid_alive(queue_manager._get_system_state('training_pid', None))):
+        raise ValueError('a training is already in progress - wait for it to finish or queue this dataset')
+    if _failed_local_record_id() != rec.id:
+        raise ValueError('this run has no recorded failure to retry')
+    return launch_training(
+        user_id, rec.dataset_id, steps=rec.steps,
+        base_model=(rec.base_model or None), variant=rec.variant,
+        train_type=rec.family, masked=bool(rec.masked))
 
 
 # --- Suivi de progression (log tail + loss curve + samples) -------------------
