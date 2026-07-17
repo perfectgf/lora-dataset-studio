@@ -128,7 +128,6 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [viewImg, setViewImg] = useState(null);
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
   const [showLeaks, setShowLeaks] = useState(false);       // liste dépliée des captions qui fuient
-  const [scraperOpen, setScraperOpen] = useState(false);
   const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
   const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
   const [watermarkMethod, setWatermarkMethod] = useState('lama');  // moteur d'inpaint batch : lama | klein
@@ -204,7 +203,6 @@ export default function DatasetWorkspace({ ds, onBack }) {
 
   useEffect(() => {
     const destination = panel ? getWorkspacePanel(section, panel) : null;
-    if (destination?.reveal === 'scraper') setScraperOpen(true);
     if (destination?.reveal === 'caption-leak') setShowLeaks(true);
     if (destination?.reveal === 'caption-tools') setCaptionToolsOpen(true);
   }, [section, panel]);
@@ -224,13 +222,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
     if (!d || !panel || workspaceLocation.pending) return undefined;
     const destination = getWorkspacePanel(section, panel);
     if (!destination) return undefined;
-    const revealReady = destination.reveal === 'scraper' && d.kind === 'character'
-      ? scraperOpen
-      : destination.reveal === 'caption-leak'
-        ? showLeaks
-        : destination.reveal === 'caption-tools'
-          ? captionToolsOpen
-          : true;
+    const revealReady = destination.reveal === 'caption-leak'
+      ? showLeaks
+      : destination.reveal === 'caption-tools'
+        ? captionToolsOpen
+        : true;
     if (!revealReady) return undefined;
     let finished = false;
     let observer;
@@ -308,7 +304,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
       if (timer) window.clearTimeout(timer);
     };
   }, [d, section, panel, workspaceLocation.pending, landingRequest,
-      scraperOpen, showLeaks, captionToolsOpen, writeWorkspaceLocation]);
+      showLeaks, captionToolsOpen, writeWorkspaceLocation]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -603,6 +599,19 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // grille, panneaux dépliés, catalogue de variations).
   const sectionCls = (id) => (section === id ? 'flex flex-col gap-3' : 'hidden');
 
+  // Discreet entry point kept in "Add images" after the scraper moved to its own
+  // 🕸 Scrape destination — preserves the build-flow's discoverability without the
+  // long accordion. Navigates to the Scrape section and focuses its gallery-URL input.
+  const scrapeLink = (
+    <button type="button" onClick={() => navigateToPanel('scrape', 'scan')}
+      className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-left text-content-muted hover:text-content hover:bg-surface-raised transition-colors">
+      <span aria-hidden>🕸</span>
+      <span className="text-sm font-medium">Scrape images from the web</span>
+      <span className="text-content-subtle text-[0.6875rem]">scan a gallery URL, pick images, import full-frame</span>
+      <span aria-hidden className="ml-auto text-content-subtle">→</span>
+    </button>
+  );
+
   return (
     <div className="flex flex-col gap-3">
       {/* ---- Header : identité du dataset + UNE action primaire (Export ZIP).
@@ -804,13 +813,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <div className={sectionCls('add')}>
             {heading('add')}
             {isConceptual ? (
-              // Concept : pas de photo de référence ni de générateur — on peuple le dataset
-              // en scannant des galeries (ConceptSourcesPanel) et/ou par upload manuel.
+              // Concept : pas de photo de référence ni de générateur — on peuple le
+              // dataset par upload manuel et/ou via le scraper, qui vit désormais dans
+              // sa propre section 🕸 Scrape (lien discret ci-dessous).
               <div id="gf-reference" className="scroll-mt-20 flex flex-col gap-2">
-                <div id="ds-add-scraper" tabIndex={-1} className="scroll-mt-20">
-                  <ConceptSourcesPanel key={`scraper-${d.id}`} datasetId={d.id}
-                    onImport={ds.scrapeImport} busy={importBusy} />
-                </div>
+                {scrapeLink}
                 <div id="ds-add-import" tabIndex={-1} className="scroll-mt-20">
                   <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={importBusy} visionBusy={visionImportBusy} />
                 </div>
@@ -852,30 +859,25 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     <ImportDropzone key={`${d.id}-${bodyFid}`} onImport={(f, o) => ds.importFiles(f, o)}
                       busy={importBusy} visionBusy={visionImportBusy} cropOption defaultCrop={!bodyFid} />
                   </div>
-                  {/* Scraper (character datasets too): scan a gallery URL → pick → import
-                      full-frame — then crop each tile manually (✂ on the card). Collapsed
-                      by default to keep the reference/generate flow prominent. */}
-                  <details id="ds-add-scraper" open={scraperOpen}
-                    className="rounded-lg border border-border bg-surface open:pb-3 scroll-mt-20">
-                    <summary data-workspace-focus
-                      onClick={(event) => {
-                        event.preventDefault();
-                        onRevealOpenChange('scraper', !scraperOpen, setScraperOpen);
-                      }}
-                      className="cursor-pointer select-none px-3 py-2 text-sm text-content font-semibold">
-                      🕸 Scrape images from the web
-                      <span className="ml-2 font-normal text-content-subtle text-[0.6875rem]">
-                        scan a gallery URL, pick images, import full-frame — crop them afterwards
-                      </span>
-                    </summary>
-                    <div className="px-3">
-                      <ConceptSourcesPanel key={`scraper-${d.id}`} datasetId={d.id}
-                        onImport={ds.scrapeImport} busy={importBusy} />
-                    </div>
-                  </details>
+                  {/* Scraper moved to its own 🕸 Scrape destination — keep a discreet
+                      link here so the build flow still surfaces it without burying the
+                      reference/generate flow under a long accordion. */}
+                  {scrapeLink}
                 </div>
               </>
             )}
+          </div>
+
+          {/* ============ 🕸 Scrape — its own destination now (moved out of "Add
+               images"): scan a gallery URL → pick thumbnails → import full-frame, then
+               crop each tile manually (✂ on the card). One ConceptSourcesPanel serves
+               every dataset kind. */}
+          <div className={sectionCls('scrape')}>
+            {heading('scrape')}
+            <div id="ds-scrape-scan" tabIndex={-1} className="scroll-mt-20">
+              <ConceptSourcesPanel key={`scraper-${d.id}`} datasetId={d.id}
+                onImport={ds.scrapeImport} busy={importBusy} />
+            </div>
           </div>
 
           {/* ============ 🧹 Curation — passes de qualité sur les images gardées :

@@ -45,13 +45,19 @@ test('registry ids are unique within sections and target ids are globally unique
 });
 
 test('character destinations expose real character-only panels', () => {
-  assert.deepEqual(ids('add'), ['reference', 'generate', 'import', 'scraper']);
+  assert.deepEqual(ids('add'), ['reference', 'generate', 'import']);
   assert.deepEqual(ids('curation'), ['face-analysis', 'watermarks']);
   assert.deepEqual(ids('captions'), ['generate', 'leak-review', 'tools']);
 });
 
+test('scrape is a standalone destination for every dataset kind', () => {
+  assert.deepEqual(ids('scrape'), ['scan']);
+  assert.deepEqual(ids('scrape', { kind: 'concept' }), ['scan']);
+  assert.deepEqual(ids('scrape', { kind: 'style' }), ['scan']);
+});
+
 test('concept and style destinations omit character-only or inapplicable panels', () => {
-  assert.deepEqual(ids('add', { kind: 'concept' }), ['import', 'scraper']);
+  assert.deepEqual(ids('add', { kind: 'concept' }), ['import']);
   assert.deepEqual(ids('curation', { kind: 'concept' }), ['watermarks']);
   assert.deepEqual(ids('captions', { kind: 'concept' }), ['generate', 'leak-review', 'tools']);
   assert.deepEqual(ids('captions', { kind: 'style' }), ['generate', 'tools']);
@@ -109,8 +115,8 @@ test('a pending queue URL is preserved until training status resolves', () => {
 });
 
 test('query updates preserve unrelated keys and clear panel on parent navigation', () => {
-  const child = withWorkspaceLocation(new URLSearchParams('foo=bar&section=images'), 'add', 'scraper');
-  assert.equal(child.toString(), 'foo=bar&section=add&panel=scraper');
+  const child = withWorkspaceLocation(new URLSearchParams('foo=bar&section=images'), 'scrape', 'scan');
+  assert.equal(child.toString(), 'foo=bar&section=scrape&panel=scan');
   const parent = withWorkspaceLocation(child, 'captions', null);
   assert.equal(parent.toString(), 'foo=bar&section=captions');
 });
