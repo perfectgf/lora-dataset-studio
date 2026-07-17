@@ -8,7 +8,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'engines', title: 'Image engines', icon: '🎨', eyebrow: 'generation',
     description: 'API keys and engines used to generate dataset images.',
     keywords: ['gemini', 'openai', 'api key', 'chatgpt', 'nano banana', 'klein', 'engine', 'subscription', 'gpt-image',
-      'lora', 'ultra real', 'texture', 'anatomy', 'nsfw'] },
+      'lora', 'preset', 'texture', 'anatomy', 'nsfw'] },
   { id: 'scraping', title: 'Scraping & sources', icon: '🔎', eyebrow: 'sources',
     description: 'Credentials used when scanning image sources.',
     keywords: ['reddit', 'client id', 'civitai', 'pexels', 'pexels api', 'api key', 'scrape', 'scraper',

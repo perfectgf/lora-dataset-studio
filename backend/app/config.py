@@ -98,18 +98,20 @@ DEFAULTS = {
     # near-copy of the reference. 0 disables the LoRA entirely.
     'klein': {'consistency_lora': 'klein/Flux2-Klein-9B-consistency-V2.safetensors',
               'consistency_strength': 0.5,
-              # Optional generation LoRAs (Idea by @waltm — Discord feature
-              # request): ORDERED list of user-pointed extra LoRAs chained after
-              # the consistency LoRA on the local Klein edit graph, in list
-              # order. Each entry: {file, strength, nsfw_only} — file is a
-              # loras-relative name (like consistency_lora; the app never
-              # hardcodes one), strength is only the per-run slider default
-              # (every slot starts OFF each visit), nsfw_only entries inject
-              # ONLY on 🔞 variations (fail-closed). Capped at 8 entries
-              # (klein_edit_helper.MAX_GENERATION_LORAS). The pre-list
-              # ultra_real_lora/nsfw_lora keys are migrated into this list by
-              # _migrate_klein_loras() and then dropped.
-              'generation_loras': [],
+              # Optional generation-LoRA PRESETS (Idea by @waltm — Discord
+              # feature request): named combinations the user picks per run.
+              # Each preset: {name, loras: [{file, strength}]} — loras is an
+              # ORDERED list (list order = chain order after the consistency
+              # LoRA on the local Klein edit graph), file is a loras-relative
+              # name (like consistency_lora; the app never hardcodes one).
+              # There is deliberately NO automatic per-LoRA gating: the chosen
+              # preset carries the intent (make an "NSFW full" preset if you
+              # want one). Caps: 8 LoRAs/preset, 12 presets
+              # (klein_edit_helper.MAX_GENERATION_LORAS / _PRESETS). The older
+              # generation_loras flat list and the very old ultra_real_lora /
+              # nsfw_lora keys are migrated in by _migrate_klein_loras() and
+              # then dropped.
+              'generation_lora_presets': [],
               # Optional instruction for small scraped-image rescue only.
               # Manual "Upscale & improve" uses its own fixed quality profile.
               # Empty is intentional: never invent a restoration prompt for the user.
@@ -129,34 +131,55 @@ def _deep_merge(base, override):
             out[k] = copy.deepcopy(v)
     return out
 
+MIGRATED_LORA_PRESET_NAME = 'My LoRAs'
+
 def _migrate_klein_loras(conf: dict, convert: bool = True) -> dict:
-    """Soft migration of the short-lived klein.ultra_real_lora / klein.nsfw_lora
-    single-slot keys into the ordered klein.generation_loras LIST (in place).
-    Non-empty legacy files become list entries (nsfw_lora -> nsfw_only=True,
-    keeping their configured strengths); the legacy keys are then dropped so
-    they can't shadow the list. Idempotent (dedup on file) and applied on EVERY
-    load — a config.json that still carries the old keys keeps working — and on
-    save, which purges them from the file.
+    """Two-stage soft migration of the pre-preset generation-LoRA formats into
+    klein.generation_lora_presets (in place):
+      (a) the very old single-slot keys ultra_real_lora / nsfw_lora become rows
+          of the intermediate flat list (keeping their configured strengths);
+      (b) a non-empty flat `generation_loras` list becomes ONE named preset
+          ('My LoRAs'); the per-row nsfw_only flag is dropped — presets carry
+          the intent now.
+    Every legacy key is then removed so it can't shadow the presets. Idempotent
+    (the preset is only created once, by name) and applied on EVERY load — a
+    config.json written by any older version keeps working — and on save,
+    which purges the legacy keys from the file.
     `convert=False` drops the legacy keys WITHOUT converting them: used when a
-    save explicitly carries `generation_loras` (the client already speaks the
-    list format, so the list is authoritative — otherwise deleting a migrated
-    row in Settings would resurrect it from the file's legacy keys)."""
+    save explicitly carries `generation_lora_presets` (the client already
+    speaks the preset format, so the presets are authoritative — otherwise
+    deleting the migrated preset in Settings would resurrect it from the
+    file's legacy keys)."""
     k = conf.get('klein')
     if not isinstance(k, dict):
         return conf
-    lst = k.get('generation_loras')
+    # (a) single-slot keys -> intermediate flat rows
+    lst = k.pop('generation_loras', None)
     lst = [dict(e) for e in lst if isinstance(e, dict)] if isinstance(lst, list) else []
-    for file_key, strength_key, nsfw_only in (
-            ('ultra_real_lora', 'ultra_real_strength', False),
-            ('nsfw_lora', 'nsfw_strength', True)):
+    for file_key, strength_key in (('ultra_real_lora', 'ultra_real_strength'),
+                                   ('nsfw_lora', 'nsfw_strength')):
         f = (k.pop(file_key, '') or '')
         f = f.strip() if isinstance(f, str) else ''
         s = k.pop(strength_key, None)
         if convert and f and not any(e.get('file') == f for e in lst):
             lst.append({'file': f,
-                        'strength': float(s) if isinstance(s, (int, float)) else 0.6,
-                        'nsfw_only': nsfw_only})
-    k['generation_loras'] = lst
+                        'strength': float(s) if isinstance(s, (int, float)) else 0.6})
+    # (b) flat rows -> one named preset (nsfw_only dropped on purpose)
+    presets = k.get('generation_lora_presets')
+    presets = [dict(p) for p in presets if isinstance(p, dict)] if isinstance(presets, list) else []
+    if convert:
+        rows = []
+        for e in lst:
+            f = e.get('file')
+            f = f.strip() if isinstance(f, str) else ''
+            if not f:
+                continue
+            s = e.get('strength')
+            rows.append({'file': f,
+                         'strength': float(s) if isinstance(s, (int, float)) else 0.6})
+        if rows and not any(p.get('name') == MIGRATED_LORA_PRESET_NAME for p in presets):
+            presets.append({'name': MIGRATED_LORA_PRESET_NAME, 'loras': rows})
+    k['generation_lora_presets'] = presets
     return conf
 
 def load_config(force=False) -> dict:
@@ -184,12 +207,12 @@ def save_config(partial: dict) -> dict:
                 current = json.loads(p.read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 current = {}
-        # convert=False when this save explicitly carries the list: the client
-        # already speaks the list format, so a legacy key left in the file must
-        # not resurrect a row the user just deleted — it is only purged.
+        # convert=False when this save explicitly carries the presets: the
+        # client already speaks the preset format, so a legacy key left in the
+        # file must not resurrect a preset the user just deleted — only purge.
         merged = _migrate_klein_loras(
             _deep_merge(current, partial or {}),
-            convert='generation_loras' not in ((partial or {}).get('klein') or {}))
+            convert='generation_lora_presets' not in ((partial or {}).get('klein') or {}))
         tmp = p.with_suffix('.json.tmp')
         tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding='utf-8')
         tmp.replace(p)

@@ -217,56 +217,64 @@ def _consistency_lora():
     return _configured_lora('klein.consistency_lora')
 
 
-# Hard cap on the optional generation-LoRA chain (Idea by @waltm): bounds the
-# graph size and the Settings list alike — the UI shows the same number.
-MAX_GENERATION_LORAS = 8
+# Hard caps on the optional generation-LoRA presets (Idea by @waltm): bound
+# the graph size and the Settings UI alike — the UI shows the same numbers.
+MAX_GENERATION_LORAS = 8          # LoRAs chained per preset
+MAX_GENERATION_LORA_PRESETS = 12  # named presets
 
 
-def configured_generation_loras():
-    """Sanitized `klein.generation_loras`: ordered [{file, strength, nsfw_only}]
-    with blank/malformed rows dropped, strengths clamped to [0, 1.5] (junk ->
-    the 0.6 default) and the list capped at MAX_GENERATION_LORAS. This is the
-    single source of truth for WHICH files may chain and in WHAT order — a
-    /generate request can only arm rows that exist here, never name its own."""
-    raw = cfg.get('klein.generation_loras')
-    out = []
-    for e in (raw if isinstance(raw, list) else []):
-        if not isinstance(e, dict):
+def configured_generation_lora_presets():
+    """Sanitized `klein.generation_lora_presets`: ordered
+    [{name, loras: [{file, strength}]}] with blank/duplicate names and
+    blank/malformed rows dropped, strengths clamped to [0, 1.5] (junk -> the
+    0.6 default), rows capped at MAX_GENERATION_LORAS per preset and presets
+    capped at MAX_GENERATION_LORA_PRESETS. This is the single source of truth
+    for WHICH files may chain and in WHAT order — a /generate request can only
+    NAME a preset that exists here, never define files or an order."""
+    raw = cfg.get('klein.generation_lora_presets')
+    out, seen = [], set()
+    for p in (raw if isinstance(raw, list) else []):
+        if not isinstance(p, dict):
             continue
-        f = e.get('file')
-        f = f.strip() if isinstance(f, str) else ''
-        if not f:
+        name = p.get('name')
+        name = name.strip() if isinstance(name, str) else ''
+        if not name or name in seen:
             continue
-        s = e.get('strength')
-        s = float(s) if isinstance(s, (int, float)) else 0.6
-        out.append({'file': f, 'strength': max(0.0, min(1.5, s)),
-                    'nsfw_only': bool(e.get('nsfw_only'))})
-        if len(out) >= MAX_GENERATION_LORAS:
+        rows = []
+        loras = p.get('loras')
+        for e in (loras if isinstance(loras, list) else []):
+            if not isinstance(e, dict):
+                continue
+            f = e.get('file')
+            f = f.strip() if isinstance(f, str) else ''
+            if not f:
+                continue
+            s = e.get('strength')
+            s = float(s) if isinstance(s, (int, float)) else 0.6
+            rows.append({'file': f, 'strength': max(0.0, min(1.5, s))})
+            if len(rows) >= MAX_GENERATION_LORAS:
+                break
+        seen.add(name)
+        out.append({'name': name, 'loras': rows})
+        if len(out) >= MAX_GENERATION_LORA_PRESETS:
             break
     return out
 
 
-def resolve_run_generation_loras(requested):
-    """Cross the per-run request ([{file, strength}] rows the UI armed) with the
-    CONFIG list: only configured files count, the CONFIG keeps the chain order
-    and the authoritative nsfw_only flag (a request can't strip the 🔞 gate),
-    the request supplies the per-run strength (clamped; junk -> the row's
-    configured default). Returns ordered [{file, strength, nsfw_only}]."""
-    if not isinstance(requested, list) or not requested:
+def resolve_generation_lora_preset(preset_name):
+    """Ordered [{file, strength}] rows of the CONFIG preset named
+    `preset_name` — the per-run request can only NAME a preset, never define
+    files/strengths/order (fail-closed). Blank/None -> [] (no preset picked,
+    the default run); an unknown name -> [] with a warning (a stale UI or a
+    renamed preset must degrade to 'no extra LoRAs', never block the run)."""
+    name = preset_name.strip() if isinstance(preset_name, str) else ''
+    if not name:
         return []
-    by_file = {}
-    for r in requested:
-        if isinstance(r, dict) and isinstance(r.get('file'), str) and r['file'].strip():
-            by_file[r['file'].strip()] = r
-    out = []
-    for entry in configured_generation_loras():
-        r = by_file.get(entry['file'])
-        if r is None:
-            continue                       # configured but not armed this run
-        s = r.get('strength')
-        s = float(s) if isinstance(s, (int, float)) else entry['strength']
-        out.append({**entry, 'strength': max(0.0, min(1.5, s))})
-    return out
+    for p in configured_generation_lora_presets():
+        if p['name'] == name:
+            return [dict(e) for e in p['loras']]
+    logger.warning("generation-LoRA preset %r not found in config — ignored", name)
+    return []
 
 
 def klein_missing_assets():
@@ -401,10 +409,10 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     mid strengths can suppress big restagings).
     `generation_loras`: ordered [{file, strength}] of OPTIONAL user-pointed
     generation LoRAs (Idea by @waltm) to chain after the consistency LoRA —
-    the FINAL list for THIS job, i.e. already crossed with the config via
-    resolve_run_generation_loras() and already 🔞-gated by the caller (any
-    nsfw_only row must have been dropped for a SFW job). None/[] = no extra
-    LoRAs (the default). Capped at MAX_GENERATION_LORAS.
+    the FINAL list for THIS job, i.e. the rows of the preset the run picked,
+    resolved from config via resolve_generation_lora_preset() (a request can
+    only NAME a preset, never define files/order). None/[] = no preset (the
+    default). Capped at MAX_GENERATION_LORAS.
     `source_path` overrides the default ComfyUI output dir/<source_filename> lookup
     so callers with per-dataset storage can pass the full path directly.
     `extra_ref_paths`: additional identity reference images (the dataset's extra
@@ -524,15 +532,14 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
         model_ref = ["ds_consistency_lora", 0]
 
     # Optional generation LoRAs (Idea by @waltm — Discord feature request):
-    # user-pointed extra LoRAs chained AFTER the consistency LoRA in list
-    # order, i.e. 114 -> consistency -> gen_lora_1 -> ... -> gen_lora_N -> 139.
-    # Every row is opt-in PER GENERATION (the caller only passes the rows the
-    # user armed), the filenames come from the config list ONLY (loras-relative,
-    # pointed by the user — never hardcoded, cf. the base-LoRA note below), and
-    # degradation is PER ROW, mirroring the consistency block exactly: missing
-    # node 139 / missing file / strength <= 0 -> skip that row with a log line
-    # (the rest of the chain still links up), never a doomed ComfyUI validation
-    # error.
+    # the rows of the PRESET the run picked, chained AFTER the consistency
+    # LoRA in preset order, i.e. 114 -> consistency -> gen_lora_1 -> ... ->
+    # gen_lora_N -> 139. The filenames come from the config presets ONLY
+    # (loras-relative, pointed by the user — never hardcoded, cf. the
+    # base-LoRA note below), and degradation is PER ROW, mirroring the
+    # consistency block exactly: missing node 139 / missing file /
+    # strength <= 0 -> skip that row with a log line (the rest of the chain
+    # still links up), never a doomed ComfyUI validation error.
     for i, entry in enumerate((generation_loras or [])[:MAX_GENERATION_LORAS], start=1):
         slot_lora = (entry.get('file') or '').replace('/', os.sep)
         slot_strength = entry.get('strength')

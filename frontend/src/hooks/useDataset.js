@@ -332,9 +332,9 @@ export function useDataset() {
     await refresh();
   }, [currentId, refresh, toast]);
 
-  // `extraLoras`: optional generation-LoRA strengths for this run (Idea by
-  // @waltm) — an already-gated `{ ultra_real_strength?, nsfw_lora_strength? }`
-  // fragment from optionalLoraPayload(); absent keys mean "slot off".
+  // `extraLoras`: optional generation-LoRA preset for this run (Idea by
+  // @waltm) — an already-gated `{ generation_lora_preset? }` fragment from
+  // generationLoraPresetPayload(); an absent key means "no preset".
   const generate = useCallback((variations, multiplier, kleinModel, loraStrength, generator, extraLoras) => wrap(async () => {
     const d = await postJson(`/api/dataset/${currentId}/generate`,
       { variations, multiplier, klein_model: kleinModel, lora_strength: loraStrength,

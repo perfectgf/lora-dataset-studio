@@ -7,7 +7,7 @@ import { apiFetch } from '../../api/fetchClient';
 import ShotIllustration, { contextEmoji } from './ShotIllustration';
 import { displayLabel } from '../../utils/labels';
 import { kleinMissingLabels } from '../../hooks/useSetupSteps';
-import { optionalLoraPayload, sanitizeGenerationLoras, LORA_STRENGTH_MAX } from '../../utils/generationLoras';
+import { generationLoraPresetPayload, sanitizeGenerationLoraPresets } from '../../utils/generationLoras';
 import {
   applyShotPreset,
   deleteShotPreset,
@@ -62,49 +62,6 @@ function ChatGptIcon({ className }) {
       ))}
       <circle cx="16" cy="16" r="3.1" fill="none" stroke="currentColor" strokeWidth="1.6" />
     </svg>
-  );
-}
-
-/** One optional generation-LoRA row (🖥️ Klein tuning): opt-in toggle +
-    strength slider (0–1.5) for a row of the user's Settings list
-    (klein.generation_loras — any files, chained in list order after the
-    consistency LoRA). nsfw_only rows are disabled while the 🔞 toggle is off
-    (fail-closed). Idea by @waltm (Discord). */
-function OptionalLoraSlot({ row, index, onPatch, nsfwMode }) {
-  const rose = !!row.nsfw_only;
-  const disabledReason = rose && !nsfwMode ? 'switch 🔞 NSFW mode on to use it' : null;
-  const usable = !disabledReason;
-  const active = row.on && usable;
-  const label = `${rose ? '🔞 ' : ''}${row.file.split(/[\\/]/).pop()}`;
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <button type="button" onClick={() => usable && onPatch(index, { on: !row.on })}
-        aria-pressed={active}
-        disabled={!usable} title={disabledReason || row.file}
-        className="flex items-center gap-2 text-left disabled:cursor-not-allowed min-w-0">
-        <span className={`w-8 h-4 shrink-0 rounded-full relative transition-colors ${active
-          ? (rose ? 'bg-rose-500/70' : 'bg-indigo-500/70')
-          : 'bg-app/80 border border-border'} ${usable ? '' : 'opacity-40'}`}
-          aria-hidden="true">
-          <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${active ? 'left-4' : 'left-0.5'}`} />
-        </span>
-        <span className={`text-[0.6875rem] font-mono truncate max-w-[16rem] ${active ? 'text-content' : 'text-content-muted'}`}>
-          {label}
-        </span>
-        <span className="text-[0.6875rem] text-content-subtle whitespace-nowrap">
-          {active ? row.strength.toFixed(2) : 'off'}
-        </span>
-      </button>
-      {active && (
-        <input type="range" min={0} max={LORA_STRENGTH_MAX} step={0.05} value={row.strength}
-          onChange={(e) => onPatch(index, { strength: Number(e.target.value) })}
-          aria-label={`${label} strength`}
-          className={`flex-1 min-w-[120px] ${rose ? 'accent-rose-500' : 'accent-indigo-500'}`} />
-      )}
-      {disabledReason && (
-        <span className="text-content-subtle text-[0.625rem]">{disabledReason}</span>
-      )}
-    </div>
   );
 }
 
@@ -182,15 +139,15 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
   // dx8152 consistency LoRA: anchors STRUCTURE, its guide recommends ~0.5 and
   // warns 0.8-1.0 can stop edits from applying (0.9 made variations near-copies).
   const [loraStrength, setLoraStrength] = useState(0.5);
-  // Optional generation LoRAs (Idea by @waltm — Discord feature request): the
-  // user's ORDERED list from Settings (klein.generation_loras — any files, any
-  // count up to 8), chained after the consistency LoRA on the local Klein
-  // path in list order. Per run each row is an opt-in toggle + strength that
-  // defaults OFF on every mount — deliberately not persisted, so no one
-  // inherits yesterday's stack. nsfw_only rows are armable only while 🔞 is on.
-  const [genLoras, setGenLoras] = useState([]);   // [{file, strength, nsfw_only, on}]
-  const patchGenLora = (index, patch) => setGenLoras(
-    (rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  // Optional generation-LoRA PRESETS (Idea by @waltm — Discord feature
+  // request): the user's named combinations from Settings
+  // (klein.generation_lora_presets). Per run the workspace just PICKS one —
+  // "None" by default on every mount (deliberately not persisted, so no one
+  // inherits yesterday's stack); the preset's config is authoritative (no
+  // per-LoRA knobs here) and its chain applies to the whole run.
+  const [loraPresets, setLoraPresets] = useState([]);   // [{name, loras:[{file, strength}]}]
+  const [loraPresetName, setLoraPresetName] = useState('');   // '' = None
+  const activeLoraPreset = loraPresets.find((p) => p.name === loraPresetName) || null;
   // Generator backend: Nano Banana Pro (Gemini API, ~0,15 $/image, zero GPU,
   // best face fidelity — user-validated default) or local Klein (GPU, free).
   const [generator, setGenerator] = useState(() => {
@@ -216,10 +173,8 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         if (cancelled) return;
         setEnabledEngines(d.config?.engines?.enabled || []);
         setChatgptAuth(d.config?.engines?.chatgpt_auth || 'auto');
-        // Optional generation LoRAs: the Settings list seeds the per-run rows
-        // (configured strengths as slider defaults, every toggle OFF).
-        setGenLoras(sanitizeGenerationLoras(d.config?.klein?.generation_loras)
-          .map((row) => ({ ...row, on: false })));
+        // Optional generation-LoRA presets: names + chains for the picker.
+        setLoraPresets(sanitizeGenerationLoraPresets(d.config?.klein?.generation_lora_presets));
       })
       .catch(() => { /* keep the permissive default on a transient failure */ });
     return () => { cancelled = true; };
@@ -436,10 +391,10 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     if (cost > 5 && !window.confirm(
       `This will launch ${toGen.length * multiplier} API generation(s) `
       + `≈ $${cost.toFixed(2)} (${isNB ? 'Nano Banana' : 'ChatGPT'}).\n\nProceed?`)) return;
-    // Optional generation LoRAs (Klein only): the util applies every gate —
-    // toggle on + strength > 0, and nsfw_only rows ALSO require 🔞 mode.
+    // Optional generation-LoRA preset (Klein only): only the NAME rides — the
+    // backend resolves the chain from its own config (fail-closed).
     onGenerate(toGen, multiplier, klein, loraStrength, generator,
-      optionalLoraPayload({ isKlein, nsfwMode, rows: genLoras }));
+      generationLoraPresetPayload({ isKlein, presetName: loraPresetName, presets: loraPresets }));
   };
 
   return (
@@ -847,10 +802,8 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
             🖥️ Klein tuning
             <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
               model file · consistency LoRA {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
-              {(() => {
-                const armed = genLoras.filter((r) => r.on && (!r.nsfw_only || nsfwMode)).length;
-                return armed ? ` · ${armed} extra LoRA${armed > 1 ? 's' : ''} on` : '';
-              })()}
+              {activeLoraPreset && activeLoraPreset.loras.length > 0
+                ? ` · LoRA preset: ${activeLoraPreset.name}` : ''}
             </span>
           </summary>
           <div className="px-2.5 pt-1 flex flex-col gap-2">
@@ -871,25 +824,50 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                 reference photo(s); add extra references for a stronger identity lock.
               </p>
             </div>
-            {/* Optional generation LoRAs (Idea by @waltm) — the user's Settings
-                list, chained after the consistency LoRA in this order. Every
-                row is off by default on each visit; 🔞 rows only inject on
-                NSFW variations while NSFW mode is on. */}
+            {/* Optional generation-LoRA preset (Idea by @waltm) — pick one of
+                the named combinations from Settings; its chain (read-only
+                here) applies to every variation of the run. "None" on each
+                visit by default. */}
             <div className="flex flex-col gap-1">
-              <span className="text-content-muted text-[0.6875rem]">
-                Extra LoRAs <span className="text-content-subtle">— chained in this order, per-run, on your files</span>
-              </span>
-              {genLoras.length === 0 ? (
+              <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
+                <span className="whitespace-nowrap">LoRA preset</span>
+                <select value={loraPresetName} aria-label="Generation LoRA preset"
+                  onChange={(e) => setLoraPresetName(e.target.value)}
+                  className="bg-app/60 border border-border rounded px-1 py-0.5 text-content text-[0.6875rem]">
+                  <option value="">None</option>
+                  {loraPresets.map((p) => (
+                    <option key={p.name} value={p.name}>{p.name} ({p.loras.length})</option>
+                  ))}
+                </select>
+                <span className="text-content-subtle text-[0.625rem]">
+                  your own LoRA combos — applies to every shot of this run
+                </span>
+              </label>
+              {loraPresets.length === 0 && (
                 <p className="text-content-subtle text-[0.625rem]">
-                  None configured — add your own LoRA files (texture, anatomy, style…) in{' '}
+                  No presets yet — build combinations of your own LoRA files (texture, anatomy, style…) in{' '}
                   <a href="#/settings/engines" className="text-amber-300 underline decoration-amber-300/50">
                     Settings › Image engines
                   </a>.
                 </p>
-              ) : genLoras.map((row, i) => (
-                <OptionalLoraSlot key={`${row.file}-${i}`} row={row} index={i}
-                  onPatch={patchGenLora} nsfwMode={nsfwMode} />
-              ))}
+              )}
+              {activeLoraPreset && (
+                activeLoraPreset.loras.length === 0 ? (
+                  <p className="text-content-subtle text-[0.625rem]">
+                    This preset is empty — add LoRA files to it in Settings.
+                  </p>
+                ) : (
+                  <ol className="flex flex-col gap-0.5 text-[0.625rem] text-content-subtle">
+                    {activeLoraPreset.loras.map((row, i) => (
+                      <li key={`${row.file}-${i}`} className="flex items-center gap-1.5" title={row.file}>
+                        <span className="text-content-muted">{i + 1}.</span>
+                        <span className="font-mono truncate max-w-[18rem]">{row.file.split(/[\\/]/).pop()}</span>
+                        <span>@ {row.strength.toFixed(2)}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )
+              )}
             </div>
           </div>
         </details>

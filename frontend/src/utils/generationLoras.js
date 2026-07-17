@@ -1,67 +1,72 @@
-/** Optional generation LoRAs (Idea by @waltm — Discord feature request).
+/** Optional generation-LoRA PRESETS (Idea by @waltm — Discord feature request).
  *
- * An ORDERED, user-defined list of extra LoRAs chained onto the LOCAL Klein
- * edit graph after the consistency LoRA (list order = chain order). Each
- * config row is {file, strength, nsfw_only}: the file is pointed by the user
- * in Settings (never hardcoded), the strength is only the per-run slider
- * default, and nsfw_only rows are STRICTLY gated behind the workspace's 🔞
- * NSFW toggle. Per run, every row starts OFF; here we build the request
- * fragment for the rows the user armed.
+ * The user defines named combinations in Settings — each preset is an ORDERED
+ * list of {file, strength} rows (list order = chain order after the
+ * consistency LoRA on the local Klein edit graph; files are loras-relative
+ * names the user points, never hardcoded). Per run the workspace just PICKS a
+ * preset ("None" by default each visit) — no per-LoRA toggles, no automatic
+ * gating: the chosen preset carries the intent. The request only ever sends
+ * the preset NAME; the backend resolves files/strengths/order from config
+ * (fail-closed, unknown names degrade to no extra LoRAs).
  */
 
 export const LORA_STRENGTH_MAX = 1.5;
 
-/** Hard cap on the list length — mirrors the backend's
- *  klein_edit_helper.MAX_GENERATION_LORAS (shown in the Settings card). */
+/** Hard caps — mirror the backend's klein_edit_helper.MAX_GENERATION_LORAS /
+ *  MAX_GENERATION_LORA_PRESETS (shown in the Settings card). */
 export const MAX_GENERATION_LORAS = 8;
+export const MAX_GENERATION_LORA_PRESETS = 12;
 
 /** Clamp a slider/user value into the [0, 1.5] strength range the backend
- *  enforces too (NaN and negatives collapse to 0 = off). */
+ *  enforces too (NaN and negatives collapse to 0). */
 export function clampLoraStrength(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.min(LORA_STRENGTH_MAX, n);
 }
 
-/** Sanitize a config-shaped list (from /api/settings or a Settings edit):
- *  drop blank/malformed rows, normalize fields, cap at MAX_GENERATION_LORAS.
- *  Order is preserved — it IS the chain order. */
-export function sanitizeGenerationLoras(list) {
+/** Sanitize a config-shaped preset list (from /api/settings or a Settings
+ *  edit): drop blank/duplicate names and blank/malformed rows, normalize
+ *  strengths (junk -> 0.6), cap rows per preset and the preset count. Order
+ *  is preserved everywhere — row order IS the chain order. */
+export function sanitizeGenerationLoraPresets(list) {
   const out = [];
-  for (const row of Array.isArray(list) ? list : []) {
-    if (!row || typeof row !== 'object') continue;
-    const file = typeof row.file === 'string' ? row.file.trim() : '';
-    if (!file) continue;
-    const n = Number(row.strength);
-    out.push({
-      file,
-      strength: Number.isFinite(n) ? Math.min(LORA_STRENGTH_MAX, Math.max(0, n)) : 0.6,
-      nsfw_only: !!row.nsfw_only,
-    });
-    if (out.length >= MAX_GENERATION_LORAS) break;
+  const seen = new Set();
+  for (const preset of Array.isArray(list) ? list : []) {
+    if (!preset || typeof preset !== 'object') continue;
+    const name = typeof preset.name === 'string' ? preset.name.trim() : '';
+    if (!name || seen.has(name)) continue;
+    const rows = [];
+    for (const row of Array.isArray(preset.loras) ? preset.loras : []) {
+      if (!row || typeof row !== 'object') continue;
+      const file = typeof row.file === 'string' ? row.file.trim() : '';
+      if (!file) continue;
+      const n = Number(row.strength);
+      rows.push({
+        file,
+        strength: Number.isFinite(n) ? Math.min(LORA_STRENGTH_MAX, Math.max(0, n)) : 0.6,
+      });
+      if (rows.length >= MAX_GENERATION_LORAS) break;
+    }
+    seen.add(name);
+    out.push({ name, loras: rows });
+    if (out.length >= MAX_GENERATION_LORA_PRESETS) break;
   }
   return out;
 }
 
-/** Body fragment for /generate (and /regenerate): the armed optional-LoRA rows
- *  of THIS run, as { generation_loras: [{file, strength}] }. A row rides only
- *  when every gate passes — otherwise it is absent (absent = off server-side,
- *  which re-checks order, files and the 🔞 flag against the config):
- *   - Klein engine only (API engines never see these knobs);
- *   - the row's toggle is on AND its strength is > 0;
- *   - nsfw_only rows additionally require the run's NSFW toggle (fail-closed).
- *  `rows` = [{file, strength, nsfw_only, on}]. Empty result -> {} (no key). */
-export function optionalLoraPayload({ isKlein = false, nsfwMode = false, rows = [] } = {}) {
+/** Body fragment for /generate (and /regenerate): the picked preset's NAME as
+ *  { generation_lora_preset: name } — the backend resolves the chain from its
+ *  own config (fail-closed). Empty fragment ({}) when:
+ *   - the engine is not Klein (API engines never see these knobs);
+ *   - no preset is picked (the "None" default);
+ *   - the picked name matches no configured preset, or the preset has no rows
+ *    (nothing would chain — don't send a dead name). */
+export function generationLoraPresetPayload({ isKlein = false, presetName = '', presets = [] } = {}) {
   if (!isKlein) return {};
-  const armed = [];
-  for (const row of Array.isArray(rows) ? rows : []) {
-    if (!row || !row.on) continue;
-    const file = typeof row.file === 'string' ? row.file.trim() : '';
-    const strength = clampLoraStrength(row.strength);
-    if (!file || strength <= 0) continue;
-    if (row.nsfw_only && !nsfwMode) continue;
-    armed.push({ file, strength });
-    if (armed.length >= MAX_GENERATION_LORAS) break;
-  }
-  return armed.length ? { generation_loras: armed } : {};
+  const name = typeof presetName === 'string' ? presetName.trim() : '';
+  if (!name) return {};
+  const preset = sanitizeGenerationLoraPresets(presets).find((p) => p.name === name);
+  if (!preset || preset.loras.length === 0) return {};
+  return { generation_lora_preset: name };
 }
