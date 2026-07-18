@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ShotIllustration from './ShotIllustration';
 import TileSizeControl from '../shared/TileSizeControl';
+import FullBackupControls from './FullBackupControls';
 import { HelpBadge } from '../../help/HelpMode';
 import { requestHelpTip } from '../../help/helpTips';
 import {
@@ -449,7 +450,7 @@ function NewDatasetForm({ onCreate, onClose }) {
 }
 
 export default function DatasetListPanel({
-  datasets, onOpen, onCreate, onDelete, onRestore, onExportZip, onExportBackup,
+  datasets, onOpen, onCreate, onDelete, onRestore, onExportZip, onExportBackup, backup,
 }) {
   // Library-first: the creation form stays folded behind "+ New dataset" so the
   // page opens on the collection — except on an empty library, where creating
@@ -510,6 +511,7 @@ export default function DatasetListPanel({
               className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">
               {!empty && creating ? '✕ Close' : '+ New dataset'}
             </button>
+            {backup && <FullBackupControls backup={backup} />}
             {onRestore && (
               <>
                 <button type="button" onClick={() => restoreRef.current?.click()}

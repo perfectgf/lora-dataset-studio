@@ -213,6 +213,7 @@ Housekeeping and diagnostics. Only one true setting lives here; the rest are act
 
 - **Updates** — **Check for updates** and, on a git checkout, **Update & restart**, plus a *see what's in this update* compare link.
 - **Trash** — **Open folder** and **Empty trash**. Everything the app deletes goes here first; emptying is the one destructive action, and it asks for confirmation.
+- **Back up everything** — not on this page but on the **Datasets library**: one button archives every dataset plus your settings into a single file (⬇ download or 📂 open folder), and the library's **Import backup** restores it. **API keys and tokens are never included** — re-enter them on the new install. See *Using the app → Back up everything*.
 - **Dataset images root** → `paths.dataset_images_root`. Where dataset images are stored. Default **empty → `<data dir>/datasets`**. Point it at a bigger or faster drive if your default data directory is tight on space.
 - **Diagnostic report** — a one-click, **paste-safe** report for bug reports: it carries the version, capability status and a log tail, with **no secrets** and file paths reduced to booleans (present/absent). Safe to drop into Discord or a GitHub issue.
 - **Server log** — a live tail of the server log, with **Copy all**, for when you need to see what just happened.

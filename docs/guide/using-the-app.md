@@ -96,6 +96,28 @@ Pick **Style** at creation. What changes:
 - **Step count switches to a sublinear √n scale** built for the large sets
   (hundreds of images) style LoRAs want.
 
+## Back up everything
+
+The **💾 Back up everything** button on the Datasets library packs your whole
+setup into a single file so you can move to a new machine — or recover from one
+— without losing anything.
+
+- **What's inside**: every dataset (all images, captions, statuses, face and
+  watermark states, references) plus your **settings** — engine choices,
+  training defaults, cloud tuning, watermark preferences. It's a *logical*
+  backup, one entry per dataset, not a raw disk dump.
+- **What's never inside**: your **API keys, Hugging Face token and scraping
+  credentials**. They are deliberately left out so the file is safe to copy
+  around; re-enter them once on the new install.
+- **How it runs**: in the background. A library can be gigabytes, so you get a
+  live "X / N datasets" progress bar and can keep working. When it's done, use
+  **⬇ Download** to save the archive, or **📂 Open folder** to find it on disk.
+- **Restoring**: hand the master archive to the same **📦 Import backup** button.
+  It restores your settings (without overwriting keys you've already entered)
+  then rebuilds each dataset. Nothing is ever overwritten — a dataset whose name
+  already exists comes back with a `(restored)` suffix — and you get an honest
+  final report of what was restored, renamed or skipped.
+
 ## Tips that save runs
 
 - Trust the composition meter over your instinct — a set that "looks varied"

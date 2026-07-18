@@ -19,7 +19,13 @@ export default function DatasetPage() {
            The empty-state hero and the creation form re-cap themselves. */
         <DatasetListPanel datasets={ds.datasets} onOpen={ds.open} onCreate={ds.create}
           onDelete={ds.deleteDataset} onRestore={ds.importBackup}
-          onExportZip={ds.exportZipFor} onExportBackup={ds.exportBackupFor} />
+          onExportZip={ds.exportZipFor} onExportBackup={ds.exportBackupFor}
+          backup={{
+            start: ds.backupEverything, job: ds.backupJob,
+            download: ds.downloadBackup, openFolder: ds.openBackupsFolder,
+            dismiss: ds.dismissBackup,
+            restoreJob: ds.restoreJob, dismissRestore: ds.dismissRestore,
+          }} />
       )}
     </div>
   );

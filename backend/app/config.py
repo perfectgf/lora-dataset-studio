@@ -327,6 +327,14 @@ def dataset_images_root() -> Path:
     root.mkdir(parents=True, exist_ok=True)
     return root
 
+def backups_dir() -> Path:
+    """Where 'Back up everything' writes its master archives (created on demand).
+    Always under the app's data dir — never the (possibly relocated) datasets
+    root — so a full backup never lands inside the very tree it is archiving."""
+    d = _data_dir() / 'backups'
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 def secret_key() -> str:
     d = _data_dir(); d.mkdir(parents=True, exist_ok=True)
     f = d / 'secret_key'

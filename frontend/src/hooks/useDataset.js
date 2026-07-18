@@ -28,6 +28,21 @@ function post(url, body, isForm) {
 }
 
 /**
+ * GET + parse, swallowing every failure to null. For polling a background-job
+ * status where a transient blip should just mean "try again next tick", never a
+ * toast — apiFetch's global error handling is deliberately bypassed here.
+ */
+async function getJsonSilent(url) {
+  try {
+    const r = await fetch(url, { credentials: 'include' });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * POST + defensive JSON parse (I1 + I4). Never throws: returns the parsed
  * payload on success, `{ok:false, error}` on HTTP / network / non-JSON
  * failures, so every caller can surface a toast instead of failing silently
@@ -941,14 +956,80 @@ export function useDataset() {
   }, []);
   const exportBackup = useCallback(() => exportBackupFor(currentId), [currentId, exportBackupFor]);
 
+  // === Back up / restore EVERYTHING (whole library + config) ===============
+  // A big library is potentially gigabytes, so both run as background jobs the
+  // server owns; we poll a compact status snapshot and surface an honest final
+  // report. Progress phrasing/summaries live in utils/fullBackup (pure/tested).
+  const [backupJob, setBackupJob] = useState(null);     // {state,done,total,current,result,error}
+  const [restoreJob, setRestoreJob] = useState(null);   // full-restore progress
+  const backupTimer = useRef(null);
+  const restoreTimer = useRef(null);
+  useEffect(() => () => {
+    clearTimeout(backupTimer.current);
+    clearTimeout(restoreTimer.current);
+  }, []);
+
+  const pollBackup = useCallback(() => {
+    clearTimeout(backupTimer.current);
+    backupTimer.current = setTimeout(async () => {
+      const st = await getJsonSilent('/api/backup/full/status');
+      if (!st) { pollBackup(); return; }                 // transient blip → keep polling
+      setBackupJob(st);
+      if (st.state === 'running') pollBackup();
+      else if (st.state === 'error') toast.error(st.error || 'Backup failed');
+    }, 900);
+  }, [toast]);
+
+  const backupEverything = useCallback(async () => {
+    const d = await postJson('/api/backup/full/start', {});
+    if (!d.ok) { toast.error(d.error || 'Could not start the backup'); return; }
+    setBackupJob({ state: 'running', done: 0, total: 0, current: null });
+    pollBackup();
+  }, [pollBackup, toast]);
+
+  const downloadBackup = useCallback((name) => {
+    if (name) window.open(`/api/backup/full/download?name=${encodeURIComponent(name)}`, '_blank');
+  }, []);
+  const openBackupsFolder = useCallback(async () => {
+    const d = await postJson('/api/backup/full/open-folder', {});
+    if (!d.ok) toast.error(d.error || 'Could not open the backups folder');
+  }, [toast]);
+  const dismissBackup = useCallback(() => {
+    clearTimeout(backupTimer.current); setBackupJob(null);
+  }, []);
+
+  const pollRestore = useCallback(() => {
+    clearTimeout(restoreTimer.current);
+    restoreTimer.current = setTimeout(async () => {
+      const st = await getJsonSilent('/api/backup/full/restore/status');
+      if (!st) { pollRestore(); return; }
+      setRestoreJob(st);
+      if (st.state === 'running') { pollRestore(); return; }
+      if (st.state === 'done') await fetchList();
+      else if (st.state === 'error') toast.error(st.error || 'Restore failed');
+    }, 900);
+  }, [fetchList, toast]);
+
+  // Restore ANY backup zip. The server auto-detects a single-dataset backup
+  // (imported inline, then opened) vs a master "Back up everything" archive (a
+  // background job with its own progress + honest final report) — so the one
+  // "Import backup" button in the library accepts both.
   const importBackup = useCallback(async (file) => {
     const fd = new FormData(); fd.append('file', file);
-    const d = await postJson('/api/dataset/backup/import', fd, true);
+    const d = await postJson('/api/backup/full/restore', fd, true);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
-    toast.success(`Dataset « ${d.name} » restored`);
-    await fetchList();
-    await open(d.id);
-  }, [fetchList, open, toast]);
+    if (d.kind === 'single') {
+      toast.success(`Dataset « ${d.name} » restored`);
+      await fetchList();
+      await open(d.id);
+      return;
+    }
+    setRestoreJob({ state: 'running', done: 0, total: 0, current: null });
+    pollRestore();
+  }, [fetchList, open, pollRestore, toast]);
+  const dismissRestore = useCallback(() => {
+    clearTimeout(restoreTimer.current); setRestoreJob(null);
+  }, []);
 
   // Merge an EXISTING training dataset (ZIP of images + kohya-style same-stem
   // .txt captions) into the open dataset — distinct from importBackup (which
@@ -1003,7 +1084,9 @@ export function useDataset() {
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, classify, caption, recaption, recaptionImages,
            setStatus, setCaption, mirrorImage, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
            findWatermarks, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, dismissWatermarks, saveWatermarkRegions,
-           purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder, refresh, train, stopTraining, continueTraining,
+           purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder,
+           backupEverything, backupJob, downloadBackup, openBackupsFolder, dismissBackup, restoreJob, dismissRestore,
+           refresh, train, stopTraining, continueTraining,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };
 }

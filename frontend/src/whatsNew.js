@@ -66,6 +66,14 @@ export const WHATS_NEW = [
     to: '/settings',
   },
   {
+    id: '2026-07-18-back-up-everything',
+    date: '2026-07-18',
+    title: 'Back up your whole library — and your settings — in one click',
+    blurb:
+      "A new “💾 Back up everything” button on the Datasets library packs every dataset (images, captions, statuses, references) plus your settings into a single file, so you can move to a new machine or recover from one without losing anything. It runs in the background with a live progress bar — a big library can be gigabytes — then hands you a download and an “Open folder”. Your API keys and tokens are deliberately left out, so the file is safe to keep around; re-enter them once on the new install. Restoring is the same “📦 Import backup” button: it now accepts the master archive too, rebuilds every dataset without ever overwriting one (name clashes get a “(restored)” suffix) and gives you an honest report of what came back.",
+    to: '/datasets',
+  },
+  {
     id: '2026-07-18-flexible-continue',
     date: '2026-07-18',
     title: 'Continue a run from any epoch, for as many steps as you want',

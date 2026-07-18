@@ -1,0 +1,71 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  formatBytes,
+  describeProgress,
+  progressPercent,
+  summarizeBackupResult,
+  summarizeRestoreReport,
+  isSettled,
+} from './fullBackup.js';
+
+test('formatBytes uses GB/MB/KB steps', () => {
+  assert.equal(formatBytes(0), '0 KB');
+  assert.equal(formatBytes(2048), '2 KB');
+  assert.equal(formatBytes(5e6), '5 MB');
+  assert.equal(formatBytes(1.2e9), '1.2 GB');
+});
+
+test('describeProgress: preparing before the count, then X / N', () => {
+  assert.equal(describeProgress(null), '');
+  assert.equal(describeProgress({ state: 'done', total: 3, done: 3 }), '');
+  assert.equal(describeProgress({ state: 'running', total: 0, done: 0 }), 'Preparing…');
+  assert.equal(describeProgress({ state: 'running', total: 12, done: 3 }), 'Backing up 3 / 12 datasets…');
+  assert.equal(describeProgress({ state: 'running', total: 12, done: 3 }, 'Restoring'),
+    'Restoring 3 / 12 datasets…');
+  // done can never exceed total in the caption.
+  assert.equal(describeProgress({ state: 'running', total: 5, done: 9 }), 'Backing up 5 / 5 datasets…');
+});
+
+test('progressPercent is null until a total is known', () => {
+  assert.equal(progressPercent({ total: 0, done: 0 }), null);
+  assert.equal(progressPercent({ total: 4, done: 1 }), 25);
+  assert.equal(progressPercent({ total: 4, done: 99 }), 100);
+});
+
+test('summarizeBackupResult headlines count + size and lists skips', () => {
+  const clean = summarizeBackupResult({
+    name: 'x.zip', size_bytes: 1.2e9, datasets_total: 3, datasets_backed_up: 3, skipped: [],
+  });
+  assert.equal(clean.headline, 'Backup ready — 3 datasets, 1.2 GB');
+  assert.deepEqual(clean.notes, []);
+
+  const withSkip = summarizeBackupResult({
+    size_bytes: 5e6, datasets_backed_up: 1,
+    skipped: [{ name: 'Busy', reason: 'a file was locked' }],
+  });
+  assert.equal(withSkip.headline, 'Backup ready — 1 dataset, 5 MB');
+  assert.equal(withSkip.notes[0], '1 dataset skipped:');
+  assert.match(withSkip.notes[1], /Busy — a file was locked/);
+});
+
+test('summarizeRestoreReport is honest about restored/renamed/skipped/config', () => {
+  const r = summarizeRestoreReport({
+    datasets_total: 3,
+    restored: 2,
+    renamed: [{ from: 'Alice', to: 'Alice (restored)' }],
+    skipped: [{ entry: 'datasets/9-bad.zip', reason: 'corrupt' }],
+    config_restored: true,
+  });
+  assert.equal(r.headline, 'Restored 2 of 3 datasets');
+  assert.ok(r.notes.some((n) => /Settings restored/.test(n)));
+  assert.ok(r.notes.some((n) => /Renamed .Alice. →/.test(n)));
+  assert.ok(r.notes.some((n) => /datasets\/9-bad\.zip — corrupt/.test(n)));
+});
+
+test('isSettled only for done/error', () => {
+  assert.equal(isSettled({ state: 'running' }), false);
+  assert.equal(isSettled({ state: 'done' }), true);
+  assert.equal(isSettled({ state: 'error' }), true);
+  assert.equal(isSettled(null), false);
+});

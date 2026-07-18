@@ -17,6 +17,9 @@ _DEFAULT_DATASET_ARCHIVE_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
 _DATASET_ARCHIVE_UPLOAD_ENDPOINTS = frozenset({
     'datasets.dataset_backup_import',
     'datasets.dataset_import_zip',
+    # 'Back up everything' restore accepts a master archive that can be as large
+    # as the whole library — it needs the same raised request ceiling.
+    'backup.full_restore',
 })
 
 
