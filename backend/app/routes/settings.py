@@ -140,6 +140,19 @@ def put_settings():
         # later cleared). Only when the client didn't already send an explicit value.
         if 'setup_skipped' not in config_partial['comfyui']:
             config_partial['comfyui']['setup_skipped'] = False
+    # The scoped-ML interpreters (watermark/masks/face_scoring `.python`) have NO input
+    # in Settings — they're written out-of-band by the installers (the watermark
+    # "Install inpainting" button auto-provisions a dedicated venv and records its
+    # python here). The frontend only ever echoes back what it loaded, blank on a fresh
+    # install, so a full-config Save carries `python: ""` for these keys. Left in the
+    # partial that blank deep-merges OVER the auto-provisioned path, blanking it — after
+    # which probe_watermark_inpaint falls back to the app's own Pillow-12 venv and the
+    # feature reads "NOT installed" forever despite a perfect install. Drop the blank so
+    # a stale Save can't undo an install. (aitoolkit.python IS user-editable — not here.)
+    for _managed in ('watermark', 'masks', 'face_scoring'):
+        node = config_partial.get(_managed)
+        if isinstance(node, dict) and 'python' in node and not str(node.get('python') or '').strip():
+            node.pop('python')
     cfg.save_config(config_partial)
     cfg.set_secrets(body.get('secrets') or {})
     # A changed ComfyUI location must take effect NOW: the base/model listers cache
