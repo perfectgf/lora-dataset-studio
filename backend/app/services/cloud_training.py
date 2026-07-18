@@ -1178,6 +1178,17 @@ def _cloudify_job_config(job_config: dict, job_name: str,
         proc['type'] = 'diffusion_trainer'
     proc['training_folder'] = pod_settings['TRAINING_FOLDER']
     proc['device'] = 'cuda:0'
+    # Dual captions are LOCAL-ONLY for now: remote.upload_dataset only ships the images
+    # and their .txt sidecars (its extension filter skips the JSON caption file), so a
+    # pod folder_path pointing at that missing JSON would find zero images. Revert to the
+    # historical folder + .txt sidecars — the run trains with long captions only. The
+    # earlier blanket path-swap already mangled the JSON folder_path; overwrite it cleanly.
+    train = proc.get('train') or {}
+    if train.pop('short_and_long_captions', None):
+        datasets = proc.get('datasets') or []
+        if datasets:
+            datasets[0]['folder_path'] = pod_ds
+            datasets[0].setdefault('caption_ext', 'txt')
     base_repo = (run_params or {}).get('base_repo_id')
     if base_repo:
         from . import hf_base_push

@@ -1346,6 +1346,10 @@ def effective_train_settings(ds, family=None) -> dict:
             'network_type_supported': True,
             'ema': s.get('ema') if s.get('ema') in _EMA_CHOICES else None,   # None → off
             'ema_choices': list(_EMA_CHOICES),
+            # Dual long+short captioning (ai-toolkit short_and_long_captions). Boolean,
+            # default OFF. Local training only for now (the cloud pod's dataset upload
+            # skips the JSON caption file), so the recipe strips it on the cloud path.
+            'dual_captions': bool(s.get('dual_captions')),
             'resolution': res if res in _RES_CHOICES else '768,1024',
             # `resolution` above is the STORED choice (default label when unset);
             # these two report what the run will actually train at — slider mode
@@ -1493,6 +1497,13 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
             cur['ema'] = v
         else:
             raise ValueError(f'ema must be one of {_EMA_CHOICES} (or off)')
+    if 'dual_captions' in patch:
+        # Plain boolean lever: truthy stores True, anything falsy drops the key so OFF is
+        # byte-identical to a dataset that never touched it.
+        if patch['dual_captions']:
+            cur['dual_captions'] = True
+        else:
+            cur.pop('dual_captions', None)
     ds.train_settings = json.dumps(cur) if cur else None
     fds.db.session.commit()
     return effective_train_settings(ds)
@@ -1504,7 +1515,7 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
 TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
                       'sample_every', 'sample_prompts', 'dropout', 'alpha',
                       'timestep_type', 'optimizer', 'lr_scheduler', 'warmup',
-                      'grad_accum', 'network_type', 'ema')
+                      'grad_accum', 'network_type', 'ema', 'dual_captions')
 
 # Built-in quick presets: shipped with the app (every install sees them),
 # read-only, versioned with the code. One preset per (family × dataset kind):
@@ -1992,6 +2003,20 @@ def _mask_fields(dataset_folder: str) -> dict:
     return {}
 
 
+# ai-toolkit reads dual long+short captions ONLY from a JSON caption file (folder_path
+# points at the file, keys are image paths, values {caption, caption_short}); the .txt
+# sidecar path cannot carry a short. We keep writing the .txt sidecars too so the cloud
+# path (which strips dual) and any manual inspection still work.
+_DUAL_CAPTION_FILENAME = '_captions.json'
+
+
+def _dual_caption_json_path(dataset_folder) -> str:
+    """Absolute path of the dual-caption JSON inside an export folder — the single source
+    of truth shared by the exporter (writes it) and build_job_config (points folder_path
+    at it). Forward-slashed so it matches the JSON keys and needs no backslash escaping."""
+    return (str(dataset_folder).rstrip('/\\') + '/' + _DUAL_CAPTION_FILENAME)
+
+
 def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_dir=None) -> str:
     """Écrit les images `keep` en paires .png/.txt dans
     DATASETS_DIR/<trigger>. Character/concept = trigger + caption éditée ; Style
@@ -2042,6 +2067,8 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_d
         raise ValueError('no kept images to export')
     n = 0
     exported = []
+    dual = fds.dual_captions_enabled(ds)
+    dual_entries = {}
     for img in kept:
         src = os.path.join(fds._dataset_dir(img.dataset_id), img.filename)
         if not os.path.isfile(src):
@@ -2054,9 +2081,21 @@ def export_dataset_to_aitoolkit(user_id, dataset_id, masked: bool = True, dest_d
         body = cap if fds.is_style(ds) else (f'{trigger}, {cap}' if cap else trigger)
         with open(os.path.join(out, f'{stem}.txt'), 'w', encoding='utf-8') as fh:
             fh.write(body)
+        if dual:
+            # Short variant: the stored caption_short, degrading to the long caption when a
+            # short was never derived (short==long is a harmless no-op augmentation). The
+            # trigger is prepended exactly like the long (style stays content-only). JSON
+            # key = the image path ai-toolkit will open (forward-slashed).
+            short_src = (img.caption_short or '').strip() or img.caption
+            scap = fds.style_content_caption(ds, short_src)
+            sbody = scap if fds.is_style(ds) else (f'{trigger}, {scap}' if scap else trigger)
+            dual_entries[dst.replace('\\', '/')] = {'caption': body, 'caption_short': sbody}
         n += 1
     if n == 0:
         raise ValueError('no valid image file found on disk')
+    if dual and dual_entries:
+        with open(_dual_caption_json_path(out), 'w', encoding='utf-8') as fh:
+            json.dump(dual_entries, fh, ensure_ascii=False, indent=2)
     masked_ok = False
     if masked:
         # generate_person_masks returns a DICT ({"ok", "written", "results"}, or {}
@@ -2120,6 +2159,25 @@ def _apply_style_overrides(ds, process: dict, family: str | None = None) -> dict
         d['caption_dropout_rate'] = dropout
     # Timestep choice is family/variant-specific. Never erase a resolved safe
     # recipe merely because the dataset kind is Style.
+    return process
+
+
+def _apply_dual_captions(ds, process: dict, dataset_folder) -> dict:
+    """Wire ai-toolkit dual long+short captioning onto one process. No-op unless the
+    dataset opted in. When on, the FIRST dataset block points at the JSON caption file
+    (the only format a short caption can be read from — the .txt sidecar path cannot) and
+    train.short_and_long_captions turns on the batch-doubling that trains each image with
+    BOTH captions. caption_ext is left as-is; it is ignored once folder_path is a JSON file.
+
+    Local-only for now: the cloud pod's dataset upload skips the JSON, so the cloud path
+    (_cloudify_job_config) reverts this back to the historical folder + .txt sidecars."""
+    if not fds.dual_captions_enabled(ds):
+        return process
+    datasets = process.get('datasets') or []
+    if not datasets:
+        return process
+    datasets[0]['folder_path'] = _dual_caption_json_path(dataset_folder)
+    process.setdefault('train', {})['short_and_long_captions'] = True
     return process
 
 
@@ -2214,21 +2272,25 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
         cfg_ = _build_job_config_sdxl(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0], 'sdxl')
         _apply_slider_overrides(ds, cfg_['config']['process'][0], 'sdxl')
+        _apply_dual_captions(ds, cfg_['config']['process'][0], dataset_folder)
         return cfg_
     if _train_type(ds) == 'krea':
         cfg_ = _build_job_config_krea(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0], 'krea')
         _apply_slider_overrides(ds, cfg_['config']['process'][0], 'krea')
+        _apply_dual_captions(ds, cfg_['config']['process'][0], dataset_folder)
         return cfg_
     if _train_type(ds) == 'flux':
         cfg_ = _build_job_config_flux(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0], 'flux')
         _apply_slider_overrides(ds, cfg_['config']['process'][0], 'flux')
+        _apply_dual_captions(ds, cfg_['config']['process'][0], dataset_folder)
         return cfg_
     if _train_type(ds) == 'flux2klein':
         cfg_ = _build_job_config_flux2klein(ds, dataset_folder, steps, training_folder=training_folder)
         _apply_style_overrides(ds, cfg_['config']['process'][0], 'flux2klein')
         _apply_slider_overrides(ds, cfg_['config']['process'][0], 'flux2klein')
+        _apply_dual_captions(ds, cfg_['config']['process'][0], dataset_folder)
         return cfg_
     trigger = _safe_trigger(ds)
     base_model = getattr(ds, 'train_base_model', None)
@@ -2303,6 +2365,7 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
     }
     _apply_style_overrides(ds, cfg_['config']['process'][0], 'zimage')
     _apply_slider_overrides(ds, cfg_['config']['process'][0], 'zimage')
+    _apply_dual_captions(ds, cfg_['config']['process'][0], dataset_folder)
     return cfg_
 
 

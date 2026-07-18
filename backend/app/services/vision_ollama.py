@@ -264,6 +264,48 @@ def describe_image_ollama(image_bytes: bytes, prompt: str, *,
         return ''
 
 
+def generate_text_ollama(prompt: str, *,
+                         ollama_url: str | None = None,
+                         model: str | None = None,
+                         num_predict: int = 400,
+                         num_ctx: int = 4096,
+                         repeat_penalty: float = 1.1,
+                         keep_alive: str | int = 0,
+                         timeout: tuple[float, float] | float = (10, 120)) -> str:
+    """Text-only generation via the SAME Ollama model as the vision seam (no image
+    attached). Used to derive a SHORT caption from an already-stored long one — a pure
+    text transform, so no GPU-heavy vision decode and no reason to pull in a second model.
+    Reusing the abliterated Qwen3-VL matters: a vanilla text model would refuse to
+    shorten the NSFW captions this app produces. Returns the text, or "" best-effort on
+    any failure (the caller degrades to keeping the long caption). Same response/thinking
+    extraction as describe_image_ollama so the -instruct answer is read correctly."""
+    try:
+        url = (ollama_url or _ollama_url()).rstrip('/')
+        payload = {
+            'model': model or get_vision_model(),
+            'prompt': prompt,
+            'stream': False,
+            'options': {'temperature': 0.3, 'num_ctx': int(num_ctx),
+                        'num_predict': int(num_predict),
+                        'repeat_penalty': float(repeat_penalty)},
+            'keep_alive': keep_alive,
+        }
+        resp = requests.post(f'{url}/api/generate', json=payload, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        caption = (data.get('response') or '').strip()
+        if caption:
+            return caption
+        thinking = (data.get('thinking') or '').strip()
+        if thinking:
+            parts = [p.strip() for p in thinking.split('\n\n') if p.strip()]
+            return parts[-1] if parts else thinking
+        return ''
+    except Exception as e:
+        logger.warning('vision_ollama: text generate skipped: %s', _ollama_reject_message(e) or e)
+        return ''
+
+
 def unload_vision_model(*, ollama_url: str | None = None, model: str | None = None) -> bool:
     """Décharge le modèle vision d'Ollama (libère la VRAM). À appeler à la FIN d'un
     batch caption/classify (où les appels ont gardé le modèle chaud via keep_alive)

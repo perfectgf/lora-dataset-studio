@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-18-dual-long-short-captions',
+    date: '2026-07-18',
+    title: 'Train each image with both a long and a short caption',
+    blurb:
+      "A new Advanced option, “Dual captions (long + short)”, turns on ai-toolkit's native long+short captioning: every image trains with a full caption AND a brief one, so the LoRA leans less on any single wording. The short variant is written for you from the long one when you caption — same rules, no trigger, the identity/concept/aesthetic still kept out — and you can tweak it per image in the ⛶ caption editor. Off by default; local training only for now (cloud runs use the long caption).",
+    to: '/datasets',
+  },
+  {
     id: '2026-07-18-watermark-install-verified',
     date: '2026-07-18',
     title: 'Watermark inpainting turns green the moment it finishes installing',

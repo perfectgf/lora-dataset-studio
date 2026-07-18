@@ -381,6 +381,22 @@ def is_conceptual(ds) -> bool:
     return is_concept(ds) or is_style(ds)
 
 
+def dual_captions_enabled(ds) -> bool:
+    """True when the dataset opted into ai-toolkit dual long+short captioning (Advanced
+    training options). The flag lives in the train_settings JSON blob (like the other
+    expert levers); default OFF = the historical single-caption behaviour, byte-for-byte.
+    Self-contained JSON read so lora_training can reuse it without a circular import."""
+    if not ds:
+        return False
+    raw = getattr(ds, 'train_settings', None)
+    if not raw:
+        return False
+    try:
+        return bool(json.loads(raw).get('dual_captions'))
+    except (ValueError, TypeError):
+        return False
+
+
 # Cibles de fidélité (datasets personnage). 'body' = le LoRA reproduit AUSSI la
 # morphologie : captions bannissent en plus les marques corporelles permanentes
 # (elles se lient au trigger), composition recommandée plus corps/buste, import
@@ -820,11 +836,19 @@ def resolve_small_image_rescue(user_id, dataset_id, candidate_id, choice):
     return result
 
 
-def set_image_caption(user_id, image_id, caption):
+_UNSET = object()
+
+
+def set_image_caption(user_id, image_id, caption, short=_UNSET):
+    """Save one image's long caption; optionally its short variant. `short` defaults to a
+    sentinel so a caller that only edits the long caption (the inline grid textarea) never
+    wipes an existing short — only the expanded editor passes `short` to touch it."""
     img = _owned_image(user_id, image_id)
     if not img:
         return False
     img.caption = _cap_caption(caption) or None
+    if short is not _UNSET:
+        img.caption_short = _cap_caption(short) or None
     db.session.commit()
     return True
 
@@ -1251,7 +1275,7 @@ _BACKUP_NAME_RE = re.compile(r'^[\w.-]+\.(webp|jpg|jpeg|png)$', re.IGNORECASE)
 # Champs snapshotés tels quels par ligne image (job_id/klein_model exclus : liés
 # à la machine source — un backup restauré ne peut pas « regénérer »).
 _BACKUP_IMG_FIELDS = ('filename', 'source', 'framing', 'variation_label', 'status',
-                      'caption', 'variation_prompt', 'face_score', 'face_state',
+                      'caption', 'caption_short', 'variation_prompt', 'face_score', 'face_state',
                       'upscale_ratio', 'watermark_state', 'watermark_bbox',
                       'watermark_regions', 'parent_image_id', 'derivation_kind',
                       'fail_reason', 'source_metadata')
@@ -1866,6 +1890,9 @@ def dataset_payload(user_id, dataset_id):
         'id': ds.id, 'name': ds.name, 'trigger_word': ds.trigger_word,
         'train_type': (ds.train_type or 'zimage'),
         'kind': (ds.kind or 'character'),
+        # Dual long+short captioning toggle (Advanced options) → the caption editor shows
+        # the short field only when this is on.
+        'dual_captions': dual_captions_enabled(ds),
         'fidelity': (ds.fidelity or 'face') if not concept else 'face',
         'concept_desc': (ds.concept_desc or '') if concept else '',
         # Creative-direction suffixes (global + per-framing) → settings modal
@@ -1884,6 +1911,7 @@ def dataset_payload(user_id, dataset_id):
         'images': [{'id': i.id, 'filename': i.filename, 'source': i.source,
                     'framing': i.framing, 'variation_label': i.variation_label,
                     'status': i.status, 'caption': i.caption,
+                    'caption_short': i.caption_short,
                     'fail_reason': i.fail_reason,
                     'parent_image_id': i.parent_image_id,
                     'derivation_kind': i.derivation_kind,
@@ -3202,6 +3230,108 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
         raise
     finally:
         dataset_activity.end(token)
+
+
+# --- Short-caption derivation (ai-toolkit dual long+short captioning) --------
+# When a dataset opts into dual captions, ai-toolkit trains each image with BOTH the long
+# and the short caption in the same step (short_and_long_captions doubles the batch — see
+# BaseSDTrainProcess.process_general_training_batch in the installed toolkit). The short is
+# DERIVED from the already-stored long via a text-only Ollama pass (no vision decode, no
+# second model, no GPU-heavy image work), then run through the SAME kind omission the long
+# went through so shortening can never reintroduce a banned identity/concept/aesthetic term.
+
+_SHORTEN_BASE = (
+    'Rewrite the following image caption as a much SHORTER caption: one concise sentence, '
+    'or a few key comma-separated phrases, naming only the most salient clearly-visible '
+    'elements. Do NOT add any detail that is not already present. Do NOT explain yourself '
+    'or add commentary. Reply with ONLY the short caption.\n')
+
+
+def _shorten_prompt(ds, long_caption) -> str:
+    """Text-only shortening prompt whose kind rule MIRRORS the long-caption omission:
+    character omits identity, concept omits the recurring element, style omits the look."""
+    if is_style(ds):
+        rule = ('Describe visible CONTENT only (subject, action, setting). Never name any '
+                'aesthetic, medium, art style, or artist.\n')
+    elif is_concept(ds):
+        rule = (f'Never mention or describe this recurring element: '
+                f'{(ds.concept_desc or "").strip()}. Keep it fully omitted.\n')
+    else:
+        rule = ("Never mention or describe the person's identity, face, or facial "
+                'features.\n')
+    return f'{_SHORTEN_BASE}{rule}\nCAPTION:\n{(long_caption or "").strip()}\n'
+
+
+def _scrub_short_like_long(ds, text, mode) -> str:
+    """Apply the SAME deterministic kind omission a long caption gets — reusing the
+    existing scrubbers, none of which touch the GPU: style content-only strip, concept
+    ban-list clause-scrub (describe=None → mechanical net only), character identity drop."""
+    t = (text or '').strip().strip('"').strip()
+    if not t:
+        return ''
+    if is_style(ds):
+        return style_content_caption(ds, t)
+    if is_concept(ds):
+        leak_re = _concept_terms_re(_get_concept_terms(ds, describe=None))
+        return _enforce_concept_omission(t, leak_re, b'', (ds.concept_desc or '').strip(),
+                                         describe=None) or ''
+    cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
+    return cleaner(t, body=is_body_fidelity(ds)) or ''
+
+
+def derive_short_captions(user_id, dataset_id, image_ids=None, force=False, mode=None,
+                          token=None, generate=None) -> int:
+    """Derive caption_short from each kept image's stored long caption (text-only Ollama,
+    kind omission preserved). No-op unless the dataset has dual captions enabled.
+
+    `force=False` fills only images that still lack a short; `force=True` overwrites (the
+    re-caption path — a fresh long implies a fresh short). `mode` matches the long pass
+    (booru for SDXL, else prose). `generate` is the text seam (injected in tests); None →
+    the real generate_text_ollama with the batch keep-alive + one unload at the end.
+
+    Best-effort per image: an empty/failed generation (or one scrubbed down to nothing)
+    leaves the short as-is — a still-missing short degrades to the long caption at export.
+    Returns the number of shorts written."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds or not dual_captions_enabled(ds):
+        return 0
+    ttype = (getattr(ds, 'train_type', None) or 'zimage').lower()
+    mode = (mode or ('booru' if ttype == 'sdxl' else 'prose')).lower()
+    q = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
+    if image_ids is not None:
+        ids = [int(i) for i in image_ids
+               if isinstance(i, (int, float, str)) and str(i).lstrip('-').isdigit()]
+        if not ids:
+            return 0
+        q = q.filter(FaceDatasetImage.id.in_(ids))
+    rows = [i for i in q.all() if (i.caption or '').strip()]
+    if not force:
+        rows = [i for i in rows if not (i.caption_short or '').strip()]
+    if not rows:
+        return 0
+    if generate is None:
+        from .vision_ollama import generate_text_ollama, unload_vision_model
+        def gen(p):
+            return generate_text_ollama(p, num_predict=400, keep_alive=_VISION_BATCH_KEEPALIVE)
+        _unload = unload_vision_model
+    else:
+        gen = generate
+        def _unload():
+            return None
+    n = 0
+    try:
+        for img in rows:
+            if token is not None:
+                dataset_activity.bump(token)
+            short = _scrub_short_like_long(ds, gen(_shorten_prompt(ds, img.caption)), mode)
+            if not short:
+                continue
+            img.caption_short = _cap_caption(short) or None
+            db.session.commit()
+            n += 1
+    finally:
+        _unload()
+    return n
 
 
 # --- Face similarity scoring (InsightFace antelopev2, CPU subprocess) -------

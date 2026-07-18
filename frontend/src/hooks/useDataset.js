@@ -653,8 +653,13 @@ export function useDataset() {
     await refresh();
   }, [refresh, toast]);
 
-  const setCaption = useCallback(async (imageId, captionText) => {
-    const d = await postJson(`/api/dataset/image/${imageId}/caption`, { caption: captionText });
+  const setCaption = useCallback(async (imageId, captionText, shortText) => {
+    // shortText undefined → only the long caption is sent (inline grid edit); the expanded
+    // editor passes a string (possibly '') to also set the short variant.
+    const body = shortText === undefined
+      ? { caption: captionText }
+      : { caption: captionText, caption_short: shortText };
+    const d = await postJson(`/api/dataset/image/${imageId}/caption`, body);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     await refresh();
   }, [refresh, toast]);

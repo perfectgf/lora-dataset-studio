@@ -844,7 +844,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   onImprove={ds.improveImage} onRefresh={ds.refresh}
                   kleinAvailable={Boolean(caps.engines?.klein)}
                   eligibilityImages={images}
-                  nonces={ds.nonces} faceThresholds={d.face_thresholds} datasetKind={d.kind || 'character'} />
+                  nonces={ds.nonces} faceThresholds={d.face_thresholds} datasetKind={d.kind || 'character'}
+                  dualCaptions={Boolean(d.dual_captions)} />
               )}
             </div>
           </div>

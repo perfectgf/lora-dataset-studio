@@ -393,6 +393,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const advNetworkSupported = adv ? adv.network_type_supported !== false : true;
   const advEma = adv?.ema ?? 0;
   const advEmaChoices = adv?.ema_choices ?? [0.99, 0.999];
+  const advDualCaptions = Boolean(adv?.dual_captions);
   const LR_SCHED_LABELS = { constant: 'Constant (default)', constant_with_warmup: 'Warmup → constant', linear: 'Linear decay', cosine: 'Cosine decay', cosine_with_restarts: 'Cosine + restarts' };
   // The resolution the next run will actually train at. Slider mode defaults to
   // 768 only (the slider loss makes several prediction passes per step — much
@@ -1761,6 +1762,24 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   smoother, often better checkpoints. <b className="text-content-muted font-medium">How:</b> Off by
                   default; 0.99 averages faster (the recommended pairing with LoKr on small sets), 0.999 is slower and
                   steadier.
+                </span>
+              </div>
+              {/* Dual captions — train each image with a long AND a short caption */}
+              <div className="flex flex-col gap-0.5">
+                <label className="flex items-center gap-2 flex-wrap cursor-pointer">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0">Dual captions</span>
+                  <input type="checkbox" checked={advDualCaptions}
+                    onChange={(e) => saveAdv({ dual_captions: e.target.checked })}
+                    aria-label="Dual long + short captions"
+                    className="h-4 w-4 rounded border-border bg-surface accent-indigo-500" />
+                  <span className="text-content-muted text-[0.75rem]">long + short (local training only)</span>
+                </label>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> trains each image with both a full and a brief
+                  caption (text-side augmentation) so the LoRA leans less on any single wording.
+                  <b className="text-content-muted font-medium"> How:</b> the short variant is derived from the long one
+                  when you (re-)caption — same rules (no trigger, identity/concept/aesthetic kept out); edit it per image in
+                  the ⛶ caption editor. Cloud runs ignore this and train on the long caption only for now.
                 </span>
               </div>
               {/* Decoupled alpha */}

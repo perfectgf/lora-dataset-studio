@@ -91,6 +91,11 @@ class FaceDatasetImage(db.Model):
     variation_label = db.Column(String(120), nullable=True)
     status = db.Column(String(10), nullable=False, default='pending')    # pending|keep|reject|failed
     caption = db.Column(Text, nullable=True)                    # WITHOUT the trigger word
+    # Optional SHORT variant of the caption, derived from the long one (Ollama, text-only)
+    # for ai-toolkit's dual long+short captioning. Same kind strategy as the long (identity/
+    # concept/aesthetic omitted) and stored WITHOUT the trigger; the trigger is prepended at
+    # export like the long. Additive column (migration in create_app). NULL = no short yet.
+    caption_short = db.Column(Text, nullable=True)
     job_id = db.Column(String(36), nullable=True, index=True)
     variation_prompt = db.Column(String(500), nullable=True)    # RAW catalog prompt (regenerate)
     klein_model = db.Column(String(255), nullable=True)         # UNET used (regenerate)

@@ -62,7 +62,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
                                           onMirror, mirrorBusy = false, busy = false,
                                           onRegenerate, onView, nonce = 0, faceThresholds,
                                           selected = false, onToggleSelect, tileSize = 'M',
-                                          datasetKind = 'character' }) {
+                                          datasetKind = 'character', dualCaptions = false }) {
   const [cap, setCap] = useState(img.caption || '');
   const [captionEditorOpen, setCaptionEditorOpen] = useState(false);
   // ✏️ edit-prompt bubble open state (regenerate this tile with an edited prompt).
@@ -271,12 +271,17 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
       )}
       {captionEditorOpen && (
         <CaptionEditorDialog initialCaption={cap} imageUrl={url}
+          initialShortCaption={img.caption_short || ''} showShort={dualCaptions}
           imageLabel={displayLabel(img.variation_label)}
           onClose={() => setCaptionEditorOpen(false)}
-          onSave={(nextCaption) => {
+          onSave={(nextCaption, nextShort) => {
             editingRef.current = false;
             setCap(nextCaption);
-            if (nextCaption !== (img.caption || '')) onCaption(img.id, nextCaption);
+            // Persist when either field changed; `nextShort` is undefined unless dual is on.
+            if (nextCaption !== (img.caption || '')
+                || (nextShort !== undefined && nextShort !== (img.caption_short || ''))) {
+              onCaption(img.id, nextCaption, nextShort);
+            }
             setCaptionEditorOpen(false);
           }} />
       )}

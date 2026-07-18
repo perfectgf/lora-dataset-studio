@@ -156,7 +156,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
                                       onMirror, onRegenerate, onView, onBatch, busy, nonces,
                                       mirroringIds, faceThresholds, datasetKind = 'character',
                                       onImprove, onRefresh, kleinAvailable = false,
-                                      eligibilityImages }) {
+                                      eligibilityImages, dualCaptions = false }) {
   const toast = useToast();
   const [selected, setSelected] = useState(() => new Set());
   const [bulkImprove, setBulkImprove] = useState(null); // {running, done, total}
@@ -345,7 +345,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
             selected={selected.has(img.id)}
             onToggleSelect={onBatch && !isSmallImageRescueRow(img) ? toggle : undefined}
             nonce={(nonces && nonces[img.id]) || 0} faceThresholds={faceThresholds}
-            tileSize={tileSize} datasetKind={datasetKind} />
+            tileSize={tileSize} datasetKind={datasetKind} dualCaptions={dualCaptions} />
         ))}
       </div>
     </div>

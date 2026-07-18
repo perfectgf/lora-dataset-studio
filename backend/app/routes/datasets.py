@@ -5,6 +5,7 @@ No login — single local user (`cfg.LOCAL_USER`). Vision-dependent routes borro
 the GPU-exclusive window (`gpu_exclusive_vision_window`) so a vision pass never
 fights ComfyUI for the single GPU.
 """
+import logging
 import os
 import tempfile
 import uuid
@@ -538,7 +539,8 @@ def dataset_caption(dataset_id):
     a targeted call always OVERWRITES (those captions already exist), so it implies
     force. Omitted → the whole-dataset batch, gated by {force} as before. Same engine,
     mode and kind rules for both; serialized against training by the vision window."""
-    if not svc.get_dataset(LOCAL_USER, dataset_id):
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    if not ds:
         return jsonify({'error': 'not found'}), 404
     data = request.get_json(silent=True) or {}
     image_ids = data.get('image_ids')
@@ -550,6 +552,17 @@ def dataset_caption(dataset_id):
         with gpu_exclusive_vision_window(flag_ttl=1800):
             n = svc.caption_images(LOCAL_USER, dataset_id, force=force, mode=mode,
                                    image_ids=image_ids)
+            # Dual captions on: regenerate the short variants for the same scope in the
+            # SAME vision window (serialized against training). Best-effort — the long
+            # captions are already saved, so a short-pass hiccup must not fail the call.
+            if svc.dual_captions_enabled(ds):
+                try:
+                    svc.derive_short_captions(LOCAL_USER, dataset_id, image_ids=image_ids,
+                                              force=force, mode=mode)
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        'short-caption derivation failed for dataset %s', dataset_id,
+                        exc_info=True)
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, 'captioned': n})
@@ -905,7 +918,10 @@ def dataset_purge(dataset_id):
 @bp.post('/dataset/image/<int:image_id>/caption')
 def dataset_image_caption(image_id):
     data = request.get_json(silent=True) or {}
-    ok = svc.set_image_caption(LOCAL_USER, image_id, data.get('caption', ''))
+    # caption_short only touched when the key is present (the expanded editor sends it);
+    # the inline long-caption textarea omits it so it can't wipe an existing short.
+    kwargs = {'short': data['caption_short']} if 'caption_short' in data else {}
+    ok = svc.set_image_caption(LOCAL_USER, image_id, data.get('caption', ''), **kwargs)
     return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
 
 

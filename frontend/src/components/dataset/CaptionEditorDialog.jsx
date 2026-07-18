@@ -2,8 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { captionCharacterLabel, isCaptionSaveShortcut, isLikelyTruncatedCaption } from '../../utils/captionEditor';
 
-export default function CaptionEditorDialog({ initialCaption, imageUrl, imageLabel, onClose, onSave }) {
+export default function CaptionEditorDialog({
+  initialCaption, initialShortCaption, showShort = false, imageUrl, imageLabel, onClose, onSave,
+}) {
   const [draft, setDraft] = useState(initialCaption || '');
+  const [shortDraft, setShortDraft] = useState(initialShortCaption || '');
+  // Collapsed by default; auto-open when a short already exists so it isn't hidden.
+  const [shortOpen, setShortOpen] = useState(Boolean((initialShortCaption || '').trim()));
   const textareaRef = useRef(null);
 
   useEffect(() => {
@@ -20,7 +25,8 @@ export default function CaptionEditorDialog({ initialCaption, imageUrl, imageLab
     };
   }, [onClose]);
 
-  const save = () => onSave(draft);
+  // Pass the short only when the dataset uses dual captions, so a plain edit never writes one.
+  const save = () => onSave(draft, showShort ? shortDraft : undefined);
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-3 sm:p-6"
@@ -72,6 +78,37 @@ export default function CaptionEditorDialog({ initialCaption, imageUrl, imageLab
               }}
               placeholder="Caption (without the face)…"
               className="min-h-0 flex-1 resize-none rounded-xl border border-border bg-surface p-4 text-sm leading-6 text-content outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/25" />
+
+            {showShort && (
+              <div className="rounded-xl border border-border bg-surface">
+                <button type="button" onClick={() => setShortOpen((open) => !open)}
+                  aria-expanded={shortOpen}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[0.75rem] font-semibold text-content-muted hover:text-content">
+                  <span>{shortOpen ? '▾' : '▸'} Short caption <span className="font-normal text-content-subtle">· dual-caption training</span></span>
+                  <span className="font-mono text-[0.6875rem] text-content-subtle">{captionCharacterLabel(shortDraft)}</span>
+                </button>
+                {shortOpen && (
+                  <div className="flex flex-col gap-1.5 px-3 pb-3">
+                    <p className="m-0 text-[0.6875rem] leading-relaxed text-content-subtle">
+                      A brief alternative, trained alongside the long caption. Same rules apply
+                      (no trigger, keep the identity/concept/aesthetic out). Leave empty to reuse
+                      the long caption; (re-)captioning regenerates it automatically.
+                    </p>
+                    <textarea value={shortDraft}
+                      onChange={(event) => setShortDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (isCaptionSaveShortcut(event)) {
+                          event.preventDefault();
+                          save();
+                        }
+                      }}
+                      rows={2} placeholder="Short caption (optional)…"
+                      className="resize-none rounded-lg border border-border bg-app p-3 text-sm leading-6 text-content outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/25" />
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-[0.6875rem] text-content-subtle">Esc to close · Ctrl/⌘ + Enter to save</span>
               <div className="flex justify-end gap-2">
