@@ -146,6 +146,25 @@ def test_put_settings_keeps_valid_base_dir_unchanged(client, tmp_path):
     r = client.put('/api/settings', json={'config': {'comfyui': {'base_dir': str(base)}}})
     assert pathlib.Path(r.get_json()['config']['comfyui']['base_dir']) == base
 
+def test_put_settings_full_config_save_keeps_autoprovisioned_watermark_python(client):
+    """A full-config Save (the frontend sends the WHOLE config) must not blank out an
+    interpreter the installer auto-provisioned out-of-band. watermark.python has no UI
+    input, so the browser always echoes it back as "" on a fresh install; if that blank
+    reached save_config it would deep-merge over the dedicated venv path and the feature
+    would read "NOT installed" forever despite a perfect install (the reported bug)."""
+    from app import config
+    config.save_config({'watermark': {'python': '/data/envs/watermark/py.exe'}})
+    # The stale full-config Save the browser sends after the install finished.
+    r = client.put('/api/settings', json={'config': {
+        'watermark': {'allow_crop': True, 'device': 'auto', 'python': ''},
+        'masks': {'python': ''},
+    }})
+    assert r.status_code == 200
+    assert r.get_json()['config']['watermark']['python'] == '/data/envs/watermark/py.exe'
+    # The user's other watermark edits still land.
+    assert r.get_json()['config']['watermark']['allow_crop'] is True
+
+
 def test_capabilities_endpoint(client):
     caps = client.get('/api/capabilities').get_json()
     assert 'engines' in caps and 'studio_visible' in caps
