@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-caption-method-options',
+    date: '2026-07-19',
+    title: 'Choose your caption engine, model and instructions — per dataset',
+    blurb:
+      "The Captions area has a new ⚙️ Options button. Pick which engine writes this dataset's captions (Auto, JoyCaption, or Ollama vision), choose which pulled Ollama vision model runs — or pull a new one by name right there, with a live progress readout. A Vocabulary preset sets how the model names nude or sexual content — Explicit (crude, uncensored — pair it with an abliterated vision model), Clinical, or Safe — and you can still add your own extra instructions to steer the wording (e.g. “always name the visible clothing colors”). Presets and instructions ride on top of the built-in prompt, so the identity / concept / style guardrails and the leak cleaners still apply — they change wording, never what binds to the trigger. Everything is remembered on the dataset and used by the next caption or re-caption run; leave any field on “default” to keep following Settings.",
+    to: '/datasets?section=captions',
+  },
+  {
     id: '2026-07-18-runs-show-base-model',
     date: '2026-07-18',
     title: 'Run cards now name the exact base model each LoRA trained on',

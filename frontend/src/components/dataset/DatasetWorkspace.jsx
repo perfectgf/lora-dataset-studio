@@ -11,6 +11,7 @@ import { isDatasetImportBlocked } from './scraperState';
 import DatasetGrid from './DatasetGrid';
 import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
+import CaptionOptionsPopover from './CaptionOptionsPopover';
 import { recaptionConfirmation } from './captionCategory';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
@@ -124,6 +125,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const { caps, refresh: refreshCaps } = useCapabilities();
   const d = ds.data;
   const [cropImg, setCropImg] = useState(null);
+  const [captionOptionsOpen, setCaptionOptionsOpen] = useState(false);
   // Frozen snapshot of the flagged queue when review mode opens (null = closed).
   const [reviewQueue, setReviewQueue] = useState(null);
   const zipInput = useRef(null);   // hidden input for "Import dataset (ZIP)"
@@ -1130,6 +1132,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
                   🔄 Re-caption
                 </button>
+                <button type="button" data-workspace-focus
+                  onClick={() => setCaptionOptionsOpen(true)} disabled={ds.busy}
+                  title="Choose the caption engine, Ollama model and vocabulary, pull a new model, and add custom instructions — for this dataset"
+                  className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
+                  ⚙️ Options
+                </button>
+                <HelpBadge topic="action-caption-options" />
                 {/* Caption-leak badge — KIND-aware. character: identity words
                     (hair/face/skin); concept: the caption NAMING the concept (must bind to
                     the trigger, not the words); style: not applicable (the subjects'
@@ -1525,6 +1534,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
       )}
       {publishHfOpen && (
         <PublishHfModal datasetId={d.id} onClose={() => setPublishHfOpen(false)} />
+      )}
+      {captionOptionsOpen && (
+        <CaptionOptionsPopover datasetId={d.id}
+          onClose={() => setCaptionOptionsOpen(false)} />
       )}
       {reviewQueue && reviewQueue.length > 0 && (
         <WatermarkReviewLightbox

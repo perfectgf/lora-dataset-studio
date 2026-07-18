@@ -4,7 +4,7 @@ Install DETECTION is passive and lives in /api/capabilities (`ollama.installed`
 + `ollama.reachable`). STARTING the server is the one explicit, user-triggered
 action — POST /api/ollama/start — and it lives here, never fired from a probe.
 """
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from ..services import ollama_control
 
@@ -20,3 +20,26 @@ def start_ollama():
     {ok, reachable, error?, stderr?} either way; clients read `ok`."""
     result = ollama_control.start_ollama()
     return jsonify(result), 200
+
+
+@bp.get('/models')
+def list_models():
+    """Installed Ollama models for the Captions ⚙️ Options model picker.
+    Always 200 — {ok, reachable, models:[...]}; an unreachable server is a handled
+    outcome (reachable:False, empty list), not a server fault."""
+    return jsonify(ollama_control.list_models()), 200
+
+
+@bp.post('/pull')
+def pull_model():
+    """Pull an Ollama model the user named (background, streamed). Always 200 — a bad
+    name / unreachable server rides in the body as {ok:False, error}; clients poll GET
+    /api/ollama/pull for {state, model, progress, log, error}."""
+    data = request.get_json(silent=True) or {}
+    return jsonify(ollama_control.start_pull(data.get('model'))), 200
+
+
+@bp.get('/pull')
+def pull_status():
+    """Poll the current/last model pull: {state, model, progress, log, error}."""
+    return jsonify(ollama_control.pull_status()), 200

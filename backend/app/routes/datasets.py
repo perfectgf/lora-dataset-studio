@@ -568,6 +568,30 @@ def dataset_caption(dataset_id):
     return jsonify({'ok': True, 'captioned': n})
 
 
+@bp.get('/dataset/<int:dataset_id>/caption/options')
+def dataset_caption_options_get(dataset_id):
+    """Per-dataset caption method overrides {backend, ollama_model, instructions} for the
+    ⚙️ Options popover. Empty values mean "follow the global default"."""
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    if not ds:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, 'options': svc.caption_options(ds)})
+
+
+@bp.post('/dataset/<int:dataset_id>/caption/options')
+def dataset_caption_options_set(dataset_id):
+    """Persist a caption-options patch (only the provided keys change). An invalid engine
+    → 400. Applies to the next caption/re-caption run (including targeted + dual short)."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        options = svc.set_caption_options(LOCAL_USER, dataset_id, data)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'options': options})
+
+
 @bp.post('/dataset/<int:dataset_id>/analyze-faces')
 def dataset_analyze_faces(dataset_id):
     # CPU (onnxruntime CPU-only) -> PAS de fenêtre GPU exclusive, ComfyUI non stoppé.

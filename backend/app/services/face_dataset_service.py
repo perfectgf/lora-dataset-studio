@@ -397,6 +397,127 @@ def dual_captions_enabled(ds) -> bool:
         return False
 
 
+# --- Per-dataset caption method options --------------------------------------
+# The Captions ⚙️ Options popover writes these to the caption_options JSON column.
+# All three are OVERRIDES of the global captioning defaults: an empty value means
+# "follow the global default" (captioning.backend / ollama.vision_model), so a
+# dataset that never touched the popover behaves byte-for-byte as before.
+_CAPTION_BACKENDS = ('auto', 'joycaption', 'ollama', 'none')
+# Extra instructions are APPENDED to the built caption prompt (never replace it),
+# so the kind rules (identity/concept/style omission) and the post-filter cleaners
+# stay in force — a bounded length keeps a runaway paste out of every prompt.
+_CAPTION_INSTRUCTIONS_MAX = 2000
+
+# Vocabulary preset: a one-click register for how the model names nude/sexual content.
+# '' = untouched (the model's own default — byte-identical to the pre-preset behaviour).
+# This is the NSFW lane: paired with an abliterated Ollama model, 'explicit' makes the
+# captioner spell the acts out. It rides in as an appended instruction just like the free
+# text, so the identity/concept omission rules and the leak cleaners still post-filter —
+# the preset changes wording, never what is allowed to bind to the trigger. NONE of the
+# cleaners (identity/body/concept ban-lists) touch crude anatomical vocabulary, so an
+# 'explicit' caption keeps its terms; only identity/concept leaks are ever scrubbed.
+_CAPTION_VOCABULARIES = ('explicit', 'clinical', 'safe')
+_VOCABULARY_INSTRUCTION = {
+    'explicit': (
+        'Describe any sexual, nude or intimate content directly and explicitly, using '
+        'plain, crude anatomical terms. Do not censor, euphemise, hedge or soften — name '
+        'the body parts and the acts as they are.'),
+    'clinical': (
+        'Describe any nude or sexual content in neutral, clinical, anatomical terms. '
+        'Avoid crude slang and euphemism alike — be precise and matter-of-fact.'),
+    'safe': (
+        'Keep the description strictly non-explicit. Do not use sexual or crude terms; '
+        'refer to any nudity only in general, non-graphic language.'),
+}
+
+
+def caption_options(ds) -> dict:
+    """Normalized per-dataset caption overrides: {backend, ollama_model, instructions}.
+    Empty strings = "use the global default". Never raises ({} defaults on a missing or
+    corrupt blob) so every caption path can read it unconditionally."""
+    out = {'backend': '', 'ollama_model': '', 'instructions': '', 'vocabulary': ''}
+    raw = getattr(ds, 'caption_options', None) if ds else None
+    if not raw:
+        return out
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return out
+    if not isinstance(data, dict):
+        return out
+    backend = str(data.get('backend') or '').strip().lower()
+    if backend in _CAPTION_BACKENDS:
+        out['backend'] = backend
+    out['ollama_model'] = str(data.get('ollama_model') or '').strip()
+    out['instructions'] = str(data.get('instructions') or '').strip()[:_CAPTION_INSTRUCTIONS_MAX]
+    vocab = str(data.get('vocabulary') or '').strip().lower()
+    if vocab in _CAPTION_VOCABULARIES:
+        out['vocabulary'] = vocab
+    return out
+
+
+def set_caption_options(user_id, dataset_id, patch) -> dict:
+    """Persist a caption-options patch (only the provided keys change). An invalid engine
+    raises ValueError (mapped 400 by the route). Empty keys are dropped so a fully-default
+    dataset stores NULL — identical to one that never opened the popover. Returns the
+    resulting normalized options."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    cur = caption_options(ds)
+    if 'backend' in patch:
+        b = str(patch.get('backend') or '').strip().lower()
+        if b and b not in _CAPTION_BACKENDS:
+            raise ValueError(f'invalid captioning backend: {b}')
+        cur['backend'] = b
+    if 'ollama_model' in patch:
+        cur['ollama_model'] = str(patch.get('ollama_model') or '').strip()
+    if 'instructions' in patch:
+        cur['instructions'] = str(patch.get('instructions') or '').strip()[:_CAPTION_INSTRUCTIONS_MAX]
+    if 'vocabulary' in patch:
+        v = str(patch.get('vocabulary') or '').strip().lower()
+        if v and v not in _CAPTION_VOCABULARIES:
+            raise ValueError(f'invalid caption vocabulary: {v}')
+        cur['vocabulary'] = v
+    stored = {k: v for k, v in cur.items() if v}
+    ds.caption_options = json.dumps(stored) if stored else None
+    db.session.commit()
+    return cur
+
+
+def _resolve_caption_backend(ds) -> str:
+    """The engine a caption run uses: the dataset override when set, else the global
+    captioning.backend (default 'auto')."""
+    return (caption_options(ds).get('backend')
+            or cfg.get('captioning.backend') or 'auto').lower()
+
+
+def _with_caption_instructions(prompt: str, instructions: str) -> str:
+    """Append the user's extra instructions to a built caption prompt. The base prompt
+    (with its kind omission rules) stays first so the model still reads them; the extras
+    ride at the end under a clear header. The output cleaners run regardless, so this can
+    never reintroduce a banned identity/concept term."""
+    extra = (instructions or '').strip()
+    if not extra:
+        return prompt
+    return f'{prompt}\n\nAdditional instructions from the user:\n{extra}'
+
+
+def _combined_caption_instructions(opts) -> str:
+    """The text appended to a caption prompt for a run: the vocabulary preset (if any),
+    then the user's free-text instructions. Empty when neither is set — so a dataset that
+    never touched the popover produces byte-identical prompts. Both ride at the END of the
+    prompt, after the kind omission rules, and the output cleaners still post-filter."""
+    parts = []
+    preset = _VOCABULARY_INSTRUCTION.get(opts.get('vocabulary'))
+    if preset:
+        parts.append(preset)
+    extra = (opts.get('instructions') or '').strip()
+    if extra:
+        parts.append(extra)
+    return '\n\n'.join(parts)
+
+
 # Cibles de fidélité (datasets personnage). 'body' = le LoRA reproduit AUSSI la
 # morphologie : captions bannissent en plus les marques corporelles permanentes
 # (elles se lient au trigger), composition recommandée plus corps/buste, import
@@ -2883,7 +3004,8 @@ def _enforce_concept_omission(caption, leak_re, image_bytes, concept_desc, descr
     return caption
 
 
-def _caption_concept(ds, force, backend, token=None, image_ids=None):
+def _caption_concept(ds, force, backend, token=None, image_ids=None,
+                     ollama_model=None, extra_instructions=''):
     """Concept caption pipeline (INVERTED logic): describe everything INCLUDING identity
     but OMIT the recurring act so it binds to the trigger. JoyCaption is literal (it NAMES
     the act/fluids/watermark) -> its drafts are REFINED by Qwen, then every caption passes
@@ -2898,6 +3020,10 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None):
     # legs/knees/feet…") that overrides it. Byte-identical to the old prompt for non-body
     # concepts. This is the generation-side half of the leg_behind fix.
     cap_prompt = caption_prompt_for_concept(concept_desc)
+    # Extra user instructions apply to the DIRECT-caption prompt (the Qwen refine of a Joy
+    # draft is a structured transform left untouched). The concept omission still fronts
+    # the prompt and the ban-list enforcement still post-filters every caption.
+    cap_prompt = _with_caption_instructions(cap_prompt, extra_instructions)
     q = FaceDatasetImage.query.filter_by(dataset_id=ds.id, status='keep')
     if image_ids is not None:
         q = q.filter(FaceDatasetImage.id.in_(image_ids))
@@ -2975,7 +3101,8 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None):
                     refined = describe_image_ollama(
                         data, CAPTION_REFINE_CONCEPT_PROMPT.format(existing=joycap,
                                                                    concept=concept_desc),
-                        num_predict=5000, keep_alive=_VISION_BATCH_KEEPALIVE,
+                        num_predict=5000, model=ollama_model,
+                        keep_alive=_VISION_BATCH_KEEPALIVE,
                         timeout=(10, 300))
                 except Exception as e:  # noqa: BLE001 - refine best-effort
                     logger.warning('caption concept: Qwen refine failed (%s)', e)
@@ -2989,6 +3116,7 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None):
                     alt = ''
                     try:
                         alt = describe_image_ollama(data, cap_prompt, num_predict=2000,
+                                                    model=ollama_model,
                                                     keep_alive=_VISION_BATCH_KEEPALIVE,
                                                     timeout=(10, 300))
                     except Exception:  # noqa: BLE001
@@ -3018,7 +3146,7 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None):
                 with open(p, 'rb') as fh:
                     data = fh.read()
                 cap = describe_image_ollama(
-                    data, cap_prompt, num_predict=2000,
+                    data, cap_prompt, num_predict=2000, model=ollama_model,
                     keep_alive=_VISION_BATCH_KEEPALIVE,
                     auto_start_local=True, timeout=(10, 300))
                 cap = (cap or '').strip().strip('"').strip()
@@ -3056,12 +3184,20 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
       - 'ollama'     -> Ollama (Qwen3-VL) seul, JoyCaption jamais tenté.
       - 'auto'       -> comportement historique : JoyCaption en priorité,
                         fallback Ollama pour les images qu'il n'a pas captées."""
-    backend = (cfg.get('captioning.backend') or 'auto').lower()
-    if backend == 'none':
-        raise RuntimeError('No captioning backend configured')
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return 0
+    # Per-dataset method overrides (Captions ⚙️ Options): the chosen engine, an extra
+    # instruction appended to the prompt, and the Ollama vision model to run. Each falls
+    # back to the global default when the dataset never set it.
+    opts = caption_options(ds)
+    backend = (opts.get('backend') or cfg.get('captioning.backend') or 'auto').lower()
+    if backend == 'none':
+        raise RuntimeError('No captioning backend configured')
+    # Vocabulary preset (NSFW register) + free-text steer, combined into the one block that
+    # rides at the end of every prompt this run builds.
+    extra_instructions = _combined_caption_instructions(opts)
+    ollama_model = (opts.get('ollama_model') or '').strip() or None
     # A targeted subset (Identity-leak panel): normalize to ints once, drop non-numeric.
     # `None` = whole dataset; an EMPTY subset (nothing to re-caption) short-circuits to 0
     # rather than silently captioning everything.
@@ -3084,7 +3220,9 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
         logger.info('captioning started: dataset=%s backend=%s force=%s kind=concept',
                     dataset_id, backend, force)
         try:
-            n = _caption_concept(ds, force, backend, token=token, image_ids=ids)
+            n = _caption_concept(ds, force, backend, token=token, image_ids=ids,
+                                 ollama_model=ollama_model,
+                                 extra_instructions=extra_instructions)
             logger.info('captioning finished: dataset=%s backend=%s captioned=%s elapsed=%.1fs',
                         dataset_id, backend, n, time.monotonic() - started)
             return n
@@ -3115,6 +3253,9 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
         base_cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
         def cleaner(text):
             return base_cleaner(text, body=body)
+    # Extra user instructions ride at the END of the prompt (both engines) — the kind
+    # omission rules stay first, and the cleaner above still post-filters the output.
+    cap_prompt = _with_caption_instructions(cap_prompt, extra_instructions)
     q = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
     if ids is not None:
         q = q.filter(FaceDatasetImage.id.in_(ids))
@@ -3201,7 +3342,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
                         detail=f'Captioning with Ollama — image {index}/{len(remaining)}…')
                     with open(p, 'rb') as fh:
                         cap = describe_image_ollama(
-                            fh.read(), cap_prompt, num_predict=2000,
+                            fh.read(), cap_prompt, num_predict=2000, model=ollama_model,
                             keep_alive=_VISION_BATCH_KEEPALIVE,
                             auto_start_local=(index == 1), timeout=(10, 300))
                     cap = (cap or '').strip().strip('"').strip()
@@ -3311,9 +3452,14 @@ def derive_short_captions(user_id, dataset_id, image_ids=None, force=False, mode
         return 0
     if generate is None:
         from .vision_ollama import generate_text_ollama, unload_vision_model
+        # Same model override as the long-caption pass so the short is derived by (and the
+        # VRAM freed for) the model the dataset actually captions with.
+        omodel = caption_options(ds).get('ollama_model') or None
         def gen(p):
-            return generate_text_ollama(p, num_predict=400, keep_alive=_VISION_BATCH_KEEPALIVE)
-        _unload = unload_vision_model
+            return generate_text_ollama(p, num_predict=400, model=omodel,
+                                        keep_alive=_VISION_BATCH_KEEPALIVE)
+        def _unload():
+            return unload_vision_model(model=omodel)
     else:
         gen = generate
         def _unload():

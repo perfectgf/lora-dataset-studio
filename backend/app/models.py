@@ -71,6 +71,13 @@ class FaceDataset(db.Model):
     # Additive columns (migration in create_app).
     prompt_suffix = db.Column(Text, nullable=True)
     prompt_suffixes = db.Column(Text, nullable=True)
+    # Per-dataset CAPTION method options (JSON: {backend, ollama_model, instructions}).
+    # NULL/empty = follow the GLOBAL captioning defaults (captioning.backend +
+    # ollama.vision_model). A dedicated column (NOT train_settings) so a training
+    # preset — which REPLACES train_settings — can never wipe the caption setup, and
+    # so captioning never has to depend on the ai-toolkit gate. Read via
+    # face_dataset_service.caption_options; additive migration in create_app.
+    caption_options = db.Column(Text, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
 

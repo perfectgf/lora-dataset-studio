@@ -70,6 +70,7 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset', 'train_te_path', 'TEXT'),
     ('face_dataset', 'prompt_suffix', 'TEXT'),
     ('face_dataset', 'prompt_suffixes', 'TEXT'),
+    ('face_dataset', 'caption_options', 'TEXT'),
     ('face_dataset_image', 'caption_short', 'TEXT'),
     ('face_dataset_image', 'fail_reason', 'TEXT'),
     ('face_dataset_image', 'parent_image_id', 'INTEGER'),
