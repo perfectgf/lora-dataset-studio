@@ -74,6 +74,14 @@ export const WHATS_NEW = [
     to: '/setup',
   },
   {
+    id: '2026-07-19-zip-install-in-app-update',
+    date: '2026-07-19',
+    title: '“Update & restart” now works even if you installed from a ZIP',
+    blurb:
+      "If you downloaded the app as a ZIP from the releases page (no Git), the “Update & restart” button used to only send you off to download the new version by hand. Now it does it for you: it fetches the latest release, backs up your current files, swaps in the new ones — keeping your datasets, settings, .env and Python environment fully intact — and restarts. If anything goes wrong mid-way it rolls back automatically, so a failed update never leaves you with a broken install. Git clones keep updating exactly as before.",
+    to: '/settings/maintenance',
+  },
+  {
     id: '2026-07-18-runs-show-base-model',
     date: '2026-07-18',
     title: 'Run cards now name the exact base model each LoRA trained on',

@@ -506,3 +506,38 @@ def test_update_apply_defers_changed_requirements_to_restart(client, monkeypatch
     assert response.status_code == 200
     assert response.get_json()['restarting'] is True
     assert calls == [((), {'install_requirements': True})]
+
+
+def test_update_check_reports_can_apply_for_zip_release(client, monkeypatch, _reset_update_cache):
+    """A release with a ZIP asset -> can_apply True, so a packaged install can
+    update in-app instead of only linking to the releases page."""
+    import requests
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: _FakeResp(200, {
+        'tag_name': 'v9999.12.31',
+        'assets': [{'name': 'LoRA-Dataset-Studio-windows.zip',
+                    'browser_download_url': 'https://x/win'}]}))
+    d = client.get('/api/update/check').get_json()
+    assert d['update_available'] is True and d['can_apply'] is True
+
+
+def test_update_apply_zip_install_uses_release_updater(client, monkeypatch):
+    """A NON-git install routes /update/apply to the release-ZIP updater (never the
+    git pull path) and still defers changed requirements to the restart helper."""
+    from app.services import updater
+    monkeypatch.setattr(updater, 'is_git_checkout', lambda root=None: False)
+    called = {}
+    def fake_zip():
+        called['zip'] = True
+        return {'ok': True, 'changed': True, 'deps_changed': True,
+                'from': '2026.07.16.1', 'to': '9999.01.01'}
+    monkeypatch.setattr(updater, 'apply_zip_update', fake_zip)
+    monkeypatch.setattr(updater, 'apply_update',
+                        lambda: (_ for _ in ()).throw(AssertionError('git path must not run')))
+    restart = []
+    monkeypatch.setattr(updater, 'schedule_restart', lambda *a, **k: restart.append((a, k)))
+
+    r = client.post('/api/update/apply')
+
+    assert r.status_code == 200 and r.get_json()['restarting'] is True
+    assert called.get('zip') is True
+    assert restart == [((), {'install_requirements': True})]

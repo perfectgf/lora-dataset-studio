@@ -71,6 +71,8 @@ jobs:
 
       - name: Build the Windows source ZIP
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}   # stamps build_info.json in the bundle
         run: ./packaging/build_release_zip.ps1
 
       - name: Verify release archive policy

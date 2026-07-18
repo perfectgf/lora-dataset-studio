@@ -46,6 +46,23 @@ foreach ($file in @('start.bat', 'README.md', 'LICENSE', 'config.example.json', 
   Copy-Item -Force (Join-Path $Root $file) $Stage
 }
 
+# Stamp a build marker so a packaged (no-.git) install is identifiable: the tag
+# it was cut from, the source commit and the build time. The app's local version
+# stays authoritative from backend/app/version.py (shipped in the bundle); this
+# marker is a diagnostic + a fallback the in-app updater can surface. RELEASE_TAG
+# is set by release.yml; outside CI it falls back to v<APP_VERSION>.
+$appVersion = (Select-String -Path (Join-Path $Root 'backend/app/version.py') -Pattern "APP_VERSION = '([^']+)'").Matches[0].Groups[1].Value
+$commit = ''
+try { $commit = (& git -C $Root rev-parse --short HEAD 2>$null) } catch { $commit = '' }
+$tag = if ($env:RELEASE_TAG) { $env:RELEASE_TAG } else { "v$appVersion" }
+$buildInfo = [ordered]@{
+  version  = $appVersion
+  tag      = $tag
+  commit   = ($commit | Out-String).Trim()
+  built_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+}
+$buildInfo | ConvertTo-Json | Set-Content -Path (Join-Path $Stage 'build_info.json') -Encoding utf8
+
 # This is both a local safety check and a release invariant. The CI policy guard
 # independently inspects the final ZIP before GitHub receives it.
 $executables = @(Get-ChildItem -Path $Stage -Recurse -File -Filter '*.exe')

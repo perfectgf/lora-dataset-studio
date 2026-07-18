@@ -266,6 +266,12 @@ def update_check():
             out['url'] = j.get('html_url') or out['url']
             # Date-based versions (YYYY.MM.DD[.N]) -> plain string comparison.
             out['update_available'] = bool(latest) and latest > APP_VERSION
+            # can_apply: this release ships a downloadable ZIP asset, so a packaged
+            # (non-git) install can update in-app instead of only linking out to the
+            # releases page. The button keys off this for a ZIP install.
+            out['can_apply'] = any(
+                (a.get('name') or '').lower().endswith('.zip') and a.get('browser_download_url')
+                for a in (j.get('assets') or []))
         else:
             out['reason'] = (f'release feed answered {r.status_code} '
                              '(no public release yet?)')
@@ -277,12 +283,15 @@ def update_check():
 
 @bp.post('/update/apply')
 def update_apply():
-    """Pull the latest commits (git checkout only) and, if anything changed, restart the
-    server. Returns immediately with {ok, changed, from, to, restarting, log, ...}; the
-    actual re-launch happens ~1 s after this response flushes, so the client can start
-    polling /api/health. A packaged build (no git) gets {manual:true, url} instead."""
+    """Update to the latest version and, if anything changed, restart the server.
+
+    A git checkout pulls the latest commits; a packaged (ZIP) install downloads
+    the latest release asset and swaps its files in place (backing up the old
+    ones, rolling back on failure). Both return {ok, changed, from, to,
+    restarting, deps_changed, ...}; the re-launch happens ~1 s after this
+    response flushes, so the client can start polling /api/health."""
     from ..services import updater
-    res = updater.apply_update()
+    res = updater.apply_update() if updater.is_git_checkout() else updater.apply_zip_update()
     res['restarting'] = bool(res.get('ok') and res.get('changed'))
     if res['restarting']:
         # invalidate the cached checks so the banner/badge re-evaluate post-update

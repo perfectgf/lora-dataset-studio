@@ -4,9 +4,10 @@ import DiagnosticReport from '../common/DiagnosticReport'
 import { Card, TextField } from './primitives'
 
 /* In-app updater: "Check for updates" hits the git-aware check (commits-behind for a
-   clone, release tag for a packaged build). "Update & restart" pulls + restarts the
-   server; we then poll /api/health until the relaunched process answers and hard-reload
-   the SPA so the new frontend/dist loads. */
+   clone, release tag for a packaged build). "Update & restart" pulls (git) or downloads
+   and swaps in the latest release ZIP (packaged install), then restarts the server; we
+   poll /api/health until the relaunched process answers and hard-reload the SPA so the
+   new frontend/dist loads. */
 function UpdatesCard() {
   const [status, setStatus] = useState(null)
   const [checking, setChecking] = useState(false)
@@ -47,6 +48,8 @@ function UpdatesCard() {
     setApplying(false); setPhase('')          // gave up after ~2 min
   }
 
+  // Packaged (ZIP) installs download+swap the release; a git clone fast-forwards.
+  const isZipInstall = status && status.ok !== false && !status.is_git
   const apply = async () => {
     setApplying(true); setPhase('pulling')
     try {
@@ -65,7 +68,9 @@ function UpdatesCard() {
   }
 
   const s = status
-  const canPull = s && s.update_available && s.is_git
+  // In-app update is possible for a git clone (pull) or a packaged install whose
+  // latest release ships a ZIP asset (download + swap). Otherwise: link out.
+  const canPull = s && s.update_available && (s.is_git || s.can_apply)
   return (
     <Card title="Updates" help="Pull the latest version from GitHub and restart — without leaving the app.">
       <div className="flex flex-wrap items-center gap-3">
@@ -106,7 +111,7 @@ function UpdatesCard() {
         <p className="text-sm text-content-muted" role="status">
           {phase === 'restarting'
             ? '↻ Updated — the app is restarting. This page reloads automatically when it’s back…'
-            : '⬇ Pulling the latest version…'}
+            : isZipInstall ? '⬇ Downloading and installing the latest release…' : '⬇ Pulling the latest version…'}
         </p>
       )}
 
