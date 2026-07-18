@@ -83,6 +83,13 @@ _SCHEMA_ADDITIONS = (
     ('training_preset', 'dataset_kind', 'VARCHAR(16)'),
     ('training_preset', 'variants', 'TEXT'),
     ('lora_test_image', 'error', 'TEXT'),
+    # Bank V2 scoring pass — the image_bank/bank_image tables shipped in the Beta,
+    # so these columns need the additive path (db.create_all never ALTERs an
+    # existing table).
+    ('bank_image', 'aesthetic_score', 'REAL'),
+    ('bank_image', 'nsfw_score', 'REAL'),
+    ('bank_image', 'style_cluster', 'INTEGER'),
+    ('bank_image', 'watermark_state', 'VARCHAR(16)'),
 )
 
 def _apply_additive_migrations():

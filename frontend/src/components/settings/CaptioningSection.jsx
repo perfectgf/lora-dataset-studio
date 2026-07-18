@@ -163,6 +163,36 @@ export default function CaptioningSection({ config, setField }) {
               className={INPUT_CLASS} />
             <p className="mt-0.5 text-xs text-content-muted">Cosine similarity for the 👥 person clustering. Applies at the next face pass.</p>
           </div>
+          <div>
+            <label htmlFor="bank-aesthetic-min" className="block text-sm font-medium text-content">
+              Aesthetic minimum
+            </label>
+            <input id="bank-aesthetic-min" type="number" min="0" max="10" step="0.5"
+              value={config.bank?.aesthetic_min ?? 5}
+              onChange={(e) => setField('bank', 'aesthetic_min', parseFloat(e.target.value) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">LAION score (~1–10) under which an image is flagged 💔 low aesthetic. Set by the ✨ Score pass.</p>
+          </div>
+          <div>
+            <label htmlFor="bank-nsfw-max" className="block text-sm font-medium text-content">
+              NSFW maximum
+            </label>
+            <input id="bank-nsfw-max" type="number" min="0" max="1" step="0.05"
+              value={config.bank?.nsfw_max ?? 0.5}
+              onChange={(e) => setField('bank', 'nsfw_max', parseFloat(e.target.value) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">NSFW probability (0–1) over which an image is flagged 🔞 NSFW. Set by the ✨ Score pass.</p>
+          </div>
+          <div>
+            <label htmlFor="bank-style-threshold" className="block text-sm font-medium text-content">
+              Same-style similarity
+            </label>
+            <input id="bank-style-threshold" type="number" min="0" max="1" step="0.01"
+              value={config.bank?.style_threshold ?? 0.6}
+              onChange={(e) => setField('bank', 'style_threshold', parseFloat(e.target.value) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">Cosine similarity for the 🎨 style clustering. Applies at the next scoring pass.</p>
+          </div>
         </div>
       </Card>
     </div>

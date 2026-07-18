@@ -40,7 +40,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from PIL import Image
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 
 from .. import config as cfg
 from ..extensions import db
@@ -87,6 +87,10 @@ def _thumbs_dir(bank_id) -> Path:
 
 def _face_cache_path(bank_id) -> Path:
     return _bank_dir(bank_id) / 'face_cache.npz'
+
+
+def _score_cache_path(bank_id) -> Path:
+    return _bank_dir(bank_id) / 'score_cache.npz'
 
 
 def abs_image_path(bank: ImageBank, row: BankImage) -> str | None:
@@ -170,6 +174,15 @@ def image_flags(row: BankImage, th: dict) -> list:
             flags.append('uniform')
         if row.width and row.height and min(row.width, row.height) < th['min_side']:
             flags.append('small')
+    # V2 scoring flags — derived from the persisted scores against the live
+    # thresholds too, but NOT gated on the quality state (a watermarked or NSFW
+    # image can be perfectly sharp). Only present once the relevant pass has run.
+    if row.aesthetic_score is not None and row.aesthetic_score < th['aesthetic_min']:
+        flags.append('low_aesthetic')
+    if row.nsfw_score is not None and row.nsfw_score > th['nsfw_max']:
+        flags.append('nsfw')
+    if row.watermark_state == 'detected':
+        flags.append('watermark')
     return flags
 
 
@@ -182,6 +195,9 @@ def _image_dict(row: BankImage, th: dict) -> dict:
         'quality_state': row.quality_state,
         'blur_score': row.blur_score, 'noise_score': row.noise_score,
         'uniformity_score': row.uniformity_score,
+        'aesthetic_score': row.aesthetic_score, 'nsfw_score': row.nsfw_score,
+        'style_cluster': row.style_cluster, 'watermark_state': row.watermark_state,
+        'subfolder': _subfolder_of(row.relpath),
         'flags': image_flags(row, th),
         'dup_group': row.dup_group,
         'face_state': row.face_state, 'face_cluster': row.face_cluster,
@@ -194,6 +210,17 @@ def _flag_filter(flag: str, th: dict):
     """SQLAlchemy criterion for one flag name (mirrors image_flags)."""
     if flag == 'unreadable':
         return BankImage.quality_state == 'unreadable'
+    # V2 scoring flags — not gated on quality_state (see image_flags) and only
+    # true where the score actually exists (a NULL score is "not scored", never
+    # "below threshold"). watermark is a discrete state, no threshold column.
+    if flag == 'low_aesthetic':
+        return and_(BankImage.aesthetic_score.isnot(None),
+                    BankImage.aesthetic_score < th['aesthetic_min'])
+    if flag == 'nsfw':
+        return and_(BankImage.nsfw_score.isnot(None),
+                    BankImage.nsfw_score > th['nsfw_max'])
+    if flag == 'watermark':
+        return BankImage.watermark_state == 'detected'
     ok = BankImage.quality_state == 'ok'
     crit = {
         'blur': BankImage.blur_score < th['sharpness_min'],
@@ -206,6 +233,17 @@ def _flag_filter(flag: str, th: dict):
 
 
 _QUALITY_FLAGS = ('blur', 'noise', 'uniform', 'small', 'unreadable')
+# V2 score-derived flags. Kept separate from _QUALITY_FLAGS so the "flagged" /
+# "clean" quality aggregate stays about the CPU quality pass, while these count
+# and filter independently (each only meaningful once its pass has run).
+_SCORE_FLAGS = ('low_aesthetic', 'nsfw', 'watermark')
+
+
+def _subfolder_of(relpath: str) -> str:
+    """Top-level subfolder of a bank-relative path ('' for a root-level file) —
+    the natural scoping axis for a Telegram export (one folder per chat/date)."""
+    parts = (relpath or '').replace('\\', '/').split('/', 1)
+    return parts[0] if len(parts) > 1 else ''
 
 
 def _unresolved_dup_groups_q(bank_id):
@@ -234,9 +272,14 @@ def bank_payload(user_id, bank_id) -> dict | None:
         'keep': base.filter_by(status='keep').count(),
         'reject': base.filter_by(status='reject').count(),
         'promoted': base.filter(BankImage.promoted_dataset_id.isnot(None)).count(),
+        # V2 pass progress — how many images the scoring / watermark passes reached
+        # (so the UI can show "scored 0/9000" and enable the threshold facets).
+        'scored': base.filter(or_(BankImage.aesthetic_score.isnot(None),
+                                  BankImage.nsfw_score.isnot(None))).count(),
+        'watermark_scanned': base.filter(BankImage.watermark_state.isnot(None)).count(),
     }
     flags = {}
-    for flag in _QUALITY_FLAGS:
+    for flag in _QUALITY_FLAGS + _SCORE_FLAGS:
         crit = _flag_filter(flag, th)
         flags[flag] = base.filter(crit).count() if crit is not None else 0
     dup_rows = (db.session.query(BankImage.dup_group, func.count(BankImage.id))
@@ -264,11 +307,29 @@ def bank_payload(user_id, bank_id) -> dict | None:
         clusters.append({'id': cid, 'size': size,
                          'cover_image_id': cover.id if cover else None})
     faces_scanned = base.filter(BankImage.face_state.isnot(None)).count()
+    # Style clusters (group by visual style), biggest first — the "group by
+    # style" counterpart to the person clusters above. Cover = the lowest id of
+    # the cluster (stable, no per-image quality signal to rank by here).
+    st_rows = (db.session.query(BankImage.style_cluster, func.count(BankImage.id))
+               .filter(BankImage.bank_id == bank_id,
+                       BankImage.style_cluster.isnot(None))
+               .group_by(BankImage.style_cluster)
+               .order_by(func.count(BankImage.id).desc(),
+                         BankImage.style_cluster.asc())
+               .limit(40).all())
+    style_clusters = []
+    for cid, size in st_rows:
+        cover = (BankImage.query
+                 .filter_by(bank_id=bank_id, style_cluster=cid)
+                 .order_by(BankImage.id.asc()).first())
+        style_clusters.append({'id': cid, 'size': size,
+                               'cover_image_id': cover.id if cover else None})
     return {
         'id': bank.id, 'name': bank.name, 'source_path': bank.source_path,
         'created_at': bank.created_at.isoformat() if bank.created_at else None,
         'counts': counts, 'flags': flags, 'dup': dup,
         'clusters': clusters, 'faces_scanned': faces_scanned,
+        'style_clusters': style_clusters,
         'activity': bank_jobs.get(bank_id),
         'thresholds': th,
     }
@@ -292,10 +353,12 @@ def list_banks(user_id) -> list:
 
 
 def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
-                group=None, offset=0, limit=200) -> dict | None:
+                group=None, style=None, subfolder=None,
+                offset=0, limit=200) -> dict | None:
     """One PAGE of the bank grid (a 9 000-image bank must never ship whole).
-    Filters compose: status ∩ flag ∩ cluster ∩ dup-group. Flag filters sort by
-    the relevant score (worst first) so the review reads top-down."""
+    Filters compose: status ∩ flag ∩ cluster ∩ dup-group ∩ style ∩ subfolder.
+    Flag filters sort by the relevant score (worst first) so the review reads
+    top-down."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         return None
@@ -327,10 +390,27 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
                  'uniform': BankImage.uniformity_score.asc(),
                  'small': BankImage.width.asc(),
                  'unreadable': BankImage.id.asc()}[flag]
+    elif flag in _SCORE_FLAGS:
+        crit = _flag_filter(flag, th)
+        if crit is not None:
+            q = q.filter(crit)
+        # Worst first: least aesthetic / most-confident NSFW at the top.
+        order = {'low_aesthetic': BankImage.aesthetic_score.asc(),
+                 'nsfw': BankImage.nsfw_score.desc(),
+                 'watermark': BankImage.id.asc()}[flag]
     if cluster is not None:
         q = q.filter(BankImage.face_cluster == int(cluster))
     if group is not None:
         q = q.filter(BankImage.dup_group == int(group))
+    if style is not None:
+        q = q.filter(BankImage.style_cluster == int(style))
+    if subfolder is not None:
+        # '' scopes to root-level files; any other value to that top-level folder
+        # and everything nested under it. startswith() escapes LIKE metachars.
+        if subfolder == '':
+            q = q.filter(~BankImage.relpath.contains(os.sep))
+        else:
+            q = q.filter(BankImage.relpath.startswith(subfolder + os.sep))
     total = q.count()
     order_by = order if isinstance(order, tuple) else (order,)
     rows = q.order_by(*order_by).offset(max(0, int(offset))) \
@@ -550,11 +630,15 @@ def dup_groups_payload(user_id, bank_id, offset=0, limit=50) -> dict | None:
 
 
 def _best_of(rows):
-    """'Keep best' heuristic for a duplicate group: most pixels, then sharpest,
-    then heaviest file — a Telegram dump's duplicates are mostly re-compressed
-    or downscaled copies, so surface area is the honest first key."""
+    """'Keep best' heuristic for a duplicate group. When the aesthetic pass has
+    run it leads (Jeremy's ask: keep the NICE copy, not merely the biggest); a
+    scored image always outranks an unscored one (sentinel -1 < the ~1..10 range).
+    Then most pixels, sharpest, heaviest file — a Telegram dump's duplicates are
+    mostly re-compressed or downscaled copies, so surface area is the honest
+    fallback key."""
     def key(r):
-        return ((r.width or 0) * (r.height or 0), r.blur_score or 0.0,
+        return (r.aesthetic_score if r.aesthetic_score is not None else -1.0,
+                (r.width or 0) * (r.height or 0), r.blur_score or 0.0,
                 r.file_size or 0, -r.id)
     return max(rows, key=key)
 
@@ -640,7 +724,7 @@ def apply_flags(user_id, bank_id, flags) -> dict:
     th = thresholds()
     out = {}
     for flag in flags or []:
-        if flag not in _QUALITY_FLAGS:
+        if flag not in _QUALITY_FLAGS + _SCORE_FLAGS:
             continue
         crit = _flag_filter(flag, th)
         if crit is None:
@@ -765,6 +849,258 @@ def _faces_job(bank_id):
         bank_jobs.progress(job, detail=f'done — {multi} person cluster(s) '
                                        f'of 2+ images')
     return run
+
+
+# --- scoring pass (aesthetic · NSFW · style) --------------------------------
+_SCORE_SCRIPT = str(cfg.BACKEND_DIR / 'infer' / 'bank_score_infer.py')
+_SCORE_PROGRESS_RE = re.compile(r'\[score\] (\d+)/(\d+)')
+
+
+def _gpu_busy_reason() -> str | None:
+    """A human reason the GPU is unavailable right now, or None. Same system
+    flags training and the vision window use, so a bank GPU pass never races a
+    training run or a captioning pass (the 'never concurrent with a training'
+    guarantee). Checked up-front for an immediate 503 rather than a doomed 202."""
+    from ..job_queue import queue_manager
+    if queue_manager._get_system_state('training_in_progress'):
+        return 'training is running on the GPU — try again once it finishes'
+    if queue_manager._get_system_state('vision_in_progress'):
+        return 'a vision/GPU pass is already running — try again in a moment'
+    return None
+
+
+def start_score(app, user_id, bank_id):
+    """Launch the scoring pass (LAION aesthetic + NSFW + style clustering) over
+    the bank's non-rejected images. Needs the bank-scoring extra (Setup ▸ Quality
+    tools). Serialized against training/vision, so it refuses (503) when the GPU
+    is held."""
+    from ..capabilities import probe_bank_scoring
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    if not probe_bank_scoring().get('ok'):
+        raise RuntimeError('bank scoring is not installed '
+                           '(Quality tools step in Setup)')
+    reason = _gpu_busy_reason()
+    if reason:
+        raise RuntimeError(reason)
+    total = (BankImage.query.filter_by(bank_id=bank_id)
+             .filter(BankImage.status != 'reject').count())
+    return bank_jobs.start(app, bank_id, 'score', _score_job(bank_id), total=total)
+
+
+def _score_job(bank_id):
+    def run(job):
+        import json as _json
+        import sys
+        import threading
+        from ..gpu_window import gpu_exclusive_vision_window
+        bank = db.session.get(ImageBank, bank_id)
+        if not bank:
+            return
+        rows = (BankImage.query.filter_by(bank_id=bank_id)
+                .filter(BankImage.status != 'reject')
+                .order_by(BankImage.id.asc()).all())
+        by_path = {}
+        for r in rows:
+            p = abs_image_path(bank, r)
+            if p and os.path.isfile(p):
+                by_path[p] = r.id
+        paths = list(by_path)
+        bank_jobs.progress(job, done=0, total=len(paths), detail='scoring pass')
+        if not paths:
+            return
+        _bank_dir(bank_id).mkdir(parents=True, exist_ok=True)
+        th = thresholds()
+        payload = _json.dumps({
+            'images': paths,
+            'models_root': cfg.get('bank_scoring.models_root') or None,
+            'cache': str(_score_cache_path(bank_id)),
+            'style_threshold': th['style_threshold'],
+        })
+        python = cfg.get('bank_scoring.python') or sys.executable
+        # GPU-exclusive: frees ComfyUI VRAM and blocks a training start for the
+        # duration, exactly like the dataset vision passes.
+        with gpu_exclusive_vision_window(flag_ttl=1800):
+            proc = subprocess.Popen(
+                [python, _SCORE_SCRIPT], stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding='utf-8', errors='replace',
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            bank_jobs.set_cancel_hook(job, proc.kill)
+            stderr_tail = deque(maxlen=5)
+
+            def _drain_stderr():
+                for line in proc.stderr:
+                    line = line.strip()
+                    if line:
+                        stderr_tail.append(line)
+                    m = _SCORE_PROGRESS_RE.search(line)
+                    if m:
+                        bank_jobs.progress(job, done=int(m.group(1)),
+                                           total=int(m.group(2)))
+
+            t = threading.Thread(target=_drain_stderr, daemon=True)
+            t.start()
+            try:
+                proc.stdin.write(payload)
+                proc.stdin.close()
+            except OSError:
+                pass
+            stdout = proc.stdout.read()
+            proc.wait()
+            t.join(timeout=5)
+        if bank_jobs.cancelled(job):
+            return
+        line = next((ln for ln in reversed(stdout.splitlines())
+                     if ln.strip().startswith('{')), '')
+        try:
+            data = _json.loads(line) if line else {}
+        except _json.JSONDecodeError:
+            data = {}
+        if not data.get('ok'):
+            tail = data.get('error') or (stderr_tail[-1] if stderr_tail else '')
+            raise RuntimeError(tail or f'scoring pass produced no output '
+                                       f'(rc={proc.returncode})')
+        results = data.get('results') or {}
+        clusters = data.get('clusters') or {}
+        done = 0
+        for p, image_id in by_path.items():
+            row = db.session.get(BankImage, image_id)
+            if row is None:
+                continue
+            res = results.get(p) or {}
+            row.aesthetic_score = res.get('aesthetic')
+            row.nsfw_score = res.get('nsfw')
+            row.style_cluster = clusters.get(p)
+            done += 1
+            if done % 200 == 0:
+                db.session.commit()
+        db.session.commit()
+        sizes = {}
+        for cid in clusters.values():
+            sizes[cid] = sizes.get(cid, 0) + 1
+        multi = sum(1 for n in sizes.values() if n >= 2)
+        ok = [r for r in results.values() if r.get('state') == 'ok']
+        # Name any head that produced nothing, so a degraded pass says so out loud
+        # (graceful degradation must be visible, never a silent gap).
+        missing = []
+        if ok and not any('aesthetic' in r for r in ok):
+            missing.append('aesthetic')
+        if ok and not any('nsfw' in r for r in ok):
+            missing.append('NSFW')
+        detail = (f'done — scored {len(ok)} image(s), '
+                  f'{multi} style group(s) of 2+')
+        if missing:
+            detail += f' ({" + ".join(missing)} head unavailable)'
+        bank_jobs.progress(job, detail=detail)
+    return run
+
+
+# --- watermark pass (reuses the dataset Qwen3-VL overlaid-mark detector) -----
+def start_watermark(app, user_id, bank_id, rescan=False):
+    """Launch the overlaid-watermark scan over the bank's non-rejected images,
+    reusing the SAME Qwen3-VL detector the datasets use. Needs the vision model
+    pulled; serialized against training/vision (503 when the GPU is held)."""
+    from ..capabilities import probe_ollama_model
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    if not probe_ollama_model().get('ok'):
+        raise RuntimeError('the vision model is not available '
+                           '(Settings ▸ Captioning & quality)')
+    reason = _gpu_busy_reason()
+    if reason:
+        raise RuntimeError(reason)
+    q = BankImage.query.filter_by(bank_id=bank_id).filter(BankImage.status != 'reject')
+    if not rescan:
+        q = q.filter(BankImage.watermark_state.is_(None))
+    return bank_jobs.start(app, bank_id, 'watermark',
+                           _watermark_job(bank_id, rescan), total=q.count())
+
+
+def _watermark_job(bank_id, rescan):
+    def run(job):
+        from .face_dataset_service import WATERMARK_BBOX_PROMPT, _parse_watermark_bbox
+        from .vision_ollama import describe_image_ollama, unload_vision_model
+        from ..gpu_window import gpu_exclusive_vision_window
+        bank = db.session.get(ImageBank, bank_id)
+        if not bank:
+            return
+        q = (BankImage.query.filter_by(bank_id=bank_id)
+             .filter(BankImage.status != 'reject'))
+        if not rescan:
+            q = q.filter(BankImage.watermark_state.is_(None))
+        rows = q.order_by(BankImage.id.asc()).all()
+        bank_jobs.progress(job, done=0, total=len(rows), detail='watermark scan')
+        if not rows:
+            return
+        detected = clean = errors = checked = 0
+        with gpu_exclusive_vision_window(flag_ttl=1800):
+            try:
+                for i, row in enumerate(rows, 1):
+                    if bank_jobs.cancelled(job):
+                        break
+                    path = abs_image_path(bank, row)
+                    if not path or not os.path.isfile(path):
+                        bank_jobs.bump(job)
+                        continue
+                    try:
+                        with open(path, 'rb') as fh:
+                            raw = describe_image_ollama(
+                                fh.read(), WATERMARK_BBOX_PROMPT, num_predict=400,
+                                prefer_json=True, fmt='json', keep_alive='5m')
+                    except Exception:  # noqa: BLE001 — one bad file never sinks the pass
+                        row.watermark_state = 'error'
+                        errors += 1
+                        bank_jobs.bump(job)
+                        continue
+                    # Empty output = Ollama unreachable, NOT "clean": leave the
+                    # state untouched so a retry can finish it (same reasoning as
+                    # the dataset detector), never falsely mark everything clean.
+                    if not (raw or '').strip():
+                        bank_jobs.bump(job)
+                        continue
+                    if _parse_watermark_bbox(raw):
+                        row.watermark_state = 'detected'
+                        detected += 1
+                    else:
+                        row.watermark_state = 'none'
+                        clean += 1
+                    checked += 1
+                    if checked % 25 == 0:
+                        db.session.commit()
+                    bank_jobs.bump(job)
+            finally:
+                db.session.commit()
+                unload_vision_model()  # hand the VRAM back to ComfyUI
+        if bank_jobs.cancelled(job):
+            bank_jobs.progress(job, detail=f'cancelled — {detected} with a watermark '
+                                           f'so far')
+            return
+        detail = f'done — {detected} with a watermark, {clean} clean'
+        if errors:
+            detail += f', {errors} unreadable'
+        bank_jobs.progress(job, detail=detail)
+    return run
+
+
+# --- subfolders (scoping facet) ---------------------------------------------
+def subfolders_payload(user_id, bank_id) -> dict | None:
+    """Top-level subfolders of the bank's source folder with image counts, for
+    the scoping picker. Computed once on open (not polled) — a Telegram export
+    nests one folder per chat/date. '' = files at the bank root."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        return None
+    from collections import Counter
+    counts: Counter = Counter()
+    for (rel,) in (db.session.query(BankImage.relpath)
+                   .filter(BankImage.bank_id == bank_id).all()):
+        counts[_subfolder_of(rel)] += 1
+    items = [{'name': name, 'count': n}
+             for name, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+    return {'subfolders': items, 'total': sum(counts.values())}
 
 
 # --- promotion --------------------------------------------------------------

@@ -110,8 +110,15 @@ DEFAULTS = {
     #   (mirrors the dataset import guard: trainers only downscale).
     # face_threshold: cosine similarity at or above which two faces are the
     #   same person when clustering the bank by subject.
+    # aesthetic_min: LAION aesthetic score (~1..10) below which an image is flagged
+    #   'low_aesthetic' — the "keep the nice ones" cut of a mixed dump.
+    # nsfw_max: NSFW probability (0..1) above which is_nsfw is flagged, to split a
+    #   mixed SFW/NSFW dump.
+    # style_threshold: cosine similarity on the CLIP image embeddings at or above
+    #   which two images share a visual STYLE when clustering by style.
     'bank': {'sharpness_min': 100.0, 'noise_max': 15.0, 'uniformity_min': 12.0,
-             'dup_distance': 8, 'min_side': 768, 'face_threshold': 0.45},
+             'dup_distance': 8, 'min_side': 768, 'face_threshold': 0.45,
+             'aesthetic_min': 5.0, 'nsfw_max': 0.5, 'style_threshold': 0.6},
     'masks': {'python': ''},
     # Watermark inpainting (simple-lama-inpainting, extra ML). Dedicated key so a
     # user can override it, but defaults empty -> reuse the same ML interpreter as

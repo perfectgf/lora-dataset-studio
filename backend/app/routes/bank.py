@@ -65,12 +65,23 @@ def bank_images(bank_id):
         except ValueError:
             return None
 
+    # subfolder is a STRING facet ('' = bank root), distinct from the int filters.
+    subfolder = args.get('subfolder')
     payload = banks.list_images(
         LOCAL_USER, bank_id,
         status=args.get('status') or None,
         flag=args.get('flag') or None,
-        cluster=_int('cluster'), group=_int('group'),
+        cluster=_int('cluster'), group=_int('group'), style=_int('style'),
+        subfolder=subfolder if subfolder is not None else None,
         offset=_int('offset') or 0, limit=_int('limit') or 200)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
+
+
+@bp.get('/bank/<int:bank_id>/subfolders')
+def bank_subfolders(bank_id):
+    payload = banks.subfolders_payload(LOCAL_USER, bank_id)
     if payload is None:
         return jsonify({'error': 'not found'}), 404
     return jsonify(payload)
@@ -100,6 +111,20 @@ def bank_scan(bank_id):
 @bp.post('/bank/<int:bank_id>/faces')
 def bank_faces(bank_id):
     return _start(banks.start_faces, _app(), LOCAL_USER, bank_id)
+
+
+@bp.post('/bank/<int:bank_id>/score')
+def bank_score(bank_id):
+    """Aesthetic + NSFW + style scoring pass (bank-scoring extra). 202/409/503."""
+    return _start(banks.start_score, _app(), LOCAL_USER, bank_id)
+
+
+@bp.post('/bank/<int:bank_id>/watermark')
+def bank_watermark(bank_id):
+    """Overlaid-watermark scan (Qwen3-VL). {rescan:true} re-checks scanned rows."""
+    data = request.get_json(silent=True) or {}
+    return _start(banks.start_watermark, _app(), LOCAL_USER, bank_id,
+                  rescan=bool(data.get('rescan')))
 
 
 @bp.post('/bank/<int:bank_id>/promote')

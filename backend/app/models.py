@@ -199,8 +199,28 @@ class BankImage(db.Model):
     face_state = db.Column(String(16), nullable=True)
     face_det = db.Column(Float, nullable=True)
     face_cluster = db.Column(Integer, nullable=True, index=True)
+    # Scoring pass (V2, the "bank scoring" ML extra: CLIP ViT-L/14 + a tiny
+    # aesthetic head + an NSFW classifier, one subprocess like the face pass).
+    # RAW scores persist, VERDICTS are recomputed at read time against the 'bank'
+    # thresholds — same philosophy as the quality scores, so retuning a threshold
+    # re-sorts the bank with no rescan.
+    #   aesthetic_score : LAION improved-aesthetic prediction, ~1..10 (higher = nicer).
+    #   nsfw_score      : 0..1 probability the image is NSFW (is_nsfw = > threshold).
+    #   style_cluster   : bank-local visual-STYLE cluster id (1 = biggest), from the
+    #                     CLIP image embeddings (group screenshots/memes vs photoreal),
+    #                     the "group by style" counterpart to face_cluster. NULL = the
+    #                     scoring pass hasn't run / no usable embedding.
+    aesthetic_score = db.Column(Float, nullable=True)
+    nsfw_score = db.Column(Float, nullable=True)
+    style_cluster = db.Column(Integer, nullable=True, index=True)
+    # Watermark pass (V2): reuses the dataset Qwen3-VL overlaid-watermark detector.
+    # NULL = not scanned | 'none' (clean) | 'detected' (an overlaid watermark/logo/
+    # URL was found → the read-time 'watermark' flag) | 'error'. Detection only; the
+    # bank never edits the source file (cleaning stays a dataset-side action).
+    watermark_state = db.Column(String(16), nullable=True)
     # Triage decision — same words as dataset images (pending|keep|reject).
-    # reject_reason: blur|noise|uniform|small|duplicate|unreadable|manual.
+    # reject_reason: blur|noise|uniform|small|duplicate|unreadable|manual
+    #                |low_aesthetic|nsfw|watermark (the V2 score-derived flags).
     status = db.Column(String(10), nullable=False, default='pending', index=True)
     reject_reason = db.Column(String(16), nullable=True)
     # Set once the image has been promoted (copied) into a dataset — the funnel's

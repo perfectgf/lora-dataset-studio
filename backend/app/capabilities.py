@@ -405,6 +405,17 @@ def probe_masks() -> dict:
     return {'ok': ok, 'detail': 'rembg import OK' if ok else 'import failed'}
 
 
+def probe_bank_scoring() -> dict:
+    """Bank scoring extra (CLIP aesthetic + NSFW + style). Dedicated interpreter
+    key (bank_scoring.python), else the app's own. Same subprocess-import probe as
+    the other ML extras — torch/open_clip/transformers must all import. When False,
+    the bank's Score button is disabled with an install hint (never a mute ✗)."""
+    python = cfg.get('bank_scoring.python') or sys.executable
+    ok = _cached_import('bank_scoring', python, 'import torch, open_clip, transformers')
+    return {'ok': ok,
+            'detail': 'torch + open_clip + transformers import OK' if ok else 'import failed'}
+
+
 def probe_watermark_inpaint() -> dict:
     """LaMa inpainting availability (simple-lama-inpainting, ML extra). Dedicated
     interpreter key, else reuse the ML python (masks.python) then sys.executable —
@@ -729,6 +740,7 @@ def probe(force=False) -> dict:
     openai_ = probe_openai()
     face_scoring = probe_face_scoring()
     masks = probe_masks()
+    bank_scoring = probe_bank_scoring()
     watermark_inpaint = probe_watermark_inpaint()
     joycaption = probe_joycaption(aitoolkit)
     models = _scan_models()
@@ -844,6 +856,9 @@ def probe(force=False) -> dict:
         },
         'face_scoring': face_scoring['ok'],
         'masks': masks['ok'],
+        # Bank scoring extra (CLIP aesthetic + NSFW + style clustering). Gates the
+        # bank's "Score (aesthetic · NSFW · style)" button; False → install hint.
+        'bank_scoring': bank_scoring['ok'],
         # Lets the front adapt the watermark Clean tooltip: when False, Clean is
         # crop-only (LaMa-routed watermarks are skipped with an install hint).
         'watermark_inpaint': watermark_inpaint['ok'],

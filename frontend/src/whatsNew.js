@@ -58,6 +58,14 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-07-19-bank-scoring-passes',
+    date: '2026-07-19',
+    title: '🗃️ Image bank now rates looks, flags NSFW, groups by style and finds watermarks',
+    blurb:
+      "The Bank gains three new triage passes for a big mixed dump. “✨ Score” rates every image for aesthetics (1–10) with the LAION predictor, flags NSFW, and groups shots by visual STYLE (screenshots and memes cluster apart from photoreal) — and “keep best” on a duplicate group now keeps the nicest-looking copy, not just the biggest. “🚩 Find watermarks” reuses the same Qwen3-VL detector the datasets use to flag overlaid logos/URLs (detection only — your files are never touched). New filter chips, style groups and a per-subfolder scope let you slice a Telegram export by chat; every threshold lives in Settings → Captioning & quality and re-sorts the bank with no rescan. The scoring model installs on demand from Setup ▸ Quality tools; without it the button explains what to install rather than failing silently.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-18-runs-show-base-model',
     date: '2026-07-18',
     title: 'Run cards now name the exact base model each LoRA trained on',

@@ -93,7 +93,8 @@ _KLEIN_DOWNLOADS = {
 }
 
 INSTALL_ACTIONS = ('ml_extras', 'scrape_extras', 'ollama_model',
-                   'face_scoring', 'masks', 'watermark_inpaint') + tuple(_KLEIN_DOWNLOADS)
+                   'face_scoring', 'masks', 'watermark_inpaint',
+                   'bank_scoring') + tuple(_KLEIN_DOWNLOADS)
 
 _ML_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-ml.txt'
 _SCRAPE_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-scrape.txt'
@@ -104,6 +105,15 @@ _PIP_REQUIREMENTS = {'ml_extras': _ML_REQUIREMENTS, 'scrape_extras': _SCRAPE_REQ
 # here (an identifier), but the VERSION SPEC is parsed from requirements-ml.txt
 # so there's exactly one place a version floor is ever written.
 _WATERMARK_PKG = 'simple-lama-inpainting'
+
+# Bank scoring extra: CLIP (open_clip) + the NSFW classifier (transformers/timm)
+# for the aesthetic/NSFW/style pass. Installed into a dedicated auto-provisioned
+# venv with CPU torch — never the Flask venv (torch is heavy and version-touchy).
+# These are NOT in requirements-ml.txt (which the monolithic ml_extras installs
+# into the Flask venv); they live here and install only through the bank_scoring
+# action, same isolation as the watermark torch install.
+_BANK_SCORING_PKGS = ('open_clip_torch', 'transformers', 'timm', 'safetensors',
+                      'huggingface_hub')
 
 # The app's core requirements — Pillow is PINNED here (Pillow==12.x). An install
 # that targets the Flask venv appends this pin so pip can never downgrade Pillow to
@@ -151,7 +161,8 @@ _CAPABILITY_ML_ACTIONS = ('face_scoring', 'masks')
 # import-cache must be dropped so the capability flips without waiting out the
 # 600 s TTL (ml_extras/scrape_extras via -r, the scoped per-capability installs).
 _IMPORT_CACHE_ACTIONS = (frozenset(_PIP_REQUIREMENTS)
-                         | set(_CAPABILITY_ML_ACTIONS) | {'watermark_inpaint'})
+                         | set(_CAPABILITY_ML_ACTIONS)
+                         | {'watermark_inpaint', 'bank_scoring'})
 
 # Actions that invoke pip and therefore MUST NOT run concurrently: two pip processes
 # writing the same environment race on a shared package's files/dist-info and corrupt
@@ -162,7 +173,8 @@ _IMPORT_CACHE_ACTIONS = (frozenset(_PIP_REQUIREMENTS)
 # ollama pull touch models/ or the network, not a venv, so they are NOT here and keep
 # running in parallel.
 _PIP_ACTIONS = (frozenset(_PIP_REQUIREMENTS)
-                | set(_CAPABILITY_ML_ACTIONS) | {'watermark_inpaint'})
+                | set(_CAPABILITY_ML_ACTIONS)
+                | {'watermark_inpaint', 'bank_scoring'})
 
 # Transient file-lock errors an install can hit even without concurrency: an antivirus
 # or the search indexer briefly holding a just-written file at the moment pip renames
@@ -381,6 +393,12 @@ def manual_command(action) -> str:
         if _is_flask_venv(python):
             python = _watermark_env_python()
         return f'{_quote(python)} -m pip install "{spec}"'
+    if action == 'bank_scoring':
+        # The dedicated managed venv (auto-built) + CPU torch + the CLIP/NSFW stack.
+        python = cfg.get('bank_scoring.python') or _bank_scoring_env_python()
+        pkgs = ' '.join(_BANK_SCORING_PKGS)
+        return (f'{_quote(python)} -m pip install torch --index-url {_TORCH_CPU_INDEX}  '
+                f'&&  {_quote(python)} -m pip install {pkgs}')
     if action == 'ollama_model':
         model = (cfg.get('ollama.vision_model') or '').strip() or '<vision-model>'
         return f'ollama pull {model}'
@@ -906,6 +924,131 @@ def _run_watermark_inpaint(action) -> int:
     return rc
 
 
+# --- Auto-provisioned bank-scoring venv ----------------------------------------
+# The CLIP + NSFW stack (torch, open_clip, transformers, timm) is heavy and
+# version-touchy, so it lives in its OWN app-managed venv rather than the Flask
+# venv — same isolation and one-click build/repair as the watermark venv.
+def _bank_scoring_env_dir():
+    return cfg.data_dir() / 'envs' / 'bank_scoring'
+
+
+def _bank_scoring_env_python() -> str:
+    return _venv_python(_bank_scoring_env_dir())
+
+
+def _ensure_bank_scoring_env(action) -> str:
+    """Build (or reuse) the app-managed bank-scoring venv and record it as
+    bank_scoring.python. Returns the venv python on success, '' on failure (an
+    actionable one-liner is logged). Idempotent — mirrors _ensure_watermark_env."""
+    env_dir = _bank_scoring_env_dir()
+    env_python = _venv_python(env_dir)
+    if not os.path.isfile(env_python):
+        base = _find_base_python(action)
+        if not base:
+            for line in (
+                'No Python 3.10-3.12 was found to build the bank-scoring environment '
+                '(the CLIP aesthetic/NSFW stack installs into its own Python, never '
+                "the app's).",
+                'Install Python 3.12, then click Install again:',
+                '  python.org/downloads  (tick "Add python.exe to PATH")',
+                '  or:  winget install Python.Python.3.12',
+            ):
+                _append(action, line)
+            return ''
+        _append(action, f'building the bank-scoring environment at {env_dir}')
+        try:
+            env_dir.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            _append(action, f'could not create the data folder: {e}')
+            return ''
+        rc = _run_pip(action, [base, '-m', 'venv', str(env_dir)])
+        if rc != 0 or not os.path.isfile(env_python):
+            _append(action, 'could not create the environment — see the log above')
+            return ''
+        _append(action, 'environment ready')
+    else:
+        _append(action, f'reusing the bank-scoring environment at {env_dir}')
+    try:
+        cfg.save_config({'bank_scoring': {'python': env_python}})
+    except Exception as e:
+        _append(action, f'warning: could not save bank_scoring.python ({e}); '
+                        'the environment still works for this run')
+    return env_python
+
+
+def _run_bank_scoring(action) -> int:
+    """Install the bank-scoring stack (CPU torch + open_clip + transformers + timm)
+    into a dedicated 3.10-3.12 interpreter — NEVER the Flask venv. Auto-provisions a
+    managed venv when nothing is configured; respects a user-set bank_scoring.python.
+    Verifies the import at the end so a pip-success-but-import-fail never reports a
+    ready capability over a silent ✗ (same honesty gate as the watermark install)."""
+    managed_python = _bank_scoring_env_python()
+    configured = (cfg.get('bank_scoring.python') or '').strip()
+    rebuild_managed = (bool(configured) and _same_path(configured, managed_python)
+                       and not os.path.isfile(managed_python))
+    if not configured or rebuild_managed:
+        python = _ensure_bank_scoring_env(action)
+        if not python:
+            return 1
+    else:
+        python = configured
+        if _is_flask_venv(python):
+            for line in (
+                "bank_scoring.python points at the app's own Python, but the CLIP/NSFW",
+                "stack is heavy and installs into its own Python. Nothing was installed.",
+                "Clear bank_scoring.python and click Install again — the app builds a",
+                "dedicated Python for you.",
+                f"(refused target — the app's own interpreter: {sys.executable})",
+            ):
+                _append(action, line)
+            return 1
+    managed = _same_path(python, managed_python)
+    _append(action, f'target interpreter: {python}')
+    if managed:
+        _append(action, 'installing CPU torch (download.pytorch.org/whl/cpu)')
+        rc = _run_pip(action, [python, '-m', 'pip', 'install', 'torch',
+                               '--index-url', _TORCH_CPU_INDEX])
+        if rc != 0:
+            _append(action, f'torch install failed (rc={rc}) — see the log above')
+            return rc
+    _append(action, f"installing {', '.join(_BANK_SCORING_PKGS)}")
+    rc = _run_pip(action, [python, '-m', 'pip', 'install', *_BANK_SCORING_PKGS])
+    if rc == 0 and not _verify_bank_scoring_import(action, python):
+        return 1
+    return rc
+
+
+def _verify_bank_scoring_import(action, python) -> bool:
+    """Import torch/open_clip/transformers in the target env once pip reports done —
+    HONESTY (a torch/torchvision mismatch fails only at import) and WARMING (a heavy
+    cold import that would time out the 60 s capability probe fired right after). A
+    timeout is 'still warming', never a failure. Mirrors _verify_watermark_import."""
+    if not os.path.isfile(python):
+        return True
+    _append(action, 'verifying the install (first import — this also warms it, so the '
+                    'capability turns green without a restart)…')
+    try:
+        proc = subprocess.run([python, '-c', 'import torch, open_clip, transformers'],
+                              capture_output=True, text=True, encoding='utf-8',
+                              errors='replace', timeout=_WARM_IMPORT_TIMEOUT,
+                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except subprocess.TimeoutExpired:
+        _append(action, 'still warming up (the first import is slow on a fresh machine) — '
+                        'the capability turns green on its own shortly; no restart needed')
+        return True
+    except OSError as e:
+        _append(action, f'could not run the verification import ({e}) — skipping the check')
+        return True
+    if proc.returncode == 0:
+        _append(action, 'import OK — bank scoring is ready')
+        return True
+    _append(action, 'installed, but the bank-scoring stack does not import in this '
+                    'environment yet — the install is not usable:')
+    for line in (proc.stderr or '').strip().splitlines()[-4:]:
+        _append(action, f'  {line}')
+    return False
+
+
 def _run_ml_capability(action) -> int:
     """Install JUST the packages ONE ML capability needs (face_scoring | masks)
     into the interpreter that capability's probe resolves — so a user can install
@@ -1075,6 +1218,7 @@ _WORKERS = {**{a: _run_ml_extras for a in _PIP_REQUIREMENTS},   # ml_extras + sc
             'ollama_model': _run_ollama_model,
             **{a: _run_ml_capability for a in _CAPABILITY_ML_ACTIONS},  # face_scoring + masks
             'watermark_inpaint': _run_watermark_inpaint,
+            'bank_scoring': _run_bank_scoring,
             **{a: _run_klein_download for a in _KLEIN_DOWNLOADS}}
 # Structural invariant: every whitelisted action MUST have a worker — a missing
 # entry surfaces as a cryptic "error: '<action>'" KeyError at runtime (live

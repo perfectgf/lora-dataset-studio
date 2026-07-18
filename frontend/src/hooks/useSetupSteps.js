@@ -160,17 +160,21 @@ function ollamaStep(caps) {
 }
 
 function qualityStep(caps) {
-  // Three scoped ML capabilities now (face scoring, masks, watermark inpainting) —
-  // each installs/repairs on its own. The step is ready only when all three are in.
-  const parts = [!!caps.face_scoring, !!caps.masks, !!caps.watermark_inpaint]
+  // Four scoped ML capabilities now (face scoring, masks, watermark inpainting,
+  // bank scoring) — each installs/repairs on its own. The step is ready only when
+  // all of them are in.
+  const parts = [!!caps.face_scoring, !!caps.masks, !!caps.watermark_inpaint,
+    !!caps.bank_scoring]
   const ready = parts.every(Boolean)
   const partial = parts.some(Boolean)
   return {
     id: 'quality', title: 'Quality tools (ML extras)', recommended: false,
-    unlocks: ['Face-similarity scoring', 'Person masks', 'Watermark inpainting'],
+    unlocks: ['Face-similarity scoring', 'Person masks', 'Watermark inpainting',
+      'Bank scoring (aesthetic · NSFW · style)'],
     status: ready ? 'ready' : (partial ? 'partial' : 'available'),
     faceScoring: !!caps.face_scoring, masks: !!caps.masks,
     watermarkInpaint: !!caps.watermark_inpaint,
+    bankScoring: !!caps.bank_scoring,
   }
 }
 

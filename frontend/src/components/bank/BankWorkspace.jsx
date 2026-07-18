@@ -10,7 +10,13 @@ const PAGE_SIZE = 120
 const FLAG_LABEL = {
   blur: '🌫 Blurry', noise: '📺 Noisy', uniform: '⬜ Flat',
   small: '📐 Small', unreadable: '❌ Unreadable',
+  // V2 scoring flags (aesthetic · NSFW · watermark passes).
+  low_aesthetic: '💔 Low aesthetic', nsfw: '🔞 NSFW', watermark: '🚩 Watermark',
 }
+// Quality flags the CPU scan produces vs the ones the ML scoring/watermark
+// passes add — auto-reject only offers a flag whose pass has actually run.
+const QUALITY_REJECT_FLAGS = ['blur', 'noise', 'uniform', 'small']
+const SCORE_REJECT_FLAGS = ['low_aesthetic', 'nsfw', 'watermark']
 const STATUS_RING = {
   keep: 'ring-2 ring-emerald-400',
   reject: 'ring-2 ring-rose-400 opacity-60',
@@ -40,7 +46,8 @@ function ProgressBar({ activity, onCancel }) {
     <div className="flex items-center gap-3 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm">
       <span aria-hidden>⏳</span>
       <span className="text-content">
-        {kind === 'scan' ? 'Quality scan' : kind === 'faces' ? 'Face pass' : 'Promotion'} running —
+        {{ scan: 'Quality scan', faces: 'Face pass', score: 'Scoring pass',
+          watermark: 'Watermark scan', promote: 'Promotion' }[kind] || 'Job'} running —
         {' '}{done}{total ? ` / ${total}` : ''}{detail ? ` · ${detail}` : ''}
       </span>
       {pct != null && (
@@ -75,7 +82,12 @@ function Tile({ img, bankId, selected, onToggle, size }) {
   return (
     <li className={`relative overflow-hidden rounded-lg border border-border bg-surface ${STATUS_RING[img.status] || ''}`}>
       <button type="button" onClick={onToggle}
-        title={`${img.name} — ${img.width || '?'}×${img.height || '?'}${img.blur_score != null ? ` · sharpness ${Math.round(img.blur_score)}` : ''}${img.face_cluster ? ` · person #${img.face_cluster}` : ''}`}
+        title={`${img.name} — ${img.width || '?'}×${img.height || '?'}`
+          + (img.blur_score != null ? ` · sharpness ${Math.round(img.blur_score)}` : '')
+          + (img.aesthetic_score != null ? ` · aesthetic ${img.aesthetic_score.toFixed(1)}` : '')
+          + (img.nsfw_score != null ? ` · NSFW ${Math.round(img.nsfw_score * 100)}%` : '')
+          + (img.face_cluster ? ` · person #${img.face_cluster}` : '')
+          + (img.style_cluster ? ` · style #${img.style_cluster}` : '')}
         className="block w-full">
         <img src={`/api/bank/${bankId}/thumb/${img.id}`} alt={img.name} loading="lazy"
           className={`w-full object-cover ${size === 'S' ? 'h-24' : 'h-36'}`} />
@@ -89,6 +101,7 @@ function Tile({ img, bankId, selected, onToggle, size }) {
         {img.promoted_dataset_id != null && badge('⬆', 'bg-indigo-500/80 text-white')}
         {img.flags.map((f) => badge(FLAG_LABEL[f]?.slice(0, 2) || f, 'bg-black/60 text-amber-200'))}
         {img.face_cluster != null && badge(`👤${img.face_cluster}`, 'bg-black/60 text-sky-200')}
+        {img.style_cluster != null && badge(`🎨${img.style_cluster}`, 'bg-black/60 text-fuchsia-200')}
         {img.dup_group != null && badge(`≈${img.dup_group}`, 'bg-black/60 text-fuchsia-200')}
       </span>
       <a href={`/api/bank/${bankId}/file/${img.id}`} target="_blank" rel="noreferrer"
@@ -102,7 +115,9 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const toast = useToast()
   const { caps } = useCapabilities()
   const [payload, setPayload] = useState(null)
-  const [filter, setFilter] = useState({ status: null, flag: null, cluster: null })
+  const [filter, setFilter] = useState({ status: null, flag: null, cluster: null,
+    style: null, subfolder: null })
+  const [subfolders, setSubfolders] = useState([])
   const [offset, setOffset] = useState(0)
   const [page, setPage] = useState({ images: [], total: 0 })
   const [selected, setSelected] = useState(() => new Set())
@@ -123,18 +138,32 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     }
   }, [bankId, onGone])
 
-  const refreshImages = useCallback(async (f = filter, off = offset) => {
-    const params = { offset: String(off), limit: String(PAGE_SIZE) }
+  const filterParams = useCallback((f) => {
+    const params = {}
     if (f.status) params.status = f.status
     if (f.flag) params.flag = f.flag
     if (f.cluster != null) params.cluster = String(f.cluster)
+    if (f.style != null) params.style = String(f.style)
+    // subfolder is a string facet where '' is meaningful (bank root) — send it
+    // whenever it isn't null, empty string included.
+    if (f.subfolder != null) params.subfolder = f.subfolder
+    return params
+  }, [])
+
+  const refreshImages = useCallback(async (f = filter, off = offset) => {
+    const params = { ...filterParams(f), offset: String(off), limit: String(PAGE_SIZE) }
     try {
       const d = await apiFetch(`/api/bank/${bankId}/images?${new URLSearchParams(params)}`)
       setPage(d)
     } catch { /* transient — next poll retries */ }
-  }, [bankId, filter, offset])
+  }, [bankId, filter, offset, filterParams])
 
-  useEffect(() => { refreshPayload(); refreshImages() // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    refreshPayload(); refreshImages()
+    apiFetch(`/api/bank/${bankId}/subfolders`)
+      .then((d) => setSubfolders(d.subfolders || []))
+      .catch(() => setSubfolders([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bankId])
 
   // Poll while a job runs; refresh the grid once when it lands.
@@ -176,6 +205,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const startScan = (rescan) => act(
     () => postJson(`/api/bank/${bankId}/scan`, { rescan: !!rescan }), null)
   const startFaces = () => act(() => postJson(`/api/bank/${bankId}/faces`, {}), null)
+  const startScore = () => act(() => postJson(`/api/bank/${bankId}/score`, {}), null)
+  const startWatermark = () => act(() => postJson(`/api/bank/${bankId}/watermark`, {}), null)
   const cancelJob = () => act(() => postJson(`/api/bank/${bankId}/cancel`, {}), null)
 
   const batchStatus = async (ids, status) => {
@@ -196,12 +227,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   }
 
   const selectAllCurrent = async () => {
-    const params = {}
-    if (filter.status) params.status = filter.status
-    if (filter.flag) params.flag = filter.flag
-    if (filter.cluster != null) params.cluster = String(filter.cluster)
     try {
-      const ids = await fetchAllIds(bankId, params)
+      const ids = await fetchAllIds(bankId, filterParams(filter))
       setSelected(new Set(ids))
       toast.info(`${ids.length} image(s) selected (whole filter, all pages).`)
     } catch (e) {
@@ -212,6 +239,13 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const counts = payload?.counts
   const flags = payload?.flags || {}
   const clusters = payload?.clusters || []
+  const styleClusters = payload?.style_clusters || []
+  const visionReady = !!caps.ollama?.vision_model_ready
+  const scored = counts?.scored || 0
+  const watermarkScanned = counts?.watermark_scanned || 0
+  // Score flags only make sense once their pass ran; watermark is its own pass.
+  const availableScoreFlags = SCORE_REJECT_FLAGS.filter(
+    (f) => (f === 'watermark' ? watermarkScanned : scored) > 0)
   const canPromote = (counts?.keep || 0) > 0 || selected.size > 0
 
   return (
@@ -231,7 +265,10 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       {counts && (
         <p className="text-sm text-content-muted">
           <span className="font-semibold text-content">{counts.total}</span> images ·
-          {' '}{counts.scanned} scanned · {counts.pending} undecided ·
+          {' '}{counts.scanned} scanned ·
+          {scored > 0 && <> {scored} scored ·</>}
+          {watermarkScanned > 0 && <> {watermarkScanned} watermark-checked ·</>}
+          {' '}{counts.pending} undecided ·
           {' '}<span className="text-emerald-300">{counts.keep} kept</span> ·
           {' '}<span className="text-rose-300">{counts.reject} rejected</span> ·
           {' '}<span className="text-indigo-300">{counts.promoted} promoted</span>
@@ -260,6 +297,20 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
           👥 Group by person
         </button>
+        <button type="button" onClick={startScore} disabled={live || !caps.bank_scoring}
+          title={caps.bank_scoring
+            ? 'Rate every non-rejected image for aesthetics (1–10), flag NSFW, and group by visual style — one CLIP pass. Powers a smarter "keep best". GPU when available; runs in the background.'
+            : 'Install the Bank scoring extra (Setup ▸ Quality tools) to score aesthetics / NSFW / style'}
+          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
+          ✨ Score{!caps.bank_scoring && ' (needs setup)'}
+        </button>
+        <button type="button" onClick={startWatermark} disabled={live || !visionReady}
+          title={visionReady
+            ? 'Scan every non-rejected image for an overlaid watermark/logo/URL with the same Qwen3-VL detector the datasets use (detection only — the bank never edits your files). GPU vision pass.'
+            : 'Pull the vision model (Settings ▸ Captioning & quality) to scan for watermarks'}
+          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
+          🚩 Find watermarks{!visionReady && ' (needs setup)'}
+        </button>
         <div className="relative">
           <button type="button" onClick={() => setShowAutoReject((v) => !v)} disabled={live}
             aria-expanded={showAutoReject}
@@ -275,7 +326,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                   Rejects the UNDECIDED images with these flags. Your manual ✓/✕ are never changed;
                   everything stays reversible (nothing is deleted from disk).
                 </p>
-                {['blur', 'noise', 'uniform', 'small'].map((f) => (
+                {[...QUALITY_REJECT_FLAGS, ...availableScoreFlags].map((f) => (
                   <label key={f} className="flex items-center gap-2 text-sm text-content">
                     <input type="checkbox" checked={rejectFlags.has(f)}
                       onChange={(e) => setRejectFlags((prev) => {
@@ -328,10 +379,56 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
         </div>
       )}
 
+      {/* Style clusters (after the scoring pass) — group screenshots/memes vs photoreal */}
+      {styleClusters.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-content-subtle">
+            Styles ({styleClusters.length} group{styleClusters.length > 1 ? 's' : ''} — biggest first)
+          </p>
+          <ul className="flex gap-2 overflow-x-auto pb-1">
+            {styleClusters.map((c) => (
+              <li key={c.id} className="shrink-0">
+                <button type="button" onClick={() => setF({ style: filter.style === c.id ? null : c.id, flag: null, cluster: null })}
+                  title={`Show style group #${c.id} (${c.size} image(s))`}
+                  className={`relative block overflow-hidden rounded-lg border ${filter.style === c.id
+                    ? 'border-fuchsia-400 ring-2 ring-fuchsia-400' : 'border-border'}`}>
+                  {c.cover_image_id != null && (
+                    <img src={`/api/bank/${bankId}/thumb/${c.cover_image_id}`} alt={`Style ${c.id}`}
+                      loading="lazy" className="h-16 w-16 object-cover" />
+                  )}
+                  <span className="absolute bottom-0 inset-x-0 bg-black/60 text-center text-[10px] font-semibold text-white">
+                    🎨{c.id} · {c.size}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Subfolder scoping (a Telegram export nests one folder per chat/date) */}
+      {subfolders.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-content-subtle">
+            Subfolder
+          </label>
+          <select value={filter.subfolder ?? '__all__'}
+            onChange={(e) => setF({ subfolder: e.target.value === '__all__' ? null : e.target.value })}
+            className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-content">
+            <option value="__all__">All subfolders</option>
+            {subfolders.map((s) => (
+              <option key={s.name || '__root__'} value={s.name}>
+                {s.name === '' ? '(bank root)' : s.name} · {s.count}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <Chip active={!filter.status && !filter.flag && filter.cluster == null}
-          onClick={() => setF({ status: null, flag: null, cluster: null })}>All</Chip>
+        <Chip active={!filter.status && !filter.flag && filter.cluster == null && filter.style == null}
+          onClick={() => setF({ status: null, flag: null, cluster: null, style: null })}>All</Chip>
         <Chip active={filter.status === 'pending'} onClick={() => setF({ status: filter.status === 'pending' ? null : 'pending' })}>Undecided</Chip>
         <Chip active={filter.status === 'keep'} onClick={() => setF({ status: filter.status === 'keep' ? null : 'keep' })}>✓ Kept</Chip>
         <Chip active={filter.status === 'reject'} onClick={() => setF({ status: filter.status === 'reject' ? null : 'reject' })}>✕ Rejected</Chip>
@@ -344,6 +441,14 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           </Chip>
         ))}
         <Chip active={filter.flag === 'clean'} onClick={() => setF({ flag: filter.flag === 'clean' ? null : 'clean' })}>✨ Clean</Chip>
+        {/* Score-derived flags — only surfaced once their pass has produced data. */}
+        {availableScoreFlags.map((f) => (
+          <Chip key={f} active={filter.flag === f}
+            onClick={() => setF({ flag: filter.flag === f ? null : f, cluster: null, style: null })}
+            title={f === 'watermark' ? 'Overlaid watermark detected' : 'Sorted worst-first'}>
+            {FLAG_LABEL[f]} {flags[f] ?? 0}
+          </Chip>
+        ))}
         <Chip active={filter.flag === 'dups'} onClick={() => setF({ flag: filter.flag === 'dups' ? null : 'dups', cluster: null })}
           title="Near-duplicate groups with their resolution panel">
           ≈ Duplicates {payload?.dup?.unresolved ?? 0}
