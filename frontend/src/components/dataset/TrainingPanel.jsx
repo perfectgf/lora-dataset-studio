@@ -31,6 +31,7 @@ import {
 } from '../../utils/trainingPresets';
 import { runConfirmableTrainingRequest } from '../../utils/trainingConfirmations';
 import { HelpBadge } from '../../help/HelpMode';
+import { requestHelpTip } from '../../help/helpTips';
 import { useToast } from '../common/Toast';
 import ContinueDialog from './ContinueDialog';
 import TrainingProgress from './TrainingProgress';
@@ -212,6 +213,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     if (navigationPanel === 'advanced') setAdvancedOpen(true);
     if (navigationPanel === 'checkpoints') setCheckpointsOpen(true);
   }, [navigationPanel]);
+
+  // Surface the dual-captions option once, the first time Advanced opens — it's
+  // a checkbox deep in the panel that's easy to never notice.
+  useEffect(() => { if (advancedOpen) requestHelpTip('dual-captions-advanced'); }, [advancedOpen]);
 
   const togglePanel = (panelId, current, setter) => (event) => {
     event.preventDefault();
@@ -1785,7 +1790,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               {/* Dual captions — train each image with a long AND a short caption */}
               <div className="flex flex-col gap-0.5">
                 <label className="flex items-center gap-2 flex-wrap cursor-pointer">
-                  <span className="text-content text-[0.75rem] w-28 shrink-0">Dual captions</span>
+                  <span className="text-content text-[0.75rem] w-28 shrink-0 inline-flex items-center gap-1">
+                    Dual captions<HelpBadge topic="training.dual_captions" />
+                  </span>
                   <input type="checkbox" checked={advDualCaptions}
                     onChange={(e) => saveAdv({ dual_captions: e.target.checked })}
                     aria-label="Dual long + short captions"

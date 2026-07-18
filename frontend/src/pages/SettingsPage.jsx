@@ -7,6 +7,7 @@ import { SETTINGS_SECTIONS, sectionStatus, matchesQuery } from '../components/se
 import { SectionHeader } from '../components/settings/primitives'
 import { HelpBadge } from '../help/HelpMode'
 import { searchHelpTopics, helpTopics } from '../help/helpRegistry'
+import { openCollapsedAncestors, resolveFocusTarget } from '../help/revealTarget'
 import { buildGuideTextIndex, matchGuideAnchors } from '../help/guideTextIndex'
 import settingsReferenceRaw from '../../../docs/guide/settings-reference.md?raw'
 import OverviewSection from '../components/settings/OverviewSection'
@@ -198,16 +199,21 @@ export default function SettingsPage() {
   // Deep-link focus: /settings/<section>?focus=<domId> scrolls to that field and
   // flashes a ring. Depends on `config` so it re-runs once settings finish
   // loading — the field only exists after the active section has rendered.
+  // The reveal helper first opens any collapsed <details> the field sits in
+  // (e.g. the ai-toolkit overrides), or, when the field itself is gated behind a
+  // switch that hasn't rendered it yet (the access token behind LAN +
+  // require-token), rings that gate instead so the deep-link never dead-ends.
   const [searchParams] = useSearchParams()
   const focusId = searchParams.get('focus')
   useEffect(() => {
     if (!focusId || loading || !config) return undefined
-    const el = document.getElementById(focusId)
-    if (!el) return undefined
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const found = resolveFocusTarget(focusId)
+    if (!found) return undefined
+    openCollapsedAncestors(found.el)
+    found.el.scrollIntoView({ behavior: 'smooth', block: 'center' })
     const ring = ['ring-2', 'ring-indigo-400/70', 'ring-offset-2', 'ring-offset-app', 'rounded-md']
-    el.classList.add(...ring)
-    const t = setTimeout(() => el.classList.remove(...ring), 2000)
+    found.el.classList.add(...ring)
+    const t = setTimeout(() => found.el.classList.remove(...ring), 2000)
     return () => clearTimeout(t)
   }, [focusId, section, loading, config])
 

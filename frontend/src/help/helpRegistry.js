@@ -94,7 +94,8 @@ const TOPICS = [
       text: 'Prompt suffixes add a creative direction to every generated variation — globally or per framing.' } },
   // Changing a dataset's kind (character/concept/style) after creation. Shares the
   // section's anchor — listed AFTER it so the modal keeps the "Open this screen →"
-  // button. No tip (the tip count is contract-locked at 7).
+  // button. No tip: the modal already fires one (dataset-settings-open) and a
+  // second on the same surface would spam. (The tip total is contract-locked.)
   { id: 'dataset-kind-switch', kind: 'setting', title: 'Change the dataset kind',
     keywords: ['kind', 'change kind', 'switch kind', 'character', 'concept', 'style',
       'convert', 'caption strategy', 'trigger'],
@@ -251,6 +252,17 @@ const TOPICS = [
     ['cloud', 'verified', 'host', 'vast', 'offer', 'filter']),
   setting('cloud.secure_cloud_only', 'training', 'cloud-secure-cloud-only', 'Secure Cloud only',
     ['cloud', 'secure', 'community', 'vast', 'offer', 'filter']),
+  // Dual captions is a per-run Advanced training option (not a global Setting),
+  // so it points at the dataset guide's dedicated section rather than
+  // settings-reference, and its route is the training workspace section. Its tip
+  // surfaces it when the Advanced options are first opened.
+  { id: 'training.dual_captions', kind: 'setting', title: 'Dual captions (long + short)',
+    keywords: ['dual captions', 'long', 'short', 'short caption', 'caption', 'augmentation',
+      'short_and_long', 'advanced', 'training'],
+    guide: { chapter: 'dataset-guide', anchor: '7-dual-captions-long-short' },
+    app: { route: '/datasets?section=training' },
+    tip: { trigger: 'dual-captions-advanced',
+      text: 'New: train each image on a long AND a short caption (Advanced options → Dual captions) so the LoRA leans less on any single wording.' } },
   // server
   setting('server.port', 'server', 'server-port', 'Server port',
     ['server', 'port', 'bind', 'network', '5050']),
@@ -284,7 +296,9 @@ const TOPICS = [
     '/datasets?section=studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   action('continue-training', 'Continue a training run',
     ['continue', 'resume', 'more steps', 'epoch', 'checkpoint', 'restart', 'undercook', 'overcook'],
-    '/datasets?section=checkpoints', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+    '/datasets?section=checkpoints', 'dataset-guide', '6-after-training-pick-the-right-checkpoint',
+    { trigger: 'continue-any-epoch',
+      text: 'Finished a run? ▶ Continue trains it further — for any number of steps, or resumed from an earlier, less-cooked epoch.' }),
   action('action-recaption-targeted', 'Re-caption leaking images',
     ['caption', 'recaption', 'leak', 'targeted', 'fix', 'review'],
     '/datasets?section=captions&panel=leak-review', 'dataset-guide', '3-captions-the-make-or-break-step',

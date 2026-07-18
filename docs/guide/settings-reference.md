@@ -70,7 +70,7 @@ Good to know: in subscription mode you get up to **5 reference images** per gene
 
 Each preset has a **name** and an **ordered list of LoRAs**, and each LoRA row has:
 
-- a **file** — a name relative to your ComfyUI `models/loras` folder (e.g. `klein/my-lora.safetensors`), exactly like the consistency LoRA;
+- a **file** — a name relative to your ComfyUI `models/loras` folder (e.g. `klein/my-lora.safetensors`), exactly like the consistency LoRA. The field is a **searchable dropdown of the LoRAs actually on disk** (every folder, `extra_model_paths.yaml` included), with Klein-compatible files listed first and each one badged by architecture; free text still works for a file you haven't downloaded yet;
 - a **strength** — `0`–`1.5`, default **`0.6`**.
 
 Use **＋ New preset**, **Duplicate**, **Delete** and rename to manage them, and the up/down controls to set chain order. **Caps: 8 LoRAs per preset, 12 presets.**

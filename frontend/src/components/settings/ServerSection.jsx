@@ -107,6 +107,7 @@ export default function ServerSection({ config, setField, runtime, handleSave })
           </p>
         </div>
         <button id="server-lan" type="button" role="switch" aria-checked={lan}
+          data-focus-gate="server-require-token server-token"
           onClick={() => setField('server', 'host', lan ? '127.0.0.1' : '0.0.0.0')}
           aria-label="Available on the local network"
           className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors ${lan ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
@@ -129,6 +130,7 @@ export default function ServerSection({ config, setField, runtime, handleSave })
               </p>
             </div>
             <button id="server-require-token" type="button" role="switch" aria-checked={requireToken}
+              data-focus-gate="server-token"
               onClick={() => setField('server', 'require_token', !requireToken)}
               aria-label="Require an access token"
               className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors ${requireToken ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>

@@ -189,6 +189,52 @@ best one**. Later checkpoints know the identity better but obey prompts worse.
    expression/angle regardless of prompt, outfits from the dataset bleeding in.
 4. Save the winning settings (★) — they're reused as the dataset's defaults.
 
+### Continue a run instead of starting over
+
+If the best checkpoint is *almost* there — the identity nearly locked but a touch
+undercooked — you don't have to retrain from scratch. The **▶ Continue training**
+button (on the dataset's Checkpoints panel and on the **Runs** hub) opens a small
+dialog:
+
+- **Resume from** — which checkpoint to restart from. The default is the latest,
+  but the whole point is that you can pick an **earlier, less-cooked epoch**: the
+  classic case where step 750 held up better than the over-cooked 1000. Choosing
+  an earlier step never destroys the run's later saves — they're set aside intact
+  (on disk locally, in the run's staging for cloud) and the continuation writes
+  its own.
+- **Extra steps** — how many *more* steps to train; the dialog shows the target
+  step you'll land on.
+- **Adjust settings (optional)** — a resume can only safely change a handful of
+  things: the **checkpoint/preview cadence**, the **preview prompts** (test images
+  only — never the weights), and the **timestep weighting**. Everything structural
+  (rank, base model, optimizer) is locked to the checkpoint you're continuing.
+  The timestep knob enables a known **two-phase recipe**: train balanced first,
+  then continue with a low-noise-leaning emphasis to polish fine texture.
+
+Continue works for both **local and cloud** runs from the Runs hub.
+
+## 7. Dual captions (long + short)
+
+An optional, **off-by-default** training technique, toggled under **⚙️ Advanced
+options → Dual captions** on the training panel. When on, the run uses
+ai-toolkit's native `short_and_long_captions`: **every image trains with both its
+full caption and a short one.** It's a *text-side augmentation* — showing the
+model two phrasings of the same image so the LoRA leans less on any single
+wording and generalizes to prompts that don't match your caption style.
+
+How the short caption is produced:
+
+- It's **derived from the long caption**, automatically, the next time you
+  (re-)caption — text-only, via the local vision model. Turning the toggle on
+  doesn't rewrite anything by itself; **re-caption** to generate the shorts.
+- It follows the **same kind rules** as the long one: no trigger word, and the
+  identity / concept / aesthetic stays omitted (that's still the trigger's job).
+- You can **edit it per image** in the **⛶** caption editor, next to the long one.
+
+**Local training only for now.** The cloud pod's dataset upload doesn't carry the
+JSON file the short caption is read from, so **cloud runs train on the long
+caption alone** — turning the toggle on simply has no effect there yet.
+
 ---
 
 *Everything above is enforced or surfaced by the app itself (pre-flight checks,

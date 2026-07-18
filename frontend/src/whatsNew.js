@@ -58,6 +58,14 @@ export const WHATS_NEW = [
     to: '/cloud',
   },
   {
+    id: '2026-07-18-help-mode-rounder',
+    date: '2026-07-18',
+    title: 'Help mode lands on the exact field — even a folded one',
+    blurb:
+      "Open a setting from Help search or a Guide's “Open this screen →” and it now reveals the field before highlighting it: a control tucked inside a collapsed “Advanced” panel is opened first, and a field that only appears once a switch is on — like the access token behind LAN access — now points you at that switch instead of scrolling to nothing. New “?” help badges also cover the ▶ Continue dialog and the Dual captions option.",
+    to: '/settings',
+  },
+  {
     id: '2026-07-18-flexible-continue',
     date: '2026-07-18',
     title: 'Continue a run from any epoch, for as many steps as you want',

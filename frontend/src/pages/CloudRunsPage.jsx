@@ -6,6 +6,7 @@ import TrainingProgress from '../components/dataset/TrainingProgress';
 import ContinueDialog from '../components/dataset/ContinueDialog';
 import { BaseModelChip, DatasetVersionChip, RunIdChip } from '../components/dataset/RunIdentityBadges';
 import { HelpBadge } from '../help/HelpMode';
+import { requestHelpTip } from '../help/helpTips';
 import { runIdentityOf, runRowDomId } from '../utils/runIdentity';
 import {
   canStopLocalRun,
@@ -244,6 +245,15 @@ export default function CloudRunsPage() {
     tick();
     return () => { alive = false; clearTimeout(t); };
   }, [poll]);
+
+  // Nudge, once, that a finished run can be continued — resuming from an earlier,
+  // less-cooked epoch is the flagship of the Continue dialog and easy to miss.
+  useEffect(() => {
+    const runs = [...(data?.actives || []), ...(data?.recent || [])];
+    if (runs.some((r) => r.status === 'done' && r.checkpoint_ready)) {
+      requestHelpTip('continue-any-epoch');
+    }
+  }, [data]);
 
   // Deep-link from the Checkpoints panel's "View in Runs ↗": /cloud#run-cloud-49
   // scrolls to and briefly highlights that run's card. Runs after data arrives

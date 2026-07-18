@@ -142,7 +142,7 @@ test('(5) each Settings section and Workspace section has its topic', () => {
 
 test('(6) tips have unique triggers and non-empty text', () => {
   const tips = helpTips()
-  assert.equal(tips.length, 7, 'expected exactly 7 one-time tips')
+  assert.equal(tips.length, 9, 'expected exactly 9 one-time tips')
   const triggers = new Set()
   for (const tip of tips) {
     assert.ok(tip.trigger, 'tip missing trigger')
@@ -173,6 +173,8 @@ test('(8) search matches settings by keyword/id', () => {
     "'preset' should surface klein.generation_lora_presets")
   assert.ok(searchHelpTopics('abliterated').some((t) => t.id === 'ollama.vision_model'),
     "'abliterated' should surface ollama.vision_model")
+  assert.ok(searchHelpTopics('short caption').some((t) => t.id === 'training.dual_captions'),
+    "'short caption' should surface training.dual_captions")
 })
 
 // ---- (9) GuidePage registers the settings-reference chapter -----------------
