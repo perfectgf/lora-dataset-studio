@@ -8,7 +8,6 @@ import { setToastRef } from './api/fetchClient'
 import ErrorBoundary from './components/common/ErrorBoundary'
 import { WhatsNewButton, WhatsNewModal } from './components/common/WhatsNew'
 import DatasetPage from './pages/DatasetPage'
-import BankPage from './pages/BankPage'
 import StudioPage from './pages/StudioPage'
 import SettingsPage from './pages/SettingsPage'
 import SetupPage from './pages/SetupPage'
@@ -130,13 +129,6 @@ function NavBar() {
   const navLinks = (
     <>
       <NavLink to="/datasets" className={navItemClass} onClick={() => setOpen(false)}>Datasets</NavLink>
-      {/* Bank sits right after Datasets: it FEEDS them (triage a big unsorted
-          folder, then promote the keepers into a dataset). */}
-      <NavLink to="/bank" className={navItemClass} onClick={() => setOpen(false)}>
-        <span className="inline-flex items-center gap-1"><span aria-hidden>🗃️</span> Bank
-          <span className="px-1 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.5625rem] font-semibold uppercase tracking-wide leading-none">Beta</span>
-        </span>
-      </NavLink>
       {/* Unified runs hub (cloud + local history) — useful as soon as ANY
           training path exists, not just the cloud one. */}
       {(caps.cloud_training || caps.training_visible) && (
@@ -357,7 +349,6 @@ function AppInner() {
           <Route element={<Shell />}>
             <Route path="/" element={<Navigate to="/datasets" replace />} />
             <Route path="/datasets" element={<DatasetPage />} />
-            <Route path="/bank" element={<BankPage />} />
             <Route path="/guide" element={<GuidePage />} />
             <Route path="/guide/getting-help" element={<Navigate to="/help" replace />} />
             <Route path="/guide/:section" element={<GuidePage />} />

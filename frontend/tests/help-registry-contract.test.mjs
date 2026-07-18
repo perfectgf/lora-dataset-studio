@@ -41,7 +41,7 @@ const anchorsFor = (chapterId) => {
 
 const SETTINGS_IDS = new Set(SETTINGS_SECTIONS.map((s) => s.id))
 const WORKSPACE_IDS = new Set(WORKSPACE_SECTIONS.map((s) => s.id))
-const STATIC_ROUTES = new Set(['/datasets', '/bank', '/setup', '/settings', '/studio', '/cloud', '/help'])
+const STATIC_ROUTES = new Set(['/datasets', '/setup', '/settings', '/studio', '/cloud', '/help'])
 
 // route ∈ {static} OR /settings/<settings-id> OR /datasets?section=<ws-id>[&panel=<panel>]
 const routeValid = (route) => {

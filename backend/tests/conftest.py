@@ -31,12 +31,10 @@ def _reset_inmemory_registries():
     1, so a batch a PRIOR test began on 'dataset 1' would look live to the next
     test's fresh 'dataset 1' — enough to make the kind-switch guard 409 spuriously.
     Clear it around every test so in-memory activity never leaks across cases."""
-    from app.services import bank_jobs, dataset_activity
+    from app.services import dataset_activity
     dataset_activity.reset()
-    bank_jobs.reset()
     yield
     dataset_activity.reset()
-    bank_jobs.reset()
 
 @pytest.fixture()
 def app(tmp_path, monkeypatch):
