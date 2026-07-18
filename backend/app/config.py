@@ -11,6 +11,14 @@ REPO_ROOT = BACKEND_DIR.parent
 def _data_dir() -> Path:
     return Path(os.environ.get('LDS_DATA_DIR', str(REPO_ROOT / 'data')))
 
+def data_dir() -> Path:
+    """Public accessor for the app's writable data directory (created on demand).
+    Where app-managed artefacts live that aren't user datasets — e.g. the dedicated
+    Python env the watermark-inpainting installer auto-provisions (data/envs/…)."""
+    d = _data_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 def _config_path() -> Path:
     return Path(os.environ.get('LDS_CONFIG', str(REPO_ROOT / 'config.json')))
 
@@ -35,7 +43,14 @@ DEFAULTS = {
     'server': {'host': '127.0.0.1', 'port': 5050, 'require_token': False, 'access_token': ''},
     'paths': {'dataset_images_root': ''},                      # '' -> DATA_DIR/datasets
     'comfyui': {'api_url': 'http://127.0.0.1:8188', 'base_dir': '',
-                'output_dir': '', 'input_dir': '', 'models_dir': '', 'loras_dir': ''},
+                'output_dir': '', 'input_dir': '', 'models_dir': '', 'loras_dir': '',
+                # setup_skipped (default False): the user consciously chose "continue
+                # without ComfyUI" in the Setup wizard. It ONLY makes the Setup step
+                # render a neutral "skipped" instead of nagging; it never gates a
+                # capability. Setting base_dir annuls it (see settings.put_settings and
+                # the DERIVED comfyui.skipped in capabilities.probe), so it can never
+                # mask a real error of a configured ComfyUI.
+                'setup_skipped': False},
     'ollama': {'url': 'http://127.0.0.1:11434', 'vision_model': 'huihui_ai/qwen3-vl-abliterated:8b-instruct'},  # -instruct, NOT ':8b' (=thinking): see get_vision_model()
     'aitoolkit': {'dir': '', 'datasets_dir': '', 'output_dir': '', 'hf_home': '',
                   # Explicit interpreter for installs without venv/.venv

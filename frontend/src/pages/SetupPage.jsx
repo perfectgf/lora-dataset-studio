@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { apiFetch, putJson, postJson } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
-import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS, kleinMissingLabels } from '../hooks/useSetupSteps'
+import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS, kleinMissingLabels,
+  comfyuiDirVerdict, COMFYUI_SKIP_LOST, COMFYUI_SKIP_KEPT } from '../hooks/useSetupSteps'
 import GuidedSteps from '../components/setup/GuidedSteps'
 import InstallRunner from '../components/setup/InstallRunner'
 import { HelpBadge } from '../help/HelpMode'
@@ -35,6 +36,8 @@ const STATUS_META = {
   ready: { glyph: '✓', label: 'Ready', cls: 'text-emerald-400' },
   partial: { glyph: '◐', label: 'Almost there', cls: 'text-amber-400' },
   available: { glyph: '○', label: 'Not set up', cls: 'text-content-subtle' },
+  // Neutral, deliberately not red: the user chose to continue without ComfyUI.
+  skipped: { glyph: '⊘', label: 'Skipped', cls: 'text-content-subtle' },
 }
 
 // Map each capability in the "What's unlocked" review list (deriveCapabilitySummary,
@@ -73,6 +76,8 @@ export default function SetupPage() {
   const [screen, setScreen] = useState(0)           // index into SCREENS
   const [advancing, setAdvancing] = useState(false) // Next is mid save-&-recheck
   const [startingOllama, setStartingOllama] = useState(false) // "Start Ollama" in flight
+  const [dirCheck, setDirCheck] = useState(null)    // live classify of the typed ComfyUI dir
+  const [skipConfirm, setSkipConfirm] = useState(false) // "continue without ComfyUI" panel open
   const autodetectedRef = useRef(false)             // run the on-load autodetect only once
   // Last SERVER-acknowledged config (JSON) — dirty = user edits not yet saved.
   const savedConfigRef = useRef(null)
@@ -126,6 +131,30 @@ export default function SetupPage() {
   useEffect(() => {
     if (config && !autodetectedRef.current) { autodetectedRef.current = true; runAutodetect(config) }
   }, [config, runAutodetect])
+
+  // Navigating between wizard screens dismisses a half-open "continue without ComfyUI"
+  // panel, so it never re-appears stale when the user comes back to this step.
+  useEffect(() => { setSkipConfirm(false) }, [screen])
+
+  // Live, SAVE-FREE classification of the typed ComfyUI directory, so the field gives
+  // an actionable verdict (wrong path / empty folder / launcher-parent-with-a-child)
+  // while the user is still typing — not only after a "Save & re-check". Debounced;
+  // the result carries the exact path it judged so a stale verdict is never shown
+  // against a newer string. Blank field → no check (the skip panel owns that case).
+  const baseDir = (config && config.comfyui && config.comfyui.base_dir) || ''
+  useEffect(() => {
+    const path = baseDir.trim()
+    if (!path) { setDirCheck(null); return undefined }
+    let alive = true
+    setDirCheck({ status: 'checking', path })
+    const t = setTimeout(async () => {
+      try {
+        const r = await apiFetch(`/api/setup/comfyui-dir?path=${encodeURIComponent(path)}`)
+        if (alive) setDirCheck({ ...r, path })
+      } catch { if (alive) setDirCheck(null) }
+    }, 350)
+    return () => { alive = false; clearTimeout(t) }
+  }, [baseDir])
 
   // Apply a disk-scanned path suggestion (user-confirmed) into config + save.
   const applyDetectedPath = async (section, key, val) => {
@@ -274,34 +303,45 @@ export default function SetupPage() {
       const installBtn = (action, label) => kleinMissing.includes(action)
         ? <InstallRunner action={action} buttonLabel={label} onDone={() => refresh(true)} />
         : <p className="text-xs text-emerald-400">✓ Installed</p>
+      // Live verdict on the CURRENTLY-TYPED directory (from /api/setup/comfyui-dir),
+      // shown the moment the field changes — a wrong path, an empty folder, or the
+      // launcher/parent folder (with a one-click "use the child" adopt). The verdict
+      // is only trusted when it matches the exact string in the field.
+      const typedDir = (config.comfyui.base_dir || '').trim()
+      const liveCheck = dirCheck && dirCheck.path === typedDir ? dirCheck : null
+      const dirVerdictNode = typedDir ? (
+        (!liveCheck || liveCheck.status === 'checking')
+          ? <p className="text-xs text-content-subtle">Checking this folder…</p>
+          : (() => {
+            const v = comfyuiDirVerdict(liveCheck)
+            if (!v.message) return null
+            const cls = v.tone === 'ok' ? 'text-emerald-400'
+              : v.tone === 'warn' ? 'text-amber-400' : 'text-content-subtle'
+            const glyph = v.tone === 'ok' ? '✓' : v.tone === 'warn' ? '⚠' : ''
+            return (
+              <div className="space-y-1.5">
+                <p className={`text-xs ${cls}`}>{glyph} {v.message}</p>
+                {v.suggestion && (
+                  <button type="button" onClick={() => setField('comfyui', 'base_dir', v.suggestion)}
+                    className="rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium text-primary hover:bg-surface-raised">
+                    Use this folder instead
+                  </button>
+                )}
+              </div>
+            )
+          })()
+      ) : null
       const fields = (
         <>
           {guidedField('ComfyUI API URL', 'comfyui', 'api_url', 'http://127.0.0.1:8188')}
           {guidedField('ComfyUI install directory', 'comfyui', 'base_dir', 'C:\\ComfyUI')}
           {detectedPathChip('comfyui', 'base_dir')}
-          {/* Validate the folder on Save & re-check: it must actually hold main.py +
-              models/. A portable-wrapper path is auto-corrected to the nested ComfyUI on
-              save (so checkpoints are found); a genuinely wrong path is flagged here.
-              The ✓/⚠ verdict comes from the last PROBE — while the field holds a path
-              that hasn't been saved yet, showing that verdict would judge the WRONG
-              string (a stale ⚠ next to a perfectly good typed path). Neutral hint then. */}
-          {config.comfyui.base_dir && (
-            config.comfyui.base_dir !== step.baseDir ? (
-              <p className="text-xs text-content-subtle">
-                Path not checked yet — <span className="text-content">Save &amp; re-check</span> to validate it.
-              </p>
-            ) : step.dirValid ? (
-              <p className="text-xs text-emerald-400">
-                ✓ ComfyUI found{step.resolvedDir ? <> at <span className="font-mono">{step.resolvedDir}</span></> : ''}.
-              </p>
-            ) : (
-              <p className="text-xs text-amber-400">
-                ⚠ No ComfyUI install in this folder — it must contain <span className="font-mono">main.py</span> and
-                a <span className="font-mono">models/</span> folder. Check the path, then Save &amp; re-check.
-                For the portable build, point at the inner <span className="font-mono">…\ComfyUI_windows_portable\ComfyUI</span>.
-              </p>
-            )
-          )}
+          {/* Live, save-free verdict on the typed path (main.py + models/ ⇒ valid;
+              a launcher/parent folder proposes its inner ComfyUI to adopt; a wrong,
+              empty or missing folder each get their own actionable message). This
+              replaces the old "Save & re-check to validate" placeholder — the check
+              runs as you type, and the folder it judged is pinned to the field value. */}
+          {dirVerdictNode}
           {step.reachable && !step.hasKlein && (
             <div className="space-y-1 text-xs text-content-muted">
               {missingSummary && (
@@ -377,8 +417,73 @@ export default function SetupPage() {
             </div>
           )}
           {saveRecheckBtn}
+          {/* Discoverable, explicit skip: only when there's genuinely nothing here
+              (no dir, not reachable, not already skipped) — a running/configured
+              ComfyUI never offers to be skipped. */}
+          {!typedDir && !step.reachable && !step.skipped && (
+            <button type="button" onClick={() => setSkipConfirm(true)}
+              className="text-xs text-content-subtle underline hover:text-content">
+              Don't want local generation? Continue without ComfyUI →
+            </button>
+          )}
         </>
       )
+      // The "continue without ComfyUI" confirmation: what turns off vs stays on (from
+      // the real capability gates), shown BEFORE the skip is committed.
+      const skipPanel = (
+        <div className="space-y-4">
+          <div className="space-y-3 rounded-md border border-border-strong bg-surface-raised px-4 py-3 text-sm">
+            <p className="font-medium text-content">Continue without ComfyUI?</p>
+            <p className="text-xs text-content-muted">
+              ComfyUI powers local generation and the Test Studio. You can come back anytime —
+              entering a directory later turns everything below back on automatically.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="mb-1 text-xs font-semibold text-amber-300">What you won't have</p>
+                <ul className="space-y-1 text-xs text-content-muted">
+                  {COMFYUI_SKIP_LOST.map((t) => (
+                    <li key={t} className="flex gap-1.5"><span aria-hidden="true" className="text-amber-400">✗</span><span>{t}</span></li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold text-emerald-400">What still works</p>
+                <ul className="space-y-1 text-xs text-content-muted">
+                  {COMFYUI_SKIP_KEPT.map((t) => (
+                    <li key={t} className="flex gap-1.5"><span aria-hidden="true" className="text-emerald-400">✓</span><span>{t}</span></li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 pt-1">
+              <button type="button" onClick={skipComfyui} disabled={busy}
+                className="rounded-lg bg-gradient-primary px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                {busy ? 'Saving…' : 'Continue without ComfyUI'}
+              </button>
+              <button type="button" onClick={() => setSkipConfirm(false)}
+                className="text-xs text-content-subtle underline hover:text-content">
+                Never mind — I'll set it up
+              </button>
+            </div>
+          </div>
+          {fields}
+        </div>
+      )
+      if (skipConfirm) return skipPanel
+      // Already skipped by choice: neutral confirmation (not a warning) + the fields,
+      // so typing a directory silently un-skips and re-enables local generation.
+      if (step.skipped) {
+        return (
+          <div className="space-y-4">
+            <div className="rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-content-muted">
+              ⊘ You chose to continue without ComfyUI. Local generation, the Test Studio and
+              custom-base training stay off — enter a directory below anytime to turn them back on.
+            </div>
+            {fields}
+          </div>
+        )
+      }
       // Already detected/running → skip the from-scratch install guide; show the
       // reachable confirmation and only the remaining gap.
       if (step.reachable) {
@@ -680,6 +785,16 @@ export default function SetupPage() {
   // the re-check, in which case it stays and says why. Re-evaluates against FRESHLY
   // fetched capabilities because the context update from persist() is async.
   const nextWithSave = async () => {
+    // ComfyUI with an empty field and nothing reachable = a conscious skip. Show what
+    // it costs (skipPanel) and require the explicit "Continue without ComfyUI" button
+    // BEFORE advancing — the bottom Next only opens/keeps the panel, it never skips
+    // silently (that path is what records the persistent choice). Already-skipped or
+    // reachable falls through normally.
+    if (kind === 'comfyui') {
+      const cfgDir = ((config.comfyui && config.comfyui.base_dir) || '').trim()
+      const s = stepById.comfyui
+      if (!cfgDir && !s.reachable && !s.skipped) { setSkipConfirm(true); return }
+    }
     setAdvancing(true)
     try {
       await persist()
@@ -691,6 +806,21 @@ export default function SetupPage() {
       }
       goNext()
     } finally { setAdvancing(false) }
+  }
+
+  // Persist the conscious "continue without ComfyUI" choice, then advance. Entering a
+  // directory later annuls it on its own (the backend derives comfyui.skipped =
+  // setup_skipped AND no base_dir), so this only sticks while the field stays empty.
+  const skipComfyui = async () => {
+    setBusy(true)
+    try {
+      const data = await putJson('/api/settings', { config: { comfyui: { setup_skipped: true } } })
+      setConfig(data.config); savedConfigRef.current = JSON.stringify(data.config)
+      await refresh(true)
+      setSkipConfirm(false)
+      goNext()
+    } catch (e) { toast.error(`Save failed: ${e.message}`) }
+    finally { setBusy(false) }
   }
 
   // Progress dots: one per tool step, filled when that tool is ready.
@@ -743,7 +873,11 @@ export default function SetupPage() {
     // each row is a direct link to that step's screen, whether or not it's ready yet.
     const scanRows = [
       { label: 'Local generation — ComfyUI', optional: true, stepId: 'comfyui',
-        state: triState(stepById.comfyui.reachable, stepById.comfyui.hasKlein),
+        // A conscious skip reads as "skipped" (neutral), not "not found" — the probe
+        // doesn't keep nagging about a choice the user already made. (partial text is
+        // only used for the reachable-but-incomplete case.)
+        state: stepById.comfyui.skipped ? 'skipped'
+          : triState(stepById.comfyui.reachable, stepById.comfyui.hasKlein),
         partial: 'running — Klein model optional' },
       { label: 'Captioning — Ollama + vision model', stepId: 'ollama',
         state: ollamaScan.state, partial: ollamaScan.partial },
@@ -756,6 +890,7 @@ export default function SetupPage() {
       ready: { glyph: '✓', cls: 'text-emerald-400', word: 'ready' },
       partial: { glyph: '⚠', cls: 'text-amber-400', word: '' },
       missing: { glyph: '✗', cls: 'text-content-subtle', word: 'not found' },
+      skipped: { glyph: '⊘', cls: 'text-content-subtle', word: 'skipped' },
     }
     // Optional + not-ready → don't alarm: neutral glyph/color and an "optional" tone.
     const NEUTRAL = { glyph: '○', cls: 'text-content-subtle' }

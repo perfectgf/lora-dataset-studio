@@ -637,6 +637,51 @@ def resolve_comfyui_base(path: str) -> dict:
     return {'valid': False, 'resolved': str(p), 'nested': False}
 
 
+def classify_comfyui_dir(path: str) -> dict:
+    """Rich verdict on a user-entered ComfyUI folder, so the Setup wizard can say
+    something ACTIONABLE the moment the field is edited (before any save) instead of
+    a blanket "invalid". `resolve_comfyui_base` only splits valid/nested/other; this
+    keeps that split and additionally names WHY a folder isn't ComfyUI:
+
+      status ∈
+        'empty'       — nothing typed yet (the caller drives the skip flow).
+        'valid'       — the folder itself is a ComfyUI install.
+        'nested'      — the folder isn't, but ``<folder>/ComfyUI`` is (the launcher/
+                        portable-wrapper mistake). `suggestion` = that child, to adopt.
+        'missing'     — the path doesn't exist on disk.
+        'empty_dir'   — the directory exists but is empty.
+        'not_comfyui' — the directory (or a file at that path) exists and has content,
+                        but holds no main.py/models/ and no child ComfyUI.
+
+    `resolved` is the path a valid/nested verdict would adopt (child for nested,
+    the folder itself otherwise). Pure + never raises — a filesystem hiccup degrades
+    to 'not_comfyui' rather than throwing into the request."""
+    raw = (path or '').strip()
+    if not raw:
+        return {'status': 'empty', 'resolved': '', 'suggestion': ''}
+    p = Path(raw)
+    if _is_comfyui_dir(p):
+        return {'status': 'valid', 'resolved': str(p), 'suggestion': ''}
+    child = p / 'ComfyUI'
+    if _is_comfyui_dir(child):
+        return {'status': 'nested', 'resolved': str(child), 'suggestion': str(child)}
+    try:
+        exists, is_dir = p.exists(), p.is_dir()
+    except OSError:
+        exists, is_dir = False, False
+    if not exists:
+        return {'status': 'missing', 'resolved': str(p), 'suggestion': ''}
+    if is_dir:
+        try:
+            is_empty = not any(p.iterdir())
+        except OSError:
+            is_empty = False
+        if is_empty:
+            return {'status': 'empty_dir', 'resolved': str(p), 'suggestion': ''}
+    # A file at that path, or a non-empty folder that simply isn't a ComfyUI checkout.
+    return {'status': 'not_comfyui', 'resolved': str(p), 'suggestion': ''}
+
+
 def _detect_comfyui() -> dict:
     out = {}
     if _http_ok(f'{_COMFYUI_DEFAULT_URL}/history'):
@@ -721,6 +766,13 @@ def probe(force=False) -> dict:
                    and not klein_blocking_invalid)
     base_dir = cfg.get('comfyui.base_dir') or ''
     comfy_dir = resolve_comfyui_base(base_dir)
+    # Conscious "continue without ComfyUI" skip (Setup wizard). DERIVED, not just the
+    # stored flag: a directory being configured ANNULS the skip on the spot, so the
+    # flag can never mask a real error of a set-up ComfyUI — a configured install
+    # always has base_dir, so `skipped` is false whenever there's something to error
+    # on. The engine/studio gates below are computed independently of this and stay
+    # the source of truth; `skipped` only lets the Setup step render neutral.
+    comfy_skipped = bool(cfg.get('comfyui.setup_skipped')) and not base_dir
 
     from .services import chatgpt_oauth
     sub_status = chatgpt_oauth.status()
@@ -745,6 +797,11 @@ def probe(force=False) -> dict:
             'dir_configured': bool(base_dir),
             'dir_valid': comfy_dir['valid'],       # base_dir really is a ComfyUI install
             'resolved_dir': comfy_dir['resolved'],
+            # Effective "continue without ComfyUI" state: the user chose to skip AND no
+            # directory is configured. Only drives the Setup step's neutral "skipped"
+            # display — never the engine/studio gates below, so it cannot hide a real
+            # error of a configured ComfyUI (which always has a base_dir → skipped=False).
+            'skipped': comfy_skipped,
             'models': models,
             # setup_installer action names for the Klein assets NOT yet on disk
             # (subset of klein_model / klein_text_encoder / klein_vae / klein_lora).

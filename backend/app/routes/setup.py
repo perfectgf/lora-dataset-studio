@@ -1,5 +1,5 @@
 """Setup API: auto-detect installed tools + run the whitelisted one-click installs."""
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from .. import capabilities
 from .. import setup_installer
@@ -13,6 +13,16 @@ def setup_autodetect():
     can fill config itself. Reachable-port hits are safe to apply; disk paths are
     suggestions the UI confirms."""
     return jsonify(capabilities.autodetect())
+
+
+@bp.get('/comfyui-dir')
+def setup_validate_comfyui_dir():
+    """Classify a candidate ComfyUI folder WITHOUT saving it, so the wizard can give
+    immediate, actionable feedback as the field is edited — a wrong path, an empty
+    folder, or the launcher/parent folder (with the child to adopt) instead of a
+    blanket "invalid" that only shows up after a save. Read-only, cheap (a couple of
+    stat calls), never raises. `?path=` is the raw folder string the user typed."""
+    return jsonify(capabilities.classify_comfyui_dir(request.args.get('path', '')))
 
 
 @bp.post('/install/<action>')

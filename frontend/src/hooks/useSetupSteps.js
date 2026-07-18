@@ -51,6 +51,11 @@ function kleinMissingRequired(c) {
   return (c.models && c.models.klein && c.models.klein.length) ? [] : ['klein_model']
 }
 
+// The user's choice to "continue without ComfyUI" (Setup step). The backend
+// derives `comfyui.skipped` = the stored flag AND no directory configured, so it
+// self-annuls the moment a path is entered. We only treat the step as skipped when
+// ComfyUI is ALSO not reachable — a running ComfyUI is worth surfacing (partial/
+// ready) even if the user once clicked skip.
 function comfyuiStep(caps) {
   const c = caps.comfyui || {}
   const missingRequired = kleinMissingRequired(c)
@@ -71,17 +76,72 @@ function comfyuiStep(caps) {
   const kleinMissing = Array.isArray(c.klein_missing)
     ? c.klein_missing
     : (hasKlein ? [] : ['klein_model'])
-  const status = gateStatus(c.reachable, hasKlein)
+  // Skipped is neutral, not a warning — but only when there's genuinely nothing to
+  // show (unreachable). It never overrides a reachable ComfyUI's real status.
+  const skipped = !!c.skipped && !c.reachable
+  const status = skipped ? 'skipped' : gateStatus(c.reachable, hasKlein)
   return {
     id: 'comfyui', title: 'ComfyUI — local generation & Test Studio', recommended: false,
     unlocks: ['Klein engine', 'Test Studio'],
     status, reachable: !!c.reachable, hasKlein, kleinMissing, kleinInvalid, apiUrl: c.api_url || '',
+    skipped,
     // Whether comfyui.base_dir actually points at a ComfyUI install (main.py + models/):
     // a wrong/portable-wrapper path scans an empty models/ and finds no checkpoints.
     // baseDir = the path this verdict was PROBED against — the UI must not show the
     // verdict for a freshly typed (unsaved) path, it would judge the wrong string.
     dirConfigured: !!c.dir_configured, dirValid: !!c.dir_valid, resolvedDir: c.resolved_dir || '',
     baseDir: c.base_dir || '',
+  }
+}
+
+// What "continue without ComfyUI" costs vs keeps — shown in the skip-confirmation
+// panel BEFORE the user commits. Sourced from the real capability gates (n'invente
+// rien): studio_visible / engines.klein / watermark_klein key on ComfyUI being
+// reachable with its models; the training base listers and the LoRA preset picker
+// resolve from comfyui.base_dir. Everything under KEPT is independent of ComfyUI.
+export const COMFYUI_SKIP_LOST = [
+  'Local Klein generation, including the uncensored (NSFW) local lane',
+  'Watermark cleaning with Klein (LaMa inpainting and crop still work)',
+  'Test Studio (comparing checkpoints, every model family)',
+  'Training on your own ComfyUI base models (built-in and cloud bases still work)',
+  'Picking LoRA presets from what is on disk (free-text entry still works)',
+]
+export const COMFYUI_SKIP_KEPT = [
+  'Scraping and dataset curation',
+  'Captioning (Ollama vision model or the API engines)',
+  'Nano Banana and ChatGPT image engines',
+  'LoRA training — local ai-toolkit and cloud (vast.ai)',
+  'Publishing datasets and LoRAs to Hugging Face',
+]
+
+// Map a /api/setup/comfyui-dir verdict to the wizard's inline feedback: a tone
+// (drives the colour) and an actionable message. `suggestion` is carried through so
+// the caller can render an "adopt this folder" button for the launcher-folder case.
+// Pure + exhaustive so node --test can lock every branch. `checking` is the UI's own
+// in-flight state; `empty` (nothing typed) renders nothing here — the skip panel owns it.
+export function comfyuiDirVerdict(check) {
+  const c = check || {}
+  const resolved = c.resolved || ''
+  const suggestion = c.suggestion || ''
+  switch (c.status) {
+    case 'valid':
+      return { tone: 'ok', suggestion: '',
+        message: resolved ? `ComfyUI found at ${resolved}.` : 'ComfyUI found.' }
+    case 'nested':
+      return { tone: 'warn', suggestion,
+        message: `This looks like the launcher/parent folder — did you mean ${suggestion}?` }
+    case 'missing':
+      return { tone: 'warn', suggestion: '',
+        message: "That folder doesn't exist yet — check the path." }
+    case 'empty_dir':
+      return { tone: 'warn', suggestion: '',
+        message: 'That folder is empty — point at the folder that holds main.py and a models/ folder.' }
+    case 'not_comfyui':
+      return { tone: 'warn', suggestion: '',
+        message: "This folder isn't a ComfyUI install — it must contain main.py and a models/ folder. "
+          + 'For the portable build, point at the inner …\\ComfyUI_windows_portable\\ComfyUI.' }
+    default:
+      return { tone: 'muted', suggestion: '', message: '' }
   }
 }
 

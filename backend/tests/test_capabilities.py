@@ -827,6 +827,90 @@ def test_probe_ollama_installed_false_when_binary_missing(app, monkeypatch):
     assert caps['ollama']['binary_path'] == ''
 
 
+# --- classify_comfyui_dir: rich, actionable verdicts (Setup Volet 1) ------
+
+def test_classify_comfyui_dir_valid(tmp_path):
+    from app.capabilities import classify_comfyui_dir
+    _make_comfyui(tmp_path)
+    r = classify_comfyui_dir(str(tmp_path))
+    assert r['status'] == 'valid'
+    assert pathlib.Path(r['resolved']) == tmp_path
+    assert r['suggestion'] == ''
+
+
+def test_classify_comfyui_dir_nested_proposes_child(tmp_path):
+    """The launcher/parent-folder mistake: <folder>/ComfyUI is the real install, so
+    the verdict proposes that child for the UI to adopt with one click."""
+    from app.capabilities import classify_comfyui_dir
+    _make_comfyui(tmp_path / 'ComfyUI')
+    r = classify_comfyui_dir(str(tmp_path))
+    assert r['status'] == 'nested'
+    assert pathlib.Path(r['resolved']) == tmp_path / 'ComfyUI'
+    assert pathlib.Path(r['suggestion']) == tmp_path / 'ComfyUI'
+
+
+def test_classify_comfyui_dir_missing(tmp_path):
+    from app.capabilities import classify_comfyui_dir
+    r = classify_comfyui_dir(str(tmp_path / 'nope'))
+    assert r['status'] == 'missing' and r['suggestion'] == ''
+
+
+def test_classify_comfyui_dir_empty_folder(tmp_path):
+    from app.capabilities import classify_comfyui_dir
+    empty = tmp_path / 'empty'
+    empty.mkdir()
+    r = classify_comfyui_dir(str(empty))
+    assert r['status'] == 'empty_dir'
+
+
+def test_classify_comfyui_dir_random_folder(tmp_path):
+    """Exists, has content, but no main.py/models and no child ComfyUI -> not_comfyui."""
+    from app.capabilities import classify_comfyui_dir
+    rnd = tmp_path / 'downloads'
+    (rnd / 'stuff').mkdir(parents=True)
+    (rnd / 'note.txt').write_text('hi')
+    r = classify_comfyui_dir(str(rnd))
+    assert r['status'] == 'not_comfyui'
+
+
+def test_classify_comfyui_dir_blank():
+    from app.capabilities import classify_comfyui_dir
+    assert classify_comfyui_dir('') == {'status': 'empty', 'resolved': '', 'suggestion': ''}
+    assert classify_comfyui_dir('   ')['status'] == 'empty'
+
+
+# --- comfyui.skipped: derived, self-annulling, never masks a real error ----
+
+def test_probe_skipped_true_when_flag_set_and_no_dir(app, monkeypatch):
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'comfyui': {'setup_skipped': True, 'base_dir': ''}})
+        with patch('app.capabilities._http_ok', return_value=False):
+            caps = capabilities.probe(force=True)
+    assert caps['comfyui']['skipped'] is True
+
+
+def test_probe_skip_annulled_when_dir_configured(app, monkeypatch, tmp_path):
+    """A configured directory ANNULS the skip on the spot (derived), so the flag can
+    never hide a real error of a set-up ComfyUI."""
+    with app.app_context():
+        from app import capabilities, config
+        _make_comfyui(tmp_path / 'ComfyUI')
+        config.save_config({'comfyui': {'setup_skipped': True, 'base_dir': str(tmp_path / 'ComfyUI')}})
+        with patch('app.capabilities._http_ok', return_value=False):
+            caps = capabilities.probe(force=True)
+    assert caps['comfyui']['skipped'] is False
+    assert caps['comfyui']['dir_valid'] is True     # the real verdict still surfaces
+
+
+def test_probe_skipped_false_by_default(app):
+    with app.app_context():
+        from app import capabilities
+        with patch('app.capabilities._http_ok', return_value=False):
+            caps = capabilities.probe(force=True)
+    assert caps['comfyui']['skipped'] is False
+
+
 def test_is_comfyui_dir_accepts_desktop_layout(tmp_path):
     """The ComfyUI Desktop app's basedir has models/ + custom_nodes/ but NO
     main.py (a user had to symlink one to pass the old check)."""

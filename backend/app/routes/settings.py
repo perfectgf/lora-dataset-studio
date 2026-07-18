@@ -133,6 +133,13 @@ def put_settings():
         r = capabilities.resolve_comfyui_base(bd)
         if r['valid'] and r['nested']:
             config_partial['comfyui']['base_dir'] = r['resolved']
+        # Pointing the app at a directory ANNULS a prior "continue without ComfyUI"
+        # skip — the user changed their mind. Clearing the stored flag keeps
+        # config.json honest (the derived comfyui.skipped would already read False
+        # with base_dir set, but a lingering true would resurface if base_dir is
+        # later cleared). Only when the client didn't already send an explicit value.
+        if 'setup_skipped' not in config_partial['comfyui']:
+            config_partial['comfyui']['setup_skipped'] = False
     cfg.save_config(config_partial)
     cfg.set_secrets(body.get('secrets') or {})
     # A changed ComfyUI location must take effect NOW: the base/model listers cache

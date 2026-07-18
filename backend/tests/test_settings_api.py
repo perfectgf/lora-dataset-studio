@@ -33,6 +33,23 @@ def test_put_settings_persists_config_and_secret(client, tmp_path):
     assert r.get_json()['config']['ollama']['url'] == 'http://127.0.0.1:11500'
     assert r.get_json()['secrets']['GEMINI_API_KEY'] is True
 
+def test_put_settings_clears_skip_when_dir_provided(client, tmp_path):
+    """Entering a ComfyUI directory annuls a prior "continue without ComfyUI" skip —
+    the stored flag is cleared so it can't resurface if base_dir is later emptied."""
+    from app import config
+    config.save_config({'comfyui': {'setup_skipped': True}})
+    r = client.put('/api/settings', json={'config': {'comfyui': {'base_dir': str(tmp_path / 'Comfy')}}})
+    assert r.status_code == 200
+    assert r.get_json()['config']['comfyui']['setup_skipped'] is False
+
+
+def test_put_settings_skip_persists_when_dir_empty(client):
+    """Saving the skip with no directory keeps the flag set (the wizard's skip flow)."""
+    r = client.put('/api/settings', json={'config': {'comfyui': {'setup_skipped': True}}})
+    assert r.status_code == 200
+    assert r.get_json()['config']['comfyui']['setup_skipped'] is True
+
+
 def test_put_settings_saves_scrape_credentials(client, monkeypatch):
     """Scrape credentials are presence-only and effective without restart."""
     import os

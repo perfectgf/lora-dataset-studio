@@ -42,3 +42,33 @@ def test_install_ollama_precondition_400(client, monkeypatch):
 def test_status_idle(client):
     r = client.get('/api/setup/install/ml_extras/status')
     assert r.status_code == 200 and r.get_json()['state'] == 'idle'
+
+
+# --- ComfyUI directory validation endpoint (Setup Volet 1) -----------------
+
+def test_validate_comfyui_dir_blank(client):
+    r = client.get('/api/setup/comfyui-dir?path=')
+    assert r.status_code == 200 and r.get_json()['status'] == 'empty'
+
+
+def test_validate_comfyui_dir_valid(client, tmp_path):
+    (tmp_path / 'main.py').touch()
+    (tmp_path / 'models').mkdir()
+    r = client.get('/api/setup/comfyui-dir', query_string={'path': str(tmp_path)})
+    assert r.status_code == 200 and r.get_json()['status'] == 'valid'
+
+
+def test_validate_comfyui_dir_nested_suggests_child(client, tmp_path):
+    child = tmp_path / 'ComfyUI'
+    child.mkdir()
+    (child / 'main.py').touch()
+    (child / 'models').mkdir()
+    r = client.get('/api/setup/comfyui-dir', query_string={'path': str(tmp_path)})
+    body = r.get_json()
+    assert body['status'] == 'nested'
+    assert body['suggestion'].endswith('ComfyUI')
+
+
+def test_validate_comfyui_dir_missing(client, tmp_path):
+    r = client.get('/api/setup/comfyui-dir', query_string={'path': str(tmp_path / 'nope')})
+    assert r.get_json()['status'] == 'missing'

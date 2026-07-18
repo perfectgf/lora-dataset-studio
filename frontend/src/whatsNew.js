@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-18-comfyui-setup-guardrails',
+    date: '2026-07-18',
+    title: 'Setup tells you straight away if the ComfyUI folder is wrong',
+    blurb:
+      'The ComfyUI directory field now checks your path as you type: a wrong or empty folder gets a clear reason, and if you point at the launcher/parent folder it offers the real ComfyUI inside it in one click. Leaving it blank is now a conscious choice — Setup shows exactly what you give up (local Klein generation, Test Studio, custom-base training) and what still works before you continue without it.',
+    to: '/setup',
+  },
+  {
     id: '2026-07-17-lora-autocomplete',
     date: '2026-07-17',
     title: 'Pick preset LoRAs from what is actually on disk',
