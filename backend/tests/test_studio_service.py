@@ -523,6 +523,56 @@ def test_build_cell_workflow_krea_honors_local_base(app, monkeypatch):
         assert wf2['20']['inputs']['unet_name'] == 'Krea\\krea2_turbo_fp8.safetensors'
 
 
+def _build_krea_cell(lts, monkeypatch, *, available_classes):
+    """Build one real Krea cell (loads krea2_turbo.json) for the node-class resolution
+    tests. Node 30 ships as the canonical ConditioningKrea2Rebalance."""
+    lora = 'krea\\lora_k_000001000.safetensors'
+    monkeypatch.setattr(lts, 'get_krea_loras', lambda: [{'filename': lora}])
+    monkeypatch.setattr(lts, 'get_krea_models', lambda: [])
+    return lts._build_cell_workflow(
+        user_id='local', checkpoint=lora, strength=0.9, prompt='p', seed=1,
+        z_model=None, allowed_loras={lora}, dataset_id=1, train_type='krea',
+        trigger_word='kt', available_classes=available_classes)
+
+
+def test_build_krea_cell_rewrites_rebalance_class_to_registered_alias(app, monkeypatch):
+    """Résolveur de CLASSES : quand le ComfyUI cible n'enregistre le node de rebalance
+    QUE sous le nom permuté (Krea2RebalanceConditioning — le cas de l'install du dev,
+    origine du nom permuté qu'on avait d'abord livré), le builder réécrit le class_type
+    du node 30 vers ce nom pour que le graphe ENQUEUÉ valide. Les inputs épinglés
+    (preset='custom', renormalize=False) restent posés — la réécriture ne touche QUE le
+    class_type (inoffensif sur une variante qui ignore ces inputs)."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        wf = _build_krea_cell(lts, monkeypatch,
+                              available_classes={'Krea2RebalanceConditioning'})
+        assert wf['30']['class_type'] == 'Krea2RebalanceConditioning'
+        assert wf['30']['inputs']['preset'] == 'custom'
+        assert wf['30']['inputs']['renormalize'] is False
+
+
+def test_build_krea_cell_keeps_canonical_class_when_registered(app, monkeypatch):
+    """Quand le ComfyUI cible expose bien la classe canonique, le node 30 la GARDE
+    (pas de réécriture) et les inputs épinglés sont intacts."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        wf = _build_krea_cell(lts, monkeypatch,
+                              available_classes={'ConditioningKrea2Rebalance'})
+        assert wf['30']['class_type'] == 'ConditioningKrea2Rebalance'
+        assert wf['30']['inputs']['preset'] == 'custom'
+        assert wf['30']['inputs']['renormalize'] is False
+
+
+def test_build_krea_cell_keeps_canonical_class_without_object_info(app, monkeypatch):
+    """available_classes=None (probe /object_info échouée ou non fournie) → AUCUNE
+    réécriture : on garde le nom canonique (fail-open ; le preflight / la capture
+    d'erreur par tuile signalera un vrai manque)."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        wf = _build_krea_cell(lts, monkeypatch, available_classes=None)
+        assert wf['30']['class_type'] == 'ConditioningKrea2Rebalance'
+
+
 def test_multiword_trigger_style_lora_is_discoverable_in_studio(app, monkeypatch):
     """A style dataset's trigger can contain spaces ('raw test upscale'), but the
     training/deploy side slugifies it into the filename via _safe_trigger
@@ -638,6 +688,23 @@ def test_preflight_family_flags_missing_custom_node_via_object_info(app, tmp_pat
             lts.preflight_family('krea', [wf])
         assert ei.value.missing_nodes == ['ConditioningKrea2Rebalance']
         assert ei.value.missing_files == []
+
+
+def test_preflight_family_accepts_registered_rebalance_alias(app, tmp_path, monkeypatch):
+    """Le workflow porte la classe canonique ConditioningKrea2Rebalance, mais le ComfyUI
+    cible ne l'enregistre QUE sous l'alias Krea2RebalanceConditioning (l'install du dev /
+    une variante legacy) : le preflight NE 409 PAS — c'est le MÊME node (cf.
+    NODE_CLASS_ALIASES), donc l'exiger sous son autre nom est satisfait."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        (base / 'models' / 'unet').mkdir(parents=True)
+        (base / 'models' / 'unet' / 'present.safetensors').write_bytes(_ST)
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
+                            lambda *a, **k: {'UNETLoader', 'Krea2RebalanceConditioning'})
+        wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}},
+              '30': {'class_type': 'ConditioningKrea2Rebalance', 'inputs': {}}}
+        lts.preflight_family('krea', [wf])  # no raise — the alias satisfies the requirement
 
 
 def test_shipped_krea_workflows_pin_rebalance_node(app):

@@ -789,16 +789,86 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
         inject_krea2t_enhancer(workflow, True, enhancer_strength)
 
 
+# --- Node-class resolution (variant-tolerant custom nodes) --------------------
+# Some ComfyUI custom nodes register under DIFFERENT class names across installs
+# (a pack rename, a fork, a locally-edited copy). Our workflow JSON can only carry
+# ONE class string, so a target ComfyUI that has the node under another name would
+# fail the preflight (409 "install pack X") AND fail every tile if enqueued — even
+# though the capability is right there. NODE_CLASS_ALIASES maps the CANONICAL class
+# (the exact string our templates carry) to the alternative name(s) the SAME node
+# is known to register as. Consumed by BOTH the preflight (a required class counts
+# as present when the canonical OR any alias is in /object_info) and the cell builder
+# (rewrites a node's class_type to whichever variant the target actually exposes, so
+# the enqueued graph validates). Add an entry only for a node we have SEEN register
+# under two names — never a speculative alias.
+NODE_CLASS_ALIASES = {
+    # Krea 2 "conditioning rebalance" (node 30 of krea2_turbo*.json). The published
+    # pack (nova452/ComfyUI-Conditioning-Rebalance) registers it as
+    # ConditioningKrea2Rebalance — the name our templates carry — but some installs,
+    # incl. the dev's own (the origin of the permuted name we first shipped), register
+    # the very same node as Krea2RebalanceConditioning.
+    'ConditioningKrea2Rebalance': ('Krea2RebalanceConditioning',),
+}
+
+
+def _node_class_present(class_type, available):
+    """True when `available` (a set of /object_info class names) exposes `class_type`
+    OR any of its known aliases (NODE_CLASS_ALIASES). Presence only — the caller
+    decides what a miss means; pass a real set (never None) so 'probe failed' stays a
+    separate, fail-open decision at the call site."""
+    if class_type in available:
+        return True
+    return any(alt in available for alt in NODE_CLASS_ALIASES.get(class_type, ()))
+
+
+def _resolve_workflow_node_classes(workflow, available):
+    """Rewrite each node whose CANONICAL class_type is absent from `available` but a
+    known ALIAS is present, to that alias — so the ENQUEUED graph names the class the
+    target ComfyUI actually registers (the resolver philosophy, applied to node
+    classes). No-op when `available` is falsy (probe failed / not threaded → fail
+    open: keep the canonical name, the preflight/per-tile path still reports a true
+    miss) or when the canonical class is already present. Mutates in place; returns
+    `workflow`."""
+    if not available:
+        return workflow
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        ct = node.get('class_type')
+        aliases = NODE_CLASS_ALIASES.get(ct)
+        if not aliases or ct in available:
+            continue
+        for alt in aliases:
+            if alt in available:
+                node['class_type'] = alt
+                break
+    return workflow
+
+
+def _target_node_classes():
+    """The target ComfyUI's /object_info class set, fetched ONCE per run so the grid's
+    per-cell class resolution doesn't re-pull the (large) payload per tile. None when
+    ComfyUI can't be reached — callers fail open (keep canonical names)."""
+    from ..utils.comfyui import fetch_object_info_classes
+    return fetch_object_info_classes()
+
+
 def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
                          allowed_loras, width=TEST_WIDTH, height=TEST_HEIGHT,
                          cfg=None, steps=None, steps2=None, dataset_id=None, train_type='zimage',
                          extra_loras=None, rebalance=None, negative=None, sampler=None,
                          scheduler=None, weight_dtype=None, enhancer_strength=None,
-                         detail_amount=None, trigger_word=None):
+                         detail_amount=None, trigger_word=None, available_classes=None):
     """Load the ZTurbo (Z-Image) / HQ (SDXL) / Krea workflow and configure one grid cell.
     `extra_loras` = LoRA « always-on » (style/utilitaire) appliqués à CETTE cellule en plus
     du checkpoint testé (hors batch). `rebalance` = node 30 NSFW/texture (Krea uniquement,
     None ailleurs). Raises ValueError if the workflow file is unloadable.
+
+    `available_classes` = the target ComfyUI's /object_info class set (from
+    `_target_node_classes()`, fetched once per run). When provided, the built graph's
+    variant custom-node classes are rewritten to whatever the install actually
+    registers (NODE_CLASS_ALIASES) so the enqueued workflow validates on installs that
+    carry a node under an alternative name; None = keep the canonical names (fail open).
 
     Le filename_prefix inclut le dataset_id ET un uuid court par cellule : sans
     ça, le compteur ComfyUI (qui repart de 0 à chaque restart) produisait des
@@ -837,7 +907,7 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
         # hard-blocks on a quality-only accelerator. Runs LAST so it reads node 10's
         # real upstream after any always-on chaining.
         _apply_sdxl_accelerator(workflow)
-        return workflow
+        return _resolve_workflow_node_classes(workflow, available_classes)
     if (train_type or 'zimage').lower() == 'krea':
         workflow = load_workflow_local(str(WORKFLOW_KREA_TURBO_PATH))
         if not workflow:
@@ -854,7 +924,11 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
             # None = UNET câblé du workflow. Whitelist = scan disque (anti-injection).
             base_model=z_model, allowed_bases=set(get_krea_models()),
         )
-        return workflow
+        # Résolveur de classes (node 30 = ConditioningKrea2Rebalance) : si le ComfyUI
+        # cible n'expose ce node QUE sous un nom permuté (ex. l'install du dev :
+        # Krea2RebalanceConditioning), réécrire le class_type vers le nom réel pour que
+        # le graphe enqueué valide. available_classes None = on garde le canonique.
+        return _resolve_workflow_node_classes(workflow, available_classes)
     workflow = load_workflow_local(str(WORKFLOW_ZTURBO_PATH))
     if not workflow:
         raise ValueError('ZTurbo workflow not found/unreadable')
@@ -871,7 +945,7 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
         # always-on inclus dans la whitelist (sinon inject_zimage_loras les filtrerait).
         allowed_loras=(set(allowed_loras) | {e['filename'] for e in extra_loras}) if extra_loras else allowed_loras,
     )
-    return workflow
+    return _resolve_workflow_node_classes(workflow, available_classes)
 
 
 def _enqueue_cell(user_id, dataset_id, workflow, prompt) -> str:
@@ -1206,12 +1280,15 @@ def preflight_family(family, workflows):
                 invalid_files.append(e)
         all_classes |= classes
     # Custom nodes: compare the graph's class_types to /object_info. Fail-OPEN when
-    # it can't be fetched (None) — never block on a transient probe failure.
+    # it can't be fetched (None) — never block on a transient probe failure. A class
+    # counts as present when the target exposes it OR a known alias (a node registered
+    # under a permuted/forked name is the SAME capability — cf. NODE_CLASS_ALIASES),
+    # so we never 409 an install that has the node under an alternative class name.
     missing_nodes = []
     from ..utils.comfyui import fetch_object_info_classes
     available = fetch_object_info_classes()
     if available is not None and all_classes:
-        missing_nodes = sorted(c for c in all_classes if c not in available)
+        missing_nodes = sorted(c for c in all_classes if not _node_class_present(c, available))
     if missing_files or invalid_files or missing_nodes:
         raise StudioAssetsMissing(family, missing_files, missing_nodes, invalid_files)
 
@@ -1432,6 +1509,10 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     _preflight_run(user_id, run_family, cells[0][0], valid_models, allowed,
                    prompt, seeds[0], dataset_id, ds.trigger_word)
 
+    # Classes du ComfyUI cible, lues UNE fois pour toute la grille : le builder s'en
+    # sert pour réécrire les nodes à variantes (node 30 Krea) vers le nom réellement
+    # enregistré. None (probe échouée) = on garde les noms canoniques.
+    available_classes = _target_node_classes()
     ids = []
     for zm in valid_models:                       # AXE modèle de base (multi-sélection)
         for checkpoint, strength, cell_aspect, cell_cfg, cell_steps, cell_steps2 in cells:
@@ -1467,7 +1548,8 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
                                                     scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
                                                     enhancer_strength=knobs['enhancer_strength'],
                                                     detail_amount=knobs['detail_amount'],
-                                                    trigger_word=ds.trigger_word)
+                                                    trigger_word=ds.trigger_word,
+                                                    available_classes=available_classes)
                     job_id = _enqueue_cell(user_id, dataset_id, workflow, prompt)
                 except Exception as e:
                     img.status = 'failed'
@@ -1589,6 +1671,9 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
                            _sel.get('dataset_id'), getattr(_pf_ds, 'trigger_word', None))
             break
 
+    # Classes du ComfyUI cible, lues UNE fois pour tout le run (cf. create_run) →
+    # réécriture des nodes à variantes (node 30 Krea) vers le nom réellement enregistré.
+    available_classes = _target_node_classes()
     run_id = uuid.uuid4().hex
     ids = []
     for sel in selections:
@@ -1631,7 +1716,8 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
                                                     scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
                                                     enhancer_strength=knobs['enhancer_strength'],
                                                     detail_amount=knobs['detail_amount'],
-                                                    trigger_word=ds.trigger_word)
+                                                    trigger_word=ds.trigger_word,
+                                                    available_classes=available_classes)
                     job_id = _enqueue_cell(user_id, ds.id, workflow, cell_prompt)
                 except Exception as e:
                     img.status = 'failed'; img.error = str(e)[:400] or 'enqueue failed'
@@ -1742,6 +1828,9 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
             d = _ds(did)
             allowed_cache[key] = {c['filename'] for c in list_test_checkpoints(d, fam)} if d else set()
         return allowed_cache[key]
+    # Classes du ComfyUI cible, lues UNE fois pour tout le resume → réécriture des nodes
+    # à variantes (node 30 Krea) vers le nom réellement enregistré (cf. create_run).
+    available_classes = _target_node_classes()
     n = 0
     for img in rows:
         cell_ds = _ds(img.dataset_id)
@@ -1791,7 +1880,8 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
                                             weight_dtype=getattr(img, 'weight_dtype', None),
                                             enhancer_strength=getattr(img, 'enhancer_strength', None),
                                             detail_amount=getattr(img, 'detail_amount', None),
-                                            trigger_word=getattr(cell_ds, 'trigger_word', None))
+                                            trigger_word=getattr(cell_ds, 'trigger_word', None),
+                                            available_classes=available_classes)
             job_id = _enqueue_cell(user_id, img.dataset_id, workflow, prompt)
             img.status = 'pending'
             img.filename = None
