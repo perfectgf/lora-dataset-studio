@@ -6,12 +6,10 @@
 // reference+generation for a character, scraping+import for a concept/style).
 
 export const WORKSPACE_SECTIONS = [
-  { id: 'images', title: 'Images', icon: '🖼️', eyebrow: 'overview',
-    description: 'Everything in the dataset — keep ✓ the good shots, reject ✕ the rest, edit a caption right on its tile.',
-    panels: [
-      { id: 'review', title: 'Review images', targetId: 'ds-images-review', when: 'always' },
-      { id: 'bulk', title: 'Bulk actions', targetId: 'ds-images-bulk', when: 'hasSelectableImages' },
-    ] },
+  // "Add images" sits above "Images" on purpose: the rail mirrors the real
+  // workflow order (build the set first, then review it) — matching the
+  // guided PROGRESS list. The default landing section stays 'images'
+  // (workspaceNavigation.js), which is position-independent.
   { id: 'add', title: 'Add images', icon: '📸', eyebrow: 'build',
     description: 'Generate AI variations from the reference — and mix in real photos (import or scrape).',
     conceptDescription: 'Drop photos, or scrape galleries from the Scrape section — a concept LoRA learns from real images.',
@@ -19,6 +17,12 @@ export const WORKSPACE_SECTIONS = [
       { id: 'reference', title: 'Reference photo', targetId: 'ds-add-reference', when: 'character' },
       { id: 'generate', title: 'Generate variations', targetId: 'ds-add-generate', when: 'character' },
       { id: 'import', title: 'Import photos', targetId: 'ds-add-import', when: 'always' },
+    ] },
+  { id: 'images', title: 'Images', icon: '🖼️', eyebrow: 'overview',
+    description: 'Everything in the dataset — keep ✓ the good shots, reject ✕ the rest, edit a caption right on its tile.',
+    panels: [
+      { id: 'review', title: 'Review images', targetId: 'ds-images-review', when: 'always' },
+      { id: 'bulk', title: 'Bulk actions', targetId: 'ds-images-bulk', when: 'hasSelectableImages' },
     ] },
   { id: 'scrape', title: 'Scrape', icon: '🕸', eyebrow: 'build',
     description: 'Scan a gallery URL, pick the images you want, and import them full-frame — crop each one afterwards on its tile.',
