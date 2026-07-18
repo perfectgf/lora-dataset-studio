@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-18-change-dataset-kind',
+    date: '2026-07-18',
+    title: 'Change a dataset from Character, Concept or Style — after creation',
+    blurb:
+      "Picked the wrong kind when you started, or want to repurpose a set you already built? The ⚙ Dataset settings modal now lets you switch a dataset between Character, Concept and Style at any time. It's honest, not magic: a confirmation spells out exactly what changes (caption strategy, which panels show, the trigger's role) and what's kept — your images, captions, face scores and training history are never touched. Existing captions keep their old style until you Re-caption.",
+    to: '/datasets',
+  },
+  {
     id: '2026-07-18-one-click-lama-and-queued-installs',
     date: '2026-07-18',
     title: 'Watermark inpainting installs itself — and Setup installs never collide',

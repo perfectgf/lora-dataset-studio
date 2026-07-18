@@ -229,6 +229,97 @@ def test_update_settings_missing_dataset_returns_none(app):
         assert svc.update_dataset_settings(LOCAL_USER, 999999, name='x') is None
 
 
+# --- update_dataset_settings: switch the KIND after creation -----------------
+def test_switch_character_to_concept_requires_desc(app):
+    import pytest
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'P', 'ptrig')   # character
+        with pytest.raises(ValueError):                    # no desc anywhere -> refused
+            svc.update_dataset_settings(LOCAL_USER, d.id, kind='concept')
+        db.session.refresh(d)
+        assert (d.kind or 'character') == 'character'       # untouched on failure
+        res = svc.update_dataset_settings(LOCAL_USER, d.id, kind='concept',
+                                          concept_desc=CONCEPT_DESC)
+        assert res['kind_changed'] is True and res['kind'] == 'concept'
+        assert res['previous_kind'] == 'character'
+        db.session.refresh(d)
+        assert d.kind == 'concept' and d.concept_desc == CONCEPT_DESC
+
+
+def test_switch_character_to_style_clears_fidelity_keeps_trigger(app):
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'Emma', 'zchar_emma', fidelity='body')
+        assert d.fidelity == 'body'
+        res = svc.update_dataset_settings(LOCAL_USER, d.id, kind='style',
+                                          trigger_word='zchar_emma')
+        assert res['kind_changed'] is True and res['kind'] == 'style'
+        db.session.refresh(d)
+        assert d.kind == 'style'
+        assert d.fidelity is None                           # character-only -> cleared
+        assert d.trigger_word == 'zchar_emma'               # retained internal token
+
+
+def test_switch_style_to_character_lets_trigger_be_edited(app):
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'Ink', '', kind='style')   # auto zsty_<id>
+        assert d.trigger_word.startswith('zsty_')
+        res = svc.update_dataset_settings(LOCAL_USER, d.id, kind='character',
+                                          trigger_word='zchar_new')
+        assert res['kind_changed'] is True and res['kind'] == 'character'
+        db.session.refresh(d)
+        assert (d.kind or 'character') == 'character'
+        assert d.trigger_word == 'zchar_new'
+
+
+def test_switch_invalidates_concept_terms_but_keeps_desc(app):
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'C', 'cact', kind='concept', concept_desc=CONCEPT_DESC)
+        d.concept_terms = '["ice", "cream"]'
+        db.session.commit()
+        svc.update_dataset_settings(LOCAL_USER, d.id, kind='style', trigger_word='cact')
+        db.session.refresh(d)
+        assert d.kind == 'style'
+        assert d.concept_terms is None                      # dropped for the new kind
+        assert d.concept_desc == CONCEPT_DESC               # kept (reversible)
+
+
+def test_switch_back_to_concept_reuses_stored_desc(app):
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'C', 'cact', kind='concept', concept_desc=CONCEPT_DESC)
+        svc.update_dataset_settings(LOCAL_USER, d.id, kind='character', trigger_word='cact')
+        db.session.refresh(d)
+        assert (d.kind or 'character') == 'character' and d.concept_desc == CONCEPT_DESC
+        # switching back without re-sending the description is allowed (stored one reused)
+        res = svc.update_dataset_settings(LOCAL_USER, d.id, kind='concept')
+        assert res['kind_changed'] is True
+        db.session.refresh(d)
+        assert d.kind == 'concept'
+
+
+def test_no_kind_change_keeps_legacy_response_shape(app):
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'P', 'ptrig')
+        # kind sent but equal to the current one -> no kind_* keys, guard not hit
+        res = svc.update_dataset_settings(LOCAL_USER, d.id, name='P2', kind='character')
+        assert res == {'ok': True, 'concept_desc_changed': False}
+
+
+def test_switch_refused_while_batch_active(app):
+    import pytest
+    from app.services import dataset_activity
+    with app.app_context():
+        d = svc.create_dataset(LOCAL_USER, 'P', 'ptrig')
+        dataset_activity.reset()
+        tok = dataset_activity.begin(d.id, 'caption', total=3)
+        try:
+            with pytest.raises(RuntimeError):
+                svc.update_dataset_settings(LOCAL_USER, d.id, kind='style')
+        finally:
+            dataset_activity.end(tok)
+        db.session.refresh(d)
+        assert (d.kind or 'character') == 'character'        # unchanged
+
+
 # --- Ban-list parser: salvage the looping/unclosed JSON the abliterated Qwen emits ----
 # Real failure mode (2026-07): the model lists the good concept terms first, then loops
 # into combinatorial padding and never closes the array -> json.loads fails. The OLD

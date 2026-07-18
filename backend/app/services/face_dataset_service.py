@@ -541,10 +541,27 @@ def set_train_type(user_id, dataset_id, train_type) -> bool:
     return True
 
 
+def _guard_kind_switch(dataset_id):
+    """Raise RuntimeError (-> 409) when live work on the dataset still assumes the
+    CURRENT kind: an active training run, a server-side batch (caption / re-caption
+    / watermark / face / classify) or an in-flight generation. Switching the kind
+    mid-flight would mix caption strategies, or land generated variations into a set
+    that no longer generates. ``dataset_activity`` covers the batch AND generation
+    cases (the Klein/API fan-out is tracked as a 'generate' activity)."""
+    _guard_no_active_training(dataset_id)
+    if dataset_activity.get(dataset_id) is not None:
+        raise RuntimeError(
+            'This dataset has work in progress (generation, captioning or a quality '
+            'pass). Wait for it to finish before changing the kind.')
+
+
 def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None,
-                            concept_desc=None, prompt_suffix=None, prompt_suffixes=None):
+                            concept_desc=None, kind=None, prompt_suffix=None,
+                            prompt_suffixes=None):
     """Edit a dataset's identity AFTER creation. Returns {'ok', 'concept_desc_changed'}
-    or None if the dataset is absent; raises ValueError on invalid input.
+    (plus {'kind_changed', 'kind', 'previous_kind'} when the kind actually changed),
+    or None if the dataset is absent; raises ValueError on invalid input and
+    RuntimeError (-> 409) when a kind switch is asked while work is in progress.
 
     Changing the **trigger word** is safe and needs NO re-caption: captions are stored
     without it (it's prepended at export). Changing a concept dataset's **description**
@@ -552,21 +569,59 @@ def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None
     so it regenerates — but images already captioned keep the OLD omission until
     re-captioned (same 'future captions' contract as set_fidelity).
 
+    Changing the **kind** (character / concept / style) is the disruptive one: it flips
+    the caption strategy and which workspace panels show. It is honest, not magic —
+    NOTHING is deleted (images, captions, scores, watermark work and training history
+    stay), but existing captions keep the OLD strategy until re-captioned (the route's
+    caller nudges it). Invariants mirror create_dataset: fidelity is character-only
+    (cleared for concept/style); the concept avoid-list cache is dropped so it rebuilds
+    for the new kind; a concept target requires an omit-description (passed here or
+    already stored); a style keeps its stored trigger token but never uses it as an
+    activation word. Past run identifiers are unaffected — a run is named by the model
+    family + trigger, never the kind (see lora_training._run_name).
+
     **prompt_suffix** (global text) / **prompt_suffixes** (map {face,bust,body,back}):
     None = untouched; '' / {} = cleared. Applied at generation time only, so editing
     them changes FUTURE generations/regenerations — existing images are untouched."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return None
+    prev_label = (ds.kind or '').lower() or 'character'
+    kind_changed = False
+    if kind is not None:
+        new_kind = normalize_kind(kind)          # None | 'concept' | 'style'
+        new_label = new_kind or 'character'
+        if new_label != prev_label:
+            _guard_kind_switch(dataset_id)
+            if new_label == 'concept':
+                # A concept needs the omit-description: take the one passed in this
+                # same save, else any value already stored (a switch back to concept).
+                desc_src = concept_desc if concept_desc is not None else ds.concept_desc
+                if not (desc_src or '').strip():
+                    raise ValueError('concept_desc required for a concept dataset')
+            ds.kind = new_kind
+            if new_label != 'character':
+                # Fidelity is a character-only target (mirrors create_dataset). The
+                # value is remembered by nothing else, so a switch back defaults to face.
+                ds.fidelity = None
+            # The cached concept avoid-list is concept-specific; drop it so the
+            # detector/captioner rebuild it for the new kind. concept_desc itself is
+            # left in place (harmless for other kinds, restored on a switch back).
+            ds.concept_terms = None
+            kind_changed = True
     if name is not None:
         n = (name or '').strip()
         if n:
             ds.name = n[:100]
     if trigger_word is not None:
         t = (trigger_word or '').strip()
-        if not t:
+        if t:
+            ds.trigger_word = t[:60]
+        elif not is_style(ds):
+            # A character/concept trigger is the summon token — it cannot be blank.
+            # A style has no activation trigger, so an empty value just keeps the
+            # retained internal token as-is.
             raise ValueError('trigger_word cannot be empty')
-        ds.trigger_word = t[:60]
     concept_changed = False
     if concept_desc is not None and is_concept(ds):
         d = (concept_desc or '').strip()
@@ -581,7 +636,11 @@ def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None
     if prompt_suffixes is not None:
         ds.prompt_suffixes = _normalize_prompt_suffixes(prompt_suffixes)
     db.session.commit()
-    return {'ok': True, 'concept_desc_changed': concept_changed}
+    res = {'ok': True, 'concept_desc_changed': concept_changed}
+    if kind_changed:
+        res.update(kind_changed=True, kind=(ds.kind or 'character'),
+                   previous_kind=prev_label)
+    return res
 
 
 def get_dataset(user_id, dataset_id):

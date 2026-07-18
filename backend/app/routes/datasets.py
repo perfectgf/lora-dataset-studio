@@ -120,10 +120,14 @@ def dataset_set_train_type(dataset_id):
 
 @bp.post('/dataset/<int:dataset_id>/settings')
 def dataset_update_settings(dataset_id):
-    """Edit name / trigger word / (concept) description after creation. Changing the
-    trigger is safe (it's prepended at export — no re-caption). Changing a concept
+    """Edit name / trigger word / (concept) description / KIND after creation. Changing
+    the trigger is safe (it's prepended at export — no re-caption). Changing a concept
     dataset's description resets the caption avoid-list cache; re-caption to apply it
     to existing captions (response flags concept_desc_changed for the UI hint).
+    Changing the **kind** (character/concept/style) flips the caption strategy and the
+    visible panels without deleting anything; response flags kind_changed + previous_kind
+    so the UI can nudge a re-caption. It is refused (409) while a training run, a batch
+    or an in-flight generation is live on the dataset.
     Also edits the creative-direction prompt suffixes (global text +
     {face,bust,body,back} map) — applied to FUTURE generations at wrap time;
     absent = untouched, '' / {} = cleared."""
@@ -132,10 +136,14 @@ def dataset_update_settings(dataset_id):
         res = svc.update_dataset_settings(
             LOCAL_USER, dataset_id, name=data.get('name'),
             trigger_word=data.get('trigger_word'), concept_desc=data.get('concept_desc'),
+            kind=data.get('kind'),
             prompt_suffix=data.get('prompt_suffix'),
             prompt_suffixes=data.get('prompt_suffixes'))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
+    except RuntimeError as e:
+        # Kind switch refused while work is in progress -> 409 (routes._common).
+        return _map_error(e)
     return (jsonify(res), 200) if res else (jsonify({'error': 'not found'}), 404)
 
 

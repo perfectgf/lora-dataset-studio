@@ -86,11 +86,20 @@ const TOPICS = [
     guide: { chapter: 'settings-reference', anchor: 'maintenance' },
     app: { route: '/settings/maintenance' } },
   { id: 'dataset-settings-modal', kind: 'section', title: 'Per-dataset settings',
-    keywords: ['dataset settings', 'per-dataset', 'prompt suffix', 'framing', 'trigger', 'override', 'modal'],
+    keywords: ['dataset settings', 'per-dataset', 'prompt suffix', 'framing', 'trigger',
+      'override', 'modal', 'kind', 'character', 'concept', 'style'],
     guide: { chapter: 'settings-reference', anchor: 'per-dataset-settings' },
     app: { route: '/datasets' },
     tip: { trigger: 'dataset-settings-open',
       text: 'Prompt suffixes add a creative direction to every generated variation — globally or per framing.' } },
+  // Changing a dataset's kind (character/concept/style) after creation. Shares the
+  // section's anchor — listed AFTER it so the modal keeps the "Open this screen →"
+  // button. No tip (the tip count is contract-locked at 7).
+  { id: 'dataset-kind-switch', kind: 'setting', title: 'Change the dataset kind',
+    keywords: ['kind', 'change kind', 'switch kind', 'character', 'concept', 'style',
+      'convert', 'caption strategy', 'trigger'],
+    guide: { chapter: 'settings-reference', anchor: 'per-dataset-settings' },
+    app: { route: '/datasets' } },
   // Same suffixes, second surface: the generation panel exposes them inline so
   // they can be tuned per batch. Listed AFTER dataset-settings-modal so the modal
   // keeps the anchor's "Open this screen →" button.

@@ -50,6 +50,42 @@ def test_create_style_does_not_require_trigger(client):
     assert full['trigger_word'] == f'zsty_{ds_id}'
 
 
+def test_settings_switch_kind_ok(client):
+    """A dataset's kind is editable after creation via the settings route: 200 with
+    kind_changed + previous_kind, and the payload reflects the new kind."""
+    ds_id = _create(client, 'P', 'ptrig').get_json()['id']
+    r = client.post(f'/api/dataset/{ds_id}/settings',
+                    json={'kind': 'style', 'trigger_word': 'ptrig'})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['kind_changed'] is True and body['kind'] == 'style'
+    assert body['previous_kind'] == 'character'
+    assert client.get(f'/api/dataset/{ds_id}').get_json()['kind'] == 'style'
+
+
+def test_settings_switch_to_concept_without_desc_is_400(client):
+    """Concept needs its omit-description — switching to concept with none is a 400."""
+    ds_id = _create(client, 'P', 'ptrig').get_json()['id']
+    r = client.post(f'/api/dataset/{ds_id}/settings', json={'kind': 'concept'})
+    assert r.status_code == 400
+    assert client.get(f'/api/dataset/{ds_id}').get_json()['kind'] == 'character'
+
+
+def test_settings_switch_kind_refused_while_busy_is_409(client):
+    """A live batch on the dataset blocks a kind switch with a 409 (the caption
+    strategy must not flip mid-work)."""
+    from app.services import dataset_activity
+    ds_id = _create(client, 'P', 'ptrig').get_json()['id']
+    dataset_activity.reset()
+    tok = dataset_activity.begin(ds_id, 'caption', total=2)
+    try:
+        r = client.post(f'/api/dataset/{ds_id}/settings', json={'kind': 'style'})
+        assert r.status_code == 409
+    finally:
+        dataset_activity.end(tok)
+    assert client.get(f'/api/dataset/{ds_id}').get_json()['kind'] == 'character'
+
+
 def test_list_contains_created_dataset(client):
     created = _create(client).get_json()
     resp = client.get('/api/dataset/list')

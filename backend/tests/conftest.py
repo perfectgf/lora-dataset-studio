@@ -24,6 +24,18 @@ def _restore_secret_env():
         else:
             os.environ[k] = v
 
+@pytest.fixture(autouse=True)
+def _reset_inmemory_registries():
+    """dataset_activity is a process-global in-memory store (a batch dies with the
+    process, not the request). With :memory: DBs each test restarts dataset ids at
+    1, so a batch a PRIOR test began on 'dataset 1' would look live to the next
+    test's fresh 'dataset 1' — enough to make the kind-switch guard 409 spuriously.
+    Clear it around every test so in-memory activity never leaks across cases."""
+    from app.services import dataset_activity
+    dataset_activity.reset()
+    yield
+    dataset_activity.reset()
+
 @pytest.fixture()
 def app(tmp_path, monkeypatch):
     monkeypatch.setenv('LDS_DATA_DIR', str(tmp_path / 'data'))

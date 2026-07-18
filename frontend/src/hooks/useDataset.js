@@ -263,24 +263,30 @@ export function useDataset() {
     return d;
   }, [currentId, fetchList, refresh]);
 
-  // Edit name / trigger / (concept) description after creation. Trigger change is
-  // safe (prepended at export); a concept-desc change resets the avoid-list → the
-  // toast nudges a re-caption (same contract as fidelity). Refreshes both views.
-  // prompt_suffix / prompt_suffixes (creative direction) ride along: applied at
-  // generation time only, '' / {} clears, absent (undefined) leaves untouched.
+  // Edit name / trigger / (concept) description / KIND after creation. Trigger change
+  // is safe (prepended at export); a concept-desc change resets the avoid-list → the
+  // toast nudges a re-caption (same contract as fidelity). A kind change flips the
+  // caption strategy and the visible panels (server refuses with 409 while work is
+  // in progress → the !ok branch surfaces the message) and nudges a re-caption.
+  // Refreshes both views. prompt_suffix / prompt_suffixes (creative direction) ride
+  // along: applied at generation time only, '' / {} clears, absent leaves untouched.
   const updateSettings = useCallback(async ({
-    name, trigger_word, concept_desc, prompt_suffix, prompt_suffixes,
+    name, trigger_word, concept_desc, kind, prompt_suffix, prompt_suffixes,
   }, opts = {}) => {
     if (!currentId) return { ok: false };
     const d = await postJson(`/api/dataset/${currentId}/settings`,
-      { name, trigger_word, concept_desc, prompt_suffix, prompt_suffixes });
+      { name, trigger_word, concept_desc, kind, prompt_suffix, prompt_suffixes });
     if (!d.ok) { toast.error(d.error || 'Could not save settings'); return d; }
     // quiet: the generation panel persists suffix edits silently right before a
     // batch (the "Generating…" state is the feedback); the modal stays verbose.
     if (!opts.quiet) {
-      toast.success(d.concept_desc_changed
-        ? 'Saved — concept changed; re-caption to apply it to existing captions'
-        : 'Settings saved');
+      if (d.kind_changed) {
+        toast.success(`Kind changed to ${d.kind} — re-caption to apply the new caption style to existing captions`);
+      } else {
+        toast.success(d.concept_desc_changed
+          ? 'Saved — concept changed; re-caption to apply it to existing captions'
+          : 'Settings saved');
+      }
     }
     await refresh();
     fetchList();
