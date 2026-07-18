@@ -238,8 +238,18 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // never leak from one dataset to the next.
   useEffect(() => { setExcludeTags([]); setIncludeTags([]); }, [d?.id]);
 
+  // The landing effect below keys on the dataset IDENTITY (id), never the polled
+  // `d` object. While a generation runs, useDataset re-fetches every 4 s and hands
+  // back a brand-new object each time; depending on `d` would re-run the landing
+  // and re-fire scrollIntoView on every poll, yanking the view back to the active
+  // panel's anchor (`ds-add-reference` when the Reference panel is selected). The
+  // id is stable across polls, still flips on null→loaded and on a dataset switch,
+  // and the effect's own MutationObserver/rAF/timeout already handle a target that
+  // appears slightly after the data does.
+  const datasetId = d?.id ?? null;
+
   useEffect(() => {
-    if (!d || !panel || workspaceLocation.pending) return undefined;
+    if (datasetId == null || !panel || workspaceLocation.pending) return undefined;
     const destination = getWorkspacePanel(section, panel);
     if (!destination) return undefined;
     const revealReady = destination.reveal === 'caption-leak'
@@ -323,7 +333,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
       if (frame !== undefined) cancelAnimationFrame(frame);
       if (timer) window.clearTimeout(timer);
     };
-  }, [d, section, panel, workspaceLocation.pending, landingRequest,
+  }, [datasetId, section, panel, workspaceLocation.pending, landingRequest,
       showLeaks, captionToolsOpen, writeWorkspaceLocation]);
 
   useEffect(() => {
