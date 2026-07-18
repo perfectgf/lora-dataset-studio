@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-18-watermark-install-verified',
+    date: '2026-07-18',
+    title: 'Watermark inpainting turns green the moment it finishes installing',
+    blurb:
+      "After the one-click install, the feature now reliably switches on right away — no more '✗ Watermark inpainting' lingering on a fresh machine seconds after a successful install. The installer confirms the package actually loads before calling itself done (and warms that first, heavy load so the check is instant), and if an environment is genuinely broken it now tells you why instead of failing silently.",
+    to: '/setup',
+  },
+  {
     id: '2026-07-18-change-dataset-kind',
     date: '2026-07-18',
     title: 'Change a dataset from Character, Concept or Style — after creation',

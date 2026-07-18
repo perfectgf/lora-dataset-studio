@@ -614,6 +614,71 @@ def test_execute_watermark_inpaint_success_invalidates_probe_cache(app, monkeypa
     assert capabilities._import_cache == {}      # cache invalidated on success
 
 
+def test_run_watermark_inpaint_verifies_import_after_install(app, monkeypatch, tmp_path):
+    """A successful pip step is not enough: the installer IMPORTS the package in the
+    target interpreter — that warms the heavy torch import so the probe fired right
+    after (onDone → /api/capabilities) is warm rather than timing out and showing a
+    '✗' seconds after a successful install."""
+    from app import setup_installer, config
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', _fake_popen_capturing({}, 0))
+    py = tmp_path / 'py.exe'; py.write_text('x')       # a real path so the isfile guard passes
+    seen = {}
+    def fake_run(cmd, **kw):
+        seen['cmd'] = cmd
+        class R:  # noqa: D401 - tiny stand-in for CompletedProcess
+            returncode, stdout, stderr = 0, '', ''
+        return R()
+    monkeypatch.setattr(setup_installer.subprocess, 'run', fake_run)
+    with app.app_context():
+        config.save_config({'watermark': {'python': str(py)}})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+    assert rc == 0
+    # Imported in the SAME interpreter pip targeted, with the exact probe expression.
+    assert seen['cmd'] == [str(py), '-c', 'import simple_lama_inpainting']
+
+
+def test_run_watermark_inpaint_fails_when_package_does_not_import(app, monkeypatch, tmp_path):
+    """pip 'already satisfied' but the package won't import (e.g. a torch/torchvision
+    build mismatch pip never sees) → the install must NOT report success: the user gets
+    the reason + a repair click instead of a silent ✗ capability. (JoyCaption #6 lesson.)"""
+    from app import setup_installer, config
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', _fake_popen_capturing({}, 0))
+    py = tmp_path / 'py.exe'; py.write_text('x')
+    def fake_run(cmd, **kw):
+        class R:
+            returncode, stdout = 1, ''
+            stderr = 'ImportError: DLL load failed while importing _C'
+        return R()
+    monkeypatch.setattr(setup_installer.subprocess, 'run', fake_run)
+    with app.app_context():
+        config.save_config({'watermark': {'python': str(py)}})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+    assert rc == 1
+    log = setup_installer._runs['watermark_inpaint']['log']
+    assert any('does not import' in l for l in log)
+    assert any('DLL load failed' in l for l in log)   # the actionable stderr tail is surfaced
+
+
+def test_run_watermark_inpaint_slow_import_still_succeeds(app, monkeypatch, tmp_path):
+    """A cold import slower than the warm budget is 'still warming', not broken — the
+    install stays successful (pip already succeeded) and the capability greens on the
+    next probe; a slow first import must never fail a good install."""
+    from app import setup_installer, config
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', _fake_popen_capturing({}, 0))
+    py = tmp_path / 'py.exe'; py.write_text('x')
+    def fake_run(cmd, **kw):
+        raise setup_installer.subprocess.TimeoutExpired(cmd, setup_installer._WARM_IMPORT_TIMEOUT)
+    monkeypatch.setattr(setup_installer.subprocess, 'run', fake_run)
+    with app.app_context():
+        config.save_config({'watermark': {'python': str(py)}})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+    assert rc == 0
+    assert any('warming' in l for l in setup_installer._runs['watermark_inpaint']['log'])
+
+
 # --- ML extras split per capability (face_scoring / masks) ----------------
 # The monolithic `-r requirements-ml.txt` is now ALSO installable one capability
 # at a time, so a user can install or REPAIR a single feature. Each scoped action
@@ -857,11 +922,14 @@ def test_run_watermark_inpaint_refuses_explicit_flask_venv(app, monkeypatch):
 def _fake_venv_popen(seen, *, create_python=True):
     """Fake subprocess.Popen capturing every command. When it sees a `-m venv <dir>`
     command it creates <dir>/Scripts|bin/python(.exe) so the caller's isfile() check
-    passes (a real venv would). pip commands just succeed."""
+    passes (a real venv would). pip commands just succeed. Also usable THROUGH
+    subprocess.run (context-manager + communicate/poll): the watermark install runs a
+    verification import via subprocess.run after pip, and it goes through this same fake."""
     import os
     class FakeProc:
         returncode = 0
         def __init__(self, cmd):
+            self.args = cmd
             self.stdout = iter(())
             if create_python and cmd[1:3] == ['-m', 'venv']:
                 from app import setup_installer
@@ -869,6 +937,11 @@ def _fake_venv_popen(seen, *, create_python=True):
                 os.makedirs(os.path.dirname(py), exist_ok=True)
                 open(py, 'w').close()
         def wait(self): return 0
+        # subprocess.run protocol (the post-install verify import uses run, not raw Popen)
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def communicate(self, *a, **k): return ('', '')
+        def poll(self): return 0
     def fake(cmd, **kw):
         seen.append(list(cmd))
         return FakeProc(cmd)

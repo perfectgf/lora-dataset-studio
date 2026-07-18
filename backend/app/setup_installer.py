@@ -630,6 +630,12 @@ _VENV_PY_MAX = (3, 12)   # torch / simple-lama publish wheels for CPython 3.10-3
 # absent, so the env works with zero config. A user who wants GPU points watermark.python
 # at their own CUDA env — where we DON'T force CPU torch (we never downgrade their build).
 _TORCH_CPU_INDEX = 'https://download.pytorch.org/whl/cpu'
+# Budget for the post-install verification import (see _verify_watermark_import). Far
+# longer than the capability probe's 60 s ceiling on purpose: importing simple-lama pulls
+# in torch + torchvision + opencv (~430 MB of native code, a single 291 MB torch_cpu.dll),
+# and the FIRST cold import on a fresh machine — real-time AV scanning brand-new DLLs — can
+# run minutes. We pay that once, here, so the probe fired right after the install is warm.
+_WARM_IMPORT_TIMEOUT = 300
 
 
 def _watermark_env_dir():
@@ -809,6 +815,54 @@ def _pip_install_watermark(action, python, *, managed: bool) -> int:
     return _run_pip(action, [python, '-m', 'pip', 'install', spec, '-c', str(_ML_REQUIREMENTS)])
 
 
+def _verify_watermark_import(action, python) -> bool:
+    """Actually IMPORT simple_lama_inpainting in the target interpreter once the pip
+    step reports success. Two jobs, one import:
+
+    1. HONESTY. pip 'Requirement already satisfied' proves the distribution is on disk,
+       NOT that it loads — the same gap that let JoyCaption read 'ready' then crash with
+       ModuleNotFoundError (issue #6). A torch/torchvision build mismatch pip can't see
+       fails only at import. If the import errors, the install is NOT usable, so we fail
+       it (the UI shows the reason + a repair click) instead of reporting success while
+       the capability stays a silent ✗.
+    2. WARMING. This is the app's heaviest probe import (~430 MB of native code, a single
+       291 MB torch_cpu.dll). On a fresh machine the first cold import — real-time AV
+       scanning brand-new DLLs — can exceed the capability probe's 60 s subprocess ceiling,
+       so the probe fired right after this install (onDone → /api/capabilities) would time
+       out and show '✗ Watermark inpainting' seconds after a fully successful install (the
+       probe would flip green only on a LATER, warm probe). Doing that first cold import
+       HERE, once, with a generous budget, leaves the OS/AV cache warm so the following
+       probe is fast → green with no restart, as the one-click flow promises.
+
+    Returns True = ready (import OK) or merely slow (a cold import past the budget is
+    'still warming', never a reason to fail a good install). False = a genuine import
+    error → the caller fails the install. Never raises."""
+    if not os.path.isfile(python):
+        return True   # no interpreter to check (should not happen post-install) — leave rc as-is
+    _append(action, 'verifying the install (first import — this also warms it, so the '
+                    'capability turns green without a restart)…')
+    try:
+        proc = subprocess.run([python, '-c', 'import simple_lama_inpainting'],
+                              capture_output=True, text=True, encoding='utf-8',
+                              errors='replace', timeout=_WARM_IMPORT_TIMEOUT,
+                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except subprocess.TimeoutExpired:
+        _append(action, 'still warming up (the first import is slow on a fresh machine) — '
+                        'the capability turns green on its own shortly; no restart needed')
+        return True   # slow, not broken — keep the install successful
+    except OSError as e:
+        _append(action, f'could not run the verification import ({e}) — skipping the check')
+        return True   # couldn't check — don't punish a pip install that succeeded
+    if proc.returncode == 0:
+        _append(action, 'import OK — watermark inpainting is ready')
+        return True
+    _append(action, 'installed, but simple_lama_inpainting does not import in this '
+                    'environment yet — the install is not usable:')
+    for line in (proc.stderr or '').strip().splitlines()[-4:]:
+        _append(action, f'  {line}')
+    return False
+
+
 def _run_watermark_inpaint(action) -> int:
     """Install simple-lama-inpainting (LaMa) into a dedicated 3.10-3.12 interpreter —
     NEVER the Flask venv (the package hard-requires Pillow<10, which would downgrade and
@@ -842,7 +896,14 @@ def _run_watermark_inpaint(action) -> int:
             ):
                 _append(action, line)
             return 1
-    return _pip_install_watermark(action, python, managed=_same_path(python, managed_python))
+    rc = _pip_install_watermark(action, python, managed=_same_path(python, managed_python))
+    # A successful pip step is necessary but not sufficient: confirm the package actually
+    # imports in `python` (and warm that heavy import so the probe fired right after is
+    # green with no restart). A hard import error fails the install so it never reports
+    # success over a silent ✗ capability.
+    if rc == 0 and not _verify_watermark_import(action, python):
+        return 1
+    return rc
 
 
 def _run_ml_capability(action) -> int:
