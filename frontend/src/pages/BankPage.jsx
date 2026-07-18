@@ -77,6 +77,7 @@ export default function BankPage() {
     <div className="space-y-6">
       <header className="flex items-center gap-2">
         <h1 className="text-xl font-bold text-content">🗃️ Image bank</h1>
+        <span className="px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.625rem] font-semibold uppercase tracking-wide">Beta</span>
         <HelpBadge topic="page-bank" />
       </header>
       <p className="text-sm text-content-muted max-w-3xl">

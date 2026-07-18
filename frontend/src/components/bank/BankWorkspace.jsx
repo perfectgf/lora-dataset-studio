@@ -222,6 +222,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           ← Banks
         </button>
         <h1 className="text-lg font-bold text-content">🗃️ {payload?.name || `Bank #${bankId}`}</h1>
+        <span className="px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.625rem] font-semibold uppercase tracking-wide">Beta</span>
         <span className="truncate font-mono text-xs text-content-subtle" title={payload?.source_path}>
           {payload?.source_path}
         </span>
