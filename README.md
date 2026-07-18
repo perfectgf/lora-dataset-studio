@@ -33,6 +33,17 @@ The whole pipeline, grouped by stage — every item links to the section that de
 
 ## Recent improvements
 
+- **🧰 One-click, collision-free installs** — the LaMa watermark engine now provisions its own isolated Python environment automatically (finds a compatible Python, builds the venv, installs, wires the setting: no manual pip, ever). Setup install buttons **queue up** instead of corrupting the venv when clicked together, and transient antivirus file locks are retried.
+- **🧭 ComfyUI directory guardrails** — the Setup field validates as you type: a wrong folder gets a clear message, pointing at the launcher folder offers the real ComfyUI subfolder in one click, and leaving it empty opens an honest **"Continue without ComfyUI?"** panel listing exactly what you lose and what still works. Entering a directory later switches everything back on automatically.
+- **⚡ Klein 9B KV by default** — new installs download the **public** KV build: up to **2.5× faster** multi-reference editing at identical quality, and **no Hugging Face token needed** for generation. Existing installs keep their current file; nothing re-downloads.
+- **🧪 Model files validated as real weights** — a `.safetensors` that is actually an HTML page, a truncated download or a dead symlink is caught at Setup and Studio preflight with a plain-words fix (delete it and re-download) instead of failing cryptically at generate time.
+- **🔎 LoRA preset autocomplete** — each preset row is a searchable dropdown of the LoRAs **actually on disk** (the whole `models/loras` tree plus `extra_model_paths.yaml` roots), badged by architecture with Klein-compatible files first; free text still works for files not downloaded yet. *(Design outline from @vvilams.)*
+- **✨ Prompt suffixes in the generate panel** — the same per-dataset suffixes as the Settings modal, now editable right where you generate and tweakable **between batches**; a batch always launches with what is currently in the fields. *(Idea from @vvilams.)*
+- **🏷️ English catalog labels** — the variation catalog now speaks English like the rest of the UI, and a **legacy alias map** keeps every older dataset resolving exactly as before (regeneration, NSFW guard, aspect overrides). *(Translations from @waltm's PR.)*
+- **✍️ Captions finish their sentences** — the silent 800-character cap on stored captions is gone (a wide sentence-boundary guard replaces it), and captions truncated in the past get an amber note in the editor pointing at targeted re-captioning.
+- **🖇 Dropped images rebuild the full LoRA chain** — dragging a generated image onto the ComfyUI canvas now reconstructs **every** LoRA of the preset, not just the last one (generation itself was always correct).
+- **🗑️ Dataset deletion fixed for every install** — on databases created by older versions, deleting a dataset with Test Studio history could fail with a server error; fixed for every vintage, and deletions land in the app trash as usual.
+- **🎁 In-app "What's new" panel** — the gift icon in the header lists everything that ships **between releases**, with "Try it →" deep links, so features stop landing silently after an Update & restart.
 - **❓ A two-way Help mode** — flip the **?** toggle in the header and clickable help badges appear across the app, each one opening the Guide at the exact section that explains that control. Every Guide section carries an **Open this screen →** link the other way, the Settings search now finds **both sections and individual settings**, and discreet one-time tips surface in context.
 - **📖 New "Settings reference" Guide chapter** — every setting in the app now has a written entry: **what it does, its default, and the traps to avoid**. It ships as the in-app Guide's newest chapter and is also readable on GitHub at [docs/guide/settings-reference.md](docs/guide/settings-reference.md).
 - **🕸 Scrape is its own workspace destination** — the scraper moved out of the bottom of *Add images* into a first-class stop on the workspace rail (a discreet link stays where it used to live), and it now deep-links: **`?section=scrape`** opens a dataset straight on the scraper.
@@ -45,30 +56,27 @@ The whole pipeline, grouped by stage — every item links to the section that de
 - **📂 Root-level Klein models recognized everywhere** — Klein weights dropped at the root of `diffusion_models/` are now found by the picker, the probe and the resolver alike, and Klein readiness is judged on **all three** required weights.
 - **🛡 Robustness fixes** — deleting a dataset is refused while one of its runs is active, a Windows file-lock during deletion no longer throws a 500, and underscore triggers are preserved in deployed filenames.
 - **🧽 Klein engine for watermark cleanup** — Clean now has two engines: **LaMa (fast)**, the default, and **Klein (quality)**, which pre-fills the mark with LaMa and then regenerates real texture over it with a FLUX.2 Klein refine pass — far better on skin, fabric and busy backgrounds. The refined crop is composited back **in pixel space**, so every pixel outside the mark keeps its original bytes. Marks sitting **on the subject** — previously parked in "needs review" — become cleanable straight from the review lightbox, and batch Clean takes an engine picker.
-- **☁🎚 Slider LoRAs go cloud** — slider training is no longer local-only: the cloud lane now accepts `concept_slider` jobs, and slider settings are **snapshotted at launch** so a mid-run edit can never retarget a rented run. The first paid slider run is still unproven — treat cloud sliders as extra-Beta.
-- **🖼 Flip through Test Studio results** — the result lightbox now navigates: swipe on touch, **‹ ›** buttons and **arrow keys** on desktop, with an *i / n* counter and wrap-around. Strength variants of the same render sit **adjacent** in the order, so flipping compares strengths directly.
-- **🗂 Denser dataset library** — pick your tile density (**S/M/L**, where S is a one-line compact list), collapse whole family sections (persisted, and forced open while a search or filter is active), and filter by kind with **Character / Concept / Style** chips.
-- **🎚 Slider LoRAs (Beta)** — a new training mode on any dataset that learns a single **bipolar** LoRA from a prompt pair (positive vs negative pole), so one adapter dials a trait up or down at inference. All five families are offered behind honest per-family experimental notes (Krea 2 is the reference), it runs **locally only** for now, and it's Beta — expect to iterate. The Test Studio can now sweep **negative strengths (−2.0 → 4.0)** to exercise both poles.
-- **☁ Train on custom bases in the cloud** — Z-Image, Krea 2 and FLUX.2 Klein custom weights are no longer local-only: a one-time push uploads the base to a **private** repo on your own Hugging Face account (private enforced, cached by hash so it never re-uploads), then the pod pulls it with your token. Official-base cloud runs are bit-for-bit unchanged; SDXL and FLUX.1 keep their local-only path.
-- **🖼 Test Studio, sharper** — export the checkpoint × strength grid as a single **labeled, shareable image** (title banner with model/CFG/steps/seed) to post on Civitai or Reddit, turn any dropped image into a test prompt with **🔎 Describe** (local Ollama vision), and sweep strengths up to **4.0** to find a LoRA's over-cook point.
-- **📂 ComfyUI `extra_model_paths.yaml` support** — models that live outside `models/` (portable builds, Stability Matrix) are now resolved exactly as ComfyUI sees them, across Klein generation, Setup probes, the model picker, the installer's already-present check and Studio preflight. Without a yaml, behavior is unchanged.
-- **🩺 Sturdier captioning** — vision calls re-encode WebP to a JPEG Ollama can actually decode, JoyCaption's first-run model download streams into the log with a visible "downloading model" stage, and the vision-model probe reads Ollama's tags however `/api/tags` reports them so a pulled model is never falsely "not installed".
-- **📑 Fifteen researched training presets** — a **Built-in (researched)** group ships a Character, Style and Concept preset for each of the five families (Z-Image, SDXL, Krea 2, FLUX.1-dev, FLUX.2 Klein). Every value — rank/alpha, timestep, resolution, save cadence — is sourced from ai-toolkit's own defaults, vendor guidance or documented community consensus, each preset explains *why* in one line, and one click applies the whole recipe through the normal validation.
-- **🎨 Research-backed Style recipes** — Style is explicitly always-on, with no activation trigger. Training combines five family-specific presets with content-only caption rules, family/variant-aware step limits, and launch guards for missing, trigger-only or identical captions.
-- **✨ Klein improvement, single or bulk** — multi-select eligible images and queue separate **2 MP** Klein candidates in one pass, or improve one from its lightbox. Progress and failures are reported for the batch, existing candidates are skipped, every original stays untouched until review, and both flows share one instruction under **Settings → Scraping & sources**.
-- **🛡 Safer training launches** — family, base and variant recipes are revalidated for local, queued, continued and cloud runs. The Runs hub can stop an identified local run as well as a cloud run while preserving checkpoints already written.
-- **📝 Better caption editing** — expand any caption into a larger editor with a character count and **Ctrl/⌘ + Enter** save. Frequency tools and re-caption guidance now adapt to character, concept or style datasets and to prose vs booru captions.
-- **🩹 Editable watermark corrections** — move/resize detected boxes or add missed zones in **Review flagged**. LaMa cleanup can use **Auto, GPU (CUDA), or CPU** from Settings.
-- **📦 Independent checkpoint browser** — **📦 Checkpoints & LoRAs** is a separate workspace destination between Train and Studio, with selectors independent from the next training configuration.
 
-Klein restoration is generative and may alter fine details, which is why improved images never enter training without explicit validation.
+Older improvements roll into [CHANGELOG.md](CHANGELOG.md).
 
+---
+
+## Roadmap
+
+Directions, not dates. These are discussed openly on the project's Discord, and the most-requested ideas move up the list.
+
+- **🧬 Merge Lab** *(next big one)* — bake your trained LoRAs into a standalone, shareable checkpoint and merge models with guided recipes, judged side by side in the Test Studio (same seeds, A/B grids). Full model fine-tuning on large curated datasets comes later on the same path.
+- **🎨 Anima (anime) family** — now unblocked upstream: ai-toolkit merged Anima support ([ostris/ai-toolkit#860](https://github.com/ostris/ai-toolkit/pull/860)), opening the door to a first-class anime training family.
+- **🎬 WAN 2.1 / 2.2 video LoRAs** — ai-toolkit already trains WAN and the scraper can already pull video, so the whole pipeline (scrape, curate, caption, train, test) extends naturally to motion. Community-driven.
+- **🧠 Smarter watermark detection** — a dedicated NSFW-trained detector and optional cleaning during import.
+- **🧩 More base models** — additional Flux-family bases (Chroma, Qwen-Image…) with the same one-click flow as Krea 2.
 
 ---
 
 ## Table of contents
 
 - [Everything it does, at a glance](#everything-it-does-at-a-glance)
+- [Roadmap](#roadmap)
 - [How it works, in one pass](#how-it-works-in-one-pass)
 - [Features, one at a time](#features-one-at-a-time)
   - [1. Three dataset types](#1-three-dataset-types-character--concept--style)
