@@ -1,3 +1,42 @@
+import { trainFamilyLabel } from './checkpointBrowser.js';
+
+/** Trailing filename/tag of a custom base's path or repo id — the segment after
+ * the last slash (forward OR back). A local `…\merges\bigLove_zt3.safetensors`
+ * shows as `bigLove_zt3.safetensors`, an HF repo `owner/lds-base-hxxxx` as
+ * `lds-base-hxxxx`. Keeping only the leaf is what stops a card (or its title)
+ * ever surfacing a parent path. */
+function baseModelBasename(value) {
+  const trimmed = String(value || '').replace(/[\\/]+$/, '');
+  const leaf = trimmed.split(/[\\/]/).pop();
+  return leaf || trimmed;
+}
+
+/** The real base model a run trained on, resolved for a run card, or null when
+ * the run doesn't record enough to say (a legacy row → the card degrades to the
+ * family badge alone, never an anxious "unknown"). `base_model` is the raw
+ * launch selection stamped per run:
+ *   - '' → the family's OFFICIAL base → the canonical name the UI already uses
+ *          for it, family + variant (e.g. "Z-Image Turbo", "Krea 2 Raw").
+ *   - a path / repo id → a CUSTOM base → its trailing filename/tag (`custom`),
+ *          so the card can style it apart and truncate it with a full title.
+ *   - null / undefined → not recorded → null (graceful degradation).
+ * The returned name COMPLETES the family+variant already on the card; it never
+ * stands in for the variant. */
+export function runBaseModelLabel(run) {
+  if (!run) return null;
+  const raw = run.base_model;
+  if (raw == null) return null;                       // legacy row: not recorded
+  const custom = String(raw).trim();
+  if (custom) {
+    const name = baseModelBasename(custom);
+    return { text: name, title: `Custom base: ${name}`, custom: true };
+  }
+  const family = trainFamilyLabel(run.train_type);
+  const variant = trainingRunVariantLabel(run.train_type, run.variant);
+  const text = variant ? `${family} ${variant}` : family;
+  return { text, title: `Official base: ${text}`, custom: false };
+}
+
 /** A local run can be stopped from the global Runs hub only while the aggregate
  * status identifies both its dataset and its opaque launch token. The token
  * prevents a stale card from killing a newer run of the same dataset. */

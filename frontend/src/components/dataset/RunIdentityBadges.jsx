@@ -29,6 +29,29 @@ export function RunIdChip({ source, id, className = '' }) {
   );
 }
 
+/* BaseModelChip — the REAL base a run trained on: the family's official base
+   spelled out (e.g. "Z-Image Turbo") or the custom checkpoint's filename/tag
+   (e.g. "bigLove_zt3.safetensors"). A custom base is tinted amber to read as
+   "not an official base at a glance"; the leaf name is truncated with the full
+   value in the title. `label` is the object from runBaseModelLabel() — render
+   nothing when it's null (a legacy run that never recorded its base). */
+export function BaseModelChip({ label, className = '' }) {
+  if (!label) return null;
+  return (
+    <span
+      title={label.title}
+      className={'inline-flex min-w-0 max-w-[11rem] items-center gap-1 rounded border '
+        + 'px-1.5 py-0.5 text-[0.625rem] '
+        + (label.custom
+          ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
+          : 'border-border bg-surface-raised text-content-subtle')
+        + (className ? ` ${className}` : '')}>
+      <span aria-hidden>🧩</span>
+      <span className="truncate">{label.text}</span>
+    </span>
+  );
+}
+
 export function DatasetVersionChip({ version, className = '' }) {
   if (version == null) return null;
   return (

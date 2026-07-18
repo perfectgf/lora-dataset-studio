@@ -62,6 +62,65 @@ def test_share_local_run_lists_every_parameter(client, app):
     assert 'paste-safe, no local paths or keys' in body
 
 
+def test_share_custom_base_shows_leaf_name_only(client, app):
+    """A custom base is named by its filename/tag alone — the parent folders
+    (which redaction would keep as `~\\merges\\…`) never reach the file."""
+    ds = _mkds(client)
+    rid = _add_local_rec(
+        app, ds, family='zimage', variant='turbo',
+        base_model='C:\\Users\\someone\\merges\\bigLove_zt3.safetensors')
+    body = client.get(
+        f'/api/dataset/train/runs/rec-{rid}/share').get_data(as_text=True)
+    assert 'Base model:' in body
+    assert 'bigLove_zt3.safetensors' in body
+    assert 'merges' not in body            # parent path never surfaces
+    assert 'someone' not in body
+
+
+def test_share_official_base_names_the_family(client, app):
+    """An empty base_model is the family's official base — the file spells that
+    out instead of a bare 'official Hugging Face base'."""
+    ds = _mkds(client)
+    rid = _add_local_rec(app, ds, family='zimage', variant='turbo', base_model='')
+    body = client.get(
+        f'/api/dataset/train/runs/rec-{rid}/share').get_data(as_text=True)
+    assert 'Z-Image official base' in body
+
+
+def test_all_runs_exposes_base_model_per_lane(client, app):
+    """Every hub row can name its base: registry rows carry base_model directly
+    ('' = official, else the custom value), an active cloud run reads it from its
+    stamped pod params, and a legacy pod with no params omits it (UI degrades)."""
+    ds = _mkds(client)
+    from app.extensions import db
+    from app.models import CloudTrainingRun, TrainingRunRecord
+    from app.services import cloud_training as ct
+    with app.app_context():
+        db.session.add(TrainingRunRecord(
+            dataset_id=ds, family='zimage', source='local', fingerprint='o',
+            version=1, steps=1000, masked=True, variant='turbo', base_model='',
+            settings=json.dumps({'rank': 32})))
+        db.session.add(TrainingRunRecord(
+            dataset_id=ds, family='krea', source='local', fingerprint='c',
+            version=2, steps=1000, masked=True, variant='base',
+            base_model='D:\\m\\bigLove.safetensors',
+            settings=json.dumps({'rank': 32})))
+        active = CloudTrainingRun(
+            dataset_id=ds, status='training', run_name='live',
+            train_params=json.dumps({'train_type': 'zimage', 'variant': 'turbo',
+                                     'base_model': 'owner/lds-base-hxyz', 'steps': 1000}))
+        legacy = CloudTrainingRun(dataset_id=ds, status='done', run_name='old')
+        db.session.add_all([active, legacy])
+        db.session.commit()
+        out = ct.all_runs(limit=10)
+    recents = {r.get('base_model') for r in out['recent']}
+    assert '' in recents                                 # official local run
+    assert 'D:\\m\\bigLove.safetensors' in recents       # custom path passes through raw
+    assert out['actives'] and out['actives'][0].get('base_model') == 'owner/lds-base-hxyz'
+    legacy_row = next(r for r in out['recent'] if r.get('run_name') == 'old')
+    assert 'base_model' not in legacy_row                # no pod params -> omitted
+
+
 def test_share_style_hides_internal_id_but_character_keeps_trigger(client, app):
     """Style is always-on: its generated identifier must never be advertised as
     an activation word, including for an older snapshot that still stored it."""

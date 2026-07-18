@@ -1932,9 +1932,16 @@ def _run_payload(run) -> dict:
     effective_base = _run_param(run, 'effective_base')
     training_adapter = _run_param(run, 'training_adapter')
     recipe_version = _run_param(run, 'recipe_version')
+    # The base a run trained on ('' = official family base, else a custom
+    # checkpoint/repo) — so the Runs-hub card can name it. Only merged when the
+    # pod actually stamped it: absent on a very old pod stays out of the payload
+    # (the card degrades to the family badge, never a wrong "official" claim),
+    # and a registry-backed row keeps its own base_model through _run_payload's
+    # enrichment update.
+    base_model = _run_param(run, 'base_model')
     diagnostic = lt.zimage_recipe_diagnostic(
         family, variant, effective_base, training_adapter, recipe_version)
-    return {'run_id': run.id, 'dataset_id': run.dataset_id, 'status': run.status,
+    payload = {'run_id': run.id, 'dataset_id': run.dataset_id, 'status': run.status,
             # Stable id for the per-run "Share configuration" download. Every
             # cloud row (active/finished/legacy) addresses by its pod row id;
             # local rows use 'rec-<record id>' (set in all_runs).
@@ -1970,6 +1977,9 @@ def _run_payload(run) -> dict:
             'auto_retry_run_id': _run_param(run, 'auto_retry_run_id'),
             'created_at': run.created_at.isoformat() if run.created_at else None,
             'finished_at': run.finished_at.isoformat() if run.finished_at else None}
+    if base_model is not None:
+        payload['base_model'] = base_model
+    return payload
 
 
 def cloud_status() -> dict:

@@ -7,6 +7,7 @@ import {
   groupRunsByDataset,
   isTrainingRecipeReplayBlocked,
   retryRequest,
+  runBaseModelLabel,
   runDurationSeconds,
   runRetryKey,
   trainingRunVariantLabel,
@@ -59,6 +60,34 @@ test('only incompatible recipe diagnostics block retry and continue', () => {
   assert.equal(isTrainingRecipeReplayBlocked({ status: 'error', recipe_status: 'incompatible' }), true);
   assert.equal(isTrainingRecipeReplayBlocked({ recipe: { status: 'incompatible' } }), true);
   assert.equal(isTrainingRecipeReplayBlocked({ status: 'legacy_incompatible' }), true);
+});
+
+test('base-model label spells official bases and names custom checkpoints', () => {
+  // Official base ('' = family default): the canonical family + variant name.
+  assert.deepEqual(runBaseModelLabel({ base_model: '', train_type: 'zimage', variant: 'turbo' }),
+    { text: 'Z-Image Turbo', title: 'Official base: Z-Image Turbo', custom: false });
+  assert.deepEqual(runBaseModelLabel({ base_model: '', train_type: 'krea', variant: 'base' }),
+    { text: 'Krea 2 Raw', title: 'Official base: Krea 2 Raw', custom: false });
+  // No variant on the run: family alone, no trailing space.
+  assert.deepEqual(runBaseModelLabel({ base_model: '', train_type: 'flux2klein' }),
+    { text: 'FLUX.2 Klein', title: 'Official base: FLUX.2 Klein', custom: false });
+});
+
+test('base-model label reduces a custom base to its leaf filename/tag', () => {
+  // A Windows path never surfaces its parent folders (nor a title that would).
+  assert.deepEqual(
+    runBaseModelLabel({ base_model: 'D:\\models\\merges\\bigLove_zt3.safetensors', train_type: 'zimage', variant: 'turbo' }),
+    { text: 'bigLove_zt3.safetensors', title: 'Custom base: bigLove_zt3.safetensors', custom: true });
+  // An HF repo id drops the owner, keeping the repo leaf.
+  assert.deepEqual(
+    runBaseModelLabel({ base_model: 'owner/lds-base-h1a2b3c', train_type: 'krea', variant: 'base' }),
+    { text: 'lds-base-h1a2b3c', title: 'Custom base: lds-base-h1a2b3c', custom: true });
+});
+
+test('base-model label degrades to null when a legacy run never recorded a base', () => {
+  assert.equal(runBaseModelLabel({ train_type: 'zimage', variant: 'turbo' }), null); // undefined
+  assert.equal(runBaseModelLabel({ base_model: null, train_type: 'zimage' }), null);
+  assert.equal(runBaseModelLabel(null), null);
 });
 
 test('runs group by dataset only when consecutive — history order is preserved', () => {

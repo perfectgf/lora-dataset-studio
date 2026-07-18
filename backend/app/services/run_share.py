@@ -111,6 +111,14 @@ def _slug(s):
     return s.strip('_') or 'dataset'
 
 
+def _base_basename(value):
+    """Trailing filename/tag of a custom base's path or repo id — split on both
+    slash kinds so a Windows `…\\merges\\bigLove.safetensors` and an HF repo
+    `owner/lds-base-hxxxx` both reduce to their leaf, leaking no parent path."""
+    leaf = re.split(r'[\\/]', str(value or '').rstrip('\\/'))[-1]
+    return leaf or str(value or '')
+
+
 def _family_label(fam):
     return _FAMILY_LABEL.get(fam, fam or 'LoRA')
 
@@ -186,8 +194,14 @@ def build_run_config_text(run_key):
     if vlabel:
         fam_line += f'  (variant: {vlabel})'
     L.append(f'Model family:  {fam_line}')
-    L.append('Base model:    '
-             + ('official Hugging Face base' if not base_model else base_model))
+    # A custom base is named by its leaf filename/tag only — never the parent
+    # path (which redaction would keep as `~\merges\…`); an official base spells
+    # out the family's canonical base so a reader knows exactly what it trained on.
+    if base_model:
+        base_line = _base_basename(base_model)
+    else:
+        base_line = f'{_family_label(family)} official base'
+    L.append(f'Base model:    {base_line}')
     ds_bits = [dataset_name or f'#{dataset_id}']
     meta = []
     if version is not None:

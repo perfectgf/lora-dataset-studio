@@ -4,7 +4,7 @@ import { postJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
 import TrainingProgress from '../components/dataset/TrainingProgress';
 import ContinueDialog from '../components/dataset/ContinueDialog';
-import { DatasetVersionChip, RunIdChip } from '../components/dataset/RunIdentityBadges';
+import { BaseModelChip, DatasetVersionChip, RunIdChip } from '../components/dataset/RunIdentityBadges';
 import { HelpBadge } from '../help/HelpMode';
 import { runIdentityOf, runRowDomId } from '../utils/runIdentity';
 import {
@@ -13,6 +13,7 @@ import {
   groupRunsByDataset,
   isTrainingRecipeReplayBlocked,
   retryRequest,
+  runBaseModelLabel,
   runDurationSeconds,
   runRetryKey,
   trainingRunVariantLabel,
@@ -429,6 +430,7 @@ export default function CloudRunsPage() {
     const ident = runIdentityOf(run);
     const key = run.run_id ? `c${run.run_id}` : `l${run.record_id || `${run.dataset_id}-${run.created_at || i}`}`;
     const variantLabel = trainingRunVariantLabel(run.train_type, run.variant);
+    const baseLabel = runBaseModelLabel(run);
     const duration = formatDuration(runDurationSeconds(run));
     const line = settingsLine(run);
     const thumbKey = run.share_key || key;
@@ -461,6 +463,9 @@ export default function CloudRunsPage() {
             <span className="text-[0.625rem] uppercase tracking-wide">
               {famLabel(run.train_type)}{variantLabel ? ` · ${variantLabel}` : ''}
             </span>
+            {/* Official bases are already spelled by the family·variant above;
+                only a CUSTOM base adds new info here (which checkpoint file). */}
+            {baseLabel?.custom && <BaseModelChip label={baseLabel} />}
             <DatasetVersionChip version={run.version} />
             {duration && (
               <span className="tabular-nums" title="Wall-clock run duration (launch → finish)">
@@ -602,6 +607,13 @@ export default function CloudRunsPage() {
               <span className="rounded border border-violet-400/40 bg-violet-500/10 px-1.5 py-0.5 text-violet-200 text-[0.625rem] uppercase">
                 local · training
               </span>
+              {/* A live local run with no custom base IS the family's official
+                  base — coerce the absent value so it spells out, not blanks. */}
+              <BaseModelChip label={runBaseModelLabel({
+                base_model: data.local_active.current.base_model || '',
+                train_type: data.local_active.current.train_type,
+                variant: data.local_active.current.variant,
+              })} />
               {data.local_active.error && (
                 <span className="text-rose-300 text-[0.625rem]">{data.local_active.error}</span>
               )}
@@ -655,6 +667,9 @@ export default function CloudRunsPage() {
                 <span className="rounded border border-border bg-surface px-1.5 py-0.5 text-content-muted text-[0.625rem] uppercase">
                   {famLabel(run.train_type)}
                 </span>
+                {/* No variant shown on the active card, so spell the base in
+                    full here — official ("Z-Image Turbo") and custom alike. */}
+                <BaseModelChip label={runBaseModelLabel(run)} />
                 <DatasetVersionChip version={run.version} />
                 <StatusBadge status={run.status} />
                 <AutoRetryBadges run={run} />

@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-18-runs-show-base-model',
+    date: '2026-07-18',
+    title: 'Run cards now name the exact base model each LoRA trained on',
+    blurb:
+      "The Runs hub cards used to show only the family and dataset version — now each one spells out the real base it trained on: the official base by name (e.g. “Z-Image Turbo”, “Krea 2 Raw”), or, when you trained on a custom checkpoint, that file's name (e.g. “bigLove_zt3.safetensors”). Handy when several runs of the same family used different bases. Older runs that never recorded their base just keep the family badge, as before. The “⎘ Share config” export names the base the same way.",
+    to: '/cloud',
+  },
+  {
     id: '2026-07-18-flexible-continue',
     date: '2026-07-18',
     title: 'Continue a run from any epoch, for as many steps as you want',
