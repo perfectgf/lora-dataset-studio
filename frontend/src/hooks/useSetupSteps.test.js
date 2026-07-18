@@ -147,3 +147,62 @@ test('kleinMissingLabels maps required assets to words in a stable order', () =>
   assert.deepEqual(kleinMissingLabels(['klein_lora']), []);
   assert.equal(KLEIN_ASSET_LABELS.klein_text_encoder, 'text encoder');
 });
+
+// --- installAllPlan (mirror of the backend orchestrator) --------------------
+import { installAllPlan, INSTALL_ALL_ORDER } from './useSetupSteps.js';
+
+// A fully-installed snapshot; each test flips just the pieces it needs MISSING.
+const fullCaps = () => ({
+  python: { ml_supported: true },
+  face_scoring: true, masks: true, watermark_inpaint: true,
+  ollama: { reachable: true, vision_model_ready: true, vision_model: 'qwen3-vl:8b' },
+  comfyui: { dir_valid: true, klein_missing: [] },
+});
+
+test('installAllPlan is empty when everything installable is present', () => {
+  assert.deepEqual(installAllPlan(fullCaps()), []);
+});
+
+test('installAllPlan folds null/empty caps to the always-runnable ML extras', () => {
+  const mlOnly = ['face_scoring', 'masks', 'watermark_inpaint'];
+  assert.deepEqual(installAllPlan(null), mlOnly);
+  assert.deepEqual(installAllPlan({}), mlOnly);
+});
+
+test('installAllPlan skips face/masks on an unsupported Python but keeps watermark', () => {
+  const caps = { ...fullCaps(), python: { ml_supported: false },
+    face_scoring: false, masks: false, watermark_inpaint: false };
+  assert.deepEqual(installAllPlan(caps), ['watermark_inpaint']);
+});
+
+test('installAllPlan queues the vision model only when Ollama is up and named', () => {
+  const up = { ...fullCaps(),
+    ollama: { reachable: true, vision_model_ready: false, vision_model: 'qwen3-vl:8b' } };
+  assert.ok(installAllPlan(up).includes('ollama_model'));
+  const noName = { ...fullCaps(),
+    ollama: { reachable: true, vision_model_ready: false, vision_model: '' } };
+  assert.ok(!installAllPlan(noName).includes('ollama_model'));
+  const down = { ...fullCaps(),
+    ollama: { reachable: false, vision_model_ready: false, vision_model: 'qwen3-vl:8b' } };
+  assert.ok(!installAllPlan(down).includes('ollama_model'));
+});
+
+test('installAllPlan takes Klein weights only into a validated ComfyUI, in order', () => {
+  const valid = { ...fullCaps(),
+    comfyui: { dir_valid: true, klein_missing: ['klein_lora', 'klein_model', 'klein_vae'] } };
+  assert.deepEqual(installAllPlan(valid), ['klein_model', 'klein_vae', 'klein_lora']);
+  const invalid = { ...fullCaps(),
+    comfyui: { dir_valid: false, klein_missing: ['klein_model'] } };
+  assert.deepEqual(installAllPlan(invalid), []);
+});
+
+test('installAllPlan full order groups ML -> vision model -> Klein', () => {
+  const caps = {
+    python: { ml_supported: true },
+    face_scoring: false, masks: false, watermark_inpaint: false,
+    ollama: { reachable: true, vision_model_ready: false, vision_model: 'm' },
+    comfyui: { dir_valid: true,
+      klein_missing: ['klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora'] },
+  };
+  assert.deepEqual(installAllPlan(caps), INSTALL_ALL_ORDER);
+});

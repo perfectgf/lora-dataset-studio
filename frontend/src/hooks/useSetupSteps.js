@@ -215,3 +215,55 @@ export function recommendedMet(caps) {
   const e = (caps && caps.engines) || {}
   return !!(e.nanobanana || e.chatgpt || e.klein)
 }
+
+// --- "Install everything" plan -------------------------------------------------
+// Mirror of setup_installer.install_all_plan (backend — the AUTHORITY that the
+// POST /api/setup/install-all recomputes and queues). Kept here so the Setup page can
+// show the plan and an accurate "X / N" reactively from caps, without a round-trip, the
+// same way deriveSetupSteps mirrors the backend gates. Both MUST stay in step: the set
+// is the MISSING components the app can install ITSELF right now — the ML extras, the
+// Ollama vision model when Ollama is already up, and the Klein weights when a valid
+// ComfyUI folder is set. It never installs ComfyUI/Ollama themselves or pastes API keys
+// (those are external tools / credentials), so those stay on the step-by-step path.
+
+// Setup-installer action -> the short human label shown in the Install-everything list.
+export const INSTALL_ALL_ACTION_LABELS = {
+  face_scoring: 'Face-similarity scoring',
+  masks: 'Person masks',
+  watermark_inpaint: 'Watermark inpainting',
+  ollama_model: 'Vision model (captioning)',
+  klein_model: 'Klein model (local generation)',
+  klein_text_encoder: 'Klein text encoder',
+  klein_vae: 'Klein VAE',
+  klein_lora: 'Klein consistency LoRA',
+}
+
+// Grouped by capability area (ML extras → vision model → Klein weights). The backend
+// serializes pip and parallelizes downloads regardless of fire order, so this order
+// only drives the progress list; it must match the backend's _INSTALL_ALL_ORDER.
+export const INSTALL_ALL_ORDER = [
+  'face_scoring', 'masks', 'watermark_inpaint', 'ollama_model',
+  'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora',
+]
+
+export function installAllPlan(caps) {
+  const c = caps || {}
+  // face_scoring/masks install into the app's OWN Python, so they need it inside the ML
+  // wheel range; on a newer interpreter they'd only source-build and fail. Absent python
+  // info => assume supported (older payloads). watermark_inpaint builds its own venv, so
+  // it stays runnable regardless.
+  const mlOk = !(c.python && c.python.ml_supported === false)
+  const o = c.ollama || {}
+  const cu = c.comfyui || {}
+  const kleinMissing = Array.isArray(cu.klein_missing) ? cu.klein_missing : []
+  const needed = (a) => {
+    if (a === 'face_scoring' || a === 'masks') return mlOk && !c[a]
+    if (a === 'watermark_inpaint') return !c.watermark_inpaint
+    if (a === 'ollama_model') {
+      return !!(o.reachable && !o.vision_model_ready && (o.vision_model || '').trim())
+    }
+    // klein_* — only into a validated ComfyUI tree.
+    return !!cu.dir_valid && kleinMissing.includes(a)
+  }
+  return INSTALL_ALL_ORDER.filter(needed)
+}

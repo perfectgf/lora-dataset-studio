@@ -4,9 +4,10 @@ import { apiFetch, putJson, postJson } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
 import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS, kleinMissingLabels,
-  comfyuiDirVerdict, COMFYUI_SKIP_LOST, COMFYUI_SKIP_KEPT } from '../hooks/useSetupSteps'
+  comfyuiDirVerdict, COMFYUI_SKIP_LOST, COMFYUI_SKIP_KEPT, installAllPlan } from '../hooks/useSetupSteps'
 import GuidedSteps from '../components/setup/GuidedSteps'
 import InstallRunner from '../components/setup/InstallRunner'
+import InstallEverything from '../components/setup/InstallEverything'
 import { HelpBadge } from '../help/HelpMode'
 
 const INPUT_CLASS =
@@ -168,6 +169,8 @@ export default function SetupPage() {
 
   const steps = useMemo(() => deriveSetupSteps(caps), [caps])
   const summary = useMemo(() => deriveCapabilitySummary(caps), [caps])
+  // Everything "Install everything" can queue right now (mirrors the backend plan).
+  const installPlan = useMemo(() => installAllPlan(caps), [caps])
   const readyCount = summary.filter((s) => s.ok).length
   const stepById = useMemo(() => Object.fromEntries(steps.map((s) => [s.id, s])), [steps])
 
@@ -966,11 +969,19 @@ export default function SetupPage() {
           )}
         </section>
 
+        {/* Lead with the one-click path: install everything the app can install itself,
+            in the right order, with the existing pip serialization. The per-tool wizard
+            (below, de-emphasized) stays for anyone who wants to pick and choose. Hidden
+            until the scan has run once so the plan reflects what's actually detected. */}
+        {scanned && <InstallEverything plan={installPlan} onDone={() => refresh(true)} />}
+
         <div className="flex items-center justify-between">
           {skipLink}
+          {/* The step-by-step wizard is now the SECONDARY path — an outline button, not
+              the primary call to action. "Install everything" above owns that. */}
           <button type="button" onClick={goNext}
-            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
-            {allReady ? "Everything's ready — review →" : 'Start setup →'}
+            className="rounded-lg border border-border-strong px-5 py-2 text-sm font-medium text-content hover:bg-surface-raised">
+            {allReady ? 'Review setup →' : 'Set up step by step →'}
           </button>
         </div>
       </div>

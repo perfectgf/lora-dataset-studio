@@ -486,6 +486,82 @@ def _check_klein_precondition(action):
         pass   # unknown -> never block on a stat failure
 
 
+# --- "Install everything" orchestrator -----------------------------------------
+# One click that queues every install the app can run ITSELF right now — the missing
+# ML extras, the Ollama vision model, and the Klein weights — instead of walking the
+# user through each step. It never installs ComfyUI/Ollama themselves nor pastes API
+# keys (those are external / credentials), so the plan is deliberately the subset whose
+# preconditions are already satisfiable. Firing order is grouped by capability area for
+# a coherent "X / N" progress display; the real scheduling still comes from start()
+# (pip serialized FIFO, model downloads parallel), so the order here is cosmetic.
+_INSTALL_ALL_ORDER = ('face_scoring', 'masks', 'watermark_inpaint', 'ollama_model',
+                      'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora')
+
+
+def _action_needed(action, caps) -> bool:
+    """Is `action` both MISSING and satisfiable right now, from live capabilities?
+    Pure (caps in, bool out) — the single rule install_all_plan is built from."""
+    if action in ('face_scoring', 'masks'):
+        # These install into the app's OWN interpreter, so they need it inside the ML
+        # wheel range (3.10-3.12); on a newer Python they'd only source-build and fail,
+        # so "Install everything" skips them (the per-feature tile still explains why).
+        if not (caps.get('python') or {}).get('ml_supported', True):
+            return False
+        return not caps.get(action)
+    if action == 'watermark_inpaint':
+        # Auto-provisions its own 3.10-3.12 venv, so it's runnable on any interpreter.
+        return not caps.get('watermark_inpaint')
+    if action == 'ollama_model':
+        # Only when Ollama is already reachable AND a model name is configured (the pull
+        # needs a target) — Ollama itself can't be auto-installed here.
+        o = caps.get('ollama') or {}
+        return bool(o.get('reachable') and not o.get('vision_model_ready')
+                    and (o.get('vision_model') or '').strip())
+    if action in _KLEIN_DOWNLOADS:
+        # Only into a VALIDATED ComfyUI tree (never scatter multi-GB files under a wrong
+        # folder). klein_missing already lists exactly the asset actions still absent
+        # (required trio + recommended LoRA).
+        c = caps.get('comfyui') or {}
+        return bool(c.get('dir_valid')) and action in (c.get('klein_missing') or [])
+    return False
+
+
+def install_all_plan(caps) -> list:
+    """The ordered list of install actions 'Install everything' will queue for these
+    capabilities — every MISSING component whose preconditions are already met. Pure and
+    deterministic (order = _INSTALL_ALL_ORDER) so it can be tested and drives the global
+    progress count. Empty => everything the app can install itself is already in place."""
+    caps = caps or {}
+    return [a for a in _INSTALL_ALL_ORDER if _action_needed(a, caps)]
+
+
+def start_all(caps) -> dict:
+    """Queue every action in install_all_plan(caps). Each start() applies the SAME rules
+    as a single install (pip queued FIFO so two never race one venv; model downloads run
+    in parallel; per-action preconditions enforced), so this is just a fan-out. An action
+    already in flight (AlreadyRunning) reuses its live state; one momentarily unsatisfiable
+    (Precondition) is reported as an error row rather than aborting the whole batch. Returns
+    the plan + each action's status so the caller can render 'X / N' without re-deriving it."""
+    plan = install_all_plan(caps)
+    statuses = {}
+    for action in plan:
+        try:
+            statuses[action] = start(action)
+        except AlreadyRunning:
+            statuses[action] = status(action)
+        except (Precondition, ValueError) as e:
+            statuses[action] = {'state': 'error', 'returncode': None, 'log': [str(e)],
+                                'progress': None, 'waiting_for': None,
+                                'manual_command': manual_command(action)}
+    return {'plan': plan, 'statuses': statuses}
+
+
+def status_many(actions) -> dict:
+    """Per-action status for a set of actions (the live 'Install everything' plan), so the
+    UI polls ONE endpoint instead of one request per action. Unknown names are dropped."""
+    return {a: status(a) for a in actions if a in INSTALL_ACTIONS}
+
+
 def _execute(action):
     try:
         rc = _WORKERS[action](action)
