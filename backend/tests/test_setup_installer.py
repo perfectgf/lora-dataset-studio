@@ -828,16 +828,18 @@ def test_run_ml_extras_installs_flask_safe_set_and_pins_pillow(monkeypatch):
                for l in setup_installer._runs['ml_extras']['log'])
 
 
-def test_run_watermark_inpaint_refuses_flask_venv(app, monkeypatch):
-    """With no dedicated watermark.python/masks.python the resolver falls back to
-    the Flask venv — the worker must REFUSE (return 1, no pip) so simple-lama's
-    pillow<10 can't downgrade the app's Pillow."""
+def test_run_watermark_inpaint_refuses_explicit_flask_venv(app, monkeypatch):
+    """A user who EXPLICITLY points watermark.python at the app's own Python is
+    refused (return 1, no pip) — installing simple-lama there would downgrade Pillow.
+    The auto-provision path is NOT taken (we respect the user's explicit, if broken,
+    value rather than silently overwriting it)."""
+    import sys
     from app import setup_installer, config
     def boom(*a, **k):
         raise AssertionError('must not run pip against the Flask venv')
     monkeypatch.setattr(setup_installer.subprocess, 'Popen', boom)
     with app.app_context():
-        config.save_config({})   # nothing dedicated -> falls back to sys.executable
+        config.save_config({'watermark': {'python': sys.executable}})
         setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
         rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
     assert rc == 1
@@ -846,13 +848,276 @@ def test_run_watermark_inpaint_refuses_flask_venv(app, monkeypatch):
     assert any('watermark.python' in l for l in log)
 
 
-def test_manual_command_watermark_inpaint_points_to_separate_env_when_unconfigured(app):
-    """No dedicated env -> the copy-paste must NOT target the app's own Python
-    (that would break Pillow); it points at a separate 3.10-3.12 env instead."""
+# --- watermark inpainting: one-click auto-provision -----------------------
+# When nothing dedicated is configured the Install button BUILDS a dedicated
+# 3.10-3.12 venv, installs into it, and records watermark.python — no manual venv,
+# no setting to edit. The old "refuse + tell the user to make a venv" path is gone.
+
+
+def _fake_venv_popen(seen, *, create_python=True):
+    """Fake subprocess.Popen capturing every command. When it sees a `-m venv <dir>`
+    command it creates <dir>/Scripts|bin/python(.exe) so the caller's isfile() check
+    passes (a real venv would). pip commands just succeed."""
+    import os
+    class FakeProc:
+        returncode = 0
+        def __init__(self, cmd):
+            self.stdout = iter(())
+            if create_python and cmd[1:3] == ['-m', 'venv']:
+                from app import setup_installer
+                py = setup_installer._venv_python(__import__('pathlib').Path(cmd[3]))
+                os.makedirs(os.path.dirname(py), exist_ok=True)
+                open(py, 'w').close()
+        def wait(self): return 0
+    def fake(cmd, **kw):
+        seen.append(list(cmd))
+        return FakeProc(cmd)
+    return fake
+
+
+def test_run_watermark_inpaint_auto_provisions_when_unconfigured(app, monkeypatch):
+    """Nothing configured -> find a base Python, build the managed venv, install CPU
+    torch + simple-lama into it, and SAVE watermark.python. No refusal, no manual step."""
+    from app import setup_installer, config
+    seen = []
+    monkeypatch.setattr(setup_installer, '_find_base_python', lambda a: r'C:\pybase\python.exe')
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', _fake_venv_popen(seen))
+    with app.app_context():
+        config.save_config({})   # nothing dedicated
+        managed = setup_installer._watermark_env_python()
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+        saved = config.get('watermark.python')
+    assert rc == 0
+    # a venv was built from the base, then CPU torch, then simple-lama — all into it
+    assert any(c[1:3] == ['-m', 'venv'] for c in seen)
+    assert any(c[0] == r'C:\pybase\python.exe' and c[1:3] == ['-m', 'venv'] for c in seen)
+    torch_cmd = next(c for c in seen if 'torch' in c)
+    assert torch_cmd[0] == managed and '--index-url' in torch_cmd
+    assert setup_installer._TORCH_CPU_INDEX in torch_cmd
+    lama_cmd = next(c for c in seen if any('simple-lama' in str(p) for p in c))
+    assert lama_cmd[0] == managed
+    assert saved == managed          # watermark.python recorded -> probe resolves here
+
+
+def test_run_watermark_inpaint_no_base_python_actionable_message(app, monkeypatch):
+    """A truly bare machine (no Python 3.10-3.12) -> a short actionable message (install
+    Python 3.12 / winget, then re-click) and NO pip. Never a copy-paste pip as the path."""
+    from app import setup_installer, config
+    def boom(*a, **k):
+        raise AssertionError('no pip should run without a base Python')
+    monkeypatch.setattr(setup_installer, '_find_base_python', lambda a: '')
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', boom)
+    with app.app_context():
+        config.save_config({})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+    assert rc == 1
+    log = '\n'.join(setup_installer._runs['watermark_inpaint']['log'])
+    assert 'Python 3.12' in log and 'winget' in log
+
+
+def test_run_watermark_inpaint_respects_user_python_no_torch_no_overwrite(app, monkeypatch):
+    """A user's OWN watermark.python is used verbatim: install simple-lama there,
+    do NOT force-install CPU torch (never downgrade their CUDA build), and NEVER
+    overwrite their value with the managed venv."""
+    from app import setup_installer, config
+    seen = []
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', _fake_venv_popen(seen))
+    with app.app_context():
+        config.save_config({'watermark': {'python': r'C:\ml\python.exe'}})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+        saved = config.get('watermark.python')
+    assert rc == 0
+    assert not any('torch' in c and '--index-url' in c for c in seen)   # no forced CPU torch
+    assert not any(c[1:3] == ['-m', 'venv'] for c in seen)              # no venv built
+    lama_cmd = next(c for c in seen if any('simple-lama' in str(p) for p in c))
+    assert lama_cmd[0] == r'C:\ml\python.exe'
+    assert saved == r'C:\ml\python.exe'                                  # value untouched
+
+
+def test_run_watermark_inpaint_idempotent_reuses_existing_env(app, monkeypatch):
+    """A re-click after a successful provision reuses the SAME venv (no second venv
+    built), so it repairs/upgrades in place — never a duplicate."""
+    import os
+    from app import setup_installer, config
+    seen = []
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', _fake_venv_popen(seen))
+    with app.app_context():
+        managed = setup_installer._watermark_env_python()
+        os.makedirs(os.path.dirname(managed), exist_ok=True)
+        open(managed, 'w').close()                       # the venv already exists
+        config.save_config({'watermark': {'python': managed}})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+    assert rc == 0
+    assert not any(c[1:3] == ['-m', 'venv'] for c in seen)   # reused, not rebuilt
+    assert any(any('simple-lama' in str(p) for p in c) for c in seen)
+
+
+def test_run_watermark_inpaint_rebuilds_missing_managed_env(app, monkeypatch):
+    """watermark.python still points at the managed venv but it was deleted -> rebuild
+    it (self-heal) instead of failing on a dead interpreter path."""
+    from app import setup_installer, config
+    seen = []
+    monkeypatch.setattr(setup_installer, '_find_base_python', lambda a: r'C:\pybase\python.exe')
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', _fake_venv_popen(seen))
+    with app.app_context():
+        managed = setup_installer._watermark_env_python()   # does NOT exist on disk
+        config.save_config({'watermark': {'python': managed}})
+        setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+        rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
+    assert rc == 0
+    assert any(c[1:3] == ['-m', 'venv'] for c in seen)       # rebuilt
+
+
+# --- base-Python discovery (version checked by EXECUTION, not name) --------
+
+
+def test_find_base_python_picks_first_in_range(monkeypatch):
+    from app import setup_installer
+    versions = {'/py313': (3, 13), '/py312': (3, 12), '/py310': (3, 10), '/broken': None}
+    monkeypatch.setattr(setup_installer, '_base_python_candidates',
+                        lambda: ['/broken', '/py313', '/py312', '/py310'])
+    monkeypatch.setattr(setup_installer, '_python_minor', lambda e: versions[e])
+    setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+    # first IN-RANGE wins: /broken (None) and /py313 (out of range) are skipped
+    assert setup_installer._find_base_python('watermark_inpaint') == '/py312'
+
+
+def test_find_base_python_empty_when_none_in_range(monkeypatch):
+    from app import setup_installer
+    monkeypatch.setattr(setup_installer, '_base_python_candidates', lambda: ['/py313', '/py39'])
+    monkeypatch.setattr(setup_installer, '_python_minor',
+                        lambda e: {'/py313': (3, 13), '/py39': (3, 9)}[e])
+    setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
+    assert setup_installer._find_base_python('watermark_inpaint') == ''
+
+
+def test_base_python_candidates_includes_sys_executable(app):
+    """sys.executable is a candidate BASE (the portable bundle's own 3.12 is a valid
+    base with no other Python installed) — but only USED if its executed version is in
+    range, which _find_base_python enforces separately."""
+    import sys, os
+    from app import setup_installer
+    with app.app_context():
+        cands = setup_installer._base_python_candidates()
+    norm = [os.path.normcase(os.path.abspath(c)) for c in cands]
+    assert os.path.normcase(os.path.abspath(sys.executable)) in norm
+
+
+# --- pip serialization: one at a time, queued in click order --------------
+
+
+def test_second_pip_action_is_queued_not_run(app, monkeypatch):
+    """A second pip install requested while one runs is QUEUED (not rejected, not run
+    concurrently) with waiting_for pointing at the running action."""
+    from app import setup_installer
+    monkeypatch.setattr(setup_installer, '_execute', lambda a: None)  # threads no-op
+    setup_installer._pip_current = None
+    setup_installer._pip_queue.clear()
+    with app.app_context():
+        s1 = setup_installer.start('face_scoring')
+        s2 = setup_installer.start('masks')
+    assert s1['state'] == 'running'
+    assert s2['state'] == 'queued' and s2['waiting_for'] == 'face_scoring'
+    assert setup_installer._pip_queue == ['masks']
+    setup_installer._pip_current = None
+    setup_installer._pip_queue.clear()
+
+
+def test_release_pip_slot_starts_next_in_fifo_order(app, monkeypatch):
+    from app import setup_installer
+    started = []
+    monkeypatch.setattr(setup_installer, '_execute', lambda a: started.append(a))
+    setup_installer._pip_current = None
+    setup_installer._pip_queue.clear()
+    with app.app_context():
+        setup_installer.start('face_scoring')   # runs
+        setup_installer.start('masks')          # queued
+        setup_installer.start('watermark_inpaint')  # queued behind masks
+    assert setup_installer._pip_queue == ['masks', 'watermark_inpaint']
+    setup_installer._release_pip_slot('face_scoring')
+    assert setup_installer._pip_current == 'masks'
+    assert setup_installer._runs['masks']['state'] == 'running'
+    assert setup_installer._pip_queue == ['watermark_inpaint']
+    setup_installer._pip_current = None
+    setup_installer._pip_queue.clear()
+
+
+def test_model_download_not_blocked_by_pip_queue(app, tmp_path, monkeypatch):
+    """A Klein model download touches models/, not a venv — it must run in parallel
+    with a pip install, never sit in the pip queue."""
+    from app import setup_installer, config
+    monkeypatch.setattr(setup_installer, '_execute', lambda a: None)
+    monkeypatch.setattr(setup_installer, '_check_klein_precondition', lambda a: None)
+    setup_installer._pip_current = 'masks'   # simulate a pip install already running
+    setup_installer._pip_queue.clear()
+    base = _make_comfyui(tmp_path)
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        s = setup_installer.start('klein_lora')
+    assert s['state'] == 'running'                 # started, not queued
+    assert 'klein_lora' not in setup_installer._pip_queue
+    setup_installer._pip_current = None
+
+
+# --- retry with backoff on a transient file-lock error (AV / indexer) ------
+
+
+def test_run_pip_retries_on_transient_lock_then_succeeds(monkeypatch):
+    """An Errno 13 / WinError-style lock (an antivirus holding a fresh file) is retried;
+    the second attempt succeeds. pip is idempotent, so the rerun finishes the step."""
+    from app import setup_installer
+    monkeypatch.setattr(setup_installer.time, 'sleep', lambda s: None)
+    attempts = {'n': 0}
+    class FakeProc:
+        def __init__(self, fail):
+            self._fail = fail
+            self.stdout = iter(["ERROR: Could not install: [Errno 13] Permission denied\n"]
+                               if fail else ["Successfully installed\n"])
+            self.returncode = 1 if fail else 0
+        def wait(self): return self.returncode
+    def fake_popen(cmd, **kw):
+        attempts['n'] += 1
+        return FakeProc(fail=(attempts['n'] == 1))
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', fake_popen)
+    setup_installer._runs['masks'] = setup_installer._new_run()
+    rc = setup_installer._run_pip('masks', ['py', '-m', 'pip', 'install', 'x'])
+    assert rc == 0 and attempts['n'] == 2
+    assert any('retrying' in l for l in setup_installer._runs['masks']['log'])
+
+
+def test_run_pip_does_not_retry_a_real_build_failure(monkeypatch):
+    """A genuine 'no wheel / build failed' error is NOT retryable — it returns at once
+    (one attempt), so a doomed install doesn't spin 3x."""
+    from app import setup_installer
+    monkeypatch.setattr(setup_installer.time, 'sleep', lambda s: None)
+    attempts = {'n': 0}
+    class FakeProc:
+        returncode = 1
+        stdout = iter(['ERROR: Could not build wheels for insightface\n'])
+        def wait(self): return 1
+    def fake_popen(cmd, **kw):
+        attempts['n'] += 1
+        return FakeProc()
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', fake_popen)
+    setup_installer._runs['masks'] = setup_installer._new_run()
+    rc = setup_installer._run_pip('masks', ['py', '-m', 'pip', 'install', 'x'])
+    assert rc == 1 and attempts['n'] == 1
+
+
+def test_manual_command_watermark_inpaint_points_to_managed_env_when_unconfigured(app):
+    """No dedicated env -> the debug/diagnostic command must NOT target the app's own
+    Python (that would break Pillow); it points at the app-managed venv the Install
+    button auto-builds. (This string is a debug aid now — the button installs itself.)"""
+    import sys
     from app import setup_installer
     with app.app_context():
         cmd = setup_installer.manual_command('watermark_inpaint')
-    assert 'separate Python' in cmd
+    assert 'envs' in cmd and 'watermark' in cmd            # the app-managed venv path
+    assert sys.executable not in cmd                        # never the app's own Python
     assert 'pip install' in cmd and 'simple-lama-inpainting' in cmd
     assert not cmd.startswith('pip ')
 

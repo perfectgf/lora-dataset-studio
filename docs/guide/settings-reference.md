@@ -270,7 +270,7 @@ These have no UI control — they're for advanced users editing `config.json` by
 | `face_scoring.python` | `''` | Interpreter for the InsightFace subprocess (empty = current interpreter). |
 | `face_scoring.models_root` | `''` | Where InsightFace weights are stored/downloaded. |
 | `masks.python` | `''` | Interpreter for the rembg (person-mask) subprocess. |
-| `watermark.python` | `''` | Interpreter for the LaMa watermark subprocess (empty = reuse `masks.python`, then the current interpreter). |
+| `watermark.python` | `''` | Interpreter for the LaMa watermark subprocess. **Auto-managed:** leave it empty and the **Install inpainting** button builds a dedicated Python 3.10-3.12 environment for you (`simple-lama-inpainting` needs Pillow&lt;10, so it can't share the app's own Python) and fills this in automatically. Set it yourself only to point at an environment you already have — a manual value is always respected and never overwritten. |
 
 **Klein consistency LoRA:**
 

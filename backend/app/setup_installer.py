@@ -8,11 +8,14 @@ thread and expose their live state for polling. Actions:
                         preter probe_face_scoring resolves — install/repair ONE feature
   masks              -> pip install JUST the person-mask package (rembg) into the inter-
                         preter probe_masks resolves — install/repair ONE feature
-  watermark_inpaint  -> pip install JUST the watermark-inpainting package (simple-lama-
-                        inpainting, version floor read from requirements-ml.txt) into the
-                        interpreter the LaMa wrapper resolves — the scoped install shown
-                        next to the Curate 🧽 tools, so a user who already has rembg/
-                        insightface doesn't redo the whole ML extras step
+  watermark_inpaint  -> install the watermark-inpainting package (simple-lama-inpainting,
+                        version floor read from requirements-ml.txt) into a dedicated
+                        3.10-3.12 interpreter. When the user has configured one it is used;
+                        otherwise the action AUTO-PROVISIONS one — finds a base Python
+                        3.10-3.12, builds an isolated venv under the data dir, installs CPU
+                        torch + simple-lama into it, and records it as watermark.python. No
+                        manual venv, no setting to edit (the package needs Pillow<10 and can
+                        never share the app's Pillow-12 venv)
   (face_scoring/masks/watermark_inpaint all follow the same shape: ML interpreter resolved
    per capability, requirements-ml.txt pinned as a -c constraint, probe cache invalidated
    on success so the capability flips without a restart.)
@@ -28,6 +31,13 @@ thread and expose their live state for polling. Actions:
   klein_vae          -> flux2-vae into <ComfyUI>/models/vae/
 
 No shell, no client-supplied arguments: each action's command/URL/destination is fixed.
+
+Pip actions are SERIALIZED (one at a time, second request queued in click order): two
+pip processes writing the same environment race on a shared package's dist-info and
+corrupt it — proven by repro (two concurrent installs of one big binary package into
+one venv fail 6/6 with WinError 2 / Errno 13). Each pip run also retries once on a
+transient file-lock error (an antivirus holding a fresh file). Model downloads and the
+ollama pull don't touch a venv, so they stay parallel.
 """
 import logging
 import os
@@ -36,6 +46,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 
 import requests
 
@@ -141,10 +152,38 @@ _CAPABILITY_ML_ACTIONS = ('face_scoring', 'masks')
 # 600 s TTL (ml_extras/scrape_extras via -r, the scoped per-capability installs).
 _IMPORT_CACHE_ACTIONS = (frozenset(_PIP_REQUIREMENTS)
                          | set(_CAPABILITY_ML_ACTIONS) | {'watermark_inpaint'})
+
+# Actions that invoke pip and therefore MUST NOT run concurrently: two pip processes
+# writing the same environment race on a shared package's files/dist-info and corrupt
+# it (proven by repro: two concurrent installs of one big binary package into one venv
+# fail 6/6 with WinError 2 / Errno 13 on the package's dist-info). All the default ML
+# installs target the app's own venv (no dedicated python), so these are serialized to
+# ONE at a time; a second request is QUEUED in click order. Model downloads and the
+# ollama pull touch models/ or the network, not a venv, so they are NOT here and keep
+# running in parallel.
+_PIP_ACTIONS = (frozenset(_PIP_REQUIREMENTS)
+                | set(_CAPABILITY_ML_ACTIONS) | {'watermark_inpaint'})
+
+# Transient file-lock errors an install can hit even without concurrency: an antivirus
+# or the search indexer briefly holding a just-written file at the moment pip renames
+# it (classically Bitdefender on Windows -> Errno 13; a sharing violation -> WinError
+# 32; access denied -> WinError 5). These are retryable: pip is idempotent, so rerunning
+# finishes the interrupted step. A genuine "no wheel / build failed" error does NOT match
+# and is surfaced immediately.
+_RETRYABLE_PIP_ERR = re.compile(
+    r'Errno 13|Permission denied|WinError 5\b|WinError 32|WinError 2\b|being used by another process',
+    re.IGNORECASE)
+_PIP_RETRIES = 3          # total attempts on a retryable error
+_PIP_RETRY_BACKOFF = 3    # seconds * attempt number between tries
+
 _LOG_MAX = 400  # ring-buffer the log so a chatty pip can't grow unbounded
 
 _lock = threading.Lock()
-_runs = {}  # action -> {'state', 'returncode', 'log'}
+_runs = {}  # action -> {'state', 'returncode', 'log', 'progress', 'waiting_for'}
+# Pip serialization (guarded by _lock): the single action currently occupying the pip
+# worker, and the FIFO of actions waiting their turn (click order).
+_pip_current = None
+_pip_queue = []
 
 
 class AlreadyRunning(Exception):
@@ -156,7 +195,8 @@ class Precondition(Exception):
 
 
 def _new_run():
-    return {'state': 'running', 'returncode': None, 'log': [], 'progress': None}
+    return {'state': 'running', 'returncode': None, 'log': [], 'progress': None,
+            'waiting_for': None}
 
 
 def _append(action, line):
@@ -333,12 +373,13 @@ def manual_command(action) -> str:
     if action == 'watermark_inpaint':
         # Quote the spec: the '>=' in 'simple-lama-inpainting>=0.1.2' is shell
         # redirection unquoted. Interpreter = the wrapper's resolved python — but
-        # NEVER the Flask venv (simple-lama needs pillow<10 and would break the app),
-        # so when nothing dedicated is configured point at a separate env instead.
+        # NEVER the Flask venv (simple-lama needs pillow<10 and would break the app).
+        # When nothing dedicated is configured the Install button AUTO-BUILDS a
+        # dedicated venv; this debug/diagnostic line points at that managed venv.
         python = _watermark_python()
         spec = _requirement_spec(_WATERMARK_PKG)
         if _is_flask_venv(python):
-            return f'"<a separate Python 3.10-3.12>" -m pip install "{spec}"'
+            python = _watermark_env_python()
         return f'{_quote(python)} -m pip install "{spec}"'
     if action == 'ollama_model':
         model = (cfg.get('ollama.vision_model') or '').strip() or '<vision-model>'
@@ -358,26 +399,61 @@ def status(action) -> dict:
     cmd = manual_command(action)
     if run is None:
         return {'state': 'idle', 'returncode': None, 'log': [], 'progress': None,
-                'manual_command': cmd}
+                'waiting_for': None, 'manual_command': cmd}
     return {'state': run['state'], 'returncode': run['returncode'],
             'log': list(run['log']), 'progress': run.get('progress'),
+            # 'queued' -> which action it's waiting behind (the UI shows an honest
+            # "waiting for another install" instead of a dead-looking button).
+            'waiting_for': run.get('waiting_for'),
+            # Kept for the diagnostic/debug log only — no longer shown as a user
+            # "run this by hand" path (installs auto-recover or repair on re-click).
             'manual_command': cmd}
 
 
 def start(action) -> dict:
     if action not in INSTALL_ACTIONS:
         raise ValueError(f'unknown action: {action}')
+    global _pip_current
     with _lock:
         run = _runs.get(action)
-        if run and run['state'] == 'running':
+        if run and run['state'] in ('running', 'queued'):
             raise AlreadyRunning(action)
         if action == 'ollama_model':
             _check_ollama_precondition()
         if action in _KLEIN_DOWNLOADS:
             _check_klein_precondition(action)
         _runs[action] = _new_run()
+        if action in _PIP_ACTIONS and _pip_current is not None:
+            # A pip install already owns the worker -> queue this one (FIFO, click
+            # order) instead of racing it into the same environment. It starts on its
+            # own when the current install finishes (see _release_pip_slot).
+            _runs[action]['state'] = 'queued'
+            _runs[action]['waiting_for'] = _pip_current
+            _pip_queue.append(action)
+            return status(action)
+        if action in _PIP_ACTIONS:
+            _pip_current = action
     threading.Thread(target=_execute, args=(action,), daemon=True).start()
     return status(action)
+
+
+def _release_pip_slot(finished):
+    """A pip action finished: free the worker and launch the next queued pip action
+    (FIFO). Model downloads / ollama pulls never touch these globals."""
+    global _pip_current
+    nxt = None
+    with _lock:
+        if _pip_current == finished:
+            _pip_current = None
+        if _pip_queue and _pip_current is None:
+            nxt = _pip_queue.pop(0)
+            _pip_current = nxt
+            run = _runs.get(nxt)
+            if run is not None:
+                run['state'] = 'running'
+                run['waiting_for'] = None
+    if nxt is not None:
+        threading.Thread(target=_execute, args=(nxt,), daemon=True).start()
 
 
 def _check_ollama_precondition():
@@ -444,6 +520,41 @@ def _execute(action):
         _append(action, f'error: {e}')
         _runs[action]['returncode'] = -1
         _runs[action]['state'] = 'error'
+    finally:
+        # Always hand the pip worker to the next queued install, even on failure — a
+        # crashed install must not wedge the queue behind it.
+        if action in _PIP_ACTIONS:
+            _release_pip_slot(action)
+
+
+def _run_pip(action, cmd) -> int:
+    """Run a pip command, streaming its output to the ring log, with a bounded retry
+    on a TRANSIENT file-lock error (an antivirus/indexer holding a just-written file —
+    Errno 13 / WinError 5|32|2). pip is idempotent, so a rerun finishes the interrupted
+    step. A genuine build/resolution failure doesn't match _RETRYABLE_PIP_ERR and is
+    returned immediately. Concurrency is already prevented by the pip queue; this is the
+    single-process defence (the Bitdefender-style lock users without a queue still hit)."""
+    rc = -1
+    for attempt in range(1, _PIP_RETRIES + 1):
+        buf = []
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+        for line in proc.stdout:
+            _append(action, line)
+            buf.append(line)
+        proc.wait()
+        rc = proc.returncode
+        if rc == 0:
+            return 0
+        if attempt < _PIP_RETRIES and any(_RETRYABLE_PIP_ERR.search(l) for l in buf):
+            wait = _PIP_RETRY_BACKOFF * attempt
+            _append(action, f'transient file-lock error (an antivirus or indexer may be '
+                            f'holding a fresh file); retrying in {wait}s '
+                            f'[{attempt}/{_PIP_RETRIES - 1}]')
+            time.sleep(wait)
+            continue
+        return rc
+    return rc
 
 
 def _run_ml_extras(action) -> int:
@@ -460,15 +571,8 @@ def _run_ml_extras(action) -> int:
     """
     if action != 'ml_extras':
         # scrape_extras: pure-python, safe to install straight into this interpreter.
-        proc = subprocess.Popen(
-            [sys.executable, '-m', 'pip', 'install', '-r',
-             str(_PIP_REQUIREMENTS.get(action, _ML_REQUIREMENTS))],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
-        )
-        for line in proc.stdout:
-            _append(action, line)
-        proc.wait()
-        return proc.returncode
+        return _run_pip(action, [sys.executable, '-m', 'pip', 'install', '-r',
+                                 str(_PIP_REQUIREMENTS.get(action, _ML_REQUIREMENTS))])
 
     # ml_extras (insightface/numpy<2/onnx) has no wheels outside Python 3.10–3.12;
     # on a newer interpreter pip source-builds and fails with a cryptic numpy
@@ -496,62 +600,249 @@ def _run_ml_extras(action) -> int:
     specs = _ml_requirement_specs(exclude=_INCOMPATIBLE_CANON)
     cmd = ([sys.executable, '-m', 'pip', 'install', *specs,
             '-c', str(_ML_REQUIREMENTS)] + _flask_pillow_guard(sys.executable))
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
-    for line in proc.stdout:
-        _append(action, line)
-    proc.wait()
-    rc = proc.returncode
+    rc = _run_pip(action, cmd)
     # The Pillow-incompatible extra is deliberately absent from the Flask venv: say
     # so and how to add it safely, so "install everything" never silently half-does
-    # the job (and never breaks Pillow doing it).
+    # the job (and never breaks Pillow doing it). The 'Install inpainting' button now
+    # BUILDS a dedicated Python for it automatically — no manual venv to create.
     for pkg in sorted(_FLASK_VENV_INCOMPATIBLE):
         _append(action, f"note: {pkg} is NOT installed into the app's own Python "
-                        f"(it needs Pillow<10, which would break the app). Enable it "
-                        f"with the 'Install inpainting' button after pointing "
-                        f"watermark.python at a separate Python 3.10-3.12 env.")
+                        f"(it needs Pillow<10, which would break the app). Click the "
+                        f"'Install inpainting' button to enable it — it builds a "
+                        f"dedicated Python for you automatically.")
     return rc
 
 
-def _run_watermark_inpaint(action) -> int:
-    """Install JUST the watermark-inpainting package (simple-lama-inpainting, plus
-    its torch/opencv deps) into the interpreter the LaMa wrapper resolves — which
-    MUST NOT be the Flask venv: the package hard-requires Pillow<10 and installing
-    it into the app's own environment would downgrade (break) Pillow 12. When no
-    dedicated ML interpreter is configured (watermark.python / masks.python), that
-    resolver falls back to the Flask venv → refuse cleanly with an actionable
-    message instead of corrupting Pillow. That refusal IS the graceful degradation
-    for the 'corrupted env that survives updates' bug: nothing installs, the app
-    stays intact, and the log says exactly how to enable the feature safely.
+# --- Auto-provisioned watermark venv -------------------------------------------
+# simple-lama-inpainting hard-requires Pillow<10, so it can never share the app's
+# Pillow-12 venv. When the user hasn't pointed watermark.python at a dedicated
+# 3.10-3.12 interpreter, the Install button BUILDS one for them: find a base Python
+# 3.10-3.12 on the machine, create an isolated venv under the app's data dir, install
+# CPU torch + simple-lama-inpainting into it, and record its interpreter as
+# watermark.python so the probe + wrapper resolve there. No manual venv, no setting to
+# edit. Idempotent: a re-click reuses/repairs the same venv; a user's own
+# watermark.python is always respected and never overwritten.
+_VENV_PY_MIN = (3, 10)   # mirrors capabilities._ML_PY_MIN/_MAX (the ML wheel range):
+_VENV_PY_MAX = (3, 12)   # torch / simple-lama publish wheels for CPython 3.10-3.12.
+# CPU torch, installed EXPLICITLY into the managed venv: reliable and small on every OS
+# (no CUDA toolkit, no multi-GB download), and watermark inpainting only repaints small
+# masked regions where CPU is fine. watermark.device='auto' resolves to CPU when CUDA is
+# absent, so the env works with zero config. A user who wants GPU points watermark.python
+# at their own CUDA env — where we DON'T force CPU torch (we never downgrade their build).
+_TORCH_CPU_INDEX = 'https://download.pytorch.org/whl/cpu'
 
-    On a real dedicated env: a user who already ran the ML extras step keeps
-    rembg/insightface (pip skips the already-satisfied ones). The version floor is
-    READ from requirements-ml.txt (single source of truth), and that file rides
-    along as a CONSTRAINT (-c) so pulling torch can never bump numpy past
-    insightface's <2 ceiling and silently break face scoring."""
-    python = _watermark_python()
-    if _is_flask_venv(python):
-        for line in (
-            "watermark inpainting needs its OWN Python: simple-lama-inpainting requires",
-            "Pillow<10, and installing it into the app's own environment would downgrade",
-            "Pillow 12 and break the app. Nothing was installed.",
-            "Fix: create a separate Python 3.10-3.12 environment, then set its",
-            "python(.exe) as watermark.python in Settings and click Install again.",
-            f"(refused target — the app's own interpreter: {sys.executable})",
-        ):
-            _append(action, line)
-        return 1
+
+def _watermark_env_dir():
+    """The app-managed watermark venv directory (deterministic, under the data dir), so
+    a re-click resolves the SAME venv — idempotent build/repair, never a duplicate."""
+    return cfg.data_dir() / 'envs' / 'watermark'
+
+
+def _venv_python(env_dir) -> str:
+    return str(env_dir / ('Scripts' if os.name == 'nt' else 'bin')
+              / ('python.exe' if os.name == 'nt' else 'python'))
+
+
+def _watermark_env_python() -> str:
+    """Absolute path to the app-managed watermark venv's python (may not exist yet)."""
+    return _venv_python(_watermark_env_dir())
+
+
+def _same_path(a, b) -> bool:
+    """True when two paths point at the same interpreter. samefile when both exist,
+    else a case/separator-insensitive compare (so a not-yet-built venv path matches)."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return (os.path.normcase(os.path.abspath(a or ''))
+                == os.path.normcase(os.path.abspath(b or '')))
+
+
+def _python_minor(exe: str):
+    """(major, minor) reported by RUNNING `exe` — never trusted from its name/path —
+    or None when it can't be executed. Short timeout, no console window."""
+    try:
+        proc = subprocess.run(
+            [exe, '-c', 'import sys; print("%d.%d" % sys.version_info[:2])'],
+            capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    m = re.match(r'^(\d+)\.(\d+)\s*$', proc.stdout or '')
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def _base_python_candidates() -> list:
+    """Interpreters to try as the BASE for `-m venv`, in reliability order. Names/paths
+    only — each is version-checked by EXECUTION before use. We never install into these;
+    we only spawn an isolated venv from one (its site-packages are never touched)."""
+    cands = []
+    if os.name == 'nt':
+        # 1. Windows launcher: explicit 3.12 > 3.11 > 3.10 (resolve the tag to a path).
+        launcher = shutil.which('py')
+        if launcher:
+            for tag in ('3.12', '3.11', '3.10'):
+                try:
+                    p = subprocess.run([launcher, f'-{tag}', '-c',
+                                        'import sys; print(sys.executable)'],
+                                       capture_output=True, text=True, timeout=15,
+                                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                    exe = (p.stdout or '').strip()
+                    if p.returncode == 0 and exe:
+                        cands.append(exe)
+                except (OSError, subprocess.SubprocessError):
+                    pass
+    # 2. On PATH.
+    for name in ('python3.12', 'python3.11', 'python3.10', 'python3', 'python'):
+        exe = shutil.which(name)
+        if exe:
+            cands.append(exe)
+    # 3. Standard per-user / system install locations (Windows).
+    if os.name == 'nt':
+        for root in (os.environ.get('LOCALAPPDATA', ''), os.environ.get('PROGRAMFILES', ''),
+                     os.environ.get('PROGRAMFILES(X86)', ''), 'C:\\'):
+            if not root:
+                continue
+            for ver in ('312', '311', '310'):
+                cands.append(os.path.join(root, 'Programs', 'Python', f'Python{ver}', 'python.exe'))
+                cands.append(os.path.join(root, f'Python{ver}', 'python.exe'))
+    # 4. Pythons the app already knows — used ONLY as a venv base. sys.executable (the
+    #    app's own 3.12 venv) is a perfect base on a portable-bundle machine that has no
+    #    other Python installed: `-m venv` from it makes a fresh, empty env, so the app's
+    #    Pillow 12 is never touched.
+    cands.append(sys.executable)
+    for key in ('face_scoring.python', 'masks.python'):
+        v = (cfg.get(key) or '').strip()
+        if v:
+            cands.append(v)
+    try:
+        ai = cfg.aitoolkit_path('venv_python')
+        if ai:
+            cands.append(str(ai))
+    except Exception:
+        pass
+    # Dedupe, preserving order (normcase for Windows path equality).
+    seen, out = set(), []
+    for c in cands:
+        key = os.path.normcase(os.path.abspath(c)) if c else ''
+        if key and key not in seen:
+            seen.add(key)
+            out.append(c)
+    return out
+
+
+def _find_base_python(action) -> str:
+    """First candidate interpreter whose REAL (executed) version is 3.10-3.12, else ''.
+    Logs the chosen base so a report can see exactly what was used."""
+    for exe in _base_python_candidates():
+        ver = _python_minor(exe)
+        if ver is not None and _VENV_PY_MIN <= ver <= _VENV_PY_MAX:
+            _append(action, f'found base Python {ver[0]}.{ver[1]}: {exe}')
+            return exe
+    return ''
+
+
+def _ensure_watermark_env(action) -> str:
+    """Build (or reuse) the app-managed watermark venv and record it as watermark.python.
+    Returns the venv python on success, '' on failure (an actionable one-liner is logged).
+    Idempotent: an existing venv is reused; a missing one is (re)built."""
+    env_dir = _watermark_env_dir()
+    env_python = _venv_python(env_dir)
+    if not os.path.isfile(env_python):
+        base = _find_base_python(action)
+        if not base:
+            for line in (
+                'No Python 3.10-3.12 was found to build the inpainting environment '
+                '(simple-lama-inpainting needs Pillow<10, so it must live in its own '
+                'Python, never the app\'s).',
+                'Install Python 3.12, then click Install again:',
+                '  python.org/downloads  (tick "Add python.exe to PATH")',
+                '  or:  winget install Python.Python.3.12',
+            ):
+                _append(action, line)
+            return ''
+        _append(action, f'building the watermark environment at {env_dir}')
+        try:
+            env_dir.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            _append(action, f'could not create the data folder: {e}')
+            return ''
+        # venv creation is quick; stream it through the same retry helper so an AV lock
+        # on a freshly-written pyvenv file is retried rather than failing the whole build.
+        rc = _run_pip(action, [base, '-m', 'venv', str(env_dir)])
+        if rc != 0 or not os.path.isfile(env_python):
+            _append(action, 'could not create the environment — see the log above')
+            return ''
+        _append(action, 'environment ready')
+    else:
+        _append(action, f'reusing the watermark environment at {env_dir}')
+    # Record it so the probe + wrapper resolve here and a re-click repairs the SAME env.
+    # Only reached when nothing dedicated was configured, so this never overrides a
+    # user-set watermark.python.
+    try:
+        cfg.save_config({'watermark': {'python': env_python}})
+    except Exception as e:
+        _append(action, f'warning: could not save watermark.python ({e}); '
+                        'the environment still works for this run')
+    return env_python
+
+
+def _pip_install_watermark(action, python, *, managed: bool) -> int:
+    """Install simple-lama-inpainting into `python` (a dedicated 3.10-3.12 env). The
+    version floor is read from requirements-ml.txt (single source of truth), which also
+    rides along as a -c constraint so pulling torch can't bump numpy past insightface's
+    <2 ceiling. For the app-managed venv (managed=True) CPU torch is installed FIRST and
+    explicitly (small/reliable/cross-OS); a user's OWN env keeps whatever torch it has —
+    we never downgrade a CUDA build there."""
     spec = _requirement_spec(_WATERMARK_PKG)
     _append(action, f'target interpreter: {python}')
+    if managed:
+        _append(action, 'installing CPU torch (download.pytorch.org/whl/cpu)')
+        rc = _run_pip(action, [python, '-m', 'pip', 'install', 'torch',
+                               '--index-url', _TORCH_CPU_INDEX, '-c', str(_ML_REQUIREMENTS)])
+        if rc != 0:
+            _append(action, f'torch install failed (rc={rc}) — see the log above')
+            return rc
     _append(action, f'installing {spec}  (constraints: requirements-ml.txt)')
-    proc = subprocess.Popen(
-        [python, '-m', 'pip', 'install', spec, '-c', str(_ML_REQUIREMENTS)],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
-    )
-    for line in proc.stdout:
-        _append(action, line)
-    proc.wait()
-    return proc.returncode
+    return _run_pip(action, [python, '-m', 'pip', 'install', spec, '-c', str(_ML_REQUIREMENTS)])
+
+
+def _run_watermark_inpaint(action) -> int:
+    """Install simple-lama-inpainting (LaMa) into a dedicated 3.10-3.12 interpreter —
+    NEVER the Flask venv (the package hard-requires Pillow<10, which would downgrade and
+    break the app's Pillow 12).
+
+    When the user has pointed watermark.python (or masks.python) at a real dedicated env,
+    install there. When NOTHING dedicated is configured, AUTO-PROVISION: build an isolated
+    venv under the app's data dir and record it as watermark.python. This is the one-click
+    replacement for the old refuse-with-instructions path — the user never creates a venv
+    or edits a setting. Idempotent: a re-click reuses/repairs the same venv (and rebuilds
+    it if it went missing); a user-set watermark.python is always respected."""
+    managed_python = _watermark_env_python()
+    configured = (cfg.get('watermark.python') or cfg.get('masks.python') or '').strip()
+    # Auto-provision when nothing dedicated is configured, OR when the ONLY thing
+    # configured is our own managed venv and it has gone missing (rebuild it).
+    rebuild_managed = (bool(configured) and _same_path(configured, managed_python)
+                       and not os.path.isfile(managed_python))
+    if not configured or rebuild_managed:
+        python = _ensure_watermark_env(action)
+        if not python:
+            return 1
+    else:
+        python = configured
+        if _is_flask_venv(python):
+            for line in (
+                "watermark.python points at the app's own Python, but simple-lama-",
+                "inpainting requires Pillow<10 and would break the app's Pillow 12.",
+                "Nothing was installed. Clear watermark.python (and masks.python) and",
+                "click Install again — the app will build a dedicated Python for you.",
+                f"(refused target — the app's own interpreter: {sys.executable})",
+            ):
+                _append(action, line)
+            return 1
+    return _pip_install_watermark(action, python, managed=_same_path(python, managed_python))
 
 
 def _run_ml_capability(action) -> int:
@@ -579,15 +870,8 @@ def _run_ml_capability(action) -> int:
     _append(action, f"installing {', '.join(specs)}  (constraints: requirements-ml.txt)")
     # When this capability targets the Flask venv (no dedicated python), pin Pillow
     # so pulling insightface/rembg deps can't downgrade the app's Pillow either.
-    proc = subprocess.Popen(
-        [python, '-m', 'pip', 'install', *specs, '-c', str(_ML_REQUIREMENTS),
-         *_flask_pillow_guard(python)],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
-    )
-    for line in proc.stdout:
-        _append(action, line)
-    proc.wait()
-    return proc.returncode
+    return _run_pip(action, [python, '-m', 'pip', 'install', *specs,
+                             '-c', str(_ML_REQUIREMENTS), *_flask_pillow_guard(python)])
 
 
 def _klein_present_in_extra(action) -> bool:

@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-18-one-click-lama-and-queued-installs',
+    date: '2026-07-18',
+    title: 'Watermark inpainting installs itself — and Setup installs never collide',
+    blurb:
+      "The Install button for watermark inpainting (LaMa) now sets everything up by itself: it finds a Python 3.10-3.12 on your machine, builds a dedicated environment, installs it, and switches the feature on — no venv to create, no setting to paste. And clicking several Install buttons in a row no longer breaks them: installs now run one at a time in the order you click, so two of them can't corrupt each other's packages. A stray antivirus lock is retried automatically.",
+    to: '/datasets?section=curation&panel=watermarks',
+  },
+  {
     id: '2026-07-18-comfyui-setup-guardrails',
     date: '2026-07-18',
     title: 'Setup tells you straight away if the ComfyUI folder is wrong',
