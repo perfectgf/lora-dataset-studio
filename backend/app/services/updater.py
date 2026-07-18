@@ -166,16 +166,16 @@ def latest_release(repo=None, timeout=6) -> dict:
         return {'reason': f'release feed answered {r.status_code} (no public release yet?)'}
     j = r.json()
     tag = (j.get('tag_name') or '').strip()
-    zip_url = None
+    zip_url, zip_size = None, 0
     for asset in (j.get('assets') or []):
         name = (asset.get('name') or '').lower()
         url = asset.get('browser_download_url')
         if name.endswith('.zip') and url:
-            zip_url = url
+            zip_url, zip_size = url, int(asset.get('size') or 0)
             if 'windows' in name:      # the supported bundle — prefer it, keep looking otherwise
                 break
     return {'version': tag.lstrip('vV').strip() or None, 'tag': tag or None,
-            'zip_url': zip_url, 'html_url': j.get('html_url')}
+            'zip_url': zip_url, 'zip_size': zip_size, 'html_url': j.get('html_url')}
 
 
 def _staged_app_root(extract_dir) -> Path:
@@ -278,17 +278,23 @@ def apply_release_files(staged_root, repo_root, backup_root) -> list[str]:
         raise
 
 
-def apply_zip_update(root=None) -> dict:
+def apply_zip_update(root=None, *, release=None, on_progress=None) -> dict:
     """Release-ZIP update for a NON-git install: resolve the latest release,
     download its ZIP asset, extract it, and swap the app's files in place
     (backing up the old ones; rolling back on failure). Restart is scheduled by
     the caller. Returns a dict shaped like :func:`apply_update`
     ({ok, changed, from, to, deps_changed, ...}) so the route treats both paths
-    the same. `deps_changed` lets the caller defer pip to the restart helper."""
+    the same. `deps_changed` lets the caller defer pip to the restart helper.
+
+    `release` skips the network resolve when the caller already fetched it (the
+    async worker does, to size the progress bar). `on_progress(phase, done, total)`
+    is called through the phases ('downloading' with byte counts, then
+    'extracting', 'installing') so the UI can show a real progress bar — a release
+    ZIP is tens of MB, far slower than a git pull."""
     root = Path(root or REPO_ROOT)
     from ..version import APP_VERSION
     from ..config import data_dir
-    rel = latest_release()
+    rel = release or latest_release()
     if rel.get('reason'):
         return {'ok': False, 'reason': rel['reason']}
     latest = rel.get('version')
@@ -302,6 +308,13 @@ def apply_zip_update(root=None) -> dict:
                 'reason': 'the latest release published no downloadable ZIP asset.',
                 'url': rel.get('html_url') or f'https://github.com/{repo}/releases'}
 
+    def _emit(phase, done=0, total=0):
+        if on_progress:
+            try:
+                on_progress(phase, done, total)
+            except Exception:               # progress is cosmetic — never let it break the update
+                pass
+
     # Everything transient lives under data/ (writable, protected from the swap,
     # same volume as the app -> atomic renames). Wiped and recreated each run.
     work = data_dir() / '_update'
@@ -311,9 +324,11 @@ def apply_zip_update(root=None) -> dict:
     zip_path, staging, backup = work / 'release.zip', work / 'staging', work / 'backup'
 
     try:
-        _download_file(rel['zip_url'], zip_path)
+        _download_file(rel['zip_url'], zip_path,
+                       on_progress=lambda d, t: _emit('downloading', d, t or rel.get('zip_size') or 0))
     except Exception as exc:
         return {'ok': False, 'reason': f'download failed: {exc}'}
+    _emit('extracting')
     import zipfile
     try:
         with zipfile.ZipFile(zip_path) as zf:
@@ -334,6 +349,7 @@ def apply_zip_update(root=None) -> dict:
         os.chdir(str(root))
     except OSError:
         pass
+    _emit('installing')
     try:
         apply_release_files(app_root, root, backup)
     except Exception as exc:
@@ -344,15 +360,93 @@ def apply_zip_update(root=None) -> dict:
             'deps_changed': deps_changed, 'backup': str(backup)}
 
 
-def _download_file(url, dest, timeout=300) -> None:
-    """Stream a URL to `dest` (chunked so a large ZIP never loads fully into RAM)."""
+def _download_file(url, dest, timeout=300, on_progress=None) -> None:
+    """Stream a URL to `dest` (chunked so a large ZIP never loads fully into RAM).
+    `on_progress(downloaded, total)` fires per chunk; total is the Content-Length
+    when the server sends one, else 0 (unknown — the UI shows an indeterminate bar)."""
     import requests
     with requests.get(url, stream=True, timeout=timeout) as r:
         r.raise_for_status()
+        total = int(r.headers.get('Content-Length') or 0)
+        downloaded = 0
         with open(dest, 'wb') as fh:
             for chunk in r.iter_content(chunk_size=1 << 16):
-                if chunk:
-                    fh.write(chunk)
+                if not chunk:
+                    continue
+                fh.write(chunk)
+                downloaded += len(chunk)
+                if on_progress:
+                    on_progress(downloaded, total)
+
+
+# --- Async release update with progress (the UI polls /api/update/progress) ---
+
+_zip_lock = threading.Lock()
+_zip_state: dict = {'phase': 'idle'}
+_ACTIVE_PHASES = ('downloading', 'extracting', 'installing')
+
+
+def zip_update_progress() -> dict:
+    """A snapshot of the running (or last) release update for the progress poll."""
+    with _zip_lock:
+        return dict(_zip_state)
+
+
+def start_zip_update(root=None) -> dict:
+    """Kick off the release-ZIP update on a background thread and return
+    immediately so the download doesn't block the request. The trivial outcomes
+    (already up to date, no ZIP asset, feed unreachable) are decided synchronously
+    and returned inline — no thread, the button handles them like the git path.
+    A real update returns {ok, async:True, from, to, total}; the client then polls
+    :func:`zip_update_progress`. On success the worker schedules the restart."""
+    root = Path(root or REPO_ROOT)
+    from ..version import APP_VERSION
+    rel = latest_release()
+    if rel.get('reason'):
+        return {'ok': False, 'reason': rel['reason']}
+    latest = rel.get('version')
+    if not latest:
+        return {'ok': False, 'reason': 'the latest release has no version tag to update to.'}
+    if not (latest > APP_VERSION):
+        return {'ok': True, 'changed': False, 'from': APP_VERSION, 'to': latest}
+    if not rel.get('zip_url'):
+        repo = _cfg_get('updates.repo') or 'perfectgf/lora-dataset-studio'
+        return {'ok': False, 'manual': True,
+                'reason': 'the latest release published no downloadable ZIP asset.',
+                'url': rel.get('html_url') or f'https://github.com/{repo}/releases'}
+    with _zip_lock:
+        if _zip_state.get('phase') in _ACTIVE_PHASES:
+            return {'ok': True, 'async': True, **{k: _zip_state.get(k) for k in ('from', 'to', 'total')}}
+        _zip_state.clear()
+        _zip_state.update(phase='downloading', downloaded=0,
+                          total=rel.get('zip_size') or 0,
+                          **{'from': APP_VERSION, 'to': latest})
+    threading.Thread(target=_run_zip_update, args=(root, rel), daemon=True).start()
+    return {'ok': True, 'async': True, 'from': APP_VERSION, 'to': latest,
+            'total': rel.get('zip_size') or 0}
+
+
+def _run_zip_update(root, rel) -> None:
+    """Worker body: run the update, mirror its phase into `_zip_state`, and on
+    success schedule the restart. Any failure lands as phase 'error' (already
+    rolled back inside apply_zip_update), which the UI surfaces honestly."""
+    def cb(phase, done=0, total=0):
+        with _zip_lock:
+            _zip_state['phase'] = phase
+            if total:
+                _zip_state['total'] = total
+            if done:
+                _zip_state['downloaded'] = done
+    res = apply_zip_update(root, release=rel, on_progress=cb)
+    with _zip_lock:
+        if res.get('ok') and res.get('changed'):
+            _zip_state.update(phase='restarting', deps_changed=bool(res.get('deps_changed')))
+        elif res.get('ok'):
+            _zip_state.update(phase='done', changed=False)
+        else:
+            _zip_state.update(phase='error', error=res.get('reason'), rolled_back=True)
+    if res.get('ok') and res.get('changed'):
+        schedule_restart(install_requirements=bool(res.get('deps_changed')))
 
 
 def _dependency_install_command(root=None, executable=None) -> list[str]:

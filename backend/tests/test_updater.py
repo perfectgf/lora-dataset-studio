@@ -351,6 +351,81 @@ def test_apply_zip_update_rolls_back_and_reports_on_swap_failure(tmp_path, monke
     assert (repo / 'backend' / 'app' / '__init__.py').read_text() == 'OLD'
 
 
+def test_download_file_reports_progress(tmp_path, monkeypatch):
+    import requests
+
+    class _Stream:
+        headers = {'Content-Length': '6'}
+        def raise_for_status(self): pass
+        def iter_content(self, chunk_size=1): return [b'ab', b'cd', b'ef']
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: _Stream())
+    seen = []
+    dest = tmp_path / 'out.bin'
+    updater._download_file('https://x/z', dest, on_progress=lambda d, t: seen.append((d, t)))
+    assert dest.read_bytes() == b'abcdef'
+    assert seen == [(2, 6), (4, 6), (6, 6)]      # cumulative bytes, known total
+
+
+def test_apply_zip_update_emits_phases(tmp_path, monkeypatch):
+    repo = tmp_path / 'install'
+    _make_app_tree(repo, version_marker='OLD')
+    monkeypatch.setenv('LDS_DATA_DIR', str(repo / 'data'))
+    zip_path = _forge_release_zip(tmp_path)
+    rel = {'version': '9999.01.01', 'zip_url': 'https://x/z', 'zip_size': 123}
+    monkeypatch.setattr(updater.os, 'chdir', lambda p: None)
+
+    def fake_download(url, dest, **kw):
+        updater.shutil.copyfile(zip_path, dest)
+        if kw.get('on_progress'):
+            kw['on_progress'](123, 123)          # simulate the download reporting bytes
+    monkeypatch.setattr(updater, '_download_file', fake_download)
+
+    phases = []
+    updater.apply_zip_update(root=repo, release=rel,
+                             on_progress=lambda ph, d=0, t=0: phases.append(ph))
+    assert phases[0] == 'downloading' and 'extracting' in phases and 'installing' in phases
+
+
+def test_start_zip_update_no_op_when_not_newer(tmp_path, monkeypatch):
+    monkeypatch.setattr(updater, 'latest_release',
+                        lambda *a, **k: {'version': '2000.01.01', 'zip_url': 'https://x/z'})
+    r = updater.start_zip_update(root=tmp_path)
+    assert r['ok'] is True and r['changed'] is False    # decided inline, no thread
+
+
+def test_start_zip_update_runs_worker_to_restarting(tmp_path, monkeypatch):
+    import time
+    repo = tmp_path / 'install'
+    _make_app_tree(repo, version_marker='OLD')
+    (repo / 'config.json').write_text('mine', encoding='utf-8')
+    monkeypatch.setenv('LDS_DATA_DIR', str(repo / 'data'))
+    zip_path = _forge_release_zip(tmp_path)
+    monkeypatch.setattr(updater, 'latest_release',
+                        lambda *a, **k: {'version': '9999.01.01', 'tag': 'v9999.01.01',
+                                         'zip_url': 'https://x/win', 'zip_size': 99})
+    monkeypatch.setattr(updater, '_download_file',
+                        lambda url, dest, **k: updater.shutil.copyfile(zip_path, dest))
+    monkeypatch.setattr(updater.os, 'chdir', lambda p: None)
+    restarts = []
+    monkeypatch.setattr(updater, 'schedule_restart', lambda *a, **k: restarts.append(k))
+
+    r = updater.start_zip_update(root=repo)
+    assert r['async'] is True and r['to'] == '9999.01.01' and r['total'] == 99
+
+    for _ in range(100):                                # wait for the worker (<~5 s)
+        if updater.zip_update_progress().get('phase') in ('restarting', 'error', 'done'):
+            break
+        time.sleep(0.05)
+    prog = updater.zip_update_progress()
+    assert prog['phase'] == 'restarting'
+    assert (repo / 'backend' / 'app' / '__init__.py').read_text() == 'NEW'   # swapped
+    assert (repo / 'config.json').read_text() == 'mine'                      # preserved
+    assert restarts == [{'install_requirements': False}]
+
+
 def test_apply_zip_update_rejects_archive_without_backend(tmp_path, monkeypatch):
     repo = tmp_path / 'install'
     _make_app_tree(repo, version_marker='OLD')

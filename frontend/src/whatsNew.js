@@ -78,7 +78,7 @@ export const WHATS_NEW = [
     date: '2026-07-19',
     title: '“Update & restart” now works even if you installed from a ZIP',
     blurb:
-      "If you downloaded the app as a ZIP from the releases page (no Git), the “Update & restart” button used to only send you off to download the new version by hand. Now it does it for you: it fetches the latest release, backs up your current files, swaps in the new ones — keeping your datasets, settings, .env and Python environment fully intact — and restarts. If anything goes wrong mid-way it rolls back automatically, so a failed update never leaves you with a broken install. Git clones keep updating exactly as before.",
+      "If you downloaded the app as a ZIP from the releases page (no Git), the “Update & restart” button used to only send you off to download the new version by hand. Now it does it for you, and the button adapts to how you installed: on a ZIP install it names the release and its size (“Update to v2026.07.19 — download ~42 MB”) and shows a live progress bar while it downloads and installs, since that takes longer than a git pull. It backs up your current files, swaps in the new ones — keeping your datasets, settings, .env and Python environment fully intact — then restarts. If anything goes wrong mid-way it rolls back automatically, so a failed update never leaves you with a broken install. Git clones keep updating exactly as before.",
     to: '/settings/maintenance',
   },
   {
