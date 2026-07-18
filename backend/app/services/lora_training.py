@@ -3518,9 +3518,17 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> di
     blockers, warnings = [], []
     checks = []
 
-    def _check(cid, clabel, status, detail, target=None):
-        checks.append({'id': cid, 'label': clabel, 'status': status,
-                       'detail': detail, 'target': target})
+    def _check(cid, clabel, status, detail, target=None, bypassable=None, hint=None):
+        # `bypassable` (fail rows only): True = a QUALITY guard-rail the explicit
+        # "Continue anyway" ack can waive; False = a physical impossibility the ack
+        # never covers. `hint` = the honest one-line risk shown next to the ack.
+        entry = {'id': cid, 'label': clabel, 'status': status,
+                 'detail': detail, 'target': target}
+        if bypassable is not None:
+            entry['bypassable'] = bool(bypassable)
+        if hint:
+            entry['hint'] = hint
+        checks.append(entry)
 
     rows = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).all()
     kept = [r for r in rows if r.status == 'keep' and r.filename]
@@ -3548,7 +3556,17 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> di
             'Generate or import more before training.')
         _check('images', 'Enough images', 'fail',
                (f'{n} kept — slider substrate needs {floor}+ varied images' if slider
-                else f'{n} kept — the hard minimum for {label} is {floor}'), 'gf-generate')
+                else f'{n} kept — the hard minimum for {label} is {floor}'), 'gf-generate',
+               # With no image kept there is literally nothing to train on (ai-toolkit
+               # would crash) → a physical impossibility the ack can't cover. One or
+               # more kept but below the floor is a quality guard-rail: waivable.
+               bypassable=(n >= 1),
+               hint=(f'{n} substrate image(s) is under {floor} — a slider trained this '
+                     'thin will be unstable; you can proceed, but expect a weak slider.'
+                     if slider else
+                     f'{n} image(s) is well under {floor} — a {label} LoRA trained this '
+                     'thin will likely overfit and generalize poorly. The minimum exists '
+                     f'because {label} needs visual variety; proceed only to experiment.'))
     elif n < reco:
         warnings.append(
             f'{n} kept image(s) — {reco}+ varied substrate images recommended for a '
@@ -3575,7 +3593,10 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> di
             blockers.append(f'Slider mode is ON but the {missing} prompt is empty — '
                             'the pair defines the two ends of the slider.')
             _check('slider_prompts', 'Slider prompt pair', 'fail',
-                   f'{missing} prompt missing — set it in the training panel', 'gf-training')
+                   f'{missing} prompt missing — set it in the training panel', 'gf-training',
+                   # No prompt pair = no slider direction to learn: ai-toolkit has
+                   # nothing to optimise → physical impossibility, never waivable.
+                   bypassable=False)
         else:
             _check('slider_prompts', 'Slider prompt pair', 'ok',
                    f'“{pos[:60]}” ↔ “{neg[:60]}”')
@@ -3733,11 +3754,23 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None) -> di
     verdict = ('blocked' if 'fail' in statuses
                else 'warnings' if 'warn' in statuses else 'ready')
 
+    # « Continue anyway » : proposé UNIQUEMENT quand il y a ≥1 blocker ET que TOUS
+    # sont contournables (garde-fous qualité). Un seul blocker physique (0 image,
+    # paire de prompts slider absente) → l'option disparaît et le launch reste refusé
+    # même avec l'ack. override_hint = la ligne de risque honnête à afficher sous la case.
+    fail_checks = [c for c in checks if c['status'] == 'fail']
+    can_override = bool(fail_checks) and all(c.get('bypassable') for c in fail_checks)
+    override_hint = ' '.join(c['hint'] for c in fail_checks
+                             if c.get('hint')) if can_override else ''
+
     return {'blockers': blockers, 'warnings': warnings,
             # Détail « lesquelles » pour l'UI : images dont la caption fuit, et paires
             # quasi-doublons — le message reste agrégé, mais on peut drill-down + agir.
             'leak_images': leak_images, 'dup_pairs': dup_pairs,
             'checks': checks, 'verdict': verdict,
+            # can_override : la case « Continue anyway » n'est offerte que quand c'est True
+            # (miroir exact du garde serveur assert_trainable/allow_not_ready).
+            'can_override': can_override, 'override_hint': override_hint,
             'kept': n, 'floor': floor, 'recommended': reco}
 
 
@@ -3839,7 +3872,8 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
                     fresh: bool = False, allow_uncaptioned: bool = False,
                     allow_caption_quality: bool = False,
                     vae_path=_PERSISTED, te_path=_PERSISTED,
-                    allow_unverified_weights: bool = False) -> dict:
+                    allow_unverified_weights: bool = False,
+                    allow_not_ready: bool = False) -> dict:
     """Export + config + pause ComfyUI (flag) + lance l'entraînement ai-toolkit
     en CLI headless (`run.py <config>`).
 
@@ -3871,6 +3905,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
                          allow_caption_mismatch=allow_caption_mismatch,
                          allow_uncaptioned=allow_uncaptioned,
                          allow_caption_quality=allow_caption_quality,
+                         allow_not_ready=allow_not_ready,
                          variant=variant)
     # Base d'entraînement : None/'' = officielle ; sinon un merge ComfyUI qui DOIT
     # avoir été converti en diffusers d'abord (gate). On persiste le choix sur le
@@ -3997,10 +4032,16 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
         # Provenance registry: record WHICH dataset version this launch trains on
         # only after this request has won the process slot.
         from . import checkpoint_registry
+        # Honest provenance: a launch waved through despite a readiness blocker
+        # records « acknowledged_not_ready » in its settings snapshot (surfaced in
+        # the Runs-hub Share config) — discreet, so a thin run is explainable later.
+        _launch_settings = launch_settings_snapshot(ds)
+        if allow_not_ready and isinstance(_launch_settings, dict):
+            _launch_settings = {**_launch_settings, 'acknowledged_not_ready': True}
         checkpoint_registry.register_launch(
             user_id, dataset_id, family=launch_fam, source='local',
             base_model=base_model or '', variant=variant, masked=bool(masked),
-            steps=int(steps), settings=launch_settings_snapshot(ds))
+            steps=int(steps), settings=_launch_settings)
         queue_manager._set_system_state('training_error', None, ttl_seconds=1)
         identity = {
             'training_in_progress': True,
@@ -4099,7 +4140,7 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
                       masked=True, allow_unverified_weights=False,
                       allow_caption_mismatch=False, allow_uncaptioned=False,
                       allow_caption_quality=False, from_step=None, overrides=None,
-                      _allow_dead_predecessor=False) -> dict:
+                      allow_not_ready=False, _allow_dead_predecessor=False) -> dict:
     """Reprend l'entraînement d'une base et vise ``step_de_reprise + extra_steps``.
     ai-toolkit auto-resume depuis le training_folder ; il faut donc qu'au moins un
     checkpoint existe POUR CETTE BASE.
@@ -4144,6 +4185,7 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
                      allow_caption_mismatch=allow_caption_mismatch,
                      allow_uncaptioned=allow_uncaptioned,
                      allow_caption_quality=allow_caption_quality,
+                     allow_not_ready=allow_not_ready,
                      variant=var)
     cks = list_checkpoints(user_id, dataset_id, base_model=base,
                            family=fam, variant=var)
@@ -4199,6 +4241,7 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
                           allow_caption_mismatch=allow_caption_mismatch,
                           allow_uncaptioned=allow_uncaptioned,
                           allow_caption_quality=allow_caption_quality,
+                          allow_not_ready=allow_not_ready,
                           allow_unverified_weights=launch_allow_unverified)
     res['resumed_from'] = resume_step
     res['target_steps'] = resume_step + extra
@@ -4272,7 +4315,7 @@ def kept_uncaptioned_count(dataset_id) -> int:
 
 def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
                      allow_uncaptioned=False, allow_caption_quality=False,
-                     variant=None) -> None:
+                     variant=None, allow_not_ready=False) -> None:
     """Lève ValueError si le dataset n'est pas prêt : trop peu d'images gardées,
     captions manquantes, ou STYLE de caption incohérent avec le type de modèle
     (SDXL booru-native attend des tags booru ; Z-Image attend de la prose). Le
@@ -4284,7 +4327,13 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
     confirm côté front comme MISMATCH_CAPTION:. Pour Style, les captions de contenu
     restent la règle (always-on, sans trigger). ``allow_caption_quality=True`` lève
     séparément le garde trigger-only/toutes-identiques. ``variant`` est accepté pour
-    garder une signature family/variant homogène avec les recommandations de steps."""
+    garder une signature family/variant homogène avec les recommandations de steps.
+
+    ``allow_not_ready=True`` = case « Continue anyway » du panneau de préparation :
+    lève le garde-fou QUALITÉ du plancher d'images par famille (marqueur NOT_READY:,
+    miroir de la pastille de readiness). Les IMPOSSIBILITÉS PHYSIQUES ne sont JAMAIS
+    levées par ce flag : 0 image gardée (rien à entraîner) et, en mode slider, la
+    paire de prompts absente (aucune direction à apprendre) — ai-toolkit planterait."""
     kept = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     ds_ = FaceDataset.query.get(dataset_id)
     if ds_ is not None and slider_mode_enabled(ds_):
@@ -4293,18 +4342,44 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
         # slider loss, so every caption guard below is meaningless here. What
         # IS required: the prompt pair that defines the slider direction.
         floor = TRAIN_MIN_IMAGES_SLIDER[0]
-        if kept < floor:
+        # Physical impossibility: an empty substrate leaves nothing to denoise —
+        # never waivable by the readiness ack.
+        if kept == 0:
             raise ValueError(
-                f'not enough kept images ({kept}/{floor}) — slider training still '
-                'needs a few images as a denoising substrate')
+                'slider training needs a few images as a denoising substrate — '
+                'none are kept')
+        # Below the substrate floor is a QUALITY guard-rail: the explicit ack
+        # (allow_not_ready) lets a thin experiment through.
+        if kept < floor and not allow_not_ready:
+            raise ValueError(
+                f'NOT_READY: only {kept} kept image(s) — slider training still '
+                f'needs at least {floor} as a denoising substrate. '
+                'Continue anyway to train with too few.')
+        # The prompt pair is a physical requirement (no direction to learn) —
+        # never waivable, even with the readiness ack.
         sc = _slider_settings(ds_)
         if not (sc.get('positive') or '').strip() or not (sc.get('negative') or '').strip():
             raise ValueError(
                 'slider mode needs both a positive and a negative prompt — '
                 'they define the two ends of the slider')
         return
-    if kept < 10:
-        raise ValueError(f"not enough kept images ({kept}/10)")
+    # Effective family drives the per-family image floor (the readiness blocker).
+    # Resolve it up here so the floor guard runs before the caption guards below —
+    # and reuse it for the caption style↔type check further down.
+    ttype = (train_type or '').strip().lower()
+    if not ttype:
+        ttype = (getattr(ds_, 'train_type', None) or 'zimage').lower() if ds_ else 'zimage'
+    floor = TRAIN_MIN_IMAGES.get(ttype, (12, 20))[0]
+    label = _FAMILY_LABEL.get(ttype, ttype)
+    # Physical impossibility: an empty dataset can't train (never waivable).
+    if kept == 0:
+        raise ValueError('no kept images — keep at least a few before training')
+    # Below the per-family floor is a QUALITY guard-rail (the readiness blocker):
+    # waivable by the explicit « Continue anyway » ack, refused otherwise.
+    if kept < floor and not allow_not_ready:
+        raise ValueError(
+            f'NOT_READY: only {kept} kept image(s) — the minimum for a {label} LoRA '
+            f'is {floor}. Continue anyway to train with too few (expect overfitting).')
     style = fds.is_style(ds_)
     missing = kept_uncaptioned_count(dataset_id)
     if missing and not allow_uncaptioned:
@@ -4322,10 +4397,7 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
         return
     # Garde-fou style ↔ type : un LoRA SDXL entraîné sur des captions PROSE = mismatch
     # booru-native → « images disjointes » (recherche 2026-06-14) ; et l'inverse pour Z-Image.
-    ttype = (train_type or '').strip().lower()
-    if not ttype:
-        ds = FaceDataset.query.get(dataset_id)
-        ttype = (getattr(ds, 'train_type', None) or 'zimage').lower() if ds else 'zimage'
+    # `ttype` a déjà été résolu en tête (plancher d'images) — on le réutilise.
     expected = 'booru' if ttype == 'sdxl' else 'prose'
     from .face_variations import caption_style
     caps = (FaceDatasetImage.query
@@ -4694,7 +4766,7 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
                      steps=None, allow_uncaptioned=False,
                      allow_caption_quality=False,
                      vae_path=_PERSISTED, te_path=_PERSISTED,
-                     allow_unverified_weights=False) -> dict:
+                     allow_unverified_weights=False, allow_not_ready=False) -> dict:
     """Ajoute un dataset à la file (lancé à la fin du training courant).
 
     `base_model`/`variant` permettent de CHOISIR explicitement la base du job en
@@ -4715,6 +4787,7 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
                      allow_caption_mismatch=allow_caption_mismatch,
                      allow_uncaptioned=allow_uncaptioned,
                      allow_caption_quality=allow_caption_quality,
+                     allow_not_ready=allow_not_ready,
                      variant=variant)
     if train_type is not None:
         ds.train_type = train_type
@@ -4804,7 +4877,10 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
             'allow_caption_mismatch': bool(allow_caption_mismatch),
             'allow_uncaptioned': bool(allow_uncaptioned),
             'allow_caption_quality': bool(allow_caption_quality),
-            'allow_unverified_weights': bool(allow_unverified_weights)}
+            'allow_unverified_weights': bool(allow_unverified_weights),
+            # « Continue anyway » ack survives the wait; the launch re-runs the
+            # authoritative floor guard when the queued item reaches the GPU.
+            'allow_not_ready': bool(allow_not_ready)}
     if recipe:
         item.update({'recipe_version': recipe['recipe_version'],
                      'effective_base': recipe['effective_base'],
@@ -4872,6 +4948,7 @@ def _launch_queued_item(item) -> None:
             allow_uncaptioned=bool(item.get('allow_uncaptioned')),
             allow_caption_quality=bool(
                 item.get('allow_caption_quality')),
+            allow_not_ready=bool(item.get('allow_not_ready')),
             allow_unverified_weights=bool(
                 item.get('allow_unverified_weights')),
             # _advance_training_queue deliberately keeps the dead predecessor's
@@ -4887,6 +4964,7 @@ def _launch_queued_item(item) -> None:
                         allow_caption_mismatch=bool(item.get('allow_caption_mismatch')),
                         allow_uncaptioned=bool(item.get('allow_uncaptioned')),
                         allow_caption_quality=bool(item.get('allow_caption_quality')),
+                        allow_not_ready=bool(item.get('allow_not_ready')),
                         # SDXL custom overrides snapshotted at enqueue time; the file
                         # was already preflighted, so re-clear the confirmable gate.
                         vae_path=item.get('vae_path', _PERSISTED),

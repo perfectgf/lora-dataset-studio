@@ -60,6 +60,10 @@ _CONFIRMATION_FLAGS = (
     # on retry/continue like the caption flags — the base_model is replayed
     # verbatim too, so a confirmed file stays confirmed.
     'allow_unverified_weights',
+    # « Continue anyway » ack (readiness floor blocker): replayed on retry/continue
+    # like the caption flags, and stamped into train_params so a thin cloud run is
+    # honestly explainable in the Runs hub.
+    'allow_not_ready',
 )
 
 
@@ -458,7 +462,7 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                           variant=None, train_type=None, masked=True,
                           allow_caption_mismatch=False, allow_uncaptioned=False,
                           allow_caption_quality=False,
-                          allow_unverified_weights=False,
+                          allow_unverified_weights=False, allow_not_ready=False,
                           gpu_name=None, resume_ckpt_path=None, resume_step=None,
                           auto_retry_count=0, auto_retry_of=None,
                           strict_gpu=False, train_settings_snapshot=_UNSET,
@@ -531,6 +535,7 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
         'allow_uncaptioned': bool(allow_uncaptioned),
         'allow_caption_quality': bool(allow_caption_quality),
         'allow_unverified_weights': bool(allow_unverified_weights),
+        'allow_not_ready': bool(allow_not_ready),
     }
     recipe = None
     if fam == 'zimage':
@@ -574,6 +579,7 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                         allow_caption_mismatch=allow_caption_mismatch,
                         allow_uncaptioned=allow_uncaptioned,
                         allow_caption_quality=allow_caption_quality,
+                        allow_not_ready=allow_not_ready,
                         variant=variant)
 
     # The explicit launch base (''=official) rides into the run name so a

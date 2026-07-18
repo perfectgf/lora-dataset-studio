@@ -154,12 +154,34 @@ def test_launch_forwards_caption_quality_and_family_variant_to_policies(
         'allow_caption_mismatch': False,
         'allow_uncaptioned': False,
         'allow_caption_quality': True,
+        'allow_not_ready': False,
         'variant': 'base',
     })]
     assert step_policy == [{'train_type': 'krea', 'variant': 'base'}]
     assert params['allow_caption_mismatch'] is False
     assert params['allow_uncaptioned'] is False
     assert params['allow_caption_quality'] is True
+
+
+def test_launch_stamps_allow_not_ready_and_replays(ct, app, seeded_dataset, monkeypatch):
+    """The « Continue anyway » ack is stamped into a cloud run's train_params and
+    replayed verbatim on retry/continue (like the caption flags), so a thin cloud
+    run stays honest in the Runs hub and its retry does not silently re-block."""
+    preflight = []
+    _fake_export(monkeypatch, ct)
+    monkeypatch.setattr(ct.lt, 'assert_trainable',
+                        lambda dataset_id, **kw: preflight.append(kw))
+    with app.app_context():
+        result = ct.launch_cloud_training(
+            'local', seeded_dataset, train_type='krea', variant='base',
+            allow_not_ready=True)
+        params = json.loads(ct.db.session.get(
+            ct.CloudTrainingRun, result['run_id']).train_params)
+    assert preflight[0]['allow_not_ready'] is True   # forwarded to the guard
+    assert params['allow_not_ready'] is True          # stamped for the Runs hub
+    # retry/continue replay reads only explicitly-stamped booleans.
+    assert ct._confirmation_flags(params)['allow_not_ready'] is True
+    assert ct._confirmation_flags({})['allow_not_ready'] is False
 
 
 @pytest.mark.parametrize('variant,expected_base,adapter_expected', [

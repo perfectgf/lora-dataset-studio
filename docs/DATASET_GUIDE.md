@@ -175,6 +175,16 @@ The app runs these checks when you hit Train — here's the list to self-check e
 - [ ] Near-duplicate pairs resolved (keep one of each)
 - [ ] Body fidelity: if ON, actual full-body shots exist
 
+**Continue anyway.** When the readiness panel turns red over a *quality* blocker —
+most often too few images for the family — a **Continue anyway** checkbox appears
+under the list. Tick it and the Train button unlocks; the launch is recorded as
+"acknowledged not-ready" in its saved config. It's meant for deliberate
+experiments (you'll usually get an overfit LoRA), not for skipping the work. The
+checkbox only ever covers quality guard-rails: genuine impossibilities that would
+just crash the trainer — **zero kept images**, or a **slider with no prompt pair**
+— are never offered the option, and the box un-ticks itself the moment the
+blockers change.
+
 ---
 
 ## 6. After training: pick the right checkpoint

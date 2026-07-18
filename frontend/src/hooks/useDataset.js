@@ -823,6 +823,9 @@ export function useDataset() {
         // Custom-weights arch sniff non concluant → confirm « train anyway »
         // (marqueur CUSTOM_WEIGHTS_UNVERIFIED:), même flux confirmable.
         allow_unverified_weights: !!opts.allowUnverifiedWeights,
+        // « Continue anyway » du panneau de préparation : lève le garde-fou plancher
+        // d'images (garde-fou qualité) — jamais une impossibilité physique.
+        allow_not_ready: !!opts.allowNotReady,
         // Overrides SDXL uniquement (le backend refuse 400 hors SDXL) — envoyés
         // seulement pour SDXL pour ne pas déclencher ce refus sur les autres.
         ...(opts.trainType === 'sdxl'
@@ -888,6 +891,7 @@ export function useDataset() {
       allow_uncaptioned: !!opts.allowUncaptioned,
       allow_unverified_weights: !!opts.allowUnverifiedWeights,
       allow_caption_quality: !!opts.allowCaptionQuality,
+      allow_not_ready: !!opts.allowNotReady,
       // fromStep = resume from a chosen (possibly earlier) checkpoint; overrides =
       // safe-subset settings (cadence / preview prompts). Both optional.
       ...(opts.fromStep != null ? { from_step: opts.fromStep } : {}),

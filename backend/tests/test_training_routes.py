@@ -88,12 +88,33 @@ def test_train_configured_forwards_kwargs(client, monkeypatch):
         'allow_uncaptioned': False,   # absent du body → False (confirm non donné)
         'allow_caption_quality': True,
         'allow_unverified_weights': False,   # custom-weights confirm non donné
+        'allow_not_ready': False,     # absent du body → False (case non cochée)
         'masked': False,
         'fresh': False,          # absent du body → False (resume historique)
     }
     # fresh=true (choix « Start fresh » du panneau) traverse jusqu'au service.
     client.post(f'/api/dataset/{ds_id}/train', json={'fresh': True})
     assert captured['fresh'] is True
+
+
+def test_train_forwards_allow_not_ready(client, monkeypatch):
+    """The « Continue anyway » checkbox rides /train as allow_not_ready=True and
+    /train/enqueue forwards it too (conditional, like the other enqueue flags)."""
+    _valid(monkeypatch, True)
+    ds_id = _create(client)
+    seen = {}
+    monkeypatch.setattr('app.services.lora_training.launch_training',
+                        lambda user_id, dataset_id, **kw: seen.update(kw)
+                        or {'started': True, 'pid': 1, 'steps': 500})
+    client.post(f'/api/dataset/{ds_id}/train', json={'allow_not_ready': True})
+    assert seen['allow_not_ready'] is True
+
+    q = {}
+    monkeypatch.setattr('app.services.lora_training.enqueue_training',
+                        lambda user_id, dataset_id, **kw: q.update(kw)
+                        or {'queued': True, 'position': 1, 'not_before': None})
+    client.post(f'/api/dataset/{ds_id}/train/enqueue', json={'allow_not_ready': True})
+    assert q['allow_not_ready'] is True
 
 
 def test_train_value_error_returns_400(client, monkeypatch):
@@ -143,6 +164,7 @@ def test_continue_forwards_kwargs(client, monkeypatch):
         'allow_caption_mismatch': True,
         'allow_uncaptioned': True,
         'allow_caption_quality': True,
+        'allow_not_ready': False,   # always forwarded like the other confirm flags
     }
 
 

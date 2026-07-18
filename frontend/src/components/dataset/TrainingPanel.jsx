@@ -107,7 +107,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                                         checkpointHost = null,
                                         navigationPanel = null,
                                         onNavigationStateChange,
-                                        onPanelOpenChange }) {
+                                        onPanelOpenChange,
+                                        // « Continue anyway » ack from the readiness pastille: a
+                                        // bypassable quality blocker was acknowledged → relax the
+                                        // image-floor gate and carry allow_not_ready into the launch.
+                                        allowNotReady = false }) {
   const isConcept = kind === 'concept';
   const isStyle = kind === 'style';
   const isConceptual = isConcept || isStyle;
@@ -661,7 +665,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         { credentials: 'include' });
       if (!r.ok) return true;
       const d = await r.json();
-      if (d.blockers?.length) { toast.error(d.blockers.join('\n')); return false; }
+      if (d.blockers?.length) {
+        // A blocker set that is entirely bypassable quality guard-rails
+        // (d.can_override) may proceed when the user ticked « Continue anyway »;
+        // the launch carries allow_not_ready and the server re-checks. A physical
+        // impossibility (can_override false) always stops here.
+        if (!(d.can_override && allowNotReady)) { toast.error(d.blockers.join('\n')); return false; }
+      }
       if (d.warnings?.length) {
         return await new Promise((resolve) => {
           preflightResolver.current = resolve;
@@ -750,6 +760,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     if (!(await preflightOk())) return;
     // Mise en file AVEC la base/variante choisie (sinon le job reprend la base persistée).
     let body = { base_model: base, variant, train_type: trainType, masked, steps: stepsN,
+                 ...(allowNotReady ? { allow_not_ready: true } : {}),
                  ...(trainType === 'sdxl' ? { vae_path: vaePath, te_path: tePath } : {}) };
     let d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`, body);
     for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Queue anyway (force)')); ) {
@@ -787,6 +798,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     if (!schedAt) return;
     if (!(await preflightOk())) return;
     let body = { at: schedAt, base_model: base, variant, train_type: trainType, masked, steps: stepsN,
+                 ...(allowNotReady ? { allow_not_ready: true } : {}),
                  ...(trainType === 'sdxl' ? { vae_path: vaePath, te_path: tePath } : {}) };
     let d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`, body);
     for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Schedule anyway (force)')); ) {
@@ -969,7 +981,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Slider mode floors the image requirement at the substrate minimum (the
   // preflight/assert_trainable stay authoritative server-side).
   const trainMinFloor = sliderOn ? TRAIN_MIN_SLIDER[0] : (TRAIN_MIN[trainType]?.[0] ?? 12);
-  const cloudTooFewImages = keptCount < trainMinFloor;
+  // « Continue anyway » relaxes the image-floor gate (a bypassable quality blocker
+  // the user acknowledged); a physical impossibility never yields a truthy ack.
+  const belowFloor = keptCount < trainMinFloor && !allowNotReady;
+  const cloudTooFewImages = belowFloor;
   const cloudLimitReached = actives.length >= (cloudStatus.limit || 1);
   const cloudDisabledReason =
     trainType === 'sdxl'
@@ -996,9 +1011,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // retry that used to live inline in the button handler.
   const [cloudDialog, setCloudDialog] = useState(false);
   const launchCloud = async (gpuName) => {
-    let body = cloudTrainingLaunchPayload({
-      baseModel: base, variant, trainType, masked, steps: stepsN, gpuName,
-    });
+    let body = {
+      ...cloudTrainingLaunchPayload({
+        baseModel: base, variant, trainType, masked, steps: stepsN, gpuName,
+      }),
+      ...(allowNotReady ? { allow_not_ready: true } : {}),
+    };
     let d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`, body);
     for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Train anyway (force)')); ) {
       if (flag === 'declined') { d = null; break; }  // the confirm WAS the answer
@@ -1142,12 +1160,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <option value="flux">FLUX.1 (~20 img)</option>
           <option value="flux2klein">FLUX.2 Klein (~20 img)</option>
         </select>
-        <button type="button" disabled={!status.installed || keptCount < trainMinFloor || status.in_progress || baseBlocksTrain || sdxlNeedsBase || customWeightsEmpty || sliderPromptsMissing}
+        <button type="button" disabled={!status.installed || belowFloor || status.in_progress || baseBlocksTrain || sdxlNeedsBase || customWeightsEmpty || sliderPromptsMissing}
           title={baseBlocksTrain ? 'Convert the custom base first'
             : customWeightsEmpty ? 'Enter the path to your custom weights .safetensors'
             : sdxlNeedsBase ? 'Choose a base SDXL checkpoint'
             : sliderPromptsMissing ? 'Slider mode needs both a positive and a negative prompt'
-            : keptCount < trainMinFloor
+            : belowFloor
               ? (sliderOn
                 ? `${keptCount} kept image(s) — slider training still needs ${trainMinFloor}+ images as a denoising substrate`
                 : `${keptCount} kept image(s) — the minimum for ${typeLabel} is ${trainMinFloor}`)
@@ -1166,7 +1184,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                                    allow_caption_quality: 'allowCaptionQuality',
                                    allow_unverified_weights: 'allowUnverifiedWeights' };
             let opts = { baseModel: base, variant, trainType, masked, steps: stepsN, fresh,
-                         vaePath, tePath };
+                         vaePath, tePath, allowNotReady };
             let d = await ds.train(opts);
             for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Train anyway (force)')); ) {
               if (flag === 'declined') break;        // the confirm WAS the answer
@@ -1195,7 +1213,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             Finish / re-enable ComfyUI
           </button>
         )}
-        {status.in_progress && status.installed && keptCount >= trainMinFloor && !sliderPromptsMissing && (
+        {status.in_progress && status.installed && (keptCount >= trainMinFloor || allowNotReady) && !sliderPromptsMissing && (
           <button type="button" disabled={queued || baseBlocksTrain} onClick={enqueue}
             title={baseBlocksTrain
               ? 'Convert the selected custom base first'
@@ -1988,7 +2006,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             </p>
           )}
 
-          {status.installed && keptCount >= (TRAIN_MIN[trainType]?.[0] ?? 12) && (
+          {status.installed && (keptCount >= (TRAIN_MIN[trainType]?.[0] ?? 12) || allowNotReady) && (
             <div className="flex items-center gap-2 flex-wrap">
               <button type="button" disabled={queued || baseBlocksTrain} onClick={openSched}
                 aria-expanded={showSched}

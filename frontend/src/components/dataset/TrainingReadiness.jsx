@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { readinessSignature, overrideAck } from '../../utils/readinessOverride';
+import { HelpBadge } from '../../help/HelpMode';
 
 /* Pastille de préparation à l'entraînement — miroir du preflight serveur
    (GET /train/preflight, champs checks+verdict) : 🟢 ready / 🟡 warnings /
@@ -17,9 +19,14 @@ const VERDICT = {
 const ROW_ICON = { ok: '✓', warn: '⚠', fail: '✕' };
 const ROW_CLS = { ok: 'text-emerald-400', warn: 'text-amber-300', fail: 'text-red-300' };
 
-export default function TrainingReadiness({ datasetId, trainType, variant, refreshKey, onJump }) {
+export default function TrainingReadiness({ datasetId, trainType, variant, refreshKey, onJump,
+                                            onOverrideChange }) {
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(false);
+  // « Continue anyway » : ack de l'utilisateur pour lever un blocker QUALITÉ. Se
+  // DÉcoche à chaque changement de l'état bloquant (signature) — jamais d'ack
+  // fantôme qui survivrait à un nouveau blocker (physique compris).
+  const [ack, setAck] = useState(false);
   const timer = useRef(null);
   useEffect(() => {
     let alive = true;
@@ -39,6 +46,15 @@ export default function TrainingReadiness({ datasetId, trainType, variant, refre
     }, 400);
     return () => { alive = false; clearTimeout(timer.current); };
   }, [datasetId, trainType, variant, refreshKey]);
+
+  // Reset the ack whenever the blocking state changes (a new blocker, a fixed one,
+  // an override that just became unavailable) so a stale tick never rides forward.
+  const sig = readinessSignature(data);
+  useEffect(() => { setAck(false); }, [sig]);
+  // Report the server-authoritative ack upward (false unless the override is both
+  // offered AND ticked). Runs on null data too → parent clears its state.
+  useEffect(() => { onOverrideChange?.(overrideAck(data, ack)); },
+    [sig, ack, data, onOverrideChange]);
 
   if (!data || !(data.checks || []).length) return null;
   const v = VERDICT[data.verdict] || VERDICT.warnings;
@@ -75,6 +91,28 @@ export default function TrainingReadiness({ datasetId, trainType, variant, refre
             </li>
           ))}
         </ul>
+      )}
+      {/* « Continue anyway » : offerte UNIQUEMENT quand tous les blockers sont des
+          garde-fous QUALITÉ contournables (data.can_override, miroir du garde
+          serveur). Une impossibilité physique (0 image, prompt slider absent) →
+          la case ne s'affiche pas et le launch reste refusé. Toujours visible
+          (hors dépliage) tant qu'il y a un blocker contournable. */}
+      {data.can_override && (
+        <div className="flex items-start gap-1 px-3 pb-2.5 pt-1 text-[0.75rem]">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)}
+              className="accent-red-400 w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-content font-medium">
+                Continue anyway — train with these issues unresolved
+              </span>
+              {data.override_hint && (
+                <span className="text-content-subtle">{data.override_hint}</span>
+              )}
+            </span>
+          </label>
+          <HelpBadge topic="training-continue-anyway" />
+        </div>
       )}
     </div>
   );

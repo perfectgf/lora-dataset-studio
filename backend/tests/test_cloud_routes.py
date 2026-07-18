@@ -109,10 +109,12 @@ def test_cloud_retry_rechecks_mutated_dataset_without_legacy_bypass(
     with app.app_context():
         from app.extensions import db
         from app.models import CloudTrainingRun, FaceDatasetImage
+        # 15 kept = the krea family floor, so the retry reaches the UNCAPTIONED
+        # guard rather than the readiness image-floor guard (which fires below 15).
         db.session.add_all([
             FaceDatasetImage(dataset_id=ds_id, status='keep',
                              filename=f'degraded-{i}.webp', caption=None)
-            for i in range(10)
+            for i in range(15)
         ])
         run = CloudTrainingRun(
             dataset_id=ds_id, status='error', run_name='legacy-krea',

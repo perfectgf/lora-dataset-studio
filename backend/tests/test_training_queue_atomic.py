@@ -419,6 +419,7 @@ def test_queued_continue_replays_captured_base_variant_and_confirmation(monkeypa
         'allow_caption_mismatch': False,
         'allow_uncaptioned': False,
         'allow_caption_quality': False,
+        'allow_not_ready': False,
         '_allow_dead_predecessor': True,
     }
 

@@ -74,6 +74,14 @@ export const WHATS_NEW = [
     to: '/datasets',
   },
   {
+    id: '2026-07-18-continue-anyway',
+    date: '2026-07-18',
+    title: 'Train a not-quite-ready dataset on purpose, with your eyes open',
+    blurb:
+      "When the readiness panel shows a red blocker that's really just a quality warning — too few images for the family, for instance — a “Continue anyway” checkbox now appears under the list. Tick it and the Train button unlocks, with an honest one-line note about the concrete risk (e.g. “7 images will likely overfit; the minimum exists because Z-Image needs variety”). It only ever covers quality guard-rails: genuine impossibilities that would just crash the trainer — zero kept images, a slider with no prompt pair — are never offered the option. The box also un-ticks itself whenever the blockers change, and the run is quietly tagged “acknowledged not-ready” in its saved config.",
+    to: '/datasets',
+  },
+  {
     id: '2026-07-18-flexible-continue',
     date: '2026-07-18',
     title: 'Continue a run from any epoch, for as many steps as you want',

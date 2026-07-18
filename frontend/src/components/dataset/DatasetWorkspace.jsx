@@ -138,6 +138,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [checkpointCount, setCheckpointCount] = useState(0);
   const [checkpointHost, setCheckpointHost] = useState(null);
   const [trainingNavigation, setTrainingNavigation] = useState({ ready: false, queueCount: 0 });
+  // « Continue anyway » : ack remonté par la pastille de préparation (garde-fou
+  // qualité contournable) → débloque le bouton Train du panneau et voyage jusqu'au
+  // launch (allow_not_ready). Le serveur reste l'autorité.
+  const [notReadyAck, setNotReadyAck] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [publishHfOpen, setPublishHfOpen] = useState(false);
   // Grid tag-filter (session-only): tags whose images are hidden (exclude) or the
@@ -1427,9 +1431,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 {caps.training_visible && (
                   <TrainingReadiness datasetId={d.id} trainType={d.train_type} variant={d.train_variant}
                     refreshKey={`${kept}|${keptCaptioned}|${pending}|${triage}|${d.caption_leak?.leaking ?? ''}`}
-                    onJump={(targetId) => jumpTo({ targetId })} />
+                    onJump={(targetId) => jumpTo({ targetId })}
+                    onOverrideChange={setNotReadyAck} />
                 )}
-                <TrainingPanel ds={ds} keptCount={kept} kind={d.kind}
+                <TrainingPanel ds={ds} keptCount={kept} kind={d.kind} allowNotReady={notReadyAck}
                   onCheckpointsChange={setCheckpointCount}
                   checkpointHost={checkpointHost}
                   navigationPanel={section === 'training' && panel === 'advanced' ? panel : null}

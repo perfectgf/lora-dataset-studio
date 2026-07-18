@@ -255,6 +255,113 @@ def test_assert_trainable_uncaptioned_is_confirmable(app):
         lt.assert_trainable(ds.id, allow_uncaptioned=True)   # confirm → passe
 
 
+# --- « Continue anyway » : classement blockers contournables vs physiques -------
+
+def test_preflight_marks_image_floor_bypassable_and_offers_override(app, monkeypatch):
+    """Few-but-nonzero images = a QUALITY guard-rail: the images fail is bypassable,
+    can_override is True and an honest override_hint is provided for the checkbox."""
+    from app.services import lora_training as lt
+    from app import capabilities
+    with app.app_context():
+        monkeypatch.setattr(capabilities, 'gpu_vram_gb', lambda: None)
+        r = lt.training_preflight(LOCAL_USER, _mk(app, n_keep=7, framing='body').id)
+    img = next(c for c in r['checks'] if c['id'] == 'images')
+    assert img['status'] == 'fail' and img['bypassable'] is True
+    assert r['can_override'] is True
+    assert r['override_hint'] and '12' in r['override_hint']   # names the family floor
+
+
+def test_preflight_zero_images_is_physical_no_override(app, monkeypatch):
+    """0 kept images = a physical impossibility: the images fail is NOT bypassable
+    and the override is withdrawn (can_override False) — the checkbox never shows."""
+    from app.services import lora_training as lt
+    from app import capabilities
+    with app.app_context():
+        monkeypatch.setattr(capabilities, 'gpu_vram_gb', lambda: None)
+        r = lt.training_preflight(LOCAL_USER, _mk(app, n_keep=0).id)
+    img = next(c for c in r['checks'] if c['id'] == 'images')
+    assert img['status'] == 'fail' and img['bypassable'] is False
+    assert r['can_override'] is False and r['override_hint'] == ''
+
+
+def test_preflight_slider_missing_prompt_is_physical_no_override(app, monkeypatch):
+    """Slider with enough substrate but a missing prompt = physical impossibility:
+    the slider_prompts fail is non-bypassable and can_override stays False."""
+    from app.services import face_dataset_service as svc
+    from app.services import lora_training as lt
+    from app.models import FaceDatasetImage
+    from app import capabilities
+    with app.app_context():
+        monkeypatch.setattr(capabilities, 'gpu_vram_gb', lambda: None)
+        ds = svc.create_dataset(LOCAL_USER, 'Sl', 'sl_trig')
+        for i in range(8):                       # slider substrate floor = 4
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, filename=f'k{i}.webp',
+                                                status='keep', framing='body'))
+        svc.db.session.commit()
+        lt.update_slider_settings(LOCAL_USER, ds.id,
+                                  {'enabled': True, 'positive': 'smiling', 'negative': ''})
+        r = lt.training_preflight(LOCAL_USER, ds.id)
+    sp = next(c for c in r['checks'] if c['id'] == 'slider_prompts')
+    assert sp['status'] == 'fail' and sp['bypassable'] is False
+    assert r['can_override'] is False
+
+
+def test_assert_trainable_image_floor_is_confirmable(app):
+    """Below the family floor (but ≥1 kept) raises the NOT_READY: marker; the
+    explicit « Continue anyway » ack (allow_not_ready=True) lifts it and trains."""
+    import pytest
+    from app.services import lora_training as lt
+    with app.app_context():
+        ds = _mk(app, n_keep=7, framing='body')          # zimage floor = 12
+        with pytest.raises(ValueError, match='^NOT_READY:'):
+            lt.assert_trainable(ds.id)
+        lt.assert_trainable(ds.id, allow_not_ready=True)  # ack → passes
+
+
+def test_assert_trainable_zero_images_never_confirmable(app):
+    """0 kept images is a physical impossibility: refused even WITH the ack — the
+    checkbox does not (and must not) cover an empty dataset."""
+    import pytest
+    from app.services import lora_training as lt
+    with app.app_context():
+        ds = _mk(app, n_keep=0)
+        with pytest.raises(ValueError, match='no kept images'):
+            lt.assert_trainable(ds.id)
+        with pytest.raises(ValueError, match='no kept images'):
+            lt.assert_trainable(ds.id, allow_not_ready=True)   # still refused
+
+
+def test_assert_trainable_slider_floor_confirmable_prompts_never(app):
+    """Slider: a thin substrate is confirmable (allow_not_ready), but a missing
+    prompt pair is a physical impossibility the ack never lifts."""
+    import pytest
+    from app.services import face_dataset_service as svc
+    from app.services import lora_training as lt
+    from app.models import FaceDatasetImage
+    with app.app_context():
+        # 3 kept (below the substrate floor of 4), full prompt pair → confirmable.
+        ds = svc.create_dataset(LOCAL_USER, 'SlA', 'sla_trig')
+        for i in range(3):
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, filename=f'k{i}.webp',
+                                                status='keep', framing='body'))
+        svc.db.session.commit()
+        lt.update_slider_settings(LOCAL_USER, ds.id,
+                                  {'enabled': True, 'positive': 'a', 'negative': 'b'})
+        with pytest.raises(ValueError, match='denoising substrate'):
+            lt.assert_trainable(ds.id)
+        lt.assert_trainable(ds.id, allow_not_ready=True)      # ack → passes
+        # enough substrate but a missing prompt → refused EVEN with the ack.
+        ds2 = svc.create_dataset(LOCAL_USER, 'SlB', 'slb_trig')
+        for i in range(8):
+            svc.db.session.add(FaceDatasetImage(dataset_id=ds2.id, filename=f'k{i}.webp',
+                                                status='keep', framing='body'))
+        svc.db.session.commit()
+        lt.update_slider_settings(LOCAL_USER, ds2.id,
+                                  {'enabled': True, 'positive': 'a', 'negative': ''})
+        with pytest.raises(ValueError, match='positive and a negative prompt'):
+            lt.assert_trainable(ds2.id, allow_not_ready=True)
+
+
 def test_preflight_route(client, app, monkeypatch):
     from app import capabilities
     monkeypatch.setattr(capabilities, 'gpu_vram_gb', lambda: None)

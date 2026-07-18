@@ -139,7 +139,9 @@ def test_flux2klein_expects_prose_captions(app):
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'FB', 'zchar_fb', train_type='flux2klein')
         booru = '1girl, solo, cafe, sitting, window, jeans, smile, looking_at_viewer'
-        for _ in range(12):
+        # 15 kept = the flux2klein family floor, so the caption-mismatch guard is
+        # tested without tripping the readiness image-floor guard (below 15).
+        for _ in range(15):
             svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep',
                                                 filename='x.webp', caption=booru))
         svc.db.session.commit()

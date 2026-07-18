@@ -387,7 +387,9 @@ def test_style_captioned_still_checks_prose_booru_mismatch(app):
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'S3', 'zsty3', kind='style', train_type='sdxl')
         prose = 'A woman reading a book in a sunlit cafe, sitting by the window.'
-        for i in range(12):
+        # 20 kept = the SDXL family floor, so this isolates the caption-mismatch
+        # guard from the readiness image-floor guard (which now fires below 20).
+        for i in range(20):
             svc.db.session.add(FaceDatasetImage(dataset_id=ds.id, status='keep',
                                                 filename='x.webp', caption=f'{prose} Scene {i}.'))
         svc.db.session.commit()
@@ -466,6 +468,26 @@ def test_enqueue_snapshots_steps_and_not_before(app, monkeypatch):
         assert captured['allow_caption_mismatch'] is True
         assert captured['allow_uncaptioned'] is True
         assert captured['allow_caption_quality'] is True
+
+
+def test_enqueue_snapshots_and_replays_allow_not_ready(app, monkeypatch):
+    """The « Continue anyway » ack rides the queue item and is replayed to the
+    launch when the job reaches the GPU (parity with the caption flags)."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'QN', 'qn')
+        monkeypatch.setattr(lt, 'assert_trainable', lambda *a, **k: None)
+        lt.enqueue_training(LOCAL_USER, ds.id, steps=1000, allow_not_ready=True)
+        q = lt.get_train_queue()
+        assert q[0]['allow_not_ready'] is True
+
+        captured = {}
+        monkeypatch.setattr(lt, 'launch_training',
+                            lambda *a, **kw: captured.update(kw) or {'started': True})
+        lt._launch_queued_item(q[0])
+        assert captured['allow_not_ready'] is True
 
 
 def test_continue_revalidates_current_dataset_then_forwards_confirmations(

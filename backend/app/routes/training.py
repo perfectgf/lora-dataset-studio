@@ -69,6 +69,9 @@ def dataset_train(dataset_id):
                                  allow_uncaptioned=bool(d.get('allow_uncaptioned')),
                                  allow_caption_quality=bool(d.get('allow_caption_quality')),
                                  allow_unverified_weights=bool(d.get('allow_unverified_weights')),
+                                 # « Continue anyway » du panneau de préparation : lève le
+                                 # garde-fou plancher d'images (jamais une impossibilité physique).
+                                 allow_not_ready=bool(d.get('allow_not_ready')),
                                  masked=d.get('masked', True),
                                  # fresh=True : écarte le run existant (archivé, pas
                                  # détruit) → repart de zéro au lieu de l'auto-resume.
@@ -105,6 +108,7 @@ def dataset_train_continue(dataset_id):
     kw['allow_caption_mismatch'] = bool(d.get('allow_caption_mismatch'))
     kw['allow_uncaptioned'] = bool(d.get('allow_uncaptioned'))
     kw['allow_caption_quality'] = bool(d.get('allow_caption_quality'))
+    kw['allow_not_ready'] = bool(d.get('allow_not_ready'))
     try:
         res = lt.continue_training(LOCAL_USER, dataset_id, **kw)
     except Exception as e:
@@ -151,6 +155,8 @@ def dataset_train_enqueue(dataset_id):
         kw['allow_caption_quality'] = True
     if d.get('allow_unverified_weights'):
         kw['allow_unverified_weights'] = True
+    if d.get('allow_not_ready'):
+        kw['allow_not_ready'] = True
     # SDXL custom overrides (service refuses them 400 for any other family).
     if 'vae_path' in d:
         kw['vae_path'] = d.get('vae_path')
@@ -204,6 +210,8 @@ def dataset_train_schedule(dataset_id):
         kw['allow_caption_quality'] = True
     if d.get('allow_unverified_weights'):
         kw['allow_unverified_weights'] = True
+    if d.get('allow_not_ready'):
+        kw['allow_not_ready'] = True
     if 'vae_path' in d:
         kw['vae_path'] = d.get('vae_path')
     if 'te_path' in d:
@@ -1189,6 +1197,7 @@ def dataset_train_cloud(dataset_id):
             allow_uncaptioned=bool(d.get('allow_uncaptioned')),
             allow_caption_quality=bool(d.get('allow_caption_quality')),
             allow_unverified_weights=bool(d.get('allow_unverified_weights')),
+            allow_not_ready=bool(d.get('allow_not_ready')),
             gpu_name=d.get('gpu_name'))
     except Exception as e:
         return _map_error(e)
