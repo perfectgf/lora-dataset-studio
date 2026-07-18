@@ -163,6 +163,20 @@ Two thresholds on the 0–1 face-similarity score (InsightFace), which badge eac
 
 Raise them for a stricter set, lower them if good shots are being flagged too harshly.
 
+### Image bank triage
+
+Thresholds for the **🗃️ Bank** quality flags. Every scanned image stores its
+**raw scores**, and the flags are recomputed against these values on every
+read — so changing a threshold re-sorts an already-scanned bank instantly,
+with **no rescan**. (The two exceptions are noted below.)
+
+- **Sharpness minimum** → `bank.sharpness_min`. Variance of the Laplacian (the classic focus measure) under this = flagged **🌫 blurry**. Default **`100`**. Raise it to be stricter about focus, lower it if artistic soft shots get flagged.
+- **Noise maximum** → `bank.noise_max`. High-frequency residual (RMS vs a Gaussian blur) over this = flagged **📺 noisy**. Default **`15`**. Heavily textured images (foliage, fabric) score high by nature — this is a flag to review, not a verdict.
+- **Uniformity minimum** → `bank.uniformity_min`. Grayscale spread under this = flagged **⬜ flat** (solid colors, black frames, empty screenshots). Default **`12`**.
+- **Minimum side (px)** → `bank.min_side`. Smaller image side under this = flagged **📐 small**. Default **`768`** — the same bar as the dataset import guard, because trainers only ever *downscale*.
+- **Duplicate distance** → `bank.dup_distance`. How many of the 64 perceptual-hash bits two images may differ by and still be grouped as **≈ near-duplicates**. Default **`8`** (the same hash and distance the dataset import dedup uses). *Applies at the next quality scan* (groups are rebuilt then).
+- **Same-person similarity** → `bank.face_threshold`. Cosine similarity at or above which two faces cluster as the same person in **👥 Group by person**. Default **`0.45`**. Raise it if different people get merged into one cluster; lower it if the same person splits into several. *Applies at the next face pass* (embeddings are cached, so re-clustering is fast).
+
 ## Training
 
 Defaults for new runs, plus everything about the optional cloud training lane.

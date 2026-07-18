@@ -98,6 +98,20 @@ DEFAULTS = {
         'onstart': '',                 # raw-image fallback: optional startup command
     },
     'face_scoring': {'python': '', 'models_root': '', 'green': 0.50, 'orange': 0.45},
+    # 🗃️ Image bank triage thresholds. Raw scores are persisted per image;
+    # these thresholds only drive the FLAGS computed at read time — so tuning
+    # them re-sorts an already-scanned bank instantly, no rescan needed.
+    # sharpness_min: Laplacian variance below this = flagged blurry (the classic
+    #   ~100 rule of thumb). noise_max: residual std above this = flagged noisy.
+    # uniformity_min: grayscale std below this = flagged flat/uniform (solid
+    #   colors, empty screenshots). dup_distance: dHash Hamming distance (same
+    #   64-bit hash as dataset imports) at or under which two images group as
+    #   near-duplicates. min_side: smaller side under this = flagged small
+    #   (mirrors the dataset import guard: trainers only downscale).
+    # face_threshold: cosine similarity at or above which two faces are the
+    #   same person when clustering the bank by subject.
+    'bank': {'sharpness_min': 100.0, 'noise_max': 15.0, 'uniformity_min': 12.0,
+             'dup_distance': 8, 'min_side': 768, 'face_threshold': 0.45},
     'masks': {'python': ''},
     # Watermark inpainting (simple-lama-inpainting, extra ML). Dedicated key so a
     # user can override it, but defaults empty -> reuse the same ML interpreter as
@@ -334,6 +348,14 @@ def backups_dir() -> Path:
     d = _data_dir() / 'backups'
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+def banks_root() -> Path:
+    """Working data of the 🗃️ image banks (thumbnails + face-embedding cache),
+    one subfolder per bank — never the source images, which stay in the user's
+    folder untouched."""
+    root = _data_dir() / 'banks'
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 def secret_key() -> str:
     d = _data_dir(); d.mkdir(parents=True, exist_ok=True)

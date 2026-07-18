@@ -1,0 +1,198 @@
+"""🗃️ Image bank API — triage a big unsorted folder before it becomes datasets.
+
+All heavy passes (quality scan, face clustering, promotion) return 202 and run
+in ONE background thread per bank; the UI polls GET /bank/<id> whose payload
+embeds the live job. 409 = a job is already running on this bank.
+"""
+import logging
+import os
+
+from flask import Blueprint, current_app, jsonify, request, send_file
+
+from ..config import LOCAL_USER
+from ..models import BankImage
+from ..services import bank_jobs
+from ..services import image_bank_service as banks
+
+logger = logging.getLogger(__name__)
+
+bp = Blueprint('bank', __name__, url_prefix='/api')
+
+
+def _app():
+    return current_app._get_current_object()
+
+
+@bp.get('/banks')
+def banks_list():
+    return jsonify({'banks': banks.list_banks(LOCAL_USER)})
+
+
+@bp.post('/bank/create')
+def bank_create():
+    data = request.get_json(silent=True) or {}
+    try:
+        bank, added = banks.create_bank(LOCAL_USER, data.get('name'),
+                                        data.get('folder'))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'id': bank.id, 'added': added})
+
+
+@bp.get('/bank/<int:bank_id>')
+def bank_get(bank_id):
+    payload = banks.bank_payload(LOCAL_USER, bank_id)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
+
+
+@bp.delete('/bank/<int:bank_id>')
+def bank_delete(bank_id):
+    if not banks.delete_bank(LOCAL_USER, bank_id):
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True})
+
+
+@bp.get('/bank/<int:bank_id>/images')
+def bank_images(bank_id):
+    args = request.args
+
+    def _int(name):
+        v = args.get(name)
+        try:
+            return int(v) if v not in (None, '') else None
+        except ValueError:
+            return None
+
+    payload = banks.list_images(
+        LOCAL_USER, bank_id,
+        status=args.get('status') or None,
+        flag=args.get('flag') or None,
+        cluster=_int('cluster'), group=_int('group'),
+        offset=_int('offset') or 0, limit=_int('limit') or 200)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
+
+
+def _start(fn, *args, **kwargs):
+    """Shared start-a-job envelope: 202 on launch, 409 when busy, 400/503 on
+    validation errors."""
+    try:
+        fn(*args, **kwargs)
+    except bank_jobs.BankJobBusy as e:
+        return jsonify({'error': str(e)}), 409
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 503
+    return jsonify({'ok': True}), 202
+
+
+@bp.post('/bank/<int:bank_id>/scan')
+def bank_scan(bank_id):
+    data = request.get_json(silent=True) or {}
+    return _start(banks.start_scan, _app(), LOCAL_USER, bank_id,
+                  rescan=bool(data.get('rescan')))
+
+
+@bp.post('/bank/<int:bank_id>/faces')
+def bank_faces(bank_id):
+    return _start(banks.start_faces, _app(), LOCAL_USER, bank_id)
+
+
+@bp.post('/bank/<int:bank_id>/promote')
+def bank_promote(bank_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        dataset_id = int(data.get('dataset_id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'dataset_id is required'}), 400
+    return _start(banks.start_promote, _app(), LOCAL_USER, bank_id,
+                  data.get('image_ids') or [], dataset_id)
+
+
+@bp.post('/bank/<int:bank_id>/cancel')
+def bank_cancel(bank_id):
+    return jsonify({'ok': bank_jobs.cancel(bank_id)})
+
+
+@bp.get('/bank/<int:bank_id>/dup-groups')
+def bank_dup_groups(bank_id):
+    try:
+        offset = int(request.args.get('offset') or 0)
+        limit = int(request.args.get('limit') or 50)
+    except ValueError:
+        offset, limit = 0, 50
+    payload = banks.dup_groups_payload(LOCAL_USER, bank_id,
+                                       offset=offset, limit=limit)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
+
+
+@bp.post('/bank/<int:bank_id>/dups/resolve')
+def bank_dups_resolve(bank_id):
+    data = request.get_json(silent=True) or {}
+    strategy = data.get('strategy') or 'best'
+    if strategy not in ('best', 'first'):
+        return jsonify({'error': 'strategy must be best or first'}), 400
+    try:
+        out = banks.resolve_dups(LOCAL_USER, bank_id, strategy=strategy,
+                                 group=data.get('group'),
+                                 keep_ids=data.get('keep_ids'))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, **out})
+
+
+@bp.post('/bank/<int:bank_id>/images/status')
+def bank_images_status(bank_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        n = banks.set_status(LOCAL_USER, bank_id, data.get('ids') or [],
+                             data.get('status'))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'changed': n})
+
+
+@bp.post('/bank/<int:bank_id>/apply-flags')
+def bank_apply_flags(bank_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        out = banks.apply_flags(LOCAL_USER, bank_id, data.get('flags') or [])
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, 'rejected': out})
+
+
+def _row_or_404(bank_id, image_id):
+    bank = banks.get_bank(LOCAL_USER, bank_id)
+    if not bank:
+        return None, None
+    row = BankImage.query.filter_by(id=image_id, bank_id=bank_id).first()
+    return bank, row
+
+
+@bp.get('/bank/<int:bank_id>/thumb/<int:image_id>')
+def bank_thumb(bank_id, image_id):
+    bank, row = _row_or_404(bank_id, image_id)
+    if not bank or not row:
+        return jsonify({'error': 'not found'}), 404
+    tpath = banks.ensure_thumb(bank, row)
+    if not tpath:
+        return jsonify({'error': 'unreadable'}), 404
+    return send_file(tpath, mimetype='image/webp', max_age=3600)
+
+
+@bp.get('/bank/<int:bank_id>/file/<int:image_id>')
+def bank_file(bank_id, image_id):
+    bank, row = _row_or_404(bank_id, image_id)
+    if not bank or not row:
+        return jsonify({'error': 'not found'}), 404
+    path = banks.abs_image_path(bank, row)
+    if not path or not os.path.isfile(path):
+        return jsonify({'error': 'file missing'}), 404
+    return send_file(path, max_age=0)

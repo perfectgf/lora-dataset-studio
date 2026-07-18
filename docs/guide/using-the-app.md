@@ -118,6 +118,42 @@ setup into a single file so you can move to a new machine — or recover from on
   already exists comes back with a `(restored)` suffix — and you get an honest
   final report of what was restored, renamed or skipped.
 
+## The image bank (triage a big folder)
+
+You exported 9 000 unsorted images from Telegram (or a scraper dumped a
+mountain of files) and a dataset only needs the best 30–150 of them. The
+**🗃️ Bank** tab is the triage funnel that gets you there — without ever
+touching the folder itself:
+
+1. **Create a bank** — give it a name and paste the folder path. The app
+   inventories every image in place (subfolders included). Nothing is copied,
+   nothing is modified; rejecting an image is a reversible status, never a file
+   deletion.
+2. **🔎 Scan quality** — a background pass (CPU only, a few minutes even on
+   thousands of images) scores every file: sharpness, noise, flat/empty
+   frames, resolution — and groups **near-duplicates**. The flags follow the
+   thresholds in *Settings → Captioning & quality*; because the raw scores are
+   stored, tuning a threshold re-sorts the bank instantly, no rescan.
+3. **Cull** — use the filter chips (🌫 Blurry, 📺 Noisy, ⬜ Flat, 📐 Small,
+   ≈ Duplicates) to review the worst offenders first. **🧹 Auto-reject
+   flagged…** clears whole categories in one click (your manual ✓/✕ are never
+   flipped). In the Duplicates view, resolve every group at once with **keep
+   best** (highest resolution, then sharpest) or **keep first**, or pick the
+   keeper by eye.
+4. **👥 Group by person** — the face pass (needs the Quality tools from Setup)
+   detects the dominant face of every remaining image and clusters the bank by
+   person, *no reference photo needed*. Click a person card to see only them,
+   select all, keep or reject. Embeddings are cached, so re-running after a
+   cull is much faster.
+5. **⬆ Promote** — the kept images are **copied** into the dataset you choose
+   through the normal import path: normalized to webp, near-duplicates already
+   in the dataset skipped. From there they get everything datasets have —
+   captions, watermark cleaning, face scoring against a reference, training.
+
+Work the funnel in that order: quality first (cheap, catches the trash), then
+subject, then selection. A promoted image keeps its ⬆ badge in the bank so you
+always know what's been used where.
+
 ## Tips that save runs
 
 - Trust the composition meter over your instinct — a set that "looks varied"

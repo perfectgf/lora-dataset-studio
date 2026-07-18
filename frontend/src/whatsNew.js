@@ -82,6 +82,14 @@ export const WHATS_NEW = [
     to: '/datasets',
   },
   {
+    id: '2026-07-18-image-bank-triage',
+    date: '2026-07-18',
+    title: 'New: 🗃️ Image bank — turn a 9 000-image dump into a dataset',
+    blurb:
+      "Exported thousands of unsorted images from Telegram (or anywhere)? Point the new Bank tab at the folder: a background quality scan flags the blurry, noisy, flat and too-small shots and groups near-duplicates (resolve a whole bank with one “keep best” click); the face pass then sorts everything by PERSON — no reference photo needed. Keep the good ones and promote them straight into a dataset. Your folder is never modified, rejections are just reversible statuses, and the thresholds are tunable in Settings → Captioning & quality without rescanning.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-18-flexible-continue',
     date: '2026-07-18',
     title: 'Continue a run from any epoch, for as many steps as you want',
@@ -364,7 +372,7 @@ export function markAllSeen(storage, entries = WHATS_NEW) {
 
 // Param-less top-level routes (mirror App.jsx <Routes>).
 const TOP_LEVEL_ROUTES = new Set([
-  '/datasets', '/studio', '/cloud', '/guide', '/help', '/setup',
+  '/datasets', '/bank', '/studio', '/cloud', '/guide', '/help', '/setup',
 ]);
 
 const SETTINGS_IDS = new Set(SETTINGS_SECTIONS.map((s) => s.id));

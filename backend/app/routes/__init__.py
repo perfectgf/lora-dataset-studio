@@ -1,6 +1,6 @@
 def register_blueprints(app, csrf):
     from importlib import import_module
-    for name in ('settings', 'datasets', 'training', 'studio', 'setup', 'scrape', 'ollama', 'backup'):
+    for name in ('settings', 'datasets', 'training', 'studio', 'setup', 'scrape', 'ollama', 'backup', 'bank'):
         try:
             mod = import_module(f'app.routes.{name}')
         except ImportError:

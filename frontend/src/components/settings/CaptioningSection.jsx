@@ -97,6 +97,74 @@ export default function CaptioningSection({ config, setField }) {
           Anything below orange is likely a different person and worth rejecting.
         </p>
       </Card>
+
+      <Card
+        title="Image bank triage"
+        help="Thresholds for the 🗃️ Bank quality flags. Raw scores are stored per image, so changing a threshold re-sorts an already-scanned bank instantly — no rescan."
+      >
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div>
+            <label htmlFor="bank-sharpness-min" className="block text-sm font-medium text-content">
+              Sharpness minimum
+            </label>
+            <input id="bank-sharpness-min" type="number" min="0" step="10"
+              value={config.bank?.sharpness_min ?? 100}
+              onChange={(e) => setField('bank', 'sharpness_min', parseFloat(e.target.value) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">Laplacian variance under this = 🌫 blurry.</p>
+          </div>
+          <div>
+            <label htmlFor="bank-noise-max" className="block text-sm font-medium text-content">
+              Noise maximum
+            </label>
+            <input id="bank-noise-max" type="number" min="0" step="1"
+              value={config.bank?.noise_max ?? 15}
+              onChange={(e) => setField('bank', 'noise_max', parseFloat(e.target.value) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">Residual grain over this = 📺 noisy.</p>
+          </div>
+          <div>
+            <label htmlFor="bank-uniformity-min" className="block text-sm font-medium text-content">
+              Uniformity minimum
+            </label>
+            <input id="bank-uniformity-min" type="number" min="0" step="1"
+              value={config.bank?.uniformity_min ?? 12}
+              onChange={(e) => setField('bank', 'uniformity_min', parseFloat(e.target.value) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">Grayscale spread under this = ⬜ flat frame.</p>
+          </div>
+          <div>
+            <label htmlFor="bank-min-side" className="block text-sm font-medium text-content">
+              Minimum side (px)
+            </label>
+            <input id="bank-min-side" type="number" min="0" step="64"
+              value={config.bank?.min_side ?? 768}
+              onChange={(e) => setField('bank', 'min_side', parseInt(e.target.value, 10) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">Smaller side under this = 📐 small (trainers only downscale).</p>
+          </div>
+          <div>
+            <label htmlFor="bank-dup-distance" className="block text-sm font-medium text-content">
+              Duplicate distance
+            </label>
+            <input id="bank-dup-distance" type="number" min="0" max="16" step="1"
+              value={config.bank?.dup_distance ?? 8}
+              onChange={(e) => setField('bank', 'dup_distance', parseInt(e.target.value, 10) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">dHash bits (of 64) two images may differ by and still group as ≈ duplicates. Applies at the next scan.</p>
+          </div>
+          <div>
+            <label htmlFor="bank-face-threshold" className="block text-sm font-medium text-content">
+              Same-person similarity
+            </label>
+            <input id="bank-face-threshold" type="number" min="0" max="1" step="0.01"
+              value={config.bank?.face_threshold ?? 0.45}
+              onChange={(e) => setField('bank', 'face_threshold', parseFloat(e.target.value) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">Cosine similarity for the 👥 person clustering. Applies at the next face pass.</p>
+          </div>
+        </div>
+      </Card>
     </div>
   )
 }
