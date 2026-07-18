@@ -58,6 +58,14 @@ export const WHATS_NEW = [
     to: '/setup',
   },
   {
+    id: '2026-07-18-sdxl-studio-without-dmd2',
+    date: '2026-07-18',
+    title: 'The SDXL Test Studio runs even without the DMD2 accelerator on disk',
+    blurb:
+      "The SDXL grid used to refuse to launch unless one specific accelerator LoRA (the 4-step DMD2 file) sat in one exact folder — a file plenty of ComfyUI setups don't have. Now the Studio finds that LoRA wherever you keep it, and simply runs without it when it's absent: distilled checkpoints look identical, a full SDXL checkpoint just renders a touch softer, instead of the whole grid refusing to start.",
+    to: '/studio',
+  },
+  {
     id: '2026-07-18-change-dataset-kind',
     date: '2026-07-18',
     title: 'Change a dataset from Character, Concept or Style — after creation',

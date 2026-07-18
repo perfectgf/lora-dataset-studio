@@ -902,3 +902,177 @@ def test_sdxl_preflight_scan_drops_httpnotify_keeps_detaildaemon():
     assert 'HttpNotifyNode' not in classes
     assert 'SaveImage' in classes
     assert 'DetailDaemonSamplerNode' in classes
+
+
+# --- Dev-layout independence: SDXL DMD2 accelerator (resolve or bypass) --------
+
+def test_sdxl_accelerator_resolves_dmd2_under_any_loras_subfolder(app, tmp_path, monkeypatch):
+    """The SDXL HQ workflow wires the DMD2 accelerator under the DEV's own 'DMD2\\'
+    subfolder. A user who keeps the public DMD2 LoRA under ANY other folder must still
+    get it wired — _apply_sdxl_accelerator resolves it by canonical basename across the
+    loras roots, not the dev's exact path."""
+    import os
+    from app.services import lora_test_studio as lts, comfy_model_paths
+    from app.utils.comfyui import load_workflow_local
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        acc = base / 'models' / 'loras' / 'accel'
+        acc.mkdir(parents=True)
+        (acc / 'dmd2_sdxl_4step_lora_fp16.safetensors').write_bytes(_ST)
+        comfy_model_paths.clear_cache()
+        wf = load_workflow_local(str(lts.WORKFLOW_HQ_PATH))
+        lts._apply_sdxl_accelerator(wf)
+        dmd2 = [n for n in wf.values()
+                if isinstance(n, dict) and n.get('class_type') == 'LoraLoader'
+                and 'dmd2' in (n['inputs'].get('lora_name') or '').lower()]
+        assert len(dmd2) == 1                                      # loader still present
+        rel = dmd2[0]['inputs']['lora_name']
+        assert os.path.basename(rel) == 'dmd2_sdxl_4step_lora_fp16.safetensors'
+        assert 'accel' in rel.lower() and 'DMD2' not in rel        # found where it lives
+
+
+def test_sdxl_accelerator_bypasses_dmd2_when_absent(app, tmp_path, monkeypatch):
+    """No DMD2 LoRA anywhere on disk → the accelerator loader is BYPASSED (not left to
+    fail ComfyUI validation on a personal file), and its model+clip consumers are
+    rewired to its own upstream so the SDXL grid renders instead of the whole family
+    hard-blocking (mirrors the Klein node-139 bypass)."""
+    from app.services import lora_test_studio as lts, comfy_model_paths
+    from app.utils.comfyui import load_workflow_local
+    with app.app_context():
+        _configure_comfy(tmp_path, monkeypatch)                    # empty loras tree
+        comfy_model_paths.clear_cache()
+        wf = load_workflow_local(str(lts.WORKFLOW_HQ_PATH))
+        up_model = wf['10']['inputs']['model']                     # ['25', 0]
+        up_clip = wf['10']['inputs']['clip']                       # ['25', 1]
+        lts._apply_sdxl_accelerator(wf)
+        assert '10' not in wf                                      # DMD2 loader removed
+        assert not any(isinstance(n, dict) and n.get('class_type') == 'LoraLoader'
+                       and 'dmd2' in (n['inputs'].get('lora_name') or '').lower()
+                       for n in wf.values())
+        # Model consumers (KSampler 5, BasicScheduler 57, BasicGuider 58) read the
+        # removed node's upstream model; the clip consumer (node 3) reads its clip.
+        assert wf['5']['inputs']['model'] == up_model
+        assert wf['57']['inputs']['model'] == up_model
+        assert wf['58']['inputs']['model'] == up_model
+        assert wf['3']['inputs']['clip'] == up_clip
+
+
+def test_build_cell_workflow_sdxl_missing_dmd2_preflight_passes(app, tmp_path, monkeypatch):
+    """End-to-end fresh-user SDXL: base checkpoint + tested LoRA on disk but NOT the
+    dev's DMD2 accelerator → the built cell bypasses the accelerator and the family
+    preflight raises NOTHING for it (previously the whole SDXL Studio 409-blocked on a
+    quality-only accelerator that lives only on the dev's disk)."""
+    from app.services import lora_test_studio as lts, comfy_model_paths
+    import app.utils.comfyui as cu
+    with app.app_context():
+        base = _configure_comfy(tmp_path, monkeypatch)
+        (base / 'models' / 'checkpoints').mkdir(parents=True)
+        (base / 'models' / 'checkpoints' / 'mybase.safetensors').write_bytes(_ST)
+        lora_dir = base / 'models' / 'loras' / 'sdxl'
+        lora_dir.mkdir(parents=True)
+        (lora_dir / 'lora_nova_000001000.safetensors').write_bytes(_ST)   # tested LoRA present
+        comfy_model_paths.clear_cache()
+        tested = 'sdxl\\lora_nova_000001000.safetensors'
+        monkeypatch.setattr(lts, 'get_sdxl_loras', lambda: [{'filename': tested}])
+        monkeypatch.setattr(cu, 'get_checkpoint_models',
+                            lambda *a, **k: [{'name': 'mybase.safetensors'}])
+        monkeypatch.setattr(lts, 'resolve_checkpoint_ckpt_name', lambda n: 'mybase.safetensors')
+        # Fail-open on the node probe → isolate the model-FILE check.
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes', lambda *a, **k: None)
+        wf = lts._build_cell_workflow(
+            user_id='local', checkpoint=tested, strength=1.0, prompt='p', seed=1,
+            z_model='mybase.safetensors', allowed_loras={tested}, dataset_id=1,
+            train_type='sdxl', trigger_word=None)
+        assert '10' not in wf                       # accelerator bypassed in the real build
+        lts.preflight_family('sdxl', [wf])          # no StudioAssetsMissing for the DMD2 file
+
+
+def test_embedded_workflow_model_refs_are_all_layout_independent():
+    """AUDIT GUARD against dev-layout dependencies. Every model-file reference in every
+    embedded workflow must be neutralised by a handler that makes it independent of the
+    developer's own ComfyUI layout — an OVERRIDE (a user pick replaces it), a canonical
+    RESOLVER, a BYPASS-when-absent, or a preflight 409 ('place X here'). A NEW or CHANGED
+    hardcoded ref that no handler covers shows up as a diff and fails this test, so
+    category-d (a silent dependency on a file that only exists on the dev's disk) cannot
+    creep back. When you add/change a workflow model ref, add it here WITH its handler.
+
+    Handlers (all layout-independent):
+      OVERRIDDEN           - the builder always replaces this ref with the user's pick
+                             (base checkpoint / UNET, or the LoRA under test).
+      RESOLVED             - resolved canonically against disk before enqueue (the Klein
+                             UNET/VAE/TE resolvers; the SDXL DMD2 accelerator).
+      BYPASSED             - dropped from the graph when its file is absent (the Klein
+                             node-139 base LoRA; the SDXL DMD2 accelerator).
+      PREFLIGHT_DOCUMENTED - graph-critical family asset, blocked by the Studio preflight
+                             409 AND documented in the guide/README (Z-Image VAE + TE).
+      PREFLIGHT            - graph-critical family asset, blocked by the Studio preflight
+                             409 (Krea VAE + TE).
+      DORMANT              - workflow ships but is not wired into any run path yet.
+    """
+    import json, os
+    ALLOWED = {'OVERRIDDEN', 'RESOLVED', 'BYPASSED', 'PREFLIGHT_DOCUMENTED',
+               'PREFLIGHT', 'DORMANT'}
+    LOADER_KEYS = {
+        'UNETLoader': ('unet_name',),
+        'CheckpointLoaderSimple': ('ckpt_name',),
+        'VAELoader': ('vae_name',),
+        'CLIPLoader': ('clip_name',),
+        'DualCLIPLoader': ('clip_name1', 'clip_name2'),
+        'LoraLoader': ('lora_name',),
+        'LoraLoaderModelOnly': ('lora_name',),
+    }
+    # (workflow basename, node id, input key) -> (expected ref, handler)
+    EXPECTED = {
+        ('ZImage_bigLove_ZT3_optimal.json', '1', 'unet_name'):
+            ('z image\\bigLove_zt3.safetensors', 'OVERRIDDEN'),
+        ('ZImage_bigLove_ZT3_optimal.json', '2', 'clip_name'):
+            ('Z image\\qwen_3_4b.safetensors', 'PREFLIGHT_DOCUMENTED'),
+        ('ZImage_bigLove_ZT3_optimal.json', '3', 'vae_name'):
+            ('z ae.safetensors', 'PREFLIGHT_DOCUMENTED'),
+        ('image_real_HQ.json', '1', 'ckpt_name'):
+            ('Biglove\\mopMixtureOfPervertsDMD_v40.safetensors', 'OVERRIDDEN'),
+        ('image_real_HQ.json', '10', 'lora_name'):
+            ('DMD2\\dmd2_sdxl_4step_lora_fp16.safetensors', 'RESOLVED'),   # or BYPASSED when absent
+        ('image_real_HQ.json', '25', 'lora_name'):
+            ('subtle\\subtle-sdxl_enhance.safetensors', 'OVERRIDDEN'),
+        ('improve skin.json', '10', 'vae_name'):
+            ('flux2_vae.safetensors.safetensors', 'RESOLVED'),
+        ('improve skin.json', '90', 'clip_name'):
+            ('qwen_3_8b_fp8mixed.safetensors', 'RESOLVED'),
+        ('improve skin.json', '114', 'unet_name'):
+            ('Flux2 klein\\flux-2-klein-9b-kv-fp8.safetensors', 'RESOLVED'),
+        ('improve skin.json', '139', 'lora_name'):
+            ('klein\\realistic.safetensors', 'BYPASSED'),
+        ('klein_inpaint.json', '114', 'unet_name'):
+            ('klein\\flux-2-klein-9b-fp8.safetensors', 'RESOLVED'),
+        ('klein_inpaint.json', '10', 'vae_name'):
+            ('flux2-vae.safetensors', 'RESOLVED'),
+        ('klein_inpaint.json', '90', 'clip_name'):
+            ('qwen_3_8b_fp8mixed.safetensors', 'RESOLVED'),
+        ('krea2_turbo.json', '20', 'unet_name'):
+            ('Krea\\krea2_turbo_fp8.safetensors', 'OVERRIDDEN'),
+        ('krea2_turbo.json', '21', 'clip_name'):
+            ('qwen3vl_4b_fp8_scaled.safetensors', 'PREFLIGHT'),
+        ('krea2_turbo.json', '22', 'vae_name'):
+            ('qwen_image_vae.safetensors', 'PREFLIGHT'),
+        ('krea2_turbo_img2img.json', '20', 'unet_name'):
+            ('Krea\\krea2_turbo_fp8.safetensors', 'DORMANT'),
+        ('krea2_turbo_img2img.json', '21', 'clip_name'):
+            ('qwen3vl_4b_fp8_scaled.safetensors', 'DORMANT'),
+        ('krea2_turbo_img2img.json', '22', 'vae_name'):
+            ('qwen_image_vae.safetensors', 'DORMANT'),
+    }
+    assert all(cat in ALLOWED for _ref, cat in EXPECTED.values())
+    actual = {}
+    for p in _all_workflow_files():
+        name = os.path.basename(p)
+        with open(p, encoding='utf-8') as f:
+            data = json.load(f)
+        for nid, node in data.items():
+            if not isinstance(node, dict):
+                continue
+            for k in LOADER_KEYS.get(node.get('class_type'), ()):
+                ref = node.get('inputs', {}).get(k)
+                if isinstance(ref, str) and ref.strip():
+                    actual[(name, nid, k)] = ref
+    assert actual == {k: ref for k, (ref, _cat) in EXPECTED.items()}

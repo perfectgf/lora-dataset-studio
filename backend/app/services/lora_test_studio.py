@@ -611,6 +611,77 @@ def apply_sdxl_lora_test_settings(workflow, *, base_ckpt, lora_name, strength,
         _set("9", "filename_prefix", filename_prefix)
 
 
+def _resolve_lora_rel_by_basename(basename):
+    """Loras-root-relative name (the exact string a LoraLoader wants) of the FIRST
+    file whose basename matches `basename` across every loras search root, or None.
+    Lets a workflow-wired accelerator LoRA be found WHEREVER the user keeps it —
+    root, a differently-named subfolder, an extra_model_paths loras root — instead of
+    depending on the developer's own subfolder. Reuses the same disk view as the
+    picker/probe (comfy_model_paths.list_models), so anything the app lists is
+    resolvable here; [] with no ComfyUI configured → None."""
+    from . import comfy_model_paths
+    target = (basename or '').lower()
+    if not target:
+        return None
+    for rel, _ab in comfy_model_paths.list_models('loras'):
+        if os.path.basename(rel).lower() == target:
+            return rel
+    return None
+
+
+def _bypass_lora_loader(workflow, node_id):
+    """Delete a two-output LoraLoader (model + clip) and reconnect each consumer of
+    its model output (slot 0) / clip output (slot 1) to that node's OWN upstream model
+    / clip inputs, so ComfyUI never fails validation on the missing LoRA. The two-slot
+    form of klein_edit_helper._bypass_node (which handles a single model output)."""
+    node = workflow.get(node_id)
+    if not isinstance(node, dict):
+        return
+    upstream = {0: node.get('inputs', {}).get('model'),
+                1: node.get('inputs', {}).get('clip')}
+    for other in workflow.values():
+        if not isinstance(other, dict):
+            continue
+        for k, v in list(other.get('inputs', {}).items()):
+            if (isinstance(v, list) and len(v) == 2 and v[0] == node_id
+                    and upstream.get(v[1]) is not None):
+                other['inputs'][k] = upstream[v[1]]
+    workflow.pop(node_id, None)
+
+
+def _apply_sdxl_accelerator(workflow):
+    """Make the SDXL HQ workflow's DMD2 accelerator LoRA independent of the dev's own
+    ComfyUI layout. The template wires 'DMD2\\dmd2_sdxl_4step_lora_fp16.safetensors' (a
+    personal subfolder) at strength 1.0 — a SPEED/quality accelerator, NOT a
+    graph-critical asset like the base checkpoint / VAE / text encoder. So:
+      * resolve it by canonical basename across every loras root (a user who keeps the
+        public DMD2 LoRA under any other folder still gets it wired — mission's #1
+        preference), and
+      * BYPASS the loader when it is absent EVERYWHERE, so a fresh SDXL Studio degrades
+        to a plain render instead of hard-blocking the whole family on a file that only
+        exists on the dev's disk (mirrors the Klein node-139 bypass).
+    Distilled base checkpoints (the workflow's design point) render unchanged without
+    it; a full SDXL checkpoint renders softer — the honest trade-off vs. a blocked grid.
+    Idempotent and shape-agnostic: matches the DMD2 loader by `lora_name`, not node id."""
+    for nid, node in list(workflow.items()):
+        if not isinstance(node, dict) or node.get('class_type') != 'LoraLoader':
+            continue
+        ref = str(node.get('inputs', {}).get('lora_name') or '')
+        if 'dmd2' not in ref.lower():
+            continue
+        # Fast path: the wired path is already on disk (dev, or anyone who placed it
+        # there) → leave it, skip the loras walk that a grid would repeat per cell.
+        if _resolve_lora_abs_path(ref):
+            break
+        found = _resolve_lora_rel_by_basename(os.path.basename(ref.replace('\\', '/')))
+        if found:
+            node['inputs']['lora_name'] = found
+        else:
+            _bypass_lora_loader(workflow, nid)
+        break
+    return workflow
+
+
 # Basename du UNET câblé dans krea2_turbo.json (node 20) : l'entrée « Official »
 # des sélecteurs le représente déjà (valeur vide → on ne touche pas au node), donc
 # les listes de bases ALTERNATIVES l'excluent pour ne pas montrer le même modèle
@@ -755,6 +826,11 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
         )
         if extra_loras:  # always-on chaînés après le Style LoRA (node 25)
             inject_sdxl_loras(workflow, extra_loras, {e['filename'] for e in extra_loras})
+        # DMD2 accelerator (node 10): resolve across loras roots or bypass when absent,
+        # so the SDXL Studio never depends on the dev's personal 'DMD2\' subfolder nor
+        # hard-blocks on a quality-only accelerator. Runs LAST so it reads node 10's
+        # real upstream after any always-on chaining.
+        _apply_sdxl_accelerator(workflow)
         return workflow
     if (train_type or 'zimage').lower() == 'krea':
         workflow = load_workflow_local(str(WORKFLOW_KREA_TURBO_PATH))
