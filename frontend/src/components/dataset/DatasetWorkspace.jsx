@@ -18,6 +18,7 @@ import DatasetSettingsModal from './DatasetSettingsModal';
 import PublishHfModal from './PublishHfModal';
 import WatermarkReviewLightbox, { buildWatermarkRecap } from './WatermarkReviewLightbox';
 import { useToast } from '../common/Toast';
+import { pickNativeFolder, FolderBrowserModal } from '../common/FolderPicker';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import InstallRunner from '../setup/InstallRunner';
 import GuidedChecklist from './GuidedChecklist';
@@ -144,6 +145,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [notReadyAck, setNotReadyAck] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [publishHfOpen, setPublishHfOpen] = useState(false);
+  const [folderBrowseOpen, setFolderBrowseOpen] = useState(false);  // in-app folder browser (native-dialog fallback)
   // Grid tag-filter (session-only): tags whose images are hidden (exclude) or the
   // ONLY tags allowed through (include). Both are normalized (trim+lowercase).
   const [excludeTags, setExcludeTags] = useState([]);
@@ -505,11 +507,16 @@ export default function DatasetWorkspace({ ds, onBack }) {
     ds.exportZip();
   };
   // The folder lives on the machine running the app, so a browser file-picker
-  // can't select it — the user pastes the path instead.
-  const importFolderPrompt = () => {
-    const p = window.prompt(
-      'Path of the dataset folder on this machine (images + same-name .txt captions):');
-    if (p && p.trim()) ds.importDatasetFolder(p.trim());
+  // can't reach it. Try the server's native "choose a folder" dialog first;
+  // when the server has no desktop (LAN/tablet, Linux/vast.ai) fall back to the
+  // in-app folder browser.
+  const importFolderPrompt = async () => {
+    const r = await pickNativeFolder();
+    if (r.available) {
+      if (r.path) ds.importDatasetFolder(r.path);  // r.cancelled → user backed out
+    } else {
+      setFolderBrowseOpen(true);
+    }
   };
 
   // Amber "in progress" banner text. Captioning keeps its richer live count (derived
@@ -1525,6 +1532,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
       )}
       {publishHfOpen && (
         <PublishHfModal datasetId={d.id} onClose={() => setPublishHfOpen(false)} />
+      )}
+      {folderBrowseOpen && (
+        <FolderBrowserModal
+          onPick={(p) => ds.importDatasetFolder(p)}
+          onClose={() => setFolderBrowseOpen(false)} />
       )}
       {reviewQueue && reviewQueue.length > 0 && (
         <WatermarkReviewLightbox

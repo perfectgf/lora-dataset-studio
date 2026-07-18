@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-folder-browse-button',
+    date: '2026-07-19',
+    title: 'Browse for a folder instead of typing its path',
+    blurb:
+      "Pointing the Image bank (or a dataset folder-import) at a folder no longer means typing a path by hand. Hit “📂 Browse…” and the app opens your computer's own folder dialog — pick the folder and the field fills itself in. On a phone or a remote/Linux server where that native dialog can't show, a built-in folder browser opens instead. Pasting a path still works too.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-18-runs-show-base-model',
     date: '2026-07-18',
     title: 'Run cards now name the exact base model each LoRA trained on',

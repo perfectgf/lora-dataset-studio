@@ -3,6 +3,7 @@ import { apiFetch, del, postJson } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { HelpBadge } from '../help/HelpMode'
 import BankWorkspace from '../components/bank/BankWorkspace'
+import FolderPickerField from '../components/common/FolderPicker'
 
 const CURRENT_KEY = 'bankCurrentId'
 
@@ -96,12 +97,9 @@ export default function BankPage() {
             className="mt-1 w-full rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content" />
         </div>
         <div className="grow-[3] min-w-64">
-          <label htmlFor="bank-folder" className="block text-sm font-medium text-content">
-            Folder on this computer
-          </label>
-          <input id="bank-folder" value={folder} onChange={(e) => setFolder(e.target.value)}
-            placeholder="C:\path\to\unsorted-images (subfolders included)" required
-            className="mt-1 w-full rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content font-mono" />
+          <FolderPickerField id="bank-folder" label="Folder on this computer"
+            value={folder} onChange={setFolder} required
+            placeholder="C:\path\to\unsorted-images (subfolders included)" />
         </div>
         <button type="submit" disabled={creating}
           className="rounded-md bg-gradient-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
