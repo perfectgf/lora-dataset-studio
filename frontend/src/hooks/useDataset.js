@@ -873,6 +873,10 @@ export function useDataset() {
       allow_uncaptioned: !!opts.allowUncaptioned,
       allow_unverified_weights: !!opts.allowUnverifiedWeights,
       allow_caption_quality: !!opts.allowCaptionQuality,
+      // fromStep = resume from a chosen (possibly earlier) checkpoint; overrides =
+      // safe-subset settings (cadence / preview prompts). Both optional.
+      ...(opts.fromStep != null ? { from_step: opts.fromStep } : {}),
+      ...(opts.overrides ? { overrides: opts.overrides } : {}),
     };
     const d = await postJson(`/api/dataset/${currentId}/train/continue`, body);
     if (d.ok) toast.success(`Resumed from step ${d.resumed_from} → ${d.target_steps} — ComfyUI paused`);

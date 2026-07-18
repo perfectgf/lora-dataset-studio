@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { postJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
 import TrainingProgress from '../components/dataset/TrainingProgress';
+import ContinueDialog from '../components/dataset/ContinueDialog';
 import { DatasetVersionChip, RunIdChip } from '../components/dataset/RunIdentityBadges';
 import { HelpBadge } from '../help/HelpMode';
 import { runIdentityOf, runRowDomId } from '../utils/runIdentity';
@@ -365,22 +366,23 @@ export default function CloudRunsPage() {
   // run's last harvested checkpoint for `extra` more steps (ai-toolkit
   // auto-resume — the monitor seeds the checkpoint onto the pod before start).
   const [continuing, setContinuing] = useState({});   // run_id -> bool
-  const continueRun = async (run) => {
+  const [continueRunTarget, setContinueRunTarget] = useState(null);   // run being continued | null
+  const continueRun = (run) => {
     if (isTrainingRecipeReplayBlocked(run)) {
       toast.error('This checkpoint uses an incompatible legacy Z-Image recipe and cannot be continued safely.');
       return;
     }
-    const raw = window.prompt('Additional steps to train from the last checkpoint:', '1000');
-    if (raw == null) return;                            // cancelled
-    const extra = parseInt(raw, 10);
-    if (!Number.isFinite(extra) || extra <= 0) {
-      toast.error('Enter a positive number of extra steps.');
-      return;
-    }
+    setContinueRunTarget(run);
+  };
+  const submitContinue = async (payload) => {
+    const run = continueRunTarget;
+    setContinueRunTarget(null);
+    if (!run || !payload) return;
     setContinuing((m) => ({ ...m, [run.run_id]: true }));
     try {
       const d = await postJson('/api/dataset/train/cloud/continue',
-        { run_id: run.run_id, extra_steps: extra });
+        { run_id: run.run_id, extra_steps: payload.extraSteps,
+          from_step: payload.fromStep, overrides: payload.overrides });
       if (d.ok === false) toast.error(d.error || 'Continue failed');
       else toast.success(`Continuing from step ${d.resumed_from} → ${d.target_steps} on a fresh pod…`);
       poll();
@@ -509,9 +511,9 @@ export default function CloudRunsPage() {
                 disabled={isTrainingRecipeReplayBlocked(run) || !!continuing[run.run_id]}
                 title={isTrainingRecipeReplayBlocked(run)
                   ? 'Disabled: this legacy/incompatible Z-Image checkpoint cannot be continued safely; start a fresh run'
-                  : "Resume training from this run's last checkpoint for more steps, on a fresh pod"}
+                  : "Resume from any of this run's checkpoints for more steps, on a fresh pod"}
                 className="px-3 py-1.5 rounded-lg bg-sky-600/80 hover:bg-sky-600 text-white text-xs font-semibold disabled:opacity-40">
-                {continuing[run.run_id] ? '▶ Continuing…' : '▶ Continue (+1000)'}
+                {continuing[run.run_id] ? '▶ Continuing…' : '▶ Continue…'}
               </button>
             )}
             {run.checkpoint_ready && (
@@ -781,6 +783,19 @@ export default function CloudRunsPage() {
           </div>
           )}
         </div>
+      )}
+
+      {continueRunTarget && (
+        <ContinueDialog
+          context={`${famLabel(continueRunTarget.train_type)}${
+            trainingRunVariantLabel(continueRunTarget.train_type, continueRunTarget.variant)
+              ? ` · ${trainingRunVariantLabel(continueRunTarget.train_type, continueRunTarget.variant)}` : ''}`}
+          where="cloud"
+          checkpoints={((continueRunTarget.resume_steps?.length
+            ? continueRunTarget.resume_steps
+            : [continueRunTarget.steps]).filter(Boolean)).map((step) => ({ step }))}
+          busy={!!continuing[continueRunTarget.run_id]}
+          onResolve={submitContinue} />
       )}
     </section>
   );

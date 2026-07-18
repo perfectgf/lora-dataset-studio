@@ -353,17 +353,48 @@ def _run_staging_checkpoints(run) -> list:
     return out
 
 
-def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
-    """Reprend un run cloud TERMINÉ (done) depuis son DERNIER checkpoint harvesté
-    et vise dernier_step + extra_steps — le pendant cloud de
+def _merge_resume_overrides(snapshot, patch):
+    """Fold a validated safe-override patch into a per-run train_settings snapshot
+    (JSON string, None, or _UNSET) for a cloud continue. Mirrors the local path,
+    where update_train_settings persists the same keys — but a cloud run carries a
+    frozen snapshot instead of the live dataset column, so we merge into a COPY and
+    never touch the dataset. A None value drops the key (reset to default), matching
+    update_train_settings' semantics. Returns a JSON string (or None if empty)."""
+    if snapshot in (_UNSET, None):
+        base = {}
+    else:
+        try:
+            base = json.loads(snapshot)
+        except (ValueError, TypeError):
+            base = {}
+        if not isinstance(base, dict):
+            base = {}
+    for k, v in patch.items():
+        if v is None:
+            base.pop(k, None)
+        else:
+            base[k] = v
+    return json.dumps(base) if base else None
+
+
+def continue_cloud_run(user_id, run_id, extra_steps=1000, from_step=None,
+                       overrides=None) -> dict:
+    """Reprend un run cloud TERMINÉ (done) depuis un checkpoint harvesté et vise
+    step_de_reprise + extra_steps — le pendant cloud de
     lora_training.continue_training. C'est un VRAI launch_cloud_training (pod
     frais, mêmes garde-fous : limite de runs actifs, budget, unicité par
     famille) avec les paramètres persistés du run source (variante/famille/
     masked/GPU class, comme retry_cloud_run) ; son monitor, AVANT de démarrer le
     job, dépose le checkpoint dans le save_root du job sur le pod pour déclencher
-    l'auto-resume d'ai-toolkit. Le job config reprend le snapshot de réglages du
-    run source ; register_launch reste un launch cloud normal — le resume est un
-    détail d'exécution."""
+    l'auto-resume d'ai-toolkit.
+
+    ``from_step`` absent → dernier checkpoint (défaut). Fourni → CE step précis, y
+    compris un checkpoint plus ancien : le seed d'un checkpoint arbitraire sur un
+    pod NEUF est le même canal que le seed du dernier, et le staging du run source
+    n'est jamais touché — repartir d'un step inférieur est donc gratuit côté cloud.
+    ``overrides`` = mêmes réglages sûrs que le local (cadence/preview prompts),
+    fusionnés dans le snapshot du run (jamais dans le dataset). register_launch
+    reste un launch cloud normal — le resume est un détail d'exécution."""
     run = db.session.get(CloudTrainingRun, int(run_id))
     if not run:
         raise ValueError('unknown cloud run')
@@ -376,29 +407,50 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000) -> dict:
     if not isinstance(p, dict):
         p = {}
     _assert_recipe_replayable(p, 'continue')
+    override_patch = lt.validate_resume_overrides(overrides)
     cks = _run_staging_checkpoints(run)
     if not cks:
         raise ValueError('no harvested checkpoint to continue from — its staging '
                          'was cleaned; relaunch a fresh cloud run instead')
-    latest = cks[-1]
+    # Which harvested checkpoint to resume from. Default = the latest; a specific
+    # step restarts from an earlier epoch (seeding it onto the fresh pod is the same
+    # channel, and the source run's staging is read-only here — nothing destroyed).
+    if from_step is None:
+        chosen = cks[-1]
+    else:
+        try:
+            want = int(from_step)
+        except (TypeError, ValueError):
+            raise ValueError('from_step must be an integer step')
+        matches = [c for c in cks if c['step'] == want]
+        if not matches:
+            avail = sorted({c['step'] for c in cks})
+            raise ValueError(
+                f'no harvested checkpoint at step {want} for this run (available: {avail})')
+        # Prefer a suffixed save over the unsuffixed final when steps tie.
+        chosen = min(matches, key=lambda c: not re.search(
+            r'_(\d{6,})\.safetensors$', c['filename']))
     try:
         extra = max(100, int(extra_steps))
     except (TypeError, ValueError):
         extra = 1000
+    snapshot = p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET)
+    if override_patch:
+        snapshot = _merge_resume_overrides(snapshot, override_patch)
     res = launch_cloud_training(
         user_id, run.dataset_id,
-        steps=latest['step'] + extra,
+        steps=chosen['step'] + extra,
         base_model=p.get('base_model', ''),
         variant=p.get('variant'),
         train_type=p.get('train_type'),
         masked=p.get('masked', True),
         **_confirmation_flags(p),
         gpu_name=p.get('requested_gpu'),
-        resume_ckpt_path=latest['path'], resume_step=latest['step'],
-        train_settings_snapshot=p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET),
+        resume_ckpt_path=chosen['path'], resume_step=chosen['step'],
+        train_settings_snapshot=snapshot,
         train_slider_snapshot=p.get(_TRAIN_SLIDER_SNAPSHOT, _UNSET))
-    res['resumed_from'] = latest['step']
-    res['target_steps'] = latest['step'] + extra
+    res['resumed_from'] = chosen['step']
+    res['target_steps'] = chosen['step'] + extra
     return res
 
 
@@ -1901,6 +1953,11 @@ def _run_payload(run) -> dict:
             # checkpoints the pod saved (live count of the staging downloads)
             'steps': _run_param(run, 'steps'),
             'saves': _staging_save_count(run),
+            # Distinct steps of the harvested checkpoints still in staging — the
+            # ▶ Continue dialog offers them so a finished run can resume from an
+            # EARLIER epoch, not only its last (empty when staging was purged).
+            'resume_steps': (sorted({c['step'] for c in _run_staging_checkpoints(run)})
+                             if run.status == 'done' else []),
             'train_type': family, 'variant': variant,
             'effective_base': effective_base,
             'training_adapter': training_adapter,

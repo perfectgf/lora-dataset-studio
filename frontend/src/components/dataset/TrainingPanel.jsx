@@ -32,6 +32,7 @@ import {
 import { runConfirmableTrainingRequest } from '../../utils/trainingConfirmations';
 import { HelpBadge } from '../../help/HelpMode';
 import { useToast } from '../common/Toast';
+import ContinueDialog from './ContinueDialog';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
 import { DatasetVersionChip, RunIdChip } from './RunIdentityBadges';
@@ -676,6 +677,23 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     setResumeAsk(null);
     resumeResolver.current?.(v);
     resumeResolver.current = null;
+  };
+  // ▶ Continue dialog (flexible resume): pick extra steps, the checkpoint to
+  // resume from, and the safe settings to adjust. Open on the checkpoint list's
+  // Continue button; resolves to a payload or null (cancel).
+  const [continueOpen, setContinueOpen] = useState(false);
+  const runContinue = async (payload) => {
+    setContinueOpen(false);
+    if (!payload) return;
+    await runConfirmableTrainingRequest(
+      (continueOpts) => ds.continueTraining(
+        payload.extraSteps, checkpointBase, checkpointVariant, checkpointTrainType,
+        { ...continueOpts, fromStep: payload.fromStep, overrides: payload.overrides }),
+      { masked },
+      (error) => confirmableRetryFlag(error, 'Continue anyway (force)'),
+    );
+    refreshStatus();
+    loadCheckpoints(checkpointBase, checkpointTrainType, checkpointVariant);
   };
   const askResumeOrFresh = async () => {
     // Ne pas lire la liste affichée dans le navigateur de résultats : elle peut
@@ -2187,24 +2205,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   {bestEpochBusy ? '🏆 Scoring samples…' : '🏆 Find best epoch'}
                 </button>
                 <button type="button" disabled={status.in_progress || !checkpointMatchesTraining}
-                  onClick={async () => {
-                    const last = Math.max(...checkpoints.map((c) => c.step));
-                    if (window.confirm(`Resume training « ${checkpointBaseLabel} » from step ${last} and continue for +1000 steps (→ ${last + 1000})?`)) {
-                      await runConfirmableTrainingRequest(
-                        (continueOpts) => ds.continueTraining(
-                          1000, checkpointBase, checkpointVariant, checkpointTrainType, continueOpts),
-                        { masked },
-                        (error) => confirmableRetryFlag(error, 'Continue anyway (force)'),
-                      );
-                      refreshStatus();
-                      loadCheckpoints(checkpointBase, checkpointTrainType, checkpointVariant);
-                    }
-                  }}
+                  onClick={() => setContinueOpen(true)}
                   title={!checkpointMatchesTraining
                     ? 'To continue this run, select the same LoRA family, base and variant in Training first'
-                    : 'Resumes from this base’s last checkpoint and trains 1000 more steps'}
+                    : 'Resume from any of this run’s checkpoints — pick the step count, the checkpoint, and the safe settings'}
                   className="ml-auto px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-[0.6875rem] font-semibold disabled:opacity-40">
-                  ▶ Continue training (+1000)
+                  ▶ Continue training…
                 </button>
               </div>
               {bestEpoch && !bestEpoch.available && (
@@ -2465,6 +2471,18 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             </div>
           </div>
         </div>
+      )}
+
+      {continueOpen && (
+        <ContinueDialog
+          context={`${checkpointBaseLabel} · ${checkpointVariantDisplay}`}
+          where="local"
+          checkpoints={checkpoints}
+          bestStep={bestEpoch?.available ? bestEpoch.best_step : null}
+          settings={{ save_every: advSave, sample_every: advSampleEvery,
+            sample_prompts: adv?.sample_prompts }}
+          busy={status.in_progress}
+          onResolve={runContinue} />
       )}
     </div>
   );

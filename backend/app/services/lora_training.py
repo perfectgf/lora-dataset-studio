@@ -1517,6 +1517,68 @@ TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
                       'timestep_type', 'optimizer', 'lr_scheduler', 'warmup',
                       'grad_accum', 'network_type', 'ema', 'dual_captions')
 
+# The ONLY settings a resume/continue may change. ai-toolkit rebuilds the job
+# config from scratch on every launch, so a re-read setting is honored on resume —
+# but the LoRA weights being resumed have a fixed shape (rank/alpha/network) and
+# the run has a fixed training regime (optimizer, schedule, resolution). Changing
+# any of those mid-run either fails to load the checkpoint (shape mismatch) or
+# silently trains a different recipe than the one that produced the weights.
+# Cadence and preview prompts touch neither: save/sample cadence only decides WHEN
+# to snapshot, and sample prompts only affect the preview images. timestep_type is
+# the deliberate exception: it changes no weight shape and re-weighting the noise
+# levels ON PURPOSE is a documented continuation recipe (train balanced, then
+# resume low-noise-leaning to polish fine texture) — the user picks it explicitly
+# in the Continue dialog, so it is a stated intent, never a silent drift. SDXL
+# ignores it (flowmatch weighting does not apply there) — a harmless no-op.
+RESUME_SAFE_SETTING_KEYS = ('save_every', 'sample_every', 'sample_prompts',
+                            'timestep_type')
+
+
+def validate_resume_overrides(overrides) -> dict:
+    """Validate the safe-subset settings a continue/resume is allowed to change
+    (see RESUME_SAFE_SETTING_KEYS) and return a cleaned patch. Raises ValueError
+    on any forbidden key or bad value — a resume must refuse to touch anything
+    that would mismatch the checkpoint's weights or change its training regime.
+    Value validation mirrors update_train_settings so local (persisted) and cloud
+    (per-run snapshot) apply identical rules."""
+    if not overrides:
+        return {}
+    if not isinstance(overrides, dict):
+        raise ValueError('overrides must be an object')
+    forbidden = [k for k in overrides if k not in RESUME_SAFE_SETTING_KEYS]
+    if forbidden:
+        raise ValueError(
+            'these settings cannot change when continuing a run — they must match '
+            f'the checkpoint being resumed: {", ".join(sorted(forbidden))}')
+    patch = {}
+    if 'save_every' in overrides:
+        v = overrides['save_every']
+        if v not in _SAVE_CHOICES:
+            raise ValueError(f'save_every must be one of {_SAVE_CHOICES}')
+        patch['save_every'] = v
+    if 'sample_every' in overrides:
+        v = overrides['sample_every']
+        if v not in _SAMPLE_EVERY_CHOICES:
+            raise ValueError(f'sample_every must be one of {_SAMPLE_EVERY_CHOICES}')
+        patch['sample_every'] = v
+    if 'sample_prompts' in overrides:
+        v = overrides['sample_prompts']
+        if isinstance(v, str):
+            v = v.splitlines()                              # multi-line convenience
+        if v in (None, ''):
+            patch['sample_prompts'] = None                  # reset to kind-aware defaults
+        elif isinstance(v, list):
+            cleaned = [str(x).strip() for x in v if str(x).strip()][:_MAX_SAMPLE_PROMPTS]
+            patch['sample_prompts'] = cleaned or None
+        else:
+            raise ValueError('sample_prompts must be a list of strings (or empty to reset)')
+    if 'timestep_type' in overrides:
+        v = overrides['timestep_type']
+        if v not in _TIMESTEP_TYPE_CHOICES:
+            raise ValueError(f'timestep_type must be one of {_TIMESTEP_TYPE_CHOICES}')
+        patch['timestep_type'] = v
+    return patch
+
 # Built-in quick presets: shipped with the app (every install sees them),
 # read-only, versioned with the code. One preset per (family × dataset kind):
 # Character locks an identity, Style absorbs a look (route-owned catalogue),
@@ -3992,15 +4054,63 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
             'run_token': run_token}
 
 
+def _seed_continuation_from(user_id, dataset_id, base, family, variant,
+                            chosen_filename) -> str:
+    """Prepare a LOCAL run to resume from a checkpoint that is NOT its latest (a
+    less-cooked earlier epoch — the classic « step 750 beat the over-cooked 1000 »).
+    ai-toolkit auto-resumes from the NEWEST file in the run's save_root, so a plain
+    relaunch would grab the latest checkpoint no matter what step we target. Instead
+    we set the whole run folder aside (rename to `_superseded_<ts>`, NEVER delete —
+    every original save stays on disk, recoverable, and still falls with the dataset
+    through the `lora_<trigger>` prefix) and seed ONLY the chosen checkpoint back into
+    a fresh save_root. ai-toolkit then finds that single file, loads its weights and
+    reads its resume step from the safetensors metadata — the exact mechanism the
+    cloud path uses to seed a checkpoint onto a fresh pod (_seed_resume_checkpoint).
+    The fresh save_root has no optimizer.pt, so the optimizer restarts clean from the
+    chosen step (correct — the latest run's optimizer state belongs to a later point).
+    Returns the archived folder path."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    trigger = _safe_trigger(ds)
+    training_folder = _output_dir() / _run_name(ds, base, family, variant)
+    if not training_folder.is_dir():
+        raise ValueError('run folder missing - cannot seed the earlier checkpoint')
+    dest = f'{training_folder}_superseded_{datetime.now().strftime("%Y%m%d-%H%M%S")}'
+    try:
+        os.rename(training_folder, dest)
+    except OSError as e:
+        raise ValueError(f'could not set the later checkpoints aside ({e}) - close '
+                         f'anything using "{training_folder}" and retry')
+    save_root = training_folder / f'lora_{trigger}'
+    src = os.path.join(dest, f'lora_{trigger}', chosen_filename)
+    if not os.path.isfile(src):
+        os.rename(dest, training_folder)                    # roll back — never half-moved
+        raise ValueError('chosen checkpoint vanished before seeding')
+    save_root.mkdir(parents=True, exist_ok=True)
+    seeded = save_root / chosen_filename
+    shutil.copy2(src, seeded)
+    os.utime(seeded, None)                                  # newest by ctime → ai-toolkit picks it
+    logger.info('continuation: seeded %s into fresh save_root, superseded run -> %s',
+                chosen_filename, dest)
+    return dest
+
+
 def continue_training(user_id, dataset_id, extra_steps: int = 1000,
                       base_model=_PERSISTED, variant=None, train_type=None,
                       masked=True, allow_unverified_weights=False,
                       allow_caption_mismatch=False, allow_uncaptioned=False,
-                      allow_caption_quality=False,
+                      allow_caption_quality=False, from_step=None, overrides=None,
                       _allow_dead_predecessor=False) -> dict:
-    """Reprend l'entraînement depuis le dernier checkpoint de la base ciblée et
-    vise ``dernier_step + extra_steps``. ai-toolkit auto-resume depuis le
-    training_folder ; il faut donc qu'au moins un checkpoint existe POUR CETTE BASE.
+    """Reprend l'entraînement d'une base et vise ``step_de_reprise + extra_steps``.
+    ai-toolkit auto-resume depuis le training_folder ; il faut donc qu'au moins un
+    checkpoint existe POUR CETTE BASE.
+
+    ``from_step`` absent → reprise depuis le DERNIER checkpoint (comportement
+    historique, relance en place). Fourni → reprise depuis CE step précis ; s'il est
+    INFÉRIEUR au dernier, on repart d'un checkpoint plus ancien SANS rien détruire :
+    le run est archivé de côté et seul le checkpoint choisi est semé dans un dossier
+    propre (_seed_continuation_from). ``overrides`` = sous-ensemble sûr de réglages
+    (cadence de sauvegarde/preview, prompts de preview) appliqué avant la reprise ;
+    tout autre réglage est refusé (il romprait la compatibilité des poids).
 
     `base_model` absent → base persistée du dataset (ex. file d'attente). Fourni
     (sélection UI) → on reprend le run DE CETTE base précise : sinon on proposait
@@ -4013,6 +4123,9 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
             queue_manager._get_system_state('training_pid', None))
         if not (_allow_dead_predecessor and previous_is_dead):
             raise ValueError('a training is already in progress')
+    # Validate the safe-subset overrides BEFORE any side effect: a forbidden key
+    # (rank/alpha/optimizer/…) must fail loudly with nothing archived or persisted.
+    override_patch = validate_resume_overrides(overrides)
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
@@ -4037,10 +4150,34 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
     if not cks:
         raise ValueError("no checkpoint to resume for this base - run a training first")
     latest = max(c['step'] for c in cks)
+    # Which checkpoint to resume FROM. Default = the latest (in-place, unchanged).
+    # A specific step lets the user restart from an earlier, better epoch.
+    if from_step is None:
+        resume_step, chosen = latest, None
+    else:
+        try:
+            resume_step = int(from_step)
+        except (TypeError, ValueError):
+            raise ValueError('from_step must be an integer step')
+        matches = [c for c in cks if c['step'] == resume_step]
+        if not matches:
+            avail = sorted({c['step'] for c in cks})
+            raise ValueError(
+                f'no checkpoint at step {resume_step} for this run (available: {avail})')
+        # Ties (a numbered save and the bare final at the same step): prefer the
+        # numbered file — it carries a clean step and is never the run's live final.
+        chosen = min(matches, key=lambda c: bool(c.get('final')))
     try:
         extra = max(100, int(extra_steps))
     except (TypeError, ValueError):
         extra = 1000
+    # Apply the safe overrides (cadence / preview prompts) before building the job.
+    if override_patch:
+        update_train_settings(user_id, dataset_id, override_patch)
+    # Restarting from BELOW the latest: seed the chosen checkpoint into a clean
+    # save_root so ai-toolkit resumes from IT, leaving the original saves intact.
+    if chosen is not None and resume_step < latest:
+        _seed_continuation_from(user_id, dataset_id, base, fam, var, chosen['filename'])
     # Reprendre AVEC la base/variante ciblée - sinon launch_training les remettrait
     # à l'officiel et ai-toolkit reprendrait depuis le mauvais run. vae/te restent
     # _PERSISTED (on garde le triplet du run). A custom Base/De-Turbo declaration
@@ -4056,15 +4193,15 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
     # explicit server-side acknowledgement.
     launch_allow_unverified = (allow_unverified_weights
                                or not needs_explicit_z_recipe)
-    res = launch_training(user_id, dataset_id, steps=latest + extra, check_captions=False,
+    res = launch_training(user_id, dataset_id, steps=resume_step + extra, check_captions=False,
                           base_model=base, variant=var, train_type=fam,
                           masked=masked,
                           allow_caption_mismatch=allow_caption_mismatch,
                           allow_uncaptioned=allow_uncaptioned,
                           allow_caption_quality=allow_caption_quality,
                           allow_unverified_weights=launch_allow_unverified)
-    res['resumed_from'] = latest
-    res['target_steps'] = latest + extra
+    res['resumed_from'] = resume_step
+    res['target_steps'] = resume_step + extra
     return res
 
 

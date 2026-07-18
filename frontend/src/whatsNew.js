@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-18-flexible-continue',
+    date: '2026-07-18',
+    title: 'Continue a run from any epoch, for as many steps as you want',
+    blurb:
+      "The “▶ Continue training” button is now a small dialog: choose how many more steps to train, WHICH checkpoint to resume from — including an earlier, less-cooked epoch (the classic case where step 750 beat the over-cooked 1000) — and optionally adjust the few settings a resume can safely change: save/preview cadence, preview prompts, and the timestep weighting (the two-phase recipe: train balanced, then continue low-noise-leaning to polish texture). Restarting from an earlier checkpoint never touches the run's later saves: they're set aside intact and the continuation writes its own. Works for both local and cloud runs from the Runs hub.",
+    to: '/cloud',
+  },
+  {
     id: '2026-07-18-krea-studio-unblocked',
     date: '2026-07-18',
     title: 'The Krea 2 Turbo Test Studio launches again',

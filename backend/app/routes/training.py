@@ -94,6 +94,12 @@ def dataset_train_continue(dataset_id):
         kw['variant'] = d.get('variant')
     if d.get('train_type'):
         kw['train_type'] = d.get('train_type')
+    # from_step = reprise depuis un checkpoint précis (défaut = dernier). overrides =
+    # réglages sûrs (le service refuse toute clé hors liste → 400).
+    if d.get('from_step') is not None:
+        kw['from_step'] = d.get('from_step')
+    if d.get('overrides') is not None:
+        kw['overrides'] = d.get('overrides')
     kw['masked'] = d.get('masked', True)
     kw['allow_unverified_weights'] = bool(d.get('allow_unverified_weights'))
     kw['allow_caption_mismatch'] = bool(d.get('allow_caption_mismatch'))
@@ -1281,17 +1287,20 @@ def dataset_train_cloud_retry():
 
 @bp.post('/dataset/train/cloud/continue')
 def dataset_train_cloud_continue():
-    """▶ Continue d'un run cloud TERMINÉ (page Runs) : reprend depuis son dernier
-    checkpoint harvesté et vise dernier_step + extra_steps — pod frais, mêmes
-    garde-fous que tout launch ; le monitor dépose le checkpoint sur le pod avant
-    de démarrer (auto-resume ai-toolkit)."""
+    """▶ Continue d'un run cloud TERMINÉ (page Runs) : reprend depuis un checkpoint
+    harvesté (from_step, défaut = dernier) et vise step_de_reprise + extra_steps —
+    pod frais, mêmes garde-fous que tout launch ; le monitor dépose le checkpoint
+    sur le pod avant de démarrer (auto-resume ai-toolkit). overrides = réglages sûrs
+    (le service refuse toute autre clé → 400)."""
     gate = _require_cloud()
     if gate:
         return gate
     d = request.get_json(silent=True) or {}
     try:
         res = ct.continue_cloud_run(LOCAL_USER, int(d.get('run_id') or 0),
-                                    extra_steps=d.get('extra_steps', 1000))
+                                    extra_steps=d.get('extra_steps', 1000),
+                                    from_step=d.get('from_step'),
+                                    overrides=d.get('overrides'))
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, **res})
