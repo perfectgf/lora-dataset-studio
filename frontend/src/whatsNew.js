@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-18-krea-studio-unblocked',
+    date: '2026-07-18',
+    title: 'The Krea 2 Turbo Test Studio launches again',
+    blurb:
+      "The Krea grid was refusing to start for everyone with a “custom node missing” error, because the app asked ComfyUI for a node under the wrong name. Fixed — and when a Studio node really is missing, the message now names exactly which pack to install (ComfyUI-Manager → search “Krea 2 Conditioning”) with a link, instead of just showing a raw class name. The Krea rebalance strength you set is now honored no matter which version of that node pack you installed.",
+    to: '/studio',
+  },
+  {
     id: '2026-07-18-dual-long-short-captions',
     date: '2026-07-18',
     title: 'Train each image with both a long and a short caption',

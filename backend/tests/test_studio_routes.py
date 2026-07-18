@@ -306,14 +306,20 @@ def test_studio_comparison_run_missing_assets_returns_structured_409(client, mon
     from app.services import lora_test_studio as lts
 
     def boom(*a, **k):
-        raise lts.StudioAssetsMissing('krea', [], ['Krea2RebalanceConditioning'])
+        raise lts.StudioAssetsMissing('krea', [], ['ConditioningKrea2Rebalance'])
     monkeypatch.setattr('app.services.lora_test_studio.create_comparison_run', boom)
     resp = client.post('/api/studio/run',
                        json={'selections': [{'dataset_id': 1, 'checkpoint': 'x'}]})
     assert resp.status_code == 409
-    sm = resp.get_json()['studio_missing']
+    body = resp.get_json()
+    sm = body['studio_missing']
     assert sm['family'] == 'krea'
-    assert sm['nodes'] == ['Krea2RebalanceConditioning'] and sm['files'] == []
+    assert sm['nodes'] == ['ConditioningKrea2Rebalance'] and sm['files'] == []
+    # Discoverability: the 409 names the pack + ComfyUI-Manager search term to install.
+    assert any(h['class_type'] == 'ConditioningKrea2Rebalance'
+               and h['pack'] == 'ComfyUI-Conditioning-Rebalance'
+               for h in sm.get('node_packs', []))
+    assert 'ComfyUI-Conditioning-Rebalance' in body['error']
 
 
 # --- rate: valid ratings 1/-1/0 ok, invalid -> 400 ---------------------------

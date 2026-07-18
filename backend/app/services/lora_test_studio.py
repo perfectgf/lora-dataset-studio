@@ -751,9 +751,15 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
         _set("20", "weight_dtype", weight_dtype)
     if filename_prefix is not None:
         _set("28", "filename_prefix", filename_prefix)
-    # Node 30 (Krea2RebalanceConditioning) : reweight des taps de conditioning Qwen3-VL.
+    # Node 30 (ConditioningKrea2Rebalance) : reweight des taps de conditioning Qwen3-VL.
     # ON (>1) relève les taps filtrés-sécurité → sortie non censurée + peau moins « plastique » ;
     # OFF (≤1) = passthrough identité (SFW). None = laisser le défaut du workflow (ON 4.0).
+    # Le workflow épingle preset="custom" + renormalize=false sur le node : la classe
+    # ConditioningKrea2Rebalance est publiée par DEUX packs (l'original nova452 à 3 inputs
+    # ET le fork huwhitememes qui ajoute preset/renormalize). Sur le fork, preset défaut
+    # "balanced" IGNORE per_layer_weights et renormalize=true annule l'effet de multiplier ;
+    # "custom" + renormalize=false garantissent NOS poids/force quelle que soit l'install
+    # (inputs inconnus = silencieusement ignorés par ComfyUI sur l'original).
     if rebalance is not None and isinstance(workflow.get("30"), dict):
         m = max(1.0, min(8.0, float(rebalance)))
         if m <= 1.0:
@@ -1208,6 +1214,38 @@ def preflight_family(family, workflows):
         missing_nodes = sorted(c for c in all_classes if c not in available)
     if missing_files or invalid_files or missing_nodes:
         raise StudioAssetsMissing(family, missing_files, missing_nodes, invalid_files)
+
+
+# Custom-node class_types the Studio family workflows pull from community packs,
+# mapped to the pack that ships each + how to find it in ComfyUI-Manager. Turns a
+# bare "node X is missing" 409 into an actionable "install pack Y (search: Z), then
+# restart ComfyUI". Same spirit as klein_edit_helper.KLEIN_NODE_PACKS; an unknown
+# node simply gets no hint (the generic message still shows), never an error.
+STUDIO_NODE_PACKS = {
+    # Krea 2 Turbo rebalance (node 30 of krea2_turbo*.json). The class is published by
+    # BOTH the original nova452/ComfyUI-Conditioning-Rebalance (3 inputs) and the
+    # huwhitememes fork (adds preset/renormalize) under the same key, so preflight-by-
+    # class accepts either; the workflow pins preset=custom + renormalize=false so our
+    # per-layer weights win on the fork too.
+    'ConditioningKrea2Rebalance': {
+        'pack': 'ComfyUI-Conditioning-Rebalance',
+        'url': 'https://github.com/nova452/ComfyUI-Conditioning-Rebalance',
+        'search': 'Krea 2 Conditioning',
+    },
+}
+
+
+def studio_missing_node_hints(nodes):
+    """[{class_type, pack, url, search}] for each missing node class that maps to a
+    known community pack (unknown classes omitted). Lets a studio_missing 409 name
+    WHAT to install instead of only the bare class_type — same spirit as Klein's
+    format_missing_nodes_message."""
+    out = []
+    for ct in nodes or []:
+        pk = STUDIO_NODE_PACKS.get(ct)
+        if pk:
+            out.append({'class_type': ct, **pk})
+    return out
 
 
 def _preflight_run(user_id, run_family, checkpoint, bases, allowed, prompt, seed,

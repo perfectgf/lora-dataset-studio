@@ -33,6 +33,22 @@ ComfyUI install directory**. If only the API URL is set, there's nothing to scan
 `main.py` (the Setup wizard detects it for you), then hit **Test**. SDXL
 checkpoints are scanned from `models/checkpoints`.
 
+## The Krea 2 Turbo Test Studio says a custom node is missing
+
+**Why:** the Krea grid rebalances the Qwen3-VL conditioning through a small
+community node (class `ConditioningKrea2Rebalance`). It isn't a stock ComfyUI
+node, so a ComfyUI that doesn't have it can't run the Krea pipeline and the
+Studio stops before wasting a run — the same up-front check used for missing
+model files.
+
+**Fix:** install the **ComfyUI-Conditioning-Rebalance** pack (in ComfyUI-Manager,
+search **"Krea 2 Conditioning"** — repo
+`https://github.com/nova452/ComfyUI-Conditioning-Rebalance`), then restart
+ComfyUI and relaunch the test. The Studio's error banner names this pack and
+links it directly. Either that original pack or its `comfyui-krea2-conditioning`
+fork works — the app pins the node so your rebalance-strength setting is applied
+the same way on both.
+
 ## The reference crop isn't centered on the face
 
 **Why:** on a fresh clone the configured Ollama vision model isn't pulled yet,

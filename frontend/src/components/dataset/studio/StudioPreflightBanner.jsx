@@ -7,7 +7,10 @@
  * cible. Sans ça, un utilisateur frais lançait une grille dont chaque tuile échouait
  * en silence. Dismissable (le prochain lancement le réémet si le manque persiste).
  *
- * `missing` = { family, files: [{path, kind}], nodes: [class_type] } | null.
+ * `missing` = { family, files: [{path, kind}], nodes: [class_type],
+ *   node_packs: [{class_type, pack, url, search}] } | null. `node_packs` names the
+ *   ComfyUI-Manager pack (+ search term & link) for each recognised missing node, so
+ *   the user knows WHAT to install instead of reverse-mapping a raw class_type.
  * `archMismatch` = { family, detected, checkpoint } | null — a selected checkpoint
  * whose REAL architecture (read from its header) isn't this Studio's family, so
  * ComfyUI would silently drop it and every tile would render as if the LoRA were
@@ -40,6 +43,8 @@ export default function StudioPreflightBanner({ missing, archMismatch, onDismiss
   if (!missing) return null;
   const files = missing.files || [];
   const nodes = missing.nodes || [];
+  const nodePacks = missing.node_packs || [];
+  const packFor = (ct) => nodePacks.find((p) => p.class_type === ct);
   if (!files.length && !nodes.length) return null;
   const fam = FAMILY_LABELS[missing.family] || missing.family || 'This';
 
@@ -79,14 +84,26 @@ export default function StudioPreflightBanner({ missing, archMismatch, onDismiss
           <span className="text-red-200/80 text-[0.6875rem] uppercase tracking-wide">
             Missing custom node{nodes.length > 1 ? 's' : ''} — install into ComfyUI
           </span>
-          <ul className="m-0 flex flex-wrap gap-1">
-            {nodes.map((n) => (
-              <li key={n}>
-                <code className="px-1.5 py-0.5 rounded border border-red-400/40 bg-red-500/10 text-red-100 text-[0.6875rem]">
-                  {n}
-                </code>
-              </li>
-            ))}
+          <ul className="m-0 flex flex-col gap-1">
+            {nodes.map((n) => {
+              const p = packFor(n);
+              return (
+                <li key={n} className="flex flex-col gap-0.5">
+                  <code className="self-start px-1.5 py-0.5 rounded border border-red-400/40 bg-red-500/10 text-red-100 text-[0.6875rem]">
+                    {n}
+                  </code>
+                  {p && (
+                    <span className="text-red-200/70 text-[0.625rem]">
+                      Install <b className="font-semibold">{p.pack}</b> via ComfyUI-Manager
+                      {p.search ? <> (search “{p.search}”)</> : null} —{' '}
+                      <a href={p.url} target="_blank" rel="noreferrer"
+                        className="underline break-all hover:text-red-100">{p.url}</a>
+                      , then restart ComfyUI.
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

@@ -50,11 +50,13 @@
   },
   "30": {
     "inputs": {
+      "preset": "custom",
       "multiplier": 4.0,
       "per_layer_weights": "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0",
+      "renormalize": false,
       "conditioning": ["23", 0]
     },
-    "class_type": "Krea2RebalanceConditioning",
+    "class_type": "ConditioningKrea2Rebalance",
     "_meta": { "title": "Conditioning Krea 2 Rebalance" }
   }
 }

@@ -631,13 +631,45 @@ def test_preflight_family_flags_missing_custom_node_via_object_info(app, tmp_pat
         (base / 'models' / 'unet').mkdir(parents=True)
         (base / 'models' / 'unet' / 'present.safetensors').write_bytes(_ST)
         monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes',
-                            lambda *a, **k: {'UNETLoader'})  # no Krea2RebalanceConditioning
+                            lambda *a, **k: {'UNETLoader'})  # no ConditioningKrea2Rebalance
         wf = {'1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': 'present.safetensors'}},
-              '30': {'class_type': 'Krea2RebalanceConditioning', 'inputs': {}}}
+              '30': {'class_type': 'ConditioningKrea2Rebalance', 'inputs': {}}}
         with pytest.raises(lts.StudioAssetsMissing) as ei:
             lts.preflight_family('krea', [wf])
-        assert ei.value.missing_nodes == ['Krea2RebalanceConditioning']
+        assert ei.value.missing_nodes == ['ConditioningKrea2Rebalance']
         assert ei.value.missing_files == []
+
+
+def test_shipped_krea_workflows_pin_rebalance_node(app):
+    """Node 30 must use the class the published pack registers
+    (ConditioningKrea2Rebalance — mots permutés vs l'ancien nom qui 409-bloquait
+    tout le studio Krea) AND pin preset=custom + renormalize=false, so our per-layer
+    weights + multiplier are honored even on the huwhitememes fork (whose preset
+    default 'balanced' ignores per_layer_weights and renormalize=true cancels the
+    multiplier). Both txt2img and img2img graphs carry it."""
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        for path in (lts.WORKFLOW_KREA_TURBO_PATH, lts.WORKFLOW_KREA_IMG2IMG_PATH):
+            wf = lts.load_workflow_local(str(path))
+            assert wf, f'{path} unreadable'
+            node = wf['30']
+            assert node['class_type'] == 'ConditioningKrea2Rebalance'
+            assert node['inputs']['preset'] == 'custom'
+            assert node['inputs']['renormalize'] is False
+            # The rebalance vector the service tunes against is still the shipped default.
+            assert node['inputs']['per_layer_weights'].endswith('2.5,5.0,1.1,4.0,1.0')
+
+
+def test_studio_missing_node_hints_names_krea_pack():
+    """studio_missing_node_hints maps the Krea rebalance class to an installable pack
+    (name + ComfyUI-Manager search + URL); unknown classes get no hint (no error)."""
+    from app.services import lora_test_studio as lts
+    hints = lts.studio_missing_node_hints(['ConditioningKrea2Rebalance', 'SomeUnknownNode'])
+    assert len(hints) == 1
+    h = hints[0]
+    assert h['class_type'] == 'ConditioningKrea2Rebalance'
+    assert h['pack'] == 'ComfyUI-Conditioning-Rebalance'
+    assert 'github.com' in h['url'] and h['search']
 
 
 def test_preflight_family_passes_when_everything_present(app, tmp_path, monkeypatch):

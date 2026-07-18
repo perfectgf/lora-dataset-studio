@@ -67,14 +67,23 @@ def _studio_missing_response(e):
         msg += (f"{len(invalid)} model file(s) are present but not real weights "
                 f"(an HTML download page saved as .safetensors, or a truncated "
                 f"download) — delete and re-download them. ")
+    node_packs = []
     if e.missing_nodes:
+        # Name WHAT to install for the nodes we recognise (pack + ComfyUI-Manager
+        # search term + URL), so the user doesn't have to reverse-map a class_type.
+        from ..services.lora_test_studio import studio_missing_node_hints
+        node_packs = studio_missing_node_hints(e.missing_nodes)
         msg += f"{len(e.missing_nodes)} custom node(s) are missing — install them into ComfyUI. "
+        for h in node_packs:
+            msg += (f"For “{h['class_type']}”, install “{h['pack']}” via ComfyUI-Manager "
+                    f"(search “{h['search']}”: {h['url']}). ")
     msg += "Then relaunch the test."
     return jsonify({'ok': False, 'error': msg,
                     'studio_missing': {'family': e.family,
                                        'files': e.missing_files,
                                        'invalid': invalid,
-                                       'nodes': e.missing_nodes}}), 409
+                                       'nodes': e.missing_nodes,
+                                       'node_packs': node_packs}}), 409
 
 
 def _studio_arch_mismatch_response(e):
