@@ -92,9 +92,9 @@ export const WHATS_NEW = [
   {
     id: '2026-07-18-back-up-everything',
     date: '2026-07-18',
-    title: 'Back up your whole library — and your settings — in one click',
+    title: 'Back up your whole library — datasets, training history and settings — in one click',
     blurb:
-      "A new “💾 Back up everything” button on the Datasets library packs every dataset (images, captions, statuses, references) plus your settings into a single file, so you can move to a new machine or recover from one without losing anything. It runs in the background with a live progress bar — a big library can be gigabytes — then hands you a download and an “Open folder”. Your API keys and tokens are deliberately left out, so the file is safe to keep around; re-enter them once on the new install. Restoring is the same “📦 Import backup” button: it now accepts the master archive too, rebuilds every dataset without ever overwriting one (name clashes get a “(restored)” suffix) and gives you an honest report of what came back.",
+      "A new “💾 Back up everything” button on the Datasets library packs every dataset (images, captions, statuses, references), its training history, plus your settings into a single file, so you can move to a new machine or recover from one without losing anything. It runs in the background with a live progress bar — a big library can be gigabytes — then hands you a download and an “Open folder”. Your API keys and tokens are deliberately left out, so the file is safe to keep around; re-enter them once on the new install. Restoring is the same “📦 Import backup” button: it now accepts the master archive too, rebuilds every dataset without ever overwriting one (name clashes get a “(restored)” suffix), and — new — brings back each dataset’s training runs so it lands under “Trained” again instead of “Not trained yet”, with its history in the Runs hub. Tick “Include trained LoRAs” before backing up to bundle the trained .safetensors themselves (a much larger file); leave it off and the light training history still restores your “Trained” status. You always get an honest report of exactly what came back and what was skipped.",
     to: '/datasets',
   },
   {

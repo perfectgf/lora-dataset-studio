@@ -53,11 +53,29 @@ from . import face_dataset_service as svc
 logger = logging.getLogger(__name__)
 
 FULL_BACKUP_FORMAT = 'lds-full-backup'
-FULL_BACKUP_VERSION = 1
+# v2 adds runs.json (training provenance, always included — this is what makes a
+# restored dataset land back under "Trained" instead of "Not trained yet") and an
+# OPTIONAL loras/ tree (the heavy trained .safetensors, only when the user opts
+# in). A v1 archive restores unchanged: no runs -> the pre-v2 behaviour.
+FULL_BACKUP_VERSION = 2
 
 _MANIFEST_NAME = 'manifest.json'
 _CONFIG_NAME = 'config.json'
+_RUNS_NAME = 'runs.json'
 _DATASETS_PREFIX = 'datasets/'
+_LORAS_PREFIX = 'loras/'
+
+# Fields of a TrainingRunRecord carried across machines. `cloud_run_id` is
+# deliberately NOT carried: it points at a CloudTrainingRun row that does not
+# exist on the destination, and re-using the number would risk cross-linking a
+# future cloud run on the new machine. Restore nulls it (the run still shows as a
+# ☁ cloud launch via `source`, with its settings snapshot intact).
+_RUN_FIELDS = ('dataset_id', 'family', 'source', 'base_model', 'variant',
+               'masked', 'steps', 'fingerprint', 'manifest', 'settings', 'version')
+
+# A .safetensors compresses to ~nothing but costs real CPU to deflate at 100s of
+# MB — matched by the STORED per-dataset entries.
+_LORA_NAME_RE = re.compile(r'^[\w.\- ]+\.safetensors$')
 
 # Config-level credentials to strip. SECRET_KEYS never reach config.json (they
 # live in .env), so this is only the LAN access token, which does.
@@ -181,12 +199,67 @@ ProgressCb = Optional[Callable[[int, int, Optional[str]], None]]
 # Build
 # ---------------------------------------------------------------------------
 
+def _training_runs_for(dataset_ids) -> list:
+    """Serialise every TrainingRunRecord of the given (source) datasets. Light —
+    provenance rows only, no weights. `dataset_id` stays the SOURCE id here; the
+    restore remaps it to the newly allocated dataset. `created_at` is ISO so the
+    Runs hub keeps the real launch date."""
+    if not dataset_ids:
+        return []
+    from ..models import TrainingRunRecord
+    rows = (TrainingRunRecord.query
+            .filter(TrainingRunRecord.dataset_id.in_(list(dataset_ids)))
+            .order_by(TrainingRunRecord.id.asc()).all())
+    out = []
+    for r in rows:
+        rec = {f: getattr(r, f) for f in _RUN_FIELDS}
+        rec['created_at'] = r.created_at.isoformat() if r.created_at else None
+        out.append(rec)
+    return out
+
+
+def _add_dataset_loras(master, user_id, ds, families, seen) -> list:
+    """Add this dataset's deployed LoRA .safetensors (across the families it was
+    trained in) to the master under loras/<source_id>/<family>/<name>. Returns a
+    list of manifest entries; a family with an unconfigured ComfyUI or no deployed
+    file simply contributes nothing (never fatal)."""
+    from . import lora_training as lt
+    added = []
+    for fam in sorted(set(families or [])):
+        try:
+            paths = lt.deployed_lora_paths(user_id, ds.id, family=fam)
+        except Exception:
+            logger.exception('full backup: listing LoRA for dataset #%s (%s) failed',
+                             ds.id, fam)
+            paths = []
+        for src in paths:
+            name = os.path.basename(src)
+            if not _LORA_NAME_RE.fullmatch(name):
+                continue
+            entry = f'{_LORAS_PREFIX}{ds.id}/{fam}/{name}'
+            if entry in seen:
+                continue
+            seen.add(entry)
+            try:
+                size = os.path.getsize(src)
+                master.write(src, entry, compress_type=zipfile.ZIP_STORED)
+            except OSError:
+                logger.exception('full backup: LoRA %r unreadable, skipped', src)
+                continue
+            added.append({'source_id': ds.id, 'family': fam,
+                          'name': name, 'entry': entry, 'bytes': size})
+    return added
+
+
 def build_full_backup(user_id, out_path: str, *, progress: ProgressCb = None,
-                      check_disk: bool = True) -> dict:
+                      check_disk: bool = True, include_loras: bool = False) -> dict:
     """Write the master archive to ``out_path``. Best-effort per dataset: one that
-    can't be read is skipped and reported, never aborting the run. Returns a
-    result dict {ok, name, path, size_bytes, datasets_total, datasets_backed_up,
-    skipped:[{id,name,reason}], config_included}."""
+    can't be read is skipped and reported, never aborting the run. Training
+    provenance (runs) is ALWAYS bundled — it is light and is what restores a
+    dataset's "Trained" status. ``include_loras`` additionally bundles the heavy
+    deployed .safetensors (off by default). Returns a result dict {ok, name, path,
+    size_bytes, datasets_total, datasets_backed_up, skipped:[{id,name,reason}],
+    config_included, runs_total, loras_included, loras_total, loras_bytes}."""
     datasets = svc.list_datasets(user_id)
     total = len(datasets)
     if check_disk:
@@ -197,6 +270,8 @@ def build_full_backup(user_id, out_path: str, *, progress: ProgressCb = None,
         stats = {}
 
     manifest_datasets = []
+    manifest_loras = []
+    lora_entries_seen = set()
     skipped = []
     backed_up = 0
     part = out_path + '.part'
@@ -216,6 +291,7 @@ def build_full_backup(user_id, out_path: str, *, progress: ProgressCb = None,
                     # STORED: the per-dataset zip is already DEFLATE'd; re-deflating
                     # spends CPU for no gain.
                     master.write(tmp, entry, compress_type=zipfile.ZIP_STORED)
+                    families = (stats.get(ds.id) or {}).get('trained_families', [])
                     manifest_datasets.append({
                         'source_id': ds.id,
                         'name': ds.name,
@@ -225,6 +301,10 @@ def build_full_backup(user_id, out_path: str, *, progress: ProgressCb = None,
                         'images': int((stats.get(ds.id) or {}).get('images_total', 0)),
                         'bytes': os.path.getsize(tmp),
                     })
+                    if include_loras:
+                        manifest_loras.extend(
+                            _add_dataset_loras(master, user_id, ds, families,
+                                               lora_entries_seen))
                     backed_up += 1
                 except Exception as exc:
                     logger.exception('full backup: dataset #%s (%r) skipped',
@@ -239,13 +319,25 @@ def build_full_backup(user_id, out_path: str, *, progress: ProgressCb = None,
                             pass
                 if progress:
                     progress(i + 1, total, ds.name)
+            backed_up_ids = [d['source_id'] for d in manifest_datasets]
+            try:
+                runs = _training_runs_for(backed_up_ids)
+            except Exception:
+                logger.exception('full backup: collecting training runs failed')
+                runs = []
+            master.writestr(_RUNS_NAME,
+                            json.dumps(runs, ensure_ascii=False, indent=1))
             manifest = {
                 'format': FULL_BACKUP_FORMAT,
                 'version': FULL_BACKUP_VERSION,
                 'app_version': _app_version(),
                 'created_at': int(time.time()),
                 'config_included': True,
+                'runs_included': True,
+                'runs_total': len(runs),
+                'loras_included': bool(include_loras),
                 'datasets': manifest_datasets,
+                'loras': manifest_loras,
                 'skipped': skipped,
             }
             master.writestr(_MANIFEST_NAME,
@@ -258,8 +350,10 @@ def build_full_backup(user_id, out_path: str, *, progress: ProgressCb = None,
             pass
         raise
     size = os.path.getsize(out_path)
-    logger.info("full backup written: %s (%d dataset(s), %d skipped, %d bytes)",
-                os.path.basename(out_path), backed_up, len(skipped), size)
+    loras_bytes = sum(int(l.get('bytes') or 0) for l in manifest_loras)
+    logger.info("full backup written: %s (%d dataset(s), %d skipped, %d run(s), "
+                "%d LoRA, %d bytes)", os.path.basename(out_path), backed_up,
+                len(skipped), len(runs), len(manifest_loras), size)
     return {
         'ok': True,
         'name': os.path.basename(out_path),
@@ -269,6 +363,10 @@ def build_full_backup(user_id, out_path: str, *, progress: ProgressCb = None,
         'datasets_backed_up': backed_up,
         'skipped': skipped,
         'config_included': True,
+        'runs_total': len(runs),
+        'loras_included': bool(include_loras),
+        'loras_total': len(manifest_loras),
+        'loras_bytes': loras_bytes,
     }
 
 
@@ -320,8 +418,12 @@ def restore_full_backup(user_id, master_path: str, *,
     non-destructively (secrets are never present, so nothing entered on the new
     machine is overwritten). Each dataset is imported as a NEW dataset (import
     never merges/overwrites); a name that collides with an existing one gets a
-    suffix. Returns {ok, datasets_total, restored, skipped:[{entry,reason}],
-    renamed:[{from,to}], config_restored}."""
+    suffix. Training provenance (runs) is recreated against the new dataset ids so
+    the library shows "Trained" again and the Runs hub keeps its history; the
+    trained LoRA files ride along only if the backup carried them AND ComfyUI is
+    configured — a missing file is reported, never a lost "Trained" status.
+    Returns {ok, datasets_total, restored, skipped, renamed, config_restored,
+    runs_restored, loras_restored, loras_skipped:[{name,reason}]}."""
     with zipfile.ZipFile(master_path) as z:
         names = z.namelist()
         if _MANIFEST_NAME not in names:
@@ -349,6 +451,14 @@ def restore_full_backup(user_id, master_path: str, *,
                 cfg.save_config(sanitized)
                 config_restored = True
 
+        # entry -> source dataset id, so a restored run/LoRA can be remapped to the
+        # newly allocated dataset id. Missing/legacy manifests leave the map empty
+        # (v1 archives carry no runs anyway).
+        entry_source = {}
+        for d in (manifest.get('datasets') or []):
+            if isinstance(d, dict) and isinstance(d.get('source_id'), int):
+                entry_source[d.get('entry')] = d['source_id']
+
         entries = sorted(n for n in names
                          if n.startswith(_DATASETS_PREFIX) and n.endswith('.zip')
                          and '/' not in n[len(_DATASETS_PREFIX):])
@@ -360,6 +470,7 @@ def restore_full_backup(user_id, master_path: str, *,
         restored = 0
         skipped = []
         renamed = []
+        id_map = {}                       # source dataset id -> new dataset id
         for i, entry in enumerate(entries):
             if progress:
                 progress(i, total, entry)
@@ -378,6 +489,9 @@ def restore_full_backup(user_id, master_path: str, *,
                     renamed.append({'from': name, 'to': new_name})
                     name = new_name
                 taken.add(name.casefold())
+                sid = entry_source.get(entry)
+                if isinstance(sid, int):
+                    id_map[sid] = ds.id
                 restored += 1
             except Exception as exc:
                 logger.exception('full restore: entry %r skipped', entry)
@@ -390,8 +504,13 @@ def restore_full_backup(user_id, master_path: str, *,
                         pass
             if progress:
                 progress(i + 1, total, entry)
-    logger.info('full backup restored: %d dataset(s), %d skipped, config=%s',
-                restored, len(skipped), config_restored)
+
+        runs_restored = _restore_runs(z, names, id_map)
+        loras_restored, loras_skipped = _restore_loras(
+            user_id, z, manifest, id_map)
+    logger.info('full backup restored: %d dataset(s), %d skipped, %d run(s), '
+                '%d LoRA (%d skipped), config=%s', restored, len(skipped),
+                runs_restored, loras_restored, len(loras_skipped), config_restored)
     return {
         'ok': True,
         'datasets_total': total,
@@ -399,7 +518,140 @@ def restore_full_backup(user_id, master_path: str, *,
         'skipped': skipped,
         'renamed': renamed,
         'config_restored': config_restored,
+        'runs_restored': runs_restored,
+        'loras_restored': loras_restored,
+        'loras_skipped': loras_skipped,
     }
+
+
+def _restore_runs(z, names, id_map) -> int:
+    """Recreate TrainingRunRecord rows for every restored dataset, remapped to the
+    new ids (new autoincrement rows — never a source id, so nothing collides with
+    the destination's own runs). cloud_run_id is dropped (see _RUN_FIELDS). The
+    LATEST record of each (dataset, family) is re-fingerprinted against the freshly
+    imported dataset so the Runs hub reads "no change since" rather than spurious
+    churn from the source's now-defunct image ids. Returns the count restored."""
+    if _RUNS_NAME not in names or not id_map:
+        return 0
+    try:
+        runs = json.loads(z.read(_RUNS_NAME).decode('utf-8'))
+    except (ValueError, UnicodeError, KeyError):
+        return 0
+    if not isinstance(runs, list):
+        return 0
+    from datetime import datetime
+    from ..models import TrainingRunRecord
+    from . import checkpoint_registry as reg
+    created = 0
+    touched = {}                          # (new_ds_id, family) -> record with max version
+    for r in runs:
+        if not isinstance(r, dict):
+            continue
+        src_id = r.get('dataset_id')
+        new_id = id_map.get(src_id)
+        family = r.get('family')
+        fingerprint = r.get('fingerprint')
+        if new_id is None or not family or not fingerprint:
+            continue
+        created_at = None
+        if isinstance(r.get('created_at'), str):
+            try:
+                created_at = datetime.fromisoformat(r['created_at'])
+            except ValueError:
+                created_at = None
+        version = r.get('version')
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            version = 1
+        rec = TrainingRunRecord(
+            dataset_id=new_id, family=str(family)[:16],
+            source=str(r.get('source') or 'local')[:8], cloud_run_id=None,
+            base_model=str(r.get('base_model') or '')[:255],
+            variant=(str(r['variant'])[:32] if r.get('variant') else None),
+            masked=bool(r.get('masked', True)),
+            steps=(r.get('steps') if isinstance(r.get('steps'), int) else None),
+            fingerprint=str(fingerprint)[:16],
+            manifest=(r.get('manifest') if isinstance(r.get('manifest'), str) else None),
+            settings=(r.get('settings') if isinstance(r.get('settings'), str) else None),
+            version=version)
+        if created_at is not None:
+            rec.created_at = created_at
+        db.session.add(rec)
+        created += 1
+        key = (new_id, rec.family)
+        if key not in touched or version >= touched[key].version:
+            touched[key] = rec
+    db.session.commit()
+    # Re-fingerprint the newest record of each restored (dataset, family) against
+    # the imported dataset's CURRENT state — its image ids are freshly allocated,
+    # so the source fingerprint would otherwise read as "changed".
+    from ..models import FaceDataset
+    for (new_id, family), rec in touched.items():
+        try:
+            manifest = reg.dataset_manifest(new_id)
+            ds = db.session.get(FaceDataset, new_id)
+            trig = getattr(ds, 'trigger_word', '') if ds else ''
+            kind = getattr(ds, 'kind', '') if ds else ''
+            rec.fingerprint = reg.fingerprint_of(manifest, trig, kind)
+            rec.manifest = json.dumps(manifest)
+        except Exception:
+            logger.exception('full restore: re-fingerprint of run (ds #%s, %s) failed',
+                             new_id, family)
+    db.session.commit()
+    return created
+
+
+def _restore_loras(user_id, z, manifest, id_map):
+    """Copy the backup's trained .safetensors back into each restored dataset's
+    ComfyUI loras folder. Non-destructive: an already-present file is left alone.
+    A file whose ComfyUI family folder can't be resolved (ComfyUI unconfigured on
+    this machine) is reported skipped — never fatal, and never affecting the run's
+    restored "Trained" status. Returns (restored_count, skipped:[{name,reason}])."""
+    from . import lora_training as lt
+    entries = manifest.get('loras') if isinstance(manifest, dict) else None
+    if not isinstance(entries, list) or not id_map:
+        return 0, []
+    names = set(z.namelist())
+    restored = 0
+    skipped = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        src_id = item.get('source_id')
+        family = item.get('family')
+        name = item.get('name')
+        entry = item.get('entry')
+        new_id = id_map.get(src_id)
+        if (new_id is None or not family or not name or entry not in names
+                or not _LORA_NAME_RE.fullmatch(str(name))):
+            if name:
+                skipped.append({'name': str(name),
+                                'reason': 'its dataset was not restored'})
+            continue
+        try:
+            dest_dir = lt.lora_deploy_dir(user_id, new_id, family=str(family))
+        except Exception:
+            skipped.append({'name': str(name),
+                            'reason': 'ComfyUI not configured on this machine'})
+            continue
+        dest = os.path.join(dest_dir, os.path.basename(str(name)))
+        if os.path.isfile(dest):
+            skipped.append({'name': str(name), 'reason': 'already present'})
+            continue
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+            tmp = dest + '.part'
+            with z.open(entry) as src, open(tmp, 'wb') as out:
+                shutil.copyfileobj(src, out, 1024 * 1024)
+            os.replace(tmp, dest)
+            restored += 1
+        except Exception as exc:
+            logger.exception('full restore: LoRA %r could not be placed', name)
+            skipped.append({'name': str(name), 'reason': _friendly(exc)})
+            try:
+                os.remove(dest + '.part')
+            except OSError:
+                pass
+    return restored, skipped
 
 
 # ---------------------------------------------------------------------------
@@ -487,23 +739,23 @@ def is_running(kind: str) -> bool:
         return bool(st and st['state'] == 'running')
 
 
-def start_backup(app, user_id) -> None:
+def start_backup(app, user_id, *, include_loras: bool = False) -> None:
     with _lock:
         st = _runs.get('backup')
         if st and st['state'] == 'running':
             raise AlreadyRunning('a backup is already running')
         _runs['backup'] = _new_state()
-    threading.Thread(target=_run_backup, args=(app, user_id),
+    threading.Thread(target=_run_backup, args=(app, user_id, include_loras),
                      daemon=True, name='full-backup').start()
 
 
-def _run_backup(app, user_id) -> None:
+def _run_backup(app, user_id, include_loras: bool = False) -> None:
     with app.app_context():
         try:
             name = f'lds-full-backup-{time.strftime("%Y%m%d-%H%M%S")}.zip'
             out = str(cfg.backups_dir() / name)
             result = build_full_backup(
-                user_id, out,
+                user_id, out, include_loras=include_loras,
                 progress=lambda d, t, c: _set_progress('backup', d, t, c))
             with _lock:
                 _runs['backup'].update(state='done', result=result,

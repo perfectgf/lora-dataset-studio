@@ -2,6 +2,7 @@
 portable backup plus a secrets-free config, and the restore that rebuilds them."""
 import io
 import os
+import shutil
 import zipfile
 
 import pytest
@@ -259,6 +260,229 @@ def test_restore_rejects_non_full_backup(app, tmp_path):
         open(p, 'wb').write(single)
         with pytest.raises(ValueError, match='not a full backup'):
             fb.restore_full_backup(LOCAL_USER, p)
+
+
+# ---------------------------------------------------------------------------
+# Training state preservation (runs + optional LoRA files)
+# ---------------------------------------------------------------------------
+
+def _register_run(user, dataset_id, family='sdxl', source='local'):
+    """A real TrainingRunRecord via the provenance registry — so the library
+    would classify the dataset as 'trained'."""
+    from app.services import checkpoint_registry as reg
+    return reg.register_launch(user, dataset_id, family, source=source,
+                               steps=1000, settings={'rank': 16})
+
+
+def _deploy_fake_lora(loras_root, family, trigger):
+    """A minimal on-disk .safetensors in the family's ComfyUI loras folder,
+    matching this dataset's trigger so list_imported_checkpoints picks it up."""
+    fam_dir = os.path.join(loras_root, family)
+    os.makedirs(fam_dir, exist_ok=True)
+    p = os.path.join(fam_dir, f'lora_{trigger}.safetensors')
+    with open(p, 'wb') as fh:
+        fh.write(b'\x08\x00\x00\x00\x00\x00\x00\x00{}\x00\x00' + b'W' * 4096)
+    return p
+
+
+def test_runs_are_bundled_and_restore_trained_status(app, tmp_path):
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    from app.services import full_backup as fb
+
+    with app.app_context():
+        alice = _dataset_with_image(svc, LOCAL_USER, 'Alice', 'alice')
+        _dataset_with_image(svc, LOCAL_USER, 'Bob', 'bob')          # never trained
+        _register_run(LOCAL_USER, alice.id, family='sdxl')
+        assert svc.dataset_list_stats(LOCAL_USER)[alice.id]['trained_families'] == ['sdxl']
+
+        out = str(tmp_path / 'master.zip')
+        result = fb.build_full_backup(LOCAL_USER, out)
+        assert result['runs_total'] == 1 and result['loras_included'] is False
+
+        # Fresh install: wipe every dataset (and thus its runs) then restore.
+        for ds in list(svc.list_datasets(LOCAL_USER)):
+            svc.delete_dataset(LOCAL_USER, ds.id)
+
+        report = fb.restore_full_backup(LOCAL_USER, out)
+        assert report['restored'] == 2 and report['runs_restored'] == 1
+
+        stats = svc.dataset_list_stats(LOCAL_USER)
+        by_name = {d.name: d for d in svc.list_datasets(LOCAL_USER)}
+        # Alice lands back under "Trained"; Bob stays "Not trained yet".
+        assert stats[by_name['Alice'].id]['trained_families'] == ['sdxl']
+        assert stats[by_name['Bob'].id]['trained_families'] == []
+
+
+def test_restored_run_is_not_flagged_changed(app, tmp_path):
+    """The restored dataset's images get NEW ids, so a naively-carried fingerprint
+    would read as 'changed since last version'. Restore re-stamps it."""
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    from app.services import full_backup as fb
+    from app.services import checkpoint_registry as reg
+
+    with app.app_context():
+        alice = _dataset_with_image(svc, LOCAL_USER, 'Alice', 'alice')
+        _register_run(LOCAL_USER, alice.id, family='sdxl')
+        out = str(tmp_path / 'master.zip')
+        fb.build_full_backup(LOCAL_USER, out)
+        for ds in list(svc.list_datasets(LOCAL_USER)):
+            svc.delete_dataset(LOCAL_USER, ds.id)
+        fb.restore_full_backup(LOCAL_USER, out)
+
+        new = svc.list_datasets(LOCAL_USER)[0]
+        state = reg.dataset_state(LOCAL_USER, new.id, 'sdxl')
+        assert state['registered'] is True
+        assert state['changed'] is False, state
+
+
+def test_restored_cloud_run_drops_dangling_cloud_id(app, tmp_path):
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    from app.services import full_backup as fb
+    from app.models import TrainingRunRecord
+
+    with app.app_context():
+        alice = _dataset_with_image(svc, LOCAL_USER, 'Alice', 'alice')
+        rec = _register_run(LOCAL_USER, alice.id, family='sdxl', source='cloud')
+        rec.cloud_run_id = 42          # a source-machine cloud run id
+        svc.db.session.commit()
+        out = str(tmp_path / 'master.zip')
+        fb.build_full_backup(LOCAL_USER, out)
+        for ds in list(svc.list_datasets(LOCAL_USER)):
+            svc.delete_dataset(LOCAL_USER, ds.id)
+        fb.restore_full_backup(LOCAL_USER, out)
+
+        # delete_dataset deliberately leaves the source run orphaned (and SQLite
+        # may reuse its rowid), so assert on the run the RESTORE created — the
+        # newest record — not on a total count.
+        new = svc.list_datasets(LOCAL_USER)[0]
+        restored = (TrainingRunRecord.query.filter_by(dataset_id=new.id)
+                    .order_by(TrainingRunRecord.id.desc()).first())
+        assert restored.source == 'cloud'          # still a cloud launch...
+        assert restored.cloud_run_id is None        # ...but the dangling id is gone
+
+
+def test_v1_backup_without_runs_still_restores(app, tmp_path):
+    """A pre-v2 archive (no runs.json) restores exactly as before: datasets back,
+    zero runs, no crash."""
+    import json
+    import zipfile as zf
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    from app.services import full_backup as fb
+
+    with app.app_context():
+        _dataset_with_image(svc, LOCAL_USER, 'Alice', 'alice')
+        out = str(tmp_path / 'master.zip')
+        fb.build_full_backup(LOCAL_USER, out)
+
+        # Rewrite the archive as a v1 one: drop runs.json, stamp version=1.
+        legacy = str(tmp_path / 'legacy.zip')
+        with zf.ZipFile(out) as z, zf.ZipFile(legacy, 'w') as w:
+            for info in z.infolist():
+                if info.filename == fb._RUNS_NAME:
+                    continue
+                data = z.read(info.filename)
+                if info.filename == fb._MANIFEST_NAME:
+                    m = json.loads(data)
+                    m['version'] = 1
+                    m.pop('runs_included', None)
+                    m.pop('runs_total', None)
+                    data = json.dumps(m).encode()
+                w.writestr(info, data)
+
+        for ds in list(svc.list_datasets(LOCAL_USER)):
+            svc.delete_dataset(LOCAL_USER, ds.id)
+        report = fb.restore_full_backup(LOCAL_USER, legacy)
+        assert report['restored'] == 1 and report['runs_restored'] == 0
+
+
+def test_include_loras_bundles_and_restores_the_file(app, tmp_path):
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    from app.services import full_backup as fb
+    from app import config as cfg
+
+    loras_root = tmp_path / 'comfy_loras'
+    with app.app_context():
+        cfg.save_config({'comfyui': {'loras_dir': str(loras_root)}})
+        alice = _dataset_with_image(svc, LOCAL_USER, 'Alice', 'alice')
+        _register_run(LOCAL_USER, alice.id, family='sdxl')
+        _deploy_fake_lora(str(loras_root), 'sdxl', 'alice')
+
+        out = str(tmp_path / 'master.zip')
+        result = fb.build_full_backup(LOCAL_USER, out, include_loras=True)
+        assert result['loras_included'] is True and result['loras_total'] == 1
+
+        # Fresh install: wipe datasets AND the deployed LoRA, keep ComfyUI configured.
+        for ds in list(svc.list_datasets(LOCAL_USER)):
+            svc.delete_dataset(LOCAL_USER, ds.id)
+        shutil.rmtree(loras_root, ignore_errors=True)
+
+        report = fb.restore_full_backup(LOCAL_USER, out)
+        assert report['runs_restored'] == 1
+        assert report['loras_restored'] == 1 and report['loras_skipped'] == []
+        new = svc.list_datasets(LOCAL_USER)[0]
+        assert os.path.isfile(os.path.join(str(loras_root), 'sdxl',
+                                           f'lora_{new.trigger_word}.safetensors'))
+
+
+def test_missing_comfyui_skips_lora_without_losing_trained(app, tmp_path, monkeypatch):
+    """A LoRA-bearing backup restored on a machine with ComfyUI unconfigured:
+    the file is reported skipped, but the run (and thus 'Trained') survives."""
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    from app.services import full_backup as fb
+    from app.services import lora_training as lt
+    from app import config as cfg
+
+    loras_root = tmp_path / 'comfy_loras'
+    with app.app_context():
+        cfg.save_config({'comfyui': {'loras_dir': str(loras_root)}})
+        alice = _dataset_with_image(svc, LOCAL_USER, 'Alice', 'alice')
+        _register_run(LOCAL_USER, alice.id, family='sdxl')
+        _deploy_fake_lora(str(loras_root), 'sdxl', 'alice')
+        out = str(tmp_path / 'master.zip')
+        fb.build_full_backup(LOCAL_USER, out, include_loras=True)
+
+        # New machine: ComfyUI NOT configured + no datasets. (The backup's config
+        # would otherwise re-point loras_dir, so force the deploy dir to raise.)
+        for ds in list(svc.list_datasets(LOCAL_USER)):
+            svc.delete_dataset(LOCAL_USER, ds.id)
+
+        def _unconfigured(*a, **k):
+            raise RuntimeError('ComfyUI is not configured')
+        monkeypatch.setattr(lt, 'lora_deploy_dir', _unconfigured)
+
+        report = fb.restore_full_backup(LOCAL_USER, out)
+        assert report['runs_restored'] == 1               # Trained status preserved
+        assert report['loras_restored'] == 0
+        assert len(report['loras_skipped']) == 1
+        assert 'ComfyUI' in report['loras_skipped'][0]['reason']
+        new = svc.list_datasets(LOCAL_USER)[0]
+        assert svc.dataset_list_stats(LOCAL_USER)[new.id]['trained_families'] == ['sdxl']
+
+
+def test_loras_backup_stays_secret_free(app, tmp_path, monkeypatch):
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    from app.services import full_backup as fb
+    from app import config as cfg
+
+    loras_root = tmp_path / 'comfy_loras'
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-LEAK-777')
+    with app.app_context():
+        cfg.save_config({'comfyui': {'loras_dir': str(loras_root)}})
+        alice = _dataset_with_image(svc, LOCAL_USER, 'Alice', 'alice')
+        _register_run(LOCAL_USER, alice.id, family='sdxl')
+        _deploy_fake_lora(str(loras_root), 'sdxl', 'alice')
+        out = str(tmp_path / 'master.zip')
+        fb.build_full_backup(LOCAL_USER, out, include_loras=True)
+
+    for chunk in _all_plaintext(open(out, 'rb').read()):
+        assert b'sk-LEAK-777' not in chunk
 
 
 # ---------------------------------------------------------------------------

@@ -1000,8 +1000,8 @@ export function useDataset() {
     }, 900);
   }, [toast]);
 
-  const backupEverything = useCallback(async () => {
-    const d = await postJson('/api/backup/full/start', {});
+  const backupEverything = useCallback(async (includeLoras = false) => {
+    const d = await postJson('/api/backup/full/start', { include_loras: !!includeLoras });
     if (!d.ok) { toast.error(d.error || 'Could not start the backup'); return; }
     setBackupJob({ state: 'running', done: 0, total: 0, current: null });
     pollBackup();

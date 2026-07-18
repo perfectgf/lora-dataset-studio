@@ -103,9 +103,15 @@ setup into a single file so you can move to a new machine — or recover from on
 — without losing anything.
 
 - **What's inside**: every dataset (all images, captions, statuses, face and
-  watermark states, references) plus your **settings** — engine choices,
-  training defaults, cloud tuning, watermark preferences. It's a *logical*
-  backup, one entry per dataset, not a raw disk dump.
+  watermark states, references), its **training history** (which runs produced
+  which version, the settings each used), plus your **settings** — engine
+  choices, training defaults, cloud tuning, watermark preferences. It's a
+  *logical* backup, one entry per dataset, not a raw disk dump.
+- **Include trained LoRAs** (checkbox next to the button): also bundle the
+  trained `.safetensors` files themselves. These are large — hundreds of MB per
+  checkpoint — so it's **off by default**; the light training history above is
+  always included, so a dataset comes back under **Trained** either way. Tick it
+  when you want the finished LoRAs to travel too.
 - **What's never inside**: your **API keys, Hugging Face token and scraping
   credentials**. They are deliberately left out so the file is safe to copy
   around; re-enter them once on the new install.
@@ -113,10 +119,15 @@ setup into a single file so you can move to a new machine — or recover from on
   live "X / N datasets" progress bar and can keep working. When it's done, use
   **⬇ Download** to save the archive, or **📂 Open folder** to find it on disk.
 - **Restoring**: hand the master archive to the same **📦 Import backup** button.
-  It restores your settings (without overwriting keys you've already entered)
-  then rebuilds each dataset. Nothing is ever overwritten — a dataset whose name
-  already exists comes back with a `(restored)` suffix — and you get an honest
-  final report of what was restored, renamed or skipped.
+  It restores your settings (without overwriting keys you've already entered),
+  rebuilds each dataset **and its training history** — so it lands back under
+  **Trained** instead of "Not trained yet", with its runs in the Runs hub.
+  Bundled LoRA files are re-deployed to ComfyUI when it's configured on the new
+  machine; if it isn't, they're reported as skipped and the **Trained** status
+  still stands (the run is what marks it trained, not the file on disk). Nothing
+  is ever overwritten — a dataset whose name already exists comes back with a
+  `(restored)` suffix — and you get an honest final report of what was restored,
+  renamed or skipped.
 
 ## Tips that save runs
 
