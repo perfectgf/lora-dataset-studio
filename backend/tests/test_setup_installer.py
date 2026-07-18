@@ -71,6 +71,24 @@ def test_start_rejects_second_run():
         setup_installer.start('ml_extras')
 
 
+def test_reinstall_reruns_worker_after_a_successful_install(monkeypatch):
+    """Reinstall = re-clicking an already-green item (the Setup install menu's ↻ Reinstall).
+    start() must RE-RUN the worker on a terminal (success/error) run — there is deliberately
+    NO 'already installed, skip' gate, so a broken venv sitting behind a green capability can
+    always be re-provisioned in place (the whole point of a reinstall button)."""
+    from app import setup_installer
+    calls = []
+    monkeypatch.setattr(setup_installer, '_execute', lambda a: calls.append(a))  # thread no-ops
+    setup_installer._pip_current = None
+    setup_installer._pip_queue = []
+    # A prior install of a venv-backed capability finished successfully.
+    setup_installer._runs['masks'] = {'state': 'success', 'returncode': 0, 'log': [],
+                                      'progress': None, 'waiting_for': None}
+    state = setup_installer.start('masks')
+    assert state['state'] == 'running'   # reset to running (not rejected as AlreadyRunning)
+    assert calls == ['masks']            # the worker (which re-provisions/repairs) re-ran
+
+
 def test_execute_success_clears_import_cache(monkeypatch):
     from app import setup_installer, capabilities
     calls = []

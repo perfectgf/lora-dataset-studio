@@ -267,3 +267,47 @@ export function installAllPlan(caps) {
   }
   return INSTALL_ALL_ORDER.filter(needed)
 }
+
+// The FULL one-by-one install menu (Setup "install" step). Unlike installAllPlan — which
+// lists only what's MISSING and satisfiable now, i.e. what the "Install everything" shortcut
+// queues — this lists EVERY app-installable component with its live state, so the menu stays
+// visible and each item can be (re)installed on its own even once green (repairing a broken
+// venv is the whole point of the reinstall button). Per item:
+//   present   — the capability is already in place (drives the ✓ Installed / ✗ badge)
+//   available — can be (re)installed from HERE right now (its precondition is met): ML extras
+//               need the app's Python in the wheel range OR an already-present env to repair;
+//               the vision model needs Ollama reachable + a model name; Klein weights need a
+//               validated ComfyUI tree. Unavailable items render their `hint` instead of a
+//               button, pointing back at the config step that unblocks them.
+export function installCatalog(caps) {
+  const c = caps || {}
+  const mlOk = !(c.python && c.python.ml_supported === false)
+  const mlRange = (c.python && c.python.ml_range) || '3.10–3.12'
+  const mlHint = `Needs Python ${mlRange} — install it into a separate 3.10–3.12 env and set its path in Settings.`
+  const o = c.ollama || {}
+  const modelName = (o.vision_model || '').trim()
+  const cu = c.comfyui || {}
+  const dirValid = !!cu.dir_valid
+  const kleinMissing = Array.isArray(cu.klein_missing) ? cu.klein_missing : []
+  const kleinHint = 'Point the app at a valid ComfyUI folder first (the ComfyUI step).'
+  const item = (action, present, available, hint) => ({
+    action, label: INSTALL_ALL_ACTION_LABELS[action] || action,
+    present: !!present, available: !!available, hint: available ? '' : hint,
+  })
+  const mlItem = (action) => {
+    const present = mlOk ? !!c[action] : !!c[action]
+    // Install fresh only when the app's Python supports the wheels; ALWAYS allow a
+    // repair of one that's already present (its install targets whatever env it lives in).
+    return item(action, present, mlOk || present, mlHint)
+  }
+  return [
+    mlItem('face_scoring'),
+    mlItem('masks'),
+    item('watermark_inpaint', c.watermark_inpaint, true, ''),   // auto-provisions its own venv
+    item('ollama_model', o.vision_model_ready, o.reachable && modelName,
+      !o.reachable ? 'Start Ollama first (the Captioning step).'
+        : !modelName ? 'Set a vision model name first (the Captioning step).' : ''),
+    ...['klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora'].map(
+      (a) => item(a, dirValid && !kleinMissing.includes(a), dirValid, kleinHint)),
+  ]
+}

@@ -60,9 +60,9 @@ export const WHATS_NEW = [
   {
     id: '2026-07-19-setup-install-everything',
     date: '2026-07-19',
-    title: 'Setup: one “Install everything” button instead of step-by-step',
+    title: 'Setup: an install step with one-click Install everything — and reinstall per item',
     blurb:
-      "The Setup screen now leads with a single Install everything button: one click queues every component the app can install for you — the ML extras (face scoring, person masks, watermark inpainting), the Ollama vision model when Ollama is running, and the Klein weights when a valid ComfyUI is set — with a live “X / N” progress bar. Heavy installs still run one at a time so they never clash, and the big model downloads run in parallel. Prefer to pick and choose? The step-by-step wizard is still there, one click away.",
+      "After you've configured your services, Setup has a dedicated install step. One Install everything button queues every component the app can install for you — the ML extras (face scoring, person masks, watermark inpainting), the Ollama vision model when Ollama is running, and the Klein weights when a valid ComfyUI is set — with a live “X / N” progress bar. Heavy installs still run one at a time so they never clash, and the big model downloads run in parallel. Below it, a menu lets you install each component on its own — and it stays there even once everything is in, with a ↻ Reinstall button per item to repair a broken install (a corrupted environment) without redoing the rest.",
     to: '/setup',
   },
   {

@@ -29,8 +29,10 @@ const DEFAULT_VISION_MODEL = 'huihui_ai/qwen3-vl-abliterated:8b-instruct'
 const VISION_MODEL_VRAM = '≈ 8 GB VRAM'
 const KLEIN_MODEL_VRAM = '≈ 16 GB VRAM (fp8; ~29 GB at bf16)'
 
-// A wizard "screen" is the welcome/scan, one per setup tool, then done.
-const SCREENS = ['welcome', ...SETUP_STEP_IDS, 'done']
+// A wizard "screen" is the welcome/scan, one per setup tool, then the install step (where
+// the app installs what it can for you — AFTER the config, since several installs depend on
+// a configured ComfyUI/Ollama), then done.
+const SCREENS = ['welcome', ...SETUP_STEP_IDS, 'install', 'done']
 const TOTAL_TOOLS = SETUP_STEP_IDS.length
 
 const STATUS_META = {
@@ -721,6 +723,7 @@ export default function SetupPage() {
 
   const kind = SCREENS[screen]
   const DONE = SCREENS.length - 1
+  const INSTALL = SCREENS.indexOf('install')   // the install/reinstall step, after config
   const isReady = (id) => stepById[id].status === 'ready'
   const toolIdx = (id) => SETUP_STEP_IDS.indexOf(id)
   const screenOf = (id) => SETUP_STEP_IDS.indexOf(id) + 1   // welcome=0, tools=1..N
@@ -759,13 +762,17 @@ export default function SetupPage() {
   // re-walking ComfyUI/Ollama when they were just detected as running.
   const startSetup = () => {
     const first = SETUP_STEP_IDS.find((id) => !isReady(id))
-    setScreen(first ? screenOf(first) : DONE)
+    // All tools already configured -> land on the install step (its reinstall menu), not
+    // straight to the summary, so "install everything" / repairs stay one screen away.
+    setScreen(first ? screenOf(first) : INSTALL)
   }
   const goNext = () => {
     if (kind === 'welcome') return startSetup()
+    if (kind === 'install') return setScreen(DONE)
     if (kind === 'done') return
     const nxt = nextUnfinished(toolIdx(kind))
-    setScreen(nxt ? screenOf(nxt) : DONE)
+    // After the last config tool, the install step (never straight to done).
+    setScreen(nxt ? screenOf(nxt) : INSTALL)
   }
   // Guard-rail: Back (unlike Save & continue) does NOT save — warn before losing
   // typed-but-unsaved fields (config edits or a typed secret).
@@ -776,7 +783,8 @@ export default function SetupPage() {
   const goBack = () => {
     if (hasUnsaved() && !window.confirm(
       'You have unsaved changes on this step - they will be lost.\n\nGo back without saving?')) return
-    if (kind === 'done') {
+    if (kind === 'done') return setScreen(INSTALL)   // the install step sits before the summary
+    if (kind === 'install') {
       const last = [...SETUP_STEP_IDS].reverse().find((id) => !isReady(id))
       return setScreen(last ? screenOf(last) : 0)
     }
@@ -969,19 +977,14 @@ export default function SetupPage() {
           )}
         </section>
 
-        {/* Lead with the one-click path: install everything the app can install itself,
-            in the right order, with the existing pip serialization. The per-tool wizard
-            (below, de-emphasized) stays for anyone who wants to pick and choose. Hidden
-            until the scan has run once so the plan reflects what's actually detected. */}
-        {scanned && <InstallEverything plan={installPlan} onDone={() => refresh(true)} />}
-
         <div className="flex items-center justify-between">
           {skipLink}
-          {/* The step-by-step wizard is now the SECONDARY path — an outline button, not
-              the primary call to action. "Install everything" above owns that. */}
+          {/* Welcome leads to configuring the services first; the install step (Install
+              everything + the one-by-one menu) comes AFTER, since several installs depend
+              on a configured ComfyUI/Ollama. */}
           <button type="button" onClick={goNext}
-            className="rounded-lg border border-border-strong px-5 py-2 text-sm font-medium text-content hover:bg-surface-raised">
-            {allReady ? 'Review setup →' : 'Set up step by step →'}
+            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
+            {allReady ? "Everything's ready — review →" : 'Start setup →'}
           </button>
         </div>
       </div>
@@ -1036,6 +1039,36 @@ export default function SetupPage() {
           <Link to="/datasets" className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
             Build your first dataset →
           </Link>
+        </div>
+      </div>
+    )
+  }
+
+  // --- Install / reinstall components (after the API/service config) -----------
+  if (kind === 'install') {
+    return (
+      <div className="mx-auto max-w-2xl space-y-5">
+        <div className="text-center">
+          <div className="text-3xl" aria-hidden="true">⬇</div>
+          <h1 className="mt-2 text-2xl font-bold text-content">Install components</h1>
+          <p className="mt-2 text-sm text-content-muted">
+            Now that your services are configured, install what the app can set up for you —
+            all at once, or one at a time. Come back here anytime to reinstall a component and
+            repair a broken install.
+          </p>
+        </div>
+        <InstallEverything plan={installPlan} caps={caps} onDone={() => refresh(true)} />
+        <div className="flex items-center justify-between">
+          <button type="button" onClick={goBack} className="text-xs text-content-subtle underline hover:text-content">
+            ← Back
+          </button>
+          <div className="flex items-center gap-4">
+            {skipLink}
+            <button type="button" onClick={goNext}
+              className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
+              Finish →
+            </button>
+          </div>
         </div>
       </div>
     )

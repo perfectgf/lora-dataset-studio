@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
-import { INSTALL_ALL_ACTION_LABELS } from '../../hooks/useSetupSteps'
+import { INSTALL_ALL_ACTION_LABELS, installCatalog } from '../../hooks/useSetupSteps'
+import InstallRunner from './InstallRunner'
 import { HelpBadge } from '../../help/HelpMode'
 
 const POLL_MS = 1200
@@ -14,8 +15,8 @@ function fmtSize(b) {
 
 const label = (action) => INSTALL_ALL_ACTION_LABELS[action] || action
 
-// Per-action status glyph/colour for the progress list. `queued`/`running` are live;
-// `success`/`error` are terminal; `idle` shows before its turn (a queued pip install).
+// Per-action status glyph/colour for the shortcut's progress list. `queued`/`running` are
+// live; `success`/`error` are terminal; `idle` shows before its turn (a queued pip install).
 const ROW_META = {
   idle: { glyph: '○', cls: 'text-content-subtle', word: 'waiting' },
   queued: { glyph: '○', cls: 'text-content-subtle', word: 'queued' },
@@ -24,14 +25,47 @@ const ROW_META = {
   error: { glyph: '✗', cls: 'text-rose-400', word: 'needs attention' },
 }
 
-// The prominent "Install everything" block that leads the Setup welcome screen. One
-// click queues every install the app can run itself (the `plan`, derived from live
-// capabilities): the missing ML extras, the Ollama vision model when Ollama is up, and
-// the Klein weights when a valid ComfyUI is set. The backend serializes the pip installs
-// (two never race one venv) and downloads the models in parallel; this component just
-// fans out and polls ONE batched status endpoint for a global "X / N" bar. Everything
-// else — API keys, installing ComfyUI/Ollama themselves — stays on the step-by-step path.
-export default function InstallEverything({ plan, onDone }) {
+// One tile in the one-by-one menu: a component the app can install itself, its live state,
+// and an Install / ↻ Reinstall button (reusing the Setup InstallRunner verbatim — polling,
+// live pip log/download %, and the repair-in-place error path all come from it). Items whose
+// precondition isn't met yet render their hint (a pointer back to the config step) instead of
+// a button. The tile stays even once installed, so a broken venv can be rebuilt at any time.
+function InstallItem({ item, onDone }) {
+  const { action, label: lbl, present, available, hint } = item
+  return (
+    <div className="rounded-md border border-border bg-surface-raised p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-content">{lbl}</span>
+        <span className={`shrink-0 text-xs font-medium ${present ? 'text-emerald-400' : 'text-content-subtle'}`}>
+          {present ? '✓ Installed' : '✗ Not installed'}
+        </span>
+      </div>
+      {available ? (
+        <InstallRunner action={action}
+          buttonLabel={present ? '↻ Reinstall' : 'Install'} onDone={onDone} />
+      ) : (
+        <p className="text-xs text-content-subtle">{hint}</p>
+      )}
+    </div>
+  )
+}
+
+// The Setup "install" step (reached AFTER the API/service config, never on the welcome
+// screen — several installs depend on a configured ComfyUI/Ollama). Two paths, one screen:
+//
+//   1. "Install everything" — one click queues every install the app can run ITSELF right
+//      now (the `plan`, derived from live capabilities): the missing ML extras, the Ollama
+//      vision model when Ollama is up, the Klein weights when a valid ComfyUI is set. The
+//      backend serializes the pip installs (two never race one venv) and downloads models in
+//      parallel; this fans out and polls ONE batched status endpoint for a global "X / N" bar.
+//
+//   2. The one-by-one menu below — ALWAYS shown, listing every app-installable component with
+//      an Install / ↻ Reinstall button, so a user can pick and choose or repair a single
+//      broken install (a corrupted venv) without redoing everything, even once all is green.
+//
+// Neither installs ComfyUI/Ollama themselves nor pastes API keys — those stay on the
+// step-by-step path (external tools / credentials).
+export default function InstallEverything({ plan, caps, onDone }) {
   const toast = useToast()
   const [phase, setPhase] = useState('idle')     // idle | running | done
   const [tracked, setTracked] = useState([])     // the plan captured when the run started
@@ -97,93 +131,107 @@ export default function InstallEverything({ plan, onDone }) {
     }
   }
 
-  // Empty plan = nothing the app can install itself is missing. A satisfying, explicit
-  // "all set" state (the manual tools it can't install live in the scan above).
-  if (phase !== 'running' && (!plan || plan.length === 0)) {
-    return (
-      <section className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-5 text-center">
-        <div className="text-2xl" aria-hidden="true">✓</div>
-        <h2 className="mt-1 text-base font-semibold text-content">Everything installable is ready</h2>
-        <p className="mt-1 text-sm text-content-muted">
-          All the components the app can install itself are in place. Anything still marked
-          above (API keys, ComfyUI or Ollama) is set up on its own — use the step-by-step path.
-        </p>
-      </section>
-    )
-  }
-
+  const catalog = installCatalog(caps)
   const rows = (phase === 'idle' ? plan : tracked) || []
   const doneCount = rows.filter((a) => (statuses[a] || {}).state === 'success').length
+  // Nothing left for the one-click shortcut to queue (everything installable is already in).
+  // The batch card collapses to a satisfying note; the one-by-one menu below stays for repairs.
+  const nothingToInstall = (!plan || plan.length === 0) && phase !== 'running'
 
   return (
-    <section className="rounded-xl border border-primary/40 bg-primary/5 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-content">
-            ⬇ Install everything
-            <HelpBadge topic="page-setup" className="ml-2" />
-          </h2>
-          <p className="mt-1 text-sm text-content-muted">
-            One click sets up every component the app can install for you. Heavy installs run
-            one at a time so they never clash; the big model downloads run in parallel.
+    <div className="space-y-4">
+      {/* Path 1 — the one-click shortcut. */}
+      <section className="rounded-xl border border-primary/40 bg-primary/5 p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-content">
+              ⬇ Install everything
+              <HelpBadge topic="page-setup" className="ml-2" />
+            </h2>
+            <p className="mt-1 text-sm text-content-muted">
+              One click sets up every component the app can install for you. Heavy installs run
+              one at a time so they never clash; the big model downloads run in parallel.
+            </p>
+          </div>
+          {phase === 'running' && (
+            <span className="shrink-0 text-xs font-medium tabular-nums text-content-muted">
+              {doneCount} / {rows.length}
+            </span>
+          )}
+        </div>
+
+        {nothingToInstall ? (
+          <p className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content">
+            ✓ Everything the app can install itself is already in place. Use the list below to
+            reinstall or repair any component.
           </p>
-        </div>
-        {phase === 'running' && (
-          <span className="shrink-0 text-xs font-medium tabular-nums text-content-muted">
-            {doneCount} / {rows.length}
-          </span>
+        ) : (
+          <>
+            {/* Global progress bar during a run. */}
+            {phase === 'running' && rows.length > 0 && (
+              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-surface-raised">
+                <div className="h-full rounded-full bg-gradient-primary transition-[width] duration-300"
+                  style={{ width: `${Math.round((doneCount / rows.length) * 100)}%` }} />
+              </div>
+            )}
+
+            {/* What will be / is being installed. */}
+            <ul className="mt-3 space-y-1.5">
+              {rows.map((a) => {
+                const s = statuses[a] || {}
+                const state = phase === 'idle' ? 'idle' : (s.state || 'idle')
+                const m = ROW_META[state] || ROW_META.idle
+                const pr = s.progress
+                return (
+                  <li key={a} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="flex items-center gap-2">
+                      <span aria-hidden="true" className={m.cls}>{m.glyph}</span>
+                      <span className="text-content-muted">{label(a)}</span>
+                    </span>
+                    <span className="text-xs tabular-nums text-content-subtle">
+                      {state === 'running' && pr && pr.total
+                        ? `${pr.pct != null ? `${pr.pct}% · ` : ''}${fmtSize(pr.done)} / ${fmtSize(pr.total)}`
+                        : (phase === 'idle' ? '' : m.word)}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+
+            {phase === 'done' ? (
+              <p className="mt-4 text-sm font-medium text-content">
+                {rows.every((a) => (statuses[a] || {}).state === 'success')
+                  ? '✓ All done. You can start building datasets.'
+                  : 'Some installs need another look — click Install everything again to retry them, or use the list below.'}
+              </p>
+            ) : (
+              <button type="button" onClick={start} disabled={phase === 'running'}
+                className="mt-4 rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                {phase === 'running' ? 'Installing…' : `Install everything (${(plan || []).length})`}
+              </button>
+            )}
+            {(phase === 'done' && !rows.every((a) => (statuses[a] || {}).state === 'success')) && (
+              <button type="button" onClick={start}
+                className="ml-3 mt-4 rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-content hover:bg-surface-raised">
+                Retry
+              </button>
+            )}
+          </>
         )}
-      </div>
+      </section>
 
-      {/* Global progress bar during a run. */}
-      {phase === 'running' && rows.length > 0 && (
-        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-surface-raised">
-          <div className="h-full rounded-full bg-gradient-primary transition-[width] duration-300"
-            style={{ width: `${Math.round((doneCount / rows.length) * 100)}%` }} />
-        </div>
-      )}
-
-      {/* What will be / is being installed. */}
-      <ul className="mt-3 space-y-1.5">
-        {rows.map((a) => {
-          const s = statuses[a] || {}
-          const state = phase === 'idle' ? 'idle' : (s.state || 'idle')
-          const m = ROW_META[state] || ROW_META.idle
-          const pr = s.progress
-          return (
-            <li key={a} className="flex items-center justify-between gap-3 text-sm">
-              <span className="flex items-center gap-2">
-                <span aria-hidden="true" className={m.cls}>{m.glyph}</span>
-                <span className="text-content-muted">{label(a)}</span>
-              </span>
-              <span className="text-xs tabular-nums text-content-subtle">
-                {state === 'running' && pr && pr.total
-                  ? `${pr.pct != null ? `${pr.pct}% · ` : ''}${fmtSize(pr.done)} / ${fmtSize(pr.total)}`
-                  : (phase === 'idle' ? '' : m.word)}
-              </span>
-            </li>
-          )
-        })}
-      </ul>
-
-      {phase === 'done' ? (
-        <p className="mt-4 text-sm font-medium text-content">
-          {rows.every((a) => (statuses[a] || {}).state === 'success')
-            ? '✓ All done. You can start building datasets.'
-            : 'Some installs need another look — click Install everything again to retry them, or open them individually.'}
+      {/* Path 2 — the one-by-one menu, always visible (install/repair a single component). */}
+      <section className="rounded-xl border border-border bg-surface p-5">
+        <h3 className="text-base font-semibold text-content">Install or repair individually</h3>
+        <p className="mt-1 text-sm text-content-muted">
+          Prefer to pick and choose? Install any component on its own here. Already installed?
+          Use <span className="font-medium text-content">↻ Reinstall</span> to repair or update it —
+          handy when a dedicated environment breaks.
         </p>
-      ) : (
-        <button type="button" onClick={start} disabled={phase === 'running'}
-          className="mt-4 rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white disabled:opacity-50">
-          {phase === 'running' ? 'Installing…' : `Install everything (${(plan || []).length})`}
-        </button>
-      )}
-      {(phase === 'done' && !rows.every((a) => (statuses[a] || {}).state === 'success')) && (
-        <button type="button" onClick={start}
-          className="ml-3 mt-4 rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-content hover:bg-surface-raised">
-          Retry
-        </button>
-      )}
-    </section>
+        <div className="mt-3 space-y-3">
+          {catalog.map((c) => <InstallItem key={c.action} item={c} onDone={onDone} />)}
+        </div>
+      </section>
+    </div>
   )
 }
