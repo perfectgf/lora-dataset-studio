@@ -112,7 +112,7 @@ export default function CaptionLab({ datasetId, imageId, currentCaption, onKeep 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="m-0 text-[0.6875rem] leading-relaxed text-content-subtle">
           Try up to {MAX_CANDIDATES} caption configs on this image and compare them. Nothing is saved
           until you pick one — “Keep” drops it into the editor, “Make default” stores the config for the dataset.
@@ -148,7 +148,7 @@ export default function CaptionLab({ datasetId, imageId, currentCaption, onKeep 
 
       <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto sm:grid-cols-2">
         {candidates.map((c) => (
-          <div key={c.id} className="flex min-h-0 flex-col gap-2 rounded-xl border border-border bg-surface p-3">
+          <div key={c.id} className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3">
             {/* Config picker */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between gap-2">
@@ -196,7 +196,7 @@ export default function CaptionLab({ datasetId, imageId, currentCaption, onKeep 
               )}
             </div>
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={() => makeDefault(c)} disabled={running}
                 title="Store this config as the dataset's default caption method"
                 className="rounded-lg border border-border bg-surface px-2.5 py-1 text-[0.6875rem] font-medium text-content-muted hover:text-content disabled:opacity-40">

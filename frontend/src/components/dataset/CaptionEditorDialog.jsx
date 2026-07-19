@@ -66,7 +66,7 @@ export default function CaptionEditorDialog({
           </button>
         </header>
 
-        <div className="grid min-h-0 flex-1 grid-rows-[minmax(9rem,34%)_1fr] md:grid-cols-[minmax(18rem,42%)_1fr] md:grid-rows-1">
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(6.5rem,26%)_1fr] sm:grid-rows-[minmax(9rem,34%)_1fr] md:grid-cols-[minmax(18rem,42%)_1fr] md:grid-rows-1">
           <div className="flex min-h-0 items-center justify-center border-b border-border bg-black md:border-b-0 md:border-r">
             {imageUrl ? (
               <img src={imageUrl} alt={imageLabel || 'Dataset image'}
