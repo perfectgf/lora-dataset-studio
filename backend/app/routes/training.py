@@ -1361,6 +1361,18 @@ def dataset_train_run_share(run_key):
         headers={'Content-Disposition': f'attachment; filename="{out["filename"]}"'})
 
 
+@bp.get('/dataset/train/runs/<int:record_id>/lineage')
+def dataset_train_run_lineage(record_id):
+    """🌳 Genealogy tree of the lineage a run belongs to: nodes (every launch
+    linked by continuations, local + cloud) and parent→child edges. Addressed
+    by TrainingRunRecord id — the universal run node key (cloud rows expose it
+    as record_id too). Open like the other Runs-hub reads: unknown id → 404."""
+    tree = ct.run_lineage(record_id)
+    if not tree.get('nodes'):
+        return jsonify({'error': 'unknown run'}), 404
+    return jsonify(tree)
+
+
 @bp.get('/dataset/train/runs/<run_key>/preview')
 def dataset_train_run_preview(run_key):
     """Newest sample image a run produced — the Runs-hub card thumbnail.

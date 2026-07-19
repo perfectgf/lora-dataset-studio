@@ -4,6 +4,7 @@ import { postJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
 import TrainingProgress from '../components/dataset/TrainingProgress';
 import ContinueDialog from '../components/dataset/ContinueDialog';
+import RunLineageTree from '../components/dataset/RunLineageTree';
 import { BaseModelChip, DatasetVersionChip, RunIdChip } from '../components/dataset/RunIdentityBadges';
 import { HelpBadge } from '../help/HelpMode';
 import { requestHelpTip } from '../help/helpTips';
@@ -230,6 +231,41 @@ export default function CloudRunsPage() {
   // Thumbnails whose image 404'd/broke since load — fall back to the family
   // tile instead of a broken-image glyph. Keyed by the run's share_key.
   const [brokenThumbs, setBrokenThumbs] = useState({});
+
+  // 🌳 Lineage: which run cards have their genealogy tree expanded, and the
+  // fetched tree per record id (loaded lazily on first expand; refetched only
+  // if forced). Keyed by record_id — the universal run node key.
+  const [lineageOpen, setLineageOpen] = useState({});   // record_id -> bool
+  const [lineageData, setLineageData] = useState({});    // record_id -> {tree|error|loading}
+  const loadLineage = useCallback(async (recordId) => {
+    setLineageData((m) => ({ ...m, [recordId]: { loading: true } }));
+    try {
+      const r = await fetch(`/api/dataset/train/runs/${recordId}/lineage`, { credentials: 'include' });
+      if (!r.ok) throw new Error('unavailable');
+      const tree = await r.json();
+      setLineageData((m) => ({ ...m, [recordId]: { tree } }));
+    } catch {
+      setLineageData((m) => ({ ...m, [recordId]: { error: 'Could not load this run’s lineage.' } }));
+    }
+  }, []);
+  const toggleLineage = useCallback((recordId) => {
+    setLineageOpen((m) => {
+      const next = { ...m, [recordId]: !m[recordId] };
+      if (next[recordId] && !lineageData[recordId]) loadLineage(recordId);
+      return next;
+    });
+  }, [lineageData, loadLineage]);
+  // Jump from a tree node to that run's card (same page): scroll + brief flash,
+  // reusing the deep-link highlight the Checkpoints panel already uses.
+  const jumpToRun = useCallback((node) => {
+    const id = runRowDomId(node.source, node.source === 'cloud' ? node.run_id : node.record_id);
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('lds-run-flash');
+    setTimeout(() => el.classList.remove('lds-run-flash'), 2200);
+  }, []);
 
   const poll = useCallback(async () => {
     try {
@@ -477,6 +513,14 @@ export default function CloudRunsPage() {
                 only a CUSTOM base adds new info here (which checkpoint file). */}
             {baseLabel?.custom && <BaseModelChip label={baseLabel} />}
             <DatasetVersionChip version={run.version} />
+            {run.resumed_from != null && (
+              <button type="button"
+                onClick={() => run.record_id != null && toggleLineage(run.record_id)}
+                title="This run resumed from an earlier checkpoint — open its lineage"
+                className="rounded border border-border px-1 py-0.5 text-content-subtle text-[0.5625rem] hover:text-content">
+                ↳ from step {run.resumed_from}
+              </button>
+            )}
             {duration && (
               <span className="tabular-nums" title="Wall-clock run duration (launch → finish)">
                 ⏱ {duration}
@@ -538,6 +582,14 @@ export default function CloudRunsPage() {
                 ⬇ LoRA
               </a>
             )}
+            {run.lineage && run.record_id != null && (
+              <button type="button" onClick={() => toggleLineage(run.record_id)}
+                aria-expanded={!!lineageOpen[run.record_id]}
+                title="Show this run's lineage — the runs it continued from or that branched off it"
+                className="rounded-lg border border-transparent px-2 py-1 text-content-muted hover:border-border hover:text-content text-xs font-medium">
+                {lineageOpen[run.record_id] ? '🌳 Hide lineage' : '🌳 Lineage'}
+              </button>
+            )}
             {run.share_key && (
               <button type="button" onClick={() => shareConfig(run)}
                 title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
@@ -546,6 +598,13 @@ export default function CloudRunsPage() {
               </button>
             )}
           </div>
+          {run.lineage && run.record_id != null && lineageOpen[run.record_id] && (
+            <RunLineageTree
+              tree={lineageData[run.record_id]?.tree}
+              loading={lineageData[run.record_id]?.loading}
+              error={lineageData[run.record_id]?.error}
+              onSelect={jumpToRun} />
+          )}
         </div>
       </div>
     );

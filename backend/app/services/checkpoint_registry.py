@@ -76,9 +76,13 @@ def manifest_diff(old, new) -> dict:
 
 def register_launch(user_id, dataset_id, family, source, base_model='',
                     variant=None, masked=True, steps=None, cloud_run_id=None,
-                    settings=None):
+                    settings=None, parent_record_id=None, resumed_from=None):
     """Record a training launch and return its TrainingRunRecord (or None on
-    failure — provenance must never block a launch)."""
+    failure — provenance must never block a launch).
+
+    ``parent_record_id``/``resumed_from`` are set only by a CONTINUATION (the
+    record this launch resumed from, and the step it resumed at) — the lineage
+    edge the Runs-hub genealogy tree draws. Both NULL on a fresh launch."""
     try:
         ds = fds.get_dataset(user_id, dataset_id)
         if ds is None:
@@ -100,7 +104,8 @@ def register_launch(user_id, dataset_id, family, source, base_model='',
             cloud_run_id=cloud_run_id, base_model=base_model or '',
             variant=variant, masked=bool(masked), steps=steps,
             settings=json.dumps(settings) if settings else None,
-            fingerprint=fp, manifest=json.dumps(manifest), version=version)
+            fingerprint=fp, manifest=json.dumps(manifest), version=version,
+            parent_record_id=parent_record_id, resumed_from=resumed_from)
         db.session.add(rec)
         db.session.commit()
         return rec
@@ -114,6 +119,60 @@ def latest_record(dataset_id, family):
     return (TrainingRunRecord.query
             .filter_by(dataset_id=dataset_id, family=family)
             .order_by(TrainingRunRecord.id.desc()).first())
+
+
+def newest_record_for(dataset_id, family, base_model='', variant=None):
+    """The most recent record of a SPECIFIC training lane (dataset+family+base
+    +variant) — the run a continuation of that lane resumes from. base_model is
+    normalized to '' (official base) to match how register_launch stores it."""
+    q = (TrainingRunRecord.query
+         .filter_by(dataset_id=dataset_id, family=family, base_model=base_model or ''))
+    if variant is not None:
+        q = q.filter_by(variant=variant)
+    return q.order_by(TrainingRunRecord.id.desc()).first()
+
+
+def resolve_lineage(record_id):
+    """The whole lineage COMPONENT containing ``record_id``, as a root-first BFS
+    list of TrainingRunRecord. Edges are the persisted parent_record_id links:
+    climb to the single root (each node has at most one parent), then breadth-
+    first over children so start's siblings and their subtrees are all included.
+    Defensive against a malformed cycle (a record can't legitimately be its own
+    ancestor). A record with no parent and no children is its own single-node
+    lineage — the caller decides whether that's worth surfacing."""
+    start = db.session.get(TrainingRunRecord, int(record_id))
+    if start is None:
+        return []
+    root, climbed = start, {start.id}
+    while root.parent_record_id and root.parent_record_id not in climbed:
+        parent = db.session.get(TrainingRunRecord, root.parent_record_id)
+        if parent is None:
+            break
+        climbed.add(parent.id)
+        root = parent
+    order, visited, frontier = [], set(), [root]
+    while frontier:
+        node = frontier.pop(0)
+        if node.id in visited:
+            continue
+        visited.add(node.id)
+        order.append(node)
+        frontier.extend(TrainingRunRecord.query
+                        .filter_by(parent_record_id=node.id)
+                        .order_by(TrainingRunRecord.id.asc()).all())
+    return order
+
+
+def records_with_children(record_ids):
+    """Subset of ``record_ids`` that are the parent of at least one record — so
+    the Runs list can flag which rows open into a lineage without resolving each
+    tree. One query; empty input short-circuits."""
+    ids = [int(i) for i in record_ids if i is not None]
+    if not ids:
+        return set()
+    rows = (db.session.query(TrainingRunRecord.parent_record_id)
+            .filter(TrainingRunRecord.parent_record_id.in_(ids)).distinct().all())
+    return {r[0] for r in rows}
 
 
 def ensure_baseline(user_id, dataset_id, family, had_training) -> None:

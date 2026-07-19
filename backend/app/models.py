@@ -497,6 +497,14 @@ class TrainingRunRecord(db.Model):
     # unified Runs page. NULL on pre-feature rows.
     settings = db.Column(db.Text)
     version = db.Column(db.Integer, nullable=False)
+    # Lineage (genealogy tree). A CONTINUATION stamps the record it resumed from
+    # (parent_record_id) and the step it resumed AT (resumed_from) — the durable,
+    # unambiguous edge the Runs-hub tree draws, instead of parsing `_superseded`
+    # folder names. Both NULL on a fresh launch and on every pre-feature row: a
+    # record with no parent is a lineage ROOT. No auto-invention for legacy runs
+    # (the resume link was never persisted before) — added idempotently at boot.
+    parent_record_id = db.Column(db.Integer, index=True)
+    resumed_from = db.Column(db.Integer)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 

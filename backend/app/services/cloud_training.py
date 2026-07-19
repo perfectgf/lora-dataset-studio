@@ -441,6 +441,13 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000, from_step=None,
     snapshot = p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET)
     if override_patch:
         snapshot = _merge_resume_overrides(snapshot, override_patch)
+    # Lineage: the parent is the provenance record of the cloud run being
+    # continued (source-of-truth edge for the Runs-hub tree). Legacy cloud runs
+    # that predate the registry have no record -> the child is a root (NULL).
+    from ..models import TrainingRunRecord
+    _parent = (TrainingRunRecord.query
+               .filter_by(cloud_run_id=run.id)
+               .order_by(TrainingRunRecord.id.desc()).first())
     res = launch_cloud_training(
         user_id, run.dataset_id,
         steps=chosen['step'] + extra,
@@ -452,7 +459,9 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000, from_step=None,
         gpu_name=p.get('requested_gpu'),
         resume_ckpt_path=chosen['path'], resume_step=chosen['step'],
         train_settings_snapshot=snapshot,
-        train_slider_snapshot=p.get(_TRAIN_SLIDER_SNAPSHOT, _UNSET))
+        train_slider_snapshot=p.get(_TRAIN_SLIDER_SNAPSHOT, _UNSET),
+        parent_record_id=(_parent.id if _parent else None),
+        resumed_from=chosen['step'])
     res['resumed_from'] = chosen['step']
     res['target_steps'] = chosen['step'] + extra
     return res
@@ -466,7 +475,8 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                           gpu_name=None, resume_ckpt_path=None, resume_step=None,
                           auto_retry_count=0, auto_retry_of=None,
                           strict_gpu=False, train_settings_snapshot=_UNSET,
-                          train_slider_snapshot=_UNSET) -> dict:
+                          train_slider_snapshot=_UNSET,
+                          parent_record_id=None, resumed_from=None) -> dict:
     if not cfg.secret('VAST_API_KEY'):
         raise RuntimeError('vast.ai API key is not configured — add it in Settings')
     # A user launching after days away is exactly when an expired
@@ -677,7 +687,8 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
             variant=variant, masked=bool(masked), steps=n_steps,
             cloud_run_id=run.id,
             settings=lt.launch_settings_snapshot(
-                _run_config_dataset(ds, params), fam))
+                _run_config_dataset(ds, params), fam),
+            parent_record_id=parent_record_id, resumed_from=resumed_from)
         if rec is not None:
             params['version'] = rec.version
         _set(run, train_params=json.dumps(params))
@@ -2047,6 +2058,11 @@ def all_runs(limit: int = 20) -> dict:
                'steps': rec.steps, 'masked': bool(rec.masked),
                'variant': rec.variant, 'base_model': rec.base_model or '',
                'settings': settings,
+               # Lineage edge (genealogy tree): the record this launch resumed
+               # from, NULL on a fresh run / root. `lineage` (below) then flags
+               # rows that open into a ≥2-node tree.
+               'parent_record_id': rec.parent_record_id,
+               'resumed_from': rec.resumed_from,
                # Stable local-run identity for the 💻 #N chip + Checkpoints
                # deep-link. Cloud rows show ☁ #<cloud run id> (run_id, below).
                'record_id': rec.id,
@@ -2093,6 +2109,16 @@ def all_runs(limit: int = 20) -> dict:
         row = {'source': 'cloud', 'settings': None, **_run_payload(crun)}
         _annotate_preview(row, crun, None)
         recent.append(row)
+    # Lineage flag: a row opens the 🌳 tree when it has a parent OR is itself a
+    # parent (a continuation branched off it). `records_with_children` is one
+    # query over the shown record ids, so a parent still flags even when its
+    # child sits outside this window.
+    from . import checkpoint_registry
+    _rec_ids = [r['record_id'] for r in recent if r.get('record_id')]
+    _parents = checkpoint_registry.records_with_children(_rec_ids)
+    for r in recent:
+        r['lineage'] = bool(r.get('parent_record_id')
+                            or (r.get('record_id') in _parents))
     recent.sort(key=lambda r: r.get('created_at') or '', reverse=True)
     recent = recent[:limit]
     # Live LOCAL training: shown as its own card next to the cloud actives;
@@ -2118,6 +2144,95 @@ def all_runs(limit: int = 20) -> dict:
             'total_price_per_hour': round(sum(r.price_per_hour or 0 for r in actives), 4),
             'month_spend': round(month_spend_usd(), 2),
             'monthly_budget': float(c.get('monthly_budget_usd') or 0)}
+
+
+def _lineage_node(rec, crun, requested_id, failed_local_id):
+    """One genealogy-tree node from a provenance record, enriched with what the
+    card badge shows: family/variant/base/version/date, run status, and whether
+    its LoRA/checkpoints are still ON DISK vs gone (superseded aside or deleted).
+    Checkpoint presence is best-effort — a disk scan that fails degrades to
+    None (the UI shows nothing) rather than a wrong "available" claim."""
+    node = {
+        'record_id': rec.id,
+        'parent_record_id': rec.parent_record_id,
+        'resumed_from': rec.resumed_from,
+        'source': 'cloud' if rec.source == 'cloud' else 'local',
+        'dataset_id': rec.dataset_id,
+        'dataset_name': _dataset_name(rec.dataset_id),
+        'train_type': rec.family,
+        'variant': rec.variant,
+        'base_model': rec.base_model or '',
+        'version': rec.version,
+        'steps': rec.steps,
+        'created_at': rec.created_at.isoformat() if rec.created_at else None,
+        'is_current': rec.id == requested_id,
+        # A record with a resume step but no resolvable parent (legacy: the edge
+        # was never persisted) is an honest ROOT with a discreet "origin unknown".
+        'origin_unknown': bool(rec.resumed_from and not rec.parent_record_id),
+    }
+    if crun is not None:
+        node['run_id'] = crun.id
+        node['status'] = crun.status
+        node['checkpoint_ready'] = bool(
+            crun.checkpoint_local_path and os.path.isfile(crun.checkpoint_local_path))
+        node['saves'] = _staging_save_count(crun)
+    else:
+        node['status'] = ('error' if (rec.source == 'local'
+                                       and rec.id == failed_local_id) else None)
+        # Local checkpoints still on disk that list_checkpoints attributes to
+        # THIS record (record_for_mtime). Superseded/deleted saves simply don't
+        # appear — honest "what's recoverable now", never invented.
+        try:
+            cks = lt.list_checkpoints(cfg.LOCAL_USER, rec.dataset_id,
+                                      rec.base_model or '', rec.family, rec.variant)
+            mine = [c for c in cks
+                    if c.get('run_source') == 'local' and c.get('run_id') == rec.id]
+            node['saves'] = len(mine)
+            node['checkpoint_ready'] = len(mine) > 0
+        except Exception:
+            node['saves'] = None
+            node['checkpoint_ready'] = None
+    return node
+
+
+def run_lineage(record_id) -> dict:
+    """The genealogy tree for the lineage that record_id belongs to: every
+    launch (local AND cloud) linked by continuations, as nodes + parent→child
+    edges. `single` is True for a lone run with no parent and no children (the
+    UI then offers no tree). Superseded branch: an edge whose child resumed
+    BELOW where its parent ended means the parent has saves set aside — flagged
+    on the edge (superseded) and on the parent node (has_superseded_tail)."""
+    from . import checkpoint_registry as reg
+    from ..models import TrainingRunRecord
+    records = reg.resolve_lineage(record_id)
+    if not records:
+        return {'nodes': [], 'edges': [], 'root_id': None,
+                'current_id': None, 'single': True}
+    requested_id = int(record_id)
+    cloud_ids = {r.cloud_run_id for r in records if r.cloud_run_id}
+    cloud_by_id = ({r.id: r for r in CloudTrainingRun.query
+                    .filter(CloudTrainingRun.id.in_(cloud_ids)).all()}
+                   if cloud_ids else {})
+    failed_local_id = (lt.failed_local_run() or (None, None))[0]
+    nodes = [_lineage_node(rec, cloud_by_id.get(rec.cloud_run_id),
+                           requested_id, failed_local_id)
+             for rec in records]
+    steps_by_id = {r.id: (r.steps or 0) for r in records}
+    edges, superseded_parents = [], set()
+    for rec in records:
+        pid = rec.parent_record_id
+        if pid and pid in steps_by_id:
+            superseded = (rec.resumed_from is not None
+                          and rec.resumed_from < steps_by_id[pid])
+            if superseded:
+                superseded_parents.add(pid)
+            edges.append({'parent': pid, 'child': rec.id,
+                          'resumed_from': rec.resumed_from,
+                          'superseded': superseded})
+    for node in nodes:
+        node['has_superseded_tail'] = node['record_id'] in superseded_parents
+    return {'root_id': records[0].id, 'current_id': requested_id,
+            'nodes': nodes, 'edges': edges, 'single': len(nodes) < 2}
 
 
 def gpu_tiers(user_id, dataset_id, train_type=None, steps=None,

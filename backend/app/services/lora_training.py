@@ -3902,7 +3902,8 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
                     allow_caption_quality: bool = False,
                     vae_path=_PERSISTED, te_path=_PERSISTED,
                     allow_unverified_weights: bool = False,
-                    allow_not_ready: bool = False) -> dict:
+                    allow_not_ready: bool = False,
+                    parent_record_id=None, resumed_from=None) -> dict:
     """Export + config + pause ComfyUI (flag) + lance l'entraînement ai-toolkit
     en CLI headless (`run.py <config>`).
 
@@ -4070,7 +4071,8 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
         checkpoint_registry.register_launch(
             user_id, dataset_id, family=launch_fam, source='local',
             base_model=base_model or '', variant=variant, masked=bool(masked),
-            steps=int(steps), settings=_launch_settings)
+            steps=int(steps), settings=_launch_settings,
+            parent_record_id=parent_record_id, resumed_from=resumed_from)
         queue_manager._set_system_state('training_error', None, ttl_seconds=1)
         identity = {
             'training_in_progress': True,
@@ -4264,6 +4266,17 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
     # explicit server-side acknowledgement.
     launch_allow_unverified = (allow_unverified_weights
                                or not needs_explicit_z_recipe)
+    # Lineage: the record this continuation resumes FROM is the newest record of
+    # this exact lane (dataset+family+base+variant). Resolved BEFORE launch_training
+    # registers the child, so the child's parent_record_id points at the true
+    # predecessor. Best-effort like all provenance — a resolution failure (no prior
+    # record, or a queue-thread call outside the app context) leaves the edge NULL
+    # and NEVER blocks the continuation.
+    from . import checkpoint_registry
+    try:
+        _parent = checkpoint_registry.newest_record_for(dataset_id, fam, base or '', var)
+    except Exception:
+        _parent = None
     res = launch_training(user_id, dataset_id, steps=resume_step + extra, check_captions=False,
                           base_model=base, variant=var, train_type=fam,
                           masked=masked,
@@ -4271,7 +4284,9 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
                           allow_uncaptioned=allow_uncaptioned,
                           allow_caption_quality=allow_caption_quality,
                           allow_not_ready=allow_not_ready,
-                          allow_unverified_weights=launch_allow_unverified)
+                          allow_unverified_weights=launch_allow_unverified,
+                          parent_record_id=(_parent.id if _parent else None),
+                          resumed_from=resume_step)
     res['resumed_from'] = resume_step
     res['target_steps'] = resume_step + extra
     return res

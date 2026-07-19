@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-runs-lineage-tree',
+    date: '2026-07-19',
+    title: '🌳 See how your runs descend from each other',
+    blurb:
+      "When you continue a training — from its last checkpoint or an earlier, less-cooked epoch — a lineage is born: the original run, its continuation, the re-continuation, and any branch you forked off. The Runs page now draws it. Any run that's part of a lineage shows a discreet “🌳 Lineage” button that unfolds the whole family as a small tree: each run with its family, steps, dataset version and whether its LoRA is still on disk, the run you're looking at highlighted, and a branch you resumed from an earlier step shown grey (its later saves were set aside, never deleted). Click any run in the tree to jump straight to its card. Runs from before this shipped simply show as roots — nothing is invented.",
+    to: '/cloud',
+  },
+  {
     id: '2026-07-19-bank-launch-all',
     date: '2026-07-19',
     title: '🚀 Launch all — clean a whole bank while you sleep',
