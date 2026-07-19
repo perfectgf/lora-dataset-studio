@@ -209,6 +209,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
         activityWasLive.current = false
         refreshImages()
         if (payload?.activity?.error) toast.error(`Job failed — ${payload.activity.error}`)
+        else if (payload?.activity?.cancelled && payload?.activity?.detail)
+          toast.info(payload.activity.detail)   // Stopped — N cached (M remaining)…
         else if (payload?.activity?.detail) toast.success(payload.activity.detail)
       }
       return undefined
@@ -216,7 +218,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     activityWasLive.current = true
     const t = setInterval(refreshPayload, 2000)
     return () => clearInterval(t)
-  }, [live, refreshPayload, refreshImages, toast, payload?.activity?.error, payload?.activity?.detail])
+  }, [live, refreshPayload, refreshImages, toast, payload?.activity?.error,
+      payload?.activity?.cancelled, payload?.activity?.detail])
 
   const setF = (patch) => {
     const f = { ...filter, ...patch }

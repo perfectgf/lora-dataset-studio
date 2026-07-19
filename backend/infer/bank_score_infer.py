@@ -48,6 +48,27 @@ def _log(m):
     print(m, file=sys.stderr, flush=True)
 
 
+def _cancel_requested(cancel_file):
+    """The parent drops this sentinel file to ask for a clean stop, so the pass
+    flushes its cache and exits between images instead of being SIGKILLed
+    mid-compute (which would lose up to CACHE_EVERY images)."""
+    return bool(cancel_file) and os.path.exists(cancel_file)
+
+
+def _write_count(cache_path, n):
+    """Plain-text sidecar (``<cache>.count``) with how many images are scored so
+    far. The Flask parent has no numpy to read the .npz, so this is how a stopped
+    pass can still report an honest "N scored (M remaining)" — even in the rare
+    case it had to be hard-killed before it could print its own cancel line."""
+    if not cache_path:
+        return
+    try:
+        with open(cache_path + '.count', 'w', encoding='utf-8') as f:
+            f.write(str(int(n)))
+    except OSError:
+        pass
+
+
 def _file_sig(path):
     """A cheap identity signature for a file — size + mtime (ns). A cached entry
     whose signature no longer matches the file on disk is STALE (the image was
@@ -259,12 +280,14 @@ def main() -> int:
         return 1
     models_root = req.get('models_root') or None
     cache_path = req.get('cache') or None
+    cancel_file = req.get('cancel_file') or None
     style_threshold = float(req.get('style_threshold') or 0.6)
 
     cache = _load_cache(cache_path)
     # Re-score anything not cached OR whose file changed on disk since (a same-path
     # edit invalidates the stale embedding/scores).
     todo = [p for p in images if p not in cache or _is_stale(p, cache[p])]
+    _write_count(cache_path, len(images) - len(todo))
     _log(f'[score] {len(images)} image(s), {len(images) - len(todo)} cached')
 
     if todo:
@@ -291,6 +314,12 @@ def main() -> int:
         nsfw_bundle, nsfw_ok = _load_nsfw(device)
         zero = np.zeros(768, dtype='float32')
         done_since_save = 0
+        if _cancel_requested(cancel_file):   # cancelled during the model load
+            cached = len(images) - len(todo)
+            _write_count(cache_path, cached)
+            print(json.dumps({'ok': True, 'cancelled': True,
+                              'cached': cached, 'remaining': len(todo)}))
+            return 0
         for i, p in enumerate(todo, 1):
             try:
                 with Image.open(p) as im:
@@ -319,10 +348,20 @@ def main() -> int:
                 done_since_save += 1
                 if cache_path and done_since_save >= CACHE_EVERY:
                     _save_cache(cache_path, cache)
+                    _write_count(cache_path, len(images) - len(todo) + i)
                     done_since_save = 0
             _log(f'[score] {i}/{len(todo)} {cache[p][0]}')
+            if _cancel_requested(cancel_file):   # clean stop between images
+                if cache_path:
+                    _save_cache(cache_path, cache)
+                cached = len(images) - len(todo) + i
+                _write_count(cache_path, cached)
+                print(json.dumps({'ok': True, 'cancelled': True,
+                                  'cached': cached, 'remaining': len(todo) - i}))
+                return 0
         if cache_path:
             _save_cache(cache_path, cache)
+            _write_count(cache_path, len(images))
 
     results = {}
     for p in images:

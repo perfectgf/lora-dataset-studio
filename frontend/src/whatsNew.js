@@ -66,6 +66,14 @@ export const WHATS_NEW = [
     to: '/cloud',
   },
   {
+    id: '2026-07-19-bank-stop-keeps-progress',
+    date: '2026-07-19',
+    title: '⏹ Stopping a Bank face or score pass no longer loses your progress',
+    blurb:
+      "Stopping the Image bank's 👥 Group by person or ✨ Score pass mid-run used to feel like it threw everything away and left the bar blank. It never actually lost the finished work — the embeddings were cached — but nothing said so. Now Stop asks the pass to finish the image it's on, flush its cache and bow out cleanly, then tells you exactly where it landed: “Stopped — 1 240 face embeddings cached (760 remaining); relaunch to finish and cluster.” Relaunch and it picks up from the cache — the detail even reads “resuming — 1 240 of 2 000 already cached” so you can see it's continuing, not starting over. Same for the passes inside 🚀 Launch all.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-19-bank-semantic-dedup',
     date: '2026-07-19',
     title: '✂ Catch the same shot in a dozen crops',

@@ -957,6 +957,133 @@ def apply_flags(user_id, bank_id, flags) -> dict:
     return out
 
 
+# --- cooperative-cancel subprocess driver (shared by the face + score passes) --
+# A bank inference pass runs for minutes over thousands of images. Its embeddings
+# are cached incrementally, but a brutal proc.kill on Stop still throws away the
+# in-flight slice AND leaves the UI mute. Instead we ask the child to stop CLEANLY:
+# drop a sentinel file it polls between images so it flushes its cache and reports
+# how much it kept; a watchdog timer hard-kills it only if it doesn't stop within
+# the grace period. The child also writes a plain-text ``<cache>.count`` sidecar we
+# read back here (the Flask venv has no numpy to open the .npz), so a stopped pass
+# always shows an honest count — even in the rare hard-kill case.
+_INFER_CANCEL_GRACE = 15.0   # seconds a cleanly-cancelled child gets before a kill
+_CACHED_RE = re.compile(r'(\d+) image\(s\), (\d+) cached')
+
+
+def _safe_kill(proc):
+    try:
+        proc.kill()
+    except Exception:  # noqa: BLE001 — already gone is fine
+        pass
+
+
+def _read_cache_count(cache_path):
+    """The count the child last flushed to ``<cache>.count``, or None."""
+    try:
+        with open(str(cache_path) + '.count', encoding='utf-8') as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _stopped_detail(noun, data, cache_path, total):
+    """The honest end-of-pass line when the user Stopped it. Prefers the child's
+    own cancel counts, falls back to the flushed sidecar count, and never invents
+    a number it can't back up."""
+    n = data.get('cached')
+    if n is None:
+        n = _read_cache_count(cache_path)
+    if n is None:
+        return 'Stopped — progress saved to cache; relaunch to finish and cluster'
+    n = int(n)
+    remaining = data.get('remaining')
+    remaining = int(remaining) if remaining is not None else max(0, int(total) - n)
+    return (f'Stopped — {n} {noun} ({remaining} remaining); '
+            'relaunch to finish and cluster')
+
+
+def _drive_infer_subprocess(job, python, script, payload, cache_path,
+                            progress_re, window):
+    """Run an infer subprocess, streaming its stderr progress into ``job`` and
+    honouring Stop cooperatively. Returns (data, stderr_tail, returncode) where
+    ``data`` is the child's last JSON line (``cancelled: true`` when it stopped
+    cleanly). On the first "N cached" line it sets a "resuming" hint, so relaunching
+    over a partly-cached bank doesn't look like a full recompute."""
+    import json
+    import threading
+    cancel_file = str(cache_path) + '.cancel'
+    try:
+        os.remove(cancel_file)   # never inherit a stale sentinel from a past run
+    except OSError:
+        pass
+    hint = {'shown': False}
+    with window:
+        proc = subprocess.Popen(
+            [python, script], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding='utf-8', errors='replace',
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        killer = {'timer': None}
+
+        def _cancel():
+            # Ask for a clean stop (the child flushes + exits), and arm a watchdog
+            # that hard-kills ONLY if it doesn't stop within the grace period.
+            try:
+                with open(cancel_file, 'w', encoding='utf-8') as f:
+                    f.write('1')
+            except OSError:
+                pass
+            t = threading.Timer(_INFER_CANCEL_GRACE, _safe_kill, args=(proc,))
+            t.daemon = True
+            t.start()
+            killer['timer'] = t
+
+        bank_jobs.set_cancel_hook(job, _cancel)
+        stderr_tail = deque(maxlen=5)
+
+        def _drain_stderr():
+            for line in proc.stderr:
+                line = line.strip()
+                if line:
+                    stderr_tail.append(line)
+                m = progress_re.search(line)
+                if m:
+                    bank_jobs.progress(job, done=int(m.group(1)), total=int(m.group(2)))
+                if not hint['shown']:
+                    mc = _CACHED_RE.search(line)
+                    if mc:
+                        hint['shown'] = True
+                        total, cached = int(mc.group(1)), int(mc.group(2))
+                        if 0 < cached < total:
+                            bank_jobs.progress(
+                                job,
+                                detail=f'resuming — {cached} of {total} already cached')
+
+        t = threading.Thread(target=_drain_stderr, daemon=True)
+        t.start()
+        try:
+            proc.stdin.write(payload)
+            proc.stdin.close()
+        except OSError:
+            pass  # process died early — surfaced through the exit path below
+        stdout = proc.stdout.read()
+        proc.wait()
+        t.join(timeout=5)
+        if killer['timer']:
+            killer['timer'].cancel()
+    try:
+        os.remove(cancel_file)
+    except OSError:
+        pass
+    line = next((ln for ln in reversed(stdout.splitlines())
+                 if ln.strip().startswith('{')), '')
+    try:
+        data = json.loads(line) if line else {}
+    except json.JSONDecodeError:
+        data = {}
+    return data, stderr_tail, proc.returncode
+
+
 # --- subject (face) pass ----------------------------------------------------
 _EMBED_SCRIPT = str(cfg.BACKEND_DIR / 'infer' / 'face_embed_infer.py')
 _PROGRESS_RE = re.compile(r'\[embed\] (\d+)/(\d+)')
@@ -1020,57 +1147,29 @@ def _faces_job(bank_id):
         from ..gpu_window import gpu_exclusive_vision_window
         from contextlib import nullcontext
         device, use_gpu = _resolve_face_device()
+        cache_path = _face_cache_path(bank_id)
         payload = _json.dumps({
             'images': paths,
             'models_root': cfg.get('face_scoring.models_root') or None,
-            'cache': str(_face_cache_path(bank_id)),
+            'cache': str(cache_path),
+            'cancel_file': str(cache_path) + '.cancel',
             'threshold': th['face_threshold'],
             'device': device,
         })
         python = cfg.get('face_scoring.python') or sys.executable
         window = gpu_exclusive_vision_window(flag_ttl=1800) if use_gpu else nullcontext()
-        with window:
-            proc = subprocess.Popen(
-                [python, _EMBED_SCRIPT], stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, encoding='utf-8', errors='replace',
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            bank_jobs.set_cancel_hook(job, proc.kill)
-            stderr_tail = deque(maxlen=5)
-
-            def _drain_stderr():
-                for line in proc.stderr:
-                    line = line.strip()
-                    if line:
-                        stderr_tail.append(line)
-                    m = _PROGRESS_RE.search(line)
-                    if m:
-                        bank_jobs.progress(job, done=int(m.group(1)),
-                                           total=int(m.group(2)))
-
-            import threading
-            t = threading.Thread(target=_drain_stderr, daemon=True)
-            t.start()
-            try:
-                proc.stdin.write(payload)
-                proc.stdin.close()
-            except OSError:
-                pass  # process died early — surfaced through the exit path below
-            stdout = proc.stdout.read()
-            proc.wait()
-            t.join(timeout=5)
-        if bank_jobs.cancelled(job):
+        data, stderr_tail, returncode = _drive_infer_subprocess(
+            job, python, _EMBED_SCRIPT, payload, cache_path, _PROGRESS_RE, window)
+        # Stopped by the user — say exactly what's kept, never a mute ✗ (the cached
+        # embeddings are safe; relaunching skips them and only finishes the rest).
+        if data.get('cancelled') or (bank_jobs.cancelled(job) and not data.get('ok')):
+            bank_jobs.progress(job, detail=_stopped_detail(
+                'face embeddings cached', data, cache_path, len(paths)))
             return
-        line = next((ln for ln in reversed(stdout.splitlines())
-                     if ln.strip().startswith('{')), '')
-        try:
-            data = _json.loads(line) if line else {}
-        except _json.JSONDecodeError:
-            data = {}
         if not data.get('ok'):
             tail = data.get('error') or (stderr_tail[-1] if stderr_tail else '')
             raise RuntimeError(tail or f'face pass produced no output '
-                                       f'(rc={proc.returncode})')
+                                       f'(rc={returncode})')
         results = data.get('results') or {}
         clusters = data.get('clusters') or {}
         done = 0
@@ -1137,7 +1236,6 @@ def _score_job(bank_id):
     def run(job):
         import json as _json
         import sys
-        import threading
         from ..gpu_window import gpu_exclusive_vision_window
         bank = db.session.get(ImageBank, bank_id)
         if not bank:
@@ -1156,56 +1254,30 @@ def _score_job(bank_id):
             return
         _bank_dir(bank_id).mkdir(parents=True, exist_ok=True)
         th = thresholds()
+        cache_path = _score_cache_path(bank_id)
         payload = _json.dumps({
             'images': paths,
             'models_root': cfg.get('bank_scoring.models_root') or None,
-            'cache': str(_score_cache_path(bank_id)),
+            'cache': str(cache_path),
+            'cancel_file': str(cache_path) + '.cancel',
             'style_threshold': th['style_threshold'],
         })
         python = cfg.get('bank_scoring.python') or sys.executable
         # GPU-exclusive: frees ComfyUI VRAM and blocks a training start for the
         # duration, exactly like the dataset vision passes.
-        with gpu_exclusive_vision_window(flag_ttl=1800):
-            proc = subprocess.Popen(
-                [python, _SCORE_SCRIPT], stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, encoding='utf-8', errors='replace',
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-            bank_jobs.set_cancel_hook(job, proc.kill)
-            stderr_tail = deque(maxlen=5)
-
-            def _drain_stderr():
-                for line in proc.stderr:
-                    line = line.strip()
-                    if line:
-                        stderr_tail.append(line)
-                    m = _SCORE_PROGRESS_RE.search(line)
-                    if m:
-                        bank_jobs.progress(job, done=int(m.group(1)),
-                                           total=int(m.group(2)))
-
-            t = threading.Thread(target=_drain_stderr, daemon=True)
-            t.start()
-            try:
-                proc.stdin.write(payload)
-                proc.stdin.close()
-            except OSError:
-                pass
-            stdout = proc.stdout.read()
-            proc.wait()
-            t.join(timeout=5)
-        if bank_jobs.cancelled(job):
+        data, stderr_tail, returncode = _drive_infer_subprocess(
+            job, python, _SCORE_SCRIPT, payload, cache_path, _SCORE_PROGRESS_RE,
+            gpu_exclusive_vision_window(flag_ttl=1800))
+        # Stopped by the user — say exactly what's kept, never a mute ✗ (the cached
+        # scores/embeddings are safe; relaunching skips them and finishes the rest).
+        if data.get('cancelled') or (bank_jobs.cancelled(job) and not data.get('ok')):
+            bank_jobs.progress(job, detail=_stopped_detail(
+                'images scored', data, cache_path, len(paths)))
             return
-        line = next((ln for ln in reversed(stdout.splitlines())
-                     if ln.strip().startswith('{')), '')
-        try:
-            data = _json.loads(line) if line else {}
-        except _json.JSONDecodeError:
-            data = {}
         if not data.get('ok'):
             tail = data.get('error') or (stderr_tail[-1] if stderr_tail else '')
             raise RuntimeError(tail or f'scoring pass produced no output '
-                                       f'(rc={proc.returncode})')
+                                       f'(rc={returncode})')
         results = data.get('results') or {}
         clusters = data.get('clusters') or {}
         done = 0

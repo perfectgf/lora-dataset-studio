@@ -37,6 +37,27 @@ def _log(m):
     print(m, file=sys.stderr, flush=True)
 
 
+def _cancel_requested(cancel_file):
+    """The parent drops this sentinel file to ask for a clean stop, so the pass
+    flushes its cache and exits between images instead of being SIGKILLed
+    mid-compute (which would lose up to CACHE_EVERY images)."""
+    return bool(cancel_file) and os.path.exists(cancel_file)
+
+
+def _write_count(cache_path, n):
+    """Plain-text sidecar (``<cache>.count``) with how many images are cached so
+    far. The Flask parent has no numpy to read the .npz, so this is how a stopped
+    pass can still report an honest "N cached (M remaining)" — even in the rare
+    case it had to be hard-killed before it could print its own cancel line."""
+    if not cache_path:
+        return
+    try:
+        with open(cache_path + '.count', 'w', encoding='utf-8') as f:
+            f.write(str(int(n)))
+    except OSError:
+        pass
+
+
 def _load_cache(path):
     import numpy as np
     out = {}
@@ -126,12 +147,14 @@ def main() -> int:
         return 1
     models_root = req.get('models_root') or None
     cache_path = req.get('cache') or None
+    cancel_file = req.get('cancel_file') or None
     threshold = float(req.get('threshold') or 0.45)
     device = str(req.get('device') or 'cpu').lower()   # 'cpu' | 'cuda'
 
     used_gpu = False   # set when the model actually loads on CUDA below
     cache = _load_cache(cache_path)
     todo = [p for p in images if p not in cache]
+    _write_count(cache_path, len(images) - len(todo))
     _log(f'[embed] {len(images)} image(s), {len(images) - len(todo)} cached')
 
     if todo:
@@ -170,6 +193,12 @@ def main() -> int:
         import numpy as _np
         zero = _np.zeros(512, dtype='float32')
         done_since_save = 0
+        if _cancel_requested(cancel_file):   # cancelled during the model load
+            cached = len(images) - len(todo)
+            _write_count(cache_path, cached)
+            print(json.dumps({'ok': True, 'cancelled': True,
+                              'cached': cached, 'remaining': len(todo)}))
+            return 0
         for i, p in enumerate(todo, 1):
             try:
                 img = cv2.imread(p)
@@ -209,10 +238,20 @@ def main() -> int:
                 done_since_save += 1
                 if cache_path and done_since_save >= CACHE_EVERY:
                     _save_cache(cache_path, cache)
+                    _write_count(cache_path, len(images) - len(todo) + i)
                     done_since_save = 0
             _log(f'[embed] {i}/{len(todo)} {cache[p][0]}')
+            if _cancel_requested(cancel_file):   # clean stop between images
+                if cache_path:
+                    _save_cache(cache_path, cache)
+                cached = len(images) - len(todo) + i
+                _write_count(cache_path, cached)
+                print(json.dumps({'ok': True, 'cancelled': True,
+                                  'cached': cached, 'remaining': len(todo) - i}))
+                return 0
         if cache_path:
             _save_cache(cache_path, cache)
+            _write_count(cache_path, len(images))
 
     results = {}
     for p in images:
