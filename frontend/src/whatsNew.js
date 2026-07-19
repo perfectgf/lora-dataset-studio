@@ -74,6 +74,22 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-07-19-caption-stop-actually-stops',
+    date: '2026-07-19',
+    title: '⏹ Stop now stops captioning right away',
+    blurb:
+      "Hitting Stop during a caption run used to flip the button to “Stopping…” but the JoyCaption pass kept churning through every remaining image before it actually halted. Now Stop is honoured the moment the current image finishes: what's already captioned is kept, the rest is left untouched, and the GPU is handed straight back to ComfyUI — on character and concept datasets alike.",
+    to: '/datasets',
+  },
+  {
+    id: '2026-07-19-explicit-vocabulary-on-concepts',
+    date: '2026-07-19',
+    title: '🔞 Explicit captions now work on concept datasets too',
+    blurb:
+      "The Captions ⚙️ Options “Explicit” vocabulary preset was reaching the first captioning pass but not the refine step that concept datasets rely on, so crude terms got quietly smoothed back out. That path now carries your chosen register end to end — pick Explicit (with an uncensored vision model) and the words stay in, while the recurring concept is still left unspoken so it binds to your trigger.",
+    to: '/datasets',
+  },
+  {
     id: '2026-07-19-bank-semantic-dedup',
     date: '2026-07-19',
     title: '✂ Catch the same shot in a dozen crops',

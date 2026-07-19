@@ -3056,8 +3056,9 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
             if is_available():
                 dataset_activity.progress(
                     token, detail=f'Loading JoyCaption model and captioning {len(todo)} images…')
-                jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt,
-                                               activity_token=token)
+                jc = caption_images_joycaption(
+                    [p for _, p in todo], prompt=cap_prompt, activity_token=token,
+                    should_cancel=lambda: dataset_activity.cancel_requested(ds.id))
             elif backend == 'joycaption':
                 raise RuntimeError('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
         except RuntimeError:
@@ -3077,6 +3078,8 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
     if backend == 'joycaption':
         leak_re = _concept_terms_re(_fallback_concept_terms(concept_desc))
         for img, p, joycap in refine_targets:
+            if dataset_activity.cancel_requested(ds.id):
+                break   # graceful stop at an image boundary (see caption_images)
             dataset_activity.bump(token)
             try:
                 with open(p, 'rb') as fh:
@@ -3108,10 +3111,20 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
                 with open(p, 'rb') as fh:
                     data = fh.read()
                 refined = ''
+                # The refine prompt is where the concept-omitting caption is actually
+                # PRODUCED when JoyCaption is available (the dominant path), so the
+                # per-dataset extra instructions — including the NSFW vocabulary preset —
+                # must ride here too. Applied ONLY to cap_prompt before, they never reached
+                # the refine, so an 'explicit' preset silently produced a neutral caption:
+                # the (abliterated) refiner rewrote the crude Joy draft "as a clean caption"
+                # with no register directive. Empty extras keep the prompt byte-identical.
+                refine_prompt = _with_caption_instructions(
+                    CAPTION_REFINE_CONCEPT_PROMPT.format(existing=joycap,
+                                                         concept=concept_desc),
+                    extra_instructions)
                 try:
                     refined = describe_image_ollama(
-                        data, CAPTION_REFINE_CONCEPT_PROMPT.format(existing=joycap,
-                                                                   concept=concept_desc),
+                        data, refine_prompt,
                         num_predict=5000, model=ollama_model,
                         keep_alive=_VISION_BATCH_KEEPALIVE,
                         timeout=(10, 300))
@@ -3307,8 +3320,9 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
                         detail=f'Loading JoyCaption model and captioning {len(todo)} images…')
                     # Consigne « ne décris pas le visage » → les traits se lient au trigger,
                     # pas aux mots de la caption (deep-research 2026-06-14).
-                    jc = caption_images_joycaption([p for _, p in todo], prompt=cap_prompt,
-                                                   activity_token=token)
+                    jc = caption_images_joycaption(
+                        [p for _, p in todo], prompt=cap_prompt, activity_token=token,
+                        should_cancel=lambda: dataset_activity.cancel_requested(dataset_id))
                 elif backend == 'joycaption':
                     # Explicit choice, explicit failure: a user who forced 'joycaption' in
                     # Settings must be told WHY (the exact missing deps + pip command),
@@ -3452,7 +3466,8 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
         try:
             from .joycaption import availability, caption_images_joycaption, is_available
             if is_available():
-                jc = caption_images_joycaption(remaining, prompt=cap_prompt)
+                jc = caption_images_joycaption(remaining, prompt=cap_prompt,
+                                               should_cancel=should_cancel)
             elif backend == 'joycaption':
                 raise RuntimeError(
                     'JoyCaption backend is not available — '

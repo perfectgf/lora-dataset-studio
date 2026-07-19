@@ -159,12 +159,21 @@ def main() -> int:
             caption = tokenizer.decode(trimmed, skip_special_tokens=True,
                                        clean_up_tokenization_spaces=False).strip()
             captions[path] = caption
+            # Emit each caption as its OWN stdout JSON line the instant it lands, then the
+            # stderr progress marker. The caller streams stdout, so if it kills us mid-batch
+            # for a graceful Stop, every caption printed so far is already kept (a single
+            # end-of-run dump would lose them all). Flush so the pipe delivers it before the
+            # next — possibly long — generate() call.
+            print(json.dumps({"i": i, "path": path, "caption": caption}), flush=True)
             _log(f"[joycaption] {i}/{len(images)} ok ({len(caption)} chars)")
         except Exception as e:  # une image ratée ne casse pas le batch
             errors[path] = str(e)
+            print(json.dumps({"i": i, "path": path, "error": str(e)}), flush=True)
             _log(f"[joycaption] {i}/{len(images)} ERROR: {e}")
 
-    print(json.dumps({"captions": captions, "errors": errors}))
+    # Final aggregate line (backward-compatible with any caller that reads only the last
+    # {…}); the streamed per-image lines above are the authoritative source now.
+    print(json.dumps({"captions": captions, "errors": errors}), flush=True)
     return 0
 
 

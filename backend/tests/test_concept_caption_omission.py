@@ -267,3 +267,84 @@ def test_caption_concept_joycaption_backend_scrubs_without_ollama(app, monkeypat
         for banned in ('ice', 'cream', 'licking'):
             assert banned not in cap
         assert 'red hair' in cap and 'park' in cap
+
+
+# --- NSFW vocabulary preset on a CONCEPT dataset (Jeremy 2026-07-19) ----------
+def test_caption_concept_explicit_vocabulary_reaches_the_refine(app, monkeypatch):
+    """The 'explicit' preset must reach the Qwen REFINE prompt — the path that actually
+    PRODUCES the caption when JoyCaption is available (Jeremy's case). It was appended only
+    to cap_prompt (Joy + direct), so the refine ran WITHOUT it and the abliterated refiner
+    rewrote the crude Joy draft into neutral prose: the preset looked like it did nothing."""
+    from app.services import vision_ollama
+    with app.app_context():
+        save_config({'captioning': {'backend': 'auto'}})   # Joy draft -> Qwen refine
+        ds, img = _concept_with_image()
+        svc.set_caption_options(LOCAL_USER, ds.id, {'vocabulary': 'explicit'})
+        _patch_joy(monkeypatch, 'A nude woman licking ice cream, erect nipples, red hair.')
+
+        seen = {}
+
+        def fake_describe(image_bytes, prompt, **kw):
+            if 'BLOCKLIST' in prompt:
+                return 'no json'
+            if 'Rewrite it as ONE clean caption' in prompt:   # the refine pass
+                seen['refine_prompt'] = prompt
+                # A compliant (abliterated) refiner KEEPS the crude terms, drops the concept.
+                return 'A nude woman with red hair and erect nipples in a kitchen.'
+            raise AssertionError('the direct-Qwen path must not run here')
+
+        monkeypatch.setattr(vision_ollama, 'describe_image_ollama', fake_describe)
+        monkeypatch.setattr(vision_ollama, 'unload_vision_model', lambda: None)
+        n = svc.caption_images(LOCAL_USER, ds.id)
+
+        assert n == 1
+        # The explicit register directive rode INTO the refine prompt (the bug: it didn't).
+        assert 'refine_prompt' in seen
+        low = seen['refine_prompt'].lower()
+        assert 'do not censor' in low and 'crude' in low
+        assert 'Additional instructions from the user:' in seen['refine_prompt']
+        # …and the crude vocabulary survived into the stored caption, concept still omitted.
+        db.session.refresh(img)
+        cap = (img.caption or '').lower()
+        assert 'nude' in cap and 'erect' in cap
+        assert 'ice' not in cap and 'licking' not in cap
+
+
+def test_caption_concept_joycaption_phase_honors_stop(app, monkeypatch):
+    """A Stop during the JoyCaption phase of a concept batch is honored: the batch receives a
+    should_cancel hook wired to the dataset cancel flag, so it can stop instead of captioning
+    every image. Before the fix the flag was only polled in the later Qwen loop, so the whole
+    (uninterruptible) Joy batch ran to the end while the UI showed 'Stopping…'."""
+    from app.services import vision_ollama
+    import app.services.joycaption as jc
+    from app.services import dataset_activity as da
+    with app.app_context():
+        save_config({'captioning': {'backend': 'auto'}})
+        ds, img = _concept_with_image()
+
+        seen = {'hook': None}
+
+        def fake_joy(paths, prompt=None, activity_token=None, should_cancel=None, **kw):
+            seen['hook'] = should_cancel
+            # The user hits Stop mid-batch: the hook must now report the armed flag, and a
+            # real batch would kill the subprocess here. We return the drafts produced so far
+            # (none) — like a batch stopped before its first caption landed.
+            da.request_cancel(ds.id)
+            return {}
+
+        monkeypatch.setattr(jc, 'is_available', lambda: True)
+        monkeypatch.setattr(jc, 'caption_images_joycaption', fake_joy)
+
+        def _describe(image_bytes, prompt, **kw):
+            if 'BLOCKLIST' in prompt:      # ban-list expansion may still run
+                return 'no json'
+            raise AssertionError('no caption inference after a Stop during the Joy phase')
+
+        monkeypatch.setattr(vision_ollama, 'describe_image_ollama', _describe)
+        monkeypatch.setattr(vision_ollama, 'unload_vision_model', lambda: None)
+        n = svc.caption_images(LOCAL_USER, ds.id)
+
+        assert n == 0                                   # stopped, nothing captioned
+        assert callable(seen['hook']) and seen['hook']() is True
+        db.session.refresh(img)
+        assert not (img.caption or '')

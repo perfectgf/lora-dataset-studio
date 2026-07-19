@@ -58,7 +58,7 @@ def _reflect_stage(line: str, activity_token) -> None:
 
 def caption_images_joycaption(paths, prompt: str | None = None,
                               max_tokens: int = 300, timeout: int = 1800,
-                              activity_token=None) -> dict:
+                              activity_token=None, should_cancel=None) -> dict:
     """Caption une LISTE d'images en un seul chargement de modèle.
     Retourne {chemin: caption}. Vide si indispo/échec (non-fatal).
 
@@ -67,7 +67,14 @@ def caption_images_joycaption(paths, prompt: str | None = None,
     Hugging Face, et sans ce flux l'app semblait gelée (issue #6 — l'utilisateur croyait
     que rien ne se passait). Chargement du modèle, progression du download et erreurs
     apparaissent désormais au fil de l'eau. ``activity_token`` (optionnel) reflète en plus
-    les jalons dans l'indicateur d'activité du dataset."""
+    les jalons dans l'indicateur d'activité du dataset.
+
+    ``should_cancel`` (optionnel) : polled at each image BOUNDARY for a graceful Stop.
+    stdout is streamed per image, so each caption already delivered is KEPT; when the flag
+    trips, the subprocess is killed (no half-decoded image is interrupted) and the captions
+    gathered so far are returned — the SAME "keep what's written, stop the rest" contract as
+    the Ollama loop. Without it the whole batch was uninterruptible: Stop flipped the UI to
+    "Stopping…" while JoyCaption kept captioning every image to the end."""
     paths = [p for p in (paths or []) if p and os.path.isfile(p)]
     if not paths or not is_available():
         return {}
@@ -90,15 +97,55 @@ def caption_images_joycaption(paths, prompt: str | None = None,
         return {}
 
     # Drain both pipes in threads: stderr is logged live (first-run download visibility),
-    # stdout is collected for the result JSON. Reading both concurrently avoids the pipe-
-    # buffer deadlock a naive proc.wait() would hit on a chatty subprocess, and lets us
-    # enforce the timeout via proc.wait() while the readers keep draining.
-    stdout_chunks: list[str] = []
+    # stdout is streamed LINE BY LINE and parsed as each per-image caption lands. Reading
+    # both concurrently avoids the pipe-buffer deadlock a naive proc.wait() would hit on a
+    # chatty subprocess, and lets us enforce the timeout via proc.wait() while the readers
+    # keep draining. Streaming stdout (rather than one end-of-run .read()) is what makes a
+    # graceful Stop keep the captions already produced.
+    captions: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    cancelled = {'flag': False}
     stderr_tail: collections.deque = collections.deque(maxlen=25)
+
+    def _consume_json_line(line: str) -> None:
+        """Parse one stdout JSON line: a per-image {i,path,caption|error}, or the final
+        {captions,errors} aggregate (merged defensively for a stale worker)."""
+        try:
+            obj = json.loads(line)
+        except (ValueError, TypeError):
+            return
+        if not isinstance(obj, dict):
+            return
+        if 'path' in obj:
+            p = obj['path']
+            if obj.get('caption'):
+                captions[p] = str(obj['caption']).strip()
+            elif obj.get('error'):
+                errors[p] = str(obj['error'])
+        elif 'captions' in obj:
+            for p, cap in (obj.get('captions') or {}).items():
+                if cap and p not in captions:
+                    captions[p] = str(cap).strip()
+            errors.update(obj.get('errors') or {})
 
     def _drain_stdout():
         try:
-            stdout_chunks.append(proc.stdout.read() or '')
+            for raw in proc.stdout:
+                line = raw.strip()
+                if line.startswith('{'):
+                    _consume_json_line(line)
+                    # Graceful Stop seam: we just captured an image's caption, so killing
+                    # here loses nothing already produced. The next generate() (possibly
+                    # long) never starts.
+                    if should_cancel and not cancelled['flag'] and should_cancel():
+                        cancelled['flag'] = True
+                        logger.info('joycaption: stop requested — killing batch after '
+                                    '%d caption(s)', len(captions))
+                        try:
+                            proc.kill()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        break
         except Exception:  # noqa: BLE001
             pass
 
@@ -132,33 +179,26 @@ def caption_images_joycaption(paths, prompt: str | None = None,
         t_err.join(timeout=5)
         # The dominant cause of a first-run timeout is the ~7 GB model download, not a
         # hang — say so, and note the download is cached so a re-run resumes instead of
-        # restarting from zero.
+        # restarting from zero. Anything already streamed is still returned below.
         logger.error('joycaption: timed out after %.1fs while processing %d image(s) — '
                      'if this was the FIRST run the ~7 GB model was still downloading; '
                      'the partial download is cached, so just run captioning again to '
                      'resume. Last subprocess output: %s',
                      time.monotonic() - started, len(paths),
                      ' | '.join(list(stderr_tail)[-5:]) or '(none)')
-        return {}
     t_out.join(timeout=5)
     t_err.join(timeout=5)
 
-    out = (''.join(stdout_chunks)).strip()
-    # La sortie JSON est la dernière ligne `{…}` (les logs vont sur stderr).
-    line = next((ln for ln in reversed(out.splitlines()) if ln.strip().startswith('{')), '')
-    if not line:
-        logger.warning('joycaption: pas de JSON (rc=%s) stderr=%s',
-                       proc.returncode, ' | '.join(list(stderr_tail)[-6:]))
-        return {}
-    try:
-        data = json.loads(line)
-    except json.JSONDecodeError as e:
-        logger.warning('joycaption: JSON illisible : %s', e)
-        return {}
-    if data.get('errors'):
+    # `captions`/`errors` were filled by the stdout drain as each per-image line arrived, so
+    # a graceful Stop (or a timeout) still returns everything produced so far.
+    result = {k: v for k, v in captions.items() if v}
+    if errors:
         logger.info('joycaption: %d erreur(s) image : %s',
-                    len(data['errors']), list(data['errors'].values())[:3])
-    captions = {k: (v or '').strip() for k, v in (data.get('captions') or {}).items() if v}
-    logger.info('joycaption: batch finished (%d/%d captioned, elapsed=%.1fs)',
-                len(captions), len(paths), time.monotonic() - started)
-    return captions
+                    len(errors), list(errors.values())[:3])
+    if not result and not cancelled['flag'] and not errors:
+        logger.warning('joycaption: pas de captions (rc=%s) stderr=%s',
+                       proc.returncode, ' | '.join(list(stderr_tail)[-6:]))
+    logger.info('joycaption: batch %s (%d/%d captioned, elapsed=%.1fs)',
+                'stopped' if cancelled['flag'] else 'finished',
+                len(result), len(paths), time.monotonic() - started)
+    return result

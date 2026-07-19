@@ -635,11 +635,16 @@ class _FakeStdin:
 
 
 class _FakeStdout:
+    """The service now streams stdout line by line (`for raw in proc.stdout`), so the stand-in
+    is iterable over its lines; `.read()` stays for any caller that still bulk-reads."""
     def __init__(self, text):
         self._text = text
 
     def read(self):
         return self._text
+
+    def __iter__(self):
+        return iter(self._text.splitlines(keepends=True))
 
 
 class _FakePopen:
@@ -876,3 +881,73 @@ def test_caption_cancel_route_404_409_and_stopped_report(app, client, monkeypatc
     # The route consumed the flag on the way out — a later run starts clean.
     with app.app_context():
         assert da.cancel_requested(dsid) is False
+
+
+def _joy_paths(tmp_path, n):
+    """n real image files on disk (the service filters out non-existent paths up front)."""
+    out = []
+    for i in range(n):
+        p = tmp_path / f'img{i}.webp'
+        p.write_bytes(_webp())
+        out.append(str(p))
+    return out
+
+
+def test_joycaption_batch_streams_and_stops_on_cancel(app, monkeypatch, tmp_path):
+    """The JoyCaption batch is interruptible: stdout is streamed per image, so a
+    should_cancel that trips mid-batch KILLS the subprocess and keeps the captions already
+    produced. Regression guard for 'Stop does nothing while JoyCaption runs' — the whole
+    batch used to run to the end because it was a single uninterruptible subprocess."""
+    import app.services.joycaption as jc
+
+    pa, pb, pc = _joy_paths(tmp_path, 3)
+    stdout_text = '\n'.join([
+        json.dumps({'i': 1, 'path': pa, 'caption': 'first caption'}),
+        json.dumps({'i': 2, 'path': pb, 'caption': 'second caption'}),
+        json.dumps({'i': 3, 'path': pc, 'caption': 'third caption'}),
+        json.dumps({'captions': {pa: 'first caption', pb: 'second caption',
+                                 pc: 'third caption'}, 'errors': {}}),
+    ]) + '\n'
+    err_lines = ['[joycaption] model loaded\n', '[joycaption] 1/3 ok (13 chars)\n',
+                 '[joycaption] 2/3 ok (14 chars)\n']
+
+    proc = _FakePopen(err_lines, stdout_text)
+    monkeypatch.setattr(jc, 'is_available', lambda: True)
+    monkeypatch.setattr(jc.cfg, 'aitoolkit_path', lambda k: str(tmp_path / str(k)))
+    monkeypatch.setattr(jc.subprocess, 'Popen', lambda *a, **k: proc)
+
+    state = {'calls': 0}
+
+    def should_cancel():
+        state['calls'] += 1
+        return state['calls'] >= 2      # trip right after the 2nd caption lands
+
+    with app.app_context():
+        out = jc.caption_images_joycaption([pa, pb, pc], prompt='p',
+                                           should_cancel=should_cancel)
+
+    assert proc.killed is True                          # the batch was actually stopped
+    assert out == {pa: 'first caption', pb: 'second caption'}   # partial KEPT
+    assert pc not in out                                # never captioned
+
+
+def test_joycaption_batch_without_cancel_hook_streams_all(app, monkeypatch, tmp_path):
+    """No should_cancel → the streamed batch collects every per-image caption (the new
+    line-by-line stdout path returns the same result the old end-of-run parse did)."""
+    import app.services.joycaption as jc
+
+    pa, pb = _joy_paths(tmp_path, 2)
+    stdout_text = '\n'.join([
+        json.dumps({'i': 1, 'path': pa, 'caption': 'cap a'}),
+        json.dumps({'i': 2, 'path': pb, 'caption': 'cap b'}),
+        json.dumps({'captions': {pa: 'cap a', pb: 'cap b'}, 'errors': {}}),
+    ]) + '\n'
+
+    monkeypatch.setattr(jc, 'is_available', lambda: True)
+    monkeypatch.setattr(jc.cfg, 'aitoolkit_path', lambda k: str(tmp_path / str(k)))
+    monkeypatch.setattr(jc.subprocess, 'Popen', lambda *a, **k: _FakePopen([], stdout_text))
+
+    with app.app_context():
+        out = jc.caption_images_joycaption([pa, pb], prompt='p')
+
+    assert out == {pa: 'cap a', pb: 'cap b'}
