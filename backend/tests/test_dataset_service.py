@@ -1151,14 +1151,60 @@ def test_klein_generate_activity_from_enqueue_to_last_completion(app, monkeypatc
         act = svc.dataset_payload(LOCAL_USER, ds.id)['activity']
         assert act and act['kind'] == 'generate' and act['total'] == 2 and act['done'] == 0
         assert act['engine'] == 'klein'
-        # One job finishes (failed path is hermetic — no output file needed).
-        svc.link_completed_dataset_image('job-1', 'x.webp', failed=True)
+        # One job finishes successfully.
+        output = os.path.join(d, 'comfy-output'); os.makedirs(output, exist_ok=True)
+        with open(os.path.join(output, 'x.webp'), 'wb') as fh:
+            fh.write(_png())
+        monkeypatch.setattr(svc, '_comfy_output_dir', lambda: output)
+        svc.link_completed_dataset_image('job-1', 'x.webp')
         act = da.get(ds.id)
         assert act and act['kind'] == 'generate' and act['total'] == 2 and act['done'] == 1
-        # Last job finishes -> indicator clears (Generate re-enables).
+        # Last job fails -> no siblings remain, so the indicator clears normally.
         svc.link_completed_dataset_image('job-2', 'y.webp', failed=True)
         assert da.get(ds.id) is None
         assert svc.dataset_payload(LOCAL_USER, ds.id)['activity'] is None
+
+
+def test_klein_comfyui_failure_stops_remaining_batch(app, monkeypatch):
+    """The first real ComfyUI failure is fail-fast: keep that failed tile and its
+    reason, cancel/delete all remaining siblings, and re-enable generation."""
+    import os, itertools
+    from app.services import face_dataset_service as svc
+    from app.services import dataset_activity as da
+    from app.services import klein_edit_helper as keh
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda *a, **k: set())
+    counter = itertools.count(1)
+    monkeypatch.setattr(keh, 'enqueue_klein_edit', lambda **k: f'jf-{next(counter)}')
+    cancelled = []
+    with app.app_context():
+        import app.job_queue as jq
+        monkeypatch.setattr(
+            jq.queue_manager, 'cancel_job',
+            lambda job_id, *a, **k: cancelled.append(job_id) or True)
+        ds = svc.create_dataset(LOCAL_USER, 'K fail fast', 'kff')
+        d = svc._dataset_dir(ds.id); os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'ref.webp'), 'wb') as fh:
+            fh.write(_png())
+        ds.ref_filename = 'ref.webp'; svc.db.session.commit()
+        svc.generate_variations(
+            LOCAL_USER, ds.id,
+            [{'label': f'shot-{n}', 'framing': 'face', 'prompt': f'p{n}'}
+             for n in range(3)],
+            1, 'm')
+
+        svc.link_completed_dataset_image(
+            'jf-1', None, failed=True,
+            reason="Value not in list: lora_name: 'klein/missing.safetensors'")
+
+        rows = FaceDatasetImage.query.filter_by(dataset_id=ds.id).all()
+        assert len(rows) == 1
+        assert rows[0].job_id == 'jf-1' and rows[0].status == 'failed'
+        assert 'Value not in list' in rows[0].fail_reason
+        assert cancelled == ['jf-2', 'jf-3']
+        assert da.get(ds.id) is None
 
 
 def test_klein_generate_activity_cleared_on_cancel(app, monkeypatch):

@@ -7,8 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { displayLabel } from '../../utils/labels';
 import PexelsAttribution from './PexelsAttribution';
-
-const IMPROVE_HELP = 'Klein creates a new 2 MP version to validate and leaves the original intact.';
+import { useI18n } from '../../i18n/I18nContext';
 
 export default function DatasetLightbox({
   img,
@@ -24,6 +23,8 @@ export default function DatasetLightbox({
   improveReady = false,
   kleinAvailable = false,
 }) {
+  const { t } = useI18n();
+  const improveHelp = t('workspace.lightbox.improveHelp');
   const [full, setFull] = useState(false); // false = fit screen, true = 100 %
   const [improving, setImproving] = useState(false);
   const dialogRef = useRef(null);
@@ -42,16 +43,16 @@ export default function DatasetLightbox({
 
   if (!img || !img.filename) return null;
   const url = `/api/dataset/${datasetId}/img/${encodeURIComponent(img.filename)}${nonce ? `?v=${nonce}` : ''}`;
-  const alt = displayLabel(img.variation_label) || 'dataset image';
+  const alt = displayLabel(img.variation_label) || t('workspace.lightbox.datasetImage');
   const improvementActive = improving || improvePending;
   const improveDisabled = busy || improvementActive || improveReady || !kleinAvailable;
   const improveTitle = !kleinAvailable
-    ? `Klein is not available in this setup. ${IMPROVE_HELP}`
+    ? `${t('workspace.lightbox.kleinUnavailable')} ${improveHelp}`
     : improveReady
-      ? `A new version is waiting for validation. ${IMPROVE_HELP}`
+      ? `${t('workspace.lightbox.improvementReady')} ${improveHelp}`
     : improvePending
-      ? `An improvement is already running for this image. ${IMPROVE_HELP}`
-      : IMPROVE_HELP;
+      ? `${t('workspace.lightbox.improvementPending')} ${improveHelp}`
+      : improveHelp;
 
   const improve = async (event) => {
     event.stopPropagation();
@@ -71,11 +72,11 @@ export default function DatasetLightbox({
   };
 
   return (
-    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Inspect — ${alt}`}
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={t('workspace.lightbox.inspect', { name: alt })}
       className="fixed inset-0 z-[9996] bg-black/95 flex flex-col" onClick={onClose}>
       <button type="button" ref={closeRef}
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-        title="Close (Esc)" aria-label="Close inspection"
+        title={t('workspace.lightbox.closeTitle')} aria-label={t('workspace.lightbox.close')}
         className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-lg leading-none">✕</button>
 
       {full ? (
@@ -96,27 +97,30 @@ export default function DatasetLightbox({
         className="shrink-0 flex flex-wrap items-center justify-center gap-2 px-4 py-2.5 bg-black/60">
         <span className="text-white text-sm">{alt}</span>
         <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/10 text-white/80">
-          {img.source === 'import' ? 'real' : 'generated'}{img.framing ? ` · ${img.framing}` : ''}
+          {img.source === 'import' ? t('workspace.lightbox.real') : t('workspace.lightbox.generated')}
+          {img.framing ? ` · ${img.framing}` : ''}
         </span>
         <PexelsAttribution metadata={img.source_metadata}
           className="text-[11px] text-white/70" />
         <span className="text-white/50 text-[11px]">
-          {full ? '100 % — click image to fit' : 'fitted — click image for 100 %'}
+          {full ? t('workspace.lightbox.fullHint') : t('workspace.lightbox.fitHint')}
         </span>
         {onCrop && (
           <button type="button" onClick={() => onCrop(img)}
-            title="Open the crop editor for this image (stretchable box, any ratio)"
+            title={t('workspace.lightbox.cropTitle')}
             className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold">
-            ✂ Crop
+            ✂ {t('workspace.crop.confirm')}
           </button>
         )}
         {onMirror && (
           <button type="button" onClick={mirror} disabled={busy || mirrorBusy}
             aria-busy={mirrorBusy}
-            aria-label={mirrorBusy ? `Mirroring ${alt} horizontally` : `Mirror ${alt} horizontally`}
-            title={mirrorBusy ? 'Mirroring horizontally…' : 'Mirror horizontally (flip left and right)'}
+            aria-label={mirrorBusy
+              ? t('workspace.lightbox.mirroringLabel', { name: alt })
+              : t('workspace.lightbox.mirrorLabel', { name: alt })}
+            title={mirrorBusy ? t('workspace.lightbox.mirroring') : t('workspace.lightbox.mirrorTitle')}
             className="min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
-            {mirrorBusy ? '⇆ Mirroring…' : '⇆ Mirror horizontally'}
+            {mirrorBusy ? `⇆ ${t('workspace.lightbox.mirroring')}` : `⇆ ${t('workspace.lightbox.mirror')}`}
           </button>
         )}
         {onImprove && (
@@ -124,8 +128,10 @@ export default function DatasetLightbox({
             aria-busy={improvementActive} title={improveTitle}
             className="min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
             {improveReady
-              ? '✓ Review improvement first'
-              : improvementActive ? '✨ Improving…' : '✨ Upscale & improve'}
+              ? `✓ ${t('workspace.lightbox.reviewImprovement')}`
+              : improvementActive
+                ? `✨ ${t('workspace.lightbox.improving')}`
+                : `✨ ${t('workspace.lightbox.improve')}`}
           </button>
         )}
       </div>

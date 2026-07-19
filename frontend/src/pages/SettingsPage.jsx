@@ -18,6 +18,7 @@ import CaptioningSection from '../components/settings/CaptioningSection'
 import TrainingSection from '../components/settings/TrainingSection'
 import ServerSection from '../components/settings/ServerSection'
 import MaintenanceSection from '../components/settings/MaintenanceSection'
+import { useI18n } from '../i18n/I18nContext'
 
 const SECTION_COMPONENTS = {
   overview: OverviewSection,
@@ -33,13 +34,14 @@ const SECTION_COMPONENTS = {
 /* Sidebar LED: the section's live health, so the rail doubles as a status map.
    Never color-only — an sr-only label spells the state out. */
 function StatusLed({ status }) {
+  const { t } = useI18n()
   if (!status) return null
   const cls = status === 'ready' ? 'bg-emerald-400'
     : status === 'partial' ? 'bg-amber-400'
     : 'bg-white/15'
-  const label = status === 'ready' ? 'configured'
-    : status === 'partial' ? 'partly configured'
-    : 'not configured'
+  const label = status === 'ready' ? t('settings.status.configured')
+    : status === 'partial' ? t('settings.status.partial')
+    : t('settings.status.off')
   return (
     <span className="ml-auto flex items-center pl-2">
       <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${cls}`} />
@@ -50,6 +52,7 @@ function StatusLed({ status }) {
 
 export default function SettingsPage() {
   const toast = useToast()
+  const { t } = useI18n()
   const { caps, refresh } = useCapabilities()
   const { section } = useParams()
   const navigate = useNavigate()
@@ -74,11 +77,11 @@ export default function SettingsPage() {
       setRuntime(data.runtime || { host: null, port: null })
       setSecretsPresence(data.secrets)
     } catch (e) {
-      toast.error(`Failed to load settings: ${e.message}`)
+      toast.error(t('settings.loadFailed', { message: e.message }))
     } finally {
       setLoading(false)
     }
-  }, [toast])
+  }, [toast, t])
 
   useEffect(() => { load() }, [load])
 
@@ -102,15 +105,15 @@ export default function SettingsPage() {
   // by going blank — so confirm, delete server-side, then refresh presence + caps
   // so any engine that depended on it flips to unavailable right away.
   const handleDeleteSecret = async (key, label) => {
-    if (!window.confirm(`Remove the saved ${label}? Any engine that uses it stops working until you add a new key.`)) return
+    if (!window.confirm(t('settings.removeConfirm', { label }))) return
     try {
       const data = await del(`/api/settings/secret/${key}`)
       setSecretsPresence(data.secrets)
       setSecretInputs((prev) => { const next = { ...prev }; delete next[key]; return next })
       await refresh(true)
-      toast.success(`${label} removed.`)
+      toast.success(t('settings.removed', { label }))
     } catch (e) {
-      toast.error(`Remove failed: ${e.message}`)
+      toast.error(t('settings.removeFailed', { message: e.message }))
     }
   }
 
@@ -171,10 +174,10 @@ export default function SettingsPage() {
       // plain refresh() could leave onboarding/studio_visible stale right
       // after the config that determines them just changed.
       await refresh(true)
-      toast.success('Settings saved.')
+      toast.success(t('settings.saved'))
       return true
     } catch (e) {
-      toast.error(`Save failed: ${e.message}`)
+      toast.error(t('settings.saveFailed', { message: e.message }))
       return false
     } finally {
       setSaving(false)
@@ -248,7 +251,7 @@ export default function SettingsPage() {
   }
 
   if (loading || !config) {
-    return <p className="text-content-muted">Loading settings…</p>
+    return <p className="text-content-muted">{t('settings.loading')}</p>
   }
 
   const sectionProps = {
@@ -257,13 +260,24 @@ export default function SettingsPage() {
     toggleEngine, handleSave, saving, runtime, caps, refreshCaps: refresh, toast,
   }
 
+  const localizedSections = SETTINGS_SECTIONS.map((s) => {
+    const title = t(`settings.section.${s.id}.title`)
+    const description = t(`settings.section.${s.id}.description`)
+    return {
+      ...s,
+      title,
+      eyebrow: t(`settings.section.${s.id}.eyebrow`),
+      description,
+      keywords: [...s.keywords, title.toLowerCase(), description.toLowerCase()],
+    }
+  })
   const activeId = SECTION_COMPONENTS[section] ? section : 'overview'
-  const active = SETTINGS_SECTIONS.find((s) => s.id === activeId)
+  const active = localizedSections.find((s) => s.id === activeId)
   const ActiveSection = SECTION_COMPONENTS[activeId]
 
   // Search filters the rail by title/keywords; the active section always stays
   // listed so the visible content is never orphaned from its nav item.
-  const visibleSections = SETTINGS_SECTIONS.filter(
+  const visibleSections = localizedSections.filter(
     (s) => s.id === activeId || matchesQuery(s, query)
   )
 
@@ -335,26 +349,26 @@ export default function SettingsPage() {
       <div className="lg:grid lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start lg:gap-8">
         <aside>
           {/* Mobile: horizontal chip rail */}
-          <nav aria-label="Settings sections" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
+          <nav aria-label={t('settings.sectionsLabel')} className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
             {visibleSections.map((s) => navItem(s, true))}
           </nav>
           {/* Desktop: sticky LED rail */}
-          <nav aria-label="Settings sections" className="hidden lg:sticky lg:top-20 lg:block">
-            <p className="px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">Settings</p>
+          <nav aria-label={t('settings.sectionsLabel')} className="hidden lg:sticky lg:top-20 lg:block">
+            <p className="px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">{t('settings.title')}</p>
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onSearchKeyDown}
-              placeholder="Find a setting…"
-              aria-label="Find a setting"
+              placeholder={t('settings.search')}
+              aria-label={t('settings.searchLabel')}
               className="mb-2 w-full rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-content placeholder:text-content-subtle focus:border-primary focus:outline-none"
             />
             {q ? (
               <div className="space-y-3">
                 <div>
                   <p className="px-3 pb-1 text-[11px] uppercase tracking-wide text-content-subtle" role="status">
-                    Sections ({visibleSections.length})
+                    {t('settings.sectionResults', { count: visibleSections.length })}
                   </p>
                   <div className="flex flex-col gap-0.5">
                     {visibleSections.map((s, i) => navItem(s, false, i))}
@@ -363,7 +377,7 @@ export default function SettingsPage() {
                 {settingResults.length > 0 && (
                   <div>
                     <p className="px-3 pb-1 text-[11px] uppercase tracking-wide text-content-subtle">
-                      Settings ({settingResults.length})
+                      {t('settings.settingResults', { count: settingResults.length })}
                     </p>
                     <div className="flex flex-col gap-0.5">
                       {settingResults.map((t, j) => settingResultItem(t, visibleSections.length + j))}
@@ -371,7 +385,7 @@ export default function SettingsPage() {
                   </div>
                 )}
                 {visibleSections.length === 0 && settingResults.length === 0 && (
-                  <p className="px-3 text-xs text-content-subtle">No matches.</p>
+                  <p className="px-3 text-xs text-content-subtle">{t('common.noMatches')}</p>
                 )}
               </div>
             ) : (
@@ -395,14 +409,14 @@ export default function SettingsPage() {
         <div role="status"
           className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[calc(100vw-2rem)] items-center gap-3 rounded-full border border-border bg-surface-overlay/95 px-4 py-2 shadow-lg backdrop-blur">
           <span aria-hidden className="text-amber-400">●</span>
-          <span className="text-sm text-content">Unsaved changes</span>
+          <span className="text-sm text-content">{t('settings.unsaved')}</span>
           <button type="button" onClick={discard}
             className="rounded-full border border-border-strong px-3 py-1 text-xs font-medium text-content hover:bg-surface-raised">
-            Discard
+            {t('common.discard')}
           </button>
           <button type="button" onClick={handleSave} disabled={saving}
             className="rounded-full bg-gradient-primary px-4 py-1 text-xs font-semibold text-white disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save changes'}
+            {saving ? t('common.saving') : t('settings.saveChanges')}
           </button>
         </div>
       )}

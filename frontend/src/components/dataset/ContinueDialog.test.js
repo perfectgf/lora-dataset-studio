@@ -31,7 +31,7 @@ test('local continue still routes through the guarded, accumulating request help
   assert.match(panel, /runConfirmableTrainingRequest/);
   assert.match(panel, /\(continueOpts\) => ds\.continueTraining/);
   assert.match(panel, /fromStep:\s*payload\.fromStep,\s*overrides:\s*payload\.overrides/);
-  assert.match(panel, /confirmableRetryFlag\(error, 'Continue anyway \(force\)'\)/);
+  assert.match(panel, /confirmableRetryFlag\(error, t\('workspace\.training\.dialogs\.continueForce'\)\)/);
 });
 
 test('cloud continue posts the run, extra steps, chosen checkpoint and overrides', () => {

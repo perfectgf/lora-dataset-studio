@@ -1,43 +1,51 @@
 import { INPUT_CLASS, Card } from './primitives'
+import { useI18n } from '../../i18n/I18nContext'
 
 const CAPTIONING_OPTIONS = [
-  { id: 'auto', label: 'Auto (best available)' },
-  { id: 'joycaption', label: 'JoyCaption' },
-  { id: 'ollama', label: 'Ollama vision' },
-  { id: 'none', label: 'None' },
+  { id: 'auto', labelKey: 'auto' },
+  { id: 'joycaption', labelKey: 'joycaption' },
+  { id: 'ollama', labelKey: 'ollama' },
+  { id: 'none', labelKey: 'none' },
 ]
 
 export default function CaptioningSection({ config, setField }) {
+  const { t } = useI18n()
   return (
     <div className="space-y-6">
       <Card
-        title="Captioning"
-        help="Who writes the captions. Auto prefers JoyCaption (via ai-toolkit) and falls back to the Ollama vision model."
+        title={t('settings.captioning.captioningTitle')}
+        help={t('settings.captioning.captioningHelp')}
       >
         <div>
-          <label htmlFor="captioning-backend" className="block text-sm font-medium text-content">Captioning backend</label>
+          <label htmlFor="captioning-backend" className="block text-sm font-medium text-content">
+            {t('settings.captioning.backend')}
+          </label>
           <select
             id="captioning-backend"
             value={config.captioning.backend}
             onChange={(e) => setField('captioning', 'backend', e.target.value)}
             className={INPUT_CLASS}
           >
-            {CAPTIONING_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            {CAPTIONING_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>{t(`settings.captioning.options.${o.labelKey}`)}</option>
+            ))}
           </select>
         </div>
       </Card>
 
       <Card
-        title="Watermark inpainting"
-        help="Choose where LaMa removes small off-center watermarks. Auto uses CUDA when the configured ML Python supports it and otherwise falls back to CPU."
+        title={t('settings.captioning.watermarkTitle')}
+        help={t('settings.captioning.watermarkHelp')}
       >
         <div>
-          <label htmlFor="watermark-device" className="block text-sm font-medium text-content">Processing device</label>
+          <label htmlFor="watermark-device" className="block text-sm font-medium text-content">
+            {t('settings.captioning.device')}
+          </label>
           <select id="watermark-device" value={config.watermark?.device || 'auto'}
             onChange={(e) => setField('watermark', 'device', e.target.value)} className={INPUT_CLASS}>
-            <option value="auto">Auto (GPU when available, otherwise CPU)</option>
-            <option value="cuda">GPU (CUDA required; pauses ComfyUI while cleaning)</option>
-            <option value="cpu">CPU (keeps the GPU free)</option>
+            <option value="auto">{t('settings.captioning.devices.auto')}</option>
+            <option value="cuda">{t('settings.captioning.devices.cuda')}</option>
+            <option value="cpu">{t('settings.captioning.devices.cpu')}</option>
           </select>
         </div>
         <label className="mt-3 flex items-start gap-2 text-sm text-content">
@@ -46,24 +54,22 @@ export default function CaptioningSection({ config, setField }) {
             onChange={(e) => setField('watermark', 'allow_crop', e.target.checked)}
             className="mt-0.5" />
           <span>
-            <span className="font-medium">Allow automatic crop</span>
+            <span className="font-medium">{t('settings.captioning.allowCrop')}</span>
             <span className="block text-xs text-content-muted">
-              On: a watermark sitting in a border is cropped off (no invented pixels). Off:
-              border marks are repainted instead (LaMa/Klein). You can still override this per
-              image in the watermark review. Also toggleable from the Clean bar.
+              {t('settings.captioning.allowCropHelp')}
             </span>
           </span>
         </label>
       </Card>
 
       <Card
-        title="Face similarity"
-        help="Every image is scored against the reference face (InsightFace). These thresholds set where the badges flip."
+        title={t('settings.captioning.faceTitle')}
+        help={t('settings.captioning.faceHelp')}
       >
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="face-threshold-green" className="block text-sm font-medium text-content">
-              Face score — green threshold
+              {t('settings.captioning.greenThreshold')}
             </label>
             <input
               id="face-threshold-green"
@@ -78,7 +84,7 @@ export default function CaptioningSection({ config, setField }) {
           </div>
           <div>
             <label htmlFor="face-threshold-orange" className="block text-sm font-medium text-content">
-              Face score — orange threshold
+              {t('settings.captioning.orangeThreshold')}
             </label>
             <input
               id="face-threshold-orange"
@@ -93,8 +99,7 @@ export default function CaptioningSection({ config, setField }) {
           </div>
         </div>
         <p className="text-xs text-content-muted">
-          Green marks a strong match to the reference face; orange is borderline — review it before keeping.
-          Anything below orange is likely a different person and worth rejecting.
+          {t('settings.captioning.thresholdHelp')}
         </p>
       </Card>
 

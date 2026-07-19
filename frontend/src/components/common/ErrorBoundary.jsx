@@ -1,13 +1,21 @@
 import { Component } from 'react';
+import { I18nContext } from '../../i18n/I18nContext';
 
 class ErrorBoundary extends Component {
+  static contextType = I18nContext;
+
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = {
+      hasError: false,
+      error: null,
+      componentStack: '',
+      copied: false,
+    };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error, info) {
@@ -23,9 +31,45 @@ class ErrorBoundary extends Component {
         '\ncomponentStack:', info?.componentStack,
       );
     } catch { /* never let logging itself break the fallback UI */ }
+    this.setState({ componentStack: info?.componentStack || '' });
+  }
+
+  retry = () => {
+    this.setState({
+      hasError: false,
+      error: null,
+      componentStack: '',
+      copied: false,
+    });
+  };
+
+  goHome = () => {
+    window.location.hash = '#/datasets';
+    this.retry();
+  };
+
+  diagnosticText() {
+    const { error, componentStack } = this.state;
+    const route = `${window.location.pathname}${window.location.hash}`;
+    return [
+      `Route: ${route}`,
+      `Message: ${error?.message || String(error || 'Unknown render error')}`,
+      error?.stack ? `Stack:\n${error.stack}` : '',
+      componentStack ? `Component stack:${componentStack}` : '',
+    ].filter(Boolean).join('\n\n');
+  }
+
+  copyDiagnostic = async () => {
+    try {
+      await navigator.clipboard.writeText(this.diagnosticText());
+      this.setState({ copied: true });
+    } catch {
+      this.setState({ copied: false });
+    }
   }
 
   render() {
+    const t = this.context?.t || ((key) => key);
     if (this.state.hasError) {
       // Root-level boundary: full-screen recovery UI with a reload action so a
       // render crash never leaves the user staring at a blank white page.
@@ -36,21 +80,58 @@ class ErrorBoundary extends Component {
             role="alert"
           >
             <p className="text-lg font-semibold">
-              {this.props.fallbackMessage || 'An unexpected error occurred.'}
+              {this.props.fallbackMessage || t('errorBoundary.unexpected')}
             </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="py-2.5 px-5 rounded-lg bg-gradient-primary text-white text-sm font-semibold cursor-pointer hover:-translate-y-px transition-transform"
-            >
-              Reload the page
-            </button>
+            {this.state.error?.message && (
+              <p className="max-w-2xl break-words text-sm text-content-muted">
+                {this.state.error.message}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={this.retry}
+                className="py-2.5 px-5 rounded-lg bg-gradient-primary text-white text-sm font-semibold cursor-pointer hover:-translate-y-px transition-transform"
+              >
+                {t('errorBoundary.tryAgain')}
+              </button>
+              <button
+                type="button"
+                onClick={this.goHome}
+                className="py-2.5 px-5 rounded-lg border border-border-strong bg-surface-raised text-content text-sm font-semibold cursor-pointer hover:bg-surface-overlay"
+              >
+                {t('errorBoundary.backToDatasets')}
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="py-2.5 px-5 rounded-lg border border-border-strong text-content-muted text-sm font-semibold cursor-pointer hover:text-content"
+              >
+                {t('errorBoundary.reload')}
+              </button>
+            </div>
+            <details className="w-full max-w-2xl rounded-lg border border-border bg-surface p-3 text-left">
+              <summary className="cursor-pointer text-sm font-medium text-content-muted">
+                {t('errorBoundary.technicalDetails')}
+              </summary>
+              <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-content-subtle">
+                {this.diagnosticText()}
+              </pre>
+              <button
+                type="button"
+                onClick={this.copyDiagnostic}
+                className="mt-3 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content-muted hover:text-content"
+              >
+                {this.state.copied ? t('common.copied') : t('errorBoundary.copyDiagnostic')}
+              </button>
+            </details>
           </div>
         );
       }
       // Inline boundary (e.g. a single widget): compact fallback.
       return (
         <div className="text-center py-8 text-content-muted" role="alert">
-          <p>{this.props.fallbackMessage || 'Something went wrong. Please refresh the page.'}</p>
+          <p>{this.props.fallbackMessage || t('errorBoundary.inline')}</p>
         </div>
       );
     }

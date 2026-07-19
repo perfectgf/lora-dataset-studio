@@ -8,10 +8,12 @@
 import { useState } from 'react';
 import { STRENGTH_CHOICES_EXTENDED, STRENGTH_CHOICES_NEGATIVE } from './constants';
 import { hasExtendedSelection, hasNegativeSelection } from './strengthDisclosure';
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function StrengthPicker({ choices, selected, onToggle, fmt,
                                          extendedChoices = STRENGTH_CHOICES_EXTENDED,
                                          negativeChoices = STRENGTH_CHOICES_NEGATIVE }) {
+  const { t } = useI18n();
   // Ouverture manuelle par « + »/« − » ; l'ouverture EFFECTIVE force aussi si une
   // valeur de la rangée est sélectionnée (rechargement d'un prompt récent,
   // persistance…).
@@ -37,18 +39,18 @@ export default function StrengthPicker({ choices, selected, onToggle, fmt,
 
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-content-muted text-[0.625rem] uppercase">Strengths</span>
+      <span className="text-content-muted text-[0.625rem] uppercase">{t('studio.strength.title')}</span>
       <div className="flex gap-2 flex-wrap items-center">
         {hasNegative && (
           <button type="button" onClick={() => setNegExpanded((v) => !v)}
             disabled={negForced}
             aria-expanded={negOpen}
             aria-controls="strength-negative"
-            aria-label={negOpen ? 'Hide negative strengths' : 'Show negative strengths (down to -2.0)'}
+            aria-label={negOpen ? t('studio.strength.hideNegative') : t('studio.strength.showNegative')}
             title={negForced
-              ? 'A negative strength is selected — deselect it to collapse'
-              : negOpen ? 'Hide negative strengths'
-                : 'Show negative strengths (down to -2.0) — pulls the LoRA the other way (slider LoRAs)'}
+              ? t('studio.strength.negativeSelected')
+              : negOpen ? t('studio.strength.hideNegative')
+                : t('studio.strength.showNegativeTitle')}
             className={`px-2.5 py-1 rounded-lg border text-[0.75rem] leading-none tabular-nums transition-colors disabled:opacity-60 ${
               negOpen
                 ? 'border-purple-400/40 bg-purple-500/10 text-purple-200'
@@ -62,10 +64,10 @@ export default function StrengthPicker({ choices, selected, onToggle, fmt,
             disabled={forced}
             aria-expanded={open}
             aria-controls="strength-extended"
-            aria-label={open ? 'Hide strengths above 2.0' : 'Show strengths above 2.0 (up to 4.0)'}
+            aria-label={open ? t('studio.strength.hideExtended') : t('studio.strength.showExtended')}
             title={forced
-              ? 'A strength above 2.0 is selected — deselect it to collapse'
-              : open ? 'Hide strengths above 2.0' : 'Show strengths above 2.0 (up to 4.0)'}
+              ? t('studio.strength.extendedSelected')
+              : open ? t('studio.strength.hideExtended') : t('studio.strength.showExtended')}
             className={`px-2.5 py-1 rounded-lg border text-[0.75rem] leading-none tabular-nums transition-colors disabled:opacity-60 ${
               open
                 ? 'border-purple-400/40 bg-purple-500/10 text-purple-200'
@@ -78,7 +80,7 @@ export default function StrengthPicker({ choices, selected, onToggle, fmt,
         <div id="strength-negative" className="flex gap-2 flex-wrap items-center">
           {negativeChoices.map(chip)}
           <span className="text-content-muted text-[0.625rem]">
-            negative = LoRA pulled the other way (slider LoRAs)
+            {t('studio.strength.negativeHint')}
           </span>
         </div>
       )}

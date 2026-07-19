@@ -32,6 +32,7 @@ import {
 import { runConfirmableTrainingRequest } from '../../utils/trainingConfirmations';
 import { HelpBadge } from '../../help/HelpMode';
 import { requestHelpTip } from '../../help/helpTips';
+import { useI18n } from '../../i18n/I18nContext';
 import { useToast } from '../common/Toast';
 import ContinueDialog from './ContinueDialog';
 import TrainingProgress from './TrainingProgress';
@@ -117,6 +118,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const isConceptual = isConcept || isStyle;
   const { caps } = useCapabilities();
   const toast = useToast();
+  const { t } = useI18n();
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -494,7 +496,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     ));
   }, [presets, trainType, kind, variant]);
   const savePreset = async () => {
-    const name = window.prompt('Preset name (an existing name is overwritten):');
+    const name = window.prompt(t('workspace.training.dialogs.presetNamePrompt'));
     if (!name || !name.trim()) return;
     setPresetBusy(true);
     try {
@@ -587,7 +589,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   };
   const deletePreset = async () => {
     if (!selPreset || selPreset.builtin) return;   // built-ins ship with the app
-    if (!window.confirm(`Delete the preset “${selPreset.name}”?`)) return;
+    if (!window.confirm(t('workspace.training.dialogs.deletePresetConfirm', {
+      name: selPreset.name,
+    }))) return;
     setPresetBusy(true);
     try {
       const r = await fetch(`/api/train/presets/${selPreset.id}`, {
@@ -705,7 +709,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         payload.extraSteps, checkpointBase, checkpointVariant, checkpointTrainType,
         { ...continueOpts, fromStep: payload.fromStep, overrides: payload.overrides }),
       { masked },
-      (error) => confirmableRetryFlag(error, 'Continue anyway (force)'),
+      (error) => confirmableRetryFlag(error, t('workspace.training.dialogs.continueForce')),
     );
     refreshStatus();
     loadCheckpoints(checkpointBase, checkpointTrainType, checkpointVariant);
@@ -763,7 +767,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                  ...(allowNotReady ? { allow_not_ready: true } : {}),
                  ...(trainType === 'sdxl' ? { vae_path: vaePath, te_path: tePath } : {}) };
     let d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`, body);
-    for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Queue anyway (force)')); ) {
+    for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(
+      d.error, t('workspace.training.dialogs.queueForce'))); ) {
       if (flag === 'declined') { d = null; break; }  // the confirm WAS the answer
       body = { ...body, [flag]: true };
       d = await postTrain(`/api/dataset/${ds.currentId}/train/enqueue`, body);
@@ -801,7 +806,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                  ...(allowNotReady ? { allow_not_ready: true } : {}),
                  ...(trainType === 'sdxl' ? { vae_path: vaePath, te_path: tePath } : {}) };
     let d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`, body);
-    for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Schedule anyway (force)')); ) {
+    for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(
+      d.error, t('workspace.training.dialogs.scheduleForce'))); ) {
       if (flag === 'declined') { d = null; break; }  // the confirm WAS the answer
       body = { ...body, [flag]: true };
       d = await postTrain(`/api/dataset/${ds.currentId}/train/schedule`, body);
@@ -1018,7 +1024,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       ...(allowNotReady ? { allow_not_ready: true } : {}),
     };
     let d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`, body);
-    for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Train anyway (force)')); ) {
+    for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(
+      d.error, t('workspace.training.dialogs.trainForce'))); ) {
       if (flag === 'declined') { d = null; break; }  // the confirm WAS the answer
       body = { ...body, [flag]: true };
       d = await postJson(`/api/dataset/${ds.currentId}/train/cloud`, body);
@@ -1033,7 +1040,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     return (
       <div className="flex items-center gap-2 rounded-lg border border-border bg-surface p-3 text-content-muted text-sm">
         <span aria-hidden>🎓</span>
-        Training needs ai-toolkit (local GPU) or a vast.ai API key (cloud) — set either in Settings.
+        {t('workspace.trainingUnavailable')}
       </div>
     );
   }
@@ -1186,7 +1193,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             let opts = { baseModel: base, variant, trainType, masked, steps: stepsN, fresh,
                          vaePath, tePath, allowNotReady };
             let d = await ds.train(opts);
-            for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Train anyway (force)')); ) {
+            for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(
+              d.error, t('workspace.training.dialogs.trainForce'))); ) {
               if (flag === 'declined') break;        // the confirm WAS the answer
               opts = { ...opts, [OPT_FOR_FLAG[flag]]: true };
               d = await ds.train(opts);
@@ -2279,7 +2287,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   </button>
                   <button type="button"
                     onClick={async () => {
-                      if (!window.confirm(`Move « ${c.filename} » to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
+                      if (!window.confirm(t('workspace.training.dialogs.moveTrashConfirm', {
+                        filename: c.filename,
+                      }))) return;
                       const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
                         { filename: c.filename, ...trainingRunSelection(checkpointBase, checkpointTrainType, checkpointVariant) });
                       if (d.ok === false) toastTrainError(d, 'Delete failed');
@@ -2304,7 +2314,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                     }
                     const removed = checkpoints.filter((c) => !keep.includes(c.filename)).length;
                     if (!removed) return;
-                    if (!window.confirm(`Clean up this run?\n\nKeeps ${keep.length} checkpoint(s) (${keep.join(', ')}) and moves ${removed} to the trash — recoverable until you empty the trash in Settings.`)) return;
+                    if (!window.confirm(t('workspace.training.dialogs.cleanupRunConfirm', {
+                      keepCount: keep.length, keepList: keep.join(', '), removed,
+                    }))) return;
                     const d = await postTrain(`/api/dataset/${ds.currentId}/train/checkpoints/cleanup`,
                       { keep_filenames: keep, ...trainingRunSelection(checkpointBase, checkpointTrainType, checkpointVariant) });
                     if (d.ok === false) toastTrainError(d, 'Cleanup failed');
@@ -2387,7 +2399,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                       {!c.active && (
                         <button type="button"
                           onClick={async () => {
-                            if (!window.confirm(`Move « ${c.filename} » to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
+                            if (!window.confirm(t('workspace.training.dialogs.moveTrashConfirm', {
+                              filename: c.filename,
+                            }))) return;
                             const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
                               { filename: c.filename, cloud_run_id: c.run_id,
                                 ...trainingRunSelection(checkpointBase, checkpointTrainType, c.variant || checkpointVariant) });
@@ -2529,6 +2543,7 @@ function _fmtDuration(min) {
    launch straight away) and otherwise offers the ONE-TIME push — uploaded
    once, reused by every future cloud run, never public. */
 function CustomBasePushSection({ datasetId, trainType, variant, base, onReadyChange }) {
+  const { t } = useI18n();
   const [state, setState] = useState(null);      // last GET /custom-base payload
   const [checkError, setCheckError] = useState(null);
   const [pushBusy, setPushBusy] = useState(false);
@@ -2580,7 +2595,9 @@ function CustomBasePushSection({ datasetId, trainType, variant, base, onReadyCha
         const marker = 'CUSTOM_WEIGHTS_UNVERIFIED: ';
         if (!allowUnverified && msg.includes(marker)) {
           const detail = msg.slice(msg.indexOf(marker) + marker.length);
-          if (window.confirm(`${detail}\n\nPush anyway (force)?`)) return startPush(true);
+          if (window.confirm(t('workspace.training.dialogs.pushForce', { detail }))) {
+            return startPush(true);
+          }
         } else {
           setPushError(msg);
         }

@@ -1,0 +1,2131 @@
+{
+  "_meta": {
+    "locale": "en",
+    "label": "English",
+    "shortLabel": "EN",
+    "documentTitle": "LoRA Dataset Studio",
+    "direction": "ltr",
+    "order": 10,
+    "defaultForLanguage": true
+  },
+  "language": {
+    "label": "Language",
+    "english": "English",
+    "chineseSimplified": "简体中文",
+    "switchTo": "Switch language to {language}"
+  },
+  "common": {
+    "all": "All",
+    "close": "Close",
+    "configured": "configured",
+    "partlyConfigured": "partly configured",
+    "notConfigured": "not configured",
+    "notSet": "Not set",
+    "alreadySetReplace": "Already set — enter a new value to replace it",
+    "removeSaved": "Remove the saved {label}",
+    "ready": "ready",
+    "notAvailable": "not available",
+    "save": "Save",
+    "saving": "Saving…",
+    "saveRecheck": "Save & re-check",
+    "cancel": "Cancel",
+    "discard": "Discard",
+    "remove": "Remove",
+    "test": "Test",
+    "testing": "Testing…",
+    "thumbnailSize": "Thumbnail size",
+    "active": "active",
+    "noMatches": "No matches.",
+    "loading": "Loading…",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copiedCheck": "Copied ✓",
+    "on": "ON",
+    "off": "OFF",
+    "add": "Add",
+    "none": "None",
+    "optional": "optional",
+    "beta": "Beta"
+  },
+  "nav": {
+    "datasets": "Datasets",
+    "bank": "Image Bank",
+    "runs": "Runs",
+    "studio": "Test Studio",
+    "guide": "Guide",
+    "setup": "Setup",
+    "settings": "Settings",
+    "help": "Help",
+    "helpMode": "Help mode",
+    "main": "Main navigation",
+    "mainMobile": "Main navigation (mobile)",
+    "openMenu": "Open navigation menu",
+    "closeMenu": "Close navigation menu",
+    "backToDatasets": "Back to the datasets page",
+    "skipToContent": "Skip to main content"
+  },
+  "bank": {
+    "removeConfirm": "Remove the bank “{name}”?\n\nOnly the triage data (decisions, scores, thumbnails) is deleted — the source folder and its images are NOT touched."
+  },
+  "helpMode": {
+    "on": "Help mode is on — click any ? badge to jump to the guide",
+    "off": "Turn on Help mode to reveal ? badges that link to the guide"
+  },
+  "updates": {
+    "check": "Check for updates",
+    "availableReview": "Update available — click to review",
+    "available": "Update available",
+    "upToDate": "You're up to date — v{version}",
+    "checkFailed": "Update check failed.",
+    "couldNotCheck": "Could not check for updates.",
+    "pulling": "⬇ Pulling the latest version…",
+    "restarting": "↻ Updated — the app is restarting. This page reloads automatically when it’s back…",
+    "newVersion": "a new version",
+    "newCommits": "{count} new commit(s)",
+    "currentVersion": "you run v{version}",
+    "apply": "Update & restart",
+    "download": "Download",
+    "dismiss": "Dismiss update notice",
+    "failed": "Update failed"
+  },
+  "datasets": {
+    "eyebrow": "library",
+    "title": "Datasets",
+    "new": "New dataset",
+    "closeForm": "Close",
+    "importBackup": "Import backup",
+    "importBackupTitle": "Import a portable dataset backup — a new dataset will be created",
+    "chooseBackup": "Choose a dataset backup ZIP",
+    "search": "Find a dataset…",
+    "searchLabel": "Find a dataset",
+    "filterKind": "Filter by dataset kind",
+    "groups": {
+      "trained": "Trained",
+      "not-trained": "Not trained yet"
+    },
+    "kind": {
+      "character": "🧑 Character",
+      "concept": "💡 Concept",
+      "style": "🎨 Style",
+      "characterShort": "Character",
+      "conceptShort": "Concept",
+      "styleShort": "Style"
+    },
+    "kindHint": {
+      "character": "A person/face — identity binds to the trigger",
+      "concept": "A recurring act/effect — the concept binds to the trigger",
+      "style": "An always-on aesthetic: load the LoRA and control its influence with the LoRA weight"
+    },
+    "pipeline": {
+      "intro": "Build a consistent character: one reference photo becomes a curated, captioned training set for a LoRA you can use in every generator.",
+      "referenceTitle": "Reference photo",
+      "referenceText": "Upload one clear photo of the face.",
+      "curateTitle": "Generate & curate",
+      "curateText": "Synthesize varied shots, keep the best ones.",
+      "trainTitle": "Train the LoRA",
+      "trainText": "Export or train — reuse the character anywhere."
+    },
+    "empty": {
+      "title": "No datasets yet",
+      "bodyBefore": "Create your first character with",
+      "bodyAction": "+ New dataset",
+      "bodyAfter": "— one reference photo is enough to start generating a full training set."
+    },
+    "form": {
+      "close": "Close the new-dataset form",
+      "conceptName": "Concept name",
+      "styleName": "Style name",
+      "characterName": "Character name",
+      "trigger": "Trigger word",
+      "commonTrigger": "“{trigger}” looks like a common word — the base model already has a meaning for it. Prefer a unique token like {suggestion}.",
+      "targetModel": "Target model",
+      "targetModelHint": "— sets the caption style & groups the menu (changeable later)",
+      "fidelity": "Fidelity",
+      "fidelityHint": "— what the LoRA must reproduce (changeable later)",
+      "face": "🙂 Face",
+      "faceHint": "Identity = the face. Body shape may vary with the prompt.",
+      "body": "🧍 Face + body",
+      "bodyHint": "Total fidelity: body shape, tattoos and marks bind to the trigger too. Prefers full-frame imports and more bust/body shots.",
+      "conceptQuestion": "What is the recurring concept?",
+      "conceptRequired": "(required — it will be omitted from every caption)",
+      "conceptPlaceholder": "Describe the recurring act/effect itself, not the people — e.g. “a tongue licking an ice-cream cone”",
+      "conceptHelp": "The trigger word is the token you type to summon this concept. Import raw images of it, then caption and train.",
+      "styleHelp": "Always-on Style: import varied images, then caption every kept image with content only (subject, action, setting) while leaving the aesthetic unspoken. Combine it with a character LoRA by adjusting each LoRA weight.",
+      "characterHelp": "The trigger word is the unique token you will type in prompts to summon this character.",
+      "create": "Create"
+    },
+    "stats": {
+      "empty": "empty",
+      "noneKept": "{total} img · none kept",
+      "captioned": "{kept} kept · ✓ captioned",
+      "requiredCaptions": "{kept} kept · {captioned}/{kept} required captions",
+      "partialCaptions": "{kept} kept · {captioned}/{kept} captioned",
+      "kept": "{kept} kept"
+    },
+    "tile": {
+      "open": "Open the dataset {name}",
+      "trainedFamily": "A {family} LoRA has been trained from this dataset",
+      "alwaysOn": "always-on",
+      "alwaysOnNoTrigger": "always-on · no activation trigger",
+      "zipReady": "Download the kept images and captions as a training-ready ZIP",
+      "zipDisabled": "Keep at least one image before exporting a training ZIP",
+      "exportZip": "Export training ZIP for {name}",
+      "backup": "Backup",
+      "backupTitle": "Download a portable backup with all images, captions and settings",
+      "exportBackup": "Export portable backup for {name}",
+      "delete": "Delete this dataset",
+      "deleteLabel": "Delete the dataset {name}",
+      "deleteConfirm": "Permanently delete the dataset “{name}” and all its images? This cannot be undone."
+    },
+    "tileSize": {
+      "small": "Compact list — maximum density, browse many datasets at once",
+      "medium": "Medium tiles (default)",
+      "large": "Large tiles — big reference previews"
+    },
+    "results": {
+      "queryNone": "No dataset matches “{query}”{kind}.",
+      "kindNone": "No {kind} dataset.",
+      "kindSuffix": " in {kind}"
+    },
+    "captionTools": {
+      "title": "Caption tools",
+      "summary": "find/replace · {frequency} ({count} captioned)",
+      "intro": "Captions are the text the LoRA reads each image by. These tools edit every kept caption at once. Use them to fix a word that slipped into all captions, or to remove or rename a repeating tag. Text mode replaces a phrase anywhere; tag mode matches a whole comma-separated tag (best for booru / SDXL).",
+      "findReplace": "Find & replace",
+      "tagFindPlaceholder": "tag to replace/remove",
+      "textFindPlaceholder": "text to find",
+      "findLabel": "Find in captions",
+      "replacePlaceholder": "replacement (empty = remove)",
+      "replaceLabel": "Replace with",
+      "tagMode": "tag mode",
+      "textMode": "text mode",
+      "tagModeHelp": "Tag mode treats captions as comma-separated tags: the whole tag must match (case-insensitive), and removal keeps the commas clean. Recommended for booru (SDXL).",
+      "apply": "Apply to {count} caption(s)",
+      "mostFrequentTags": "Most frequent tags",
+      "mostFrequentWords": "Most frequent words",
+      "tag": "tag",
+      "word": "word",
+      "tagFilterPlaceholder": "tag to filter by…",
+      "wordFilterPlaceholder": "word to filter by…",
+      "filterHelp": "Exclude hides images already tagged with a word, while Only with isolates the images that have it.",
+      "proseMatchHelp": "Captions here are prose, so a filter matches a whole word (case-insensitive): “smile” matches “a warm smile” but not “smiling”.",
+      "tagMatchHelp": "Captions here are comma-separated tags, so a filter matches one whole tag exactly (case-insensitive).",
+      "filterLabel": "{item} to filter the grid by",
+      "exclude": "Exclude",
+      "excludeTitle": "Hide every image that already carries this tag from the grid",
+      "onlyWith": "Only with",
+      "onlyWithTitle": "Show only images that carry this tag",
+      "frequencyHelp": "Click a {item} to load it into Find ({mode}); leave Replace empty to remove it from every caption. The ⊘ control hides every image whose caption contains it.",
+      "frequencyLabel": "Most frequent caption {item}s",
+      "frequencyItemTitle": "“{value}” appears in {count} caption(s) — click to fill Find ({mode})",
+      "stopHidingLabel": "Stop hiding images tagged {value}",
+      "hideLabel": "Hide images tagged {value}",
+      "stopHidingTitle": "Images tagged “{value}” are hidden — click to show them again",
+      "hideTitle": "Hide images already tagged “{value}” from the grid",
+      "categories": {
+        "character": "Repeated details can become baked into the character. Remove unwanted outfits, poses or settings so they remain prompt-controllable; identity words are handled by the identity-leak check.",
+        "concept": "These are recurring subject and scene terms. The concept itself must stay absent; remove unrelated repeated details that could become tied to the trigger.",
+        "style": "Repeated subjects and objects can bias a Style LoRA toward specific content. Keep useful content descriptions, balance accidental repetition, and keep aesthetic, medium or artist terms out."
+      },
+      "files": {
+        "title": "Caption files on disk",
+        "write": "Write .txt files",
+        "writeTitle": "Writes <image>.txt beside each kept image in the dataset folder, in the same format as the ZIP export",
+        "open": "Open the dataset folder in the file explorer",
+        "styleHelp": "content-only sidecars · no activation trigger · overwrites existing .txt",
+        "defaultHelp": "kohya-style sidecar captions, trigger included — overwrites existing .txt"
+      }
+    },
+    "imageBulk": {
+      "hint": "Tick images to curate them in bulk —",
+      "selectAll": "select all ({count})",
+      "toolbar": "Bulk actions on the selection",
+      "selected": "{count} selected",
+      "keep": "Keep",
+      "reject": "Reject",
+      "undecide": "Undecide",
+      "undecideTitle": "Back to undecided",
+      "clearCaptions": "Clear captions",
+      "clearCaptionsTitle": "Delete the selected images' captions; use Caption to regenerate them",
+      "kleinUnavailable": "Klein is not available in this setup",
+      "improveTitle": "Creates separate 2 MP candidates sequentially. Excluded: {exclusions}",
+      "noneEligible": "No selected image is eligible. {exclusions}",
+      "improving": "Improving {done}/{total}",
+      "improve": "Improve via Klein ({count})",
+      "notEligible": "{count} not eligible",
+      "delete": "Delete",
+      "all": "all ({count})",
+      "none": "none",
+      "deleteConfirm": "Permanently delete the {count} selected image(s), including their files?",
+      "improveSkipped": "{count} selected image(s) will be skipped: {reasons}.",
+      "improveConfirm": "Create a separate 2 MP Klein improvement candidate for {count} image(s)?",
+      "originalsUnchanged": "Original images stay unchanged until you review the candidates.",
+      "reasons": {
+        "missing": "image no longer exists",
+        "fileNotReady": "image file is not ready",
+        "rescuePair": "resolve the Klein rescue pair first",
+        "alreadyCandidate": "already an improvement candidate",
+        "pendingReview": "an improvement is already pending review"
+      },
+      "toast": {
+        "stopped": "Bulk Klein improvement stopped unexpectedly: {error}",
+        "unknownError": "unknown error",
+        "partial": "Klein improvement queued for {succeeded}/{total} image(s) · {failed} failed or refused{refresh}.",
+        "refreshFailed": " · refresh failed",
+        "queued": "Klein improvement queued for {count} image(s) — originals stay intact."
+      },
+      "tileSize": {
+        "small": "Small tiles — more per row, quick overview",
+        "medium": "Medium tiles (default)",
+        "large": "Large tiles — see the full composition before you crop, keep or reject"
+      },
+      "autoTriage": {
+        "title": "Auto-triage",
+        "what": "What does auto-triage do?",
+        "help": {
+          "1": "Marks undecided, face-scored images: keep when face similarity is at or above the threshold, reject below it.",
+          "2": "It never deletes anything or changes your manual ✓/✕ choices.",
+          "3": "Images with no score are skipped; judge those by eye.",
+          "4": "After Apply, move the slider and Re-apply to re-sort everything auto-triaged in this session."
+        },
+        "keepAtLeast": "keep",
+        "threshold": "Face-score threshold for auto-triage",
+        "outcome": "keep {kept} · reject {rejected}",
+        "resort": "re-sort {count} + {newCount} new",
+        "undecided": "of {count} undecided",
+        "applyTitle": "Marks only scored images; manual ✓/✕ choices are never changed",
+        "apply": "Apply",
+        "reapply": "Re-apply",
+        "applied": "applied: kept {kept} · rejected {rejected} at ≥ {threshold}"
+      }
+    },
+    "captions": {
+      "modeTitle": "Caption style — Prose (Z-Image) or Booru tags (SDXL booru-native). Defaults automatically from the dataset type.",
+      "prose": "Prose",
+      "booru": "Booru tags",
+      "captioning": "{done}/{total} captioned…",
+      "generate": "Caption the kept ones",
+      "recaption": "Re-caption",
+      "recaptioning": "Re-captioning…",
+      "recaptionConfirm": {
+        "character": "Re-captioning overwrites the {count} existing caption(s). New captions describe the scene without describing the character identity. Continue?",
+        "concept": "Re-captioning overwrites the {count} existing caption(s). New captions describe the scene while leaving the recurring concept unspoken. Continue?",
+        "style": "Re-captioning overwrites the {count} existing caption(s). New captions describe image content while leaving the aesthetic or style unspoken. Continue?"
+      },
+      "recaptionTitle": {
+        "character": "Re-generates every caption without describing identity (face or hair)",
+        "concept": "Re-generates every caption while keeping the recurring concept unspoken",
+        "style": "Re-generates every caption as content-only text without naming the aesthetic"
+      },
+      "styleStatusTitle": "Every Style image needs a content-only caption: describe subject, action and setting, but do not name the aesthetic, medium or artist. No activation trigger is added.",
+      "styleMissing": "{count} missing · content-only captions required · no trigger",
+      "styleComplete": "{done}/{total} content-only captions · no trigger",
+      "datasetImage": "dataset image",
+      "captionOfImage": "Caption of image {id}",
+      "filterActive": "A tag filter is active — the filtered grid is in",
+      "leak": {
+        "cleanTitleConcept": "No captions name the concept, so it binds to the trigger. Click to see what was checked.",
+        "cleanTitleIdentity": "No captions describe hair, face or skin, so identity binds to the trigger. Click to see what was checked.",
+        "foundTitleConcept": "These captions name the concept, preventing it from binding to the trigger. Click to fix them.",
+        "foundTitleIdentity": "These captions mention hair, face or skin, preventing identity from binding to the trigger. Click to fix them.",
+        "cleanConcept": "0 concept leaks · {count} captions checked",
+        "cleanIdentity": "0 identity leaks · {count} captions checked",
+        "foundConcept": "{leaking}/{total} captions leak the concept",
+        "foundIdentity": "{leaking}/{total} captions leak identity",
+        "noneTitleConcept": "The concept-leak scan runs on captions. Caption the kept images first.",
+        "noneTitleIdentity": "The identity-leak scan runs on captions. Caption the kept images first.",
+        "noneConcept": "concept-leak scan: no captions yet",
+        "noneIdentity": "identity-leak scan: no captions yet",
+        "conceptTitle": "Concept-leak check",
+        "identityTitle": "Identity-leak check",
+        "conceptHelp": "A concept leak names the recurring concept itself. These words must stay out of captions or the concept binds to text instead of the trigger “{trigger}”. Describe the person and scene, but leave “{concept}” unspoken.",
+        "identityHelp": "An identity leak describes who the person is, such as hair, eye or skin colour and facial features. These words must stay out of captions or identity binds to text instead of the trigger “{trigger}”.",
+        "yourTrigger": "your trigger",
+        "checked": "{count} captions checked",
+        "leaking": "{count} leaking",
+        "liveScan": "re-scanned live on every caption change",
+        "watched": "Words watched for:",
+        "conceptWatched": "The words in the concept description “{concept}” and their basic lexical field, including related body parts and positions.",
+        "watchTerms": {
+          "hair": "hair",
+          "eyes": "eye colour",
+          "skin": "skin · complexion · freckles",
+          "features": "jawline · eyebrows · facial features",
+          "faceShape": "face shape",
+          "bodyMarks": "tattoos · scars · piercings (body fidelity)"
+        },
+        "nothingChecked": "Nothing checked yet — the scan runs on captions. Caption the kept images first.",
+        "allClearConcept": "All clear — every caption leaves the concept unspoken, so it binds to the trigger. This is a real result from {count} caption(s).",
+        "allClearIdentity": "All clear — the captioner describes pose, clothing, setting and framing without identity. This is a real result from {count} caption(s).",
+        "fixConcept": "{count} captions name the concept — remove those words or re-caption. Edits save when you click away.",
+        "fixIdentity": "{count} captions leak identity — remove the highlighted words or re-caption. Edits save when you click away.",
+        "recaptionAllTitleConcept": "Re-generate every leaking caption while keeping the concept unspoken",
+        "recaptionAllTitleIdentity": "Re-generate every leaking caption without describing identity",
+        "recaptionAll": "Re-caption all leaking ({count})",
+        "recaptionOneTitleConcept": "Re-generate this caption while keeping the concept unspoken",
+        "recaptionOneTitleIdentity": "Re-generate this caption without describing identity",
+        "noneLeft": "All clear — no leaking captions remain."
+      }
+    },
+    "scrape": {
+      "title": "Build from scraped images",
+      "target": "aim for 20–50 varied images",
+      "targetTitle": "A varied set usually trains better than many near-duplicates",
+      "compatibleSites": "Compatible sites",
+      "source": "Source",
+      "import": "Import",
+      "importing": "Importing…",
+      "searching": "Searching…",
+      "dependencies": {
+        "missing": "The optional scraper packages are not installed (curl_cffi, gallery-dl, cloudscraper…). Install them for image previews and imports. Pexels uses its official API for listing, but still needs curl_cffi to fetch images.",
+        "install": "Install scraper extras"
+      },
+      "toast": {
+        "scanFailed": "Scan failed",
+        "noImages": "No usable images were found"
+      },
+      "reddit": {
+        "title": "Search Reddit",
+        "keywordLabel": "Reddit search keyword",
+        "keywordPlaceholder": "keyword — what to look for (e.g. film portrait)",
+        "keywordTitle": "Search all of Reddit for a keyword",
+        "inCommunity": "in r/",
+        "communityLabel": "Subreddit name",
+        "communityPlaceholder": "community, e.g. analog",
+        "communityTitle": "Limit the search to one subreddit",
+        "search": "Search Reddit",
+        "help": "Keyword searches all of Reddit for a term. Add a subreddit (the part after r/) to search inside one community. Subreddit alone browses that community's top posts."
+      },
+      "pexels": {
+        "authError": "Pexels rejected the request. Check the API key and explicit dataset/ML authorization.",
+        "authorizationTitle": "Pexels authorization required.",
+        "authorizationBody": "An API key alone does not authorize dataset or machine-learning use. Search only if Pexels explicitly authorized your use case.",
+        "terms": "Read the official terms",
+        "confirm": "I confirm I have explicit Pexels authorization for dataset/ML use.",
+        "keywordPlaceholder": "keyword — e.g. cinematic portrait",
+        "keywordLabel": "Pexels search keyword",
+        "language": "Pexels search language",
+        "orientation": "Pexels image orientation",
+        "anyOrientation": "Any orientation",
+        "portrait": "Portrait",
+        "landscape": "Landscape",
+        "square": "Square",
+        "searchTitle": "Search the official Pexels API",
+        "confirmFirst": "Confirm explicit Pexels authorization first",
+        "search": "Search Pexels"
+      },
+      "url": {
+        "label": "Gallery or media URL",
+        "placeholder": "Gallery, album, collection or direct photo URL",
+        "scan": "Scan URL",
+        "scanning": "Scanning…",
+        "help": "Use this for supported galleries and albums, or direct Pexels photos and collections. Normal Pexels keyword searches belong in the Pexels tab.",
+        "fullAlbumsTitle": "Off: one listing cover per gallery. On: every photo from each matched gallery.",
+        "fullAlbums": "Scan full albums — off = one cover per gallery, on = every photo of each"
+      },
+      "rescue": {
+        "title": "Rescue images under 768 px with Klein (generative)",
+        "description": "Off by default. Only small images are sent to Klein. The original is preserved, and neither version enters training until you choose one in Curation.",
+        "notReady": "Klein is not ready in this setup."
+      },
+      "results": {
+        "from": "Results from {source}",
+        "source": "source",
+        "selectAllTitle": "Selects all live (loaded) images",
+        "selectAll": "Select all ({count})",
+        "deadTitle": "Images whose source link is dead or expired — hidden from the grid.",
+        "deadHidden": "{count} dead hidden",
+        "clear": "Clear",
+        "previewTitle": "Preview size — enlarge to judge images faster",
+        "previewLabel": "Preview size",
+        "reset": "Reset scan",
+        "filtersReview": "Filters at import: duplicates, Klein review for short side < 768px, ratio > 3:1",
+        "filtersSkip": "Filters at import: duplicates, skip short side < 768px, ratio > 3:1",
+        "openPexels": "Open Pexels",
+        "providedBy": "Photos provided by Pexels",
+        "pexelsPhotoBy": "Pexels photo by {photographer}",
+        "scrapedImage": "scraped image",
+        "select": "Select",
+        "deselect": "Deselect",
+        "loading": "Loading…",
+        "loadMore": "Load more images"
+      }
+    },
+    "datasetSettings": {
+      "title": "Dataset settings",
+      "name": "Name",
+      "kind": "Dataset kind",
+      "kinds": {
+        "character": {
+          "label": "🧑 Character",
+          "hint": "A person or face — identity binds to the trigger"
+        },
+        "concept": {
+          "label": "💡 Concept",
+          "hint": "A recurring act or effect — the concept binds to the trigger"
+        },
+        "style": {
+          "label": "🎨 Style",
+          "hint": "An always-on aesthetic: control its influence with the LoRA weight"
+        }
+      },
+      "styleNoticeTitle": "Always-on Style:",
+      "styleNotice": "no activation trigger is written into captions or prompts. Control the effect with the LoRA weight; when combining with a character LoRA, tune the two weights independently.",
+      "trigger": "Trigger word",
+      "triggerPlaceholder": "e.g. myTrigger",
+      "triggerHelp": "The word you put in prompts to summon this LoRA. Safe to change anytime — it is added at export, so existing captions do not need redoing.",
+      "conceptDescription": "Concept description — what captions must OMIT",
+      "conceptPlaceholder": "e.g. a mirror selfie / a specific pose / an art style",
+      "conceptHelp": "This is the thing the LoRA learns. Captions describe everything except this, so it binds to the trigger. Editing it rebuilds the auto avoid-list — re-caption to apply it to images already captioned.",
+      "suffixes": {
+        "title": "Prompt suffixes",
+        "optional": "optional creative direction",
+        "allShots": "All shots",
+        "placeholder": "e.g. shot on 35mm film, warm tones",
+        "framings": {
+          "face": "Face shots",
+          "bust": "Bust shots",
+          "body": "Body shots",
+          "back": "Back shots"
+        },
+        "help": "Free text added to every generated variation — the identity lock is untouched. A framing suffix applies to that shot type first, then the global one. Applied at generation time: safe to change anytime; existing images stay as they are (regenerate to apply)."
+      },
+      "switch": {
+        "title": "Changing kind: {from} → {to}",
+        "changesTitle": "What changes",
+        "keptTitle": "What is kept",
+        "changes": {
+          "captionStrategy": {
+            "character": "Captions will describe the scene without naming the character's identity (face, hair, skin).",
+            "concept": "Captions will describe the scene while leaving the recurring concept unspoken, so it binds to the trigger.",
+            "style": "Captions will describe image content only, leaving the aesthetic or style unspoken."
+          },
+          "characterPanelsAvailable": "The Reference photo, Generate variations and Face analysis panels become available (build the set from a reference).",
+          "characterPanelsHidden": "The Reference photo, Generate variations and Face analysis panels are hidden — build the set from Import or Scrape instead.",
+          "styleTrigger": "No activation trigger: a style is always on once loaded — control it with the LoRA weight. Your trigger word is kept but no longer written into captions or prompts.",
+          "triggerReturns": "The trigger word returns: the stored token is prefilled — set the word you will type in prompts to summon this LoRA.",
+          "conceptDescription": "A concept description is required — the recurring thing every caption must omit.",
+          "fidelityUnavailable": "The face / body fidelity setting no longer applies (it is character-only)."
+        },
+        "kept": {
+          "images": "Every image, its caption text, keep/reject status, face scores and watermark work stay exactly as they are.",
+          "runs": "Past training runs and checkpoints keep their identity — runs are named by the model family and trigger, never the kind.",
+          "conceptDescription": "Your concept description is remembered, so switching back restores it."
+        },
+        "recaption": "Existing captions were written for {kind}. They are not rewritten automatically — use 🔄 Re-caption in the Captions section to apply the new strategy."
+      },
+      "changeAndSave": "Change kind & save"
+    },
+    "sections": {
+      "forcedOpen": "Sections stay open while a search or filter is active",
+      "collapse": "Collapse the {label} section",
+      "expand": "Expand the {label} section"
+    }
+  },
+  "workspace": {
+    "navigation": {
+      "dataset": "Dataset",
+      "sections": "Dataset sections",
+      "destinations": "{section} destinations"
+    },
+    "actions": {
+      "exportZip": "Export ZIP"
+    },
+    "header": {
+      "styleTitle": "This Style LoRA is always active when loaded; adjust its LoRA weight to control the effect.",
+      "alwaysOnStyle": "always-on style · no trigger",
+      "copyTrigger": "Copy the trigger word (to put in your prompts)",
+      "trigger": "trigger",
+      "more": "More",
+      "moreTitle": "More dataset actions — edit settings, body fidelity",
+      "editSettings": "Edit settings",
+      "editStyleTitle": "Edit the Style dataset name and review its always-on behavior.",
+      "editSettingsTitle": "Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list.",
+      "styleSettingsSummary": "name · always-on",
+      "settingsSummary": "name · trigger{concept}",
+      "conceptSuffix": " · concept",
+      "bodyFidelity": "Body fidelity",
+      "bodyFidelityOnTitle": "Body fidelity ON: captions also omit tattoos/scars/marks (they bind to the trigger), composition targets more bust/body shots, imports keep the full frame by default. Click to go back to face-only.",
+      "bodyFidelityOffTitle": "Face-only fidelity (default): the LoRA learns the face; body shape follows the prompt. Click for FULL-BODY fidelity (body shape & marks bind to the trigger too).",
+      "on": "on",
+      "off": "off"
+    },
+    "filters": {
+      "title": "Filtered view",
+      "showing": "showing {shown} of {total}",
+      "only": "only {tag}",
+      "stopHiding": "Stop hiding images tagged {tag}",
+      "stopIsolating": "Stop isolating images tagged {tag}",
+      "clearAll": "clear all"
+    },
+    "next": {
+      "reference": "Go to reference",
+      "generate": "Go to generation",
+      "curate": "Review the grid",
+      "caption": "Caption the kept ones",
+      "training": "Go to training",
+      "studio": "Open Studio"
+    },
+    "confirm": {
+      "exportWithTriage": "{count} image(s) still await triage (✓/✕) and will NOT be in the ZIP. Export anyway?",
+      "exportWithoutCaptions": "{count} kept image(s) without a caption (trigger only). Export anyway?",
+      "generationAlreadyRunning": "A generation batch is already running ({count} in flight).\n\nLaunch another one anyway?"
+    },
+    "prompt": {
+      "datasetFolder": "Path of the dataset folder on this machine (images + same-name .txt captions):"
+    },
+    "toast": {
+      "autoCropSaveFailed": "Could not save the auto-crop preference",
+      "styleCaptionsMissing": "Style training needs a content-only caption for every kept image — {count} still missing.",
+      "bodyFidelityOn": "Body fidelity ON — re-caption to apply to existing captions",
+      "bodyFidelityOff": "Back to face-only fidelity"
+    },
+    "dataTransfer": {
+      "bringIn": "Bring images in",
+      "importZip": "Import dataset (ZIP)",
+      "importZipTitle": "Merge a ZIP of images and kohya-style same-name .txt captions into this dataset. Folder layout is flexible; aspect ratios are kept and perceptual duplicates skipped.",
+      "importFolder": "Import from folder…",
+      "importFolderTitle": "Merge a local folder of images and kohya-style same-name .txt captions into this dataset, including subfolders. Aspect ratios are kept and perceptual duplicates skipped.",
+      "importHelp": "merges images + same-name .txt captions in — duplicates are skipped",
+      "getOut": "Get this dataset out",
+      "exportZip": "Export ZIP ({count})",
+      "exportZipHelp": "kept images + captions, training-ready (kohya layout)",
+      "backup": "Backup",
+      "backupTitle": "Full portable backup: all images, statuses, captions, scores and settings. Restore it on any machine from the Datasets page.",
+      "backupHelp": "portable copy — restore it on any machine from the Datasets page",
+      "publish": "Publish to Hugging Face",
+      "publishTitle": "Publish kept images and captions as a Hugging Face dataset repository. Private by default; choose a license and confirm sharing rights.",
+      "publishHelp": "dataset repo on the Hub — private by default"
+    },
+    "trainingUnavailable": "Training needs ai-toolkit (local GPU) or a vast.ai API key (cloud) — configure either one in Settings.",
+    "studioLauncher": {
+      "title": "LoRA testing studio",
+      "savedSettings": "Saved winning settings",
+      "open": "Open Studio",
+      "configure": "Configure ComfyUI in Settings to use the LoRA testing Studio."
+    },
+    "activity": {
+      "captioningProgress": "Captioning in progress — {done}/{total} captioned…",
+      "comfyPaused": "ComfyUI is paused.",
+      "comfyPausedDuringPass": "ComfyUI is paused during the pass.",
+      "watermarkDetect": "Scanning for watermarks…",
+      "watermarkClean": "Cleaning watermarks…",
+      "caption": "Captioning…",
+      "recaption": "Re-captioning…",
+      "faceAnalysis": "Analyzing faces…",
+      "classify": "Classifying framing…",
+      "generate": "Generating variations…",
+      "gpuProcessing": "GPU processing in progress (analysis / cropping / captioning)… ComfyUI is paused during the pass."
+    },
+    "curationTools": {
+      "faceTitle": "Scores each image’s facial resemblance to the reference; deletes nothing.",
+      "referenceFirst": "Set a reference photo first.",
+      "analyzing": "Analyzing…",
+      "analyzeFaces": "Analyze faces",
+      "findTitle": "Scans kept images for overlaid watermarks, logos and URLs; deletes nothing.",
+      "scanning": "Scanning…",
+      "findWatermarks": "Find watermarks",
+      "method": "Watermark inpaint method",
+      "lamaTitle": "LaMa: fast and non-generative. Crops border marks, repaints small off-center marks, and sends on-subject marks to manual review.",
+      "fast": "fast",
+      "kleinTitle": "Klein: masked FLUX.2 inpainting. Better on skin, fabric and busy backgrounds; can clean marks on the subject. Uses ComfyUI and is slower.",
+      "kleinUnavailable": "Klein inpainting requires ComfyUI running with the Klein models installed (Setup › ComfyUI).",
+      "quality": "quality",
+      "autoCropOnTitle": "Auto-crop is on: border watermarks are cropped without inventing pixels. Click to repaint them instead. Saved as a preference.",
+      "autoCropOffTitle": "Auto-crop is off: border watermarks are repainted with LaMa/Klein. Click to allow cropping again. Saved as a preference.",
+      "autoCropOn": "Auto-crop on",
+      "autoCropOff": "Auto-crop off",
+      "cleanKleinCrop": "Uses masked FLUX.2 Klein inpainting: border marks are cropped; all other marks are repainted and composited back so only the mark changes.",
+      "cleanKleinNoCrop": "Auto-crop is off: every mark, including border marks, is repainted with masked FLUX.2 Klein inpainting and composited back.",
+      "cleanLamaCrop": "Crops border marks, inpaints small off-center marks with LaMa, and flags on-subject marks for manual review.",
+      "cleanLamaNoCrop": "Auto-crop is off: border marks are repainted with LaMa; large or on-subject marks are flagged for manual review.",
+      "cleanCropOnly": "Crops border marks. LaMa inpainting needs a one-time installation; off-center marks are skipped until it is installed.",
+      "clean": "Clean ({count})",
+      "reviewTitle": "Step through flagged images, inspect each detected box, then clean, dismiss a false positive or reject.",
+      "review": "Review flagged ({count})",
+      "installTitle": "Install LaMa watermark inpainting so off-center marks can be repainted instead of only cropped. One-time download of several hundred MB.",
+      "install": "Install inpainting",
+      "installSize": "one time · several hundred MB",
+      "installPanelTitle": "Install watermark inpainting (LaMa)",
+      "installDescriptionBefore": "Adds the",
+      "installDescriptionAfter": "package. It downloads CPU PyTorch once (several hundred MB). No restart or GPU is needed; after installation, small off-center marks are inpainted instead of skipped.",
+      "closeInstaller": "Close the inpainting installer",
+      "downloadInstall": "Download & install",
+      "purgeConfirm": "Permanently delete {count} rejected or failed image(s), including their files?",
+      "purgeTitle": "Permanently delete rejected and failed images",
+      "purge": "Purge rejected/failed ({count})",
+      "purgeHelp": "frees disk space; rejected images are never used for training"
+    },
+    "badges": {
+      "awaitingTriage": "{count} image(s) awaiting keep/reject",
+      "generating": "{count} generation(s) in progress",
+      "curation": "{watermarks} watermark(s) and {rescues} Klein rescue pair(s) to review",
+      "leaking": "{count} caption(s) leaking",
+      "uncaptioned": "{count} kept image(s) without a caption"
+    },
+    "scrapeLink": {
+      "title": "Scrape images from the web",
+      "description": "scan a gallery URL, pick images, import full-frame"
+    },
+    "reference": {
+      "title": "Reference photo",
+      "intro": "one clear photo of the face — every generated variation starts from it",
+      "description": "source of Klein variations — crop with ✂ after upload",
+      "alt": "reference photo",
+      "none": "none",
+      "set": "Set reference",
+      "change": "Change reference",
+      "crop": "Crop",
+      "autoCrop": "Auto head-crop",
+      "autoCropTitle": "ON: a vision pass finds the head and crops around it (slower, pauses ComfyUI). OFF (default): instant centered square — adjust with ✂ Crop, usually faster.",
+      "autoCropUnavailableTitle": "Auto head-crop is unavailable during local generation; the reference imports with a centered crop.",
+      "unavailableLocal": "unavailable during local generation",
+      "extraRefs": "Extra refs",
+      "extraRefsHint": "all engines — stronger identity lock",
+      "extraAlt": "extra reference",
+      "removeExtra": "Remove this extra reference",
+      "addExtraLabel": "Add an extra reference photo (other angles of the same face)",
+      "addExtraTitle": "Add an extra reference photo — every engine (Nano Banana, ChatGPT, Klein) uses them together to lock the identity"
+    },
+    "import": {
+      "title": "Import real photos",
+      "description": "drag and drop or click (normalized to 1024, kept)",
+      "autoCrop": "Auto head-crop (square)",
+      "autoCropTitle": "ON: each photo is auto-cropped to a square head shot (vision pass, pauses ComfyUI). OFF: the photo keeps its original framing — use for bust/body shots.",
+      "autoCropUnavailableTitle": "Auto head-crop is unavailable during local generation; photos import full-frame."
+    },
+    "composition": {
+      "title": "Composition",
+      "bodyFidelity": "body fidelity",
+      "framing": {
+        "face": "Face",
+        "bust": "Bust",
+        "body": "Body",
+        "back": "Back"
+      },
+      "missing": "Missing",
+      "missingHint": "generate or import these types (target ≈25 balanced)",
+      "reached": "Target composition reached — ready to caption/export",
+      "upscaled": "Upscaled",
+      "upscaledHint": "these tiles are LANCZOS-enlarged crops (fabricated detail, not native resolution); add native shots for that framing instead of only cropping in"
+    },
+    "guided": {
+      "progress": "Dataset progress",
+      "nextStep": "Next step",
+      "optional": "opt",
+      "collapseTitle": "Collapse the guide",
+      "expandTitle": "Expand the guide",
+      "collapse": "Collapse next-step guide",
+      "expand": "Expand next-step guide",
+      "labels": {
+        "reference": "Reference",
+        "generate": "Generate",
+        "curate": "Curate",
+        "caption": "Caption",
+        "score": "Score",
+        "finish": "Train / export",
+        "checkpoints": "Checkpoints & LoRAs",
+        "studio": "Studio"
+      },
+      "configureComfyUI": "Configure ComfyUI in Settings",
+      "subtitle": {
+        "set": "set",
+        "onePhoto": "one clear photo",
+        "toTriage": "{count} to triage",
+        "kept": "{count} kept",
+        "captioned": "{done}/{total} captioned",
+        "checkpoints": "{count} checkpoint(s)",
+        "available": "{count} available",
+        "afterTraining": "after training"
+      },
+      "copy": {
+        "reference": "Add the reference photo — one clear face shot is enough to start.",
+        "generate": "Generate ~25 varied shots from the reference (or import real photos).",
+        "curate": "Review the grid: keep ✓ the good ones, reject ✕ the rest.",
+        "caption": "Caption the kept images — required for training.",
+        "finish_export": "Your dataset is ready — export the ZIP for training.",
+        "finish_train": "Your dataset is ready — launch a LoRA training.",
+        "studio": "Compare checkpoints in the Test Studio and pick the best one."
+      }
+    },
+    "captionEditor": {
+      "datasetImage": "Dataset image",
+      "title": "Edit caption",
+      "close": "Close expanded caption editor",
+      "imageUnavailable": "Image unavailable",
+      "captionText": "Caption text",
+      "truncatedWarning": "This caption is exactly 800 characters and ends mid-sentence — an earlier version of the app capped captions there. The cut-off text can’t be recovered; re-caption this image to regenerate the full description.",
+      "placeholder": "Caption (without the face)…",
+      "shortCaption": "Short caption",
+      "dualTraining": "dual-caption training",
+      "shortDescription": "A brief alternative, trained alongside the long caption. Same rules apply (no trigger, keep the identity/concept/aesthetic out). Leave empty to reuse the long caption; (re-)captioning regenerates it automatically.",
+      "shortPlaceholder": "Short caption (optional)…",
+      "shortcuts": "Esc to close · Ctrl/⌘ + Enter to save",
+      "save": "Save caption"
+    },
+    "promptEditor": {
+      "title": "Edit prompt & regenerate",
+      "placeholder": "describe the shot (the face is kept automatically)…",
+      "label": "Edit the generation prompt"
+    },
+    "crop": {
+      "title": "Crop image",
+      "imageAlt": "image to crop",
+      "selectionLabel": "Crop selection — drag to move, use the handles to stretch",
+      "aspectLabel": "Crop aspect ratio",
+      "ratio": "Ratio",
+      "freeHint": "free = stretch the box any way you like",
+      "resetTitle": "Re-run the automatic head-crop on the original image",
+      "reset": "Reset to auto",
+      "confirm": "Crop"
+    },
+    "lightbox": {
+      "datasetImage": "dataset image",
+      "inspect": "Inspect — {name}",
+      "close": "Close inspection",
+      "closeTitle": "Close (Esc)",
+      "real": "real",
+      "generated": "generated",
+      "fullHint": "100 % — click image to fit",
+      "fitHint": "fitted — click image for 100 %",
+      "cropTitle": "Open the crop editor for this image (stretchable box, any ratio)",
+      "mirror": "Mirror horizontally",
+      "mirroring": "Mirroring…",
+      "mirrorTitle": "Mirror horizontally (flip left and right)",
+      "mirrorLabel": "Mirror {name} horizontally",
+      "mirroringLabel": "Mirroring {name} horizontally",
+      "improveHelp": "Klein creates a new 2 MP version to validate and leaves the original intact.",
+      "kleinUnavailable": "Klein is not available in this setup.",
+      "improvementReady": "A new version is waiting for validation.",
+      "improvementPending": "An improvement is already running for this image.",
+      "reviewImprovement": "Review improvement first",
+      "improving": "Improving…",
+      "improve": "Upscale & improve"
+    },
+    "generation": {
+      "inProgress": "{count} generation(s) in progress…",
+      "stopHint": "First results look wrong? Stop now — remaining API calls are skipped and not billed.",
+      "stopTitle": "Cancel every generation still in flight; finished images stay.",
+      "stop": "Stop generation",
+      "stopping": "Stopping…",
+      "cancelled": "Stopped {count} remaining generation(s)",
+      "cancelFailed": "Could not stop generation"
+    },
+    "images": {
+      "summary": "{total} image(s) · {kept} kept",
+      "awaiting": "{count} awaiting ✓/✕",
+      "rescuePairs": "{count} Klein rescue pair(s) in Curation",
+      "captioned": "{done}/{total} captioned",
+      "watermarks": "{count} watermark(s) flagged",
+      "empty": "No images — generate variations or import photos.",
+      "noFilterMatches": "No images match the active filters —",
+      "clearAll": "clear all",
+      "seeAllAgain": "to see all {count} again.",
+      "deleteConfirm": "Permanently delete this image?",
+      "rejectRegenerateConfirm": "Photo rejected — regenerate a new attempt of this variation?\n(OK = replace with a new attempt · Cancel = reject only)"
+    },
+    "variations": {
+      "title": "Generate variations",
+      "subtitle": "pick the shots to synthesize from the reference photo",
+      "loadFailed": "Could not load the variation catalog",
+      "framing": {
+        "face": "Face",
+        "bust": "Bust",
+        "body": "Body",
+        "back": "Back"
+      },
+      "engine": {
+        "title": "Engine",
+        "description": "where the images are made — Klein runs free on your GPU · APIs bill per image (or use your ChatGPT subscription)",
+        "switchBlocked": "A generation batch is running — wait for it to finish before switching engine",
+        "local": "local",
+        "free": "Free",
+        "yourGpu": "Your GPU",
+        "nsfwOk": "NSFW OK",
+        "noGpu": "No GPU",
+        "perImage": "~{price}/image",
+        "subscription": "subscription",
+        "planQuota": "Plan quota",
+        "kleinDescription": "Runs on this machine — slower, with tunable face fidelity.",
+        "bestFidelity": "Best face fidelity · estimated cost ≈ ${cost}",
+        "addGeminiKey": "⚠ Add GEMINI_API_KEY in Settings",
+        "usesQuota": "gpt-image-2 · uses your ChatGPT {plan} quota",
+        "gptCost": "gpt-image-2 · estimated cost ≈ ${cost}",
+        "connectChatGpt": "⚠ Add an API key or connect a subscription in Settings",
+        "kleinAssetsMissing": "⚠ Klein {assets} missing — download it in the Setup step",
+        "kleinModelMissing": "⚠ Klein model missing — download it in the Setup step (models/unet/klein/)",
+        "kleinDisabled": "⚠ Klein is disabled in Settings (engines)",
+        "configureComfyUI": "⚠ Configure ComfyUI in Settings"
+      },
+      "presets": {
+        "title": "Presets",
+        "save": "Save preset",
+        "saveLabel": "Save the current shot selection as a custom preset",
+        "items": {
+          "balanced_25": {
+            "name": "Balanced",
+            "hint": "The all-round default: every framing covered in training proportions."
+          },
+          "zimage_12": {
+            "name": "Z-Image 12",
+            "hint": "Compact 12-shot set tuned for Z-Image LoRA training."
+          },
+          "balanced_multiformat": {
+            "name": "Multi-format",
+            "hint": "Balanced set with landscape, vertical and cinema frames mixed in."
+          },
+          "face_focused": {
+            "name": "Face-focused",
+            "hint": "Face only: close-ups and busts in varied formats, with no body shots."
+          },
+          "fullbody_focused": {
+            "name": "Full-body",
+            "hint": "Reliable full-body mix with roughly equal identity and full-body/back coverage in varied formats."
+          },
+          "body_emphasis": {
+            "name": "Body emphasis",
+            "hint": "Body-fidelity set with figure-revealing, API-safe outfits. Use local Klein for explicit content."
+          }
+        }
+      },
+      "customPreset": {
+        "namePrompt": "Name this shot preset:",
+        "saved": "Preset saved: {name}",
+        "saveFailed": "Could not save preset",
+        "renamePrompt": "Rename shot preset:",
+        "renameFailed": "Could not rename preset",
+        "deleteConfirm": "Delete the preset “{name}”?",
+        "apply": "Apply custom preset {name}",
+        "rename": "Rename custom preset {name}",
+        "renameTitle": "Rename preset",
+        "delete": "Delete custom preset {name}",
+        "deleteTitle": "Delete preset"
+      },
+      "confirm": {
+        "allDuplicates": "All {count} selected shot(s) already exist in the dataset (green ✓×N cards).\n\nGenerate them again anyway?",
+        "someDuplicates": "{duplicates} of {total} selected shots already exist.\n\nOK — generate everything, including duplicates\nCancel — only generate the {fresh} new shot(s)",
+        "cost": "This will launch {count} API generation(s), approximately ${cost} with {engine}.\n\nProceed?"
+      },
+      "shotPicker": {
+        "title": "Shots",
+        "description": "a preset pre-selects a balanced mix — click any card to add or remove it",
+        "selected": "selected — will be generated",
+        "alreadyInDataset": "already in your dataset",
+        "notSelected": "not selected",
+        "quotaTitle": "Your dataset contains {have} {framing} image(s). Balanced-training target: {target}. This quota does not change the generation selection.",
+        "missing": "{have}/{target} in the dataset · {missing} missing",
+        "selectedCount": "{count} selected",
+        "existingCount": "{count} image(s) of this shot are already in the dataset",
+        "existingAria": "{count} already in the dataset"
+      },
+      "customShots": {
+        "title": "Custom",
+        "description": "your own shots — remove with ✕",
+        "kleinOnly": "🔞 shot — switch the generator to Klein",
+        "remove": "Remove custom shot {name}",
+        "removeTitle": "Remove this custom shot"
+      },
+      "nsfw": {
+        "title": "NSFW mode",
+        "description": "uncensored body shots — generated locally by Klein, never sent to an API",
+        "captionHint": "Captions keep describing the state so it remains promptable and does not bind to the trigger word. The captioner handles this automatically."
+      },
+      "customShot": {
+        "title": "Custom shot",
+        "description": "write your own prompt — it becomes a reusable card in the Custom group above",
+        "nsfwActive": "NSFW register active",
+        "instructions": "Describe the outfit, pose and setting, choose a framing, then add it.",
+        "placeholder": "e.g. full body shot, sitting on a vintage motorbike in a garage, leather jacket, warm light",
+        "framing": "Custom shot framing"
+      },
+      "suffix": {
+        "title": "Prompt suffixes",
+        "description": "creative direction added to every generated shot",
+        "appliedOnGenerate": "applied when you generate",
+        "allShots": "All shots",
+        "placeholder": "e.g. shot on 35mm film, warm tones",
+        "framingShots": "{framing} shots",
+        "framingLabel": "{framing} prompt suffix",
+        "hint": "Free text appended to every generated variation. The identity lock is unchanged. A framing suffix applies first, then the global suffix. Saved to the dataset when you generate."
+      },
+      "kleinTuning": {
+        "title": "Klein tuning",
+        "modelFile": "model file",
+        "consistency": "consistency LoRA",
+        "loraPreset": "LoRA preset",
+        "consistencyStrength": "Consistency LoRA strength",
+        "hint": "Anchors composition, not the face. Higher values suppress pose and framing changes. About 0.5 is balanced; use 0.2–0.4 for major restaging; 0 disables it.",
+        "loraPresetLabel": "Generation LoRA preset",
+        "presetDescription": "your own LoRA combinations — applied to every shot in this run",
+        "noPresets": "No presets yet — build combinations of your own LoRA files in",
+        "settingsLink": "Settings › Image engines",
+        "emptyPreset": "This preset is empty — add LoRA files to it in Settings."
+      },
+      "actions": {
+        "clearTitle": "Clear the whole selection, including presets and shots",
+        "deselectAll": "Deselect all",
+        "multiplierTitle": "Generate each selected shot this many times",
+        "multiplier": "Variation multiplier",
+        "referenceFirst": "Set a reference photo first",
+        "alreadyRunning": "A generation batch is already running",
+        "generating": "Generating…",
+        "generate": "Generate ({count})"
+      },
+      "shots": {
+        "face_front_neutral": "Face front, neutral",
+        "face_front_smile": "Face front, smile",
+        "face_34l_smile": "Face 3/4 left, smile",
+        "face_34l_serious": "Face 3/4 left, serious",
+        "face_34r_laugh": "Face 3/4 right, laugh",
+        "face_34r_soft": "Face 3/4 right, gentle",
+        "face_profile_l": "Profile left",
+        "face_profile_r": "Profile right",
+        "face_profile_l_smile": "Profile left, smile",
+        "face_profile_r_smile": "Profile right, smile",
+        "face_profile_l_serious": "Profile left, serious",
+        "face_profile_r_serious": "Profile right, serious",
+        "face_profile_l_look_up": "Profile left, looking up",
+        "face_profile_r_look_up": "Profile right, looking up",
+        "face_profile_l_rim_light": "Profile left, rim light",
+        "face_profile_r_rim_light": "Profile right, rim light",
+        "face_window": "Face, window light",
+        "face_studio": "Face, studio",
+        "face_golden": "Face, golden hour",
+        "face_surprise": "Face, surprise",
+        "face_look_up": "Face, looking up",
+        "face_look_down": "Face, looking down",
+        "bust_front": "Bust, front",
+        "bust_34": "Bust, three-quarter",
+        "bust_outdoor": "Bust, outdoor",
+        "bust_studio": "Bust, studio",
+        "bust_jacket": "Bust, jacket",
+        "bust_evening": "Bust, evening outfit",
+        "body_stand_front": "Body standing, front",
+        "body_stand_34": "Body standing, three-quarter",
+        "body_sit": "Body sitting",
+        "body_walk": "Body walking",
+        "body_cafe": "Body, café",
+        "body_beach": "Body, beach (clothed)",
+        "back_34": "Back, three-quarter",
+        "body_wide_env": "Body, wide urban shot",
+        "body_walk_wide": "Body walking, wide shot",
+        "body_land_outdoor": "Body, outdoor landscape",
+        "body_sit_terrace": "Body sitting, wide terrace",
+        "body_field_wide": "Body, wide open field",
+        "bust_land": "Bust, landscape framing",
+        "bust_fitted_top": "Bust, fitted top",
+        "bust_summer_dress": "Bust, summer dress",
+        "bust_swim": "Bust, swimsuit (beach)",
+        "body_bodycon": "Body, bodycon dress",
+        "body_athletic": "Body, sportswear",
+        "body_swim_beach": "Body, bikini beach",
+        "body_swim_pool": "Body, swimsuit pool",
+        "body_jeans_fit": "Body, fitted jeans",
+        "body_silhouette": "Body, backlit silhouette",
+        "face_land": "Face, landscape framing",
+        "face_tall": "Face, tall framing",
+        "face_wide": "Face, cinematic framing",
+        "nsfw_bust_lingerie": "Bust, lingerie",
+        "nsfw_bust_topless": "Bust, topless",
+        "nsfw_bust_towel": "Bust, towel",
+        "nsfw_body_lingerie": "Body, lingerie standing",
+        "nsfw_body_nude_stand": "Body, nude standing",
+        "nsfw_body_nude_34": "Body, nude three-quarter",
+        "nsfw_body_nude_sit": "Body, nude sitting on bed",
+        "nsfw_body_nude_lying": "Body, nude lying",
+        "nsfw_body_shower": "Body, nude shower",
+        "nsfw_back_nude": "Back, nude"
+      }
+    },
+    "sections": {
+      "add": {
+        "title": "Add images",
+        "eyebrow": "build",
+        "description": "Generate AI variations from the reference — and mix in real photos (import or scrape).",
+        "conceptDescription": "Drop photos, or scrape galleries from the Scrape section — a concept LoRA learns from real images.",
+        "styleDescription": "Import varied images that share the aesthetic; subject and scene diversity keep the Style LoRA composable.",
+        "panels": {
+          "reference": "Reference photo",
+          "generate": "Generate variations",
+          "import": "Import photos"
+        }
+      },
+      "images": {
+        "title": "Images",
+        "eyebrow": "overview",
+        "description": "Everything in the dataset — keep ✓ the good shots, reject ✕ the rest, edit a caption right on its tile.",
+        "panels": {
+          "review": "Review images",
+          "bulk": "Bulk actions"
+        }
+      },
+      "scrape": {
+        "title": "Scrape",
+        "eyebrow": "build",
+        "description": "Scan a gallery URL, pick the images you want, and import them full-frame — crop each one afterwards on its tile.",
+        "panels": {
+          "scan": "Scan a gallery"
+        }
+      },
+      "curation": {
+        "title": "Curation",
+        "eyebrow": "quality",
+        "description": "Quality passes over the kept images — face resemblance, watermark find & clean, cleanup.",
+        "panels": {
+          "small-image-rescue": "Klein rescue review",
+          "face-analysis": "Face analysis",
+          "watermarks": "Watermarks",
+          "review-flagged": "Review flagged",
+          "rejected-cleanup": "Rejected cleanup"
+        }
+      },
+      "captions": {
+        "title": "Captions",
+        "eyebrow": "text",
+        "description": "Captions are what training reads each image by — generate them, watch for leaks, edit in bulk.",
+        "panels": {
+          "generate": "Generate captions",
+          "leak-review": "Leak review",
+          "tools": "Caption tools"
+        }
+      },
+      "export": {
+        "title": "Import & export",
+        "eyebrow": "data",
+        "description": "Merge an existing dataset in — or get this one out: training ZIP, portable backup, Hugging Face.",
+        "panels": {
+          "import": "Import dataset",
+          "training-zip": "Export training ZIP",
+          "backup": "Portable backup",
+          "hugging-face": "Publish to Hugging Face"
+        }
+      },
+      "training": {
+        "title": "Training",
+        "eyebrow": "train",
+        "description": "Turn the kept & captioned images into a LoRA — locally or in the cloud.",
+        "panels": {
+          "launch": "Training status & launch",
+          "advanced": "Advanced options",
+          "queue": "Training queue"
+        }
+      },
+      "checkpoints": {
+        "title": "Checkpoints & LoRAs",
+        "eyebrow": "results",
+        "description": "Review training saves, pick an epoch, import LoRAs into ComfyUI, and clean up old files.",
+        "panels": {
+          "manager": "Checkpoint manager"
+        }
+      },
+      "studio": {
+        "title": "Studio",
+        "eyebrow": "test",
+        "description": "Test the trained LoRA with saved winning settings in the dedicated Studio.",
+        "panels": {
+          "launcher": "LoRA testing studio"
+        }
+      }
+    },
+    "scraping": {
+      "sourceCredentialsTitle": "Source credentials",
+      "sourceCredentialsHelp": "Credentials used when scanning image sources for concept datasets. Reddit and Civitai keys are optional; Pexels requires its API key. Keys are write-only: fields stay blank even when a key is already saved.",
+      "redditLabel": "Reddit client ID",
+      "redditHelp": "Out of the box, Reddit scans use a public client ID shared by many people. Its ~1000 requests / 10 min quota can be exhausted by others, which appears as “Reddit is rate limiting requests, retry in Ns” (429) even on your first scan of the day. Your own client ID gives you a private quota.",
+      "redditGuide": {
+        "summary": "How to create your client ID (takes 1 minute)",
+        "step1Before": "Sign in to Reddit, open",
+        "step1After": "and click",
+        "step1End": " at the bottom of the page.",
+        "step2Before": "Pick the type",
+        "step2Middle": " — this is important. A",
+        "or": "or",
+        "step2After": " ID includes a client secret, so Reddit refuses the secret-free anonymous login used by this app and every scan fails with 401.",
+        "step3Before": "Name: anything (for example, “LoRA Dataset Studio”). Redirect URI:",
+        "step3After": " — the form requires one, but it is never used here.",
+        "step4Before": "Click",
+        "step4After": ", then copy the short string shown directly below the app name (about 22 characters). That is your client ID. Installed apps have no secret, so this string is all you need.",
+        "step5": "Paste it below and save. It takes effect immediately; no restart is needed."
+      },
+      "civitaiLabel": "Civitai API key",
+      "civitaiHelp": "Only needed for adult content. Without a key, Civitai scans return SFW results only. Create one under civitai.com → Account settings → API Keys.",
+      "pexelsLabel": "Pexels API key (required for Pexels)",
+      "pexelsHelpBefore": "Required for every Pexels scan through the official API.",
+      "pexelsCreateKey": "Create a free Pexels API key",
+      "pexelsHelpAfter": "— the free quota is 200 requests/hour and 20,000/month. Save it here and it takes effect immediately without a restart.",
+      "pexelsAuthorizationTitle": "Authorization required:",
+      "pexelsAuthorizationBody": "An API key alone does not authorize dataset or machine-learning use. Configure and use this integration only if Pexels has explicitly authorized this use case.",
+      "pexelsTerms": "Read the official Pexels terms and conditions",
+      "improvementTitle": "Klein image improvement",
+      "improvementHelp": "Optional instruction for automatically rescuing scraped images under 768 px. Manual Upscale & improve uses its dedicated metadata-derived quality profile. Klein creates a separate 2 MP version for validation and leaves the original intact.",
+      "instruction": "Klein instruction",
+      "instructionHelp": "Leave this empty to let Klein use the reference image alone. Add a short instruction only when you want to guide automatic scraper rescue; Klein remains generative and may change details. Manual lightbox improvement uses its dedicated quality profile.",
+      "instructionPlaceholder": "Empty — reference image only"
+    },
+    "localTools": {
+      "hfToken": "Hugging Face token",
+      "hfTokenHelp": "Needed for gated training bases (Krea 2, FLUX.1, FLUX.2 Klein) and for reading your private custom-base cloud repositories. Accept each model license, then create a token at hf.co/settings/tokens. Local Klein generation (9B KV) downloads without a token.",
+      "comfyHelp": "Local Klein generation and the Test Studio. The API URL is where a running ComfyUI answers; the install directory is scanned for checkpoints and LoRAs.",
+      "comfyApiUrl": "ComfyUI API URL",
+      "comfyDir": "ComfyUI install directory",
+      "comfyDirHelp": "Used to derive the output/input/models/loras folders unless overridden.",
+      "ollamaHelp": "Lightweight local vision backend for captioning, framing auto-classification and head-crop.",
+      "ollamaUrl": "Ollama URL",
+      "ollamaModel": "Ollama vision model",
+      "ollamaStarted": "Ollama is running.",
+      "ollamaStartFailed": "Ollama did not start. Check the log or start it manually.",
+      "running": "Running",
+      "visionReady": "vision model ready",
+      "installedStopped": "Installed but not running.",
+      "starting": "Starting…",
+      "startOllama": "▶ Start Ollama",
+      "notDetected": "Not detected on this machine.",
+      "downloadOllama": "Download Ollama →",
+      "aitoolkitHelp": "The training engine. Point to the folder containing run.py; its venv/ or .venv/ is detected automatically.",
+      "aitoolkitDir": "ai-toolkit directory",
+      "pythonOptional": "Python interpreter (optional)",
+      "pythonPlaceholder": "Auto — only needed when ai-toolkit has no venv/.venv (conda, uv or system Python)",
+      "pythonHelp": "Full path to the Python executable ai-toolkit should use, for example C:\\miniconda3\\envs\\aitk\\python.exe.",
+      "advanced": "Advanced: ai-toolkit overrides",
+      "datasetsDir": "Datasets directory override",
+      "datasetsDirPlaceholder": "Defaults to <ai-toolkit>/datasets",
+      "outputDir": "Output directory override",
+      "outputDirPlaceholder": "Defaults to <ai-toolkit>/output",
+      "hfCache": "Hugging Face cache override",
+      "hfCachePlaceholder": "Defaults to <ai-toolkit>/hf-cache/huggingface"
+    },
+    "captioning": {
+      "captioningTitle": "Captioning",
+      "captioningHelp": "Choose who writes captions. Auto prefers JoyCaption through ai-toolkit and falls back to the Ollama vision model.",
+      "backend": "Captioning backend",
+      "options": {
+        "auto": "Auto (best available)",
+        "joycaption": "JoyCaption",
+        "ollama": "Ollama vision",
+        "none": "None"
+      },
+      "watermarkTitle": "Watermark inpainting",
+      "watermarkHelp": "Choose where LaMa removes small off-center watermarks. Auto uses CUDA when the configured ML Python supports it and otherwise falls back to CPU.",
+      "device": "Processing device",
+      "devices": {
+        "auto": "Auto (GPU when available, otherwise CPU)",
+        "cuda": "GPU (CUDA required; pauses ComfyUI while cleaning)",
+        "cpu": "CPU (keeps the GPU free)"
+      },
+      "allowCrop": "Allow automatic crop",
+      "allowCropHelp": "On: a watermark on a border is cropped off without inventing pixels. Off: border marks are repainted with LaMa/Klein. You can override this for each image in watermark review or from the Clean bar.",
+      "faceTitle": "Face similarity",
+      "faceHelp": "Every image is scored against the reference face with InsightFace. These thresholds control where the badges change.",
+      "greenThreshold": "Face score — green threshold",
+      "orangeThreshold": "Face score — orange threshold",
+      "thresholdHelp": "Green marks a strong match to the reference face. Orange is borderline; review it before keeping. Anything below orange is likely a different person and worth rejecting."
+    },
+    "training": {
+      "dialogs": {
+        "presetNamePrompt": "Preset name (an existing name is overwritten):",
+        "deletePresetConfirm": "Delete the preset “{name}”?",
+        "queueForce": "Queue anyway (force)",
+        "scheduleForce": "Schedule anyway (force)",
+        "trainForce": "Train anyway (force)",
+        "continueForce": "Continue anyway (force)",
+        "resumeConfirm": "Resume training “{name}” from step {step} and continue for +1000 steps (→ {next})?",
+        "moveTrashConfirm": "Move “{filename}” to the trash?\n\nRecoverable until you empty the trash in Settings.",
+        "cleanupRunConfirm": "Clean up this run?\n\nKeeps {keepCount} checkpoint(s) ({keepList}) and moves {removed} to the trash — recoverable until you empty the trash in Settings.",
+        "pushForce": "{detail}\n\nPush anyway (force)?"
+      },
+      "defaultsTitle": "Defaults",
+      "defaultsHelp": "Preselected model family for new training runs. Each dataset can still override it.",
+      "defaultFamily": "Default training family",
+      "familyLabels": {
+        "zimage": "Z-Image",
+        "sdxl": "SDXL",
+        "krea": "Krea 2",
+        "flux": "FLUX.1",
+        "flux2klein": "FLUX.2 Klein"
+      },
+      "cloudGpuTitle": "Cloud GPU (vast.ai)",
+      "cloudGpuHelp": "No local GPU? The app can rent one per run. The key below unlocks the ☁️ Train in cloud button.",
+      "vastKey": "vast.ai API key",
+      "vastKeyHelp": "Enables cloud GPU training. The app rents a GPU for the run and shuts it down when complete (a typical run costs $1–2). Get a key at cloud.vast.ai → Keys.",
+      "vastGuide": {
+        "summary": "How to get a vast.ai API key (about 2 minutes)",
+        "step1Before": "Create a free account at",
+        "step1After": "(email or Google sign-in).",
+        "step2Before": "Add credit: open",
+        "step2Middle": "in the left sidebar and click",
+        "step2After": ". $5 is enough to start. A typical run costs about $1–2 and is billed by vast.ai, not this app.",
+        "step3Before": "Open",
+        "step3After": "in the left sidebar under Account and copy your API key. Create one first if the list is empty.",
+        "step4Before": "Paste the key below and press",
+        "step4After": ". The key is saved automatically and the test should report “connected as <your account>”."
+      },
+      "cloudTitle": "Cloud training",
+      "cloudHelp": "vast.ai GPU rental guardrails: simultaneous training pods, offer price ceiling, monthly spending limit, and the time a run may go without step progress before it is rescued and stopped.",
+      "maxRuns": "Max simultaneous cloud runs",
+      "maxPrice": "Max price per hour ($)",
+      "monthlyBudget": "Monthly budget ($, 0 = unlimited)",
+      "stallTimeout": "Stall timeout (minutes)",
+      "minReliability": "Min host reliability",
+      "minReliabilityHelp": "Lower it (for example, 0.95) to show cheaper hosts in the GPU picker, with a higher risk of a pod that never boots. Failed starts usually waste only a few cents and are cleaned automatically.",
+      "offerFilters": "GPU offer filters",
+      "verifiedOnly": "Verified hosts only",
+      "verifiedOnlyHelp": "Only show hosts verified by vast.ai. Recommended. Turning this off can reveal more or cheaper offers with greater host risk.",
+      "secureOnly": "Secure Cloud only",
+      "secureOnlyHelp": "Only show offers marked Secure Cloud by vast.ai. This excludes Community Cloud machines, so availability may be lower and prices higher.",
+      "spentMonth": "Spent this month: ${amount}"
+    },
+    "server": {
+      "title": "Server",
+      "help": "Where the app listens. Host, port and LAN access require a restart. Edit them below, then use “Save & restart to apply”.",
+      "port": "Port",
+      "lanAccess": "Available on the local network",
+      "lanAccessHelp": "Off by default: only this computer can open the app. On: any device on your Wi-Fi/LAN can open it, including your phone, using the URL below.",
+      "requireToken": "Require an access token",
+      "requireTokenOn": "On: remote devices must open the URL with the token once; a session cookie takes over afterwards. This adds safety on a shared or untrusted network.",
+      "requireTokenOff": "Off by default: anyone on your Wi-Fi/LAN can open the app without a password. This is suitable for a home network; enable it for a shared or untrusted network.",
+      "accessToken": "Access token",
+      "generateToken": "Generate new token",
+      "accessTokenHelp": "Remote devices present this once through the link below, then a signed session cookie takes over. Requests from this computer never need it.",
+      "tokenPlaceholder": "(created automatically on the next restart — or click “Generate new token”)",
+      "phoneTitle": "Open it on your phone",
+      "phoneHelp": "Point your phone camera at the code or open a link below. The LAN link requires the same Wi-Fi; the Tailscale link works from anywhere.",
+      "sameLan": "Same Wi-Fi / LAN",
+      "tailscale": "From anywhere · Tailscale",
+      "tokenNeededBefore": "Enable the token, then",
+      "tokenNeededAfter": " (or save and restart). The scannable link appears after a token exists.",
+      "addressMissingBefore": "Could not detect this machine’s address. From another device, open",
+      "addressMissingAfter": "Find the address by running",
+      "lanIpPlaceholder": "this-computer's LAN IP",
+      "running": "Running:",
+      "reachableAt": "— reachable at {url}",
+      "saved": "Saved:",
+      "restarting": "↻ Restarting…",
+      "saveRestart": "Save & restart to apply",
+      "configMatches": "Running config matches saved config",
+      "restartFailed": "Restart failed"
+    },
+    "maintenance": {
+      "updatesTitle": "Updates",
+      "updatesHelp": "Pull the latest version from GitHub and restart without leaving the app.",
+      "checkFailed": "Check failed",
+      "updateFailed": "Update failed",
+      "checking": "Checking…",
+      "checkUpdates": "Check for updates",
+      "currentBuild": "Current build:",
+      "latestBuild": "Latest build:",
+      "commitsAhead": "+{count} commit(s)",
+      "updateAvailable": "update available",
+      "pressCheck": "— press “Check for updates”",
+      "seeUpdate": "See what’s in this update ↗",
+      "browseCommits": "Browse recent commits ↗",
+      "updatedRestarting": "↻ Updated — the app is restarting. This page reloads automatically when it returns…",
+      "pulling": "⬇ Pulling the latest version…",
+      "downloadingInstalling": "⬇ Downloading and installing the latest release…",
+      "downloadingProgress": "⬇ Downloading… {progress}({downloaded} / {total})",
+      "downloadingUnknown": "⬇ Downloading… {downloaded}",
+      "extractingUpdate": "📦 Extracting the update…",
+      "installingFiles": "🔧 Installing the new files…",
+      "restartingApp": "↻ Restarting the app…",
+      "updateToVersion": "Update to v{version}",
+      "downloadSize": "{headline} (download ~{size})",
+      "behind": "{count} commit(s) behind{refs}.",
+      "availableVersion": "Update available{version}.",
+      "updateRestart": "Update & restart",
+      "downloadRelease": "download the latest release",
+      "replaceFolder": "and replace the folder.",
+      "upToDate": "You’re up to date.",
+      "couldNotCheck": "Could not check for updates.",
+      "logTitle": "Server log",
+      "logStatus": "{file} — last {count} lines, refreshes every 5 seconds",
+      "noLog": "no log file yet",
+      "logClosedHelp": "Something failed? Open this and copy the log into your bug report.",
+      "refresh": "Refresh",
+      "copyAll": "Copy all",
+      "logEmpty": "Log is empty.",
+      "empty": "empty",
+      "openTrashFailed": "Could not open the trash folder.",
+      "emptyConfirm": "Permanently delete everything in the trash?\n\nThis is the only destructive action. Deleted checkpoints cannot be recovered afterwards.",
+      "trashTitle": "Trash",
+      "trashHelp": "Everything the app deletes (checkpoints, cloud staging and deployed LoRAs) is moved here first. Emptying it is the only action that actually destroys files.",
+      "trashSize": "Trash size:",
+      "openTrashTitle": "Open the trash folder in the file explorer",
+      "opening": "Opening…",
+      "openFolder": "📂 Open folder",
+      "emptying": "Emptying…",
+      "emptyTrash": "Empty trash",
+      "dataTitle": "Data",
+      "dataHelp": "Where dataset images live on disk.",
+      "imagesRoot": "Dataset images root",
+      "imagesRootPlaceholder": "Defaults to data/datasets"
+    }
+  },
+  "cloudRuns": {
+    "title": "Training runs",
+    "subtitle": "Every training in one place — cloud and local: watch progress, stop a run, download a finished LoRA, and see the exact settings each launch used.",
+    "status": {
+      "done": "done",
+      "error": "failed",
+      "error_pod_kept": "failed · pod kept",
+      "stopped": "stopped",
+      "localTraining": "local · training"
+    },
+    "time": {
+      "justNow": "just now",
+      "minutesAgo": "{count}m ago",
+      "hoursAgo": "{count}h ago",
+      "daysAgo": "{count}d ago"
+    },
+    "thumbnail": {
+      "open": "Last sample this run generated (open full size)",
+      "alt": "Last training sample of {name}",
+      "thisRun": "this run"
+    },
+    "podKept": {
+      "title": "Pod kept for manual checkpoint recovery",
+      "body": "it keeps billing until reaped. Download its LoRA, then it is cleaned up automatically after the recovery window.",
+      "collapsedWarning": "a kept pod is still billing — expand for details",
+      "billing": "kept pod billing"
+    },
+    "autoRetry": {
+      "retryOf": "Automatic retry of cloud run #{id}",
+      "retryCount": "automatic retry {count}/1",
+      "relaunchedAsTitle": "Automatically relaunched as cloud run #{id}",
+      "relaunchedAs": "auto-retried as #{id}"
+    },
+    "recipeWarning": {
+      "title": "Z-Image recipe warning:",
+      "blocked": "Retry and Continue are disabled; start a fresh validated run."
+    },
+    "settings": {
+      "rank": "rank",
+      "saveEvery": "save",
+      "dropout": "dropout",
+      "masked": "masked",
+      "unmasked": "unmasked",
+      "effectiveTitle": "The effective ai-toolkit settings this launch used"
+    },
+    "fallback": {
+      "runNumber": "run #{id}",
+      "datasetNumber": "Dataset #{id}"
+    },
+    "source": {
+      "cloud": "Cloud run (vast.ai)",
+      "local": "Local run"
+    },
+    "confirm": {
+      "stopCloud": "Stop the cloud run for « {name} »?\n\nThe pod is terminated. Any checkpoint reached so far is still downloaded and importable — you only lose the remaining steps.",
+      "stopLocal": "Stop the local run for « {name} »?\n\nThe training process is terminated and the pending local training queue is cleared. Checkpoints already saved remain available.",
+      "cleanFinished": "Move the staging folders of all FINISHED runs to the trash?\n\nDataset copies, samples and checkpoint duplicates already imported. Active runs and pods kept for recovery are spared. Recoverable until you empty the trash in Settings."
+    },
+    "prompt": {
+      "additionalSteps": "Additional steps to train from the last checkpoint:"
+    },
+    "toast": {
+      "stopCloudFailed": "Could not stop the run — it may have already finished.",
+      "stoppingCloud": "Stopping the run — the pod is winding down…",
+      "stopLocalFailed": "Could not stop the local run — it may have already finished.",
+      "localStopped": "Local training stopped — ComfyUI is re-enabled.",
+      "stopLocalErrorDetail": "Could not stop the local run: {error}",
+      "stopLocalError": "Could not stop the local run. Please try again.",
+      "legacyRetryBlocked": "This run uses an incompatible legacy Z-Image recipe. Start a fresh validated run instead.",
+      "retryFailed": "Retry failed",
+      "relaunchedLocal": "Run relaunched locally — watch it under In progress…",
+      "relaunchedCloud": "Run relaunched — provisioning a fresh pod…",
+      "legacyContinueBlocked": "This checkpoint uses an incompatible legacy Z-Image recipe and cannot be continued safely.",
+      "positiveSteps": "Enter a positive number of extra steps.",
+      "continueFailed": "Continue failed",
+      "continuing": "Continuing from step {from} → {to} on a fresh pod…",
+      "configBuildFailed": "Could not build the config file — please retry.",
+      "configDownloadFailed": "Could not download the config file.",
+      "cleaned": "Cleaned {count} run(s) — {size} GB moved to the trash."
+    },
+    "actions": {
+      "openDataset": "Open dataset",
+      "openVastConsole": "Open the vast.ai console",
+      "stopRun": "Stop run",
+      "stopping": "Stopping…",
+      "stopLocalTitle": "Stop this local training process; checkpoints already saved are kept",
+      "retry": "Retry",
+      "retrying": "Retrying…",
+      "retryDisabled": "Disabled: this legacy/incompatible Z-Image recipe cannot be replayed safely; start a fresh run",
+      "retryLocalTitle": "Relaunch this run locally with the same settings",
+      "retryCloudTitle": "Relaunch this run with the same settings on a fresh pod",
+      "continue": "Continue (+1000)",
+      "continuing": "Continuing…",
+      "continueDisabled": "Disabled: this legacy/incompatible Z-Image checkpoint cannot be continued safely; start a fresh run",
+      "continueTitle": "Resume training from this run's last checkpoint for more steps, on a fresh pod",
+      "downloadLora": "Download the LoRA",
+      "downloadLoraTitle": "Download this run's LoRA checkpoint",
+      "shareConfig": "Share config",
+      "shareConfigTitle": "Download this run's full settings as a paste-safe text file (recipe / help thread)",
+      "vastInstanceTitle": "vast.ai instance {id} — provider console (billing, logs, manual destroy)",
+      "vastConsoleTitle": "vast.ai console — billing, logs, manual destroy",
+      "cleanFinished": "Clean finished runs",
+      "showDatasetRuns": "Show the runs of this dataset",
+      "foldDatasetRuns": "Fold the runs of this dataset"
+    },
+    "notConfigured": {
+      "before": "Cloud training isn’t configured yet. Add your vast.ai API key in",
+      "after": "to rent GPUs on demand."
+    },
+    "summary": {
+      "active": "active",
+      "hourlyTotal": "${amount}/h total",
+      "thisMonth": "this month: ${amount}",
+      "ofBudget": " of ${amount}",
+      "noBudget": " (no budget cap)"
+    },
+    "sections": {
+      "inProgress": "In progress",
+      "recent": "Recent",
+      "collapsed": "collapsed",
+      "expanded": "expanded"
+    },
+    "empty": {
+      "inProgress": "No run in progress. Launch one from a dataset’s training panel."
+    },
+    "metrics": {
+      "durationTitle": "Wall-clock run duration (launch → finish)",
+      "steps": "{count} steps",
+      "savesTitle": "Checkpoints this run saved (synced locally)",
+      "saves": "{count} save(s)",
+      "costTitle": "Estimated cost (price/h × run time)",
+      "costSoFar": "~${amount} so far",
+      "runCount": "{count} run(s)"
+    }
+  },
+  "guide": {
+    "fieldManual": "Field manual",
+    "chapterNavigation": "Guide chapters",
+    "onThisPage": "On this page",
+    "openScreen": "Open this screen",
+    "support": "Support",
+    "chapterNumber": "Chapter {number}",
+    "readingMinutes": "{count} min read",
+    "chapterPosition": "{current} of {total}",
+    "previous": "Previous",
+    "next": "Next",
+    "chapters": {
+      "gettingStarted": {
+        "title": "Getting started",
+        "description": "Install the app, connect the tools you need, and understand the workspace."
+      },
+      "usingTheApp": {
+        "title": "Using the app",
+        "description": "Follow the complete workflow for character, concept, and style datasets."
+      },
+      "datasetGuide": {
+        "title": "Building a good dataset",
+        "description": "Make stronger choices about images, captions, settings, and checkpoints."
+      },
+      "settingsReference": {
+        "title": "Settings reference",
+        "description": "Every setting explained — what it does, its default, and when to change it."
+      },
+      "troubleshooting": {
+        "title": "Troubleshooting",
+        "description": "Find a symptom, understand the cause, and apply the shortest reliable fix."
+      },
+      "gettingHelp": {
+        "title": "Getting help",
+        "description": "Create a useful report and share the details needed to solve a problem."
+      }
+    },
+    "diagnostic": {
+      "title": "One-click bug report",
+      "description": "Copies version, environment health (Python/Pillow/disk), per-engine status with the exact missing Klein assets, live ComfyUI GPU/VRAM/queue, the last generation failures and the last error tracebacks — no API keys, no folder paths (your home dir is redacted to ~). The log/error lines can still mention file names: skim before posting.",
+      "copy": "Copy diagnostic report",
+      "building": "Building…",
+      "copied": "Diagnostic report copied — paste it into your bug report.",
+      "failed": "Could not build the report: {error}"
+    }
+  },
+  "studio": {
+    "title": "Test Studio",
+    "requiresComfyUI": "Test Studio requires ComfyUI — configure it in Settings.",
+    "comparing": "Comparing {count} LoRAs",
+    "emptySelection": "Check a LoRA above to tune and test it. Check ≥2 to compare them side by side.",
+    "common": {
+      "checkpoint": "Checkpoint"
+    },
+    "loraPicker": {
+      "loadFailed": "Could not load the LoRA list.",
+      "title": "LoRA to test",
+      "comparison": "Comparison ({count})",
+      "checked": "{count} checked",
+      "loading": "Loading LoRAs…",
+      "empty": "No trained LoRA is available. Train one from a dataset first.",
+      "familyLocked": "A test can only use one model family. Clear the selection to switch families.",
+      "checkpointFor": "Checkpoint for {name}"
+    },
+    "solo": {
+      "noCheckpoint": "No checkpoint is available for this LoRA.",
+      "savedWinning": "Saved as the winning checkpoint"
+    },
+    "prompt": {
+      "replaceConfirm": "Replace your current prompt?",
+      "title": "Prompt",
+      "describeTitle": "Describe the selected image",
+      "describe": "Describe",
+      "label": "Test prompt",
+      "resetTitle": "Restore the default prompt",
+      "default": "Default"
+    },
+    "checkpoints": {
+      "title": "Checkpoints",
+      "test": "Test checkpoint {name}"
+    },
+    "strength": {
+      "title": "LoRA strength",
+      "hideNegative": "Hide negative strengths",
+      "showNegative": "Show negative strengths",
+      "negativeSelected": "Negative strengths selected",
+      "showNegativeTitle": "Show negative strengths for contrast tests",
+      "hideExtended": "Hide extended strengths",
+      "showExtended": "Show extended strengths",
+      "extendedSelected": "Extended strengths selected",
+      "negativeHint": "Negative strengths invert the LoRA effect and are mainly useful for contrast testing."
+    },
+    "seed": {
+      "seed": "Seed",
+      "rerollTitle": "Generate a new random seed",
+      "reroll": "Reroll",
+      "lockedTitle": "Seed locked",
+      "autoTitle": "Use a new seed after each launch",
+      "auto": "Auto",
+      "countTitle": "Number of images generated per configuration",
+      "perConfig": "per configuration",
+      "batchTitle": "Each configuration is generated {count} times because batch LoRAs are enabled",
+      "estimate": "{count} images · about {minutes} min"
+    },
+    "family": {
+      "pipeline": "Model family",
+      "trainedIn": "Trained in",
+      "testTitle": "Test LoRAs trained for {family}"
+    },
+    "actions": {
+      "launching": "Launching…",
+      "runTest": "Run test",
+      "quickNavigation": "Test Studio shortcuts"
+    },
+    "run": {
+      "progress": "{generating} generating · {queued} queued",
+      "stopResumable": "Stop (resumable)",
+      "stopped": "{count} stopped cell(s) — resumable with their settings",
+      "resume": "Resume test",
+      "queued": "{count} generation(s) queued (seed {seed}{multiplier})",
+      "launchFailed": "Could not launch the test"
+    },
+    "shortcuts": {
+      "loras": "LoRAs",
+      "promptSeed": "Prompt & seed",
+      "format": "Format",
+      "sampling": "Sampling",
+      "engine": "Engine",
+      "detail": "Detail",
+      "negative": "Negative",
+      "results": "Results"
+    },
+    "comparison": {
+      "baseModel": "Base model ({family})",
+      "baseModelLabel": "Base model for this run",
+      "empty": "Set up the run on the left, then launch the test to compare {count} LoRAs side by side."
+    },
+    "results": {
+      "title": "Results",
+      "imageCount": "{count} img",
+      "voteTitle": "Quickly vote on all unrated images (swipe or 👍/👎)",
+      "vote": "Vote ({count})",
+      "revoteTitle": "Second pass: re-vote only the 👍 results to narrow them down",
+      "revote": "Re-vote 👍 ({count})",
+      "reconfirmTitle": "♻️ Reconfirm the 👍",
+      "exportTitle": "Compose this run into one shareable image (checkpoints × strengths)",
+      "exportUnavailable": "No finished image to export yet",
+      "export": "Export grid",
+      "chooseRun": "Choose the test run to display",
+      "currentRun": "Current run",
+      "runNumber": "Run #{number}"
+    },
+    "vote": {
+      "title": "Quick vote",
+      "close": "Close vote",
+      "strength": "strength",
+      "hint": "← swipe/left arrow = 👎 · right = 👍 → · Esc = close · use Skip to pass",
+      "dislike": "Dislike",
+      "skip": "Skip",
+      "like": "Like"
+    },
+    "setup": {
+      "replaceDescription": "Replace the current prompt with the described one?",
+      "promptOptional": "Prompt (optional)",
+      "describeTitle": "Describe an image as a test prompt with the vision model",
+      "promptPlaceholder": "Leave empty for the LoRA's default prompt…",
+      "newSeed": "New random seed",
+      "imagesPerConfig": "Images / config",
+      "imagesPerConfigLabel": "Number of images per configuration",
+      "gpuCost": "GPU cost: checked LoRAs × strengths × images per configuration{batch}",
+      "batchCost": " × {count} (batch axis: without and with each checked LoRA)",
+      "strengthUnit": "strength",
+      "cellsToGenerate": "cell(s) to generate",
+      "selectOne": "Check at least one LoRA above."
+    },
+    "axes": {
+      "baseModel": "Base model (multi)",
+      "formats": "Image formats (multi)",
+      "cfg": "CFG (multi) — default {value}",
+      "steps": "Steps (multi) — default {value}",
+      "stepsPass1": "Steps · pass 1 — classic (multi) — default {value}",
+      "stepsPass2": "Steps · pass 2 — detail daemon (multi) — default {value}"
+    },
+    "preflight": {
+      "mismatch": "“{name}” is a {detected} LoRA, but this is the {family} Studio. ComfyUI would silently ignore it and render every tile without the LoRA. Test it in the {detected} Studio or deploy it under that family.",
+      "missing": "The {family} test pipeline can’t run because ComfyUI is missing the assets below. Add them, then relaunch the test.",
+      "files": "Missing model file(s) ({count}) — place at",
+      "nodes": "Missing custom node(s) ({count}) — install into ComfyUI"
+    },
+    "recent": {
+      "title": "Recent prompts (click to reload · 🗑 to delete) — thumbnail = liked image",
+      "deleteConfirm": "Delete this recent prompt and its {count} saved test image(s)?",
+      "deleteTitle": "Delete this recent prompt and its test images",
+      "deleteLabel": "Delete this recent prompt"
+    },
+    "describe": {
+      "invalidType": "Pick a webp, png or jpg image.",
+      "tooLarge": "Image too large (maximum {size} MB).",
+      "httpFailed": "Describe failed (HTTP {status})",
+      "empty": "The vision model returned an empty description.",
+      "failed": "Describe failed — check that the app can reach Ollama, then try again.",
+      "dialogLabel": "Describe an image as a test prompt",
+      "title": "Describe an image",
+      "description": "The vision model turns the image into a test prompt covering scene, pose, framing and outfit. It does not name the person or add the trigger word; the Studio handles those.",
+      "describing": "Describing {name}…",
+      "loadingHint": "The vision model may be loading. This can take a few seconds.",
+      "drop": "Drop an image here, or click to choose",
+      "formats": "webp, png or jpg · up to {size} MB"
+    },
+    "generation": {
+      "format": "Format",
+      "aspectRatio": "Aspect ratio",
+      "aspect": {
+        "tall": "Tall",
+        "portrait": "Portrait",
+        "square": "Square",
+        "landscape": "Landscape",
+        "wide": "Wide"
+      },
+      "resolution": "Resolution",
+      "outputSizeWithRatio": "Output size — the ratio above sets the proportions. Standard ≈ 1 MP.",
+      "outputSizeWithAxis": "Output size (the aspect axis sets the proportions). Standard ≈ 1 MP.",
+      "sampling": "Sampling",
+      "sampler": "Sampler",
+      "scheduler": "Scheduler",
+      "kreaSampler": "Krea sampler",
+      "kreaScheduler": "Krea scheduler",
+      "auto": "Auto",
+      "detail": "Detail",
+      "detailIntensity": "Detail (Daemon intensity)",
+      "detailHint": "0.21 = SDXL default · ≤0.25 safe · ↑ more detail (HDR/grain risk)",
+      "engine": "Engine",
+      "rebalance": "NSFW / texture rebalance",
+      "rebalanceLabel": "Krea conditioning rebalance for uncensored output and skin texture",
+      "rebalanceHint": "Lifts safety-filtered conditioning taps for uncensored output and less plastic skin. Off = pure SFW.",
+      "strength": "Strength",
+      "rebalanceStrengthHint": "4 = default · ↑ stronger effect",
+      "enhancer": "Krea2T Enhancer (NSFW adherence) · experimental",
+      "enhancerLabel": "Krea2T text-adherence enhancer",
+      "enhancerHint": "Model-side text-adherence patch independent of rebalance. Off = workflow unchanged.",
+      "enhancerStrengthHint": "1.0 = default · range 0–2",
+      "precision": "Precision",
+      "precisionLabel": "Krea loader weight precision",
+      "highPrecision": "high precision",
+      "fast": "Fast",
+      "fastPlus": "Fast+",
+      "wideRange": "wide range",
+      "precisionHint": "Use bf16 if the Enhancer produces black images from fp8 overflow. It is slower but uses the same VRAM.",
+      "alwaysOn": "Always-on LoRAs (every cell · ⚖ batch = tested as an axis)",
+      "noAlwaysOn": "No always-on LoRA for this pipeline.",
+      "negative": "Negative",
+      "negativeOptional": "Negative prompt (optional)",
+      "negativePlaceholder": "Leave empty for the pipeline default…",
+      "negativePrompt": "Negative prompt"
+    },
+    "best": {
+      "saved": "Best setting",
+      "deleteConfirm": "Delete the saved setting?",
+      "deleteTitle": "Delete this saved setting",
+      "deleteLabel": "Delete the saved setting",
+      "basedOnVotes": "Best setting (based on your votes)",
+      "scoreTitle": "+{likes} / −{dislikes} on {images} image(s)",
+      "votes": "{count} vote(s)",
+      "lowSampleTitle": "Recommendation based on few votes — keep voting to make it more reliable",
+      "lowSample": "low sample",
+      "saveTitle": "Save this configuration as the dataset's best setting",
+      "model": "Model",
+      "steps": "Steps",
+      "perModel": "Best setting per model ({count})",
+      "breakdown": "{voted} voted out of {images} generated",
+      "config": "Best configuration"
+    },
+    "ranking": {
+      "title": "LoRA ranking ({count})",
+      "rank": "Rank {rank}",
+      "likes": "{count} likes",
+      "dislikes": "{count} dislikes",
+      "netTitle": "Likes minus dislikes",
+      "net": "net",
+      "confidence": "Confidence score (Wilson lower bound)"
+    },
+    "tile": {
+      "generating": "Generating",
+      "queued": "Queued",
+      "failedTitle": "Generation failed — see the Server log in Settings for details.",
+      "failed": "failed",
+      "stopped": "stopped",
+      "open": "{name} @ {strength} ({aspect}) seed {seed}{batch} — open larger",
+      "alt": "{name}, strength {strength}, {aspect}, seed {seed}",
+      "faceSimilarity": "Face similarity to the dataset reference: {score}",
+      "batchAxis": "Batch axis: with {name}",
+      "like": "Like {name} @ {strength} ({aspect}), seed {seed}",
+      "dislike": "Dislike {name} @ {strength} ({aspect}), seed {seed}"
+    },
+    "grid": {
+      "caption": "Test grid {key}: rows are checkpoints and columns are strengths",
+      "axes": "checkpoint \\ strength"
+    },
+    "lightbox": {
+      "title": "Result preview",
+      "previous": "Previous image",
+      "next": "Next image",
+      "liked": "Liked ✓",
+      "dislike": "Not a fan",
+      "disliked": "Not a fan ✓"
+    },
+    "export": {
+      "title": "Export grid",
+      "description": "Compose this run into one labelled image (checkpoints × strengths), ready to share.",
+      "formatBlock": "Format block",
+      "allFormats": "All formats (stacked)",
+      "tileSize": "Tile size",
+      "fileFormat": "File format",
+      "jpeg": "JPEG (small)",
+      "png": "PNG (large)",
+      "includePrompt": "Include the prompt",
+      "promptHint": "Off by default because prompts may be personal or NSFW.",
+      "footer": "“Made with LoRA Dataset Studio” footer",
+      "downscaleWarning": "Large grid — the image will be downscaled to fit the {size}px limit.",
+      "composing": "Composing…",
+      "httpFailed": "Export failed (HTTP {status})",
+      "exportedDownscaled": "Grid exported — downscaled to fit the size limit",
+      "exported": "Grid exported",
+      "failed": "Export failed — please try again"
+    },
+    "modelComparison": {
+      "title": "Base model comparison ({count})",
+      "rate": "rate",
+      "voted": "Voted",
+      "generated": "Generated",
+      "official": "Official"
+    }
+  },
+  "errorBoundary": {
+    "unexpected": "An unexpected error occurred.",
+    "tryAgain": "Try again",
+    "backToDatasets": "Back to datasets",
+    "reload": "Reload the page",
+    "technicalDetails": "Technical details",
+    "copyDiagnostic": "Copy diagnostic",
+    "inline": "Something went wrong. Please refresh the page."
+  },
+  "settings": {
+    "title": "Settings",
+    "sectionsLabel": "Settings sections",
+    "search": "Find a setting…",
+    "searchLabel": "Find a setting",
+    "loading": "Loading settings…",
+    "sectionResults": "Sections ({count})",
+    "settingResults": "Settings ({count})",
+    "unsaved": "Unsaved changes",
+    "saveChanges": "Save changes",
+    "saved": "Settings saved.",
+    "saveFailed": "Save failed: {message}",
+    "loadFailed": "Failed to load settings: {message}",
+    "removeConfirm": "Remove the saved {label}? Any engine that uses it stops working until you add a new key.",
+    "removed": "{label} removed.",
+    "removeFailed": "Remove failed: {message}",
+    "status": {
+      "configured": "configured",
+      "partial": "partly configured",
+      "off": "not configured"
+    },
+    "section": {
+      "overview": {
+        "title": "Overview",
+        "eyebrow": "status",
+        "description": "What is configured and what to do next."
+      },
+      "engines": {
+        "title": "Image engines",
+        "eyebrow": "generation",
+        "description": "API keys and engines used to generate dataset images."
+      },
+      "scraping": {
+        "title": "Scraping & sources",
+        "eyebrow": "sources",
+        "description": "Credentials used when scanning image sources."
+      },
+      "local-tools": {
+        "title": "Local tools",
+        "eyebrow": "integrations",
+        "description": "ComfyUI, Ollama and ai-toolkit — where they run and where they live."
+      },
+      "captioning": {
+        "title": "Captioning & quality",
+        "eyebrow": "pipeline",
+        "description": "How captions are written and how face similarity is judged."
+      },
+      "training": {
+        "title": "Training",
+        "eyebrow": "training",
+        "description": "Default model family and cloud GPU guardrails."
+      },
+      "server": {
+        "title": "Server & access",
+        "eyebrow": "network",
+        "description": "Port, LAN access and the access token."
+      },
+      "maintenance": {
+        "title": "Maintenance",
+        "eyebrow": "housekeeping",
+        "description": "Updates, server log and data location."
+      }
+    },
+    "overview": {
+      "setupTitle": "Let's get you set up.",
+      "setupBefore": "Add at least one image API key to start, or let the",
+      "setupLink": "Setup wizard",
+      "setupAfter": "scan your machine and walk you through it.",
+      "capabilities": "Capabilities",
+      "readyCount": "{ready}/{total} ready",
+      "whereToFix": "Where to fix it",
+      "imageEngines": "Image engines",
+      "imageEnginesHint": "API keys, ChatGPT subscription, default engine",
+      "localTools": "Local tools",
+      "localToolsHint": "ComfyUI, Ollama, ai-toolkit",
+      "training": "Training",
+      "trainingHint": "Default family, cloud GPU",
+      "setupWizard": "Setup wizard",
+      "setupWizardHint": "Guided scan + install of everything above",
+      "capability": {
+        "nanoBanana": "Nano Banana (Gemini)",
+        "chatgpt": "ChatGPT (gpt-image-2)",
+        "klein": "Klein (local)",
+        "captioning": "Captioning",
+        "framing": "Auto-framing & head-crop",
+        "faceScoring": "Face-similarity scoring",
+        "masks": "Person masks",
+        "watermark": "Watermark inpainting",
+        "loraTraining": "LoRA training",
+        "testStudio": "Test Studio"
+      }
+    },
+    "engines": {
+      "apiKeysTitle": "API keys",
+      "apiKeysHelp": "Keys are write-only — fields stay blank even when a key is already saved.",
+      "geminiLabel": "Gemini API key",
+      "geminiHelp": "Powers the Nano Banana engine.",
+      "openaiLabel": "OpenAI API key",
+      "openaiHelp": "Powers the ChatGPT (gpt-image-2) engine. Optional if you connect a ChatGPT subscription below.",
+      "enginesTitle": "Engines",
+      "enginesHelp": "Choose which engines appear in the generation panel and which one is selected by default.",
+      "defaultEngine": "Default engine",
+      "enabledEngines": "Enabled engines",
+      "subscription": {
+        "title": "ChatGPT subscription (experimental)",
+        "help": "Use your ChatGPT Plus/Pro image quota instead of a pay-per-use API key. This unofficial integration may stop working if OpenAI closes it. Compared with API mode: up to 5 reference images, your plan's daily image cap, and SFW only.",
+        "connected": "Connected",
+        "connectedAs": "Connected — {email}",
+        "notConnected": "Not connected",
+        "waiting": "Waiting for you to enter the code…",
+        "connect": "Connect with ChatGPT",
+        "importCodex": "Import from Codex CLI",
+        "disconnect": "Disconnect",
+        "openUrl": "1. Open this address on any device and sign in:",
+        "enterCode": "2. Enter this one-time code (expires in 15 minutes):",
+        "authMode": "ChatGPT engine authentication",
+        "authOptions": {
+          "auto": "Auto — use subscription when connected, otherwise API key",
+          "api": "API key only",
+          "subscription": "Subscription only"
+        },
+        "quotaHelp": "If the subscription quota runs out during a batch, remaining rows fail with a clear message. The app never silently switches to your paid API key.",
+        "connectedToast": "ChatGPT subscription connected.",
+        "loginFailed": "Login failed — try again.",
+        "startFailed": "Could not start the login.",
+        "importedToast": "Codex CLI session imported.",
+        "importFailed": "Import failed.",
+        "disconnectedToast": "ChatGPT subscription disconnected.",
+        "disconnectFailed": "Disconnect failed."
+      },
+      "presets": {
+        "title": "Klein generation LoRA presets (optional)",
+        "help": "Create named chains of your own LoRA files after the consistency LoRA in the local Klein engine. Order controls chain order; each preset supports up to {loras} LoRAs and there can be {presets} presets. Files found in ComfyUI models/loras are suggested, with Klein-compatible files first; paths can also be entered manually. Select a preset per run in Klein tuning.",
+        "none": "No presets yet — create your first combination below.",
+        "new": "New preset",
+        "myPreset": "My preset",
+        "defaultName": "Preset",
+        "copySuffix": "(copy)",
+        "nameLabel": "Preset {number} name",
+        "namePlaceholder": "Preset name",
+        "duplicate": "Duplicate",
+        "duplicateTitle": "Duplicate this preset",
+        "deleteTitle": "Delete this preset",
+        "empty": "Empty preset — add a LoRA below.",
+        "fileLabel": "Preset {preset}, LoRA file {row}",
+        "strengthLabel": "Preset {preset}, LoRA {row} strength",
+        "moveUpLabel": "Move LoRA {row} up in preset {preset}",
+        "moveDownLabel": "Move LoRA {row} down in preset {preset}",
+        "earlier": "Chain earlier",
+        "later": "Chain later",
+        "removeLabel": "Remove LoRA {row} from preset {preset}",
+        "removeTitle": "Remove this LoRA",
+        "addLora": "Add LoRA",
+        "chainCount": "{count}/{max} in the chain"
+      }
+    }
+  },
+  "setup": {
+    "skip": "Skip setup — I'll do it later",
+    "welcome": {
+      "title": "Welcome to LoRA Dataset Studio",
+      "description": "Let's set up your machine. I'll scan what's already installed and help you install the rest — you can also start building a dataset from your own photos right now, no setup required.",
+      "scanning": "Scanning your machine…",
+      "machineScan": "Machine scan",
+      "rescan": "Re-scan",
+      "readySummary": "{ready} of {total} capabilities ready. Reachable services were filled in automatically.",
+      "allReady": "Everything's ready — review →",
+      "start": "Start setup →"
+    },
+    "scan": {
+      "comfyui": "Local generation — ComfyUI",
+      "ollama": "Captioning — Ollama + vision model",
+      "training": "LoRA training — ai-toolkit",
+      "optional": "optional",
+      "ready": "ready",
+      "notFound": "not found",
+      "skipped": "skipped",
+      "comfyPartial": "running — Klein model optional",
+      "ollamaModel": "running — pull the vision model",
+      "ollamaStopped": "installed — not running",
+      "trainingPartial": "found on disk — one click to use"
+    },
+    "done": {
+      "title": "You're all set",
+      "readySummary": "{ready} of {total} capabilities ready.",
+      "unlocked": "What's unlocked",
+      "build": "Build your first dataset →"
+    },
+    "status": {
+      "ready": "Ready",
+      "partial": "Almost there",
+      "available": "Not set up",
+      "skipped": "Skipped"
+    },
+    "step": "Step {current} of {total}",
+    "recommended": "Recommended",
+    "unlocks": "Unlocks: {items}",
+    "back": "← Back",
+    "saving": "Saving…",
+    "continue": "Save & continue →",
+    "finish": "Save & finish →",
+    "setUp": "Set this up",
+    "skipForNow": "Skip for now",
+    "unsavedBackConfirm": "You have unsaved changes on this step — they will be lost.\n\nGo back without saving?",
+    "steps": {
+      "image": {
+        "title": "Image generation",
+        "unlocks": "Nano Banana (Gemini) · ChatGPT (gpt-image-2) · Klein (local)"
+      },
+      "comfyui": {
+        "title": "ComfyUI — local generation & Test Studio",
+        "unlocks": "Klein engine · Test Studio"
+      },
+      "ollama": {
+        "title": "Ollama — captioning & auto-framing",
+        "unlocks": "Captioning · Auto-classify framing · Auto head-crop",
+        "modelMissing": "Ollama is running, but the vision model has not been pulled yet — it powers captioning.",
+        "modelDescription": "— uncensored, required for concept captions · {vram}",
+        "pullModel": "Pull {model}",
+        "url": "Ollama URL",
+        "visionModel": "Vision model",
+        "modelHint": "Use the ABLITERATED Qwen3-VL ({vram}) — the vanilla model refuses NSFW. For the best captions, the app pairs it with JoyCaption (ai-toolkit).",
+        "readyAt": "Ollama is running at",
+        "configuredUrl": "the configured URL",
+        "readyWithModel": " and the vision model ",
+        "readyDone": " is ready. Nothing to do here.",
+        "installedAt": "Ollama is installed at {path}, but is not running.",
+        "installed": "Ollama is installed, but is not running.",
+        "startHint": "Start it (it listens on port 11434) to unlock captioning and auto-framing — no restart needed.",
+        "starting": "Starting…",
+        "start": "Start Ollama",
+        "started": "Ollama started.",
+        "startFailed": "Ollama did not become ready.",
+        "startError": "Could not start Ollama.",
+        "gateNotInstalled": "Ollama is not installed — download it and start it (port 11434) to continue.",
+        "gateNotRunning": "Ollama is installed but not running — click ▶ Start Ollama below to continue.",
+        "gatePullModel": "Pull the vision model below to continue — Z-Image captioning needs it (JoyCaption only covers SDXL).",
+        "gateFinish": "Finish this step to continue.",
+        "intro": "Ollama runs local models for captioning and auto-framing. Installing it is not enough — you also need to pull a vision model.",
+        "installStep": "Install Ollama and start it (defaults to port 11434).",
+        "download": "Download Ollama →"
+      },
+      "quality": {
+        "title": "Quality tools (ML extras)",
+        "unlocks": "Face-similarity scoring · Person masks · Watermark inpainting"
+      },
+      "training": {
+        "title": "LoRA training — ai-toolkit",
+        "unlocks": "LoRA training · JoyCaption captioning (bonus)",
+        "directory": "ai-toolkit directory",
+        "noGpu": "No GPU? Skip this step and add a vast.ai API key in Settings to train in the cloud. The app rents one GPU per run (typically $1–2) and shuts it down automatically.",
+        "readyAt": "✓ ai-toolkit is set up at {path}. Nothing to do here.",
+        "foundAt": "Found an ai-toolkit install at {path}. Use it?",
+        "useThis": "Use this ai-toolkit",
+        "notUsable": "The configured folder {path} is not usable yet — set up its Python virtual environment as described in the README.",
+        "intro": "ai-toolkit trains the LoRA. Install it once, then point the app at its folder.",
+        "clone": "Clone ai-toolkit and set up its virtual environment as described in its README.",
+        "github": "ai-toolkit on GitHub →"
+      }
+    }
+  },
+  "toast": {
+    "close": "Close notification"
+  },
+  "whatsNew": {
+    "title": "What's new",
+    "newTitle": "What's new — {count} new",
+    "unread": "What's new, {count} unread",
+    "close": "Close what's new",
+    "empty": "Nothing new yet — check back after the next update.",
+    "tryIt": "Try it"
+  },
+  "help": {
+    "topic": "Help: {title}",
+    "learnMore": "Learn more",
+    "dismissTip": "Dismiss tip",
+    "tips": {
+      "dataset-settings-modal": "Prompt suffixes add creative direction to every generated variation, globally or by framing.",
+      "workspace-scrape": "Scraping now lives in its own Scrape section in the sidebar.",
+      "page-datasets": "Resize tiles S/M/L, collapse sections, and filter by kind.",
+      "klein": {
+        "generation_lora_presets": "Build named generation-LoRA presets in Settings → Image engines, then pick one per run."
+      },
+      "training": {
+        "dual_captions": "Dual captions train each image with both a detailed caption and a shorter caption during local training."
+      },
+      "action-watermark-clean": "Clean has two engines — LaMa (fast) and Klein (quality) — and auto-crop can be turned off.",
+      "continue-training": "Continue a run with more steps, resume from an earlier checkpoint, or adjust safe cadence and preview settings.",
+      "action-recaption-targeted": "You can re-caption just one leaking image (or all of them) — no full re-run.",
+      "action-watermark-restore": "Not happy with a clean? Restore brings the original back — then try the other engine."
+    }
+  }
+}

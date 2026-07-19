@@ -32,6 +32,7 @@ import ResolutionSelector from '../../shared/ResolutionSelector';
 import LockableSlider from '../../shared/LockableSlider';
 import ZImageLoraConfig from '../../shared/ZImageLoraConfig';
 import StudioSection from './StudioSection';
+import { useI18n } from '../../../i18n/I18nContext';
 
 // Repli si /api/index_config n'est pas encore chargé (doit refléter la whitelist
 // backend KREA_ALLOWED_* — la liste réelle vient de config.krea_samplers/schedulers).
@@ -41,16 +42,17 @@ const KREA_SCHEDULERS_FALLBACK = ['simple', 'sgm_uniform', 'beta', 'normal', 'dd
 // Formats du Studio (whitelist backend TEST_ASPECTS) + le nom de ratio attendu
 // par <ResolutionSelector> pour afficher les VRAIES dimensions générées.
 const STUDIO_ASPECTS = [
-  { key: '9:16', label: 'Tall', ratio: 'tall' },
-  { key: '3:4', label: 'Portrait', ratio: 'portrait' },
-  { key: '1:1', label: 'Square', ratio: 'square' },
-  { key: '4:3', label: 'Landscape', ratio: 'landscape' },
-  { key: '16:9', label: 'Wide', ratio: 'widescreen' },
+  { key: '9:16', labelKey: 'tall', ratio: 'tall' },
+  { key: '3:4', labelKey: 'portrait', ratio: 'portrait' },
+  { key: '1:1', labelKey: 'square', ratio: 'square' },
+  { key: '4:3', labelKey: 'landscape', ratio: 'landscape' },
+  { key: '16:9', labelKey: 'wide', ratio: 'widescreen' },
 ];
 
 const basename = (p) => String(p || '').split(/[\\/]/).pop();
 
 export default function StudioGenerationSettings({ family = 'zimage', storagePrefix = 'studioGen', permanentLoras = null, aspectPicker = false, onChange }) {
+  const { t } = useI18n();
   const isZ = family === 'zimage';
   const isSdxl = family === 'sdxl';
   const isKrea = family === 'krea';
@@ -166,10 +168,10 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
     <div className="flex flex-col gap-2">
       {/* FORMAT (toutes familles) — SIZE du run + (comparaison) le RATIO. Dans le
           studio riche le ratio reste un axe de test (AxisPickers) → pas de picker ici. */}
-      <StudioSection title="Format" storageKey={k('sec_format')} anchorId="st-format">
+      <StudioSection title={t('studio.generation.format')} storageKey={k('sec_format')} anchorId="st-format">
         {aspectPicker && (
           <>
-            <span className="text-content-muted text-[0.625rem] uppercase">Aspect ratio</span>
+            <span className="text-content-muted text-[0.625rem] uppercase">{t('studio.generation.aspectRatio')}</span>
             <div className="grid grid-cols-5 gap-1.5">
               {STUDIO_ASPECTS.map((a) => (
                 <button key={a.key} type="button" onClick={() => setAspect(a.key)}
@@ -178,13 +180,13 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
                     ? 'border-primary/70 bg-primary/15 text-white'
                     : 'border-white/10 bg-white/[0.04] text-content-muted'}`}>
                   <span className="text-[0.6875rem] font-semibold">{a.key}</span>
-                  <span className="text-[0.5625rem] opacity-60">{a.label}</span>
+                  <span className="text-[0.5625rem] opacity-60">{t(`studio.generation.aspect.${a.labelKey}`)}</span>
                 </button>
               ))}
             </div>
           </>
         )}
-        <span className="text-content-muted text-[0.625rem] uppercase">Resolution</span>
+        <span className="text-content-muted text-[0.625rem] uppercase">{t('studio.generation.resolution')}</span>
         <ResolutionSelector value={resolutionTier} onChange={setResolutionTier}
           aspectRatio={aspectPicker
             ? (STUDIO_ASPECTS.find((a) => a.key === aspect)?.ratio || 'square')
@@ -192,36 +194,36 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
           maxLongSide={family === 'sdxl' ? 1024 : undefined} />
         <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-0.5">
           {aspectPicker
-            ? 'Output size — the ratio above sets the proportions. Standard ≈ 1 MP.'
-            : 'Output size (the aspect axis sets the proportions). Standard ≈ 1 MP.'}
+            ? t('studio.generation.outputSizeWithRatio')
+            : t('studio.generation.outputSizeWithAxis')}
         </span>
       </StudioSection>
 
       {/* SAMPLING (krea) — sampler/scheduler (whitelist backend, '' = Auto). */}
       {isKrea && (
-        <StudioSection title="Sampling" storageKey={k('sec_sampling')} anchorId="st-sampling">
+        <StudioSection title={t('studio.generation.sampling')} storageKey={k('sec_sampling')} anchorId="st-sampling">
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted uppercase tracking-wide">
-              Sampler
+              {t('studio.generation.sampler')}
               <select
                 value={sampler}
                 onChange={(e) => setSampler(e.target.value)}
-                aria-label="Krea sampler"
+                aria-label={t('studio.generation.kreaSampler')}
                 className="w-full bg-app/60 border border-border rounded-md px-2 py-1.5 text-content text-[0.8125rem] focus:border-primary focus:outline-none normal-case tracking-normal"
               >
-                <option value="">Auto (er_sde)</option>
+                <option value="">{t('studio.generation.auto')} (er_sde)</option>
                 {kreaSamplers.map((s) => (<option key={s} value={s}>{s}</option>))}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted uppercase tracking-wide">
-              Scheduler
+              {t('studio.generation.scheduler')}
               <select
                 value={scheduler}
                 onChange={(e) => setScheduler(e.target.value)}
-                aria-label="Krea scheduler"
+                aria-label={t('studio.generation.kreaScheduler')}
                 className="w-full bg-app/60 border border-border rounded-md px-2 py-1.5 text-content text-[0.8125rem] focus:border-primary focus:outline-none normal-case tracking-normal"
               >
-                <option value="">Auto (simple)</option>
+                <option value="">{t('studio.generation.auto')} (simple)</option>
                 {kreaSchedulers.map((s) => (<option key={s} value={s}>{s}</option>))}
               </select>
             </label>
@@ -231,95 +233,95 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
 
       {/* DETAIL (sdxl) — intensité DetailDaemon (distincte du steps pass 2 = axe). */}
       {isSdxl && (
-        <StudioSection title="Detail" storageKey={k('sec_detail')} anchorId="st-detail">
+        <StudioSection title={t('studio.generation.detail')} storageKey={k('sec_detail')} anchorId="st-detail">
           <LockableSlider
-            label="Detail (Daemon intensity)"
+            label={t('studio.generation.detailIntensity')}
             value={detailAmount}
             min="0" max="1" step="0.01"
             storageKey={k('detail_lock')}
             onChange={(e) => setDetailAmount(parseFloat(e.target.value))}
           />
           <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
-            0.21 = SDXL default · ≤0.25 safe · ↑ more detail (HDR/grain risk)
+            {t('studio.generation.detailHint')}
           </span>
         </StudioSection>
       )}
 
       {/* ENGINE (krea) — rebalance + enhancer + precision + LoRA always-on. */}
       {isKrea && (
-        <StudioSection title="Engine" storageKey={k('sec_engine')} anchorId="st-engine">
+        <StudioSection title={t('studio.generation.engine')} storageKey={k('sec_engine')} anchorId="st-engine">
           {/* NSFW / texture rebalance (node 30). Miroir exact du mode Generate. */}
           <label className="flex items-center justify-between gap-2 text-[0.6875rem] text-content-muted uppercase tracking-wide cursor-pointer">
-            <span>NSFW / texture rebalance</span>
+            <span>{t('studio.generation.rebalance')}</span>
             <input
               type="checkbox"
               checked={rebalanceOn}
               onChange={(e) => setRebalanceOn(e.target.checked)}
-              aria-label="Krea conditioning rebalance (uncensor and skin texture)"
+              aria-label={t('studio.generation.rebalanceLabel')}
               className="accent-primary w-4 h-4"
             />
           </label>
           <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
-            Lifts the safety-filtered conditioning taps → uncensored output + less plastic skin. Off = pure SFW.
+            {t('studio.generation.rebalanceHint')}
           </span>
           {rebalanceOn && (
             <>
               <LockableSlider
-                label="Strength"
+                label={t('studio.generation.strength')}
                 value={rebalanceStrength}
                 min="1" max="8" step="0.5"
                 storageKey={k('rebalance_lock')}
                 onChange={(e) => setRebalanceStrength(parseFloat(e.target.value))}
               />
-              <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">4 = default · ↑ stronger effect</span>
+              <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">{t('studio.generation.rebalanceStrengthHint')}</span>
             </>
           )}
 
           {/* Krea2T Enhancer (patcher texte-adhérence, indépendant du rebalance). */}
           <div className="mt-2 pt-2 border-t border-white/10 flex flex-col gap-2.5">
             <label className="flex items-center justify-between gap-2 text-[0.6875rem] text-content-muted uppercase tracking-wide cursor-pointer">
-              <span>Krea2T Enhancer (NSFW adherence) · experimental</span>
+              <span>{t('studio.generation.enhancer')}</span>
               <input
                 type="checkbox"
                 checked={enhancerOn}
                 onChange={(e) => setEnhancerOn(e.target.checked)}
-                aria-label="Krea2T text-adherence enhancer (model-side patcher)"
+                aria-label={t('studio.generation.enhancerLabel')}
                 className="accent-primary w-4 h-4"
               />
             </label>
             <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
-              Model-side text-adherence patch (independent of rebalance). Off = workflow unchanged.
+              {t('studio.generation.enhancerHint')}
             </span>
             {enhancerOn && (
               <>
                 <LockableSlider
-                  label="Strength"
+                  label={t('studio.generation.strength')}
                   value={enhancerStrength}
                   min="0" max="2" step="0.1"
                   storageKey={k('enhancer_lock')}
                   onChange={(e) => setEnhancerStrength(parseFloat(e.target.value))}
                 />
-                <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">1.0 = default · 0–2 range</span>
+                <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">{t('studio.generation.enhancerStrengthHint')}</span>
               </>
             )}
 
             {/* Précision du loader (node 20 weight_dtype). */}
             <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted uppercase tracking-wide mt-1">
-              Precision
+              {t('studio.generation.precision')}
               <select
                 value={weightDtype}
                 onChange={(e) => setWeightDtype(e.target.value)}
-                aria-label="Krea loader precision (weight dtype)"
+                aria-label={t('studio.generation.precisionLabel')}
                 className="w-full bg-app/60 border border-border rounded-md px-2 py-1.5 text-content text-[0.8125rem] focus:border-primary focus:outline-none normal-case tracking-normal"
               >
-                <option value="default">bf16 (high precision)</option>
-                <option value="fp8_e4m3fn">Fast (fp8)</option>
-                <option value="fp8_e4m3fn_fast">Fast+ (fp8 fast)</option>
-                <option value="fp8_e5m2">fp8 e5m2 (wide range)</option>
+                <option value="default">bf16 ({t('studio.generation.highPrecision')})</option>
+                <option value="fp8_e4m3fn">{t('studio.generation.fast')} (fp8)</option>
+                <option value="fp8_e4m3fn_fast">{t('studio.generation.fastPlus')} (fp8 fast)</option>
+                <option value="fp8_e5m2">fp8 e5m2 ({t('studio.generation.wideRange')})</option>
               </select>
             </label>
             <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
-              Use bf16 if the Enhancer gives black images (fp8 overflow). Slower, same VRAM.
+              {t('studio.generation.precisionHint')}
             </span>
           </div>
 
@@ -331,8 +333,8 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
                 loras={permCandidates}
                 onChange={setPermStack}
                 storageKey={k('perm')}
-                label="Always-on LoRAs (every cell · ⚖ batch = tested as an axis)"
-                emptyHint="No always-on LoRA for this pipeline."
+                label={t('studio.generation.alwaysOn')}
+                emptyHint={t('studio.generation.noAlwaysOn')}
                 krea
                 batchToggle
               />
@@ -343,15 +345,15 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
 
       {/* NEGATIVE (zimage) — prompt négatif global du run. */}
       {isZ && (
-        <StudioSection title="Negative" storageKey={k('sec_negative')} defaultOpen={false} anchorId="st-negative">
+        <StudioSection title={t('studio.generation.negative')} storageKey={k('sec_negative')} defaultOpen={false} anchorId="st-negative">
           <label className="flex flex-col gap-1">
-            <span className="text-content-muted text-[0.625rem] uppercase">Negative prompt (optional)</span>
+            <span className="text-content-muted text-[0.625rem] uppercase">{t('studio.generation.negativeOptional')}</span>
             <textarea
               value={negative}
               onChange={(e) => setNegative(e.target.value)}
               rows={3}
-              placeholder="Leave empty for the pipeline default…"
-              aria-label="Negative prompt"
+              placeholder={t('studio.generation.negativePlaceholder')}
+              aria-label={t('studio.generation.negativePrompt')}
               className="rounded-lg border border-border bg-app/60 px-2.5 py-1.5 text-content text-sm resize-y min-h-[4rem]"
             />
           </label>

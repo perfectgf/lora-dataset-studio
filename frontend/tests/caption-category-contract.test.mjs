@@ -43,9 +43,9 @@ test('re-caption confirmation explains the correct category rule', () => {
   assert.match(recaptionConfirmation('style', 4), /style|aesthetic/i)
 })
 
-test('workspace forwards the dataset kind to caption tools and confirmation', () => {
+test('workspace forwards the dataset kind to caption tools and localized confirmation', () => {
   const workspace = readFileSync(
     new URL('../src/components/dataset/DatasetWorkspace.jsx', import.meta.url), 'utf8')
   assert.match(workspace, /<CaptionToolsBar[^>]*kind=\{d\.kind \|\| 'character'\}/s)
-  assert.match(workspace, /recaptionConfirmation\(d\.kind \|\| 'character'/)
+  assert.match(workspace, /workspace\.captions\.recaptionConfirm\.\$\{d\.kind \|\| 'character'\}/)
 })

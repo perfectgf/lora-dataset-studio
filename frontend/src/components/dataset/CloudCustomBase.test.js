@@ -34,5 +34,5 @@ test('custom weights no longer flat-block cloud for supported families', () => {
 
 test('arch sniff refusal stays confirmable from the push flow', () => {
   assert.match(panel, /CUSTOM_WEIGHTS_UNVERIFIED: /);
-  assert.match(panel, /Push anyway \(force\)\?/);
+  assert.match(panel, /workspace\.training\.dialogs\.pushForce/);
 });

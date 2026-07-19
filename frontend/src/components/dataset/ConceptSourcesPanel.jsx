@@ -27,6 +27,7 @@ import {
   resolveScanTarget,
   savePexelsAuthorization,
 } from './scraperSourceSearch';
+import { useI18n } from '../../i18n/I18nContext';
 
 const thumbFor = (it) =>
   `/api/scrape/thumb?url=${encodeURIComponent(it.thumbnail || it.url)}`;
@@ -50,18 +51,17 @@ const SOURCE_MODES = [
   ['url', 'URL'],
 ];
 
-const PEXELS_AUTH_ERROR = 'Confirm explicit Pexels authorization for dataset/ML use before scanning Pexels.';
-
 const PLATFORM_LABELS = {
   civitai: 'Civitai', instagram: 'Instagram', pexels: 'Pexels', pornpics: 'PornPics',
   reddit: 'Reddit', sexcom: 'Sex.com', x: 'X / Twitter', generic: 'URL source',
 };
 
-const platformLabel = (platform) => PLATFORM_LABELS[platform]
-  || (platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : 'source');
+const platformLabel = (platform, fallback) => PLATFORM_LABELS[platform]
+  || (platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : fallback);
 
 export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
   const toast = useToast();
+  const { t } = useI18n();
   const { caps, refresh } = useCapabilities();
   const [restoredScan] = useState(() => loadScraperScanState(datasetId));
   const [sourceMode, setSourceMode] = useState(restoredScan.sourceMode);
@@ -117,14 +117,14 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
     if (!target || scanning) return;
     if (isPexelsUrl(target) && !pexelsAuthorized) {
       setSourceMode('pexels');
-      toast.error(PEXELS_AUTH_ERROR);
+      toast.error(t('workspace.scrape.pexels.authError'));
       return;
     }
     setScanning(true);
     try {
       const body = await postJson('/api/scrape/scan',
         { url: target, page: nextPage, include_albums: fullAlbums });
-      if (!body || !body.scannable) { toast.error((body && body.error) || 'Could not scan this URL.'); return; }
+      if (!body || !body.scannable) { toast.error((body && body.error) || t('workspace.scrape.toast.scanFailed')); return; }
       // Images only (the dataset import rejects video/gif anyway).
       const imgs = (body.items || []).filter((it) => it.type === 'image');
       const responsePage = body.page;
@@ -146,11 +146,11 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
         setActivePlatform(typeof body.platform === 'string' ? body.platform : '');
         setSelected(new Set()); setBroken(new Set());
       }  // fresh scan resets; "Load more" keeps it
-      if (imgs.length === 0 && isFreshScan) toast.info('No images found on this page.');
+      if (imgs.length === 0 && isFreshScan) toast.info(t('workspace.scrape.toast.noImages'));
     } finally {
       setScanning(false);
     }
-  }, [url, activeScanUrl, scanning, fullAlbums, pexelsAuthorized, toast]);
+  }, [url, activeScanUrl, scanning, fullAlbums, pexelsAuthorized, toast, t]);
 
   // Reddit search, three modes depending on which field is filled:
   //   keyword only          → search all of Reddit for the term
@@ -177,13 +177,13 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
 
   const runPexelsSearch = useCallback(() => {
     if (scanning) return;
-    if (!pexelsAuthorized) { toast.error(PEXELS_AUTH_ERROR); return; }
+    if (!pexelsAuthorized) { toast.error(t('workspace.scrape.pexels.authError')); return; }
     const built = buildPexelsSearchUrl(
       pexelsKeyword, pexelsLocale, pexelsOrientation);
     if (!built) return;
     runScan(0, built);
   }, [pexelsKeyword, pexelsLocale, pexelsOrientation,
-    pexelsAuthorized, scanning, runScan, toast]);
+    pexelsAuthorized, scanning, runScan, toast, t]);
 
   const changePexelsAuthorization = (confirmed) => {
     setPexelsAuthorized(confirmed);
@@ -241,14 +241,14 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
   return (
     <section className="bg-surface rounded-xl border border-border p-3 flex flex-col gap-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <h2 className="text-content font-semibold text-sm">🕷️ Build from scraped images</h2>
+        <h2 className="text-content font-semibold text-sm">🕷️ {t('workspace.scrape.title')}</h2>
         <span className="text-content-subtle text-[0.6875rem]"
-          title="Research-backed: 20-50 curated images beat hundreds of mixed ones; keep at most ~10 per gallery (one gallery ≈ one shoot).">
-          aim for 20-50 varied images
+          title={t('workspace.scrape.targetTitle')}>
+          {t('workspace.scrape.target')}
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Compatible scraper sites">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-label={t('workspace.scrape.compatibleSites')}>
         {SOURCE_GROUPS.map((group) => (
           <div key={group.label}
             className={`rounded-lg border px-2.5 py-2 ${group.tone === 'emerald'
@@ -274,17 +274,15 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
       {caps.scrape_deps === false && (
         <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-2 flex flex-col gap-1.5">
           <p className="text-amber-200 text-[0.6875rem]">
-            ⚠ The optional scraper packages are not installed (curl_cffi, gallery-dl,
-            cloudscraper…). Install them for image previews and imports. Pexels uses
-            its official API for listing, but still needs curl_cffi to fetch images.
+            {t('workspace.scrape.dependencies.missing')}
           </p>
-          <InstallRunner action="scrape_extras" buttonLabel="⬇ Install scraper extras"
+          <InstallRunner action="scrape_extras" buttonLabel={`⬇ ${t('workspace.scrape.dependencies.install')}`}
             onDone={() => refresh(true)} />
         </div>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="Scraper source"
+        <div role="group" aria-label={t('workspace.scrape.source')}
           className="inline-flex rounded-lg border border-border bg-surface-raised p-0.5">
           {SOURCE_MODES.map(([mode, label]) => (
             <button key={mode} type="button"
@@ -300,44 +298,41 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
         </div>
         <button type="button" onClick={handleImport} disabled={busy || importing || selected.size === 0}
           className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-          {importing ? 'Importing…' : `⬇ Import ${selected.size || ''}`}
+          {importing ? t('workspace.scrape.importing') : `⬇ ${t('workspace.scrape.import')} ${selected.size || ''}`}
         </button>
       </div>
 
       {sourceMode === 'reddit' && (
         <div className="rounded-lg border border-border bg-white/5 px-2 py-2 flex flex-col gap-1.5">
           <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1">
-            <span aria-hidden>🔎</span> Search Reddit
+            <span aria-hidden>🔎</span> {t('workspace.scrape.reddit.title')}
           </span>
           <div className="flex flex-wrap items-center gap-2">
             <input
               value={kw} onChange={(e) => setKw(e.target.value)}
-              aria-label="Reddit search keyword"
+              aria-label={t('workspace.scrape.reddit.keywordLabel')}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
-              placeholder="keyword — what to look for (e.g. film portrait)"
-              title="The term to search for across Reddit. Leave empty to browse a subreddit's top posts."
+              placeholder={t('workspace.scrape.reddit.keywordPlaceholder')}
+              title={t('workspace.scrape.reddit.keywordTitle')}
               className="flex-[2] min-w-[9rem] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
             />
-            <span className="text-content-subtle text-sm shrink-0">in r/</span>
+            <span className="text-content-subtle text-sm shrink-0">{t('workspace.scrape.reddit.inCommunity')} r/</span>
             <input
               value={sub} onChange={(e) => setSub(e.target.value)}
-              aria-label="Subreddit (optional)"
+              aria-label={t('workspace.scrape.reddit.communityLabel')}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runRedditSearch(); } }}
-              placeholder="community, e.g. analog (optional)"
-              title="A subreddit name (community). Restricts the search to it — cleaner results. This is also how you reach NSFW communities."
+              placeholder={t('workspace.scrape.reddit.communityPlaceholder')}
+              title={t('workspace.scrape.reddit.communityTitle')}
               className="flex-[1] min-w-[7rem] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none"
             />
             <button type="button" onClick={runRedditSearch}
               disabled={scanning || (!kw.trim() && !sub.trim())}
               className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40 shrink-0">
-              {scanning ? 'Searching…' : 'Search Reddit'}
+              {scanning ? t('workspace.scrape.searching') : t('workspace.scrape.reddit.search')}
             </button>
           </div>
           <p className="text-content-muted text-[0.6875rem] leading-relaxed">
-            <b className="text-content-subtle">Keyword</b> searches all of Reddit for a term.
-            Add a <b className="text-content-subtle">subreddit</b> (the part after
-            <code className="px-1 text-content-subtle">r/</code>) to search inside one community.
-            Subreddit alone browses that community&apos;s top posts.
+            {t('workspace.scrape.reddit.help')}
           </p>
         </div>
       )}
@@ -346,47 +341,48 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
         <div className="rounded-lg border border-border bg-white/5 px-2.5 py-2 flex flex-col gap-2">
           <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-2 text-[0.6875rem] leading-relaxed text-amber-100">
             <p>
-              <b>Pexels authorization required.</b> An API key alone does not authorize
-              dataset or machine-learning use. Search only if Pexels explicitly authorized
-              your use case.{' '}
+              <b>{t('workspace.scrape.pexels.authorizationTitle')}</b>{' '}
+              {t('workspace.scrape.pexels.authorizationBody')}{' '}
               <a href="https://help.pexels.com/hc/en-us/articles/900005880463-What-are-the-Terms-and-Conditions"
                 target="_blank" rel="noreferrer"
                 className="font-semibold underline underline-offset-2 hover:text-white">
-                Read the official terms ↗
+                {t('workspace.scrape.pexels.terms')} ↗
               </a>
             </p>
             <label className="mt-1.5 flex cursor-pointer items-start gap-2 font-semibold text-amber-50">
               <input type="checkbox" checked={pexelsAuthorized}
                 onChange={(e) => changePexelsAuthorization(e.target.checked)}
                 className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-300 accent-amber-500" />
-              <span>I confirm I have explicit Pexels authorization for dataset/ML use.</span>
+              <span>{t('workspace.scrape.pexels.confirm')}</span>
             </label>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input value={pexelsKeyword} onChange={(e) => setPexelsKeyword(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); runPexelsSearch(); } }}
-              placeholder="keyword — e.g. cinematic portrait"
-              aria-label="Pexels search keyword"
+              placeholder={t('workspace.scrape.pexels.keywordPlaceholder')}
+              aria-label={t('workspace.scrape.pexels.keywordLabel')}
               className="min-w-[12rem] flex-[2] px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none" />
             <select value={pexelsLocale} onChange={(e) => setPexelsLocale(e.target.value)}
-              aria-label="Pexels search language"
+              aria-label={t('workspace.scrape.pexels.language')}
               className="px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm focus:border-indigo-500 outline-none">
               <option value="fr-FR">Français (fr-FR)</option>
               <option value="en-US">English (en-US)</option>
             </select>
             <select value={pexelsOrientation} onChange={(e) => setPexelsOrientation(e.target.value)}
-              aria-label="Pexels image orientation"
+              aria-label={t('workspace.scrape.pexels.orientation')}
               className="px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm focus:border-indigo-500 outline-none">
-              <option value="">Any orientation</option>
-              <option value="portrait">Portrait</option>
-              <option value="landscape">Landscape</option>
-              <option value="square">Square</option>
+              <option value="">{t('workspace.scrape.pexels.anyOrientation')}</option>
+              <option value="portrait">{t('workspace.scrape.pexels.portrait')}</option>
+              <option value="landscape">{t('workspace.scrape.pexels.landscape')}</option>
+              <option value="square">{t('workspace.scrape.pexels.square')}</option>
             </select>
             <button type="button" onClick={runPexelsSearch}
               disabled={scanning || !pexelsAuthorized || !normalizePexelsKeyword(pexelsKeyword)}
-              title={pexelsAuthorized ? 'Search the official Pexels API' : 'Confirm explicit Pexels authorization first'}
+              title={pexelsAuthorized
+                ? t('workspace.scrape.pexels.searchTitle')
+                : t('workspace.scrape.pexels.confirmFirst')}
               className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40 shrink-0">
-              {scanning ? 'Searching…' : 'Search Pexels'}
+              {scanning ? t('workspace.scrape.searching') : t('workspace.scrape.pexels.search')}
             </button>
           </div>
         </div>
@@ -397,26 +393,25 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
           <form className="flex flex-wrap gap-2"
             onSubmit={(e) => { e.preventDefault(); runScan(0); }}>
             <input type="url" value={url} onChange={(e) => setUrl(e.target.value)}
-              aria-label="Gallery or media URL"
-              placeholder="Gallery, album, collection or direct photo URL"
+              aria-label={t('workspace.scrape.url.label')}
+              placeholder={t('workspace.scrape.url.placeholder')}
               className="flex-1 min-w-[14rem] px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm placeholder:text-content-subtle focus:border-indigo-500 outline-none" />
             <button type="submit" disabled={scanning || !url.trim()}
               className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm hover:bg-white/10 disabled:opacity-40">
-              {scanning ? 'Scanning…' : 'Scan URL'}
+              {scanning ? t('workspace.scrape.url.scanning') : t('workspace.scrape.url.scan')}
             </button>
             <HelpBadge topic="action-scrape-scan" className="self-center" />
           </form>
           <p className="text-content-muted text-[0.6875rem] leading-relaxed">
-            Use this for supported galleries and albums, or direct Pexels photos and collections.
-            Normal Pexels keyword searches belong in the Pexels tab.
+            {t('workspace.scrape.url.help')}
           </p>
           {/pornpics\.com/i.test(url) && !/\/galleries\//i.test(url) && (
             <label className="flex items-center gap-2 text-[0.6875rem] text-content-muted cursor-pointer"
-              title="Off: one listing cover per gallery. On: every photo from each matched gallery.">
+              title={t('workspace.scrape.url.fullAlbumsTitle')}>
               <input type="checkbox" checked={fullAlbums}
                 onChange={(e) => setFullAlbums(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-border-strong accent-indigo-500" />
-              Scan full albums — off = one cover per gallery, on = every photo of each
+              {t('workspace.scrape.url.fullAlbums')}
             </label>
           )}
         </div>
@@ -433,12 +428,11 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
           className="mt-0.5 h-4 w-4 shrink-0 rounded border-border-strong accent-indigo-500" />
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="font-semibold text-content">
-            Rescue images under 768 px with Klein (generative)
+            {t('workspace.scrape.rescue.title')}
           </span>
           <span className="text-[0.6875rem] leading-relaxed text-content-subtle">
-            Off by default. Only small images are sent to Klein. The original is preserved,
-            and neither version enters training until you choose one in Curation.
-            {caps.engines?.klein === false ? ' Klein is not ready in this setup.' : ''}
+            {t('workspace.scrape.rescue.description')}
+            {caps.engines?.klein === false ? ` ${t('workspace.scrape.rescue.notReady')}` : ''}
           </span>
         </span>
       </label>
@@ -453,45 +447,49 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
           <div className="flex items-center gap-2 text-[0.6875rem] text-content-subtle flex-wrap">
             <span className="rounded-full border border-border bg-surface-raised px-2 py-0.5 font-semibold text-content"
               title={activeScanUrl || undefined}>
-              Results from {platformLabel(activePlatform)}
+              {t('workspace.scrape.results.from', {
+                source: platformLabel(activePlatform, t('workspace.scrape.results.source')),
+              })}
             </span>
             <button type="button" onClick={() => setSelected(new Set(liveItems.map((it) => it.url)))}
-              title="Selects all live (loaded) images"
+              title={t('workspace.scrape.results.selectAllTitle')}
               className="px-2 py-0.5 rounded border border-border hover:text-content">
-              Select all ({liveItems.length})
+              {t('workspace.scrape.results.selectAll', { count: liveItems.length })}
             </button>
             {deadCount > 0 && (
-              <span title="Images whose source link is dead/expired — hidden from the grid.">
-                🚫 {deadCount} dead hidden
+              <span title={t('workspace.scrape.results.deadTitle')}>
+                🚫 {t('workspace.scrape.results.deadHidden', { count: deadCount })}
               </span>
             )}
             {selected.size > 0 && (
               <button type="button" onClick={() => setSelected(new Set())}
                 className="px-2 py-0.5 rounded border border-border hover:text-content">
-                Clear
+                {t('workspace.scrape.results.clear')}
               </button>
             )}
-            <label className="flex items-center gap-1.5" title="Preview size — enlarge to judge images faster">
+            <label className="flex items-center gap-1.5" title={t('workspace.scrape.results.previewTitle')}>
               <span aria-hidden>🔍</span>
               <input type="range" min="72" max="300" step="4" value={tile}
                 onChange={(e) => changeTile(Number(e.target.value))}
-                aria-label="Preview size"
+                aria-label={t('workspace.scrape.results.previewLabel')}
                 className="w-24 sm:w-32 accent-indigo-500 cursor-pointer" />
             </label>
             <button type="button" onClick={resetScan} disabled={scanning || importing}
               className="px-2 py-0.5 rounded border border-border hover:text-content disabled:opacity-40">
-              Reset scan
+              {t('workspace.scrape.results.reset')}
             </button>
             <span className="ml-auto">
-              Filters at import: duplicates, {rescueSmall ? 'Klein review for' : 'skip'} short side &lt; 768px, ratio &gt; 3:1
+              {t(rescueSmall
+                ? 'workspace.scrape.results.filtersReview'
+                : 'workspace.scrape.results.filtersSkip')}
             </span>
           </div>
 
           {hasPexels && (
             <a href="https://www.pexels.com/" target="_blank" rel="noreferrer"
-              title="Open Pexels"
+              title={t('workspace.scrape.results.openPexels')}
               className="self-start text-xs font-medium text-content-muted underline decoration-white/20 underline-offset-2 hover:text-content">
-              Photos provided by Pexels
+              {t('workspace.scrape.results.providedBy')}
             </a>
           )}
 
@@ -501,12 +499,15 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
               const on = selected.has(it.url);
               const imageLabel = it.title
                 || (it.platform === 'pexels' && it.photographer
-                  ? `Pexels photo by ${it.photographer}` : 'scraped image');
+                  ? t('workspace.scrape.results.pexelsPhotoBy', { photographer: it.photographer })
+                  : t('workspace.scrape.results.scrapedImage'));
               return (
                 <div key={it.url} className="min-w-0">
                   <button type="button" onClick={() => toggle(it.url)}
                     aria-pressed={on}
-                    aria-label={`${on ? 'Deselect' : 'Select'} ${imageLabel}`}
+                    aria-label={`${t(on
+                      ? 'workspace.scrape.results.deselect'
+                      : 'workspace.scrape.results.select')} ${imageLabel}`}
                     title={imageLabel}
                     className={`relative aspect-square w-full rounded-lg overflow-hidden border-2 transition-all
                       ${on ? 'border-indigo-400' : 'border-transparent hover:border-border-strong'}`}>
@@ -528,7 +529,9 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
           {paginated && (
             <button type="button" onClick={() => runScan(page + 1)} disabled={scanning}
               className="self-start px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-xs disabled:opacity-40">
-              {scanning ? 'Loading…' : 'Load more images'}
+              {scanning
+                ? t('workspace.scrape.results.loading')
+                : t('workspace.scrape.results.loadMore')}
             </button>
           )}
         </>

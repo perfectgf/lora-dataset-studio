@@ -1968,6 +1968,19 @@ def dataset_payload(user_id, dataset_id):
         return None
     imgs = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id)
             .order_by(FaceDatasetImage.id.desc()).all())
+    # Self-heal a Klein activity whose final completion callback was interrupted
+    # after its row had already left ``pending``.  The payload is polled while a
+    # batch is visible, so reconciling it here prevents a stale "9/10" indicator
+    # from keeping Generate disabled forever after a ComfyUI failure/restart.
+    activity = dataset_activity.get(dataset_id)
+    if (activity and activity.get('kind') == 'generate'
+            and activity.get('engine') == 'klein'):
+        klein_pending = sum(
+            1 for i in imgs
+            if i.status == 'pending' and not i.filename and i.job_id)
+        dataset_activity.sync_pending(
+            dataset_id, 'generate', klein_pending, engine='klein')
+        activity = dataset_activity.get(dataset_id)
     comp = {'face': 0, 'bust': 0, 'body': 0, 'back': 0}
     # Combien, PAR bucket, sont des crops fortement agrandis (upscale_ratio >=
     # UPSCALE_WARN_THRESHOLD) plutôt que du natif : le compte `comp` seul traite un
@@ -2070,7 +2083,7 @@ def dataset_payload(user_id, dataset_id):
         # React-local before, so a refresh mid-batch dropped it). In-memory registry:
         # empty after a server restart, so a batch killed with the process leaves no
         # phantom indicator.
-        'activity': dataset_activity.get(dataset_id),
+        'activity': activity,
     }
 
 
@@ -4690,7 +4703,8 @@ def generate_variations_nanobanana(app, user_id, dataset_id, variations, multipl
 
 
 # --- Completion linking (called from the job queue) -------------------------
-def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
+def link_completed_dataset_image(job_id, filename, failed=False, reason=None,
+                                 cancelled=False):
     """Attach a finished fan-out job to its FaceDatasetImage row.
 
     Called from the job-queue completion/failure/cancel paths, which may run in
@@ -4767,12 +4781,31 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
                 img.fail_reason = ('The finished image could not be retrieved from ComfyUI '
                                    '(not on disk, and the /view API fetch failed).')
                 logger.warning(f"dataset link: file not on disk and /view API fetch failed (job {job_id})")
+    dataset_id = img.dataset_id
+    # A real ComfyUI error means the rest of this local batch is very likely to
+    # fail for the same workflow/model reason.  Preserve this failed tile (and
+    # its actionable reason), then stop/delete every remaining in-flight row so
+    # the single-GPU queue does not repeat the same error N more times.  Manual
+    # cancellation callbacks are excluded to avoid recursively cancelling a
+    # batch that is already being stopped.
+    fail_fast = bool(failed and not cancelled
+                     and img.derivation_kind is None
+                     and img.source == 'generated')
     db.session.commit()
+    if fail_fast:
+        ds = db.session.get(FaceDataset, dataset_id)
+        if ds is not None:
+            cancelled_count = cancel_pending(ds.user_id, dataset_id)
+            if cancelled_count:
+                logger.warning(
+                    'dataset link: ComfyUI failure on job %s stopped %d remaining '
+                    'generation(s): %s', job_id, cancelled_count,
+                    reason or img.fail_reason)
     # This job just left the in-flight set: reconcile the Klein 'generate'
     # indicator (clears it when this was the last job of the batch). Guarded — a
     # bookkeeping hiccup must never break completion linking; the TTL is the net.
     try:
-        _sync_generate_activity(img.dataset_id)
+        _sync_generate_activity(dataset_id)
     except Exception:
         logger.exception(f"dataset link: generate-activity sync failed for job {job_id}")
 

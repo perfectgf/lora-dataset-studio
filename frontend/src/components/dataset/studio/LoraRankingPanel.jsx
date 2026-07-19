@@ -8,9 +8,11 @@
  * le delta net porte un signe explicite (+/−).
  */
 import { useState } from 'react';
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function LoraRankingPanel({ ranking }) {
   const [open, setOpen] = useState(true);
+  const { t } = useI18n();
   if (!Array.isArray(ranking) || ranking.length === 0) return null;
 
   return (
@@ -18,7 +20,7 @@ export default function LoraRankingPanel({ ranking }) {
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
         className="flex items-center gap-2 text-left text-content-muted text-[0.625rem] uppercase">
         <span aria-hidden>{open ? '▾' : '▸'}</span>
-        🏆 LoRA Ranking ({ranking.length})
+        🏆 {t('studio.ranking.title', { count: ranking.length })}
       </button>
       {open && (
         <ol className="flex flex-col gap-1 m-0 p-0 list-none">
@@ -27,17 +29,17 @@ export default function LoraRankingPanel({ ranking }) {
             return (
               <li key={r.dataset_id}
                 className="flex items-center gap-2 flex-wrap text-[0.6875rem] rounded px-1.5 py-1 bg-app/30">
-                <span className="text-content-subtle tabular-nums w-5 text-right" aria-label={`Rank ${i + 1}`}>#{i + 1}</span>
+                <span className="text-content-subtle tabular-nums w-5 text-right" aria-label={t('studio.ranking.rank', { rank: i + 1 })}>#{i + 1}</span>
                 <span className="text-content font-medium truncate max-w-[160px]" title={`${r.lora_label} — ${r.dataset_name || ''}`}>
                   {r.lora_label}
                 </span>
-                <span className="text-green-300 tabular-nums" aria-label={`${r.likes || 0} likes`}>👍 {r.likes || 0}</span>
-                <span className="text-red-300 tabular-nums" aria-label={`${r.dislikes || 0} dislikes`}>👎 {r.dislikes || 0}</span>
-                <span className="text-content-subtle tabular-nums" title="Likes minus dislikes">
-                  net {net > 0 ? `+${net}` : net}
+                <span className="text-green-300 tabular-nums" aria-label={t('studio.ranking.likes', { count: r.likes || 0 })}>👍 {r.likes || 0}</span>
+                <span className="text-red-300 tabular-nums" aria-label={t('studio.ranking.dislikes', { count: r.dislikes || 0 })}>👎 {r.dislikes || 0}</span>
+                <span className="text-content-subtle tabular-nums" title={t('studio.ranking.netTitle')}>
+                  {t('studio.ranking.net')} {net > 0 ? `+${net}` : net}
                 </span>
                 {r.wilson != null && (
-                  <span className="ml-auto text-content-muted tabular-nums" title="Confidence score (Wilson lower bound)">
+                  <span className="ml-auto text-content-muted tabular-nums" title={t('studio.ranking.confidence')}>
                     {Math.round(r.wilson * 100)}%
                   </span>
                 )}

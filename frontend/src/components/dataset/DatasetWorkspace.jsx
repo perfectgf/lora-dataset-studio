@@ -36,6 +36,7 @@ import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET } from './workspaceSections';
 import { putJson } from '../../api/fetchClient';
 import { HelpBadge } from '../../help/HelpMode';
 import { requestHelpTip } from '../../help/helpTips';
+import { useI18n } from '../../i18n/I18nContext';
 import {
   PANEL_STATUS,
   getWorkspacePanel,
@@ -85,36 +86,37 @@ function NavBadge({ badge }) {
    "showing N of M" count, and a one-click "clear all". Session-only state lives
    in the parent workspace (transient view, not persisted). */
 function GridFilterBar({ excludes, includes, shown, total, onRemoveExclude, onRemoveInclude, onClearAll }) {
+  const { t } = useI18n();
   return (
     <div role="status"
       className="flex items-center gap-2 flex-wrap rounded-lg border-2 border-amber-400/50 bg-amber-400/10 px-3 py-2">
-      <span className="text-amber-200 text-sm font-semibold shrink-0">🔎 Filtered view</span>
+      <span className="text-amber-200 text-sm font-semibold shrink-0">🔎 {t('workspace.filters.title')}</span>
       <span className="text-content-muted text-xs tabular-nums shrink-0">
-        showing {shown} of {total}
+        {t('workspace.filters.showing', { shown, total })}
       </span>
       <div className="flex items-center gap-1.5 flex-wrap">
-        {excludes.map((t) => (
-          <span key={`x-${t}`}
+        {excludes.map((tag) => (
+          <span key={`x-${tag}`}
             className="inline-flex items-center gap-1 rounded-full border border-rose-400/50 bg-rose-500/15 pl-2 pr-1 py-0.5 text-[0.6875rem] text-rose-200">
-            <span aria-hidden>⊘</span> {t}
-            <button type="button" onClick={() => onRemoveExclude(t)}
-              aria-label={`Stop hiding images tagged ${t}`}
+            <span aria-hidden>⊘</span> {tag}
+            <button type="button" onClick={() => onRemoveExclude(tag)}
+              aria-label={t('workspace.filters.stopHiding', { tag })}
               className="w-4 h-4 grid place-items-center rounded-full hover:bg-rose-500/30">✕</button>
           </span>
         ))}
-        {includes.map((t) => (
-          <span key={`i-${t}`}
+        {includes.map((tag) => (
+          <span key={`i-${tag}`}
             className="inline-flex items-center gap-1 rounded-full border border-indigo-400/50 bg-indigo-500/15 pl-2 pr-1 py-0.5 text-[0.6875rem] text-indigo-200">
-            <span aria-hidden>◉</span> only {t}
-            <button type="button" onClick={() => onRemoveInclude(t)}
-              aria-label={`Stop isolating images tagged ${t}`}
+            <span aria-hidden>◉</span> {t('workspace.filters.only', { tag })}
+            <button type="button" onClick={() => onRemoveInclude(tag)}
+              aria-label={t('workspace.filters.stopIsolating', { tag })}
               className="w-4 h-4 grid place-items-center rounded-full hover:bg-indigo-500/30">✕</button>
           </span>
         ))}
       </div>
       <button type="button" onClick={onClearAll}
         className="ml-auto shrink-0 text-content-muted underline hover:text-content text-xs">
-        clear all
+        {t('workspace.filters.clearAll')}
       </button>
     </div>
   );
@@ -123,6 +125,7 @@ function GridFilterBar({ excludes, includes, shown, total, onRemoveExclude, onRe
 export default function DatasetWorkspace({ ds, onBack }) {
   const navigate = useNavigate();
   const toast = useToast();
+  const { t } = useI18n();
   const { caps, refresh: refreshCaps } = useCapabilities();
   const d = ds.data;
   const [cropImg, setCropImg] = useState(null);
@@ -164,11 +167,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
       await putJson('/api/settings', { config: { watermark: { allow_crop: Boolean(value) } } });
       await refreshCaps(true);
     } catch {
-      toast.error('Could not save the auto-crop preference');
+      toast.error(t('workspace.toast.autoCropSaveFailed'));
     } finally {
       setSavingAllowCrop(false);
     }
-  }, [refreshCaps, toast]);
+  }, [refreshCaps, t, toast]);
   const navImages = d?.images || EMPTY_IMAGES;
   const navContext = useMemo(() => ({
     kind: d?.kind || 'character',
@@ -369,7 +372,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   useEffect(() => { if (leakingCount >= 1) requestHelpTip('leak-panel-visible'); }, [leakingCount]);
   useEffect(() => { if (settingsOpen) requestHelpTip('dataset-settings-open'); }, [settingsOpen]);
 
-  if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
+  if (!d) return <p className="text-content-subtle text-sm">{t('common.loading')}</p>;
 
   const images = d.images || [];
   const rescuePairs = buildSmallImageRescuePairs(images);
@@ -469,10 +472,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
     jumpTo(nextStep);
   };
   const nextActionLabel = !nextStep ? '' : {
-    reference: '📸 Go to reference', generate: '⚡ Go to generation', curate: '🖼️ Review the grid',
-    caption: '✨ Caption the kept ones',
-    finish: caps.training_visible ? '🎓 Go to training' : `⬇ Export ZIP (${kept})`,
-    studio: '🎛️ Open Studio',
+    reference: `📸 ${t('workspace.next.reference')}`,
+    generate: `⚡ ${t('workspace.next.generate')}`,
+    curate: `🖼️ ${t('workspace.next.curate')}`,
+    caption: `✨ ${t('workspace.next.caption')}`,
+    finish: caps.training_visible
+      ? `🎓 ${t('workspace.next.training')}`
+      : `⬇ ${t('workspace.actions.exportZip')} (${kept})`,
+    studio: `🎛️ ${t('workspace.next.studio')}`,
   }[nextStep.id];
   // Keep the inspected image in sync with poll refreshes (label/status updates).
   const viewImgLive = viewImg ? {
@@ -499,13 +506,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Guard-rails: untriaged images are silently EXCLUDED from the zip. Style
   // captions are mandatory and have no trigger-only fallback.
   const exportZipGuarded = () => {
-    if (triage && !window.confirm(`${triage} image(s) still await triage (✓/✕) and will NOT be in the ZIP. Export anyway?`)) return;
+    if (triage && !window.confirm(t('workspace.confirm.exportWithTriage', { count: triage }))) return;
     if (isStyle && keptUncaptioned) {
-      toast.error(`Style training needs a content-only caption for every kept image — ${keptUncaptioned} still missing.`);
+      toast.error(t('workspace.toast.styleCaptionsMissing', { count: keptUncaptioned }));
       jumpTo({ targetId: 'gf-captions' });
       return;
     }
-    if (keptUncaptioned && !window.confirm(`${keptUncaptioned} kept image(s) without a caption (trigger only). Export anyway?`)) return;
+    if (keptUncaptioned && !window.confirm(t('workspace.confirm.exportWithoutCaptions', {
+      count: keptUncaptioned,
+    }))) return;
     ds.exportZip();
   };
   // The folder lives on the machine running the app, so a browser file-picker
@@ -533,7 +542,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const visionImportBusy = act?.kind === 'generate'
     && !['nanobanana', 'chatgpt'].includes(String(act?.engine || '').toLowerCase());
   const activityBanner = ds.captioning
-    ? `${act?.detail || `Captioning in progress — ${keptCaptioned}/${kept} captioned…`} ComfyUI is paused.`
+    ? `${act?.detail || t('workspace.activity.captioningProgress', {
+      done: keptCaptioned,
+      total: kept,
+    })} ${t('workspace.activity.comfyPaused')}`
     : (() => {
         if (act) {
           const prog = act.total ? ` ${act.done}/${act.total}` : '';
@@ -544,39 +556,46 @@ export default function DatasetWorkspace({ ds, onBack }) {
             || (act.kind === 'watermark_clean' && !String(act.detail || '').includes('GPU'))
             || act.kind === 'generate';
           const label = {
-            watermark_detect: `Scanning for watermarks…${prog}`,
-            watermark_clean: `Cleaning watermarks…${prog}`,
-            caption: `Captioning…${prog}`,
-            recaption: `Re-captioning…${prog}`,
-            analyze_faces: `Analyzing faces…${prog}`,
-            classify: `Classifying framing…${prog}`,
-            generate: `Generating variations…${prog}`,
+            watermark_detect: `${t('workspace.activity.watermarkDetect')}${prog}`,
+            watermark_clean: `${t('workspace.activity.watermarkClean')}${prog}`,
+            caption: `${t('workspace.activity.caption')}${prog}`,
+            recaption: `${t('workspace.activity.recaption')}${prog}`,
+            analyze_faces: `${t('workspace.activity.faceAnalysis')}${prog}`,
+            classify: `${t('workspace.activity.classify')}${prog}`,
+            generate: `${t('workspace.activity.generate')}${prog}`,
           }[act.kind];
           if (label) {
             const detailed = act.detail || label;
-            return `${detailed}${cpu ? '' : ' ComfyUI is paused during the pass.'}`;
+            return `${detailed}${cpu ? '' : ` ${t('workspace.activity.comfyPausedDuringPass')}`}`;
           }
         }
-        return 'GPU processing in progress (analysis / cropping / captioning)… ComfyUI is paused during the pass.';
+        return t('workspace.activity.gpuProcessing');
       })();
 
   // ── Sidebar : pastilles par section — ambre quand une action attend l'utilisateur,
   //    indigo pulsé quand des générations tournent, neutre pour l'info « à faire ».
   const navBadges = {
     images: triage > 0
-      ? { n: triage, tone: 'amber', srLabel: `${triage} image(s) awaiting keep/reject` } : null,
+      ? { n: triage, tone: 'amber', srLabel: t('workspace.badges.awaitingTriage', { count: triage }) } : null,
     add: pending > 0
-      ? { n: pending, tone: 'indigo', pulse: true, srLabel: `${pending} generation(s) in progress` } : null,
+      ? { n: pending, tone: 'indigo', pulse: true, srLabel: t('workspace.badges.generating', { count: pending }) } : null,
     curation: watermarkDetected + rescueReviewCount > 0
       ? {
           n: watermarkDetected + rescueReviewCount,
           tone: 'amber',
-          srLabel: `${watermarkDetected} watermark(s) and ${rescueReviewCount} Klein rescue pair(s) to review`,
+          srLabel: t('workspace.badges.curation', {
+            watermarks: watermarkDetected,
+            rescues: rescueReviewCount,
+          }),
         } : null,
     captions: (!isStyle && (d.caption_leak?.leaking ?? 0) > 0)
-      ? { n: d.caption_leak.leaking, tone: 'amber', srLabel: `${d.caption_leak.leaking} caption(s) leaking` }
+      ? { n: d.caption_leak.leaking, tone: 'amber', srLabel: t('workspace.badges.leaking', {
+        count: d.caption_leak.leaking,
+      }) }
       : keptUncaptioned > 0
-        ? { n: keptUncaptioned, tone: 'subtle', srLabel: `${keptUncaptioned} kept image(s) without a caption` } : null,
+        ? { n: keptUncaptioned, tone: 'subtle', srLabel: t('workspace.badges.uncaptioned', {
+          count: keptUncaptioned,
+        }) } : null,
     export: null,
     training: null,
   };
@@ -603,7 +622,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         {!chip && isActive && (
           <span aria-hidden className="absolute bottom-1.5 left-4 top-1.5 w-px rounded bg-indigo-400" />
         )}
-        {destination.title}
+        {t(`workspace.sections.${sectionId}.panels.${destination.id}`)}
       </button>
     );
   };
@@ -630,7 +649,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <span aria-hidden className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded bg-gradient-primary" />
         )}
         <span aria-hidden>{s.icon}</span>
-        <span>{s.title}</span>
+        <span>{t(`workspace.sections.${s.id}.title`)}</span>
         <NavBadge badge={navBadges[s.id]} />
         {!chip && <span aria-hidden className="text-content-subtle text-[0.625rem]">{isActive ? '▾' : '▸'}</span>}
       </button>
@@ -640,11 +659,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const sectionMeta = Object.fromEntries(WORKSPACE_SECTIONS.map((s) => [s.id, s]));
   const heading = (id) => {
     const s = sectionMeta[id];
-    return <SectionHeading id={`ds-section-${id}-heading`} eyebrow={s.eyebrow} title={s.title}
+    return <SectionHeading id={`ds-section-${id}-heading`}
+      eyebrow={t(`workspace.sections.${id}.eyebrow`)}
+      title={t(`workspace.sections.${id}.title`)}
       badge={<HelpBadge topic={`workspace-${id}`} />}
       description={isStyle && id === 'add'
-        ? 'Import varied images that share the aesthetic; subject and scene diversity keep the Style LoRA composable.'
-        : isConceptual && s.conceptDescription ? s.conceptDescription : s.description} />;
+        ? t('workspace.sections.add.styleDescription')
+        : isConceptual && s.conceptDescription
+          ? t(`workspace.sections.${id}.conceptDescription`)
+          : t(`workspace.sections.${id}.description`)} />;
   };
   // Sections inactives : montées mais masquées (display:none) — les polls et
   // états internes survivent au changement de section (le poll 10 s du
@@ -660,8 +683,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
     <button type="button" onClick={() => navigateToPanel('scrape', 'scan')}
       className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-left text-content-muted hover:text-content hover:bg-surface-raised transition-colors">
       <span aria-hidden>🕸</span>
-      <span className="text-sm font-medium">Scrape images from the web</span>
-      <span className="text-content-subtle text-[0.6875rem]">scan a gallery URL, pick images, import full-frame</span>
+      <span className="text-sm font-medium">{t('workspace.scrapeLink.title')}</span>
+      <span className="text-content-subtle text-[0.6875rem]">{t('workspace.scrapeLink.description')}</span>
       <span aria-hidden className="ml-auto text-content-subtle">→</span>
     </button>
   );
@@ -677,20 +700,20 @@ export default function DatasetWorkspace({ ds, onBack }) {
       <div className="relative z-30 flex items-center gap-2 flex-wrap">
         <button type="button" onClick={onBack}
           className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm transition-colors">
-          ← Datasets
+          ← {t('nav.datasets')}
         </button>
         <h1 className="text-content font-bold">{d.name}</h1>
         {isStyle ? (
-          <span title="This Style LoRA is always active when loaded; adjust its LoRA weight to control the effect."
+          <span title={t('workspace.header.styleTitle')}
             className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-cyan-400/40 bg-cyan-500/10 text-cyan-200 text-[0.6875rem]">
-            always-on style · no trigger
+            {t('workspace.header.alwaysOnStyle')}
           </span>
         ) : (
           <button type="button"
             onClick={() => { try { navigator.clipboard.writeText(d.trigger_word || ''); } catch { /* ignore */ } }}
-            title="Copy the trigger word (to put in your prompts)"
+            title={t('workspace.header.copyTrigger')}
             className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-indigo-400/40 bg-indigo-500/10 text-[0.6875rem]">
-            <span className="text-content-subtle">trigger:</span>
+            <span className="text-content-subtle">{t('workspace.header.trigger')}:</span>
             <code className="text-indigo-300 font-semibold">{d.trigger_word || '—'}</code>
             <span aria-hidden className="text-content-subtle">⧉</span>
           </button>
@@ -698,35 +721,39 @@ export default function DatasetWorkspace({ ds, onBack }) {
         <div className="ml-auto flex items-center gap-2">
           <button type="button" disabled={!kept} onClick={exportZipGuarded}
             className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-            ⬇ Export ZIP ({kept})
+            ⬇ {t('workspace.actions.exportZip')} ({kept})
           </button>
           {/* summary en display:flex → pas de marqueur natif ; les items restent
               montés en permanence (details ne fait que masquer l'affichage). */}
           <details className="relative">
             <summary
-              title="More dataset actions — edit settings, body fidelity"
+              title={t('workspace.header.moreTitle')}
               className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm cursor-pointer select-none">
-              ⋯ More
+              ⋯ {t('workspace.header.more')}
             </summary>
             <div className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
               <button type="button" onClick={() => setSettingsOpen(true)}
-                title={isStyle ? 'Edit the Style dataset name and review its always-on behavior.' : 'Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list.'}
+                title={isStyle ? t('workspace.header.editStyleTitle') : t('workspace.header.editSettingsTitle')}
                 className={MENU_ITEM}>
-                ⚙️ Edit settings
+                ⚙️ {t('workspace.header.editSettings')}
                 <span className="ml-auto text-content-subtle text-[0.625rem]">
-                  {isStyle ? 'name · always-on' : `name · trigger${isConcept ? ' · concept' : ''}`}
+                  {isStyle
+                    ? t('workspace.header.styleSettingsSummary')
+                    : t('workspace.header.settingsSummary', {
+                      concept: isConcept ? t('workspace.header.conceptSuffix') : '',
+                    })}
                 </span>
               </button>
               {!isConceptual && (
                 <button type="button" disabled={ds.busy}
                   onClick={() => ds.setDatasetFidelity?.(bodyFid ? 'face' : 'body')}
                   title={bodyFid
-                    ? 'Body fidelity ON: captions also omit tattoos/scars/marks (they bind to the trigger), composition targets more bust/body shots, imports keep the full frame by default. Click to go back to face-only.'
-                    : 'Face-only fidelity (default): the LoRA learns the face; body shape follows the prompt. Click for FULL-BODY fidelity (body shape & marks bind to the trigger too).'}
+                    ? t('workspace.header.bodyFidelityOnTitle')
+                    : t('workspace.header.bodyFidelityOffTitle')}
                   className={`${MENU_ITEM} ${bodyFid ? 'text-emerald-300' : ''}`}>
-                  🧍 Body fidelity
+                  🧍 {t('workspace.header.bodyFidelity')}
                   <span className={`ml-auto text-[0.625rem] ${bodyFid ? 'text-emerald-300 font-semibold' : 'text-content-subtle'}`}>
-                    {bodyFid ? '✓ on' : 'off'}
+                    {bodyFid ? `✓ ${t('workspace.header.on')}` : t('workspace.header.off')}
                   </span>
                 </button>
               )}
@@ -742,13 +769,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
       <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-4 lg:items-start">
         <aside>
           {/* Mobile: horizontal chip rail */}
-          <nav aria-label="Dataset sections" className="-mx-4 overflow-x-auto px-4 pb-2 lg:hidden">
+          <nav aria-label={t('workspace.navigation.sections')} className="-mx-4 overflow-x-auto px-4 pb-2 lg:hidden">
             <ul className="m-0 flex list-none gap-2 p-0">
               {WORKSPACE_SECTIONS.map((s) => <li key={s.id}>{navItem(s, true)}</li>)}
             </ul>
           </nav>
           {activePanels.length > 0 && (
-            <nav aria-label={`${sectionMeta[section].title} destinations`}
+            <nav aria-label={t('workspace.navigation.destinations', {
+              section: t(`workspace.sections.${section}.title`),
+            })}
               className="-mx-4 -mt-1 overflow-x-auto px-4 pb-3 lg:hidden">
               <ul id={`dataset-mobile-panels-${section}`} className="m-0 flex list-none gap-2 p-0">
                 {activePanels.map((destination) => (
@@ -759,8 +788,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
           )}
           {/* Desktop: sticky rail + guided progress below it */}
           <div className="hidden lg:sticky lg:top-20 lg:flex lg:flex-col lg:gap-3">
-            <nav aria-label="Dataset sections">
-              <p className="m-0 px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">Dataset</p>
+            <nav aria-label={t('workspace.navigation.sections')}>
+              <p className="m-0 px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">
+                {t('workspace.navigation.dataset')}
+              </p>
               <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
                 {WORKSPACE_SECTIONS.map((s) => {
                   const isActive = s.id === section;
@@ -814,16 +845,18 @@ export default function DatasetWorkspace({ ds, onBack }) {
               <span className="animate-pulse text-lg" aria-hidden>⏳</span>
               <div className="flex flex-col">
                 <span className="text-content text-sm font-semibold">
-                  {pending} generation(s) in progress…
+                  {t('workspace.generation.inProgress', { count: pending })}
                 </span>
                 <span className="text-content-subtle text-[0.6875rem]">
-                  First results look wrong? Stop now — the remaining API calls are skipped (not billed).
+                  {t('workspace.generation.stopHint')}
                 </span>
               </div>
-              <button type="button" onClick={ds.cancelPending} disabled={ds.busy}
-                title="Cancels every generation still in flight; finished images stay."
+              <button type="button" onClick={ds.cancelPending} disabled={ds.cancellingGeneration}
+                title={t('workspace.generation.stopTitle')}
                 className="ml-auto shrink-0 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-bold disabled:opacity-40">
-                ⏹ Stop generation
+                ⏹ {t(ds.cancellingGeneration
+                  ? 'workspace.generation.stopping'
+                  : 'workspace.generation.stop')}
               </button>
             </div>
           )}
@@ -832,13 +865,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <div className={sectionCls('images')}>
             {heading('images')}
             <p className="m-0 text-content-subtle text-[0.75rem] tabular-nums">
-              {rescueGridImages.length} image(s) · {kept} kept
-              {triage > 0 ? <> · <span className="text-amber-300">{triage} awaiting ✓/✕</span></> : ''}
+              {t('workspace.images.summary', { total: rescueGridImages.length, kept })}
+              {triage > 0 ? <> · <span className="text-amber-300">{t('workspace.images.awaiting', { count: triage })}</span></> : ''}
               {rescueReviewCount > 0
-                ? <> · <span className="text-indigo-300">{rescueReviewCount} Klein rescue pair(s) in Curation</span></>
+                ? <> · <span className="text-indigo-300">{t('workspace.images.rescuePairs', { count: rescueReviewCount })}</span></>
                 : ''}
-              {kept > 0 ? ` · ${keptCaptioned}/${kept} captioned` : ''}
-              {watermarkDetected > 0 ? ` · ${watermarkDetected} watermark(s) flagged` : ''}
+              {kept > 0 ? ` · ${t('workspace.images.captioned', { done: keptCaptioned, total: kept })}` : ''}
+              {watermarkDetected > 0 ? ` · ${t('workspace.images.watermarks', { count: watermarkDetected })}` : ''}
             </p>
             <div id="gf-images" className="scroll-mt-20 flex flex-col gap-2">
               {filtersActive && (
@@ -851,9 +884,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 // Filtered down to nothing: say so plainly (the grid's own "no images"
                 // empty-state would read as "everything's gone", which would be a lie).
                 <p className="rounded-lg border border-border bg-surface px-3 py-4 text-center text-content-subtle text-sm">
-                  No images match the active filter{excludeTags.length + includeTags.length > 1 ? 's' : ''} —{' '}
-                  <button type="button" onClick={clearFilters} className="underline hover:text-content">clear all</button>{' '}
-                  to see all {images.length} again.
+                  {t('workspace.images.noFilterMatches')}{' '}
+                  <button type="button" onClick={clearFilters} className="underline hover:text-content">{t('workspace.images.clearAll')}</button>{' '}
+                  {t('workspace.images.seeAllAgain', { count: images.length })}
                 </p>
               ) : (
                 <DatasetGrid images={gridImages} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}
@@ -889,7 +922,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 <div id="gf-reference" className="scroll-mt-20">
                   <div id="ds-add-reference" tabIndex={-1} className="scroll-mt-20 flex flex-col gap-1">
                     <span className="text-content-subtle text-[0.6875rem]">
-                      one clear photo of the face — every generated variation starts from it
+                      {t('workspace.reference.intro')}
                     </span>
                     <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
                       onCropRef={() => setRefCrop(true)} busy={ds.busy} importBusy={importBusy} visionBusy={visionImportBusy} nonce={ds.refNonce}
@@ -903,11 +936,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <div id="ds-add-generate" tabIndex={-1} className="scroll-mt-20">
                     <VariationCatalog key={`vc-${d.id}-${bodyFid}`} busy={ds.busy}
                       generating={act && act.kind === 'generate' ? act : null}
+                      onCancelGeneration={ds.cancelPending}
+                      cancellingGeneration={ds.cancellingGeneration}
                       onGenerate={(...args) => {
                         // Guard-rail: a batch is already in flight — launching another one
                         // on top is usually an accidental double-click, not a plan.
                         if (pending > 0 && !window.confirm(
-                          `A generation batch is already running (${pending} in flight).\n\nLaunch another one anyway?`)) return;
+                          t('workspace.confirm.generationAlreadyRunning', { count: pending }))) return;
                         ds.generate(...args);
                       }}
                       hasRef={!!d.ref_filename} composition={d.composition} images={images}
@@ -958,11 +993,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 {!isConceptual && (
                   <button id="ds-curation-face-analysis" type="button" data-workspace-focus
                     onClick={ds.analyzeFaces} disabled={ds.busy || !d.ref_filename}
-                    title={d.ref_filename ? "Scores each image's facial resemblance vs the reference (deletes nothing)" : "Set a reference photo first"}
+                    title={d.ref_filename
+                      ? t('workspace.curationTools.faceTitle')
+                      : t('workspace.curationTools.referenceFirst')}
                     className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border scroll-mt-20">
                     {ds.analyzing
-                      ? `🎭 Analyzing…${act?.kind === 'analyze_faces' && act.total ? ` ${act.done}/${act.total}` : ''}`
-                      : '🎭 Analyze faces'}
+                      ? `🎭 ${t('workspace.curationTools.analyzing')}${act?.kind === 'analyze_faces' && act.total ? ` ${act.done}/${act.total}` : ''}`
+                      : `🎭 ${t('workspace.curationTools.analyzeFaces')}`}
                   </button>
                 )}
                 <div id="ds-curation-watermarks" tabIndex={-1}
@@ -971,11 +1008,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     the kept images, then Clean them (border → crop, small off-center → LaMa
                     inpaint, on-subject → manual review). Applies to any dataset kind. */}
                 <button type="button" data-workspace-focus onClick={ds.findWatermarks} disabled={ds.busy}
-                  title="Scans the kept images for overlaid watermarks/logos/URLs added on top of the photo (deletes nothing)"
+                  title={t('workspace.curationTools.findTitle')}
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
                   {ds.watermarking
-                    ? `🧽 Scanning…${act?.kind === 'watermark_detect' && act.total ? ` ${act.done}/${act.total}` : ''}`
-                    : '🧽 Find watermarks'}
+                    ? `🧽 ${t('workspace.curationTools.scanning')}${act?.kind === 'watermark_detect' && act.total ? ` ${act.done}/${act.total}` : ''}`
+                    : `🧽 ${t('workspace.curationTools.findWatermarks')}`}
                 </button>
                 <HelpBadge topic="action-watermark-clean" />
                 {watermarkDetected > 0 && (
@@ -984,23 +1021,23 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       Flux.2 inpaint — better on complex texture AND makes on-subject
                       marks actionable, but GPU + slower). Klein is greyed until ComfyUI
                       + the Klein models are ready (caps.watermark_klein). */}
-                  <div role="group" aria-label="Watermark inpaint method"
+                  <div role="group" aria-label={t('workspace.curationTools.method')}
                     className="flex items-center rounded-lg border border-border bg-surface p-0.5 text-xs">
                     <button type="button" aria-pressed={watermarkMethod === 'lama'}
                       onClick={() => setWatermarkMethod('lama')} disabled={ds.busy}
-                      title="LaMa: fast, non-generative. Crops border marks, repaints small off-center marks; on-subject marks go to manual review."
+                      title={t('workspace.curationTools.lamaTitle')}
                       className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${watermarkMethod === 'lama'
                         ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
-                      LaMa <span className="font-normal opacity-70">fast</span>
+                      LaMa <span className="font-normal opacity-70">{t('workspace.curationTools.fast')}</span>
                     </button>
                     <button type="button" aria-pressed={watermarkMethod === 'klein'}
                       onClick={() => setWatermarkMethod('klein')} disabled={ds.busy || !caps.watermark_klein}
                       title={caps.watermark_klein
-                        ? 'Klein: masked Flux.2 inpaint (crop-and-stitch). Better on skin/fabric/busy backgrounds and can clean marks ON the subject. Uses the GPU via ComfyUI — slower.'
-                        : 'Klein inpaint needs ComfyUI running + the Klein models installed (Setup ▸ ComfyUI).'}
+                        ? t('workspace.curationTools.kleinTitle')
+                        : t('workspace.curationTools.kleinUnavailable')}
                       className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${watermarkMethod === 'klein'
                         ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
-                      Klein <span className="font-normal opacity-70">quality</span>
+                      Klein <span className="font-normal opacity-70">{t('workspace.curationTools.quality')}</span>
                     </button>
                   </div>
                   {/* Allow auto-crop: the SAME persisted preference as Settings ▸ Watermark
@@ -1010,27 +1047,29 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     onClick={() => setWatermarkAllowCrop(!allowAutoCrop)}
                     disabled={ds.busy || savingAllowCrop}
                     title={allowAutoCrop
-                      ? 'Auto-crop ON: watermarks in a border are cropped off (no invented pixels). Click to repaint them instead. Saved as a preference.'
-                      : 'Auto-crop OFF: border watermarks are repainted (LaMa/Klein) instead of cropped. Click to allow cropping again. Saved as a preference.'}
+                      ? t('workspace.curationTools.autoCropOnTitle')
+                      : t('workspace.curationTools.autoCropOffTitle')}
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold disabled:opacity-40 ${allowAutoCrop
                       ? 'border-border bg-surface text-content-subtle hover:text-content'
                       : 'border-amber-400/50 bg-amber-500/10 text-amber-200'}`}>
-                    {allowAutoCrop ? '✂ Auto-crop on' : '✂ Auto-crop off'}
+                    {allowAutoCrop
+                      ? `✂ ${t('workspace.curationTools.autoCropOn')}`
+                      : `✂ ${t('workspace.curationTools.autoCropOff')}`}
                   </button>
                   <button type="button"
                     onClick={() => { requestHelpTip('watermark-batch-clean'); ds.cleanWatermarks(watermarkMethod); }}
                     disabled={ds.busy || savingAllowCrop}
                     title={watermarkMethod === 'klein'
                       ? (allowAutoCrop
-                        ? 'Removes them with masked Flux.2 Klein inpaint: border marks are cropped, every other mark (off-center AND on-subject) is repainted then composited back — only the mark changes'
-                        : 'Auto-crop off: EVERY mark (border included) is repainted with masked Flux.2 Klein inpaint then composited back — only the mark changes')
+                        ? t('workspace.curationTools.cleanKleinCrop')
+                        : t('workspace.curationTools.cleanKleinNoCrop'))
                       : caps.watermark_inpaint
                       ? (allowAutoCrop
-                        ? 'Removes them: border marks are cropped, small off-center marks are inpainted (LaMa), on-subject marks are flagged for manual review'
-                        : 'Auto-crop off: border marks are repainted (LaMa) instead of cropped; large/on-subject marks are flagged for manual review')
-                      : 'Removes border marks by cropping. Inpainting (LaMa) needs a one-time install — use ⬇ Install inpainting next to this button; off-center marks are skipped until then'}
+                        ? t('workspace.curationTools.cleanLamaCrop')
+                        : t('workspace.curationTools.cleanLamaNoCrop'))
+                      : t('workspace.curationTools.cleanCropOnly')}
                     className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold disabled:opacity-40">
-                    🧽 Clean ({watermarkDetected})
+                    🧽 {t('workspace.curationTools.clean', { count: watermarkDetected })}
                   </button>
                   </>
                 )}
@@ -1042,9 +1081,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <button id="ds-curation-review-flagged" type="button" data-workspace-focus
                     disabled={ds.busy}
                     onClick={() => setReviewQueue(images.filter((i) => i.watermark_state === 'detected'))}
-                    title="Step through the flagged images one by one — see each detected box and Clean, dismiss a false positive, or reject"
+                    title={t('workspace.curationTools.reviewTitle')}
                     className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40 scroll-mt-20">
-                    🔍 Review flagged ({watermarkDetected})
+                    🔍 {t('workspace.curationTools.review', { count: watermarkDetected })}
                   </button>
                 )}
                 {/* Watermark inpainting (LaMa) needs one extra ML package (simple-lama-
@@ -1056,10 +1095,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 {!caps.watermark_inpaint && (
                   <button type="button" onClick={() => setInstallInpaintOpen((v) => !v)}
                     aria-expanded={installInpaintOpen}
-                    title="Install the watermark-inpainting package (LaMa) so off-center marks can be repainted instead of only cropped. One-time download (~hundreds of MB)."
+                    title={t('workspace.curationTools.installTitle')}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-amber-400/50 bg-amber-500/5 text-amber-200/90 text-sm hover:bg-amber-500/10">
-                    ⬇ Install inpainting
-                    <span className="text-content-subtle text-[0.625rem] font-normal">one-time · ~hundreds of MB</span>
+                    ⬇ {t('workspace.curationTools.install')}
+                    <span className="text-content-subtle text-[0.625rem] font-normal">
+                      {t('workspace.curationTools.installSize')}
+                    </span>
                     <span aria-hidden className="text-content-subtle text-xs">{installInpaintOpen ? '▴' : '▾'}</span>
                   </button>
                 )}
@@ -1076,18 +1117,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <div className="flex items-start gap-2">
                     <span aria-hidden className="text-lg leading-none">🧽</span>
                     <div className="flex flex-col">
-                      <span className="text-amber-200 text-sm font-semibold">Install watermark inpainting (LaMa)</span>
+                      <span className="text-amber-200 text-sm font-semibold">
+                        {t('workspace.curationTools.installPanelTitle')}
+                      </span>
                       <span className="text-content-subtle text-[0.6875rem]">
-                        Adds the <code className="text-amber-200/90">simple-lama-inpainting</code> package
-                        (pulls a CPU torch — one-time download, ~hundreds of MB). No restart, no GPU:
-                        once done, ⬇ inpaints small off-center marks instead of skipping them.
+                        {t('workspace.curationTools.installDescriptionBefore')}{' '}
+                        <code className="text-amber-200/90">simple-lama-inpainting</code>{' '}
+                        {t('workspace.curationTools.installDescriptionAfter')}
                       </span>
                     </div>
                     <button type="button" onClick={() => setInstallInpaintOpen(false)}
                       className="ml-auto shrink-0 text-content-subtle hover:text-content text-sm"
-                      aria-label="Close the inpainting installer">✕</button>
+                      aria-label={t('workspace.curationTools.closeInstaller')}>✕</button>
                   </div>
-                  <InstallRunner action="watermark_inpaint" buttonLabel="⬇ Download & install"
+                  <InstallRunner action="watermark_inpaint"
+                    buttonLabel={`⬇ ${t('workspace.curationTools.downloadInstall')}`}
                     onDone={() => refreshCaps(true)} />
                 </div>
               )}
@@ -1099,14 +1143,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2 scroll-mt-20">
                   <button type="button" data-workspace-focus disabled={ds.busy}
                     onClick={() => {
-                      if (window.confirm(`Permanently delete the ${unused} rejected/failed image(s) (files included)?`)) ds.purgeUnused();
+                      if (window.confirm(t('workspace.curationTools.purgeConfirm', { count: unused }))) ds.purgeUnused();
                     }}
-                    title="Permanently delete rejected and failed images"
+                    title={t('workspace.curationTools.purgeTitle')}
                     className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm disabled:opacity-40">
-                    🧹 Purge rejected/failed ({unused})
+                    🧹 {t('workspace.curationTools.purge', { count: unused })}
                   </button>
                   <span className="text-content-subtle text-[0.6875rem]">
-                    frees disk space — rejected images never train either way
+                    {t('workspace.curationTools.purgeHelp')}
                   </span>
                 </div>
               )}
@@ -1122,29 +1166,33 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2 scroll-mt-20">
                 {!isConceptual && (
                   <select value={effCaptionMode} onChange={(e) => setCaptionMode(e.target.value)} disabled={ds.busy}
-                    title="Caption style — Prose (Z-Image) or Booru tags (SDXL booru-native, e.g. bigLove). Defaults to auto based on the dataset's type."
+                    title={t('workspace.captions.modeTitle')}
                     className="px-2 py-1.5 rounded-lg bg-surface border border-border text-content text-[0.8125rem] disabled:opacity-40">
-                    <option value="prose">📝 Prose</option>
-                    <option value="booru">🏷️ Booru tags</option>
+                    <option value="prose">📝 {t('workspace.captions.prose')}</option>
+                    <option value="booru">🏷️ {t('workspace.captions.booru')}</option>
                   </select>
                 )}
                 <button type="button" data-workspace-focus
                   onClick={() => ds.caption(effCaptionMode)} disabled={ds.busy}
                   className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-                  {ds.captioning ? `✨ ${keptCaptioned}/${kept} captioned…` : '✨ Caption the kept ones'}
+                  {ds.captioning
+                    ? `✨ ${t('workspace.captions.captioning', { done: keptCaptioned, total: kept })}`
+                    : `✨ ${t('workspace.captions.generate')}`}
                 </button>
                 <HelpBadge topic="action-caption-generate" />
                 <button type="button" disabled={ds.busy || !keptCaptioned}
                   onClick={() => {
-                    if (window.confirm(recaptionConfirmation(d.kind || 'character', keptCaptioned))) ds.recaption(effCaptionMode);
+                    if (window.confirm(t(`workspace.captions.recaptionConfirm.${d.kind || 'character'}`, {
+                      count: keptCaptioned,
+                    }))) ds.recaption(effCaptionMode);
                   }}
                   title={isConcept
-                    ? "Re-generates every caption while keeping the recurring concept unspoken"
+                    ? t('workspace.captions.recaptionTitle.concept')
                     : isStyle
-                      ? "Re-generates every caption as content-only text without naming the aesthetic"
-                      : "Re-generates every caption without describing identity (face/hair)"}
+                      ? t('workspace.captions.recaptionTitle.style')
+                      : t('workspace.captions.recaptionTitle.character')}
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
-                  🔄 Re-caption
+                  🔄 {t('workspace.captions.recaption')}
                 </button>
                 <button type="button" data-workspace-focus
                   onClick={() => setCaptionOptionsOpen(true)} disabled={ds.busy}
@@ -1161,10 +1209,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     reads as a REAL result, not a scan that never ran. */}
                 {isStyle ? (
                   <span className={`ml-auto text-[0.8125rem] ${keptUncaptioned ? 'text-amber-300' : 'text-emerald-400'}`}
-                    title="Every Style image needs a content-only caption: describe subject, action and setting, but do not name the aesthetic, medium or artist. No activation trigger is added.">
+                    title={t('workspace.captions.styleStatusTitle')}>
                     {keptUncaptioned
-                      ? `⚠ ${keptUncaptioned} missing · content-only captions required · no trigger`
-                      : `✅ ${keptCaptioned}/${kept} content-only captions · no trigger`}
+                      ? `⚠ ${t('workspace.captions.styleMissing', { count: keptUncaptioned })}`
+                      : `✅ ${t('workspace.captions.styleComplete', {
+                          done: keptCaptioned,
+                          total: kept,
+                        })}`}
                   </span>
                 ) : d.caption_leak && (
                   d.caption_leak.captioned > 0 ? (
@@ -1173,27 +1224,40 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       aria-expanded={showLeaks}
                       title={d.caption_leak.leaking === 0
                         ? (isConcept
-                            ? "0 captions name the concept — it binds to the trigger. Click for what was checked and why."
-                            : "0 captions describe hair/face/skin — identity binds to the trigger. Click for what was checked and why.")
+                            ? t('workspace.captions.leak.cleanTitleConcept')
+                            : t('workspace.captions.leak.cleanTitleIdentity'))
                         : (isConcept
-                            ? "These captions name the concept → it won't bind to the trigger. Click to see what's watched and fix them here."
-                            : "These captions mention hair/face/skin → identity won't bind to the trigger. Click to see what's watched and fix them here.")}
+                            ? t('workspace.captions.leak.foundTitleConcept')
+                            : t('workspace.captions.leak.foundTitleIdentity'))}
                       className={`ml-auto text-[0.8125rem] underline decoration-dashed scroll-mt-20 ${
                         d.caption_leak.leaking === 0
                           ? 'text-emerald-400 decoration-emerald-400/40'
                           : 'text-amber-400 decoration-amber-400/50'}`}>
                       {d.caption_leak.leaking === 0
-                        ? `✅ 0 ${isConcept ? 'concept' : 'identity'} leaks · ${d.caption_leak.captioned} captions checked`
-                        : `⚠️ ${d.caption_leak.leaking}/${d.caption_leak.captioned} captions leak ${isConcept ? 'the concept' : 'identity'}`}
+                        ? `✅ ${t(isConcept
+                            ? 'workspace.captions.leak.cleanConcept'
+                            : 'workspace.captions.leak.cleanIdentity', {
+                            count: d.caption_leak.captioned,
+                          })}`
+                        : `⚠️ ${t(isConcept
+                            ? 'workspace.captions.leak.foundConcept'
+                            : 'workspace.captions.leak.foundIdentity', {
+                            leaking: d.caption_leak.leaking,
+                            total: d.caption_leak.captioned,
+                          })}`}
                       {' '}{showLeaks ? '▴' : '▾'}
                     </button>
                   ) : kept > 0 ? (
                     <button id="ds-captions-leak-review" type="button" data-workspace-focus
                       onClick={toggleLeakReview}
                       aria-expanded={showLeaks}
-                      title={`The ${isConcept ? 'concept' : 'identity'}-leak scan runs on captions. Caption the kept images first. Click to learn what it checks.`}
+                      title={t(isConcept
+                        ? 'workspace.captions.leak.noneTitleConcept'
+                        : 'workspace.captions.leak.noneTitleIdentity')}
                       className="ml-auto text-content-subtle text-[0.8125rem] underline decoration-dashed decoration-border scroll-mt-20">
-                      {isConcept ? 'concept' : 'identity'}-leak scan: no captions yet {showLeaks ? '▴' : '▾'}
+                      {t(isConcept
+                        ? 'workspace.captions.leak.noneConcept'
+                        : 'workspace.captions.leak.noneIdentity')} {showLeaks ? '▴' : '▾'}
                     </button>
                   ) : null
                 )}
@@ -1210,59 +1274,59 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <div className="flex items-start gap-2">
                     <span aria-hidden className="text-base leading-none">🎭</span>
                     <div className="flex flex-col gap-1">
-                      <span className="text-content font-semibold text-sm">{isConcept ? 'Concept-leak check' : 'Identity-leak check'}</span>
+                      <span className="text-content font-semibold text-sm">
+                        {t(isConcept
+                          ? 'workspace.captions.leak.conceptTitle'
+                          : 'workspace.captions.leak.identityTitle')}
+                      </span>
                       {isConcept ? (
                         <p className="m-0 text-content-muted leading-relaxed">
-                          A <strong className="text-content">concept leak</strong> is a word in a caption
-                          that names <em>the concept itself</em> — the recurring element every image in
-                          the set shares. On a concept LoRA these words must stay OUT of the captions:
-                          they bind the concept to the text instead of to your trigger word{' '}
-                          <code className="text-indigo-300">{d.trigger_word || 'your trigger'}</code>.
-                          Describe the person and scene freely, but leave the concept
-                          {d.concept_desc ? <> (<em className="text-content-muted">{d.concept_desc}</em>)</> : null}
-                          {' '}unspoken so it binds to the trigger, not the caption.
+                          {t('workspace.captions.leak.conceptHelp', {
+                            trigger: d.trigger_word || t('workspace.captions.leak.yourTrigger'),
+                            concept: d.concept_desc || t('common.none'),
+                          })}
                         </p>
                       ) : (
                         <p className="m-0 text-content-muted leading-relaxed">
-                          An <strong className="text-content">identity leak</strong> is a word in a caption
-                          that describes <em>who the person is</em> — hair, eye or skin colour, facial
-                          features. On a character LoRA these words must stay OUT of the captions: they
-                          dilute the identity into the text instead of binding it to your trigger word{' '}
-                          <code className="text-indigo-300">{d.trigger_word || 'your trigger'}</code>.
+                          {t('workspace.captions.leak.identityHelp', {
+                            trigger: d.trigger_word || t('workspace.captions.leak.yourTrigger'),
+                          })}
                         </p>
                       )}
                     </div>
                     <button type="button" onClick={toggleLeakReview}
-                      className="ml-auto shrink-0 text-content-subtle hover:text-content text-sm" aria-label="Close">✕</button>
+                      className="ml-auto shrink-0 text-content-subtle hover:text-content text-sm"
+                      aria-label={t('common.close')}>✕</button>
                   </div>
 
                   {/* What was checked — the numbers behind the badge. */}
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-content-subtle tabular-nums">
-                    <span><strong className="text-content-muted">{d.caption_leak?.captioned ?? 0}</strong> captions checked</span>
+                    <span>{t('workspace.captions.leak.checked', {
+                      count: d.caption_leak?.captioned ?? 0,
+                    })}</span>
                     <span className={d.caption_leak?.leaking ? 'text-amber-300' : 'text-emerald-400'}>
-                      <strong>{d.caption_leak?.leaking ?? 0}</strong> leaking
+                      {t('workspace.captions.leak.leaking', { count: d.caption_leak?.leaking ?? 0 })}
                     </span>
-                    <span className="text-content-subtle/70">re-scanned live on every caption change</span>
+                    <span className="text-content-subtle/70">{t('workspace.captions.leak.liveScan')}</span>
                   </div>
 
                   {/* Words the detector watches. Concept: derived from the description
                       (its words + their basic lexical field); character: the fixed regex. */}
                   <div className="flex flex-col gap-1">
-                    <span className="text-content-subtle">Words watched for:</span>
+                    <span className="text-content-subtle">{t('workspace.captions.leak.watched')}</span>
                     {isConcept ? (
                       <p className="m-0 text-content-muted leading-relaxed">
-                        The words of the concept description
-                        {d.concept_desc ? <> (<em className="text-content-muted">{d.concept_desc}</em>)</> : null}
-                        {' '}and their basic lexical field — the body parts and positions it refers to
-                        (e.g. a leg pose also watches <em>knees, feet, thighs, lifted, raised</em>), so a
-                        periphrase can’t sneak the concept back into the caption.
+                        {t('workspace.captions.leak.conceptWatched', {
+                          concept: d.concept_desc || t('common.none'),
+                        })}
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
-                        {['hair', 'eye colour', 'skin · complexion · freckles',
-                          'jawline · eyebrows · facial features', 'face shape',
-                          ...(bodyFid ? ['tattoos · scars · piercings (body fidelity)'] : [])].map((c) => (
-                          <span key={c} className="rounded-full bg-surface border border-border px-2 py-0.5 text-content-muted text-[0.6875rem]">{c}</span>
+                        {['hair', 'eyes', 'skin', 'features', 'faceShape',
+                          ...(bodyFid ? ['bodyMarks'] : [])].map((key) => (
+                          <span key={key} className="rounded-full bg-surface border border-border px-2 py-0.5 text-content-muted text-[0.6875rem]">
+                            {t(`workspace.captions.leak.watchTerms.${key}`)}
+                          </span>
                         ))}
                       </div>
                     )}
@@ -1271,18 +1335,17 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   {/* Why a green 0 is expected, not suspicious. */}
                   {d.caption_leak?.captioned === 0 ? (
                     <p className="m-0 text-content-subtle leading-relaxed">
-                      Nothing checked yet — the scan runs on captions. Caption the kept images first.
+                      {t('workspace.captions.leak.nothingChecked')}
                     </p>
                   ) : d.caption_leak?.leaking === 0 ? (
                     <p className="m-0 text-emerald-400/90 leading-relaxed">
                       {isConcept
-                        ? <>✅ All clear — every caption describes the scene while leaving the concept
-                          unspoken, so it will bind to your trigger. It’s a real result on {d.caption_leak?.captioned} caption(s),
-                          not a check that didn’t run.</>
-                        : <>✅ All clear — and this is expected. The app’s captioner is built to describe pose,
-                          clothing, setting and framing but never the person’s identity, so a clean character
-                          set genuinely reads 0. It’s a real result on {d.caption_leak?.captioned} caption(s),
-                          not a check that didn’t run.</>}
+                        ? `✅ ${t('workspace.captions.leak.allClearConcept', {
+                            count: d.caption_leak?.captioned,
+                          })}`
+                        : `✅ ${t('workspace.captions.leak.allClearIdentity', {
+                            count: d.caption_leak?.captioned,
+                          })}`}
                     </p>
                   ) : (
                     <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 p-2.5 flex flex-col gap-2">
@@ -1295,8 +1358,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                           <div className="flex items-start justify-between gap-2 flex-wrap">
                             <span className="text-amber-300 text-[0.8125rem] font-semibold">
                               {isConcept
-                                ? <>Captions naming the concept ({d.caption_leak?.leaking}) — remove the concept words, or 🔄 Re-caption. Edits save when you click away.</>
-                                : <>Captions leaking identity ({d.caption_leak?.leaking}) — remove the highlighted words, or 🔄 Re-caption. Edits save when you click away.</>}
+                                ? t('workspace.captions.leak.fixConcept', { count: d.caption_leak?.leaking })
+                                : t('workspace.captions.leak.fixIdentity', { count: d.caption_leak?.leaking })}
                               <HelpBadge topic="action-recaption-targeted" className="ml-1" />
                             </span>
                             {leakingImages.length > 1 && (
@@ -1304,10 +1367,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
                                 disabled={recaptionLocked}
                                 onClick={() => ds.recaptionImages(leakingImages.map((i) => i.id), effCaptionMode)}
                                 title={isConcept
-                                  ? 'Re-generate every leaking caption while keeping the concept unspoken'
-                                  : 'Re-generate every leaking caption without describing identity (face/hair)'}
+                                  ? t('workspace.captions.leak.recaptionAllTitleConcept')
+                                  : t('workspace.captions.leak.recaptionAllTitleIdentity')}
                                 className="shrink-0 px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-200 text-[0.75rem] font-semibold border border-amber-400/40 hover:bg-amber-500/25 disabled:opacity-40">
-                                🔄 Re-caption all leaking ({leakingImages.length})
+                                🔄 {t('workspace.captions.leak.recaptionAll', { count: leakingImages.length })}
                               </button>
                             )}
                           </div>
@@ -1319,7 +1382,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                         return (
                           <div key={img.id} className="flex gap-2 items-start">
                             <img src={`/api/dataset/${d.id}/img/${encodeURIComponent(img.filename)}`}
-                              alt={img.variation_label || 'dataset image'} loading="lazy"
+                              alt={img.variation_label || t('workspace.captions.datasetImage')} loading="lazy"
                               className="w-14 h-14 rounded-lg object-cover shrink-0 bg-black" />
                             <div className="flex-1 min-w-0 flex flex-col gap-1">
                               <textarea defaultValue={img.caption || ''} rows={2}
@@ -1327,23 +1390,27 @@ export default function DatasetWorkspace({ ds, onBack }) {
                                 onBlur={(e) => {
                                   if (e.target.value !== (img.caption || '')) ds.setCaption(img.id, e.target.value);
                                 }}
-                                aria-label={`Caption of image ${img.id}`}
+                                aria-label={t('workspace.captions.captionOfImage', { id: img.id })}
                                 className="w-full bg-app/60 border border-amber-400/30 rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
                               <button type="button"
                                 disabled={recaptionLocked}
                                 onClick={() => ds.recaptionImages([img.id], effCaptionMode)}
                                 title={isConcept
-                                  ? 'Re-generate this caption while keeping the concept unspoken'
-                                  : 'Re-generate this caption without describing identity (face/hair)'}
+                                  ? t('workspace.captions.leak.recaptionOneTitleConcept')
+                                  : t('workspace.captions.leak.recaptionOneTitleIdentity')}
                                 className="self-start px-2 py-0.5 rounded-lg bg-surface text-content text-[0.6875rem] border border-border hover:bg-surface-raised disabled:opacity-40">
-                                {rowBusy ? '⏳ Re-captioning…' : '🔄 Re-caption'}
+                                {rowBusy
+                                  ? `⏳ ${t('workspace.captions.recaptioning')}`
+                                  : `🔄 ${t('workspace.captions.recaption')}`}
                               </button>
                             </div>
                           </div>
                         );
                       })}
                       {leakingImages.length === 0 && (
-                        <p className="m-0 text-emerald-400 text-[0.8125rem]">✅ All clear — no leaking caption left.</p>
+                        <p className="m-0 text-emerald-400 text-[0.8125rem]">
+                          ✅ {t('workspace.captions.leak.noneLeft')}
+                        </p>
                       )}
                     </div>
                   )}
@@ -1362,10 +1429,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
               </div>
               {filtersActive && (
                 <p className="m-0 text-content-subtle text-[0.6875rem]">
-                  🔎 A tag filter is active — the filtered grid lives in{' '}
+                  🔎 {t('workspace.captions.filterActive')}{' '}
                   <button type="button" onClick={() => setSection('images')}
-                    className="underline hover:text-content">Images</button>
-                  {' '}(showing {gridImages.length} of {images.length}).
+                    className="underline hover:text-content">
+                    {t('workspace.sections.images.title')}
+                  </button>
+                  {' '}({t('workspace.filters.showing', {
+                    shown: gridImages.length,
+                    total: images.length,
+                  })}).
                 </p>
               )}
             </div>
@@ -1376,22 +1448,24 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <div className={sectionCls('export')}>
             {heading('export')}
             <div id="gf-export" className="scroll-mt-20 flex flex-col gap-2">
-              <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Bring images in</span>
+              <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">
+                {t('workspace.dataTransfer.bringIn')}
+              </span>
               <div id="ds-export-import" tabIndex={-1}
                 className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2 scroll-mt-20">
                 <button type="button" data-workspace-focus
                   onClick={() => zipInput.current?.click()} disabled={importBusy}
-                  title="Merge an existing training dataset into this one: a ZIP of images with kohya-style same-name .txt captions (any folder layout). Aspect kept, perceptual duplicates skipped."
+                  title={t('workspace.dataTransfer.importZipTitle')}
                   className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
-                  📦 Import dataset (ZIP)
+                  📦 {t('workspace.dataTransfer.importZip')}
                 </button>
                 <button type="button" disabled={importBusy} onClick={importFolderPrompt}
-                  title="Merge an existing training dataset already on this machine's disk: a folder of images with kohya-style same-name .txt captions (subfolders included). Aspect kept, perceptual duplicates skipped."
+                  title={t('workspace.dataTransfer.importFolderTitle')}
                   className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
-                  📂 Import from folder…
+                  📂 {t('workspace.dataTransfer.importFolder')}
                 </button>
                 <span className="text-content-subtle text-[0.6875rem]">
-                  merges images + same-name .txt captions in — duplicates are skipped
+                  {t('workspace.dataTransfer.importHelp')}
                 </span>
               </div>
               <input ref={zipInput} type="file" accept=".zip,application/zip" className="hidden"
@@ -1401,28 +1475,30 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   e.target.value = '';
                 }} />
 
-              <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Get this dataset out</span>
+              <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">
+                {t('workspace.dataTransfer.getOut')}
+              </span>
               <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface px-3 py-2">
                 <div id="ds-export-training-zip" tabIndex={-1}
                   className="flex items-center gap-2 flex-wrap scroll-mt-20">
                   <button type="button" data-workspace-focus={kept ? '' : undefined}
                     disabled={!kept} onClick={exportZipGuarded}
                     className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-                    ⬇ Export ZIP ({kept})
+                    ⬇ {t('workspace.dataTransfer.exportZip', { count: kept })}
                   </button>
                   <span className="text-content-subtle text-[0.6875rem]">
-                    kept images + captions, training-ready (kohya layout)
+                    {t('workspace.dataTransfer.exportZipHelp')}
                   </span>
                 </div>
                 <div id="ds-export-backup" tabIndex={-1}
                   className="flex items-center gap-2 flex-wrap scroll-mt-20">
                   <button type="button" data-workspace-focus onClick={ds.exportBackup}
-                    title="Full portable backup: all images with statuses, captions, scores and settings — restore it on any machine from the Datasets page."
+                    title={t('workspace.dataTransfer.backupTitle')}
                     className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
-                    💾 Backup
+                    💾 {t('workspace.dataTransfer.backup')}
                   </button>
                   <span className="text-content-subtle text-[0.6875rem]">
-                    portable copy — restore it on any machine from the Datasets page
+                    {t('workspace.dataTransfer.backupHelp')}
                   </span>
                 </div>
                 {caps.hf_publish && kept > 0 && (
@@ -1430,12 +1506,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     className="flex items-center gap-2 flex-wrap scroll-mt-20">
                     <button type="button" data-workspace-focus
                       onClick={() => setPublishHfOpen(true)}
-                      title="Publish this dataset (kept images + captions) as a dataset repo on the Hugging Face Hub. Private by default; you choose the license and confirm you have the right to share."
+                      title={t('workspace.dataTransfer.publishTitle')}
                       className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
-                      🤗 Publish to Hugging Face
+                      🤗 {t('workspace.dataTransfer.publish')}
                     </button>
                     <span className="text-content-subtle text-[0.6875rem]">
-                      dataset repo on the Hub — private by default
+                      {t('workspace.dataTransfer.publishHelp')}
                     </span>
                   </div>
                 )}
@@ -1488,19 +1564,22 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   onClick={() => navigate(`/studio?dataset=${d.id}`)}
                   className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/5 px-3 py-2.5 text-left hover:bg-purple-500/10 transition-colors scroll-mt-20">
                   <span aria-hidden>🎛️</span>
-                  <span className="text-content font-semibold text-sm">LoRA testing studio</span>
+                  <span className="text-content font-semibold text-sm">
+                    {t('workspace.studioLauncher.title')}
+                  </span>
                   {d.best_settings && (
-                    <span className="text-amber-300 text-[0.6875rem]" title="Saved winning settings">
+                    <span className="text-amber-300 text-[0.6875rem]"
+                      title={t('workspace.studioLauncher.savedSettings')}>
                       ★ {fmt(d.best_settings.strength)}
                     </span>
                   )}
                   <span className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-xs font-semibold">
-                    ⤢ Open Studio
+                    ⤢ {t('workspace.studioLauncher.open')}
                   </span>
                 </button>
               ) : (
                 <p className="m-0 rounded-lg border border-border bg-surface px-3 py-2 text-content-muted text-sm">
-                  Configure ComfyUI in Settings to use the LoRA testing Studio.
+                  {t('workspace.studioLauncher.configure')}
                 </p>
               )}
               <div><HelpBadge topic="action-studio-open" /></div>

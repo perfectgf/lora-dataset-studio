@@ -24,7 +24,7 @@ def _ollama_url() -> str:
     # Total accessor: cfg.get() can return None (missing/corrupted config
     # section) and callers rstrip('/') the result unconditionally -- this
     # must never hand back None, or the never-raise contract below breaks.
-    return cfg.get('ollama.url') or 'http://127.0.0.1:11434'
+    return (cfg.get('ollama.url') or 'http://127.0.0.1:11434').strip().rstrip('/')
 
 
 def _ollama_error_detail(exc: Exception) -> str:
@@ -179,7 +179,7 @@ def describe_image_ollama(image_bytes: bytes, prompt: str, *,
     appeler unload_vision_model() en fin de batch pour rendre la VRAM à ComfyUI.
     """
     try:
-        url = (ollama_url or _ollama_url()).rstrip('/')
+        url = (ollama_url or _ollama_url()).strip().rstrip('/')
         # Normalize to a format Ollama's decoder can read (WebP -> JPEG); JPEG/PNG are
         # passed through untouched. Without this, WebP dataset bytes hit HTTP 400
         # "Failed to load image or audio file" on llama.cpp-backed runners (issue #6).
@@ -280,7 +280,7 @@ def generate_text_ollama(prompt: str, *,
     any failure (the caller degrades to keeping the long caption). Same response/thinking
     extraction as describe_image_ollama so the -instruct answer is read correctly."""
     try:
-        url = (ollama_url or _ollama_url()).rstrip('/')
+        url = (ollama_url or _ollama_url()).strip().rstrip('/')
         payload = {
             'model': model or get_vision_model(),
             'prompt': prompt,
@@ -313,7 +313,7 @@ def unload_vision_model(*, ollama_url: str | None = None, model: str | None = No
     pourrait manquer de VRAM. Retente une fois car un unload raté = ~5 min résident
     (keep_alive). Retourne True si l'appel a réussi."""
     try:
-        url = (ollama_url or _ollama_url()).rstrip('/')
+        url = (ollama_url or _ollama_url()).strip().rstrip('/')
         payload = {'model': model or get_vision_model(), 'keep_alive': 0}
     except Exception as e:
         logger.warning('vision_ollama: unload url/model resolution échouée : %s', e)

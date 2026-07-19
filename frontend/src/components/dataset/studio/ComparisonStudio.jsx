@@ -29,11 +29,13 @@ import LoraRankingPanel from './LoraRankingPanel';
 import RunSelector from './RunSelector';
 import QuickVoteModal from './QuickVoteModal';
 import ResultLightbox from './ResultLightbox';
+import { useI18n } from '../../../i18n/I18nContext';
 
 const rollSeed = () => Math.floor(Math.random() * 2 ** 31);
 
 export default function ComparisonStudio({ selection, baseModels = [], runType = 'zimage' }) {
   const toast = useToast();
+  const { t } = useI18n();
 
   // --- Réglages du run (persistés : recharger la page ne les perd plus) --------
   const [strengths, setStrengths] = useState(() => {
@@ -124,7 +126,11 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
       };
       if (prompt.trim()) body.prompt = prompt.trim();
       const dResp = await postJson('/api/studio/run', body);
-      toast.success(`${dResp.created} generation(s) queued (seed ${dResp.seed}${dResp.count > 1 ? ` ×${dResp.count}` : ''})`);
+      toast.success(t('studio.run.queued', {
+        count: dResp.created,
+        seed: dResp.seed,
+        multiplier: dResp.count > 1 ? ` ×${dResp.count}` : '',
+      }));
       setRunId(dResp.run_id);
       setSeed(rollSeed());
       setPreflight(null);
@@ -134,7 +140,7 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
       // or a wrong-arch checkpoint on e.body.studio_arch_mismatch.
       setPreflight(e?.body?.studio_missing || null);
       setArchMismatch(e?.body?.studio_arch_mismatch || null);
-      toast.error(e.message || 'Error on launch');
+      toast.error(e.message || t('studio.run.launchFailed'));
     } finally {
       setLaunching(false);
     }
@@ -149,12 +155,12 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
         {baseModels.length > 0 && (
           <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface p-3">
             <span className="text-content-muted text-[0.625rem] uppercase">
-              Base model ({FAMILY_LABELS[runType] || 'Z-Image'})
+              {t('studio.comparison.baseModel', { family: FAMILY_LABELS[runType] || 'Z-Image' })}
             </span>
             <select
               value={selectedBase}
               onChange={(e) => setSelectedBase(e.target.value)}
-              aria-label="Base model for this run"
+              aria-label={t('studio.comparison.baseModelLabel')}
               className="rounded border border-border bg-app/60 px-1.5 py-1 text-content text-sm"
             >
               {baseModels.map((m) => (
@@ -201,28 +207,31 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
           <div className="flex items-center gap-2 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2" role="status">
             <span className="inline-block w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />
             <span className="text-content text-sm">
-              {data.generating ?? data.running ?? 0} generating · {data.queued ?? data.pending} queued
+              {t('studio.run.progress', {
+                generating: data.generating ?? data.running ?? 0,
+                queued: data.queued ?? data.pending,
+              })}
             </span>
             <button type="button" onClick={run.cancel}
               className="ml-auto px-2.5 py-1 rounded-lg bg-red-600/80 text-white text-xs font-semibold">
-              Stop (resumable)
+              {t('studio.run.stopResumable')}
             </button>
           </div>
         )}
         {!data?.pending && data?.resumable > 0 && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2" role="status">
             <span aria-hidden>⏸</span>
-            <span className="text-content text-sm">{data.resumable} stopped cell(s) — resumable with their settings</span>
+            <span className="text-content text-sm">{t('studio.run.stopped', { count: data.resumable })}</span>
             <button type="button" disabled={!!data?.gpu_busy} onClick={run.resume}
               className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-xs font-semibold disabled:opacity-40">
-              ▶ Resume the test
+              ▶ {t('studio.run.resume')}
             </button>
           </div>
         )}
 
         {!runId ? (
           <p className="text-content-subtle text-sm rounded-lg border border-border bg-surface px-3 py-6 text-center">
-            Set up the run on the left then « 🚀 Launch the test » to compare the {selection.length} LoRAs side by side.
+            {t('studio.comparison.empty', { count: selection.length })}
           </p>
         ) : (
           <div className="flex flex-col gap-2">
@@ -233,7 +242,7 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
               unvotedCount={unvoted.length}
               onStartVote={() => vote.startVoting(unvoted)}
               greenCount={greens.length}
-              onStartReVote={() => vote.startVoting(greens, '♻️ Reconfirm the 👍')}
+              onStartReVote={() => vote.startVoting(greens, t('studio.results.reconfirmTitle'))}
               displayedCount={cells.length}
               showResults={showResults}
               onToggleResults={() => setShowResults((v) => !v)}
@@ -254,16 +263,16 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
       {/* Barre de commande fixe : Run toujours visible + raccourcis de sections. */}
       <StudioActionBar
         shortcuts={[
-          { id: 'st-loras', emoji: '🧬', label: 'LoRAs' },
-          { id: 'st-setup', emoji: '📝', label: 'Prompt & seed' },
-          { id: 'st-format', emoji: '📐', label: 'Format' },
+          { id: 'st-loras', emoji: '🧬', label: t('studio.shortcuts.loras') },
+          { id: 'st-setup', emoji: '📝', label: t('studio.shortcuts.promptSeed') },
+          { id: 'st-format', emoji: '📐', label: t('studio.shortcuts.format') },
           ...(runType === 'krea' ? [
-            { id: 'st-sampling', emoji: '🎛️', label: 'Sampling' },
-            { id: 'st-engine', emoji: '⚙️', label: 'Engine' },
+            { id: 'st-sampling', emoji: '🎛️', label: t('studio.shortcuts.sampling') },
+            { id: 'st-engine', emoji: '⚙️', label: t('studio.shortcuts.engine') },
           ] : []),
-          ...(runType === 'sdxl' ? [{ id: 'st-detail', emoji: '✨', label: 'Detail' }] : []),
-          ...(runType === 'zimage' ? [{ id: 'st-negative', emoji: '🚫', label: 'Negative' }] : []),
-          { id: 'st-results', emoji: '🖼️', label: 'Results' },
+          ...(runType === 'sdxl' ? [{ id: 'st-detail', emoji: '✨', label: t('studio.shortcuts.detail') }] : []),
+          ...(runType === 'zimage' ? [{ id: 'st-negative', emoji: '🚫', label: t('studio.shortcuts.negative') }] : []),
+          { id: 'st-results', emoji: '🖼️', label: t('studio.shortcuts.results') },
         ]}
         canRun={!!selection.length && !!strengths.length && !launching && !data?.gpu_busy}
         running={launching}

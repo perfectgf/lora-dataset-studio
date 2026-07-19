@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, createContext, useContext } from 'react'
+import { useI18n } from '../../i18n/I18nContext'
 
 // ── Context ──
 
@@ -63,6 +64,7 @@ const ICONS = {
 }
 
 function ToastContainer({ toasts, onRemove }) {
+  const { t } = useI18n()
   if (!toasts.length) return null
 
   // Plain positioning wrapper — NOT a live region. Each toast is its own live
@@ -70,22 +72,22 @@ function ToastContainer({ toasts, onRemove }) {
   // and per-new-toast re-announce-all.
   return (
     <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
-      {toasts.map((t) => (
+      {toasts.map((toastItem) => (
         <div
-          key={t.id}
-          role={t.type === 'error' ? 'alert' : 'status'}
-          aria-live={t.type === 'error' ? 'assertive' : 'polite'}
+          key={toastItem.id}
+          role={toastItem.type === 'error' ? 'alert' : 'status'}
+          aria-live={toastItem.type === 'error' ? 'assertive' : 'polite'}
           aria-atomic="true"
           className={`flex items-start gap-2 border rounded-lg px-4 py-3 shadow-lg backdrop-blur-sm animate-slideIn ${
-            TYPE_STYLES[t.type] || TYPE_STYLES.info
+            TYPE_STYLES[toastItem.type] || TYPE_STYLES.info
           }`}
         >
-          <span className="flex-shrink-0 mt-0.5">{ICONS[t.type] || ICONS.info}</span>
-          <span className="text-sm flex-1">{t.message}</span>
+          <span className="flex-shrink-0 mt-0.5">{ICONS[toastItem.type] || ICONS.info}</span>
+          <span className="text-sm flex-1">{toastItem.message}</span>
           <button
             type="button"
-            onClick={() => onRemove(t.id)}
-            aria-label="Close notification"
+            onClick={() => onRemove(toastItem.id)}
+            aria-label={t('toast.close')}
             className="flex-shrink-0 text-content-muted hover:text-content ml-2"
           >
             <span aria-hidden="true">&times;</span>

@@ -27,8 +27,10 @@ import { HelpBadge } from '../../../help/HelpMode';
 import LoraPicker from './LoraPicker';
 import LegacyDatasetStudio from './LegacyDatasetStudio';
 import ComparisonStudio from './ComparisonStudio';
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function StudioShell({ preselectDataset = null, datasetId = null }) {
+  const { t } = useI18n();
   // `datasetId` legacy est un alias de preselectDataset.
   const preselect = preselectDataset ?? datasetId;
 
@@ -62,10 +64,12 @@ export default function StudioShell({ preselectDataset = null, datasetId = null 
   return (
     <div className="flex flex-col gap-3">
       <header className="flex items-center gap-2 flex-wrap sticky top-0 z-10 bg-app/80 backdrop-blur py-2">
-        <h1 className="text-content font-bold flex items-center gap-2">🧪 Test Studio<HelpBadge topic="page-studio" /></h1>
+        <h1 className="text-content font-bold flex items-center gap-2">
+          🧪 {t('studio.title')}<HelpBadge topic="page-studio" />
+        </h1>
         {comparison && (
           <span className="px-2 py-0.5 rounded-lg border border-amber-400/40 bg-amber-400/10 text-amber-200 text-[0.6875rem] font-semibold">
-            ⚖ Comparing {selection.length} LoRAs
+            ⚖ {t('studio.comparing', { count: selection.length })}
           </span>
         )}
       </header>
@@ -84,7 +88,7 @@ export default function StudioShell({ preselectDataset = null, datasetId = null 
           datasetId={String(soloDatasetId)} initialFamily={soloFamily} />
       ) : (
         <p className="text-content-subtle text-sm rounded-lg border border-border bg-surface px-3 py-6 text-center">
-          Check a LoRA above to tune and test it. Check ≥2 to compare them side by side.
+          {t('studio.emptySelection')}
         </p>
       )}
     </div>

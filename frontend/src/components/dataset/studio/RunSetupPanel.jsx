@@ -10,6 +10,7 @@ import LaunchBar from './LaunchBar';
 import StudioGenerationSettings from './StudioGenerationSettings';
 import StudioActionBar from './StudioActionBar';
 import StudioPreflightBanner from './StudioPreflightBanner';
+import { useI18n } from '../../../i18n/I18nContext';
 
 // Rail gauche « Setup du run » : pickers + seed/launch + bandeaux d'état.
 // Extraction behavior-preserving de LoraTestStudio.jsx :
@@ -21,6 +22,7 @@ import StudioPreflightBanner from './StudioPreflightBanner';
 //   (le payload `d` ne porte pas l'id du dataset → StudioShell le transmet). Voir
 //   note de déviation §contrat dans le rapport de livraison de la Task 1.A.
 export default function RunSetupPanel({ d, studio, form, datasetId }) {
+  const { t } = useI18n();
   // Réglages de génération GLOBAUX (parité Generate, hors prompt builder) remontés par
   // StudioGenerationSettings : objet snake_case déjà prêt à fusionner dans le POST /run
   // (source unique de vérité pour rebalance/enhancer/precision/format/detail/negative +
@@ -68,11 +70,14 @@ export default function RunSetupPanel({ d, studio, form, datasetId }) {
         <div className="flex items-center gap-2 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2" role="status">
           <span className="inline-block w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />
           <span className="text-content text-sm">
-            {d.generating ?? d.running ?? 0} generating · {d.queued ?? d.pending} queued
+            {t('studio.run.progress', {
+              generating: d.generating ?? d.running ?? 0,
+              queued: d.queued ?? d.pending,
+            })}
           </span>
           <button type="button" onClick={studio.cancel}
             className="ml-auto px-2.5 py-1 rounded-lg bg-red-600/80 text-white text-xs font-semibold">
-            Stop (resumable)
+            {t('studio.run.stopResumable')}
           </button>
         </div>
       )}
@@ -81,11 +86,11 @@ export default function RunSetupPanel({ d, studio, form, datasetId }) {
       {!d.pending && d.resumable > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2" role="status">
           <span aria-hidden>⏸</span>
-          <span className="text-content text-sm">{d.resumable} stopped cell(s) — resumable with their settings</span>
+          <span className="text-content text-sm">{t('studio.run.stopped', { count: d.resumable })}</span>
           <button type="button" disabled={!!d.gpu_busy || studio.launching}
             onClick={() => studio.resume()}
             className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-xs font-semibold disabled:opacity-40">
-            ▶ Resume test
+            ▶ {t('studio.run.resume')}
           </button>
         </div>
       )}
@@ -161,16 +166,16 @@ export default function RunSetupPanel({ d, studio, form, datasetId }) {
           (mêmes ancres que la comparaison ; le ratio reste l'axe Formats ici). */}
       <StudioActionBar
         shortcuts={[
-          { id: 'st-loras', emoji: '🧬', label: 'LoRAs' },
-          { id: 'st-setup', emoji: '📝', label: 'Prompt & seed' },
-          { id: 'st-format', emoji: '📐', label: 'Format' },
+          { id: 'st-loras', emoji: '🧬', label: t('studio.shortcuts.loras') },
+          { id: 'st-setup', emoji: '📝', label: t('studio.shortcuts.promptSeed') },
+          { id: 'st-format', emoji: '📐', label: t('studio.shortcuts.format') },
           ...(d.family === 'krea' ? [
-            { id: 'st-sampling', emoji: '🎛️', label: 'Sampling' },
-            { id: 'st-engine', emoji: '⚙️', label: 'Engine' },
+            { id: 'st-sampling', emoji: '🎛️', label: t('studio.shortcuts.sampling') },
+            { id: 'st-engine', emoji: '⚙️', label: t('studio.shortcuts.engine') },
           ] : []),
-          ...(d.family === 'sdxl' ? [{ id: 'st-detail', emoji: '✨', label: 'Detail' }] : []),
-          ...(d.family === 'zimage' ? [{ id: 'st-negative', emoji: '🚫', label: 'Negative' }] : []),
-          { id: 'st-results', emoji: '🖼️', label: 'Results' },
+          ...(d.family === 'sdxl' ? [{ id: 'st-detail', emoji: '✨', label: t('studio.shortcuts.detail') }] : []),
+          ...(d.family === 'zimage' ? [{ id: 'st-negative', emoji: '🚫', label: t('studio.shortcuts.negative') }] : []),
+          { id: 'st-results', emoji: '🖼️', label: t('studio.shortcuts.results') },
         ]}
         canRun={canLaunch}
         running={studio.launching}

@@ -8,7 +8,7 @@ const hook = fs.readFileSync(new URL('../../hooks/useDataset.js', import.meta.ur
 test('continue retry uses the accumulating guarded request helper', () => {
   assert.match(panel, /runConfirmableTrainingRequest/);
   assert.match(panel, /\(continueOpts\) => ds\.continueTraining/);
-  assert.match(panel, /confirmableRetryFlag\(error, 'Continue anyway \(force\)'\)/);
+  assert.match(panel, /confirmableRetryFlag\(\s*error, t\('workspace\.training\.dialogs\.continueForce'\)\)/);
 });
 
 test('continue request sends caption override flags and leaves their toast to the confirm loop', () => {

@@ -10,6 +10,7 @@ import { kleinMissingLabels } from '../../hooks/useSetupSteps';
 import { generationLoraPresetPayload, sanitizeGenerationLoraPresets } from '../../utils/generationLoras';
 import { requestHelpTip } from '../../help/helpTips';
 import { HelpBadge } from '../../help/HelpMode';
+import { useI18n } from '../../i18n/I18nContext';
 import {
   applyShotPreset,
   deleteShotPreset,
@@ -19,7 +20,6 @@ import {
   saveShotPreset,
 } from '../../utils/shotPresets';
 
-const FRAMING_LABEL = { face: 'Face', bust: 'Bust', body: 'Body', back: 'Back' };
 // The framings a prompt suffix can target (same buckets the backend wraps by).
 const SUFFIX_KEYS = ['face', 'bust', 'body', 'back'];
 // Framing accent colors — shared by the section headers, the preset composition
@@ -35,12 +35,12 @@ const FRAMING_COLOR = {
 const TARGET = { face: 12, bust: 6, body: 6, back: 1 };
 
 const PRESET_META = [
-  { key: 'balanced_25', name: 'Balanced', hint: 'The all-round default: every framing covered in training proportions.' },
-  { key: 'zimage_12', name: 'Z-Image 12', hint: 'Compact 12-shot set tuned for Z-Image LoRA training.' },
-  { key: 'balanced_multiformat', name: 'Multi-format', hint: 'Balanced set with landscape / vertical / cinema frames mixed in.' },
-  { key: 'face_focused', name: 'Face-focused', hint: 'Face only (close-ups + busts, varied formats, no body shots) — body stays generic.' },
-  { key: 'fullbody_focused', name: 'Full-body', hint: 'Reliable full-body: ~50/50 identity (face+bust) and full-body + back, varied formats. For a character that must hold up full-length without losing the face.' },
-  { key: 'body_emphasis', name: 'Body emphasis', hint: 'Body-fidelity pick: figure-revealing but API-safe outfits (fitted tops, swimwear at the beach/pool, sportswear, bodycon, backlit silhouette) so the body shape is actually visible in the training shots. For explicit content, generate with the local Klein engine instead.' },
+  { key: 'balanced_25' },
+  { key: 'zimage_12' },
+  { key: 'balanced_multiformat' },
+  { key: 'face_focused' },
+  { key: 'fullbody_focused' },
+  { key: 'body_emphasis' },
 ];
 
 /** Mini stacked bar showing a preset's framing mix (face/bust/body/back). */
@@ -87,9 +87,19 @@ function GpuIcon({ className }) {
   );
 }
 
-export default function VariationCatalog({ onGenerate, busy, generating = null, hasRef, composition, images = [], bodyFidelity = false, promptSuffix = '', promptSuffixes = null, onSaveSuffixes = null }) {
+export default function VariationCatalog({ onGenerate, onCancelGeneration, busy,
+  cancellingGeneration = false, generating = null, hasRef, composition,
+  images = [], bodyFidelity = false, promptSuffix = '', promptSuffixes = null,
+  onSaveSuffixes = null }) {
   const toast = useToast();
+  const { t } = useI18n();
   const { caps } = useCapabilities();
+  const framingLabel = (framing) => t(`workspace.variations.framing.${framing}`);
+  const shotLabel = (entry) => {
+    const key = `workspace.variations.shots.${entry.id}`;
+    const translated = t(key);
+    return translated === key ? displayLabel(entry.label) : translated;
+  };
   const [catalog, setCatalog] = useState([]);
   const [nsfwCatalog, setNsfwCatalog] = useState([]);
   const [presets, setPresets] = useState({});
@@ -213,11 +223,11 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
   // models/unet/klein/ even when the real gap was the TE or VAE.
   const kleinMissingWords = kleinMissingLabels(caps.comfyui?.klein_missing);
   const kleinAssetHint = kleinMissingWords.length
-    ? `⚠ Klein ${kleinMissingWords.join(' + ')} missing — download it in the Setup step`
-    : '⚠ Klein model missing — download it in the Setup step (models/unet/klein/)';
+    ? t('workspace.variations.engine.kleinAssetsMissing', { assets: kleinMissingWords.join(' + ') })
+    : t('workspace.variations.engine.kleinModelMissing');
   const kleinHint = klAvailable ? null
-    : !enabledEngines.includes('klein') ? '⚠ Klein is disabled in Settings (engines)'
-    : !caps.comfyui?.reachable ? '⚠ Configure ComfyUI in Settings'
+    : !enabledEngines.includes('klein') ? t('workspace.variations.engine.kleinDisabled')
+    : !caps.comfyui?.reachable ? t('workspace.variations.engine.configureComfyUI')
     : kleinAssetHint;
 
   useEffect(() => {
@@ -237,11 +247,11 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
       })
       .catch(() => {
         // Loud failure (M6): an empty catalog otherwise looks like a UI bug.
-        if (!cancelled) toast.error('Could not load the variation catalog');
+        if (!cancelled) toast.error(t('workspace.variations.loadFailed'));
       });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast]);
+  }, [toast, t]);
 
   const byFraming = useMemo(() => {
     const g = { face: [], bust: [], body: [], back: [] };
@@ -321,13 +331,13 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
   };
 
   const saveCurrentPreset = () => {
-    const name = window.prompt('Name this shot preset:');
+    const name = window.prompt(t('workspace.variations.customPreset.namePrompt'));
     if (name == null) return;
     try {
       const next = saveShotPreset(customPresets, name, selected, customShots);
       setCustomPresets(next);
-      toast.success(`Preset saved: ${next.at(-1).name}`);
-    } catch (error) { toast.error(error.message || 'Could not save preset'); }
+      toast.success(t('workspace.variations.customPreset.saved', { name: next.at(-1).name }));
+    } catch (error) { toast.error(error.message || t('workspace.variations.customPreset.saveFailed')); }
   };
 
   const applyCustomPreset = (preset) => {
@@ -341,14 +351,14 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
   };
 
   const renameCustomPreset = (preset) => {
-    const name = window.prompt('Rename shot preset:', preset.name);
+    const name = window.prompt(t('workspace.variations.customPreset.renamePrompt'), preset.name);
     if (name == null) return;
     try { setCustomPresets((items) => renameShotPreset(items, preset.id, name)); }
-    catch (error) { toast.error(error.message || 'Could not rename preset'); }
+    catch (error) { toast.error(error.message || t('workspace.variations.customPreset.renameFailed')); }
   };
 
   const removeCustomPreset = (preset) => {
-    if (!window.confirm(`Delete the preset “${preset.name}”?`)) return;
+    if (!window.confirm(t('workspace.variations.customPreset.deleteConfirm', { name: preset.name }))) return;
     setCustomPresets((items) => deleteShotPreset(items, preset.id));
   };
 
@@ -410,15 +420,14 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     const dupes = variations.filter((v) => doneByLabel.get(v.label));
     let toGen = variations;
     if (dupes.length === variations.length) {
-      if (!window.confirm(
-        `All ${dupes.length} selected shot(s) already exist in the dataset (green ✓×N cards).\n\n`
-        + 'Generate them AGAIN anyway (duplicates)?')) return;
+      if (!window.confirm(t('workspace.variations.confirm.allDuplicates', { count: dupes.length }))) return;
     } else if (dupes.length > 0) {
       const fresh = variations.length - dupes.length;
-      if (!window.confirm(
-        `${dupes.length} of the ${variations.length} selected shot(s) already exist in the dataset.\n\n`
-        + `OK — generate everything (including ${dupes.length} duplicate(s))\n`
-        + `Cancel — only generate the ${fresh} new one(s)`)) {
+      if (!window.confirm(t('workspace.variations.confirm.someDuplicates', {
+        duplicates: dupes.length,
+        total: variations.length,
+        fresh,
+      }))) {
         toGen = variations.filter((v) => !doneByLabel.get(v.label));
       }
     }
@@ -429,8 +438,11 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     const rate = isNB ? 0.15 : (isGPT && !gptViaSub) ? 0.17 : 0;
     const cost = toGen.length * multiplier * rate;
     if (cost > 5 && !window.confirm(
-      `This will launch ${toGen.length * multiplier} API generation(s) `
-      + `≈ $${cost.toFixed(2)} (${isNB ? 'Nano Banana' : 'ChatGPT'}).\n\nProceed?`)) return;
+      t('workspace.variations.confirm.cost', {
+        count: toGen.length * multiplier,
+        cost: cost.toFixed(2),
+        engine: isNB ? 'Nano Banana' : 'ChatGPT',
+      }))) return;
     // Persist any per-batch suffix edit BEFORE enqueueing: the backend applies
     // the dataset's CURRENT suffix at wrap time, so the save must land first or
     // the batch would generate with the old creative direction (Idea by vvilams).
@@ -448,9 +460,9 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
       <div className="flex items-center gap-2">
         <span aria-hidden="true">🎬</span>
-        <h2 className="text-content font-semibold text-sm">Generate variations</h2>
+        <h2 className="text-content font-semibold text-sm">{t('workspace.variations.title')}</h2>
         <span className="text-content-subtle text-[0.6875rem]">
-          pick the shots to synthesize from the reference photo
+          {t('workspace.variations.subtitle')}
         </span>
       </div>
 
@@ -458,30 +470,30 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           Each card disables itself with an actionable hint when its engine
           isn't configured/reachable or was turned off in Settings. */}
       <div className="flex items-center gap-2">
-        <span className="text-content-muted text-[0.6875rem] uppercase">Engine</span>
+        <span className="text-content-muted text-[0.6875rem] uppercase">{t('workspace.variations.engine.title')}</span>
         <span className="text-content-subtle text-[0.625rem]">
-          where the images are made — Klein runs free on your GPU · APIs bill per image (or use your ChatGPT subscription)
+          {t('workspace.variations.engine.description')}
         </span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <button type="button" onClick={() => setGenerator('klein')} aria-pressed={isKlein}
           disabled={!klAvailable || !!generating}
-          title={generating ? 'A generation batch is running — wait for it to finish before switching engine' : undefined}
+          title={generating ? t('workspace.variations.engine.switchBlocked') : undefined}
           className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isKlein
             ? 'border-primary/60 bg-primary/15 ring-1 ring-primary/40'
             : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
           <GpuIcon className={`w-9 h-9 shrink-0 ${isKlein ? 'text-indigo-300' : 'text-content-subtle'}`} />
           <span className="flex flex-col gap-1 min-w-0">
             <span className={`text-[0.8125rem] font-semibold ${isKlein ? 'text-white' : 'text-content-muted'}`}>
-              Klein <span className="font-normal text-content-subtle">· local</span>
+              Klein <span className="font-normal text-content-subtle">· {t('workspace.variations.engine.local')}</span>
             </span>
             <span className="flex flex-wrap gap-1">
-              <span className="px-1.5 py-px rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[0.625rem]">Free</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">Your GPU</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">NSFW OK</span>
+              <span className="px-1.5 py-px rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[0.625rem]">{t('workspace.variations.engine.free')}</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{t('workspace.variations.engine.yourGpu')}</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{t('workspace.variations.engine.nsfwOk')}</span>
             </span>
             {klAvailable ? (
-              <span className="text-content-subtle text-[0.625rem]">Runs on this machine — slower, tunable face fidelity.</span>
+              <span className="text-content-subtle text-[0.625rem]">{t('workspace.variations.engine.kleinDescription')}</span>
             ) : (
               <a href="#/setup" onClick={(e) => e.stopPropagation()}
                 className="text-amber-300 text-[0.625rem] underline decoration-amber-300/50">
@@ -492,7 +504,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         </button>
         <button type="button" onClick={() => setGenerator('nanobanana')} aria-pressed={isNB}
           disabled={!nbAvailable || !!generating}
-          title={generating ? 'A generation batch is running — wait for it to finish before switching engine' : undefined}
+          title={generating ? t('workspace.variations.engine.switchBlocked') : undefined}
           className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isNB
             ? 'border-amber-400/60 bg-amber-500/15 ring-1 ring-amber-400/40'
             : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
@@ -502,43 +514,43 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
               Nano Banana Pro <span className="font-normal text-content-subtle">· API</span>
             </span>
             <span className="flex flex-wrap gap-1">
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">No GPU</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">~$0.15/image</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{t('workspace.variations.engine.noGpu')}</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{t('workspace.variations.engine.perImage', { price: '$0.15' })}</span>
               <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">SFW</span>
             </span>
             {nbAvailable ? (
               <span className={`text-[0.625rem] ${isNB ? 'text-amber-300' : 'text-content-subtle'}`}>
-                Best face fidelity · estimated cost ≈ ${(selected.size * multiplier * 0.15).toFixed(2)}
+                {t('workspace.variations.engine.bestFidelity', { cost: (selected.size * multiplier * 0.15).toFixed(2) })}
               </span>
             ) : (
-              <span className="text-amber-300 text-[0.625rem]">⚠ Add GEMINI_API_KEY in Settings</span>
+              <span className="text-amber-300 text-[0.625rem]">{t('workspace.variations.engine.addGeminiKey')}</span>
             )}
           </span>
         </button>
         <button type="button" onClick={() => setGenerator('chatgpt')} aria-pressed={isGPT}
           disabled={!gptAvailable || !!generating}
-          title={generating ? 'A generation batch is running — wait for it to finish before switching engine' : undefined}
+          title={generating ? t('workspace.variations.engine.switchBlocked') : undefined}
           className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isGPT
             ? 'border-emerald-400/60 bg-emerald-500/15 ring-1 ring-emerald-400/40'
             : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
           <ChatGptIcon className={`w-9 h-9 shrink-0 ${isGPT ? 'text-emerald-300' : 'text-content-subtle'}`} />
           <span className="flex flex-col gap-1 min-w-0">
             <span className={`text-[0.8125rem] font-semibold ${isGPT ? 'text-emerald-200' : 'text-content-muted'}`}>
-              ChatGPT <span className="font-normal text-content-subtle">{gptViaSub ? '· subscription' : '· API'}</span>
+              ChatGPT <span className="font-normal text-content-subtle">{gptViaSub ? `· ${t('workspace.variations.engine.subscription')}` : '· API'}</span>
             </span>
             <span className="flex flex-wrap gap-1">
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">No GPU</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{gptViaSub ? 'Plan quota' : '~$0.17/image'}</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{t('workspace.variations.engine.noGpu')}</span>
+              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{gptViaSub ? t('workspace.variations.engine.planQuota') : t('workspace.variations.engine.perImage', { price: '$0.17' })}</span>
               <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">SFW</span>
             </span>
             {gptAvailable ? (
               <span className={`text-[0.625rem] ${isGPT ? 'text-emerald-300' : 'text-content-subtle'}`}>
                 {gptViaSub
-                  ? `gpt-image-2 · uses your ChatGPT ${gptPlanLabel} quota`
-                  : `gpt-image-2 · estimated cost ≈ $${(selected.size * multiplier * 0.17).toFixed(2)}`}
+                  ? t('workspace.variations.engine.usesQuota', { plan: gptPlanLabel })
+                  : t('workspace.variations.engine.gptCost', { cost: (selected.size * multiplier * 0.17).toFixed(2) })}
               </span>
             ) : (
-              <span className="text-amber-300 text-[0.625rem]">⚠ Add an API key or connect a subscription in Settings</span>
+              <span className="text-amber-300 text-[0.625rem]">{t('workspace.variations.engine.connectChatGpt')}</span>
             )}
           </span>
         </button>
@@ -547,32 +559,35 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
       {/* Preset cards with their framing-mix bar. */}
       <div>
         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-          <span className="text-content-muted text-[0.6875rem] uppercase">Presets</span>
+          <span className="text-content-muted text-[0.6875rem] uppercase">{t('workspace.variations.presets.title')}</span>
           <button type="button" onClick={saveCurrentPreset} disabled={!selected.size}
-            aria-label="Save the current shot selection as a custom preset"
+            aria-label={t('workspace.variations.presets.saveLabel')}
             className="rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[0.625rem] font-semibold text-indigo-200 hover:bg-primary/20 disabled:opacity-40">
-            ＋ Save preset
+            ＋ {t('workspace.variations.presets.save')}
           </button>
           <span className="ml-auto flex items-center gap-2 flex-wrap text-[0.625rem] text-content-subtle" aria-hidden="true">
             {['face', 'bust', 'body', 'back'].map((fr) => (
               <span key={fr} className="flex items-center gap-1">
-                <span className={`w-2 h-2 rounded-full ${FRAMING_COLOR[fr]}`} />{FRAMING_LABEL[fr]}
+                <span className={`w-2 h-2 rounded-full ${FRAMING_COLOR[fr]}`} />{framingLabel(fr)}
               </span>
             ))}
           </span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
-          {PRESET_META.map(({ key, name, hint }) => {
+          {PRESET_META.map(({ key }) => {
             const st = presetStats[key];
             const active = activePreset === key;
             return (
-              <button key={key} type="button" onClick={() => applyPreset(key)} title={hint}
+              <button key={key} type="button" onClick={() => applyPreset(key)}
+                title={t(`workspace.variations.presets.items.${key}.hint`)}
                 aria-pressed={active} disabled={!st?.total}
                 className={`flex flex-col gap-1.5 rounded-lg border p-2 text-left transition-colors disabled:opacity-40 ${active
                   ? 'border-primary/60 bg-primary/15 ring-1 ring-primary/40'
                   : 'border-border bg-app/40 hover:bg-surface-raised'}`}>
                 <span className="flex items-baseline gap-1 min-w-0">
-                  <span className={`text-[0.6875rem] font-semibold truncate ${active ? 'text-white' : 'text-content'}`}>{name}</span>
+                  <span className={`text-[0.6875rem] font-semibold truncate ${active ? 'text-white' : 'text-content'}`}>
+                    {t(`workspace.variations.presets.items.${key}.name`)}
+                  </span>
                   <span className="ml-auto text-content-subtle text-[0.625rem] shrink-0">{st?.total || 0}</span>
                 </span>
                 <CompositionMiniBar counts={st?.counts || {}} total={st?.total || 0} />
@@ -588,7 +603,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                   ? 'border-primary/60 bg-primary/15 ring-1 ring-primary/40'
                   : 'border-border bg-app/40 hover:bg-surface-raised'}`}>
                 <button type="button" onClick={() => applyCustomPreset(preset)} aria-pressed={active}
-                  aria-label={`Apply custom preset ${preset.name}`}
+                  aria-label={t('workspace.variations.customPreset.apply', { name: preset.name })}
                   className="flex w-full min-w-0 flex-col gap-1.5 p-2 pr-12 text-left">
                   <span className="flex w-full min-w-0 items-baseline gap-1">
                     <span className={`truncate text-[0.6875rem] font-semibold ${active ? 'text-white' : 'text-content'}`}>
@@ -600,10 +615,10 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                 </button>
                 <div className="absolute right-1 top-1 flex gap-0.5">
                   <button type="button" onClick={() => renameCustomPreset(preset)}
-                    aria-label={`Rename custom preset ${preset.name}`} title="Rename preset"
+                    aria-label={t('workspace.variations.customPreset.rename', { name: preset.name })} title={t('workspace.variations.customPreset.renameTitle')}
                     className="grid h-5 w-5 place-items-center rounded text-[0.625rem] text-content-subtle hover:bg-white/10 hover:text-content">✎</button>
                   <button type="button" onClick={() => removeCustomPreset(preset)}
-                    aria-label={`Delete custom preset ${preset.name}`} title="Delete preset"
+                    aria-label={t('workspace.variations.customPreset.delete', { name: preset.name })} title={t('workspace.variations.customPreset.deleteTitle')}
                     className="grid h-5 w-5 place-items-center rounded text-[0.625rem] text-content-subtle hover:bg-red-500/15 hover:text-red-300">✕</button>
                 </div>
               </div>
@@ -616,23 +631,23 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           amber chips in the group headers are the composition quota, a
           separate concern). */}
       <div className="flex items-center gap-2 pt-1">
-        <span className="text-content-muted text-[0.6875rem] uppercase">Shots</span>
+        <span className="text-content-muted text-[0.6875rem] uppercase">{t('workspace.variations.shotPicker.title')}</span>
         <span className="text-content-subtle text-[0.625rem]">
-          a preset pre-selects a balanced mix — click any card to add or remove it
+          {t('workspace.variations.shotPicker.description')}
         </span>
       </div>
       <div className="flex items-center gap-3 flex-wrap text-[0.625rem] text-content-subtle" aria-hidden="true">
         <span className="flex items-center gap-1">
           <span className="w-3 h-3 rounded border border-primary/50 bg-primary/20 ring-1 ring-primary/30" />
-          selected — will be generated
+          {t('workspace.variations.shotPicker.selected')}
         </span>
         <span className="flex items-center gap-1">
           <span className="w-3 h-3 rounded border border-emerald-500/40 bg-emerald-500/10" />
-          <span className="text-emerald-300">✓×N</span> already in your dataset
+          <span className="text-emerald-300">✓×N</span> {t('workspace.variations.shotPicker.alreadyInDataset')}
         </span>
         <span className="flex items-center gap-1">
           <span className="w-3 h-3 rounded border border-border bg-app/40" />
-          not selected
+          {t('workspace.variations.shotPicker.notSelected')}
         </span>
       </div>
 
@@ -646,11 +661,15 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           return (
             <div key={fr}>
               <div className="flex items-center gap-2 mb-1"
-                title={`Your dataset contains ${have} "${FRAMING_LABEL[fr]}" image(s). Target for balanced training: ${TARGET[fr]} (this quota does NOT affect the generation selection).`}>
+                title={t('workspace.variations.shotPicker.quotaTitle', {
+                  have,
+                  framing: framingLabel(fr),
+                  target: TARGET[fr],
+                })}>
                 <ShotIllustration framing={fr} label=""
                   className={`w-5 h-5 ${missing ? 'text-amber-300' : 'text-content-subtle'}`} />
                 <span className={`text-[0.6875rem] uppercase font-semibold ${missing ? 'text-amber-300' : 'text-content-muted'}`}>
-                  {FRAMING_LABEL[fr]}
+                  {framingLabel(fr)}
                 </span>
                 <span className="w-24 h-1.5 rounded-full bg-app/60 overflow-hidden" aria-hidden="true">
                   <span className={`block h-full rounded-full ${missing ? 'bg-amber-400' : 'bg-emerald-400'}`}
@@ -658,13 +677,13 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                 </span>
                 {missing > 0 ? (
                   <span className="px-1.5 py-px rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[0.625rem]">
-                    {have}/{TARGET[fr]} in the dataset · {missing} missing
+                    {t('workspace.variations.shotPicker.missing', { have, target: TARGET[fr], missing })}
                   </span>
                 ) : (
                   <span className="text-emerald-400/90 text-[0.625rem]">✓ {have}/{TARGET[fr]}</span>
                 )}
                 {selCount > 0 && (
-                  <span className="ml-auto text-content-subtle text-[0.625rem]">{selCount} selected</span>
+                  <span className="ml-auto text-content-subtle text-[0.625rem]">{t('workspace.variations.shotPicker.selectedCount', { count: selCount })}</span>
                 )}
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5">
@@ -684,16 +703,16 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                   return (
                     <button key={e.id} type="button" onClick={() => toggle(e.id)}
                       aria-pressed={on}
-                      title={done > 0 ? `${done} image(s) of this shot already in the dataset` : undefined}
+                      title={done > 0 ? t('workspace.variations.shotPicker.existingCount', { count: done }) : undefined}
                       className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border text-left transition-colors ${cls}`}>
                       <ShotIllustration framing={e.framing} label={e.label} className="w-7 h-7 shrink-0" />
                       <span className="min-w-0 leading-tight">
                         {emoji && <span className="mr-1" aria-hidden="true">{emoji}</span>}
-                        {displayLabel(e.label)}
+                        {shotLabel(e)}
                       </span>
                       <span className="ml-auto shrink-0 flex items-center gap-1">
                         {done > 0 && (
-                          <span className="text-emerald-300 font-semibold" aria-label={`${done} already in the dataset`}>
+                          <span className="text-emerald-300 font-semibold" aria-label={t('workspace.variations.shotPicker.existingAria', { count: done })}>
                             ✓×{done}
                           </span>
                         )}
@@ -712,8 +731,8 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span aria-hidden="true">✨</span>
-              <span className="text-[0.6875rem] uppercase font-semibold text-content-muted">Custom</span>
-              <span className="text-content-subtle text-[0.625rem]">your own shots — remove with ✕</span>
+              <span className="text-[0.6875rem] uppercase font-semibold text-content-muted">{t('workspace.variations.customShots.title')}</span>
+              <span className="text-content-subtle text-[0.625rem]">{t('workspace.variations.customShots.description')}</span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5">
               {customShots.map((c) => {
@@ -729,7 +748,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                   <div key={c.id} className={`relative flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border transition-colors ${cls} ${blocked ? 'opacity-40' : ''}`}>
                     <button type="button" onClick={() => !blocked && toggle(c.id)} aria-pressed={on}
                       disabled={blocked}
-                      title={blocked ? '🔞 shot — switch the generator to Klein' : c.prompt}
+                      title={blocked ? t('workspace.variations.customShots.kleinOnly') : c.prompt}
                       className="flex items-center gap-1.5 flex-1 min-w-0 text-left disabled:cursor-not-allowed">
                       <ShotIllustration framing={c.framing} label={c.label} className="w-7 h-7 shrink-0" />
                       <span className="min-w-0 leading-tight truncate">{c.label}</span>
@@ -739,7 +758,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                       </span>
                     </button>
                     <button type="button" onClick={() => removeCustomShot(c.id)}
-                      aria-label={`Remove custom shot ${c.label}`} title="Remove this custom shot"
+                      aria-label={t('workspace.variations.customShots.remove', { name: c.label })} title={t('workspace.variations.customShots.removeTitle')}
                       className="shrink-0 w-4 h-4 grid place-items-center rounded bg-black/40 text-content-subtle hover:text-white text-[0.625rem] leading-none">
                       ✕
                     </button>
@@ -760,10 +779,10 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
             className="flex items-center gap-2 text-left">
             <span aria-hidden="true">🔞</span>
             <span className={`text-[0.75rem] font-semibold ${nsfwMode ? 'text-rose-300' : 'text-content-muted'}`}>
-              NSFW mode {nsfwMode ? 'ON' : 'OFF'}
+              {t('workspace.variations.nsfw.title')} {nsfwMode ? t('common.on') : t('common.off')}
             </span>
             <span className="text-content-subtle text-[0.625rem]">
-              uncensored body shots — generated locally by Klein, never sent to an API
+              {t('workspace.variations.nsfw.description')}
             </span>
             <span className={`ml-auto w-8 h-4 rounded-full relative transition-colors ${nsfwMode ? 'bg-rose-500/70' : 'bg-app/80 border border-border'}`}
               aria-hidden="true">
@@ -783,10 +802,10 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                       : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised';
                   return (
                     <button key={e.id} type="button" onClick={() => toggle(e.id)} aria-pressed={on}
-                      title={done > 0 ? `${done} image(s) of this shot already in the dataset` : e.prompt}
+                      title={done > 0 ? t('workspace.variations.shotPicker.existingCount', { count: done }) : e.prompt}
                       className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border text-left transition-colors ${cls}`}>
                       <ShotIllustration framing={e.framing} label={e.label} className="w-7 h-7 shrink-0" />
-                      <span className="min-w-0 leading-tight">{displayLabel(e.label)}</span>
+                      <span className="min-w-0 leading-tight">{shotLabel(e)}</span>
                       <span className="ml-auto shrink-0 flex items-center gap-1">
                         {done > 0 && <span className="text-emerald-300 font-semibold">✓×{done}</span>}
                         {on && <span className="text-rose-300" aria-hidden="true">✓</span>}
@@ -796,9 +815,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                 })}
               </div>
               <p className="text-content-subtle text-[0.625rem]">
-                Captions must keep describing the state (nude / lingerie…) so it stays
-                promptable and does not bind to the trigger word — the captioner does this
-                automatically. The Custom shot below follows this register while 🔞 is on.
+                {t('workspace.variations.nsfw.captionHint')}
               </p>
             </>
           )}
@@ -811,30 +828,31 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           <details> keeps its fields mounted, so drafts survive fold/unfold. */}
       <details className="rounded-lg border border-border bg-app/30 open:pb-2">
         <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
-          ✨ Custom shot
+          ✨ {t('workspace.variations.customShot.title')}
           <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
-            write your own prompt — it becomes a reusable card in the Custom group above{nsfwMode && isKlein ? ' — 🔞 register active' : ''}
+            {t('workspace.variations.customShot.description')}
+            {nsfwMode && isKlein ? ` — ${t('workspace.variations.customShot.nsfwActive')}` : ''}
           </span>
         </summary>
         <div className="px-2.5 pt-1 flex flex-col gap-1">
           <label className="text-content-muted text-[0.6875rem]" htmlFor="custom-shot-prompt">
-            Describe outfit, pose and setting, pick a framing, then Add.
+            {t('workspace.variations.customShot.instructions')}
           </label>
           <div className="flex gap-1.5 items-start">
             <textarea id="custom-shot-prompt" value={customPrompt} rows={2}
               onChange={(e) => setCustomPrompt(e.target.value)}
-              placeholder="e.g. full body shot, sitting on a vintage motorbike in a garage, leather jacket, warm light"
+              placeholder={t('workspace.variations.customShot.placeholder')}
               className="flex-1 bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content resize-y" />
             <select value={customFraming} onChange={(e) => setCustomFraming(e.target.value)}
-              aria-label="Custom shot framing"
+              aria-label={t('workspace.variations.customShot.framing')}
               className="bg-app/60 border border-border rounded px-1 py-1 text-[0.6875rem] text-content">
               {['face', 'bust', 'body', 'back'].map((fr) => (
-                <option key={fr} value={fr}>{FRAMING_LABEL[fr]}</option>
+                <option key={fr} value={fr}>{framingLabel(fr)}</option>
               ))}
             </select>
             <button type="button" onClick={addCustomShot} disabled={!customPrompt.trim()}
               className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
-              ＋ Add
+              ＋ {t('common.add')}
             </button>
           </div>
         </div>
@@ -848,35 +866,33 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
       <details className="rounded-lg border border-border bg-app/30 open:pb-2"
         open={suffixOpen} onToggle={(e) => setSuffixOpen(e.currentTarget.open)}>
         <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold flex items-center gap-1.5">
-          ✨ Prompt suffixes
+          ✨ {t('workspace.variations.suffix.title')}
           <span className="font-normal text-content-subtle text-[0.625rem]">
-            creative direction added to every generated shot{suffixDirty ? ' · applied when you generate' : ''}
+            {t('workspace.variations.suffix.description')}{suffixDirty ? ` · ${t('workspace.variations.suffix.appliedOnGenerate')}` : ''}
           </span>
           <HelpBadge topic="prompt-suffixes" className="ml-1" />
         </summary>
         <div className="px-2.5 pt-1 flex flex-col gap-2">
           <label className="flex flex-col gap-1">
-            <span className="text-content-muted text-[0.6875rem]">All shots</span>
+            <span className="text-content-muted text-[0.6875rem]">{t('workspace.variations.suffix.allShots')}</span>
             <input value={gSuffix} maxLength={300}
               onChange={(e) => setGSuffix(e.target.value)}
-              placeholder="e.g. shot on 35mm film, warm tones"
+              placeholder={t('workspace.variations.suffix.placeholder')}
               className="bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content" />
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {SUFFIX_KEYS.map((k) => (
               <label key={k} className="flex flex-col gap-1">
-                <span className="text-content-muted text-[0.6875rem]">{FRAMING_LABEL[k]} shots</span>
+                <span className="text-content-muted text-[0.6875rem]">{t('workspace.variations.suffix.framingShots', { framing: framingLabel(k) })}</span>
                 <input value={fSuffix[k]} maxLength={300}
                   onChange={(e) => setFSuffix((s) => ({ ...s, [k]: e.target.value }))}
-                  aria-label={`${FRAMING_LABEL[k]} prompt suffix`}
+                  aria-label={t('workspace.variations.suffix.framingLabel', { framing: framingLabel(k) })}
                   className="bg-app/60 border border-border rounded px-2 py-1 text-[0.6875rem] text-content" />
               </label>
             ))}
           </div>
           <p className="text-content-subtle text-[0.625rem]">
-            Free text appended to every <b>generated</b> variation — the identity lock is
-            untouched. A framing suffix applies to that shot type first, then the global one.
-            Saved to the dataset when you generate, and shared with ⚙️ Dataset settings.
+            {t('workspace.variations.suffix.hint')}
           </p>
         </div>
       </details>
@@ -888,11 +904,11 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         <details className="rounded-lg border border-border bg-app/30 open:pb-2"
           onToggle={(e) => { if (e.currentTarget.open) requestHelpTip('klein-tuning-open'); }}>
           <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
-            🖥️ Klein tuning
+            🖥️ {t('workspace.variations.kleinTuning.title')}
             <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
-              model file · consistency LoRA {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
+              {t('workspace.variations.kleinTuning.modelFile')} · {t('workspace.variations.kleinTuning.consistency')} {loraStrength <= 0 ? t('common.off') : loraStrength.toFixed(2)}
               {activeLoraPreset && activeLoraPreset.loras.length > 0
-                ? ` · LoRA preset: ${activeLoraPreset.name}` : ''}
+                ? ` · ${t('workspace.variations.kleinTuning.loraPreset')}: ${activeLoraPreset.name}` : ''}
             </span>
           </summary>
           <div className="px-2.5 pt-1 flex flex-col gap-2">
@@ -900,17 +916,15 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
             <div className="flex flex-col gap-0.5">
               <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
                 <span className="whitespace-nowrap">
-                  Consistency LoRA: {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
+                  {t('workspace.variations.kleinTuning.consistency')}: {loraStrength <= 0 ? t('common.off') : loraStrength.toFixed(2)}
                 </span>
                 <input type="range" min={0} max={1.2} step={0.05} value={loraStrength}
                   onChange={(e) => setLoraStrength(Number(e.target.value))}
-                  aria-label="Consistency LoRA strength"
+                  aria-label={t('workspace.variations.kleinTuning.consistencyStrength')}
                   className="flex-1 min-w-[120px] accent-indigo-500" />
               </label>
               <p className="text-content-subtle text-[0.625rem]">
-                Anchors the COMPOSITION, not the face — high values suppress pose/framing changes.
-                ~0.5 balanced · 0.2–0.4 for big restagings · 0 = off. Face identity comes from the
-                reference photo(s); add extra references for a stronger identity lock.
+                {t('workspace.variations.kleinTuning.hint')}
               </p>
             </div>
             {/* Optional generation-LoRA preset (Idea by @waltm) — pick one of
@@ -919,31 +933,31 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                 visit by default. */}
             <div className="flex flex-col gap-1">
               <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
-                <span className="whitespace-nowrap">LoRA preset</span>
-                <select value={loraPresetName} aria-label="Generation LoRA preset"
+                <span className="whitespace-nowrap">{t('workspace.variations.kleinTuning.loraPreset')}</span>
+                <select value={loraPresetName} aria-label={t('workspace.variations.kleinTuning.loraPresetLabel')}
                   onChange={(e) => setLoraPresetName(e.target.value)}
                   className="bg-app/60 border border-border rounded px-1 py-0.5 text-content text-[0.6875rem]">
-                  <option value="">None</option>
+                  <option value="">{t('common.none')}</option>
                   {loraPresets.map((p) => (
                     <option key={p.name} value={p.name}>{p.name} ({p.loras.length})</option>
                   ))}
                 </select>
                 <span className="text-content-subtle text-[0.625rem]">
-                  your own LoRA combos — applies to every shot of this run
+                  {t('workspace.variations.kleinTuning.presetDescription')}
                 </span>
               </label>
               {loraPresets.length === 0 && (
                 <p className="text-content-subtle text-[0.625rem]">
-                  No presets yet — build combinations of your own LoRA files (texture, anatomy, style…) in{' '}
+                  {t('workspace.variations.kleinTuning.noPresets')}{' '}
                   <a href="#/settings/engines" className="text-amber-300 underline decoration-amber-300/50">
-                    Settings › Image engines
+                    {t('workspace.variations.kleinTuning.settingsLink')}
                   </a>.
                 </p>
               )}
               {activeLoraPreset && (
                 activeLoraPreset.loras.length === 0 ? (
                   <p className="text-content-subtle text-[0.625rem]">
-                    This preset is empty — add LoRA files to it in Settings.
+                    {t('workspace.variations.kleinTuning.emptyPreset')}
                   </p>
                 ) : (
                   <ol className="flex flex-col gap-0.5 text-[0.625rem] text-content-subtle">
@@ -962,37 +976,42 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         </details>
       )}
       <div className="flex items-center gap-2 flex-wrap border-t border-border pt-2">
-        <span className="text-content-muted text-[0.6875rem]">{selected.size} selected</span>
+        <span className="text-content-muted text-[0.6875rem]">{t('workspace.variations.shotPicker.selectedCount', { count: selected.size })}</span>
         {selected.size > 0 && (
           <button type="button" onClick={() => setSelected(new Set())}
             className="text-content-subtle text-[0.6875rem] underline decoration-border hover:text-content"
-            title="Clear the whole selection (presets and shots)">
-            ✕ Deselect all
+            title={t('workspace.variations.actions.clearTitle')}>
+            ✕ {t('workspace.variations.actions.deselectAll')}
           </button>
         )}
         <label className="text-content-muted text-[0.6875rem] flex items-center"
-          title="Generate each selected shot this many times">×
+          title={t('workspace.variations.actions.multiplierTitle')}>×
           <select value={multiplier} onChange={(e) => setMultiplier(+e.target.value)}
-            aria-label="Variation multiplier"
+            aria-label={t('workspace.variations.actions.multiplier')}
             className="bg-app/60 border border-border rounded px-1 py-0.5 text-content ml-1">
             {[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </label>
         {!hasRef && (
-          <span className="text-amber-300 text-[0.6875rem]">Set a reference photo first</span>
+          <span className="text-amber-300 text-[0.6875rem]">{t('workspace.variations.actions.referenceFirst')}</span>
         )}
-        {/* Disabled for the WHOLE batch, not just the launch request: `busy` is the
-            hook's busyLive (local flag OR any server-side activity, restored on
-            reload), so a generation already in flight — Nano Banana / ChatGPT /
-            Klein alike — keeps this locked with a visible reason. */}
-        <button type="button" onClick={go} disabled={busy || !selected.size || !hasRef || !currentAvailable}
-          title={generating ? 'A generation batch is already running' : undefined}
-          className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-          {busy
-            ? (generating
-                ? `Generating…${generating.total ? ` ${generating.done}/${generating.total}` : ''}`
-                : '…')
-            : `⚡ Generate (${selected.size * multiplier})`}
+        {/* While a batch is live, the primary action becomes its stop control in
+            the same location.  It must not inherit `busy`: that flag is true for
+            the whole generation and previously made the only visible button
+            impossible to click. */}
+        <button type="button"
+          onClick={generating ? onCancelGeneration : go}
+          disabled={generating
+            ? cancellingGeneration
+            : busy || !selected.size || !hasRef || !currentAvailable}
+          title={generating ? t('workspace.generation.stopTitle') : undefined}
+          className={`ml-auto px-4 py-1.5 rounded-lg text-white text-sm font-semibold disabled:opacity-40 ${
+            generating ? 'bg-red-600 hover:bg-red-500' : 'bg-gradient-primary'}`}>
+          {generating
+            ? `⏹ ${t(cancellingGeneration
+              ? 'workspace.generation.stopping'
+              : 'workspace.generation.stop')}${generating.total ? ` ${generating.done}/${generating.total}` : ''}`
+            : (busy ? '…' : `⚡ ${t('workspace.variations.actions.generate', { count: selected.size * multiplier })}`)}
         </button>
       </div>
     </div>

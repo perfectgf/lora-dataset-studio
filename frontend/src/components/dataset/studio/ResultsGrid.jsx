@@ -6,21 +6,23 @@
  * (behavior-preserving) : mêmes classes Tailwind, même en-tête « ckpt \ strength ».
  */
 import ResultCell from './ResultCell';
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function ResultsGrid({ gridRows, gridCols, variantsInData, cellList, scoreMap, best, datasetId, onRate, onOpen, fmt }) {
+  const { t } = useI18n();
   return variantsInData.map((variant) => (
     <div key={variant.key} className="flex flex-col gap-1">
       {variantsInData.length > 1 && (
         <span className="text-content-muted text-[0.625rem] uppercase">
-          {variant.zModelLabel ? `${variant.zModelLabel} · ` : ''}Format {variant.aspect || '—'}{variant.cfg != null ? ` · CFG ${fmt(variant.cfg)}` : ''}{variant.steps != null ? ` · ${variant.steps}${variant.steps2 != null ? '/' + variant.steps2 : ''} steps` : ''}
+          {variant.zModelLabel ? `${variant.zModelLabel} · ` : ''}{t('studio.generation.format')} {variant.aspect || '—'}{variant.cfg != null ? ` · CFG ${fmt(variant.cfg)}` : ''}{variant.steps != null ? ` · ${variant.steps}${variant.steps2 != null ? '/' + variant.steps2 : ''} ${t('studio.best.steps')}` : ''}
         </span>
       )}
       <div className="overflow-x-auto">
         <table className="border-separate border-spacing-1">
-          <caption className="sr-only">Test grid {variant.key}: rows = checkpoint, columns = strength</caption>
+          <caption className="sr-only">{t('studio.grid.caption', { key: variant.key })}</caption>
           <thead>
             <tr>
-              <th scope="col" className="text-content-subtle text-[0.625rem] font-normal text-left px-1">ckpt \ strength</th>
+              <th scope="col" className="text-content-subtle text-[0.625rem] font-normal text-left px-1">{t('studio.grid.axes')}</th>
               {gridCols.map((s) => (
                 <th key={s} scope="col" className="text-content-muted text-[0.6875rem] tabular-nums px-1">{fmt(s)}</th>
               ))}

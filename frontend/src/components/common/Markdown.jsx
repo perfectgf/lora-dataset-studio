@@ -167,7 +167,9 @@ function renderBlock(b, idx, guide = false) {
   }
 }
 
-export default function Markdown({ source, variant = 'default', sectionActions = null }) {
+export default function Markdown({
+  source, variant = 'default', sectionActions = null, headingIds = null,
+}) {
   const blocks = parseBlocks(source || '');
   if (variant === 'guide') {
     const visible = blocks.filter((block, index) => !(index === 0 && block.t === 'h1'));
@@ -188,8 +190,8 @@ export default function Markdown({ source, variant = 'default', sectionActions =
             {intro.map(({ block, index }) => renderBlock(block, index, true))}
           </div>
         )}
-        {sections.map(({ heading, blocks: sectionBlocks, index }) => {
-          const headingId = markdownHeadingId(heading.body);
+        {sections.map(({ heading, blocks: sectionBlocks, index }, sectionIndex) => {
+          const headingId = headingIds?.[sectionIndex] || markdownHeadingId(heading.body);
           const action = sectionActions ? sectionActions[headingId] : null;
           return (
           <section key={`section-${index}`} id={headingId}

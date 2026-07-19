@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { apiFetch, postJson } from '../../api/fetchClient'
 import { INPUT_CLASS, Card, StatusBadge, SecretField } from './primitives'
 import KleinLoraCombobox, { useKleinGenerationLoras } from './KleinLoraCombobox'
+import { useI18n } from '../../i18n/I18nContext'
 
 const ENGINE_SECRETS = [
-  { key: 'GEMINI_API_KEY', label: 'Gemini API key', testTarget: 'gemini', help: 'Powers the Nano Banana engine.' },
-  { key: 'OPENAI_API_KEY', label: 'OpenAI API key', testTarget: 'openai',
-    help: 'Powers the ChatGPT (gpt-image-2) engine. Optional if you connect a ChatGPT subscription below.' },
+  { key: 'GEMINI_API_KEY', labelKey: 'geminiLabel', testTarget: 'gemini', helpKey: 'geminiHelp' },
+  { key: 'OPENAI_API_KEY', labelKey: 'openaiLabel', testTarget: 'openai', helpKey: 'openaiHelp' },
 ]
 
 const ENGINE_OPTIONS = [
@@ -41,6 +41,7 @@ function freeName(presets, base) {
 }
 
 function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
+  const { t } = useI18n()
   const rows = Array.isArray(preset?.loras) ? preset.loras : []
   const patchPreset = (p) => save(presets.map((x, j) => (j === index ? { ...x, ...p } : x)))
   const patchRow = (i, p) => patchPreset({ loras: rows.map((r, j) => (j === i ? { ...r, ...p } : r)) })
@@ -55,27 +56,29 @@ function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
     <div className="rounded-lg border border-border p-3 space-y-2">
       <div className="flex items-center gap-2">
         <input
-          type="text" aria-label={`Preset ${index + 1} name`}
+          type="text" aria-label={t('settings.engines.presets.nameLabel', { number: index + 1 })}
           value={preset?.name || ''}
           onChange={(e) => patchPreset({ name: e.target.value })}
-          placeholder="Preset name"
+          placeholder={t('settings.engines.presets.namePlaceholder')}
           className={`${INPUT_CLASS} mt-0 font-medium`}
         />
         <button type="button" className={TEXT_BTN}
           disabled={presets.length >= MAX_GENERATION_LORA_PRESETS}
           onClick={() => save([...presets,
-            { ...preset, name: freeName(presets, `${(preset?.name || 'Preset').trim() || 'Preset'} (copy)`), loras: rows.map((r) => ({ ...r })) }])}
-          title="Duplicate this preset">
-          Duplicate
+            { ...preset, name: freeName(presets, `${(preset?.name || t('settings.engines.presets.defaultName')).trim()
+              || t('settings.engines.presets.defaultName')} ${t('settings.engines.presets.copySuffix')}`),
+              loras: rows.map((r) => ({ ...r })) }])}
+          title={t('settings.engines.presets.duplicateTitle')}>
+          {t('settings.engines.presets.duplicate')}
         </button>
         <button type="button" className={`${TEXT_BTN} hover:bg-red-500/15 hover:text-red-300`}
           onClick={() => save(presets.filter((_, j) => j !== index))}
-          title="Delete this preset">
-          Delete
+          title={t('settings.engines.presets.deleteTitle')}>
+          {t('common.remove')}
         </button>
       </div>
       {rows.length === 0 && (
-        <p className="text-xs text-content-muted">Empty preset — add a LoRA below.</p>
+        <p className="text-xs text-content-muted">{t('settings.engines.presets.empty')}</p>
       )}
       {rows.map((row, i) => {
         const strength = Number.isFinite(Number(row?.strength)) ? Number(row.strength) : 0.6
@@ -83,7 +86,7 @@ function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
           <div key={i} className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-content-muted w-4 shrink-0" aria-hidden="true">{i + 1}.</span>
             <KleinLoraCombobox
-              ariaLabel={`Preset ${index + 1} LoRA file ${i + 1}`}
+              ariaLabel={t('settings.engines.presets.fileLabel', { preset: index + 1, row: i + 1 })}
               value={row?.file || ''}
               onChange={(next) => patchRow(i, { file: next })}
               {...loraScan}
@@ -92,17 +95,20 @@ function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
               <span className="whitespace-nowrap">{strength.toFixed(2)}</span>
               <input
                 type="range" min={0} max={1.5} step={0.05} value={strength}
-                aria-label={`Preset ${index + 1} LoRA ${i + 1} strength`}
+                aria-label={t('settings.engines.presets.strengthLabel', { preset: index + 1, row: i + 1 })}
                 onChange={(e) => patchRow(i, { strength: Number(e.target.value) })}
                 className="w-28 accent-indigo-500"
               />
             </label>
             <button type="button" onClick={() => moveRow(i, -1)} disabled={i === 0}
-              aria-label={`Move LoRA ${i + 1} up in preset ${index + 1}`} title="Chain earlier" className={SMALL_BTN}>↑</button>
+              aria-label={t('settings.engines.presets.moveUpLabel', { row: i + 1, preset: index + 1 })}
+              title={t('settings.engines.presets.earlier')} className={SMALL_BTN}>↑</button>
             <button type="button" onClick={() => moveRow(i, 1)} disabled={i === rows.length - 1}
-              aria-label={`Move LoRA ${i + 1} down in preset ${index + 1}`} title="Chain later" className={SMALL_BTN}>↓</button>
+              aria-label={t('settings.engines.presets.moveDownLabel', { row: i + 1, preset: index + 1 })}
+              title={t('settings.engines.presets.later')} className={SMALL_BTN}>↓</button>
             <button type="button" onClick={() => patchPreset({ loras: rows.filter((_, j) => j !== i) })}
-              aria-label={`Remove LoRA ${i + 1} from preset ${index + 1}`} title="Remove this LoRA"
+              aria-label={t('settings.engines.presets.removeLabel', { row: i + 1, preset: index + 1 })}
+              title={t('settings.engines.presets.removeTitle')}
               className={`${SMALL_BTN} hover:bg-red-500/15 hover:text-red-300`}>✕</button>
           </div>
         )
@@ -113,15 +119,18 @@ function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
           onClick={() => patchPreset({ loras: [...rows, { file: '', strength: 0.6 }] })}
           disabled={rows.length >= MAX_GENERATION_LORAS}
         >
-          ＋ Add LoRA
+          ＋ {t('settings.engines.presets.addLora')}
         </button>
-        <span className="text-xs text-content-muted">{rows.length}/{MAX_GENERATION_LORAS} in the chain</span>
+        <span className="text-xs text-content-muted">
+          {t('settings.engines.presets.chainCount', { count: rows.length, max: MAX_GENERATION_LORAS })}
+        </span>
       </div>
     </div>
   )
 }
 
 function KleinLorasCard({ config, setField }) {
+  const { t } = useI18n()
   const presets = Array.isArray(config.klein?.generation_lora_presets)
     ? config.klein.generation_lora_presets : []
   const save = (next) => setField('klein', 'generation_lora_presets', next)
@@ -131,11 +140,14 @@ function KleinLorasCard({ config, setField }) {
   return (
     <Card
       id="klein-generation-lora-presets"
-      title="Klein generation LoRA presets (optional)"
-      help={`Named combinations of your own LoRA files, chained after the consistency LoRA on the local Klein engine — inside a preset the order is the chain order (max ${MAX_GENERATION_LORAS} LoRAs each, ${MAX_GENERATION_LORA_PRESETS} presets). Pick each row from the LoRAs found under ComfyUI's models/loras (Klein-compatible ones are listed first; you can still type a path for a file not on disk yet) — any LoRA, any purpose. Per run, pick a preset in the workspace's 🖥️ Klein tuning panel ("None" by default). Presets idea by @waltm; LoRA autocomplete by vvilams (Discord).`}
+      title={t('settings.engines.presets.title')}
+      help={t('settings.engines.presets.help', {
+        loras: MAX_GENERATION_LORAS,
+        presets: MAX_GENERATION_LORA_PRESETS,
+      })}
     >
       {presets.length === 0 && (
-        <p className="text-sm text-content-muted">No presets yet — create your first combination below.</p>
+        <p className="text-sm text-content-muted">{t('settings.engines.presets.none')}</p>
       )}
       {presets.map((preset, i) => (
         <KleinLoraPresetCard key={i} preset={preset} index={i} presets={presets} save={save} loraScan={loraScan} />
@@ -143,10 +155,12 @@ function KleinLorasCard({ config, setField }) {
       <div className="flex items-center gap-3">
         <button
           type="button" className={TEXT_BTN}
-          onClick={() => save([...presets, { name: freeName(presets, 'My preset'), loras: [] }])}
+          onClick={() => save([...presets, {
+            name: freeName(presets, t('settings.engines.presets.myPreset')), loras: [],
+          }])}
           disabled={presets.length >= MAX_GENERATION_LORA_PRESETS}
         >
-          ＋ New preset
+          ＋ {t('settings.engines.presets.new')}
         </button>
         <span className="text-xs text-content-muted">{presets.length}/{MAX_GENERATION_LORA_PRESETS}</span>
       </div>
@@ -155,15 +169,16 @@ function KleinLorasCard({ config, setField }) {
 }
 
 const CHATGPT_AUTH_OPTIONS = [
-  { id: 'auto', label: 'Auto — subscription when connected, otherwise API key' },
-  { id: 'api', label: 'API key only' },
-  { id: 'subscription', label: 'Subscription only' },
+  { id: 'auto', labelKey: 'auto' },
+  { id: 'api', labelKey: 'api' },
+  { id: 'subscription', labelKey: 'subscription' },
 ]
 
 /* ChatGPT subscription (Codex OAuth) — EXPERIMENTAL lane. Device-code login:
    the user opens the verification URL from ANY device and types the one-time
    code; we poll the backend until it reports connected. */
 function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast }) {
+  const { t } = useI18n()
   const sub = caps.chatgpt_subscription || {}
   const [device, setDevice] = useState(null)     // {verification_url, user_code}
   const [busy, setBusy] = useState(false)
@@ -176,16 +191,16 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
         const r = await apiFetch('/api/settings/chatgpt-oauth/poll')
         if (r.status === 'connected') {
           setDevice(null)
-          toast.success('ChatGPT subscription connected.')
+          toast.success(t('settings.engines.subscription.connectedToast'))
           await refreshCaps(true)
         } else if (r.status === 'error') {
           setDevice(null)
-          setError(r.detail || 'Login failed — try again.')
+          setError(r.detail || t('settings.engines.subscription.loginFailed'))
         }
       } catch { /* transient — keep polling */ }
     }, 3000)
     return () => clearInterval(id)
-  }, [device, refreshCaps, toast])
+  }, [device, refreshCaps, t, toast])
 
   const start = async () => {
     setBusy(true); setError(null)
@@ -193,7 +208,7 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
       const r = await postJson('/api/settings/chatgpt-oauth/start', {})
       setDevice(r)
     } catch (e) {
-      setError(e.message || 'Could not start the login.')
+      setError(e.message || t('settings.engines.subscription.startFailed'))
     } finally {
       setBusy(false)
     }
@@ -204,10 +219,10 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
     try {
       await postJson('/api/settings/chatgpt-oauth/import-codex', {})
       setDevice(null)
-      toast.success('Codex CLI session imported.')
+      toast.success(t('settings.engines.subscription.importedToast'))
       await refreshCaps(true)
     } catch (e) {
-      setError(e.message || 'Import failed.')
+      setError(e.message || t('settings.engines.subscription.importFailed'))
     } finally {
       setBusy(false)
     }
@@ -217,10 +232,10 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
     setBusy(true); setError(null)
     try {
       await postJson('/api/settings/chatgpt-oauth/logout', {})
-      toast.success('ChatGPT subscription disconnected.')
+      toast.success(t('settings.engines.subscription.disconnectedToast'))
       await refreshCaps(true)
     } catch (e) {
-      setError(e.message || 'Disconnect failed.')
+      setError(e.message || t('settings.engines.subscription.disconnectFailed'))
     } finally {
       setBusy(false)
     }
@@ -231,25 +246,31 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
 
   return (
     <Card
-      title="ChatGPT subscription (experimental)"
-      help="Run the ChatGPT engine on your ChatGPT Plus/Pro image quota instead of a pay-per-use API key. Undocumented lane — it may stop working if OpenAI closes it. Limits vs API mode: up to 5 reference images (instead of 16), your plan's daily image cap applies, SFW only."
+      title={t('settings.engines.subscription.title')}
+      help={t('settings.engines.subscription.help')}
     >
       <div className="flex items-center justify-between">
-        <StatusBadge ok={!!sub.connected} okLabel={sub.email ? `Connected — ${sub.email}` : 'Connected'} missingLabel="Not connected" />
+        <StatusBadge ok={!!sub.connected}
+          okLabel={sub.email
+            ? t('settings.engines.subscription.connectedAs', { email: sub.email })
+            : t('settings.engines.subscription.connected')}
+          missingLabel={t('settings.engines.subscription.notConnected')} />
         <div className="flex gap-2">
           {!sub.connected && (
             <button type="button" onClick={start} disabled={busy || !!device} className={btn}>
-              {device ? 'Waiting for you to enter the code…' : 'Connect with ChatGPT'}
+              {device
+                ? t('settings.engines.subscription.waiting')
+                : t('settings.engines.subscription.connect')}
             </button>
           )}
           {!sub.connected && sub.codex_cli_detected && (
             <button type="button" onClick={importCodex} disabled={busy || !!device} className={btn}>
-              Import from Codex CLI
+              {t('settings.engines.subscription.importCodex')}
             </button>
           )}
           {sub.connected && (
             <button type="button" onClick={disconnect} disabled={busy} className={btn}>
-              Disconnect
+              {t('settings.engines.subscription.disconnect')}
             </button>
           )}
         </div>
@@ -257,8 +278,11 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
 
       {device && (
         <div role="status" className="rounded-lg border border-primary/40 bg-primary/10 p-3 text-sm text-content">
-          <p>1. Open <a href={device.verification_url} target="_blank" rel="noreferrer" className="font-medium underline">{device.verification_url}</a> on any device and sign in.</p>
-          <p className="mt-1">2. Enter this one-time code (expires in 15 minutes):</p>
+          <p>{t('settings.engines.subscription.openUrl')}{' '}
+            <a href={device.verification_url} target="_blank" rel="noreferrer"
+              className="font-medium underline">{device.verification_url}</a>
+          </p>
+          <p className="mt-1">{t('settings.engines.subscription.enterCode')}</p>
           <p className="mt-1 select-all font-mono text-lg font-semibold tracking-widest">{device.user_code}</p>
         </div>
       )}
@@ -266,17 +290,23 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
       {error && <p className="text-xs text-rose-400"><span aria-hidden="true">✗</span> {error}</p>}
 
       <div>
-        <label htmlFor="chatgpt-auth-mode" className="block text-sm font-medium text-content">ChatGPT engine auth</label>
+        <label htmlFor="chatgpt-auth-mode" className="block text-sm font-medium text-content">
+          {t('settings.engines.subscription.authMode')}
+        </label>
         <select
           id="chatgpt-auth-mode"
           value={config.engines.chatgpt_auth || 'auto'}
           onChange={(e) => setField('engines', 'chatgpt_auth', e.target.value)}
           className={INPUT_CLASS}
         >
-          {CHATGPT_AUTH_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          {CHATGPT_AUTH_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id}>
+              {t(`settings.engines.subscription.authOptions.${o.labelKey}`)}
+            </option>
+          ))}
         </select>
         <p className="mt-1 text-xs text-content-muted">
-          When the subscription quota runs out mid-batch, remaining rows fail with a clear message — the app never silently switches to your paid API key.
+          {t('settings.engines.subscription.quotaHelp')}
         </p>
       </div>
     </Card>
@@ -284,18 +314,25 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast })
 }
 
 export default function EnginesSection(props) {
+  const { t } = useI18n()
   const { config, setField, toggleEngine, caps, refreshCaps, toast } = props
   return (
     <div className="space-y-6">
-      <Card title="API keys" help="Keys are write-only — fields stay blank even when a key is already saved.">
-        {ENGINE_SECRETS.map((f) => <SecretField key={f.key} field={f} {...props} />)}
+      <Card title={t('settings.engines.apiKeysTitle')} help={t('settings.engines.apiKeysHelp')}>
+        {ENGINE_SECRETS.map((f) => <SecretField key={f.key} field={{
+          ...f,
+          label: t(`settings.engines.${f.labelKey}`),
+          help: t(`settings.engines.${f.helpKey}`),
+        }} {...props} />)}
       </Card>
 
       <ChatgptSubscriptionCard caps={caps} config={config} setField={setField} refreshCaps={refreshCaps} toast={toast} />
 
-      <Card title="Engines" help="Which engines appear in the generate panel, and which one is preselected.">
+      <Card title={t('settings.engines.enginesTitle')} help={t('settings.engines.enginesHelp')}>
         <div>
-          <label htmlFor="engine-default" className="block text-sm font-medium text-content">Default engine</label>
+          <label htmlFor="engine-default" className="block text-sm font-medium text-content">
+            {t('settings.engines.defaultEngine')}
+          </label>
           <select
             id="engine-default"
             value={config.engines.default}
@@ -307,7 +344,9 @@ export default function EnginesSection(props) {
         </div>
 
         <fieldset id="engines-enabled" className="scroll-mt-24">
-          <legend className="mb-1 block text-sm font-medium text-content">Enabled engines</legend>
+          <legend className="mb-1 block text-sm font-medium text-content">
+            {t('settings.engines.enabledEngines')}
+          </legend>
           <div className="flex flex-col gap-2">
             {ENGINE_OPTIONS.map((o) => (
               <label key={o.id} htmlFor={`engine-enabled-${o.id}`} className="flex items-center gap-2 text-sm text-content">

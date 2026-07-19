@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { postJson } from '../../api/fetchClient'
+import { useI18n } from '../../i18n/I18nContext'
 
 export const INPUT_CLASS =
   'mt-1 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 text-sm text-content ' +
@@ -22,10 +23,13 @@ export function SectionHeader({ eyebrow, title, description, badge }) {
 // Status is never color-only: an explicit glyph + text label carries the
 // meaning, color is a reinforcing cue on top.
 export function StatusBadge({ ok, okLabel = 'Configured', missingLabel = 'Not set' }) {
+  const { t } = useI18n()
+  const localizedOk = okLabel === 'Configured' ? t('common.configured') : okLabel
+  const localizedMissing = missingLabel === 'Not set' ? t('common.notConfigured') : missingLabel
   return (
     <span className={`inline-flex items-center gap-1 text-xs font-medium ${ok ? 'text-emerald-400' : 'text-content-subtle'}`}>
       <span aria-hidden="true">{ok ? '✓' : '✗'}</span>
-      {ok ? okLabel : missingLabel}
+      {ok ? localizedOk : localizedMissing}
     </span>
   )
 }
@@ -40,6 +44,7 @@ export function TestResult({ result }) {
 }
 
 export function TestButton({ target, onResult, beforeTest }) {
+  const { t } = useI18n()
   const [busy, setBusy] = useState(false)
   const run = async () => {
     setBusy(true)
@@ -62,7 +67,7 @@ export function TestButton({ target, onResult, beforeTest }) {
       disabled={busy}
       className="shrink-0 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised disabled:opacity-50"
     >
-      {busy ? 'Testing…' : 'Test'}
+      {busy ? t('common.testing') : t('common.test')}
     </button>
   )
 }
@@ -101,6 +106,7 @@ export function SecretField({
   field, secretsPresence, secretInputs, setSecretInputs,
   testResults, recordTestResult, saveSecretIfPending, handleDeleteSecret,
 }) {
+  const { t } = useI18n()
   const f = field
   return (
     <div className="flex items-end gap-3">
@@ -117,7 +123,9 @@ export function SecretField({
           autoComplete="off"
           value={secretInputs[f.key] ?? ''}
           onChange={(e) => setSecretInputs((prev) => ({ ...prev, [f.key]: e.target.value }))}
-          placeholder={secretsPresence[f.key] ? 'Already set — enter a new value to replace it' : 'Not set'}
+          placeholder={secretsPresence[f.key]
+            ? t('common.alreadySetReplace')
+            : t('common.notSet')}
           className={INPUT_CLASS}
         />
         {f.testTarget && <TestResult result={testResults[f.testTarget]} />}
@@ -130,10 +138,10 @@ export function SecretField({
         <button
           type="button"
           onClick={() => handleDeleteSecret(f.key, f.label)}
-          title={`Remove the saved ${f.label}`}
+          title={t('common.removeSaved', { label: f.label })}
           className="shrink-0 rounded-md border border-rose-500/40 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/10"
         >
-          Remove
+          {t('common.remove')}
         </button>
       )}
     </div>

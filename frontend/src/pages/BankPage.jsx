@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, del, postJson } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { HelpBadge } from '../help/HelpMode'
+import { useI18n } from '../i18n/I18nContext'
 import BankWorkspace from '../components/bank/BankWorkspace'
 import FolderPickerField from '../components/common/FolderPicker'
 
@@ -13,6 +14,7 @@ const CURRENT_KEY = 'bankCurrentId'
  * source files are never modified. */
 export default function BankPage() {
   const toast = useToast()
+  const { t } = useI18n()
   const [banks, setBanks] = useState(null)
   const [currentId, setCurrentId] = useState(() => {
     try { return Number(localStorage.getItem(CURRENT_KEY)) || null } catch { return null }
@@ -60,7 +62,7 @@ export default function BankPage() {
 
   const remove = async (bank) => {
     // eslint-disable-next-line no-alert
-    if (!window.confirm(`Remove the bank “${bank.name}”?\n\nOnly the triage data (decisions, scores, thumbnails) is deleted — the source folder and its images are NOT touched.`)) return
+    if (!window.confirm(t('bank.removeConfirm', { name: bank.name }))) return
     try {
       await del(`/api/bank/${bank.id}`)
       toast.success('Bank removed — source folder untouched.')

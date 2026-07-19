@@ -7,6 +7,7 @@ import ContinueDialog from '../components/dataset/ContinueDialog';
 import { BaseModelChip, DatasetVersionChip, RunIdChip } from '../components/dataset/RunIdentityBadges';
 import { HelpBadge } from '../help/HelpMode';
 import { requestHelpTip } from '../help/helpTips';
+import { useI18n } from '../i18n/I18nContext';
 import { runIdentityOf, runRowDomId } from '../utils/runIdentity';
 import {
   canStopLocalRun,
@@ -45,15 +46,6 @@ const STATUS_STYLE = {
 const statusStyle = (s) =>
   STATUS_STYLE[s] || 'text-sky-300 border-sky-400/40 bg-sky-500/10';
 
-// Outcome words on the history cards (raw pipeline statuses read like logs).
-// Active phases (preparing/training/syncing…) pass through untranslated.
-const STATUS_LABEL = {
-  done: 'done',
-  error: 'failed',
-  error_pod_kept: 'failed · pod kept',
-  stopped: 'stopped',
-};
-
 // Left accent bar of a history card — the strongest at-a-glance status signal.
 const CARD_ACCENT = {
   done: 'border-l-emerald-400/70',
@@ -65,25 +57,27 @@ const cardAccent = (s) => CARD_ACCENT[s] || 'border-l-border';
 
 /** Strong status pill (dot + word) — rank-1 information on every card. */
 function StatusBadge({ status }) {
+  const { t } = useI18n();
   if (!status) return null;
+  const translated = t(`cloudRuns.status.${status}`);
   return (
     <span className={'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 '
       + `text-[0.625rem] font-semibold uppercase tracking-wide ${statusStyle(status)}`}>
       <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-      {STATUS_LABEL[status] || status}
+      {translated === `cloudRuns.status.${status}` ? status : translated}
     </span>
   );
 }
 
-function timeAgo(iso) {
+function timeAgo(iso, t) {
   if (!iso) return '';
   // backend timestamps are naive UTC (isoformat of utcnow) — pin to UTC.
-  const t = new Date(/[Z+]/.test(iso) ? iso : `${iso}Z`).getTime();
-  const s = Math.max(0, (Date.now() - t) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  const timestamp = new Date(/[Z+]/.test(iso) ? iso : `${iso}Z`).getTime();
+  const s = Math.max(0, (Date.now() - timestamp) / 1000);
+  if (s < 60) return t('cloudRuns.time.justNow');
+  if (s < 3600) return t('cloudRuns.time.minutesAgo', { count: Math.floor(s / 60) });
+  if (s < 86400) return t('cloudRuns.time.hoursAgo', { count: Math.floor(s / 3600) });
+  return t('cloudRuns.time.daysAgo', { count: Math.floor(s / 86400) });
 }
 
 function famLabel(f) { return FAMILY_LABEL[f] || f || 'LoRA'; }
@@ -95,13 +89,16 @@ const FAMILY_SHORT = { zimage: 'Z-Image', krea: 'Krea', sdxl: 'SDXL', flux: 'FLU
  * `preview_url` when one exists on disk). Fallback: a quiet family tile —
  * runs that never sampled (crashed early, purged staging) stay scannable. */
 function RunThumb({ run, broken, onBroken }) {
+  const { t } = useI18n();
   if (run.preview_url && !broken) {
     return (
       <a href={run.preview_url} target="_blank" rel="noreferrer"
-        title="Last sample this run generated (open full size)"
+        title={t('cloudRuns.thumbnail.open')}
         className="relative block h-16 w-16 sm:h-20 sm:w-20 shrink-0 overflow-hidden rounded-lg border border-border hover:border-indigo-400">
         <img src={run.preview_url} loading="lazy" onError={onBroken}
-          alt={`Last training sample of ${run.dataset_name || run.run_name || 'this run'}`}
+          alt={t('cloudRuns.thumbnail.alt', {
+            name: run.dataset_name || run.run_name || t('cloudRuns.thumbnail.thisRun'),
+          })}
           className="h-full w-full object-cover" />
       </a>
     );
@@ -120,31 +117,32 @@ function RunThumb({ run, broken, onBroken }) {
 /** error_pod_kept billing warning — INSIDE the concerned card (it used to be
  * an orphan full-width banner above the whole history). */
 function PodKeptNote() {
+  const { t } = useI18n();
   return (
     <div role="alert"
       className="w-full rounded-md border border-amber-400/40 bg-amber-500/10 px-2.5 py-2 text-amber-200 text-[0.6875rem] leading-relaxed">
-      <span className="font-semibold">⚠ Pod kept for manual checkpoint recovery</span> — it keeps
-      billing until reaped. Download its LoRA, then it is cleaned up automatically after the
-      recovery window.
+      <span className="font-semibold">⚠ {t('cloudRuns.podKept.title')}</span>
+      {' — '}{t('cloudRuns.podKept.body')}
     </div>
   );
 }
 
 function AutoRetryBadges({ run }) {
+  const { t } = useI18n();
   return (
     <>
       {run.auto_retry_of != null && (
         <span
           className="rounded border border-sky-400/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-200 text-[0.625rem]"
-          title={`Automatic retry of cloud run #${run.auto_retry_of}`}>
-          ↻ automatic retry {run.auto_retry_count || 1}/1
+          title={t('cloudRuns.autoRetry.retryOf', { id: run.auto_retry_of })}>
+          ↻ {t('cloudRuns.autoRetry.retryCount', { count: run.auto_retry_count || 1 })}
         </span>
       )}
       {run.auto_retry_run_id != null && (
         <span
           className="rounded border border-violet-400/40 bg-violet-500/10 px-1.5 py-0.5 text-violet-200 text-[0.625rem]"
-          title={`Automatically relaunched as cloud run #${run.auto_retry_run_id}`}>
-          ↻ auto-retried as #{run.auto_retry_run_id}
+          title={t('cloudRuns.autoRetry.relaunchedAsTitle', { id: run.auto_retry_run_id })}>
+          ↻ {t('cloudRuns.autoRetry.relaunchedAs', { id: run.auto_retry_run_id })}
         </span>
       )}
     </>
@@ -152,14 +150,15 @@ function AutoRetryBadges({ run }) {
 }
 
 function RecipeWarning({ run }) {
+  const { t } = useI18n();
   if (!run.recipe_warning) return null;
   const replayBlocked = isTrainingRecipeReplayBlocked(run);
   return (
     <div role="alert"
       className="w-full rounded-md border border-amber-400/40 bg-amber-500/10 px-2.5 py-2 text-amber-200 text-[0.6875rem] leading-relaxed">
-      <span className="font-semibold">⚠ Z-Image recipe warning:</span> {run.recipe_warning}
+      <span className="font-semibold">⚠ {t('cloudRuns.recipeWarning.title')}</span> {run.recipe_warning}
       {replayBlocked && (
-        <span className="font-semibold"> Retry and Continue are disabled; start a fresh validated run.</span>
+        <span className="font-semibold"> {t('cloudRuns.recipeWarning.blocked')}</span>
       )}
     </div>
   );
@@ -169,18 +168,18 @@ function RecipeWarning({ run }) {
    (snapshotted at launch by the provenance registry). Absent on rows that
    predate the snapshot feature. Steps and variant are NOT repeated here —
    they are promoted to the card's metrics row. */
-function settingsLine(run) {
+function settingsLine(run, t) {
   const s = run.settings;
   if (!s) return null;
   return [
-    s.rank ? `rank ${s.rank}${s.alpha ? `/${s.alpha}` : ''}` : null,
+    s.rank ? `${t('cloudRuns.settings.rank')} ${s.rank}${s.alpha ? `/${s.alpha}` : ''}` : null,
     Array.isArray(s.resolution) ? `${s.resolution.join('+')} px` : null,
-    s.save_every ? `save ${s.save_every}` : null,
+    s.save_every ? `${t('cloudRuns.settings.saveEvery')} ${s.save_every}` : null,
     s.optimizer && s.optimizer !== 'adamw8bit' ? s.optimizer : null,
     s.lr_scheduler || null,
-    s.dropout ? `dropout ${s.dropout}` : null,
+    s.dropout ? `${t('cloudRuns.settings.dropout')} ${s.dropout}` : null,
     s.timestep_type || null,
-    run.masked === false ? 'unmasked' : 'masked',
+    run.masked === false ? t('cloudRuns.settings.unmasked') : t('cloudRuns.settings.masked'),
   ].filter(Boolean).join(' · ');
 }
 
@@ -196,6 +195,7 @@ function checkpointHref(run) {
 
 export default function CloudRunsPage() {
   const toast = useToast();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
   const [data, setData] = useState(null);
@@ -296,15 +296,13 @@ export default function CloudRunsPage() {
   };
 
   const stop = async (run) => {
-    const who = run.dataset_name || run.run_name || `run #${run.run_id}`;
-    if (!window.confirm(`Stop the cloud run for « ${who} »?\n\n`
-      + 'The pod is terminated. Any checkpoint reached so far is still downloaded '
-      + 'and importable — you only lose the remaining steps.')) return;
+    const who = run.dataset_name || run.run_name || t('cloudRuns.fallback.runNumber', { id: run.run_id });
+    if (!window.confirm(t('cloudRuns.confirm.stopCloud', { name: who }))) return;
     setStopping((m) => ({ ...m, [run.run_id]: true }));
     try {
       const d = await postJson('/api/dataset/train/cloud/stop', { run_id: run.run_id });
-      if (d.ok === false) toast.error('Could not stop the run — it may have already finished.');
-      else toast.info('Stopping the run — the pod is winding down…');
+      if (d.ok === false) toast.error(t('cloudRuns.toast.stopCloudFailed'));
+      else toast.info(t('cloudRuns.toast.stoppingCloud'));
       poll();
     } finally {
       setStopping((m) => ({ ...m, [run.run_id]: false }));
@@ -314,10 +312,8 @@ export default function CloudRunsPage() {
   const stopLocal = async () => {
     const local = data?.local_active;
     if (!canStopLocalRun(local) || stoppingLocalRef.current) return;
-    const who = local.current.name || `dataset #${local.current.dataset_id}`;
-    if (!window.confirm(`Stop the local run for « ${who} »?\n\n`
-      + 'The training process is terminated and the pending local training queue is cleared. '
-      + 'Checkpoints already saved remain available.')) return;
+    const who = local.current.name || t('cloudRuns.fallback.datasetNumber', { id: local.current.dataset_id });
+    if (!window.confirm(t('cloudRuns.confirm.stopLocal', { name: who }))) return;
 
     stoppingLocalRef.current = true;
     setStoppingLocal(true);
@@ -327,18 +323,18 @@ export default function CloudRunsPage() {
         run_token: local.current.run_token,
       });
       if (d.ok === false) {
-        toast.error(d.error || 'Could not stop the local run — it may have already finished.');
+        toast.error(d.error || t('cloudRuns.toast.stopLocalFailed'));
         return;
       }
       // The stop endpoint is synchronous: once it answers, the process is gone
       // and the backend flag is clear. Remove the live card immediately instead
       // of waiting up to POLL_MS for the next refresh.
       setData((current) => current ? { ...current, local_active: null } : current);
-      toast.success('Local training stopped — ComfyUI is re-enabled.');
+      toast.success(t('cloudRuns.toast.localStopped'));
     } catch (error) {
       toast.error(error?.message
-        ? `Could not stop the local run: ${error.message}`
-        : 'Could not stop the local run. Please try again.');
+        ? t('cloudRuns.toast.stopLocalErrorDetail', { error: error.message })
+        : t('cloudRuns.toast.stopLocalError'));
     } finally {
       await poll();
       stoppingLocalRef.current = false;
@@ -353,7 +349,7 @@ export default function CloudRunsPage() {
   const [retrying, setRetrying] = useState({});      // runRetryKey -> bool
   const retry = async (run) => {
     if (isTrainingRecipeReplayBlocked(run)) {
-      toast.error('This run uses an incompatible legacy Z-Image recipe. Start a fresh validated run instead.');
+      toast.error(t('cloudRuns.toast.legacyRetryBlocked'));
       return;
     }
     const req = retryRequest(run);
@@ -363,10 +359,10 @@ export default function CloudRunsPage() {
     setRetrying((m) => ({ ...m, [key]: true }));
     try {
       const d = await postJson(req.url, req.body);
-      if (d.ok === false) toast.error(d.error || 'Retry failed');
+      if (d.ok === false) toast.error(d.error || t('cloudRuns.toast.retryFailed'));
       else toast.success(isLocal
-        ? 'Run relaunched locally — watch it under In progress…'
-        : 'Run relaunched — provisioning a fresh pod…');
+        ? t('cloudRuns.toast.relaunchedLocal')
+        : t('cloudRuns.toast.relaunchedCloud'));
       poll();
     } finally {
       setRetrying((m) => ({ ...m, [key]: false }));
@@ -380,7 +376,7 @@ export default function CloudRunsPage() {
   const [continueRunTarget, setContinueRunTarget] = useState(null);   // run being continued | null
   const continueRun = (run) => {
     if (isTrainingRecipeReplayBlocked(run)) {
-      toast.error('This checkpoint uses an incompatible legacy Z-Image recipe and cannot be continued safely.');
+      toast.error(t('cloudRuns.toast.legacyContinueBlocked'));
       return;
     }
     setContinueRunTarget(run);
@@ -394,8 +390,11 @@ export default function CloudRunsPage() {
       const d = await postJson('/api/dataset/train/cloud/continue',
         { run_id: run.run_id, extra_steps: payload.extraSteps,
           from_step: payload.fromStep, overrides: payload.overrides });
-      if (d.ok === false) toast.error(d.error || 'Continue failed');
-      else toast.success(`Continuing from step ${d.resumed_from} → ${d.target_steps} on a fresh pod…`);
+      if (d.ok === false) toast.error(d.error || t('cloudRuns.toast.continueFailed'));
+      else toast.success(t('cloudRuns.toast.continuing', {
+        from: d.resumed_from,
+        to: d.target_steps,
+      }));
       poll();
     } finally {
       setContinuing((m) => ({ ...m, [run.run_id]: false }));
@@ -410,7 +409,7 @@ export default function CloudRunsPage() {
     try {
       const r = await fetch(`/api/dataset/train/runs/${encodeURIComponent(run.share_key)}/share`,
         { credentials: 'include' });
-      if (!r.ok) { toast.error('Could not build the config file — please retry.'); return; }
+      if (!r.ok) { toast.error(t('cloudRuns.toast.configBuildFailed')); return; }
       const blob = await r.blob();
       const cd = r.headers.get('Content-Disposition') || '';
       const m = /filename="?([^"]+)"?/.exec(cd);
@@ -420,7 +419,7 @@ export default function CloudRunsPage() {
       a.click();
       URL.revokeObjectURL(a.href);
     } catch {
-      toast.error('Could not download the config file.');
+      toast.error(t('cloudRuns.toast.configDownloadFailed'));
     }
   };
 
@@ -442,7 +441,7 @@ export default function CloudRunsPage() {
     const variantLabel = trainingRunVariantLabel(run.train_type, run.variant);
     const baseLabel = runBaseModelLabel(run);
     const duration = formatDuration(runDurationSeconds(run));
-    const line = settingsLine(run);
+    const line = settingsLine(run, t);
     const thumbKey = run.share_key || key;
     return (
       <div key={key} id={ident ? runRowDomId(ident.source, ident.id) : undefined}
@@ -454,19 +453,21 @@ export default function CloudRunsPage() {
             {ident ? (
               <RunIdChip source={ident.source} id={ident.id} />
             ) : (
-              <span aria-hidden title={run.source === 'cloud' ? 'Cloud run (vast.ai)' : 'Local run'}>
+              <span aria-hidden title={run.source === 'cloud'
+                ? t('cloudRuns.source.cloud')
+                : t('cloudRuns.source.local')}>
                 {run.source === 'cloud' ? '☁️' : '💻'}
               </span>
             )}
             <button type="button" onClick={() => openDataset(run.dataset_id)}
-              title="Open this dataset"
+              title={t('cloudRuns.actions.openDataset')}
               className="max-w-full truncate text-content text-sm font-semibold hover:underline">
-              {run.dataset_name || run.run_name || `Dataset #${run.dataset_id}`}
+              {run.dataset_name || run.run_name || t('cloudRuns.fallback.datasetNumber', { id: run.dataset_id })}
             </button>
             <StatusBadge status={run.status} />
             <AutoRetryBadges run={run} />
             <span className="ml-auto whitespace-nowrap text-content-subtle text-[0.625rem]">
-              {timeAgo(run.finished_at || run.created_at)}
+              {timeAgo(run.finished_at || run.created_at, t)}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-content-muted">
@@ -478,19 +479,19 @@ export default function CloudRunsPage() {
             {baseLabel?.custom && <BaseModelChip label={baseLabel} />}
             <DatasetVersionChip version={run.version} />
             {duration && (
-              <span className="tabular-nums" title="Wall-clock run duration (launch → finish)">
+              <span className="tabular-nums" title={t('cloudRuns.metrics.durationTitle')}>
                 ⏱ {duration}
               </span>
             )}
-            {run.steps ? <span className="tabular-nums">{run.steps} steps</span> : null}
+            {run.steps ? <span className="tabular-nums">{t('cloudRuns.metrics.steps', { count: run.steps })}</span> : null}
             {run.source === 'cloud' && run.saves > 0 && (
-              <span className="tabular-nums" title="Checkpoints this run saved (synced locally)">
-                💾 {run.saves} save{run.saves > 1 ? 's' : ''}
+              <span className="tabular-nums" title={t('cloudRuns.metrics.savesTitle')}>
+                💾 {t('cloudRuns.metrics.saves', { count: run.saves })}
               </span>
             )}
             {run.gpu && <span>{run.gpu}</span>}
             {run.cost_estimate != null && (
-              <span className="tabular-nums" title="Estimated cost (price/h × run time)">
+              <span className="tabular-nums" title={t('cloudRuns.metrics.costTitle')}>
                 ${run.cost_estimate}
               </span>
             )}
@@ -502,7 +503,7 @@ export default function CloudRunsPage() {
           )}
           {line && (
             <p className="m-0 truncate text-content-subtle text-[0.625rem]"
-              title="The effective ai-toolkit settings this launch used">
+              title={t('cloudRuns.settings.effectiveTitle')}>
               ⚙ {line}
             </p>
           )}
@@ -513,36 +514,38 @@ export default function CloudRunsPage() {
               <button type="button" onClick={() => retry(run)}
                 disabled={isTrainingRecipeReplayBlocked(run) || !!retrying[runRetryKey(run)]}
                 title={isTrainingRecipeReplayBlocked(run)
-                  ? 'Disabled: this legacy/incompatible Z-Image recipe cannot be replayed safely; start a fresh run'
+                  ? t('cloudRuns.actions.retryDisabled')
                   : run.source === 'local'
-                    ? 'Relaunch this run locally with the same settings'
-                    : 'Relaunch this run with the same settings on a fresh pod'}
+                    ? t('cloudRuns.actions.retryLocalTitle')
+                    : t('cloudRuns.actions.retryCloudTitle')}
                 className="px-3 py-1.5 rounded-lg bg-primary/90 hover:bg-primary text-white text-xs font-semibold disabled:opacity-40">
-                {retrying[runRetryKey(run)] ? '↻ Retrying…' : '↻ Retry'}
+                {retrying[runRetryKey(run)] ? `↻ ${t('cloudRuns.actions.retrying')}` : `↻ ${t('cloudRuns.actions.retry')}`}
               </button>
             )}
             {run.source === 'cloud' && run.status === 'done' && run.checkpoint_ready && (
               <button type="button" onClick={() => continueRun(run)}
                 disabled={isTrainingRecipeReplayBlocked(run) || !!continuing[run.run_id]}
                 title={isTrainingRecipeReplayBlocked(run)
-                  ? 'Disabled: this legacy/incompatible Z-Image checkpoint cannot be continued safely; start a fresh run'
-                  : "Resume from any of this run's checkpoints for more steps, on a fresh pod"}
+                  ? t('cloudRuns.actions.continueDisabled')
+                  : t('cloudRuns.actions.continueTitle')}
                 className="px-3 py-1.5 rounded-lg bg-sky-600/80 hover:bg-sky-600 text-white text-xs font-semibold disabled:opacity-40">
-                {continuing[run.run_id] ? '▶ Continuing…' : '▶ Continue…'}
+                {continuing[run.run_id]
+                  ? `▶ ${t('cloudRuns.actions.continuing')}`
+                  : `▶ ${t('cloudRuns.actions.continue')}`}
               </button>
             )}
             {run.checkpoint_ready && (
               <a href={checkpointHref(run)}
-                title="Download this run's LoRA checkpoint"
+                title={t('cloudRuns.actions.downloadLoraTitle')}
                 className="px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white text-xs font-semibold no-underline">
                 ⬇ LoRA
               </a>
             )}
             {run.share_key && (
               <button type="button" onClick={() => shareConfig(run)}
-                title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
+                title={t('cloudRuns.actions.shareConfigTitle')}
                 className="ml-auto rounded-lg border border-transparent px-2 py-1 text-content-muted hover:border-border hover:text-content text-xs font-medium">
-                ⎘ Share config
+                ⎘ {t('cloudRuns.actions.shareConfig')}
               </button>
             )}
           </div>
@@ -556,28 +559,27 @@ export default function CloudRunsPage() {
       <header className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="m-0 flex items-center gap-2 text-content text-xl font-bold">
-            <span><span aria-hidden>🏋️</span> Training runs</span>
+            <span><span aria-hidden>🏋️</span> {t('cloudRuns.title')}</span>
             <HelpBadge topic="page-cloud" />
           </h1>
           {/* Escape hatch to the provider: see the pod's own console (billing,
               logs, manual destroy) when something looks off app-side. */}
           <a href="https://cloud.vast.ai/instances/" target="_blank" rel="noreferrer"
             className="ml-auto text-xs font-medium text-sky-300 underline hover:text-sky-200">
-            Open the vast.ai console ↗
+            {t('cloudRuns.actions.openVastConsole')} ↗
           </a>
         </div>
         <p className="m-0 text-content-muted text-sm">
-          Every training in one place — cloud and local: watch progress, stop a run,
-          download a finished LoRA, and see the exact settings each launch used.
+          {t('cloudRuns.subtitle')}
         </p>
       </header>
 
       {data && !configured && (
         <div className="rounded-lg border border-border bg-surface p-4 text-content-muted text-sm">
-          Cloud training isn’t configured yet. Add your vast.ai API key in{' '}
+          {t('cloudRuns.notConfigured.before')}{' '}
           <button type="button" onClick={() => navigate('/settings')}
-            className="text-sky-300 underline hover:text-sky-200">Settings</button>{' '}
-          to rent GPUs on demand.
+            className="text-sky-300 underline hover:text-sky-200">{t('nav.settings')}</button>{' '}
+          {t('cloudRuns.notConfigured.after')}
         </div>
       )}
 
@@ -585,13 +587,16 @@ export default function CloudRunsPage() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm">
           <span className="text-content">
             <b className="tabular-nums">{actives.length}</b>
-            <span className="text-content-muted">/{limit} active</span>
+            <span className="text-content-muted">/{limit} {t('cloudRuns.summary.active')}</span>
           </span>
           <span className="text-content-muted tabular-nums">
-            ${data.total_price_per_hour || 0}/h total
+            {t('cloudRuns.summary.hourlyTotal', { amount: data.total_price_per_hour || 0 })}
           </span>
           <span className="text-content-muted tabular-nums">
-            this month: ${spent.toFixed(2)}{budget > 0 ? ` of $${budget.toFixed(2)}` : ' (no budget cap)'}
+            {t('cloudRuns.summary.thisMonth', { amount: spent.toFixed(2) })}
+            {budget > 0
+              ? t('cloudRuns.summary.ofBudget', { amount: budget.toFixed(2) })
+              : t('cloudRuns.summary.noBudget')}
           </span>
         </div>
       )}
@@ -599,7 +604,7 @@ export default function CloudRunsPage() {
       {/* Active runs */}
       <div className="flex flex-col gap-3">
         <h2 className="m-0 text-content-muted text-xs font-semibold uppercase tracking-wide">
-          In progress
+          {t('cloudRuns.sections.inProgress')}
         </h2>
         {/* Live LOCAL training — its own card next to the cloud actives. */}
         {data?.local_active?.current && (
@@ -610,12 +615,13 @@ export default function CloudRunsPage() {
                 ? <RunIdChip source="local" id={data.local_active.record_id} />
                 : <span aria-hidden>💻</span>}
               <button type="button" onClick={() => openDataset(data.local_active.current.dataset_id)}
-                title="Open this dataset"
+                title={t('cloudRuns.actions.openDataset')}
                 className="text-content font-semibold text-sm hover:underline">
-                {data.local_active.current.name || `Dataset #${data.local_active.current.dataset_id}`}
+                {data.local_active.current.name
+                  || t('cloudRuns.fallback.datasetNumber', { id: data.local_active.current.dataset_id })}
               </button>
               <span className="rounded border border-violet-400/40 bg-violet-500/10 px-1.5 py-0.5 text-violet-200 text-[0.625rem] uppercase">
-                local · training
+                {t('cloudRuns.status.localTraining')}
               </span>
               {/* A live local run with no custom base IS the family's official
                   base — coerce the absent value so it spells out, not blanks. */}
@@ -630,21 +636,21 @@ export default function CloudRunsPage() {
               <span className="ml-auto flex items-center gap-2">
                 {canStopLocalRun(data.local_active) && (
                   <button type="button" onClick={stopLocal} disabled={stoppingLocal}
-                    title="Stop this local training process; checkpoints already saved are kept"
+                    title={t('cloudRuns.actions.stopLocalTitle')}
                     className="px-3 py-1 rounded-lg bg-red-600/80 text-white text-xs font-semibold disabled:opacity-40">
-                    {stoppingLocal ? 'Stopping…' : 'Stop run'}
+                    {stoppingLocal ? t('cloudRuns.actions.stopping') : t('cloudRuns.actions.stopRun')}
                   </button>
                 )}
                 {data.local_active.share_key && (
                   <button type="button" onClick={() => shareConfig(data.local_active)}
-                    title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
+                    title={t('cloudRuns.actions.shareConfigTitle')}
                     className="px-2 py-1 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-xs font-semibold">
-                    ⎘ Share config
+                    ⎘ {t('cloudRuns.actions.shareConfig')}
                   </button>
                 )}
                 <button type="button" onClick={() => openDataset(data.local_active.current.dataset_id)}
                   className="px-2 py-1 rounded-lg text-content-muted hover:text-content text-xs">
-                  Open dataset ↗
+                  {t('cloudRuns.actions.openDataset')} ↗
                 </button>
               </span>
             </div>
@@ -656,11 +662,11 @@ export default function CloudRunsPage() {
           </div>
         )}
         {!data ? (
-          <p className="m-0 text-content-subtle text-sm">Loading…</p>
+          <p className="m-0 text-content-subtle text-sm">{t('common.loading')}</p>
         ) : actives.length === 0 ? (
           !data.local_active && (
             <p className="m-0 text-content-subtle text-sm">
-              No run in progress. Launch one from a dataset’s training panel.
+              {t('cloudRuns.empty.inProgress')}
             </p>
           )
         ) : (
@@ -670,9 +676,9 @@ export default function CloudRunsPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <RunIdChip source="cloud" id={run.run_id} />
                 <button type="button" onClick={() => openDataset(run.dataset_id)}
-                  title="Open this dataset"
+                  title={t('cloudRuns.actions.openDataset')}
                   className="text-content font-semibold text-sm hover:underline">
-                  {run.dataset_name || run.run_name || `Dataset #${run.dataset_id}`}
+                  {run.dataset_name || run.run_name || t('cloudRuns.fallback.datasetNumber', { id: run.dataset_id })}
                 </button>
                 <span className="rounded border border-border bg-surface px-1.5 py-0.5 text-content-muted text-[0.625rem] uppercase">
                   {famLabel(run.train_type)}
@@ -683,10 +689,10 @@ export default function CloudRunsPage() {
                 <DatasetVersionChip version={run.version} />
                 <StatusBadge status={run.status} />
                 <AutoRetryBadges run={run} />
-                <span className="text-content-subtle text-[0.625rem]">{timeAgo(run.created_at)}</span>
+                <span className="text-content-subtle text-[0.625rem]">{timeAgo(run.created_at, t)}</span>
                 <span className="ml-auto text-content-muted text-[0.6875rem] tabular-nums">
                   {run.gpu ? `${run.gpu} · ` : ''}{run.price_per_hour != null ? `$${run.price_per_hour}/h · ` : ''}
-                  ~${run.cost_estimate} so far
+                  {t('cloudRuns.metrics.costSoFar', { amount: run.cost_estimate })}
                 </span>
               </div>
 
@@ -696,19 +702,19 @@ export default function CloudRunsPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <button type="button" onClick={() => stop(run)} disabled={stopping[run.run_id]}
                   className="px-3 py-1.5 rounded-lg bg-red-600/80 text-white text-xs font-semibold disabled:opacity-40">
-                  {stopping[run.run_id] ? 'Stopping…' : 'Stop run'}
+                  {stopping[run.run_id] ? t('cloudRuns.actions.stopping') : t('cloudRuns.actions.stopRun')}
                 </button>
                 {run.checkpoint_ready && (
                   <a href={checkpointHref(run)}
                     className="px-3 py-1.5 rounded-lg border border-emerald-400/40 bg-emerald-500/10 text-emerald-200 text-xs font-semibold no-underline">
-                    ⬇ Download the LoRA
+                    ⬇ {t('cloudRuns.actions.downloadLora')}
                   </a>
                 )}
                 {run.share_key && (
                   <button type="button" onClick={() => shareConfig(run)}
-                    title="Download this run's full settings as a paste-safe text file (recipe / help thread)"
+                    title={t('cloudRuns.actions.shareConfigTitle')}
                     className="px-2 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-xs font-semibold">
-                    ⎘ Share config
+                    ⎘ {t('cloudRuns.actions.shareConfig')}
                   </button>
                 )}
                 <span className="ml-auto flex items-center gap-2">
@@ -717,14 +723,14 @@ export default function CloudRunsPage() {
                       in the tooltip so it's findable in the console's instance list. */}
                   <a href="https://cloud.vast.ai/instances/" target="_blank" rel="noreferrer"
                     title={run.vast_instance_id
-                      ? `vast.ai instance ${run.vast_instance_id} — provider console (billing, logs, manual destroy)`
-                      : 'vast.ai console — billing, logs, manual destroy'}
+                      ? t('cloudRuns.actions.vastInstanceTitle', { id: run.vast_instance_id })
+                      : t('cloudRuns.actions.vastConsoleTitle')}
                     className="px-2 py-1 rounded-lg text-sky-300 hover:text-sky-200 text-xs no-underline">
-                    vast.ai console ↗
+                    {t('cloudRuns.actions.openVastConsole')} ↗
                   </a>
                   <button type="button" onClick={() => openDataset(run.dataset_id)}
                     className="px-2 py-1 rounded-lg text-content-muted hover:text-content text-xs">
-                    Open dataset ↗
+                    {t('cloudRuns.actions.openDataset')} ↗
                   </button>
                 </span>
               </div>
@@ -744,26 +750,31 @@ export default function CloudRunsPage() {
                 aria-expanded={!recentCollapsed}
                 className="flex items-center gap-1.5 text-content-muted hover:text-content text-xs font-semibold uppercase tracking-wide">
                 <span aria-hidden className="text-[0.625rem] leading-none">{recentCollapsed ? '▸' : '▾'}</span>
-                Recent{recent.length ? ` (${recent.length})` : ''}
-                <span className="sr-only">{recentCollapsed ? ' — collapsed' : ' — expanded'}</span>
+                {t('cloudRuns.sections.recent')}{recent.length ? ` (${recent.length})` : ''}
+                <span className="sr-only">
+                  {recentCollapsed ? ` — ${t('cloudRuns.sections.collapsed')}` : ` — ${t('cloudRuns.sections.expanded')}`}
+                </span>
               </button>
             </h2>
             {/* the fold must not hide an active billing warning entirely */}
             {recentCollapsed && recent.some((r) => r.status === 'error_pod_kept') && (
               <span className="text-amber-300 text-[0.6875rem]">
-                ⚠ a kept pod is still billing — expand for details
+                ⚠ {t('cloudRuns.podKept.collapsedWarning')}
               </span>
             )}
             {!recentCollapsed && (
               <button type="button"
                 onClick={async () => {
-                  if (!window.confirm('Move the staging folders of all FINISHED runs to the trash?\n\nDataset copies, samples and checkpoint duplicates already imported. Active runs and pods kept for recovery are spared. Recoverable until you empty the trash in Settings.')) return;
+                  if (!window.confirm(t('cloudRuns.confirm.cleanFinished'))) return;
                   const d = await postJson('/api/dataset/train/cloud/purge', {});
-                  if (d.ok) toast.info(`Cleaned ${d.purged_runs} run(s) — ${(d.freed_bytes / 1e9).toFixed(1)} GB moved to the trash.`);
+                  if (d.ok) toast.info(t('cloudRuns.toast.cleaned', {
+                    count: d.purged_runs,
+                    size: (d.freed_bytes / 1e9).toFixed(1),
+                  }));
                   poll();
                 }}
                 className="ml-auto px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold">
-                🧹 Clean finished runs
+                🧹 {t('cloudRuns.actions.cleanFinished')}
               </button>
             )}
           </div>
@@ -773,7 +784,8 @@ export default function CloudRunsPage() {
               const gkey = String(group.datasetId);
               const collapsed = !!groupsCollapsed[gkey];
               const head = group.runs[0];
-              const name = head.dataset_name || head.run_name || `Dataset #${group.datasetId}`;
+              const name = head.dataset_name || head.run_name
+                || t('cloudRuns.fallback.datasetNumber', { id: group.datasetId });
               return (
                 <section key={`g${gi}-${gkey}`}
                   className="flex flex-col rounded-xl border border-border bg-surface">
@@ -781,20 +793,24 @@ export default function CloudRunsPage() {
                   <div className="flex items-center gap-2 px-3 py-2">
                     <button type="button" onClick={() => toggleGroup(group.datasetId)}
                       aria-expanded={!collapsed}
-                      title={collapsed ? 'Show the runs of this dataset' : 'Fold the runs of this dataset'}
+                      title={collapsed
+                        ? t('cloudRuns.actions.showDatasetRuns')
+                        : t('cloudRuns.actions.foldDatasetRuns')}
                       className="flex min-w-0 items-center gap-1.5 text-content-muted hover:text-content text-xs">
                       <span aria-hidden className="text-[0.625rem] leading-none">{collapsed ? '▸' : '▾'}</span>
                       <span className="truncate font-semibold text-content">{name}</span>
                       <span className="whitespace-nowrap text-content-subtle">
-                        · {group.runs.length} run{group.runs.length > 1 ? 's' : ''}
+                        · {t('cloudRuns.metrics.runCount', { count: group.runs.length })}
                       </span>
                     </button>
                     {collapsed && group.runs.some((r) => r.status === 'error_pod_kept') && (
-                      <span className="whitespace-nowrap text-amber-300 text-[0.625rem]">⚠ kept pod billing</span>
+                      <span className="whitespace-nowrap text-amber-300 text-[0.625rem]">
+                        ⚠ {t('cloudRuns.podKept.billing')}
+                      </span>
                     )}
                     <button type="button" onClick={() => openDataset(group.datasetId)}
                       className="ml-auto whitespace-nowrap rounded-lg px-2 py-0.5 text-content-muted hover:text-content text-[0.6875rem]">
-                      Open dataset ↗
+                      {t('cloudRuns.actions.openDataset')} ↗
                     </button>
                   </div>
                   {!collapsed && (

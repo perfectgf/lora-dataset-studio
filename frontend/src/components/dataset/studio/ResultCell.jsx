@@ -8,8 +8,10 @@
  * Contrat souple (le calcul `list`/`score`/`isBest` est fait ICI, comme `renderCell`).
  */
 import ResultTile from './ResultTile';
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function ResultCell({ row, strength, variant, cellList, scoreMap, best, datasetId, onRate, onOpen, fmt }) {
+  const { t } = useI18n();
   const key = `${row.filename}|${strength}|${variant.zModel || ''}|${variant.aspect || ''}|${variant.cfg ?? ''}|${variant.steps ?? ''}|${variant.steps2 ?? ''}`;
   const list = cellList.get(key);
   if (!list || !list.length) {
@@ -32,16 +34,16 @@ export default function ResultCell({ row, strength, variant, cellList, scoreMap,
       {/* Score agrégé PAR CONFIG (toutes seeds/runs confondus) + confiance. */}
       <div className="flex items-center justify-end gap-1 mt-0.5">
         <span className="text-content-muted text-[0.6875rem] tabular-nums"
-          title={score ? `+${score.likes} / −${score.dislikes} on ${score.images} image(s)` : ''}>
+          title={score ? t('studio.best.scoreTitle', { likes: score.likes, dislikes: score.dislikes, images: score.images }) : ''}>
           {score && score.score !== 0 ? (score.score > 0 ? `+${score.score}` : score.score) : '·'}
           {score && score.voted > 0 && (
             <span className="text-content-subtle"> · {score.voted}/{score.images}
               {score.like_rate != null ? ` · ${Math.round(score.like_rate * 100)}%👍` : ''}</span>
           )}
           {score && score.low_confidence && score.voted > 0 && (
-            <span className="text-amber-400" title="Few votes — low reliability"> ⚠</span>
+            <span className="text-amber-400" title={t('studio.best.lowSampleTitle')}> ⚠</span>
           )}
-          {isBest && <span aria-label="best config" title="Best config"> ★</span>}
+          {isBest && <span aria-label={t('studio.best.config')} title={t('studio.best.config')}> ★</span>}
         </span>
       </div>
     </td>

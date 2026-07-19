@@ -195,7 +195,8 @@ def _dispatch_completion(job, filename, failed):
             # own default (which points at the server log) — only pass real detail.
             reason = job.error_message if job.error_message != 'generation failed' else None
             face_dataset_service.link_completed_dataset_image(
-                job.job_id, filename, failed=failed, reason=reason)
+                job.job_id, filename, failed=failed, reason=reason,
+                cancelled=job.status == 'cancelled')
     except Exception:
         logger.exception('job_queue: completion dispatch failed for job %s', job.job_id)
         # The link callback crashed before flipping its row out of 'pending' -

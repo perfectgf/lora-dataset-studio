@@ -275,6 +275,17 @@ def test_probe_ollama_reachable(app):
             result = capabilities.probe_ollama()
     assert result['ok'] is True
 
+def test_probe_ollama_trims_url_whitespace(app, monkeypatch):
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'url': '  http://127.0.0.1:11434/  '}})
+        seen = []
+        monkeypatch.setattr(capabilities, '_http_ok',
+                            lambda url, **kwargs: seen.append(url) or True)
+        result = capabilities.probe_ollama()
+    assert result == {'ok': True, 'detail': 'http://127.0.0.1:11434'}
+    assert seen == ['http://127.0.0.1:11434/api/tags']
+
 def test_probe_face_scoring_goes_through_import_seam(app, monkeypatch):
     with app.app_context():
         from app import capabilities

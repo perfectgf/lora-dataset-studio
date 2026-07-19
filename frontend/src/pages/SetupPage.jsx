@@ -9,6 +9,7 @@ import GuidedSteps from '../components/setup/GuidedSteps'
 import InstallRunner from '../components/setup/InstallRunner'
 import InstallEverything from '../components/setup/InstallEverything'
 import { HelpBadge } from '../help/HelpMode'
+import { useI18n } from '../i18n/I18nContext'
 
 const INPUT_CLASS =
   'mt-1 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 text-sm text-content ' +
@@ -65,8 +66,22 @@ const CAPABILITY_STEP_ID = {
   'Test Studio': 'comfyui',
 }
 
+const CAPABILITY_I18N_KEYS = {
+  'Nano Banana (Gemini)': 'nanoBanana',
+  'ChatGPT (gpt-image-2)': 'chatgpt',
+  'Klein (local)': 'klein',
+  Captioning: 'captioning',
+  'Auto-framing & head-crop': 'framing',
+  'Face-similarity scoring': 'faceScoring',
+  'Person masks': 'masks',
+  'Watermark inpainting': 'watermark',
+  'LoRA training': 'loraTraining',
+  'Test Studio': 'testStudio',
+}
+
 export default function SetupPage() {
   const toast = useToast()
+  const { t } = useI18n()
   const { caps, refresh } = useCapabilities()
   const [config, setConfig] = useState(null)
   const [secretsPresence, setSecretsPresence] = useState({})
@@ -90,8 +105,8 @@ export default function SetupPage() {
       const data = await apiFetch('/api/settings')
       setConfig(data.config); setSecretsPresence(data.secrets); setLoadError(false)
       savedConfigRef.current = JSON.stringify(data.config)
-    } catch (e) { setLoadError(true); toast.error(`Failed to load settings: ${e.message}`) }
-  }, [toast])
+    } catch (e) { setLoadError(true); toast.error(t('settings.loadFailed', { message: e.message })) }
+  }, [toast, t])
   useEffect(() => { load() }, [load])
 
   // Auto-detect installed tools. Reachable default ports (Ollama 11434, ComfyUI
@@ -222,9 +237,9 @@ export default function SetupPage() {
     setStartingOllama(true)
     try {
       const r = await postJson('/api/ollama/start', {})
-      if (r.reachable) { toast.success('Ollama started.'); await refresh(true) }
-      else { toast.error(r.error || 'Ollama did not become ready.') }
-    } catch (e) { toast.error(e.message || 'Could not start Ollama.') }
+      if (r.reachable) { toast.success(t('setup.steps.ollama.started')); await refresh(true) }
+      else { toast.error(r.error || t('setup.steps.ollama.startFailed')) }
+    } catch (e) { toast.error(e.message || t('setup.steps.ollama.startError')) }
     finally { setStartingOllama(false) }
   }
 
@@ -252,7 +267,7 @@ export default function SetupPage() {
   const saveRecheckBtn = (
     <button type="button" onClick={persist} disabled={busy}
       className="mt-1 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised disabled:opacity-50">
-      {busy ? 'Saving…' : 'Save & re-check'}
+      {busy ? t('setup.saving') : t('common.saveRecheck')}
     </button>
   )
   // "Found on disk: <path> — Use" chip for a scanned path we didn't auto-apply.
@@ -523,23 +538,24 @@ export default function SetupPage() {
       const pullBlock = step.reachable && !step.visionModelReady && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
           <p className="mb-1 text-sm font-medium text-content">
-            Ollama is running, but the vision model isn't pulled yet — that's what powers captioning.
+            {t('setup.steps.ollama.modelMissing')}
           </p>
           <p className="mb-2 text-xs text-content-muted">
-            <span className="font-mono">{model}</span> — uncensored, needed for concept captions · {VISION_MODEL_VRAM}
+            <span className="font-mono">{model}</span>
+            {' '}{t('setup.steps.ollama.modelDescription', { vram: VISION_MODEL_VRAM })}
           </p>
-          <InstallRunner action="ollama_model" buttonLabel={`Pull ${model}`}
+          <InstallRunner action="ollama_model"
+            buttonLabel={t('setup.steps.ollama.pullModel', { model })}
             manualCommand={`ollama pull ${model}`}
             onDone={() => refresh(true)} />
         </div>
       )
       const fields = (
         <>
-          {guidedField('Ollama URL', 'ollama', 'url', 'http://127.0.0.1:11434')}
-          {guidedField('Vision model', 'ollama', 'vision_model', DEFAULT_VISION_MODEL)}
+          {guidedField(t('setup.steps.ollama.url'), 'ollama', 'url', 'http://127.0.0.1:11434')}
+          {guidedField(t('setup.steps.ollama.visionModel'), 'ollama', 'vision_model', DEFAULT_VISION_MODEL)}
           <p className="text-xs text-content-subtle">
-            Use the ABLITERATED Qwen3-VL ({VISION_MODEL_VRAM}) — the vanilla model refuses NSFW.
-            For the best captions the app pairs it with JoyCaption (ai-toolkit) — a Joy+Ollama combo.
+            {t('setup.steps.ollama.modelHint', { vram: VISION_MODEL_VRAM })}
           </p>
           {saveRecheckBtn}
         </>
@@ -549,8 +565,13 @@ export default function SetupPage() {
           <div className="space-y-4">
             {step.visionModelReady ? (
               <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content">
-                ✓ Ollama is running at <span className="font-mono">{step.url || 'the configured URL'}</span> and
-                the vision model <span className="font-mono">{step.visionModel}</span> is ready. Nothing to do here.
+                ✓ {t('setup.steps.ollama.readyAt')}{' '}
+                <span className="font-mono">
+                  {step.url || t('setup.steps.ollama.configuredUrl')}
+                </span>
+                {t('setup.steps.ollama.readyWithModel')}
+                <span className="font-mono">{step.visionModel}</span>
+                {t('setup.steps.ollama.readyDone')}
               </div>
             ) : pullBlock}
             {fields}
@@ -564,16 +585,18 @@ export default function SetupPage() {
           <div className="space-y-4">
             <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
               <p className="mb-1 text-sm font-medium text-content">
-                Ollama is installed{step.binaryPath && (
-                  <> at <span className="font-mono">{step.binaryPath}</span></>
-                )} but not running.
+                {step.binaryPath
+                  ? t('setup.steps.ollama.installedAt', { path: step.binaryPath })
+                  : t('setup.steps.ollama.installed')}
               </p>
               <p className="mb-2 text-xs text-content-muted">
-                Start it (it listens on port 11434) to unlock captioning and auto-framing — no restart needed.
+                {t('setup.steps.ollama.startHint')}
               </p>
               <button type="button" onClick={startOllama} disabled={startingOllama}
                 className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
-                {startingOllama ? 'Starting…' : '▶ Start Ollama'}
+                {startingOllama
+                  ? t('setup.steps.ollama.starting')
+                  : `▶ ${t('setup.steps.ollama.start')}`}
               </button>
             </div>
             {fields}
@@ -582,9 +605,9 @@ export default function SetupPage() {
       }
       return (
         <GuidedSteps
-          intro="Ollama runs local models for captioning and auto-framing. Installing it is not enough — you also need to pull a vision model."
-          steps={[{ text: 'Install Ollama and start it (defaults to port 11434).' }]}
-          link={{ href: 'https://ollama.com/download', label: 'Download Ollama →' }}>
+          intro={t('setup.steps.ollama.intro')}
+          steps={[{ text: t('setup.steps.ollama.installStep') }]}
+          link={{ href: 'https://ollama.com/download', label: t('setup.steps.ollama.download') }}>
           {fields}
         </GuidedSteps>
       )
@@ -666,12 +689,10 @@ export default function SetupPage() {
     const detectedDir = detected && detected.aitoolkit && detected.aitoolkit.dir
     const fields = (
       <>
-        {guidedField('ai-toolkit directory', 'aitoolkit', 'dir', 'C:\\ai-toolkit')}
+        {guidedField(t('setup.steps.training.directory'), 'aitoolkit', 'dir', 'C:\\ai-toolkit')}
         {saveRecheckBtn}
         <p className="mt-2 text-content-muted text-xs">
-          No GPU? You can skip this step: add a <strong>vast.ai API key</strong> in
-          Settings instead and train in the cloud (the app rents a GPU per run,
-          ~$1-2, and shuts it down automatically).
+          {t('setup.steps.training.noGpu')}
         </p>
       </>
     )
@@ -679,7 +700,7 @@ export default function SetupPage() {
       return (
         <div className="space-y-4">
           <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-content">
-            ✓ ai-toolkit is set up at <span className="font-mono">{dir}</span>. Nothing to do here.
+            {t('setup.steps.training.readyAt', { path: dir })}
           </div>
           {fields}
         </div>
@@ -690,10 +711,10 @@ export default function SetupPage() {
       return (
         <div className="space-y-4">
           <div className="rounded-md border border-primary/40 bg-primary/10 px-3 py-3 text-sm text-content">
-            <p className="mb-2">Found an ai-toolkit install at <span className="font-mono">{detectedDir}</span>. Use it?</p>
+            <p className="mb-2">{t('setup.steps.training.foundAt', { path: detectedDir })}</p>
             <button type="button" onClick={() => applyDetectedPath('aitoolkit', 'dir', detectedDir)}
               className="rounded-lg bg-gradient-primary px-4 py-1.5 text-xs font-semibold text-white">
-              Use this ai-toolkit →
+              {t('setup.steps.training.useThis')} →
             </button>
           </div>
           {fields}
@@ -705,7 +726,7 @@ export default function SetupPage() {
       return (
         <div className="space-y-4">
           <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-content">
-            Pointed at <span className="font-mono">{dir}</span>, but it isn't usable yet — set up its Python venv per the README.
+            {t('setup.steps.training.notUsable', { path: dir })}
           </div>
           {fields}
         </div>
@@ -713,11 +734,11 @@ export default function SetupPage() {
     }
     return (
       <GuidedSteps
-        intro="ai-toolkit trains the LoRA. Install it once, then point the app at its folder."
+        intro={t('setup.steps.training.intro')}
         steps={[
-          { text: 'Clone ai-toolkit and set up its venv per its README.', command: 'git clone https://github.com/ostris/ai-toolkit' },
+          { text: t('setup.steps.training.clone'), command: 'git clone https://github.com/ostris/ai-toolkit' },
         ]}
-        link={{ href: 'https://github.com/ostris/ai-toolkit', label: 'ai-toolkit on GitHub →' }}>
+        link={{ href: 'https://github.com/ostris/ai-toolkit', label: t('setup.steps.training.github') }}>
         {fields}
       </GuidedSteps>
     )
@@ -752,11 +773,11 @@ export default function SetupPage() {
     if (!s || s.status === 'ready') return null
     if (!s.reachable) {
       // Installed-but-stopped gets a Start nudge; genuinely absent gets install.
-      if (!s.installed) return "Ollama isn't installed — download it and start it (port 11434) to continue."
-      return 'Ollama is installed but not running — click ▶ Start Ollama below to continue.'
+      if (!s.installed) return t('setup.steps.ollama.gateNotInstalled')
+      return t('setup.steps.ollama.gateNotRunning')
     }
-    if (!s.visionModelReady) return 'Pull the vision model below to continue — Z-Image captioning needs it (JoyCaption only covers SDXL).'
-    return 'Finish this step to continue.'
+    if (!s.visionModelReady) return t('setup.steps.ollama.gatePullModel')
+    return t('setup.steps.ollama.gateFinish')
   }
   const blockReason = (id) => (id === 'ollama' ? ollamaGateReason(stepById.ollama) : null)
   // The scan already knows what's installed — so "Start setup" / Next land on the
@@ -784,7 +805,7 @@ export default function SetupPage() {
   )
   const goBack = () => {
     if (hasUnsaved() && !window.confirm(
-      'You have unsaved changes on this step - they will be lost.\n\nGo back without saving?')) return
+      t('setup.unsavedBackConfirm'))) return
     if (kind === 'done') return setScreen(INSTALL)   // the install step sits before the summary
     if (kind === 'install') {
       const last = [...SETUP_STEP_IDS].reverse().find((id) => !isReady(id))
@@ -859,7 +880,7 @@ export default function SetupPage() {
     // re-fires with fresh caps).
     <Link to="/datasets" onClick={() => sessionStorage.setItem('lds_setup_redirected', '1')}
       className="text-xs text-content-subtle underline hover:text-content">
-      Skip setup — I'll do it later
+      {t('setup.skip')}
     </Link>
   )
 
@@ -878,32 +899,32 @@ export default function SetupPage() {
     // case into "✗ not found", which read as "you don't have Ollama".
     const oll = stepById.ollama
     const ollamaScan = oll.reachable
-      ? { state: oll.visionModelReady ? 'ready' : 'partial', partial: 'running — pull the vision model' }
+      ? { state: oll.visionModelReady ? 'ready' : 'partial', partial: t('setup.scan.ollamaModel') }
       : oll.installed
-        ? { state: 'partial', partial: 'installed — not running' }
+        ? { state: 'partial', partial: t('setup.scan.ollamaStopped') }
         : { state: 'missing', partial: '' }
     // stepId: which wizard step (SETUP_STEP_IDS) installs/configures this capability —
     // each row is a direct link to that step's screen, whether or not it's ready yet.
     const scanRows = [
-      { label: 'Local generation — ComfyUI', optional: true, stepId: 'comfyui',
+      { label: t('setup.scan.comfyui'), optional: true, stepId: 'comfyui',
         // A conscious skip reads as "skipped" (neutral), not "not found" — the probe
         // doesn't keep nagging about a choice the user already made. (partial text is
         // only used for the reachable-but-incomplete case.)
         state: stepById.comfyui.skipped ? 'skipped'
           : triState(stepById.comfyui.reachable, stepById.comfyui.hasKlein),
-        partial: 'running — Klein model optional' },
-      { label: 'Captioning — Ollama + vision model', stepId: 'ollama',
+        partial: t('setup.scan.comfyPartial') },
+      { label: t('setup.scan.ollama'), stepId: 'ollama',
         state: ollamaScan.state, partial: ollamaScan.partial },
-      { label: 'LoRA training — ai-toolkit', stepId: 'training',
+      { label: t('setup.scan.training'), stepId: 'training',
         state: stepById.training.valid ? 'ready'
           : (detected && detected.aitoolkit && detected.aitoolkit.dir ? 'partial' : 'missing'),
-        partial: 'found on disk — one click to use' },
+        partial: t('setup.scan.trainingPartial') },
     ]
     const SCAN_META = {
-      ready: { glyph: '✓', cls: 'text-emerald-400', word: 'ready' },
+      ready: { glyph: '✓', cls: 'text-emerald-400', word: t('setup.scan.ready') },
       partial: { glyph: '⚠', cls: 'text-amber-400', word: '' },
-      missing: { glyph: '✗', cls: 'text-content-subtle', word: 'not found' },
-      skipped: { glyph: '⊘', cls: 'text-content-subtle', word: 'skipped' },
+      missing: { glyph: '✗', cls: 'text-content-subtle', word: t('setup.scan.notFound') },
+      skipped: { glyph: '⊘', cls: 'text-content-subtle', word: t('setup.scan.skipped') },
     }
     // Optional + not-ready → don't alarm: neutral glyph/color and an "optional" tone.
     const NEUTRAL = { glyph: '○', cls: 'text-content-subtle' }
@@ -911,23 +932,22 @@ export default function SetupPage() {
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="text-center">
           <div className="text-3xl" aria-hidden="true">🧬</div>
-          <h1 className="mt-2 text-2xl font-bold text-content">Welcome to LoRA Dataset Studio</h1>
+          <h1 className="mt-2 text-2xl font-bold text-content">{t('setup.welcome.title')}</h1>
           <p className="mt-2 text-sm text-content-muted">
-            Let's set up your machine. I'll scan what's already installed and help you install the rest —
-            you can also start building a dataset from your own photos right now, no setup required.
+            {t('setup.welcome.description')}
           </p>
         </div>
 
         <section className="rounded-xl border border-border bg-surface p-5">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-content">
-              {detecting ? 'Scanning your machine…' : 'Machine scan'}
+              {detecting ? t('setup.welcome.scanning') : t('setup.welcome.machineScan')}
             </h2>
             {detecting
               ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-primary" aria-hidden="true" />
               : (
                 <button type="button" onClick={() => runAutodetect(config)}
-                  className="text-xs text-primary underline">Re-scan</button>
+                  className="text-xs text-primary underline">{t('setup.welcome.rescan')}</button>
               )}
           </div>
           <ul className="mt-4 space-y-1">
@@ -935,7 +955,7 @@ export default function SetupPage() {
               const soft = r.optional && r.state !== 'ready'   // optional + not ready → neutral, not a warning
               const m = soft ? { ...SCAN_META[r.state], ...NEUTRAL } : SCAN_META[r.state]
               const word = r.state === 'partial' ? r.partial
-                : r.state === 'missing' ? (r.optional ? 'optional' : m.word)
+                : r.state === 'missing' ? (r.optional ? t('setup.scan.optional') : m.word)
                 : m.word
               return (
                 <li key={r.label}>
@@ -953,7 +973,9 @@ export default function SetupPage() {
                       </span>
                       <span className={r.state === 'ready' ? 'text-content' : 'text-content-muted'}>{r.label}</span>
                       {r.optional && (
-                        <span className="rounded bg-surface-raised px-1.5 py-px text-[10px] font-medium text-content-subtle">optional</span>
+                        <span className="rounded bg-surface-raised px-1.5 py-px text-[10px] font-medium text-content-subtle">
+                          {t('setup.scan.optional')}
+                        </span>
                       )}
                     </span>
                     <span className="flex items-center gap-1.5">
@@ -974,7 +996,7 @@ export default function SetupPage() {
           </ul>
           {scanned && !detecting && (
             <p className="mt-3 text-xs text-content-subtle">
-              {readyCount} of {summary.length} capabilities ready. Reachable services were filled in automatically.
+              {t('setup.welcome.readySummary', { ready: readyCount, total: summary.length })}
             </p>
           )}
         </section>
@@ -986,7 +1008,7 @@ export default function SetupPage() {
               on a configured ComfyUI/Ollama. */}
           <button type="button" onClick={goNext}
             className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
-            {allReady ? "Everything's ready — review →" : 'Start setup →'}
+            {allReady ? t('setup.welcome.allReady') : t('setup.welcome.start')}
           </button>
         </div>
       </div>
@@ -999,11 +1021,13 @@ export default function SetupPage() {
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="text-center">
           <div className="text-3xl" aria-hidden="true">🎉</div>
-          <h1 className="mt-2 text-2xl font-bold text-content">You're all set</h1>
-          <p className="mt-1 text-sm text-content-muted">{readyCount} of {summary.length} capabilities ready.</p>
+          <h1 className="mt-2 text-2xl font-bold text-content">{t('setup.done.title')}</h1>
+          <p className="mt-1 text-sm text-content-muted">
+            {t('setup.done.readySummary', { ready: readyCount, total: summary.length })}
+          </p>
         </div>
         <section className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="text-base font-semibold text-content">What's unlocked</h2>
+          <h2 className="text-base font-semibold text-content">{t('setup.done.unlocked')}</h2>
           <ul className="mt-3 grid gap-1 sm:grid-cols-2">
             {summary.map((s) => {
               const targetStep = CAPABILITY_STEP_ID[s.label]
@@ -1013,7 +1037,9 @@ export default function SetupPage() {
                 return (
                   <li key={s.label} className={`flex items-center gap-2 px-2 py-1 text-sm ${s.ok ? 'text-content' : 'text-content-subtle'}`}>
                     <span aria-hidden="true" className={s.ok ? 'text-emerald-400' : 'text-content-subtle'}>{s.ok ? '✓' : '✗'}</span>
-                    {s.label}
+                    {CAPABILITY_I18N_KEYS[s.label]
+                      ? t(`settings.overview.capability.${CAPABILITY_I18N_KEYS[s.label]}`)
+                      : s.label}
                   </li>
                 )
               }
@@ -1025,7 +1051,9 @@ export default function SetupPage() {
                       focus-visible:ring-primary ${s.ok ? 'text-content' : 'text-content-subtle'}`}>
                     <span className="flex items-center gap-2">
                       <span aria-hidden="true" className={s.ok ? 'text-emerald-400' : 'text-content-subtle'}>{s.ok ? '✓' : '✗'}</span>
-                      {s.label}
+                      {CAPABILITY_I18N_KEYS[s.label]
+                        ? t(`settings.overview.capability.${CAPABILITY_I18N_KEYS[s.label]}`)
+                        : s.label}
                     </span>
                     <span aria-hidden="true" className={`text-xs ${s.ok ? 'text-content-subtle/60' : 'text-content-subtle'}`}>›</span>
                   </button>
@@ -1036,10 +1064,10 @@ export default function SetupPage() {
         </section>
         <div className="flex items-center justify-between">
           <button type="button" onClick={goBack} className="text-xs text-content-subtle underline hover:text-content">
-            ← Back
+            {t('setup.back')}
           </button>
           <Link to="/datasets" className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
-            Build your first dataset →
+            {t('setup.done.build')}
           </Link>
         </div>
       </div>
@@ -1079,32 +1107,35 @@ export default function SetupPage() {
   // --- A single tool step ------------------------------------------------------
   const step = stepById[kind]
   const stepNo = SETUP_STEP_IDS.indexOf(kind) + 1
-  const meta = STATUS_META[step.status] || STATUS_META.available
+  const rawMeta = STATUS_META[step.status] || STATUS_META.available
+  const meta = { ...rawMeta, label: t(`setup.status.${step.status || 'available'}`) }
   const reason = blockReason(kind)                 // live hint of what's still missing
   const hasNext = nextUnfinished(toolIdx(kind)) !== null
   // Next always saves + re-checks first; the gate (if any) is enforced AFTER that
   // fresh re-check inside nextWithSave, not by disabling the button on a stale snapshot.
-  const nextLabel = advancing ? 'Saving…' : (hasNext ? 'Save & continue →' : 'Save & finish →')
+  const nextLabel = advancing ? t('setup.saving') : (hasNext ? t('setup.continue') : t('setup.finish'))
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="flex items-center justify-between">
         <ProgressDots />
-        <span className="text-xs text-content-subtle">Step {stepNo} of {TOTAL_TOOLS}</span>
+        <span className="text-xs text-content-subtle">{t('setup.step', { current: stepNo, total: TOTAL_TOOLS })}</span>
       </div>
 
       <section className="rounded-xl border border-border bg-surface p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold text-content">
-              {step.title}
+              {t(`setup.steps.${kind}.title`)}
               {step.recommended && (
                 <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                  Recommended
+                  {t('setup.recommended')}
                 </span>
               )}
               <HelpBadge topic="page-setup" className="ml-2" />
             </h1>
-            <p className="mt-1 text-xs text-content-muted">Unlocks: {step.unlocks.join(' · ')}</p>
+            <p className="mt-1 text-xs text-content-muted">
+              {t('setup.unlocks', { items: t(`setup.steps.${kind}.unlocks`) })}
+            </p>
           </div>
           <span className={`inline-flex shrink-0 items-center gap-1 text-xs font-medium ${meta.cls}`}>
             <span aria-hidden="true">{meta.glyph}</span>{meta.label}
@@ -1120,7 +1151,7 @@ export default function SetupPage() {
       )}
       <div className="flex items-center justify-between">
         <button type="button" onClick={goBack} className="text-xs text-content-subtle underline hover:text-content">
-          ← Back
+          {t('setup.back')}
         </button>
         <div className="flex items-center gap-4">
           {skipLink}

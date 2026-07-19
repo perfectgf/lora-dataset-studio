@@ -3,9 +3,11 @@
 // corrigée : un modificateur d'opacité à 60 % sur `bg-surface` rendait un panneau
 // BLANC (surface = blanc) → on utilise `bg-surface-raised` (surface sombre surélevée).
 import { useState } from 'react';
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function BestPerModelList({ items, breakdown, datasetId, onMemorize, fmt }) {
   const [open, setOpen] = useState(false); // replié par défaut (dépliable au besoin)
+  const { t } = useI18n();
   if (!Array.isArray(items) || items.length === 0) return null;
 
   // Détail « générées/votées par base » regroupé par checkpoint (idée user :
@@ -18,7 +20,7 @@ export default function BestPerModelList({ items, breakdown, datasetId, onMemori
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
         className="flex items-center gap-2 text-left text-content-muted text-[0.625rem] uppercase">
         <span aria-hidden>{open ? '▾' : '▸'}</span>
-        Best setting per model ({items.length})
+        {t('studio.best.perModel', { count: items.length })}
       </button>
       {open && items.map((m) => (
         <div key={m.checkpoint} className="flex flex-col gap-0.5">
@@ -29,19 +31,19 @@ export default function BestPerModelList({ items, breakdown, datasetId, onMemori
               : <span className="w-8 h-10 rounded bg-app/60 shrink-0" />}
             <span className="text-content font-medium truncate max-w-[150px]" title={m.label}>{m.label}</span>
             <span className="text-content-subtle">
-              str {fmt(m.strength)}{m.cfg != null ? ` · cfg ${m.cfg}` : ''}{m.steps != null ? ` · ${m.steps}${m.steps2 != null ? '/' + m.steps2 : ''}st` : ''}{m.aspect ? ` · ${m.aspect}` : ''}
+              {t('studio.strength.title')} {fmt(m.strength)}{m.cfg != null ? ` · CFG ${m.cfg}` : ''}{m.steps != null ? ` · ${m.steps}${m.steps2 != null ? '/' + m.steps2 : ''} ${t('studio.best.steps')}` : ''}{m.aspect ? ` · ${m.aspect}` : ''}
             </span>
             <span className="text-content-subtle tabular-nums">👍{m.likes}/{m.voted}</span>
             <button type="button" onClick={() => onMemorize(m)}
-              title="Save this setting as the dataset's best"
+              title={t('studio.best.saveTitle')}
               className="ml-auto px-2 py-0.5 rounded bg-amber-400/15 border border-amber-400/40 text-amber-200">★</button>
           </div>
           {byCheckpoint[m.checkpoint] && byCheckpoint[m.checkpoint].length > 0 && (
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 pl-10 text-content-subtle text-[0.625rem]">
               {byCheckpoint[m.checkpoint].map((b) => (
                 <span key={`${m.checkpoint}|${b.z_model || 'off'}`}
-                  title={`${b.voted} voted out of ${b.images} generated`}>
-                  {b.z_model_label || 'Official'} {b.voted}/{b.images}
+                  title={t('studio.best.breakdown', { voted: b.voted, images: b.images })}>
+                  {b.z_model_label || t('studio.modelComparison.official')} {b.voted}/{b.images}
                   {b.like_rate != null ? ` · ${Math.round(b.like_rate * 100)}%👍` : ''}
                 </span>
               ))}

@@ -8,6 +8,7 @@
  * Custom implementation (no react-easy-crop): that lib pins a fixed frame and
  * moves the image under it — it cannot stretch the selection itself. */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useI18n } from '../../i18n/I18nContext';
 
 const ASPECTS = [
   ['free', null],
@@ -55,6 +56,7 @@ function ratioBox(cur, ratio, W, H) {
 
 export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
                                     lockSquare = false, defaultAspect = null }) {
+  const { t } = useI18n();
   const [nat, setNat] = useState(null);        // {W, H} natural size
   const [box, setBox] = useState(null);        // crop box in NATURAL px
   const [aspect, setAspect] = useState(lockSquare ? 1 : defaultAspect);   // null = free
@@ -157,11 +159,11 @@ export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
 
   const s = scale();
   return (
-    <div role="dialog" aria-modal="true" aria-label="Crop image"
+    <div role="dialog" aria-modal="true" aria-label={t('workspace.crop.title')}
       className="fixed inset-0 z-[9995] bg-black/85 flex flex-col p-3 sm:p-4">
       <div className="relative flex-1 min-h-0 w-full max-w-4xl mx-auto flex items-center justify-center overflow-hidden">
         <div className="relative inline-block max-h-full max-w-full">
-          <img ref={imgRef} src={imageUrl} alt="to crop" onLoad={onImgLoad} draggable={false}
+          <img ref={imgRef} src={imageUrl} alt={t('workspace.crop.imageAlt')} onLoad={onImgLoad} draggable={false}
             className="max-h-[70vh] max-w-full object-contain select-none block" />
           {box && nat && (
             <div
@@ -169,7 +171,7 @@ export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
               style={{ left: box.x * s, top: box.y * s, width: box.w * s, height: box.h * s,
                        boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)' }}
               onPointerDown={(e) => startDrag(e, 'move')}
-              role="application" aria-label="Crop selection — drag to move, use the handles to stretch">
+              role="application" aria-label={t('workspace.crop.selectionLabel')}>
               {HANDLES.map(([name]) => (
                 <span key={name}
                   onPointerDown={(e) => startDrag(e, name)}
@@ -184,8 +186,8 @@ export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
       </div>
       <div className="shrink-0 w-full max-w-4xl mx-auto mt-3 flex flex-col gap-2">
         {!lockSquare && (
-          <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Crop aspect ratio">
-            <span className="text-white/60 text-xs">Ratio</span>
+          <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label={t('workspace.crop.aspectLabel')}>
+            <span className="text-white/60 text-xs">{t('workspace.crop.ratio')}</span>
             {ASPECTS.map(([label, value]) => (
               <button key={label} type="button" onClick={() => pickAspect(value)}
                 aria-pressed={aspect === value}
@@ -195,24 +197,24 @@ export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
                 {label}
               </button>
             ))}
-            <span className="text-white/40 text-[10px]">free = stretch the box any way you like</span>
+            <span className="text-white/40 text-[10px]">{t('workspace.crop.freeHint')}</span>
           </div>
         )}
         <div className="flex gap-2 justify-end">
           {onReset && (
             <button type="button" onClick={onReset}
-              title="Re-run the automatic head-crop on the original image"
+              title={t('workspace.crop.resetTitle')}
               className="mr-auto px-4 py-2 rounded-lg bg-surface text-content-muted text-sm">
-              ↺ Reset to auto
+              ↺ {t('workspace.crop.reset')}
             </button>
           )}
           <button type="button" ref={cancelRef} onClick={onCancel}
-            className="px-4 py-2 rounded-lg bg-surface text-content text-sm">Cancel</button>
+            className="px-4 py-2 rounded-lg bg-surface text-content text-sm">{t('common.close')}</button>
           <button type="button" disabled={!box}
             onClick={() => onConfirm({ x: Math.round(box.x), y: Math.round(box.y),
                                        w: Math.round(box.w), h: Math.round(box.h) })}
             className="px-4 py-2 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-            Crop
+            {t('workspace.crop.confirm')}
           </button>
         </div>
       </div>

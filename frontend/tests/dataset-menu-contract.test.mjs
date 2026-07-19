@@ -5,7 +5,7 @@ import test from 'node:test'
 const source = readFileSync(new URL('../src/components/dataset/DatasetWorkspace.jsx', import.meta.url), 'utf8')
 
 test('dataset More popover uses an opaque overlay surface', () => {
-  const summary = source.indexOf('More dataset actions')
+  const summary = source.indexOf("workspace.header.moreTitle")
   assert.notEqual(summary, -1, 'More menu summary not found')
   const panel = source.slice(summary, summary + 1200)
   assert.match(panel, /absolute right-0[^"\n]*bg-surface-overlay/)

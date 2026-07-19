@@ -16,6 +16,7 @@ import GuidePage from './pages/GuidePage'
 import CloudRunsPage from './pages/CloudRunsPage'
 import { recommendedMet } from './hooks/useSetupSteps'
 import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
+import { useI18n } from './i18n/I18nContext'
 
 const NAV_ITEM_BASE =
   'px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors'
@@ -33,6 +34,7 @@ const navItemClass = ({ isActive }) =>
  * and surfaces the UpdateBanner without any click. */
 function CheckUpdatesButton() {
   const toast = useToast()
+  const { t } = useI18n()
   const [busy, setBusy] = useState(false)
   const [available, setAvailable] = useState(false)
   useEffect(() => {
@@ -65,21 +67,21 @@ function CheckUpdatesButton() {
       if (d?.update_available) {
         sessionStorage.removeItem('updateBannerDismissed')     // re-show even if dismissed
         window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
-        toast.success(`Update available — v${d.latest || d.remote_sha || 'new'}`)
+        toast.success(`${t('updates.available')} — v${d.latest || d.remote_sha || 'new'}`)
       } else if (d?.ok) {
-        toast.info(`You're up to date — v${d.current}`)
+        toast.info(t('updates.upToDate', { version: d.current }))
       } else {
-        toast.error(d?.reason || 'Could not check for updates.')
+        toast.error(d?.reason || t('updates.couldNotCheck'))
       }
     } catch (e) {
-      toast.error(e?.message || 'Update check failed.')
+      toast.error(e?.message || t('updates.checkFailed'))
     } finally {
       setBusy(false)
     }
   }
   return (
     <button type="button" onClick={check} disabled={busy}
-      title={available ? 'Update available — click to review' : 'Check for updates'}
+      title={available ? t('updates.availableReview') : t('updates.check')}
       className={`${NAV_ITEM_BASE} relative ${available
         ? 'text-emerald-300 hover:text-emerald-200'
         : 'text-content-muted hover:text-content'} hover:bg-surface-raised disabled:opacity-50`}>
@@ -87,7 +89,7 @@ function CheckUpdatesButton() {
       {available && (
         <span aria-hidden className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />
       )}
-      <span className="sr-only">{available ? 'Update available' : 'Check for updates'}</span>
+      <span className="sr-only">{available ? t('updates.available') : t('updates.check')}</span>
     </button>
   )
 }
@@ -97,23 +99,45 @@ function CheckUpdatesButton() {
  * spells the state out; the indigo ring makes "on" visually unmistakable. */
 function HelpModeToggle({ onToggle }) {
   const { enabled, toggle } = useHelpMode()
+  const { t } = useI18n()
   return (
     <button type="button" onClick={() => { toggle(); onToggle?.() }}
       aria-pressed={enabled}
-      title={enabled
-        ? 'Help mode is on — click any ? badge to jump to the guide'
-        : 'Turn on Help mode to reveal ? badges that link to the guide'}
+      title={enabled ? t('helpMode.on') : t('helpMode.off')}
       className={`${NAV_ITEM_BASE} inline-flex items-center gap-1.5 ${enabled
         ? 'bg-indigo-500/20 text-indigo-200 ring-1 ring-inset ring-indigo-400/50'
         : 'text-content-muted hover:text-content hover:bg-surface-raised'}`}>
       <span aria-hidden className="grid h-4 w-4 place-items-center rounded-full border border-current text-[10px] font-bold leading-none">?</span>
-      <span>Help mode</span>
+      <span>{t('nav.helpMode')}</span>
     </button>
+  )
+}
+
+function LanguageSwitcher({ onChange }) {
+  const { locale, locales, setLocale, t } = useI18n()
+  return (
+    <label
+      title={t('language.label')}
+      className={`${NAV_ITEM_BASE} inline-flex items-center gap-1.5 text-content-muted hover:bg-surface-raised hover:text-content`}>
+      <span aria-hidden>🌐</span>
+      <span className="sr-only">{t('language.label')}</span>
+      <select value={locale}
+        onChange={(event) => { setLocale(event.target.value); onChange?.() }}
+        aria-label={t('language.label')}
+        className="max-w-28 cursor-pointer border-0 bg-transparent p-0 text-sm font-medium text-inherit outline-none">
+        {locales.map((option) => (
+          <option key={option.code} value={option.code} className="bg-surface text-content">
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 
 function NavBar() {
   const { caps } = useCapabilities()
+  const { t } = useI18n()
   // Below `md` the horizontal link row has nowhere to go (it used to just wrap
   // mid-word, brand included) -- collapse it into a hamburger-triggered panel
   // instead. navLinks is shared markup: `hidden md:flex` on desktop, only
@@ -129,45 +153,46 @@ function NavBar() {
   }
   const navLinks = (
     <>
-      <NavLink to="/datasets" className={navItemClass} onClick={() => setOpen(false)}>Datasets</NavLink>
+      <NavLink to="/datasets" className={navItemClass} onClick={() => setOpen(false)}>{t('nav.datasets')}</NavLink>
       {/* Bank sits right after Datasets: it FEEDS them (triage a big unsorted
           folder, then promote the keepers into a dataset). */}
       <NavLink to="/bank" className={navItemClass} onClick={() => setOpen(false)}>
-        <span className="inline-flex items-center gap-1"><span aria-hidden>🗃️</span> Bank
-          <span className="px-1 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.5625rem] font-semibold uppercase tracking-wide leading-none">Beta</span>
+        <span className="inline-flex items-center gap-1"><span aria-hidden>🗃️</span> {t('nav.bank')}
+          <span className="px-1 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.5625rem] font-semibold uppercase tracking-wide leading-none">{t('common.beta')}</span>
         </span>
       </NavLink>
       {/* Unified runs hub (cloud + local history) — useful as soon as ANY
           training path exists, not just the cloud one. */}
       {(caps.cloud_training || caps.training_visible) && (
         <NavLink to="/cloud" className={navItemClass} onClick={() => setOpen(false)}>
-          <span className="inline-flex items-center gap-1"><span aria-hidden>🏋️</span> Runs</span>
+          <span className="inline-flex items-center gap-1"><span aria-hidden>🏋️</span> {t('nav.runs')}</span>
         </NavLink>
       )}
       {caps.studio_visible && (
-        <NavLink to="/studio" className={navItemClass} onClick={() => setOpen(false)}>Test Studio</NavLink>
+        <NavLink to="/studio" className={navItemClass} onClick={() => setOpen(false)}>{t('nav.studio')}</NavLink>
       )}
-      <NavLink to="/guide" className={navItemClass} onClick={() => setOpen(false)}>Guide</NavLink>
+      <NavLink to="/guide" className={navItemClass} onClick={() => setOpen(false)}>{t('nav.guide')}</NavLink>
       <NavLink to="/setup" className={navItemClass} onClick={() => setOpen(false)}>
         <span className="inline-flex items-center gap-1">
-          Setup
+          {t('nav.setup')}
           {!recommendedMet(caps) && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-primary" />}
         </span>
       </NavLink>
-      <NavLink to="/settings" className={navItemClass} onClick={() => setOpen(false)}>Settings</NavLink>
-      <NavLink to="/help" className={navItemClass} onClick={() => setOpen(false)}>Help</NavLink>
+      <NavLink to="/settings" className={navItemClass} onClick={() => setOpen(false)}>{t('nav.settings')}</NavLink>
+      <NavLink to="/help" className={navItemClass} onClick={() => setOpen(false)}>{t('nav.help')}</NavLink>
       <HelpModeToggle onToggle={() => setOpen(false)} />
+      <LanguageSwitcher onChange={() => setOpen(false)} />
     </>
   )
   return (
     <header className="border-b border-border bg-surface-overlay/90 backdrop-blur-sm sticky top-0 z-40">
       <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 sm:gap-6">
-        <NavLink to="/datasets" title="Back to the datasets page" onClick={goHome}
+        <NavLink to="/datasets" title={t('nav.backToDatasets')} onClick={goHome}
           className="shrink-0 whitespace-nowrap bg-gradient-primary bg-clip-text text-base font-bold text-transparent no-underline">
           LoRA Dataset Studio
         </NavLink>
         {/* Workflow first (make → train in cloud → test), docs/config last. */}
-        <nav className="hidden md:flex gap-1" aria-label="Main navigation">
+        <nav className="hidden md:flex gap-1" aria-label={t('nav.main')}>
           {navLinks}
           <WhatsNewButton />
           <CheckUpdatesButton />
@@ -176,14 +201,14 @@ function NavBar() {
           <WhatsNewButton />
           <CheckUpdatesButton />
           <button type="button" onClick={() => setOpen((v) => !v)}
-            aria-expanded={open} aria-label={open ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={open} aria-label={open ? t('nav.closeMenu') : t('nav.openMenu')}
             className="rounded-md p-2 text-content-muted hover:text-content hover:bg-surface-raised">
             <span aria-hidden className="block text-lg leading-none">{open ? '✕' : '☰'}</span>
           </button>
         </div>
       </div>
       {open && (
-        <nav aria-label="Main navigation (mobile)"
+        <nav aria-label={t('nav.mainMobile')}
           className="flex flex-col gap-1 border-t border-border px-4 py-2 md:hidden">
           {navLinks}
         </nav>
@@ -196,6 +221,7 @@ function NavBar() {
  * banner shows once per browser session and is dismissible. Silent when the
  * feed is unreachable (offline / no public release yet). */
 function UpdateBanner() {
+  const { t } = useI18n()
   const [info, setInfo] = useState(null)
   const [applying, setApplying] = useState(false)
   const [phase, setPhase] = useState('')     // '' | 'pulling' | 'restarting'
@@ -241,11 +267,11 @@ function UpdateBanner() {
         setApplying(false); setPhase('')
       } else {
         setApplying(false); setPhase('')
-        setError(res.reason || (res.ok ? null : 'Update failed'))
+        setError(res.reason || (res.ok ? null : t('updates.failed')))
       }
     } catch (e) {
       setApplying(false); setPhase('')
-      setError(e.message || 'Update failed')
+      setError(e.message || t('updates.failed'))
     }
   }
 
@@ -258,36 +284,36 @@ function UpdateBanner() {
         {applying ? (
           <span className="text-content">
             {phase === 'restarting'
-              ? '↻ Updated — the app is restarting. This page reloads automatically when it’s back…'
-              : '⬇ Pulling the latest version…'}
+              ? t('updates.restarting')
+              : t('updates.pulling')}
           </span>
         ) : (
           <>
             <span className="text-content">
-              Update available — <span className="font-semibold">
+              {t('updates.available')} — <span className="font-semibold">
                 {info.latest
                   ? `v${info.latest}`
                   : info.behind
-                    ? `${info.behind} new commit${info.behind === 1 ? '' : 's'}`
-                    : 'a new version'}
-              </span> (you run v{info.current}).
+                    ? t('updates.newCommits', { count: info.behind })
+                    : t('updates.newVersion')}
+              </span> ({t('updates.currentVersion', { version: info.current })}).
             </span>
             <button type="button" onClick={apply}
               className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white transition-transform hover:-translate-y-px">
-              Update &amp; restart
+              {t('updates.apply')}
             </button>
             {/* Download link only for packaged builds (a git checkout updates in
                 place via the button — a release ZIP would be the wrong artifact). */}
             {!info.is_git && (
               <a href={info.url} target="_blank" rel="noreferrer"
                 className="text-emerald-300 underline">
-                Download
+                {t('updates.download')}
               </a>
             )}
             {error && <span className="text-rose-300">{error}</span>}
             <button type="button"
               onClick={() => { setInfo(null); sessionStorage.setItem('updateBannerDismissed', '1') }}
-              aria-label="Dismiss update notice"
+              aria-label={t('updates.dismiss')}
               className="ml-auto px-1.5 text-content-subtle hover:text-content">✕</button>
           </>
         )}
@@ -337,6 +363,7 @@ function Shell() {
 
 function AppInner() {
   const toast = useToast()
+  const { t } = useI18n()
   useEffect(() => { setToastRef(toast) }, [toast])
   return (
     <>
@@ -349,7 +376,7 @@ function AppInner() {
           if (el) { el.focus(); el.scrollIntoView(); }
         }}
       >
-        Skip to main content
+        {t('nav.skipToContent')}
       </a>
       <HashRouter>
         <HelpModeProvider>

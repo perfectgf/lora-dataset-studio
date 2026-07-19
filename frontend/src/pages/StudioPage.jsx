@@ -12,8 +12,10 @@
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useCapabilities } from '../context/CapabilitiesContext';
 import StudioShell from '../components/dataset/studio/StudioShell';
+import { useI18n } from '../i18n/I18nContext';
 
 export default function StudioPage() {
+  const { t } = useI18n();
   const { id } = useParams();
   const [sp] = useSearchParams();
   const { caps } = useCapabilities();
@@ -23,9 +25,9 @@ export default function StudioPage() {
   if (!caps.studio_visible) {
     return (
       <div className="rounded-xl border border-border bg-surface p-8 text-center">
-        <h1 className="text-lg font-semibold text-content">Test Studio</h1>
+        <h1 className="text-lg font-semibold text-content">{t('studio.title')}</h1>
         <p className="mt-2 text-sm text-content-muted">
-          Test Studio requires ComfyUI — configure it in Settings.
+          {t('studio.requiresComfyUI')}
         </p>
       </div>
     );

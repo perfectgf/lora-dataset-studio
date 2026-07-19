@@ -26,6 +26,7 @@ import ModelComparison from './ModelComparison';
 import ResultsArea from './ResultsArea';
 import QuickVoteModal from './QuickVoteModal';
 import ResultLightbox from './ResultLightbox';
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function LegacyDatasetStudio({ datasetId, initialFamily = null }) {
   // Famille (pipeline) sélectionnée : null = défaut résolu côté serveur. `initialFamily`
@@ -41,6 +42,7 @@ export default function LegacyDatasetStudio({ datasetId, initialFamily = null })
 }
 
 function StudioBody({ datasetId, family, onFamilyChange }) {
+  const { t } = useI18n();
   const studio = useLoraTestStudio(datasetId, family);
   const d = studio.data;
   const form = useStudioForm(d, datasetId, d?.family || family);
@@ -66,7 +68,7 @@ function StudioBody({ datasetId, family, onFamilyChange }) {
       <div className="flex flex-col gap-3">
         {d && <FamilySelector families={d.available_families} active={d.family} onSelect={onFamilyChange} />}
         <p className="text-content-subtle text-sm rounded-lg border border-border bg-surface px-3 py-6 text-center">
-          {d ? 'No testable checkpoint for this pipeline (train it first).' : 'Loading…'}
+          {d ? t('studio.solo.noCheckpoint') : t('common.loading')}
         </p>
       </div>
     );
@@ -81,7 +83,7 @@ function StudioBody({ datasetId, family, onFamilyChange }) {
             {d.trigger_word}
           </code>
           {d?.best_settings && (
-            <span className="text-amber-300 text-[0.6875rem]" title="Saved winning settings">
+            <span className="text-amber-300 text-[0.6875rem]" title={t('studio.solo.savedWinning')}>
               ★ {fmt(d.best_settings.strength)}
             </span>
           )}

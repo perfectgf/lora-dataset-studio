@@ -3,9 +3,11 @@
 // le modèle le plus testé (biais de volume). Affiche taux 👍 + n (générées/votées).
 // Repliable, masqué s'il y a moins de 2 bases (rien à comparer).
 import { useState } from 'react';
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function ModelComparison({ items }) {
   const [open, setOpen] = useState(false);
+  const { t } = useI18n();
   if (!Array.isArray(items) || items.length < 2) return null;
 
   return (
@@ -13,29 +15,29 @@ export default function ModelComparison({ items }) {
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
         className="flex items-center gap-2 text-left text-content-muted text-[0.625rem] uppercase">
         <span aria-hidden>{open ? '▾' : '▸'}</span>
-        Base model comparison ({items.length})
+        {t('studio.modelComparison.title', { count: items.length })}
       </button>
       {open && (
         <table className="w-full text-[0.6875rem]">
           <thead>
             <tr className="text-content-subtle text-left">
-              <th className="font-normal py-0.5">Model</th>
-              <th className="font-normal text-right">👍 rate</th>
-              <th className="font-normal text-right">Voted</th>
-              <th className="font-normal text-right">Generated</th>
-              <th className="font-normal text-right">Net</th>
+              <th className="font-normal py-0.5">{t('studio.best.model')}</th>
+              <th className="font-normal text-right">👍 {t('studio.modelComparison.rate')}</th>
+              <th className="font-normal text-right">{t('studio.modelComparison.voted')}</th>
+              <th className="font-normal text-right">{t('studio.modelComparison.generated')}</th>
+              <th className="font-normal text-right">{t('studio.ranking.net')}</th>
             </tr>
           </thead>
           <tbody>
             {items.map((m) => (
               <tr key={m.z_model || 'officiel'} className="border-t border-border">
-                <td className="py-0.5 text-content truncate max-w-[140px]" title={m.z_model_label || 'Official'}>
-                  {m.z_model_label || 'Official'}
+                <td className="py-0.5 text-content truncate max-w-[140px]" title={m.z_model_label || t('studio.modelComparison.official')}>
+                  {m.z_model_label || t('studio.modelComparison.official')}
                 </td>
                 <td className="text-right tabular-nums text-content">
                   {m.like_rate != null ? `${Math.round(m.like_rate * 100)}%` : '—'}
                   {m.low_confidence && m.voted > 0 && (
-                    <span className="text-amber-400" title="Few votes — low reliability"> ⚠</span>
+                    <span className="text-amber-400" title={t('studio.best.lowSampleTitle')}> ⚠</span>
                   )}
                 </td>
                 <td className="text-right tabular-nums text-content-subtle">{m.voted}</td>

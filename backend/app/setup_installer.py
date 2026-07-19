@@ -1277,7 +1277,7 @@ def _run_klein_download(action) -> int:
 
 
 def _run_ollama_model(action) -> int:
-    url = (cfg.get('ollama.url') or '').rstrip('/')
+    url = (cfg.get('ollama.url') or '').strip().rstrip('/')
     model = cfg.get('ollama.vision_model') or ''
     resp = requests.post(f'{url}/api/pull', json={'name': model, 'stream': True},
                          stream=True, timeout=None)

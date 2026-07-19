@@ -95,7 +95,7 @@ def probe_comfyui() -> dict:
 
 
 def probe_ollama() -> dict:
-    url = (cfg.get('ollama.url') or '').rstrip('/')
+    url = (cfg.get('ollama.url') or '').strip().rstrip('/')
     if not url:
         return {'ok': False, 'detail': 'ollama.url not configured'}
     ok = _http_ok(f'{url}/api/tags')
@@ -220,7 +220,7 @@ def probe_ollama_model(reachable=None) -> dict:
     # `reachable` lets probe() pass the reachability it already computed, so we
     # don't re-hit /api/tags a second time (and don't pay a second blocking
     # timeout when Ollama is configured-but-down). Called standalone -> we probe.
-    url = (cfg.get('ollama.url') or '').rstrip('/')
+    url = (cfg.get('ollama.url') or '').strip().rstrip('/')
     model = cfg.get('ollama.vision_model') or ''
     if not url:
         return {'ok': False, 'detail': 'ollama.url not configured'}
@@ -258,7 +258,7 @@ def ollama_diagnostic() -> dict:
     that the model IS listed under a slightly different identifier. Model names are
     not secrets; the list is de-duplicated and capped (count + per-entry length) so a
     large local library can't bloat the pasted report."""
-    url = (cfg.get('ollama.url') or '').rstrip('/')
+    url = (cfg.get('ollama.url') or '').strip().rstrip('/')
     configured = cfg.get('ollama.vision_model') or ''
     tags = _ollama_tags(url) if url else []
     return {'vision_model': configured, 'tags_seen': [t[:80] for t in tags[:20]]}

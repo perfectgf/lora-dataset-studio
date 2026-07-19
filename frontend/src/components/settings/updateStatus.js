@@ -23,10 +23,14 @@ export function installMode(s) {
 
 /* Headline for a ZIP-mode update, e.g. "Update to v2026.07.19 (download ~42 MB)".
    The size hint is omitted when the release didn't report an asset size. */
-export function zipUpdateHeadline(s) {
-  const v = s && s.latest ? `Update to v${s.latest}` : 'Update available'
+export function zipUpdateHeadline(s, t) {
+  const v = s && s.latest
+    ? (t ? t('settings.maintenance.updateToVersion', { version: s.latest }) : `Update to v${s.latest}`)
+    : (t ? t('settings.maintenance.updateAvailable') : 'Update available')
   const size = s && s.zip_size ? formatMB(s.zip_size) : ''
-  return size ? `${v} (download ~${size})` : v
+  return size
+    ? (t ? t('settings.maintenance.downloadSize', { headline: v, size }) : `${v} (download ~${size})`)
+    : v
 }
 
 /* Percent complete for the download phase, or null when the total is unknown
@@ -38,16 +42,25 @@ export function progressPercent(p) {
 
 /* Human phase line for the progress area. Returns null for phases the card
    renders elsewhere (idle/done) so the caller can branch on that. */
-export function progressLabel(p) {
+export function progressLabel(p, t) {
   const phase = p && p.phase
   if (phase === 'downloading') {
     const pct = progressPercent(p)
     const dl = formatMB(p.downloaded)
-    if (p.total) return `⬇ Downloading… ${pct == null ? '' : `${pct}% `}(${dl || '0 MB'} / ${formatMB(p.total)})`
-    return `⬇ Downloading… ${dl || ''}`.trim()
+    if (p.total) {
+      const progress = pct == null ? '' : `${pct}% `
+      return t
+        ? t('settings.maintenance.downloadingProgress', {
+          progress, downloaded: dl || '0 MB', total: formatMB(p.total),
+        })
+        : `⬇ Downloading… ${progress}(${dl || '0 MB'} / ${formatMB(p.total)})`
+    }
+    return t
+      ? t('settings.maintenance.downloadingUnknown', { downloaded: dl || '' }).trim()
+      : `⬇ Downloading… ${dl || ''}`.trim()
   }
-  if (phase === 'extracting') return '📦 Extracting the update…'
-  if (phase === 'installing') return '🔧 Installing the new files…'
-  if (phase === 'restarting') return '↻ Restarting the app…'
+  if (phase === 'extracting') return t ? t('settings.maintenance.extractingUpdate') : '📦 Extracting the update…'
+  if (phase === 'installing') return t ? t('settings.maintenance.installingFiles') : '🔧 Installing the new files…'
+  if (phase === 'restarting') return t ? t('settings.maintenance.restartingApp') : '↻ Restarting the app…'
   return null
 }

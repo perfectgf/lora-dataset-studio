@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useI18n } from '../i18n/I18nContext';
 
 /* Pure derivation of the guided path from the dataset payload + capabilities.
    No fetching here — lives at the workspace's existing poll rhythm. */
@@ -46,5 +47,48 @@ export function deriveSteps(d, caps, checkpointCount = 0) {
 }
 
 export default function useGuidedFlow(d, caps, checkpointCount = 0) {
-  return useMemo(() => deriveSteps(d, caps, checkpointCount), [d, caps, checkpointCount]);
+  const { t } = useI18n();
+  return useMemo(() => {
+    const result = deriveSteps(d, caps, checkpointCount);
+    const images = (d && d.images) || [];
+    const live = images.filter((image) => image.status !== 'failed');
+    const kept = live.filter((image) => image.status === 'keep');
+    const triage = live.filter((image) => image.status === 'pending' && image.filename);
+    const captioned = kept.filter((image) => (image.caption || '').trim());
+    const steps = result.steps.map((step) => {
+      let subtitle = step.subtitle;
+      if (step.id === 'reference') {
+        subtitle = step.done
+          ? t('workspace.guided.subtitle.set')
+          : t('workspace.guided.subtitle.onePhoto');
+      } else if (step.id === 'curate') {
+        subtitle = triage.length
+          ? t('workspace.guided.subtitle.toTriage', { count: triage.length })
+          : t('workspace.guided.subtitle.kept', { count: kept.length });
+      } else if (step.id === 'caption') {
+        subtitle = t('workspace.guided.subtitle.captioned', {
+          done: captioned.length,
+          total: kept.length,
+        });
+      } else if (step.id === 'score') {
+        subtitle = t('workspace.guided.optional');
+      } else if (step.id === 'finish' && checkpointCount > 0) {
+        subtitle = t('workspace.guided.subtitle.checkpoints', { count: checkpointCount });
+      } else if (step.id === 'checkpoints') {
+        subtitle = checkpointCount > 0
+          ? t('workspace.guided.subtitle.available', { count: checkpointCount })
+          : t('workspace.guided.subtitle.afterTraining');
+      }
+      return {
+        ...step,
+        label: t(`workspace.guided.labels.${step.id}`),
+        subtitle,
+        hint: step.id === 'studio' && step.unavailable
+          ? t('workspace.guided.configureComfyUI')
+          : step.hint,
+      };
+    });
+    const nextStep = steps.find((step) => !step.done && !step.optional && !step.unavailable) || null;
+    return { steps, nextStep };
+  }, [d, caps, checkpointCount, t]);
 }

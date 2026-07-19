@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { INPUT_CLASS, Card, SecretField } from './primitives'
+import { useI18n } from '../../i18n/I18nContext'
 
 // Keep in sync with backend TRAIN_TYPES (face_dataset_service.py) — 'flux' had
 // been forgotten here when the FLUX.1 family landed (fixed alongside flux2klein).
@@ -8,44 +9,46 @@ const FAMILY_OPTIONS = ['zimage', 'sdxl', 'krea', 'flux', 'flux2klein']
 /* First-time walkthrough for renting cloud GPUs — collapsed by default so the
    card stays compact for users who already have a key. */
 function VastKeyGuide() {
+  const { t } = useI18n()
   const link = 'font-medium text-sky-300 underline hover:text-sky-200'
   return (
     <details className="mb-2 rounded-lg border border-border bg-surface px-3 py-2 open:pb-3">
       <summary className="cursor-pointer select-none text-xs font-medium text-content">
-        <span aria-hidden>📖</span> How to get a vast.ai API key (≈2 minutes)
+        <span aria-hidden>📖</span> {t('settings.training.vastGuide.summary')}
       </summary>
       <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs text-content-muted">
         <li>
-          Create a free account at{' '}
+          {t('settings.training.vastGuide.step1Before')}{' '}
           <a href="https://cloud.vast.ai/" target="_blank" rel="noreferrer" className={link}>cloud.vast.ai</a>
-          {' '}(email or Google sign-in).
+          {' '}{t('settings.training.vastGuide.step1After')}
         </li>
         <li>
-          Add credit: open{' '}
+          {t('settings.training.vastGuide.step2Before')}{' '}
           <a href="https://cloud.vast.ai/billing/" target="_blank" rel="noreferrer" className={link}>Billing</a>
-          {' '}in the left sidebar and click <strong>Add Credit</strong> — $5 is plenty to
-          start (a typical training run costs ~$1–2, billed by vast.ai, not by this app).
+          {' '}{t('settings.training.vastGuide.step2Middle')}{' '}
+          <strong>Add Credit</strong>
+          {t('settings.training.vastGuide.step2After')}
         </li>
         <li>
-          Open{' '}
+          {t('settings.training.vastGuide.step3Before')}{' '}
           <a href="https://cloud.vast.ai/manage-keys/" target="_blank" rel="noreferrer" className={link}>Keys</a>
-          {' '}(left sidebar, under Account) and copy your API key — create one first if
-          the list is empty.
+          {' '}{t('settings.training.vastGuide.step3After')}
         </li>
         <li>
-          Paste the key in the field below and press <strong>Test</strong> — it saves the
-          key automatically and should answer “connected as &lt;your account&gt;”.
+          {t('settings.training.vastGuide.step4Before')}{' '}
+          <strong>{t('common.test')}</strong>
+          {t('settings.training.vastGuide.step4After')}
         </li>
       </ol>
     </details>
   )
 }
 
-const VAST_SECRET = {
-  key: 'VAST_API_KEY', label: 'vast.ai API key', testTarget: 'vast',
-  help: 'Enables cloud GPU training: the app rents a GPU for the run and shuts it down when done (typical run: $1-2). Get a key at cloud.vast.ai → Keys.',
+const vastSecret = (t) => ({
+  key: 'VAST_API_KEY', label: t('settings.training.vastKey'), testTarget: 'vast',
+  help: t('settings.training.vastKeyHelp'),
   guide: <VastKeyGuide />,
-}
+})
 
 function CloudOfferFilter({ id, label, help, checked, onChange }) {
   return (
@@ -62,11 +65,11 @@ function CloudOfferFilter({ id, label, help, checked, onChange }) {
         aria-labelledby={`${id}-label`}
         aria-describedby={`${id}-help`}
         onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-emerald-500' : 'border border-border-strong bg-surface'}`}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-emerald-500' : 'bg-surface ring-1 ring-inset ring-border-strong'}`}
       >
         <span
           aria-hidden
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`}
+          className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`}
         />
       </button>
     </div>
@@ -77,6 +80,7 @@ function CloudOfferFilter({ id, label, help, checked, onChange }) {
    and the stall watchdog timeout. Fetches the cloud status ONCE on mount for
    the "Spent this month" info line — no poll, this page is not a dashboard. */
 function CloudTrainingCard({ config, setField }) {
+  const { t } = useI18n()
   const [spend, setSpend] = useState(null)
   const verifiedOnly = config.cloud?.verified_only ?? true
   const secureCloudOnly = config.cloud?.secure_cloud_only ?? false
@@ -91,11 +95,11 @@ function CloudTrainingCard({ config, setField }) {
     return () => { alive = false }
   }, [])
   return (
-    <Card title="Cloud training" help="vast.ai GPU rental guardrails — how many training pods may run at once, the offer price ceiling, your monthly spend limit, and how long a run may go without step progress before it is rescued and killed.">
+    <Card title={t('settings.training.cloudTitle')} help={t('settings.training.cloudHelp')}>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label htmlFor="cloud-max-concurrent-runs" className="block text-sm font-medium text-content">
-            Max simultaneous cloud runs
+            {t('settings.training.maxRuns')}
           </label>
           <input
             id="cloud-max-concurrent-runs"
@@ -110,7 +114,7 @@ function CloudTrainingCard({ config, setField }) {
         </div>
         <div>
           <label htmlFor="cloud-max-price-per-hour" className="block text-sm font-medium text-content">
-            Max price per hour ($)
+            {t('settings.training.maxPrice')}
           </label>
           <input
             id="cloud-max-price-per-hour"
@@ -125,7 +129,7 @@ function CloudTrainingCard({ config, setField }) {
         </div>
         <div>
           <label htmlFor="cloud-monthly-budget" className="block text-sm font-medium text-content">
-            Monthly budget ($, 0 = unlimited)
+            {t('settings.training.monthlyBudget')}
           </label>
           <input
             id="cloud-monthly-budget"
@@ -139,7 +143,7 @@ function CloudTrainingCard({ config, setField }) {
         </div>
         <div>
           <label htmlFor="cloud-stall-timeout" className="block text-sm font-medium text-content">
-            Stall timeout (minutes)
+            {t('settings.training.stallTimeout')}
           </label>
           <input
             id="cloud-stall-timeout"
@@ -154,7 +158,7 @@ function CloudTrainingCard({ config, setField }) {
         </div>
         <div>
           <label htmlFor="cloud-min-reliability" className="block text-sm font-medium text-content">
-            Min host reliability
+            {t('settings.training.minReliability')}
           </label>
           <input
             id="cloud-min-reliability"
@@ -167,56 +171,63 @@ function CloudTrainingCard({ config, setField }) {
             className={INPUT_CLASS}
           />
           <p className="mt-1 text-[0.6875rem] text-content-subtle">
-            Lower it (e.g. 0.95) to surface cheaper hosts in the GPU picker — at a higher risk of a pod that never boots (≈ a few wasted cents, auto-cleaned).
+            {t('settings.training.minReliabilityHelp')}
           </p>
         </div>
       </div>
       <div className="space-y-2">
-        <p className="text-sm font-medium text-content">GPU offer filters</p>
+        <p className="text-sm font-medium text-content">{t('settings.training.offerFilters')}</p>
         <div className="grid gap-2 lg:grid-cols-2">
           <CloudOfferFilter
             id="cloud-verified-only"
-            label="Verified hosts only"
-            help="Only show hosts verified by vast.ai. Recommended; turning this off can reveal more or cheaper offers, with more host risk."
+            label={t('settings.training.verifiedOnly')}
+            help={t('settings.training.verifiedOnlyHelp')}
             checked={verifiedOnly}
             onChange={(value) => setField('cloud', 'verified_only', value)}
           />
           <CloudOfferFilter
             id="cloud-secure-cloud-only"
-            label="Secure Cloud only"
-            help="Only show offers marked Secure Cloud by vast.ai. This excludes Community Cloud machines, so availability may be lower and prices higher."
+            label={t('settings.training.secureOnly')}
+            help={t('settings.training.secureOnlyHelp')}
             checked={secureCloudOnly}
             onChange={(value) => setField('cloud', 'secure_cloud_only', value)}
           />
         </div>
       </div>
       {spend != null && (
-        <p className="text-xs text-content-muted">Spent this month: ${spend.toFixed(2)}</p>
+        <p className="text-xs text-content-muted">
+          {t('settings.training.spentMonth', { amount: spend.toFixed(2) })}
+        </p>
       )}
     </Card>
   )
 }
 
 export default function TrainingSection(props) {
+  const { t } = useI18n()
   const { config, setField } = props
   return (
     <div className="space-y-6">
-      <Card title="Defaults" help="Preselected model family for new training runs — each dataset can still override it.">
+      <Card title={t('settings.training.defaultsTitle')} help={t('settings.training.defaultsHelp')}>
         <div>
-          <label htmlFor="training-default-family" className="block text-sm font-medium text-content">Default training family</label>
+          <label htmlFor="training-default-family" className="block text-sm font-medium text-content">
+            {t('settings.training.defaultFamily')}
+          </label>
           <select
             id="training-default-family"
             value={config.training.default_family}
             onChange={(e) => setField('training', 'default_family', e.target.value)}
             className={INPUT_CLASS}
           >
-            {FAMILY_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
+            {FAMILY_OPTIONS.map((f) => (
+              <option key={f} value={f}>{t(`settings.training.familyLabels.${f}`)}</option>
+            ))}
           </select>
         </div>
       </Card>
 
-      <Card title="Cloud GPU (vast.ai)" help="No local GPU? The app can rent one per run — the key below unlocks the ☁️ Train in cloud button.">
-        <SecretField field={VAST_SECRET} {...props} />
+      <Card title={t('settings.training.cloudGpuTitle')} help={t('settings.training.cloudGpuHelp')}>
+        <SecretField field={vastSecret(t)} {...props} />
       </Card>
 
       <CloudTrainingCard config={config} setField={setField} />

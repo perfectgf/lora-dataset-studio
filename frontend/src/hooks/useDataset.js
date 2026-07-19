@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCsrfToken, fetchWithCsrfRetry, CSRF_EXPIRED_MESSAGE, putJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
+import { useI18n } from '../i18n/I18nContext';
 import { useJobs } from '../context/JobsContext';
 import { serializeWatermarkRegions } from '../utils/watermarkRegions';
 import { summarizeScrapeImport } from '../utils/smallImageRescue';
@@ -107,6 +108,7 @@ export function summarizeClean(d) {
 }
 
 export function useDataset() {
+  const { t } = useI18n();
   const toast = useToast();
   const [datasets, setDatasets] = useState([]);
   // Persist the open dataset so a page reload returns to its workspace, not the list.
@@ -125,6 +127,7 @@ export function useDataset() {
   }, []);
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [cancellingGeneration, setCancellingGeneration] = useState(false);
   // Tracks an in-flight captioning pass so the UI can poll progressively.
   const [captioning, setCaptioning] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -261,11 +264,11 @@ export function useDataset() {
   const setDatasetFidelity = useCallback(async (fidelity) => {
     const d = await postJson(`/api/dataset/${currentId}/fidelity`, { fidelity });
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
-    toast.success(fidelity === 'body'
-      ? 'Body fidelity ON — re-caption to apply to existing captions'
-      : 'Back to face-only fidelity');
+    toast.success(t(fidelity === 'body'
+      ? 'workspace.toast.bodyFidelityOn'
+      : 'workspace.toast.bodyFidelityOff'));
     await refresh();
-  }, [currentId, refresh, toast]);
+  }, [currentId, refresh, t, toast]);
 
   // Change the target model family later (from the TrainingPanel selector) so the
   // grouped menu re-sorts. Return the server result so TrainingPanel can keep its
@@ -791,11 +794,17 @@ export function useDataset() {
   }, [currentId, refresh, toast]);
 
   const cancelPending = useCallback(async () => {
-    const d = await postJson(`/api/dataset/${currentId}/cancel`);
-    if (d.ok) toast.success(`${d.cancelled} generation(s) cancelled`);
-    else toast.error(d.error || 'Unexpected error');
-    await refresh();
-  }, [currentId, refresh, toast]);
+    if (!currentId || cancellingGeneration) return;
+    setCancellingGeneration(true);
+    try {
+      const d = await postJson(`/api/dataset/${currentId}/cancel`);
+      if (d.ok) toast.success(t('workspace.generation.cancelled', { count: d.cancelled }));
+      else toast.error(d.error || t('workspace.generation.cancelFailed'));
+      await refresh();
+    } finally {
+      setCancellingGeneration(false);
+    }
+  }, [cancellingGeneration, currentId, refresh, t, toast]);
 
   // Re-roll one generated variation with a fresh seed (F2). Works on finished
   // AND failed tiles — it is the recovery path for failures. `prompt` (optional)
@@ -1097,7 +1106,8 @@ export function useDataset() {
     || actKind === 'watermark_detect' || actKind === 'watermark_clean';
   const busyLive = busy || !!activity;
 
-  return { datasets, currentId, data, busy: busyLive, localBusy: busy, captioning: captioningLive,
+  return { datasets, currentId, data, busy: busyLive, localBusy: busy,
+           cancellingGeneration, captioning: captioningLive,
            analyzing: analyzingLive, watermarking: watermarkingLive, activity,
            nonces, mirroringIds, refNonce, recaptioningIds, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,

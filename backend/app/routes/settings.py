@@ -124,6 +124,13 @@ def put_settings():
     for k, v in config_partial.items():
         if not isinstance(v, dict):
             return jsonify({'error': f"config section '{k}' must be an object"}), 400
+    # URLs are commonly pasted with an invisible trailing space. Requests treats
+    # that as part of the address, making a healthy local Ollama look unreachable.
+    # Normalize at the persistence boundary so the UI and every later consumer see
+    # the same clean value.
+    ollama = config_partial.get('ollama')
+    if isinstance(ollama, dict) and isinstance(ollama.get('url'), str):
+        ollama['url'] = ollama['url'].strip().rstrip('/')
     # Auto-correct the classic portable-bundle mistake: a base_dir pointing at
     # ...\ComfyUI_windows_portable gets rewritten to the nested ...\ComfyUI that
     # actually holds main.py + models/, so the base/model listers find checkpoints

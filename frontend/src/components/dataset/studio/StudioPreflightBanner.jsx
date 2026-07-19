@@ -18,8 +18,10 @@
  */
 const FAMILY_LABELS = { zimage: 'Z-Image', sdxl: 'SDXL', krea: 'Krea 2 Turbo',
   flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein' };
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function StudioPreflightBanner({ missing, archMismatch, onDismiss }) {
+  const { t } = useI18n();
   if (archMismatch) {
     const fam = FAMILY_LABELS[archMismatch.family] || archMismatch.family || 'this';
     const det = FAMILY_LABELS[archMismatch.detected] || archMismatch.detected || 'a different';
@@ -28,13 +30,9 @@ export default function StudioPreflightBanner({ missing, archMismatch, onDismiss
       <div role="alert"
         className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-sm text-amber-200 flex items-start gap-2">
         <span aria-hidden className="text-base leading-none">⚠</span>
-        <p className="m-0">
-          <b className="font-semibold">“{name}” is a {det} LoRA</b>, but this is the {fam} Studio —
-          ComfyUI would silently drop it and every tile would render as if the LoRA were off.
-          Test it in the {det} Studio, or re-deploy it under the {det} family.
-        </p>
+        <p className="m-0">{t('studio.preflight.mismatch', { name, detected: det, family: fam })}</p>
         {onDismiss && (
-          <button type="button" onClick={onDismiss} aria-label="Dismiss"
+          <button type="button" onClick={onDismiss} aria-label={t('common.close')}
             className="ml-auto px-1.5 leading-none text-amber-200/70 hover:text-amber-100">×</button>
         )}
       </div>
@@ -53,12 +51,9 @@ export default function StudioPreflightBanner({ missing, archMismatch, onDismiss
       className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2.5 text-sm text-red-200 flex flex-col gap-2">
       <div className="flex items-start gap-2">
         <span aria-hidden className="text-base leading-none">⚠</span>
-        <p className="m-0 font-semibold">
-          The {fam} test pipeline can’t run — your ComfyUI is missing the assets below.
-          Add them, then relaunch the test.
-        </p>
+        <p className="m-0 font-semibold">{t('studio.preflight.missing', { family: fam })}</p>
         {onDismiss && (
-          <button type="button" onClick={onDismiss} aria-label="Dismiss"
+          <button type="button" onClick={onDismiss} aria-label={t('common.close')}
             className="ml-auto px-1.5 leading-none text-red-200/70 hover:text-red-100">×</button>
         )}
       </div>
@@ -66,7 +61,7 @@ export default function StudioPreflightBanner({ missing, archMismatch, onDismiss
       {files.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="text-red-200/80 text-[0.6875rem] uppercase tracking-wide">
-            Missing model file{files.length > 1 ? 's' : ''} — place at
+            {t('studio.preflight.files', { count: files.length })}
           </span>
           <ul className="m-0 flex flex-col gap-0.5">
             {files.map((f) => (
@@ -82,7 +77,7 @@ export default function StudioPreflightBanner({ missing, archMismatch, onDismiss
       {nodes.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="text-red-200/80 text-[0.6875rem] uppercase tracking-wide">
-            Missing custom node{nodes.length > 1 ? 's' : ''} — install into ComfyUI
+            {t('studio.preflight.nodes', { count: nodes.length })}
           </span>
           <ul className="m-0 flex flex-col gap-1">
             {nodes.map((n) => {

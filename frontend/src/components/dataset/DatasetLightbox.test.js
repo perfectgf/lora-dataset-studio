@@ -9,12 +9,12 @@ const settings = readFileSync(new URL('../settings/ScrapingSection.jsx', import.
 const attribution = readFileSync(new URL('./PexelsAttribution.jsx', import.meta.url), 'utf8');
 
 test('lightbox exposes an accessible responsive image improvement action', () => {
-  assert.match(lightbox, /✨ Upscale & improve/);
-  assert.match(lightbox, /✨ Improving…/);
-  assert.match(lightbox, /Review improvement first/);
+  assert.match(lightbox, /workspace\.lightbox\.improve/);
+  assert.match(lightbox, /workspace\.lightbox\.improving/);
+  assert.match(lightbox, /workspace\.lightbox\.reviewImprovement/);
   assert.match(lightbox, /aria-busy=\{improvementActive\}/);
   assert.match(lightbox, /w-full sm:w-auto/);
-  assert.match(lightbox, /Klein creates a new 2 MP version to validate and leaves the original intact/);
+  assert.match(lightbox, /workspace\.lightbox\.improveHelp/);
   assert.match(lightbox, /busy \|\| improvementActive \|\| improveReady \|\| !kleinAvailable/);
 });
 
@@ -37,9 +37,9 @@ test('dataset hook starts improvement, reports the preserved original, then refr
 });
 
 test('settings separates scraper rescue instructions from manual lightbox improvement', () => {
-  assert.match(settings, /title="Klein image improvement"/);
-  assert.match(settings, /automatic rescue of scraped images under 768 px/);
-  assert.match(settings, /Manual Upscale & improve uses its dedicated metadata-derived quality profile/);
+  assert.match(settings, /settings\.scraping\.improvementTitle/);
+  assert.match(settings, /settings\.scraping\.improvementHelp/);
+  assert.match(settings, /settings\.scraping\.instructionHelp/);
 });
 
 test('manual improvement candidates cannot use the unrelated generic regenerate path', () => {

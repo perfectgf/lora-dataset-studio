@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { displayLabel } from '../../utils/labels';
 import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
+import { useI18n } from '../../i18n/I18nContext';
 import CaptionEditorDialog from './CaptionEditorDialog';
 import PromptEditPopover from './PromptEditPopover';
 import PexelsAttribution from './PexelsAttribution';
@@ -63,6 +64,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
                                           onRegenerate, onView, nonce = 0, faceThresholds,
                                           selected = false, onToggleSelect, tileSize = 'M',
                                           datasetKind = 'character', dualCaptions = false }) {
+  const { t } = useI18n();
   const [cap, setCap] = useState(img.caption || '');
   const [captionEditorOpen, setCaptionEditorOpen] = useState(false);
   // ✏️ edit-prompt bubble open state (regenerate this tile with an edited prompt).
@@ -195,7 +197,10 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
           )}
           {!isRescueDerived && (
             <button type="button"
-              onClick={(e) => { e.stopPropagation(); if (window.confirm('Permanently delete this image?')) onDelete(img.id); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(t('workspace.images.deleteConfirm'))) onDelete(img.id);
+              }}
               title="Delete permanently" aria-label="Delete permanently"
               className="px-1.5 py-0.5 rounded bg-red-700/80 text-white text-[10px]">🗑</button>
           )}
@@ -225,7 +230,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               // variation (in place, new seed) so the composition stays on target.
               if (!isImageImproveCandidate && img.status !== 'reject'
                   && img.source === 'generated' && img.filename && onRegenerate
-                  && window.confirm('Photo rejected — regenerate a new attempt of this variation?\n(OK = replace with a new attempt · Cancel = reject only)')) {
+                  && window.confirm(t('workspace.images.rejectRegenerateConfirm'))) {
                 onRegenerate(img.id);
                 return;
               }

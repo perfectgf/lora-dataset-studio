@@ -21,9 +21,11 @@
  */
 import { useEffect, useRef } from 'react';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
+import { useI18n } from '../../../i18n/I18nContext';
 
 export default function ResultLightbox({ img, items = [], datasetId, onRate, onNavigate, onClose, fmt }) {
   const ref = useRef(null);
+  const { t } = useI18n();
   const touchRef = useRef(null);
   useFocusTrap(ref, !!img);
 
@@ -77,16 +79,16 @@ export default function ResultLightbox({ img, items = [], datasetId, onRate, onN
   return (
     <div ref={ref}
       className="fixed inset-0 z-[9998] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onClose} role="dialog" aria-modal="true" aria-label="Result preview">
-      <button type="button" onClick={onClose} aria-label="Close"
+      onClick={onClose} role="dialog" aria-modal="true" aria-label={t('studio.lightbox.title')}>
+      <button type="button" onClick={onClose} aria-label={t('common.close')}
         className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 border border-white/20 text-white text-lg z-10 hover:bg-white/20">×</button>
       {hasNav && (
-        <button type="button" aria-label="Previous image"
+        <button type="button" aria-label={t('studio.lightbox.previous')}
           onClick={(e) => { e.stopPropagation(); go(-1); }}
           className={`${navBtn} left-2 sm:left-4`}>‹</button>
       )}
       {hasNav && (
-        <button type="button" aria-label="Next image"
+        <button type="button" aria-label={t('studio.lightbox.next')}
           onClick={(e) => { e.stopPropagation(); go(1); }}
           className={`${navBtn} right-2 sm:right-4`}>›</button>
       )}
@@ -97,19 +99,19 @@ export default function ResultLightbox({ img, items = [], datasetId, onRate, onN
           alt={img.label} className="max-w-[92vw] max-h-[80vh] object-contain rounded-lg border border-white/15" />
         <div className="text-content-muted text-xs tabular-nums text-center">
           {hasNav && <span className="text-content-subtle">{idx + 1} / {items.length} · </span>}
-          {img.label} · strength {fmt(img.strength)}{img.aspect ? ` · ${img.aspect}` : ''}
-          {img.seed != null ? ` · seed ${img.seed}` : ''}
+          {img.label} · {t('studio.vote.strength')} {fmt(img.strength)}{img.aspect ? ` · ${img.aspect}` : ''}
+          {img.seed != null ? ` · ${t('studio.seed.seed')} ${img.seed}` : ''}
         </div>
         <div className="flex items-center gap-2">
           <button type="button" aria-pressed={img.rating === 1}
             onClick={() => onRate(img.id, img.rating === 1 ? 0 : 1)}
             className={`px-3 py-1 rounded-lg text-sm border ${img.rating === 1 ? 'border-green-400/60 bg-green-500/20 text-green-200' : 'border-border bg-surface text-content'}`}>
-            👍 {img.rating === 1 ? 'Liked ✓' : 'Like'}
+            👍 {img.rating === 1 ? t('studio.lightbox.liked') : t('studio.vote.like')}
           </button>
           <button type="button" aria-pressed={img.rating === -1}
             onClick={() => onRate(img.id, img.rating === -1 ? 0 : -1)}
             className={`px-3 py-1 rounded-lg text-sm border ${img.rating === -1 ? 'border-red-400/60 bg-red-500/20 text-red-200' : 'border-border bg-surface text-content'}`}>
-            👎 {img.rating === -1 ? 'Not a fan ✓' : 'Not a fan'}
+            👎 {img.rating === -1 ? t('studio.lightbox.disliked') : t('studio.lightbox.dislike')}
           </button>
         </div>
       </div>

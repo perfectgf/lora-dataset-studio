@@ -46,7 +46,7 @@ test('lightbox mirrors without closing and remains touch friendly on mobile', ()
   assert.match(lightbox, /event\.stopPropagation\(\)/);
   assert.match(lightbox, /if \(!onMirror \|\| busy \|\| mirrorBusy\) return/);
   assert.match(lightbox, /aria-busy=\{mirrorBusy\}/);
-  assert.match(lightbox, /⇆ Mirror horizontally/);
+  assert.match(lightbox, /workspace\.lightbox\.mirror/);
   assert.match(lightbox, /min-h-9 w-full sm:w-auto/);
 });
 

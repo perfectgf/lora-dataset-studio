@@ -2,36 +2,35 @@ import { useState } from 'react'
 import { apiFetch } from '../../api/fetchClient'
 import { useToast } from './Toast'
 import { formatDiagnostic } from './diagnosticFormat'
+import { useI18n } from '../../i18n/I18nContext'
 
 export { formatDiagnostic }
 
 export default function DiagnosticReport() {
   const toast = useToast()
+  const { t } = useI18n()
   const [busy, setBusy] = useState(false)
   const copy = async () => {
     setBusy(true)
     try {
       const d = await apiFetch('/api/diagnostic')
       await navigator.clipboard.writeText(formatDiagnostic(d))
-      toast.success('Diagnostic report copied — paste it into your bug report.')
+      toast.success(t('guide.diagnostic.copied'))
     } catch (err) {
-      toast.error(`Could not build the report: ${err.message}`)
+      toast.error(t('guide.diagnostic.failed', { error: err.message }))
     } finally {
       setBusy(false)
     }
   }
   return (
     <div className="rounded-xl border border-border bg-surface p-4">
-      <p className="text-sm font-medium text-content">One-click bug report</p>
+      <p className="text-sm font-medium text-content">{t('guide.diagnostic.title')}</p>
       <p className="mt-1 text-xs text-content-muted">
-        Copies version, environment health (Python/Pillow/disk), per-engine status with the
-        exact missing Klein assets, live ComfyUI GPU/VRAM/queue, the last generation failures
-        and the last error tracebacks — no API keys, no folder paths (your home dir is redacted
-        to ~). The log/error lines can still mention file names: skim before posting.
+        {t('guide.diagnostic.description')}
       </p>
       <button type="button" onClick={copy} disabled={busy}
         className="mt-3 rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
-        {busy ? 'Building…' : '📋 Copy diagnostic report'}
+        {busy ? t('guide.diagnostic.building') : `📋 ${t('guide.diagnostic.copy')}`}
       </button>
     </div>
   )

@@ -1,0 +1,2131 @@
+{
+  "_meta": {
+    "locale": "zh-CN",
+    "label": "简体中文",
+    "shortLabel": "中文",
+    "documentTitle": "LoRA 数据集工作室",
+    "direction": "ltr",
+    "order": 20,
+    "defaultForLanguage": true
+  },
+  "language": {
+    "label": "语言",
+    "english": "English",
+    "chineseSimplified": "简体中文",
+    "switchTo": "切换语言为{language}"
+  },
+  "common": {
+    "all": "全部",
+    "close": "关闭",
+    "configured": "已配置",
+    "partlyConfigured": "部分配置",
+    "notConfigured": "未配置",
+    "notSet": "未设置",
+    "alreadySetReplace": "已设置——输入新值即可替换",
+    "removeSaved": "移除已保存的{label}",
+    "ready": "就绪",
+    "notAvailable": "不可用",
+    "save": "保存",
+    "saving": "正在保存…",
+    "saveRecheck": "保存并重新检查",
+    "cancel": "取消",
+    "discard": "放弃更改",
+    "remove": "移除",
+    "test": "测试",
+    "testing": "正在测试…",
+    "thumbnailSize": "缩略图大小",
+    "active": "当前选中",
+    "noMatches": "没有匹配结果。",
+    "loading": "正在加载…",
+    "copy": "复制",
+    "copied": "已复制",
+    "copiedCheck": "已复制 ✓",
+    "on": "开启",
+    "off": "关闭",
+    "add": "添加",
+    "none": "无",
+    "optional": "可选",
+    "beta": "测试版"
+  },
+  "nav": {
+    "datasets": "数据集",
+    "bank": "图片库",
+    "runs": "训练任务",
+    "studio": "测试工作室",
+    "guide": "指南",
+    "setup": "设置向导",
+    "settings": "设置",
+    "help": "帮助",
+    "helpMode": "帮助模式",
+    "main": "主导航",
+    "mainMobile": "主导航（移动端）",
+    "openMenu": "打开导航菜单",
+    "closeMenu": "关闭导航菜单",
+    "backToDatasets": "返回数据集页面",
+    "skipToContent": "跳到主要内容"
+  },
+  "bank": {
+    "removeConfirm": "确定移除图片库“{name}”吗？\n\n只会删除筛选数据（决策、评分和缩略图），不会改动源文件夹及其中的图片。"
+  },
+  "helpMode": {
+    "on": "帮助模式已开启——点击任意 ? 徽标可跳转到对应指南",
+    "off": "开启帮助模式以显示链接到指南的 ? 徽标"
+  },
+  "updates": {
+    "check": "检查更新",
+    "availableReview": "有可用更新——点击查看",
+    "available": "有可用更新",
+    "upToDate": "已是最新版本——v{version}",
+    "checkFailed": "检查更新失败。",
+    "couldNotCheck": "无法检查更新。",
+    "pulling": "⬇ 正在拉取最新版本…",
+    "restarting": "↻ 更新完成，应用正在重启。恢复后页面会自动刷新…",
+    "newVersion": "新版本",
+    "newCommits": "{count} 个新提交",
+    "currentVersion": "当前运行 v{version}",
+    "apply": "更新并重启",
+    "download": "下载",
+    "dismiss": "关闭更新提示",
+    "failed": "更新失败"
+  },
+  "datasets": {
+    "eyebrow": "数据集库",
+    "title": "数据集",
+    "new": "新建数据集",
+    "closeForm": "关闭",
+    "importBackup": "导入备份",
+    "importBackupTitle": "导入可移植的数据集备份——将创建一个新数据集",
+    "chooseBackup": "选择数据集备份 ZIP",
+    "search": "查找数据集…",
+    "searchLabel": "查找数据集",
+    "filterKind": "按数据集类型筛选",
+    "groups": {
+      "trained": "已训练",
+      "not-trained": "尚未训练"
+    },
+    "kind": {
+      "character": "🧑 角色",
+      "concept": "💡 概念",
+      "style": "🎨 风格",
+      "characterShort": "角色",
+      "conceptShort": "概念",
+      "styleShort": "风格"
+    },
+    "kindHint": {
+      "character": "人物或面部——身份与触发词绑定",
+      "concept": "重复出现的动作或效果——概念与触发词绑定",
+      "style": "始终生效的美学风格：加载 LoRA 后通过权重控制影响强度"
+    },
+    "pipeline": {
+      "intro": "用一张参考照片构建一致的角色数据集：生成、筛选并标注训练图像，最终得到可在不同生成器中复用的 LoRA。",
+      "referenceTitle": "参考照片",
+      "referenceText": "上传一张清晰的面部照片。",
+      "curateTitle": "生成与筛选",
+      "curateText": "生成不同构图的图像并保留最佳结果。",
+      "trainTitle": "训练 LoRA",
+      "trainText": "导出或直接训练，在其他工作流中复用角色。"
+    },
+    "empty": {
+      "title": "还没有数据集",
+      "bodyBefore": "点击",
+      "bodyAction": "+ 新建数据集",
+      "bodyAfter": "创建第一个角色——只需一张参考照片即可开始生成完整训练集。"
+    },
+    "form": {
+      "close": "关闭新建数据集表单",
+      "conceptName": "概念名称",
+      "styleName": "风格名称",
+      "characterName": "角色名称",
+      "trigger": "触发词",
+      "commonTrigger": "“{trigger}”看起来像常用词，基础模型已经理解它的既有含义。建议使用类似 {suggestion} 的唯一标记。",
+      "targetModel": "目标模型",
+      "targetModelHint": "— 决定标注风格和菜单分组（稍后可修改）",
+      "fidelity": "保真范围",
+      "fidelityHint": "— LoRA 必须复现的特征（稍后可修改）",
+      "face": "🙂 面部",
+      "faceHint": "身份只绑定面部，身体形态可随提示词变化。",
+      "body": "🧍 面部 + 身体",
+      "bodyHint": "完整保真：体型、纹身和标记也会绑定到触发词；更偏好完整构图以及更多半身/全身图。",
+      "conceptQuestion": "重复出现的概念是什么？",
+      "conceptRequired": "（必填——每条标注都会省略它）",
+      "conceptPlaceholder": "描述重复出现的动作或效果本身，而不是人物，例如“舌头舔冰淇淋甜筒”",
+      "conceptHelp": "触发词是调用此概念时输入的标记。导入原始图片，然后完成标注和训练。",
+      "styleHelp": "常驻风格：导入内容多样的图像，并只描述每张保留图像的内容（主体、动作、场景），不要写出审美风格。与角色 LoRA 组合时分别调整各自权重。",
+      "characterHelp": "触发词是在提示词中调用该角色时使用的唯一标记。",
+      "create": "创建"
+    },
+    "stats": {
+      "empty": "空",
+      "noneKept": "{total} 张图 · 尚未保留",
+      "captioned": "保留 {kept} 张 · ✓ 已全部标注",
+      "requiredCaptions": "保留 {kept} 张 · 必需标注 {captioned}/{kept}",
+      "partialCaptions": "保留 {kept} 张 · 已标注 {captioned}/{kept}",
+      "kept": "保留 {kept} 张"
+    },
+    "tile": {
+      "open": "打开数据集 {name}",
+      "trainedFamily": "此数据集已训练 {family} LoRA",
+      "alwaysOn": "始终生效",
+      "alwaysOnNoTrigger": "始终生效 · 无激活触发词",
+      "zipReady": "下载包含保留图像和标注的训练就绪 ZIP",
+      "zipDisabled": "至少保留一张图像后才能导出训练 ZIP",
+      "exportZip": "导出 {name} 的训练 ZIP",
+      "backup": "备份",
+      "backupTitle": "下载包含全部图像、标注和设置的可移植备份",
+      "exportBackup": "导出 {name} 的可移植备份",
+      "delete": "删除此数据集",
+      "deleteLabel": "删除数据集 {name}",
+      "deleteConfirm": "永久删除数据集“{name}”及其全部图像？此操作无法撤销。"
+    },
+    "tileSize": {
+      "small": "紧凑列表——显示密度最高，可一次浏览更多数据集",
+      "medium": "中等卡片（默认）",
+      "large": "大卡片——显示更大的参考图预览"
+    },
+    "results": {
+      "queryNone": "没有匹配“{query}”的数据集{kind}。",
+      "kindNone": "没有{kind}数据集。",
+      "kindSuffix": "（{kind}）"
+    },
+    "captionTools": {
+      "title": "标注工具",
+      "summary": "查找/替换 · {frequency}（已标注 {count} 张）",
+      "intro": "标注是 LoRA 用来理解每张图片的文本。这些工具会一次修改所有已保留图片的标注，可修正混入全部标注的词，也可删除或重命名反复出现的标签。“文本模式”会替换任意位置的短语；“标签模式”只匹配完整的逗号分隔标签（适合 booru / SDXL）。",
+      "findReplace": "查找与替换",
+      "tagFindPlaceholder": "要替换或删除的标签",
+      "textFindPlaceholder": "要查找的文本",
+      "findLabel": "在标注中查找",
+      "replacePlaceholder": "替换内容（留空表示删除）",
+      "replaceLabel": "替换为",
+      "tagMode": "标签模式",
+      "textMode": "文本模式",
+      "tagModeHelp": "标签模式会把标注视为逗号分隔的标签：必须完整匹配且不区分大小写，删除后会自动整理逗号。推荐用于 booru（SDXL）。",
+      "apply": "应用到 {count} 条标注",
+      "mostFrequentTags": "最常见标签",
+      "mostFrequentWords": "最常见词语",
+      "tag": "标签",
+      "word": "词语",
+      "tagFilterPlaceholder": "输入要筛选的标签…",
+      "wordFilterPlaceholder": "输入要筛选的词语…",
+      "filterHelp": "“排除”会隐藏已有该词的图片；“仅显示”则只保留包含该词的图片。",
+      "proseMatchHelp": "这里使用自然语言标注，因此筛选会匹配完整词语且不区分大小写。",
+      "tagMatchHelp": "这里使用逗号分隔标签，因此筛选只精确匹配完整标签且不区分大小写。",
+      "filterLabel": "按{item}筛选图片网格",
+      "exclude": "排除",
+      "excludeTitle": "从网格中隐藏所有已有此标签的图片",
+      "onlyWith": "仅显示",
+      "onlyWithTitle": "只显示包含此标签的图片",
+      "frequencyHelp": "点击{item}可将其填入查找框（{mode}）；替换内容留空即可从全部标注中删除。⊘ 控件会隐藏标注中包含它的全部图片。",
+      "frequencyLabel": "标注中最常见的{item}",
+      "frequencyItemTitle": "“{value}”出现在 {count} 条标注中——点击填入查找框（{mode}）",
+      "stopHidingLabel": "停止隐藏带有 {value} 的图片",
+      "hideLabel": "隐藏带有 {value} 的图片",
+      "stopHidingTitle": "带有“{value}”的图片已隐藏——点击重新显示",
+      "hideTitle": "从网格中隐藏已有“{value}”的图片",
+      "categories": {
+        "character": "反复出现的细节可能固化到角色中。删除不希望绑定的服装、姿势或场景，使其仍可由提示词控制；身份词由身份泄漏检查处理。",
+        "concept": "这些是反复出现的主体和场景词。概念本身必须保持缺席；请删除可能与触发词意外绑定的无关重复细节。",
+        "style": "反复出现的主体和物体可能让风格 LoRA 偏向特定内容。保留有用的内容描述、平衡偶然重复，并避免写入审美、媒介或艺术家名称。"
+      },
+      "files": {
+        "title": "磁盘中的标注文件",
+        "write": "写入 .txt 文件",
+        "writeTitle": "在数据集文件夹中为每张保留图片写入同名 <image>.txt，格式与 ZIP 导出相同",
+        "open": "在文件资源管理器中打开数据集文件夹",
+        "styleHelp": "仅内容侧车标注 · 无激活触发词 · 覆盖现有 .txt",
+        "defaultHelp": "kohya 格式侧车标注，包含触发词 · 覆盖现有 .txt"
+      }
+    },
+    "imageBulk": {
+      "hint": "勾选图片以进行批量筛选——",
+      "selectAll": "全选（{count}）",
+      "toolbar": "所选图片的批量操作",
+      "selected": "已选择 {count} 张",
+      "keep": "保留",
+      "reject": "拒绝",
+      "undecide": "恢复待定",
+      "undecideTitle": "恢复为未决定状态",
+      "clearCaptions": "清除标注",
+      "clearCaptionsTitle": "删除所选图片的标注；之后可使用“标注”按钮重新生成",
+      "kleinUnavailable": "当前设置中 Klein 不可用",
+      "improveTitle": "将依次创建独立的 2 MP 候选图。排除项：{exclusions}",
+      "noneEligible": "所选图片均不符合条件。{exclusions}",
+      "improving": "正在增强 {done}/{total}",
+      "improve": "使用 Klein 增强（{count}）",
+      "notEligible": "{count} 张不符合条件",
+      "delete": "删除",
+      "all": "全部（{count}）",
+      "none": "全不选",
+      "deleteConfirm": "要永久删除选中的 {count} 张图片及其文件吗？",
+      "improveSkipped": "将跳过 {count} 张所选图片：{reasons}。",
+      "improveConfirm": "要为 {count} 张图片分别创建 2 MP Klein 增强候选图吗？",
+      "originalsUnchanged": "在你检查候选图之前，原图保持不变。",
+      "reasons": {
+        "missing": "图片已不存在",
+        "fileNotReady": "图片文件尚未就绪",
+        "rescuePair": "请先处理 Klein 修复图对",
+        "alreadyCandidate": "已经是增强候选图",
+        "pendingReview": "已有增强结果等待检查"
+      },
+      "toast": {
+        "stopped": "批量 Klein 增强意外停止：{error}",
+        "unknownError": "未知错误",
+        "partial": "已为 {succeeded}/{total} 张图片加入 Klein 增强队列 · {failed} 张失败或被拒绝{refresh}。",
+        "refreshFailed": " · 刷新失败",
+        "queued": "已为 {count} 张图片加入 Klein 增强队列——原图保持不变。"
+      },
+      "tileSize": {
+        "small": "小缩略图——每行显示更多，便于快速总览",
+        "medium": "中等缩略图（默认）",
+        "large": "大缩略图——裁剪、保留或拒绝前查看完整构图"
+      },
+      "autoTriage": {
+        "title": "自动筛选",
+        "what": "自动筛选会做什么？",
+        "help": {
+          "1": "对已有脸部评分且仍处于待定状态的图片进行标记：相似度达到阈值则保留，低于阈值则拒绝。",
+          "2": "它不会删除任何内容，也不会修改你手动做出的 ✓/✕ 选择。",
+          "3": "没有评分的图片会被跳过，请人工判断。",
+          "4": "应用后可移动滑块并重新应用，对本次会话中自动筛选的图片重新排序。"
+        },
+        "keepAtLeast": "保留",
+        "threshold": "自动筛选的人脸评分阈值",
+        "outcome": "保留 {kept} · 拒绝 {rejected}",
+        "resort": "重新筛选 {count} 张 + 新增 {newCount} 张",
+        "undecided": "共 {count} 张待定",
+        "applyTitle": "只标记已有评分的图片；不会更改手动 ✓/✕ 选择",
+        "apply": "应用",
+        "reapply": "重新应用",
+        "applied": "已应用：保留 {kept} · 拒绝 {rejected} · 阈值 ≥ {threshold}"
+      }
+    },
+    "captions": {
+      "modeTitle": "标注风格——自然语言（Z-Image）或 Booru 标签（适合原生 SDXL booru 模型）。默认会根据数据集类型自动选择。",
+      "prose": "自然语言",
+      "booru": "Booru 标签",
+      "captioning": "已标注 {done}/{total}…",
+      "generate": "为保留图片生成标注",
+      "recaption": "重新生成标注",
+      "recaptioning": "正在重新生成标注…",
+      "recaptionConfirm": {
+        "character": "重新生成标注会覆盖现有的 {count} 条标注。新标注会描述场景，但不描述角色身份。是否继续？",
+        "concept": "重新生成标注会覆盖现有的 {count} 条标注。新标注会描述场景，但省略反复出现的概念。是否继续？",
+        "style": "重新生成标注会覆盖现有的 {count} 条标注。新标注只描述画面内容，并省略审美或风格本身。是否继续？"
+      },
+      "recaptionTitle": {
+        "character": "重新生成全部标注，并避免描述身份（脸部或头发）",
+        "concept": "重新生成全部标注，并保持概念本身不被写出",
+        "style": "重新生成只描述内容、不写审美风格的标注"
+      },
+      "styleStatusTitle": "每张风格图片都需要只描述内容的标注：描述主体、动作和环境，但不要写出审美、媒介或艺术家。不会添加激活触发词。",
+      "styleMissing": "缺少 {count} 条 · 需要内容标注 · 无触发词",
+      "styleComplete": "内容标注 {done}/{total} · 无触发词",
+      "datasetImage": "数据集图片",
+      "captionOfImage": "图片 {id} 的标注",
+      "filterActive": "当前已启用标签筛选——筛选后的网格位于",
+      "leak": {
+        "cleanTitleConcept": "没有标注写出概念，因此概念会绑定到触发词。点击查看检查内容。",
+        "cleanTitleIdentity": "没有标注描述头发、脸部或肤色，因此身份会绑定到触发词。点击查看检查内容。",
+        "foundTitleConcept": "这些标注写出了概念，会阻碍概念绑定到触发词。点击进行修正。",
+        "foundTitleIdentity": "这些标注提到了头发、脸部或肤色，会阻碍身份绑定到触发词。点击进行修正。",
+        "cleanConcept": "概念泄漏 0 条 · 已检查 {count} 条标注",
+        "cleanIdentity": "身份泄漏 0 条 · 已检查 {count} 条标注",
+        "foundConcept": "{leaking}/{total} 条标注泄漏了概念",
+        "foundIdentity": "{leaking}/{total} 条标注泄漏了身份",
+        "noneTitleConcept": "概念泄漏检查基于标注运行。请先为保留图片生成标注。",
+        "noneTitleIdentity": "身份泄漏检查基于标注运行。请先为保留图片生成标注。",
+        "noneConcept": "概念泄漏检查：尚无标注",
+        "noneIdentity": "身份泄漏检查：尚无标注",
+        "conceptTitle": "概念泄漏检查",
+        "identityTitle": "身份泄漏检查",
+        "conceptHelp": "概念泄漏是指标注直接写出了反复出现的概念。这些词必须从标注中省略，否则概念会绑定到文本，而不是触发词“{trigger}”。可以描述人物和场景，但应省略“{concept}”。",
+        "identityHelp": "身份泄漏是指标注描述了人物身份，例如头发、眼睛或肤色以及面部特征。这些词必须从标注中省略，否则身份会绑定到文本，而不是触发词“{trigger}”。",
+        "yourTrigger": "你的触发词",
+        "checked": "已检查 {count} 条标注",
+        "leaking": "泄漏 {count} 条",
+        "liveScan": "每次修改标注后都会实时重新扫描",
+        "watched": "监控的词语：",
+        "conceptWatched": "概念描述“{concept}”中的词及其基本语义范围，包括相关身体部位和位置。",
+        "watchTerms": {
+          "hair": "头发",
+          "eyes": "眼睛颜色",
+          "skin": "肤色 · 肤质 · 雀斑",
+          "features": "下颌线 · 眉毛 · 面部特征",
+          "faceShape": "脸型",
+          "bodyMarks": "纹身 · 疤痕 · 穿孔（身体保真度）"
+        },
+        "nothingChecked": "尚未检查任何内容——扫描基于标注运行。请先为保留图片生成标注。",
+        "allClearConcept": "检查通过——所有标注都省略了概念，因此它会绑定到触发词。这是对 {count} 条标注的实际检查结果。",
+        "allClearIdentity": "检查通过——标注只描述姿势、服装、环境和构图，不描述身份。这是对 {count} 条标注的实际检查结果。",
+        "fixConcept": "{count} 条标注写出了概念——请删除相关词语或重新生成标注。点击其他位置时会保存修改。",
+        "fixIdentity": "{count} 条标注泄漏了身份——请删除高亮词语或重新生成标注。点击其他位置时会保存修改。",
+        "recaptionAllTitleConcept": "重新生成所有泄漏标注，并保持概念不被写出",
+        "recaptionAllTitleIdentity": "重新生成所有泄漏标注，并避免描述身份",
+        "recaptionAll": "重新生成全部泄漏标注（{count}）",
+        "recaptionOneTitleConcept": "重新生成此标注，并保持概念不被写出",
+        "recaptionOneTitleIdentity": "重新生成此标注，并避免描述身份",
+        "noneLeft": "检查通过——已无泄漏标注。"
+      }
+    },
+    "scrape": {
+      "title": "从采集图片构建",
+      "target": "建议准备 20–50 张多样图片",
+      "targetTitle": "多样化图片通常比大量近似图片的训练效果更好",
+      "compatibleSites": "兼容网站",
+      "source": "来源",
+      "import": "导入",
+      "importing": "正在导入…",
+      "searching": "正在搜索…",
+      "dependencies": {
+        "missing": "尚未安装可选采集依赖（curl_cffi、gallery-dl、cloudscraper 等）。安装后才能预览和导入图片。Pexels 使用官方 API 获取列表，但抓取图片仍需要 curl_cffi。",
+        "install": "安装采集扩展"
+      },
+      "toast": {
+        "scanFailed": "扫描失败",
+        "noImages": "未找到可用图片"
+      },
+      "reddit": {
+        "title": "搜索 Reddit",
+        "keywordLabel": "Reddit 搜索关键词",
+        "keywordPlaceholder": "关键词——例如：胶片人像",
+        "keywordTitle": "在整个 Reddit 中搜索关键词",
+        "inCommunity": "社区 r/",
+        "communityLabel": "Subreddit 名称",
+        "communityPlaceholder": "社区，例如 analog",
+        "communityTitle": "将搜索限制在一个 Subreddit",
+        "search": "搜索 Reddit",
+        "help": "关键词会在整个 Reddit 中搜索。填写 Subreddit（r/ 后面的部分）可限定在单个社区内；只填写 Subreddit 则浏览该社区的热门帖子。"
+      },
+      "pexels": {
+        "authError": "Pexels 拒绝了请求。请检查 API 密钥以及数据集/机器学习用途的明确授权。",
+        "authorizationTitle": "需要 Pexels 授权。",
+        "authorizationBody": "仅有 API 密钥并不代表获准用于数据集或机器学习。只有在 Pexels 明确授权你的用途后才能搜索。",
+        "terms": "阅读官方条款",
+        "confirm": "我确认已获得 Pexels 对数据集/机器学习用途的明确授权。",
+        "keywordPlaceholder": "关键词——例如：电影感人像",
+        "keywordLabel": "Pexels 搜索关键词",
+        "language": "Pexels 搜索语言",
+        "orientation": "Pexels 图片方向",
+        "anyOrientation": "任意方向",
+        "portrait": "竖向",
+        "landscape": "横向",
+        "square": "方形",
+        "searchTitle": "搜索 Pexels 官方 API",
+        "confirmFirst": "请先确认已获得 Pexels 明确授权",
+        "search": "搜索 Pexels"
+      },
+      "url": {
+        "label": "画廊或媒体网址",
+        "placeholder": "画廊、相册、合集或直接图片网址",
+        "scan": "扫描网址",
+        "scanning": "正在扫描…",
+        "help": "这里适用于支持的画廊和相册，也可填写 Pexels 单张照片或合集网址。普通 Pexels 关键词搜索请使用 Pexels 标签页。",
+        "fullAlbumsTitle": "关闭时每个画廊只取一张封面；开启时获取所有匹配画廊中的每张照片。",
+        "fullAlbums": "扫描完整相册——关闭：每个画廊一张封面；开启：获取全部照片"
+      },
+      "rescue": {
+        "title": "使用 Klein 修复小于 768 像素的图片（生成式）",
+        "description": "默认关闭。只有小图会发送给 Klein；原图会保留。在“筛选与清理”中选择版本之前，原图和修复图都不会进入训练。",
+        "notReady": "当前设置中 Klein 尚未就绪。"
+      },
+      "results": {
+        "from": "结果来源：{source}",
+        "source": "来源",
+        "selectAllTitle": "选择全部已成功加载的图片",
+        "selectAll": "全选（{count}）",
+        "deadTitle": "来源链接已失效或过期的图片——已从网格中隐藏。",
+        "deadHidden": "已隐藏 {count} 张失效图片",
+        "clear": "清除选择",
+        "previewTitle": "预览大小——放大可更快判断图片",
+        "previewLabel": "预览大小",
+        "reset": "重置扫描",
+        "filtersReview": "导入时筛选：重复图片、短边小于 768 像素时交由 Klein 检查、宽高比大于 3:1",
+        "filtersSkip": "导入时筛选：重复图片、跳过短边小于 768 像素的图片、宽高比大于 3:1",
+        "openPexels": "打开 Pexels",
+        "providedBy": "图片由 Pexels 提供",
+        "pexelsPhotoBy": "Pexels 图片，摄影师：{photographer}",
+        "scrapedImage": "采集图片",
+        "select": "选择",
+        "deselect": "取消选择",
+        "loading": "正在加载…",
+        "loadMore": "加载更多图片"
+      }
+    },
+    "datasetSettings": {
+      "title": "数据集设置",
+      "name": "名称",
+      "kind": "数据集类型",
+      "kinds": {
+        "character": {
+          "label": "🧑 角色",
+          "hint": "人物或人脸——身份通过触发词绑定"
+        },
+        "concept": {
+          "label": "💡 概念",
+          "hint": "重复出现的动作或效果——概念通过触发词绑定"
+        },
+        "style": {
+          "label": "🎨 风格",
+          "hint": "始终生效的审美风格：使用 LoRA 权重控制影响程度"
+        }
+      },
+      "styleNoticeTitle": "常驻风格：",
+      "styleNotice": "标注和提示词中不会写入激活触发词。请使用 LoRA 权重控制效果；与角色 LoRA 组合时，需要分别调整两者权重。",
+      "trigger": "触发词",
+      "triggerPlaceholder": "例如 myTrigger",
+      "triggerHelp": "在提示词中用于调用此 LoRA 的词。可以随时修改——它会在导出时加入，因此现有标注无需重做。",
+      "conceptDescription": "概念描述——标注中必须省略的内容",
+      "conceptPlaceholder": "例如：镜面自拍 / 特定姿势 / 一种艺术风格",
+      "conceptHelp": "这是 LoRA 要学习的内容。标注会描述除此之外的一切，让它与触发词绑定。修改后会重建自动避用词列表；请重新生成标注以应用到已有图片。",
+      "suffixes": {
+        "title": "提示词后缀",
+        "optional": "可选的创作方向",
+        "allShots": "所有镜头",
+        "placeholder": "例如：35mm 胶片拍摄，暖色调",
+        "framings": {
+          "face": "脸部镜头",
+          "bust": "半身镜头",
+          "body": "全身镜头",
+          "back": "背面镜头"
+        },
+        "help": "添加到每个生成变体的自由文本，不会影响身份锁定。会先应用对应构图的后缀，再应用全局后缀。它在生成时生效，可随时修改；现有图片保持不变，如需应用请重新生成。"
+      },
+      "switch": {
+        "title": "更改类型：{from} → {to}",
+        "changesTitle": "将发生的变化",
+        "keptTitle": "保持不变的内容",
+        "changes": {
+          "captionStrategy": {
+            "character": "标注会描述场景，但不会写出角色身份特征（脸、头发、肤色）。",
+            "concept": "标注会描述场景，但省略反复出现的概念，使其绑定到触发词。",
+            "style": "标注只描述画面内容，省略审美或风格本身。"
+          },
+          "characterPanelsAvailable": "将显示参考图、生成变体和人脸分析面板，可从参考图构建数据集。",
+          "characterPanelsHidden": "将隐藏参考图、生成变体和人脸分析面板；请改为通过导入或采集构建数据集。",
+          "styleTrigger": "不使用激活触发词：风格加载后始终生效，请通过 LoRA 权重控制。触发词会保留，但不再写入标注或提示词。",
+          "triggerReturns": "恢复使用触发词：已保存的词会预先填入；请设置你在提示词中用于调用此 LoRA 的词。",
+          "conceptDescription": "必须填写概念描述——即每条标注都应省略的重复内容。",
+          "fidelityUnavailable": "人脸/身体保真度设置不再适用（仅角色数据集可用）。"
+        },
+        "kept": {
+          "images": "所有图片、标注文本、保留/拒绝状态、人脸评分和水印处理结果均保持原样。",
+          "runs": "历史训练任务和检查点身份保持不变；任务按模型系列和触发词命名，而不是按数据集类型。",
+          "conceptDescription": "概念描述会被记住，切换回来时可恢复。"
+        },
+        "recaption": "现有标注是按 {kind} 策略生成的，不会自动重写。请在“标注”页面使用“🔄 重新生成标注”应用新策略。"
+      },
+      "changeAndSave": "更改类型并保存"
+    },
+    "sections": {
+      "forcedOpen": "搜索或筛选生效时，各分组保持展开",
+      "collapse": "收起“{label}”分组",
+      "expand": "展开“{label}”分组"
+    }
+  },
+  "workspace": {
+    "navigation": {
+      "dataset": "数据集",
+      "sections": "数据集功能区",
+      "destinations": "{section}中的功能"
+    },
+    "actions": {
+      "exportZip": "导出 ZIP"
+    },
+    "header": {
+      "styleTitle": "该风格 LoRA 加载后始终生效；通过 LoRA 权重控制效果强度。",
+      "alwaysOnStyle": "常驻风格 · 无触发词",
+      "copyTrigger": "复制用于提示词的触发词",
+      "trigger": "触发词",
+      "more": "更多",
+      "moreTitle": "更多数据集操作——编辑设置和身体保真度",
+      "editSettings": "编辑设置",
+      "editStyleTitle": "编辑风格数据集名称并查看常驻生效方式。",
+      "editSettingsTitle": "编辑数据集名称、触发词；概念数据集还可编辑用于标注避让规则的概念描述。",
+      "styleSettingsSummary": "名称 · 常驻生效",
+      "settingsSummary": "名称 · 触发词{concept}",
+      "conceptSuffix": " · 概念",
+      "bodyFidelity": "身体保真度",
+      "bodyFidelityOnTitle": "已启用身体保真度：标注还会省略纹身、疤痕和永久标记，使其绑定到触发词；构图会增加半身和全身镜头，导入时默认保留完整画面。点击切回仅脸部。",
+      "bodyFidelityOffTitle": "默认仅保留脸部特征：LoRA 学习面部，体型由提示词控制。点击启用全身保真度，使体型和身体标记也绑定到触发词。",
+      "on": "开启",
+      "off": "关闭"
+    },
+    "filters": {
+      "title": "筛选视图",
+      "showing": "显示 {shown} / {total}",
+      "only": "仅显示 {tag}",
+      "stopHiding": "不再隐藏带有 {tag} 标签的图片",
+      "stopIsolating": "不再仅显示带有 {tag} 标签的图片",
+      "clearAll": "清除全部"
+    },
+    "next": {
+      "reference": "前往参考图",
+      "generate": "前往生成",
+      "curate": "检查图片网格",
+      "caption": "为保留图片生成标注",
+      "training": "前往训练",
+      "studio": "打开测试工作室"
+    },
+    "confirm": {
+      "exportWithTriage": "仍有 {count} 张图片等待保留/拒绝（✓/✕），它们不会进入 ZIP。仍要导出吗？",
+      "exportWithoutCaptions": "有 {count} 张已保留图片没有标注，只会使用触发词。仍要导出吗？",
+      "generationAlreadyRunning": "已有一个生成批次正在运行（{count} 个任务处理中）。\n\n仍要启动另一个批次吗？"
+    },
+    "prompt": {
+      "datasetFolder": "请输入本机数据集文件夹路径（图片和同名 .txt 标注文件）："
+    },
+    "toast": {
+      "autoCropSaveFailed": "无法保存自动裁剪设置",
+      "styleCaptionsMissing": "风格训练要求每张保留图片都有仅描述内容的标注，目前还缺少 {count} 张。",
+      "bodyFidelityOn": "已开启身体保真度——请重新生成标注以应用到现有标注",
+      "bodyFidelityOff": "已恢复为仅脸部保真度"
+    },
+    "dataTransfer": {
+      "bringIn": "导入图片",
+      "importZip": "导入数据集（ZIP）",
+      "importZipTitle": "将包含图片和 kohya 同名 .txt 标注的 ZIP 合并到当前数据集。支持任意文件夹结构，保留宽高比并跳过感知重复图片。",
+      "importFolder": "从文件夹导入…",
+      "importFolderTitle": "将本机文件夹中的图片和 kohya 同名 .txt 标注合并到当前数据集，并包含子文件夹。保留宽高比并跳过感知重复图片。",
+      "importHelp": "合并图片及其同名 .txt 标注，并自动跳过重复图片",
+      "getOut": "导出数据集",
+      "exportZip": "导出 ZIP（{count}）",
+      "exportZipHelp": "导出保留图片和标注，可直接用于训练（kohya 布局）",
+      "backup": "备份",
+      "backupTitle": "完整便携备份：包含全部图片、状态、标注、评分和设置，可在任意电脑的数据集页面恢复。",
+      "backupHelp": "便携副本——可在任意电脑的数据集页面恢复",
+      "publish": "发布到 Hugging Face",
+      "publishTitle": "将保留图片和标注发布为 Hugging Face 数据集仓库。默认设为私有；需要选择许可证并确认拥有分享权。",
+      "publishHelp": "发布为 Hub 数据集仓库——默认私有"
+    },
+    "trainingUnavailable": "训练需要 ai-toolkit（本地 GPU）或 vast.ai API 密钥（云端）——请在“设置”中配置其中一项。",
+    "studioLauncher": {
+      "title": "LoRA 测试工作室",
+      "savedSettings": "已保存的优选设置",
+      "open": "打开工作室",
+      "configure": "请先在“设置”中配置 ComfyUI，才能使用 LoRA 测试工作室。"
+    },
+    "activity": {
+      "captioningProgress": "正在生成标注——已完成 {done}/{total}…",
+      "comfyPaused": "ComfyUI 已暂停。",
+      "comfyPausedDuringPass": "处理期间 ComfyUI 会暂停。",
+      "watermarkDetect": "正在扫描水印…",
+      "watermarkClean": "正在清理水印…",
+      "caption": "正在生成标注…",
+      "recaption": "正在重新生成标注…",
+      "faceAnalysis": "正在分析人脸…",
+      "classify": "正在识别构图…",
+      "generate": "正在生成变体…",
+      "gpuProcessing": "GPU 正在处理分析、裁剪或标注；处理期间 ComfyUI 会暂停。"
+    },
+    "curationTools": {
+      "faceTitle": "计算每张图片与参考图的人脸相似度；不会删除图片。",
+      "referenceFirst": "请先设置参考图。",
+      "analyzing": "正在分析…",
+      "analyzeFaces": "分析人脸",
+      "findTitle": "扫描保留图片中叠加在照片上的水印、徽标和网址；不会删除图片。",
+      "scanning": "正在扫描…",
+      "findWatermarks": "查找水印",
+      "method": "水印修复方式",
+      "lamaTitle": "LaMa：速度快、非生成式。裁掉边缘水印，重绘偏离中心的小水印；位于主体上的水印转为手动检查。",
+      "fast": "快速",
+      "kleinTitle": "Klein：使用遮罩 FLUX.2 修复。更适合皮肤、布料和复杂背景，也能清理主体上的水印；通过 ComfyUI 使用 GPU，速度较慢。",
+      "kleinUnavailable": "Klein 修复需要 ComfyUI 正在运行，并已安装 Klein 模型（设置向导 › ComfyUI）。",
+      "quality": "高质量",
+      "autoCropOnTitle": "自动裁剪已开启：边缘水印会直接裁掉，不生成虚构像素。点击可改为重绘；此设置会被保存。",
+      "autoCropOffTitle": "自动裁剪已关闭：边缘水印会使用 LaMa/Klein 重绘。点击可重新允许裁剪；此设置会被保存。",
+      "autoCropOn": "自动裁剪已开启",
+      "autoCropOff": "自动裁剪已关闭",
+      "cleanKleinCrop": "使用遮罩 FLUX.2 Klein 修复：裁掉边缘水印，重绘其余水印并合成回原图，只改变水印区域。",
+      "cleanKleinNoCrop": "自动裁剪已关闭：包括边缘水印在内的所有水印都会用遮罩 FLUX.2 Klein 重绘并合成回原图。",
+      "cleanLamaCrop": "裁掉边缘水印，使用 LaMa 修复偏离中心的小水印，并将主体上的水印标记为手动检查。",
+      "cleanLamaNoCrop": "自动裁剪已关闭：边缘水印使用 LaMa 重绘；较大或位于主体上的水印会标记为手动检查。",
+      "cleanCropOnly": "通过裁剪移除边缘水印。LaMa 修复需要一次性安装；安装前会跳过偏离中心的水印。",
+      "clean": "清理（{count}）",
+      "reviewTitle": "逐张检查标记图片和检测框，然后选择清理、排除误报或拒绝图片。",
+      "review": "检查标记项（{count}）",
+      "installTitle": "安装 LaMa 水印修复组件，使偏离中心的水印也能被重绘而不只是裁剪。需要一次性下载数百 MB。",
+      "install": "安装水印修复",
+      "installSize": "一次性 · 数百 MB",
+      "installPanelTitle": "安装水印修复（LaMa）",
+      "installDescriptionBefore": "添加",
+      "installDescriptionAfter": "软件包，并一次性下载 CPU 版 PyTorch（数百 MB）。无需重启或 GPU；完成后会修复偏离中心的小水印，而不是跳过。",
+      "closeInstaller": "关闭水印修复安装面板",
+      "downloadInstall": "下载并安装",
+      "purgeConfirm": "永久删除 {count} 张已拒绝或失败的图片及其文件？",
+      "purgeTitle": "永久删除已拒绝和失败的图片",
+      "purge": "清理拒绝/失败项（{count}）",
+      "purgeHelp": "释放磁盘空间；已拒绝图片无论如何都不会参与训练"
+    },
+    "badges": {
+      "awaitingTriage": "{count} 张图片等待保留或拒绝",
+      "generating": "{count} 个生成任务正在进行",
+      "curation": "{watermarks} 个水印和 {rescues} 组 Klein 修复结果等待检查",
+      "leaking": "{count} 条标注存在信息泄漏",
+      "uncaptioned": "{count} 张保留图片没有标注"
+    },
+    "scrapeLink": {
+      "title": "从网页采集图片",
+      "description": "扫描画廊网址、选择图片并以完整画面导入"
+    },
+    "reference": {
+      "title": "参考图",
+      "intro": "一张清晰的正面脸部照片——所有生成变体都以它为起点",
+      "description": "Klein 变体的身份来源——上传后可用 ✂ 调整裁剪",
+      "alt": "参考图",
+      "none": "无",
+      "set": "设置参考图",
+      "change": "更换参考图",
+      "crop": "裁剪",
+      "autoCrop": "自动头部裁剪",
+      "autoCropTitle": "开启：使用视觉模型定位头部并裁剪（较慢，会暂停 ComfyUI）。关闭（默认）：立即生成居中的正方形；通常上传后手动裁剪更快。",
+      "autoCropUnavailableTitle": "本地生成期间无法自动裁剪头部；参考图会使用居中裁剪导入。",
+      "unavailableLocal": "本地生成期间不可用",
+      "extraRefs": "额外参考图",
+      "extraRefsHint": "所有引擎均使用，可加强身份锁定",
+      "extraAlt": "额外参考图",
+      "removeExtra": "移除这张额外参考图",
+      "addExtraLabel": "添加同一张脸其他角度的参考图",
+      "addExtraTitle": "添加额外参考图——Nano Banana、ChatGPT 和 Klein 会共同使用这些图片锁定身份"
+    },
+    "import": {
+      "title": "导入真实照片",
+      "description": "拖放或点击选择（归一化到 1024，并默认保留）",
+      "autoCrop": "自动头部裁剪（正方形）",
+      "autoCropTitle": "开启：每张照片会通过视觉模型自动裁成正方形头部照片，并暂停 ComfyUI。关闭：保留原始构图，适合半身或全身照片。",
+      "autoCropUnavailableTitle": "本地生成期间无法自动裁剪头部；照片将以完整画面导入。"
+    },
+    "composition": {
+      "title": "构图分布",
+      "bodyFidelity": "身体保真度",
+      "framing": {
+        "face": "脸部",
+        "bust": "半身",
+        "body": "全身",
+        "back": "背面"
+      },
+      "missing": "仍缺少",
+      "missingHint": "请生成或导入这些类型（目标约 25 张并保持均衡）",
+      "reached": "已达到目标构图，可生成标注或导出",
+      "upscaled": "放大裁剪",
+      "upscaledHint": "这些图片是经 LANCZOS 放大的裁剪，细节并非原生分辨率；请添加对应构图的原生照片，不要只依赖局部裁剪"
+    },
+    "guided": {
+      "progress": "数据集进度",
+      "nextStep": "下一步",
+      "optional": "可选",
+      "collapseTitle": "折叠引导",
+      "expandTitle": "展开引导",
+      "collapse": "折叠下一步引导",
+      "expand": "展开下一步引导",
+      "labels": {
+        "reference": "参考图",
+        "generate": "生成",
+        "curate": "筛选",
+        "caption": "标注",
+        "score": "评分",
+        "finish": "训练 / 导出",
+        "checkpoints": "检查点与 LoRA",
+        "studio": "测试工作室"
+      },
+      "configureComfyUI": "请在设置中配置 ComfyUI",
+      "subtitle": {
+        "set": "已设置",
+        "onePhoto": "一张清晰照片",
+        "toTriage": "{count} 张待筛选",
+        "kept": "已保留 {count} 张",
+        "captioned": "已标注 {done}/{total}",
+        "checkpoints": "{count} 个检查点",
+        "available": "{count} 个可用",
+        "afterTraining": "训练后可用"
+      },
+      "copy": {
+        "reference": "添加参考图——一张清晰的正脸照片即可开始。",
+        "generate": "根据参考图生成约 25 张不同镜头，或导入真实照片。",
+        "curate": "检查图片网格：保留 ✓ 合格图片，拒绝 ✕ 其余图片。",
+        "caption": "为保留图片生成标注，这是训练必需步骤。",
+        "finish_export": "数据集已准备好，可以导出训练 ZIP。",
+        "finish_train": "数据集已准备好，可以启动 LoRA 训练。",
+        "studio": "在测试工作室中比较检查点并选出最佳结果。"
+      }
+    },
+    "captionEditor": {
+      "datasetImage": "数据集图片",
+      "title": "编辑标注",
+      "close": "关闭标注编辑器",
+      "imageUnavailable": "图片不可用",
+      "captionText": "标注文本",
+      "truncatedWarning": "该标注正好为 800 个字符且在句子中间截断。旧版应用曾限制标注长度，已截断的内容无法恢复；请重新为该图片生成完整标注。",
+      "placeholder": "标注（不描述脸部）…",
+      "shortCaption": "短标注",
+      "dualTraining": "双标注训练",
+      "shortDescription": "与长标注一起训练的简短版本。规则相同：不写触发词，不描述身份、概念或审美。留空将复用长标注；重新生成标注时也会自动更新。",
+      "shortPlaceholder": "短标注（可选）…",
+      "shortcuts": "Esc 关闭 · Ctrl/⌘ + Enter 保存",
+      "save": "保存标注"
+    },
+    "promptEditor": {
+      "title": "编辑提示词并重新生成",
+      "placeholder": "描述镜头；系统会自动保持脸部身份…",
+      "label": "编辑生成提示词"
+    },
+    "crop": {
+      "title": "裁剪图片",
+      "imageAlt": "待裁剪图片",
+      "selectionLabel": "裁剪选区——拖动以移动，使用控制点调整大小",
+      "aspectLabel": "裁剪宽高比",
+      "ratio": "比例",
+      "freeHint": "自由模式可任意拉伸选区",
+      "resetTitle": "在原图上重新运行自动头部裁剪",
+      "reset": "恢复自动裁剪",
+      "confirm": "裁剪"
+    },
+    "lightbox": {
+      "datasetImage": "数据集图片",
+      "inspect": "检查——{name}",
+      "close": "关闭检查",
+      "closeTitle": "关闭（Esc）",
+      "real": "真实照片",
+      "generated": "生成图片",
+      "fullHint": "100%——点击图片适应窗口",
+      "fitHint": "适应窗口——点击图片查看 100%",
+      "cropTitle": "打开裁剪编辑器，可自由调整选区和比例",
+      "mirror": "水平镜像",
+      "mirroring": "正在镜像…",
+      "mirrorTitle": "水平翻转图片",
+      "mirrorLabel": "水平镜像{name}",
+      "mirroringLabel": "正在水平镜像{name}",
+      "improveHelp": "Klein 会创建一个新的 2 MP 版本供验证，并保留原图。",
+      "kleinUnavailable": "当前设置中 Klein 不可用。",
+      "improvementReady": "已有新版本等待验证。",
+      "improvementPending": "该图片已有改进任务正在运行。",
+      "reviewImprovement": "请先检查改进版本",
+      "improving": "正在改进…",
+      "improve": "放大并改进"
+    },
+    "generation": {
+      "inProgress": "{count} 个生成任务正在进行…",
+      "stopHint": "初步结果不理想？现在停止后，剩余 API 请求会跳过且不会计费。",
+      "stopTitle": "取消仍在处理的全部生成任务；已完成的图片会保留。",
+      "stop": "停止生成",
+      "stopping": "正在停止…",
+      "cancelled": "已停止剩余的 {count} 个生成任务",
+      "cancelFailed": "无法停止生成任务"
+    },
+    "images": {
+      "summary": "{total} 张图片 · 已保留 {kept} 张",
+      "awaiting": "{count} 张等待 ✓/✕",
+      "rescuePairs": "筛选与清理中有 {count} 组 Klein 修复结果",
+      "captioned": "已标注 {done}/{total}",
+      "watermarks": "已标记 {count} 个水印",
+      "empty": "还没有图片——请生成变体或导入照片。",
+      "noFilterMatches": "没有图片符合当前筛选条件——",
+      "clearAll": "清除全部筛选",
+      "seeAllAgain": "即可重新查看全部 {count} 张图片。",
+      "deleteConfirm": "确定要永久删除这张图片吗？",
+      "rejectRegenerateConfirm": "已拒绝这张照片——要重新生成此变体吗？\n（确定 = 生成一个新版本 · 取消 = 仅标记为拒绝）"
+    },
+    "variations": {
+      "title": "生成变体",
+      "subtitle": "从参考图中选择需要合成的镜头",
+      "loadFailed": "无法加载变体目录",
+      "framing": {
+        "face": "脸部",
+        "bust": "半身",
+        "body": "全身",
+        "back": "背面"
+      },
+      "engine": {
+        "title": "引擎",
+        "description": "选择图像生成位置：Klein 免费使用本机 GPU；API 按张计费，也可使用 ChatGPT 订阅额度",
+        "switchBlocked": "生成批次正在运行，请等待完成后再切换引擎",
+        "local": "本地",
+        "free": "免费",
+        "yourGpu": "使用本机 GPU",
+        "nsfwOk": "支持 NSFW",
+        "noGpu": "无需 GPU",
+        "perImage": "约 {price}/张",
+        "subscription": "订阅",
+        "planQuota": "套餐额度",
+        "kleinDescription": "在本机运行，速度较慢，但可调节人脸一致性。",
+        "bestFidelity": "人脸一致性最佳 · 预估费用约 ${cost}",
+        "addGeminiKey": "⚠ 请在设置中添加 GEMINI_API_KEY",
+        "usesQuota": "gpt-image-2 · 使用 ChatGPT {plan} 套餐额度",
+        "gptCost": "gpt-image-2 · 预估费用约 ${cost}",
+        "connectChatGpt": "⚠ 请在设置中添加 API 密钥或连接 ChatGPT 订阅",
+        "kleinAssetsMissing": "⚠ 缺少 Klein {assets}，请在安装向导中下载",
+        "kleinModelMissing": "⚠ 缺少 Klein 模型，请在安装向导中下载（models/unet/klein/）",
+        "kleinDisabled": "⚠ Klein 已在设置的引擎选项中关闭",
+        "configureComfyUI": "⚠ 请在设置中配置 ComfyUI"
+      },
+      "presets": {
+        "title": "预设",
+        "save": "保存预设",
+        "saveLabel": "将当前镜头选择保存为自定义预设",
+        "items": {
+          "balanced_25": {
+            "name": "均衡",
+            "hint": "通用默认方案：按训练比例覆盖所有构图。"
+          },
+          "zimage_12": {
+            "name": "Z-Image 12 张",
+            "hint": "专为 Z-Image LoRA 训练调整的精简 12 镜头方案。"
+          },
+          "balanced_multiformat": {
+            "name": "多格式",
+            "hint": "混合横向、竖向和电影宽幅构图的均衡方案。"
+          },
+          "face_focused": {
+            "name": "脸部优先",
+            "hint": "仅包含不同格式的脸部特写和半身镜头，不包含全身镜头。"
+          },
+          "fullbody_focused": {
+            "name": "全身优先",
+            "hint": "身份镜头与全身/背面镜头大致各半，并覆盖多种格式。"
+          },
+          "body_emphasis": {
+            "name": "身体优先",
+            "hint": "使用可展现体型且符合 API 规范的服装，提高身体特征一致性；露骨内容请使用本地 Klein。"
+          }
+        }
+      },
+      "customPreset": {
+        "namePrompt": "为镜头预设命名：",
+        "saved": "预设已保存：{name}",
+        "saveFailed": "无法保存预设",
+        "renamePrompt": "重命名镜头预设：",
+        "renameFailed": "无法重命名预设",
+        "deleteConfirm": "删除预设“{name}”？",
+        "apply": "应用自定义预设 {name}",
+        "rename": "重命名自定义预设 {name}",
+        "renameTitle": "重命名预设",
+        "delete": "删除自定义预设 {name}",
+        "deleteTitle": "删除预设"
+      },
+      "confirm": {
+        "allDuplicates": "所选 {count} 个镜头已全部存在于数据集中（绿色 ✓×N 卡片）。\n\n仍要再次生成重复图像吗？",
+        "someDuplicates": "所选 {total} 个镜头中已有 {duplicates} 个存在于数据集。\n\n确定——全部生成，包括重复项\n取消——仅生成 {fresh} 个新镜头",
+        "cost": "即将通过 {engine} 启动 {count} 次 API 生成，预估费用约 ${cost}。\n\n是否继续？"
+      },
+      "shotPicker": {
+        "title": "镜头",
+        "description": "预设会预选均衡组合；点击任意卡片可添加或移除",
+        "selected": "已选择——将生成",
+        "alreadyInDataset": "数据集中已有",
+        "notSelected": "未选择",
+        "quotaTitle": "数据集中已有 {have} 张{framing}图。均衡训练目标为 {target} 张；该配额不会改变生成选择。",
+        "missing": "数据集 {have}/{target} · 缺少 {missing} 张",
+        "selectedCount": "已选 {count} 个",
+        "existingCount": "数据集中已有该镜头的 {count} 张图",
+        "existingAria": "数据集中已有 {count} 张"
+      },
+      "customShots": {
+        "title": "自定义",
+        "description": "你添加的镜头，可用 ✕ 删除",
+        "kleinOnly": "🔞 镜头仅可使用 Klein 生成",
+        "remove": "移除自定义镜头 {name}",
+        "removeTitle": "移除该自定义镜头"
+      },
+      "nsfw": {
+        "title": "NSFW 模式",
+        "description": "无审查身体镜头仅由本地 Klein 生成，不会发送到 API",
+        "captionHint": "标注会继续描述裸露或服装状态，使其可通过提示词控制且不会绑定到触发词；标注器会自动处理。"
+      },
+      "customShot": {
+        "title": "自定义镜头",
+        "description": "编写自己的提示词，它会成为上方“自定义”分组中的可复用卡片",
+        "nsfwActive": "NSFW 表达已启用",
+        "instructions": "描述服装、姿势和场景，选择构图后添加。",
+        "placeholder": "例如：全身镜头，坐在车库里的复古摩托车上，皮夹克，暖色灯光",
+        "framing": "自定义镜头构图"
+      },
+      "suffix": {
+        "title": "提示词后缀",
+        "description": "添加到所有生成镜头的创作方向",
+        "appliedOnGenerate": "生成时应用",
+        "allShots": "所有镜头",
+        "placeholder": "例如：35mm 胶片拍摄，暖色调",
+        "framingShots": "{framing}镜头",
+        "framingLabel": "{framing}提示词后缀",
+        "hint": "自由文本会追加到每个生成变体，不会改变身份锁定。构图后缀会先应用，然后追加全局后缀；生成时保存到数据集。"
+      },
+      "kleinTuning": {
+        "title": "Klein 调节",
+        "modelFile": "模型文件",
+        "consistency": "一致性 LoRA",
+        "loraPreset": "LoRA 预设",
+        "consistencyStrength": "一致性 LoRA 强度",
+        "hint": "它固定的是构图而非脸部；数值越高，姿势和构图变化越少。约 0.5 较均衡，大幅改变场景可用 0.2–0.4，设为 0 即关闭。",
+        "loraPresetLabel": "生成 LoRA 预设",
+        "presetDescription": "你的 LoRA 组合，将应用到本次运行的每个镜头",
+        "noPresets": "还没有预设，请前往以下位置组合自己的 LoRA 文件：",
+        "settingsLink": "设置 › 图像引擎",
+        "emptyPreset": "该预设为空，请在设置中添加 LoRA 文件。"
+      },
+      "actions": {
+        "clearTitle": "清除包括预设和镜头在内的全部选择",
+        "deselectAll": "全部取消选择",
+        "multiplierTitle": "每个所选镜头的生成次数",
+        "multiplier": "变体倍数",
+        "referenceFirst": "请先设置参考图",
+        "alreadyRunning": "已有生成批次正在运行",
+        "generating": "正在生成…",
+        "generate": "生成（{count}）"
+      },
+      "shots": {
+        "face_front_neutral": "正面脸部，中性表情",
+        "face_front_smile": "正面脸部，微笑",
+        "face_34l_smile": "左侧 3/4 脸，微笑",
+        "face_34l_serious": "左侧 3/4 脸，严肃",
+        "face_34r_laugh": "右侧 3/4 脸，大笑",
+        "face_34r_soft": "右侧 3/4 脸，柔和表情",
+        "face_profile_l": "左侧脸",
+        "face_profile_r": "右侧脸",
+        "face_profile_l_smile": "左侧脸，微笑",
+        "face_profile_r_smile": "右侧脸，微笑",
+        "face_profile_l_serious": "左侧脸，严肃",
+        "face_profile_r_serious": "右侧脸，严肃",
+        "face_profile_l_look_up": "左侧脸，向上看",
+        "face_profile_r_look_up": "右侧脸，向上看",
+        "face_profile_l_rim_light": "左侧脸，轮廓光",
+        "face_profile_r_rim_light": "右侧脸，轮廓光",
+        "face_window": "脸部，窗边光线",
+        "face_studio": "脸部，影棚灯光",
+        "face_golden": "脸部，黄金时刻",
+        "face_surprise": "脸部，惊讶",
+        "face_look_up": "脸部，向上看",
+        "face_look_down": "脸部，向下看",
+        "bust_front": "正面半身",
+        "bust_34": "3/4 半身",
+        "bust_outdoor": "户外半身",
+        "bust_studio": "影棚半身",
+        "bust_jacket": "半身，夹克",
+        "bust_evening": "半身，晚装",
+        "body_stand_front": "正面站立全身",
+        "body_stand_34": "3/4 站立全身",
+        "body_sit": "坐姿全身",
+        "body_walk": "行走全身",
+        "body_cafe": "全身，咖啡馆",
+        "body_beach": "全身，海滩（有服装）",
+        "back_34": "3/4 背面",
+        "body_wide_env": "全身，城市远景",
+        "body_walk_wide": "行走全身，宽幅镜头",
+        "body_land_outdoor": "全身，户外风景",
+        "body_sit_terrace": "坐姿全身，露台远景",
+        "body_field_wide": "全身，开阔田野",
+        "bust_land": "半身，横向构图",
+        "bust_fitted_top": "半身，修身上衣",
+        "bust_summer_dress": "半身，夏季连衣裙",
+        "bust_swim": "半身，海滩泳装",
+        "body_bodycon": "全身，修身连衣裙",
+        "body_athletic": "全身，运动装",
+        "body_swim_beach": "全身，海滩比基尼",
+        "body_swim_pool": "全身，泳池泳装",
+        "body_jeans_fit": "全身，修身牛仔裤",
+        "body_silhouette": "全身，逆光剪影",
+        "face_land": "脸部，横向构图",
+        "face_tall": "脸部，竖长构图",
+        "face_wide": "脸部，电影宽幅构图",
+        "nsfw_bust_lingerie": "半身，内衣",
+        "nsfw_bust_topless": "半身，上身裸露",
+        "nsfw_bust_towel": "半身，浴巾",
+        "nsfw_body_lingerie": "站立全身，内衣",
+        "nsfw_body_nude_stand": "站立全身，裸体",
+        "nsfw_body_nude_34": "3/4 全身，裸体",
+        "nsfw_body_nude_sit": "裸体坐在床边",
+        "nsfw_body_nude_lying": "裸体躺姿",
+        "nsfw_body_shower": "裸体淋浴",
+        "nsfw_back_nude": "背面，裸体"
+      }
+    },
+    "sections": {
+      "add": {
+        "title": "添加图片",
+        "eyebrow": "构建",
+        "description": "根据参考图生成 AI 变体，并混合导入或采集的真实照片。",
+        "conceptDescription": "拖入照片，或前往“采集”扫描画廊；概念 LoRA 通过真实图片学习。",
+        "styleDescription": "导入具有相同审美的多样图片；丰富的主体和场景能让风格 LoRA 更容易组合使用。",
+        "panels": {
+          "reference": "参考图",
+          "generate": "生成变体",
+          "import": "导入照片"
+        }
+      },
+      "images": {
+        "title": "图片",
+        "eyebrow": "总览",
+        "description": "查看数据集中的全部图片——保留 ✓ 合格图片、拒绝 ✕ 其余图片，并直接编辑标注。",
+        "panels": {
+          "review": "检查图片",
+          "bulk": "批量操作"
+        }
+      },
+      "scrape": {
+        "title": "采集",
+        "eyebrow": "构建",
+        "description": "扫描画廊网址、选择需要的图片并以完整画面导入；之后可在图片卡片中逐张裁剪。",
+        "panels": {
+          "scan": "扫描画廊"
+        }
+      },
+      "curation": {
+        "title": "筛选与清理",
+        "eyebrow": "质量",
+        "description": "对保留图片执行质量检查——人脸相似度、水印检测与清理、无用图片清理。",
+        "panels": {
+          "small-image-rescue": "检查 Klein 修复结果",
+          "face-analysis": "人脸分析",
+          "watermarks": "水印",
+          "review-flagged": "检查标记项",
+          "rejected-cleanup": "清理拒绝项"
+        }
+      },
+      "captions": {
+        "title": "标注",
+        "eyebrow": "文本",
+        "description": "训练通过标注理解每张图片——生成标注、检查信息泄漏并进行批量编辑。",
+        "panels": {
+          "generate": "生成标注",
+          "leak-review": "检查信息泄漏",
+          "tools": "标注工具"
+        }
+      },
+      "export": {
+        "title": "导入与导出",
+        "eyebrow": "数据",
+        "description": "合并现有数据集，或导出训练 ZIP、便携备份并发布到 Hugging Face。",
+        "panels": {
+          "import": "导入数据集",
+          "training-zip": "导出训练 ZIP",
+          "backup": "便携备份",
+          "hugging-face": "发布到 Hugging Face"
+        }
+      },
+      "training": {
+        "title": "训练",
+        "eyebrow": "训练",
+        "description": "在本地或云端将保留并完成标注的图片训练成 LoRA。",
+        "panels": {
+          "launch": "训练状态与启动",
+          "advanced": "高级选项",
+          "queue": "训练队列"
+        }
+      },
+      "checkpoints": {
+        "title": "检查点与 LoRA",
+        "eyebrow": "结果",
+        "description": "检查训练保存结果、选择轮次、将 LoRA 导入 ComfyUI，并清理旧文件。",
+        "panels": {
+          "manager": "检查点管理器"
+        }
+      },
+      "studio": {
+        "title": "测试工作室",
+        "eyebrow": "测试",
+        "description": "在专用测试工作室中使用已保存的优选设置测试训练好的 LoRA。",
+        "panels": {
+          "launcher": "LoRA 测试工作室"
+        }
+      }
+    },
+    "scraping": {
+      "sourceCredentialsTitle": "来源凭据",
+      "sourceCredentialsHelp": "用于扫描概念数据集图像来源的凭据。Reddit 和 Civitai 密钥为可选项；Pexels 必须填写 API 密钥。密钥只写入不回显，即使已保存，输入框也会保持为空。",
+      "redditLabel": "Reddit 客户端 ID",
+      "redditHelp": "默认情况下，Reddit 扫描使用多人共享的公共客户端 ID。其约每 10 分钟 1000 次的额度可能被其他人耗尽，因此即使当天首次扫描，也可能出现“Reddit 正在限流，请在 N 秒后重试”（429）。使用自己的客户端 ID 可获得独立额度。",
+      "redditGuide": {
+        "summary": "如何创建客户端 ID（约 1 分钟）",
+        "step1Before": "登录 Reddit，打开",
+        "step1After": "并点击页面底部的",
+        "step1End": "。",
+        "step2Before": "类型选择",
+        "step2Middle": "——这一步很重要。",
+        "or": "或",
+        "step2After": " 类型的 ID 会附带客户端密钥，Reddit 会拒绝本应用使用的无密钥匿名登录，导致每次扫描都返回 401。",
+        "step3Before": "名称可任意填写，例如“LoRA Dataset Studio”。重定向 URI：",
+        "step3After": "——表单要求填写，但本应用不会使用它。",
+        "step4Before": "点击",
+        "step4After": "，然后复制应用名称正下方显示的短字符串（约 22 个字符）。这就是客户端 ID。installed app 没有密钥，只需这个字符串即可。",
+        "step5": "粘贴到下方并保存，立即生效，无需重启。"
+      },
+      "civitaiLabel": "Civitai API 密钥",
+      "civitaiHelp": "仅成人内容需要。没有密钥时，Civitai 扫描只返回 SFW 结果。可在 civitai.com → 账户设置 → API 密钥中创建。",
+      "pexelsLabel": "Pexels API 密钥（使用 Pexels 时必填）",
+      "pexelsHelpBefore": "所有通过官方 API 进行的 Pexels 扫描都需要此密钥。",
+      "pexelsCreateKey": "免费创建 Pexels API 密钥",
+      "pexelsHelpAfter": "——免费额度为每小时 200 次、每月 20,000 次。在此保存后立即生效，无需重启。",
+      "pexelsAuthorizationTitle": "需要额外授权：",
+      "pexelsAuthorizationBody": "API 密钥本身不代表允许将内容用于数据集或机器学习。只有在 Pexels 明确授权此用途时，才应配置并使用此集成。",
+      "pexelsTerms": "阅读 Pexels 官方条款与条件",
+      "improvementTitle": "Klein 图像增强",
+      "improvementHelp": "用于自动补救低于 768 像素的抓取图像的可选指令。手动“放大并增强”会使用专用的元数据质量配置。Klein 会另存一份约 200 万像素的版本供检查，并保留原图。",
+      "instruction": "Klein 指令",
+      "instructionHelp": "留空时，Klein 只使用参考图。仅在需要引导自动抓取补救时添加简短指令；Klein 仍属于生成式处理，可能改变细节。灯箱中的手动增强会使用专用质量配置。",
+      "instructionPlaceholder": "留空——仅使用参考图"
+    },
+    "localTools": {
+      "hfToken": "Hugging Face 令牌",
+      "hfTokenHelp": "用于受限训练底模（Krea 2、FLUX.1、FLUX.2 Klein）以及读取你的私有自定义底模云端仓库。先接受各模型许可，再到 hf.co/settings/tokens 创建令牌。本地 Klein 生成模型（9B KV）无需令牌即可下载。",
+      "comfyHelp": "用于本地 Klein 生成和测试工作室。API 地址是正在运行的 ComfyUI 接口；应用会扫描安装目录中的检查点和 LoRA。",
+      "comfyApiUrl": "ComfyUI API 地址",
+      "comfyDir": "ComfyUI 安装目录",
+      "comfyDirHelp": "除非另行覆盖，否则应用会据此推导 output、input、models 和 loras 文件夹。",
+      "ollamaHelp": "轻量级本地视觉后端，用于自动标注、构图分类和头部裁剪。",
+      "ollamaUrl": "Ollama 地址",
+      "ollamaModel": "Ollama 视觉模型",
+      "ollamaStarted": "Ollama 已开始运行。",
+      "ollamaStartFailed": "Ollama 启动失败。请检查日志或手动启动。",
+      "running": "运行中",
+      "visionReady": "视觉模型已就绪",
+      "installedStopped": "已安装，但尚未运行。",
+      "starting": "正在启动…",
+      "startOllama": "▶ 启动 Ollama",
+      "notDetected": "未在此电脑上检测到。",
+      "downloadOllama": "下载 Ollama →",
+      "aitoolkitHelp": "训练引擎。请选择包含 run.py 的文件夹；应用会自动检测其中的 venv/ 或 .venv/。",
+      "aitoolkitDir": "ai-toolkit 目录",
+      "pythonOptional": "Python 解释器（可选）",
+      "pythonPlaceholder": "自动——仅在 ai-toolkit 没有 venv/.venv 时需要（conda、uv 或系统 Python）",
+      "pythonHelp": "ai-toolkit 应使用的 Python 可执行文件完整路径，例如 C:\\miniconda3\\envs\\aitk\\python.exe。",
+      "advanced": "高级：覆盖 ai-toolkit 路径",
+      "datasetsDir": "数据集目录覆盖",
+      "datasetsDirPlaceholder": "默认为 <ai-toolkit>/datasets",
+      "outputDir": "输出目录覆盖",
+      "outputDirPlaceholder": "默认为 <ai-toolkit>/output",
+      "hfCache": "Hugging Face 缓存目录覆盖",
+      "hfCachePlaceholder": "默认为 <ai-toolkit>/hf-cache/huggingface"
+    },
+    "captioning": {
+      "captioningTitle": "自动标注",
+      "captioningHelp": "选择由谁编写标注。“自动”会优先使用 ai-toolkit 中的 JoyCaption，不可用时回退到 Ollama 视觉模型。",
+      "backend": "标注后端",
+      "options": {
+        "auto": "自动（使用最佳可用后端）",
+        "joycaption": "JoyCaption",
+        "ollama": "Ollama 视觉模型",
+        "none": "无"
+      },
+      "watermarkTitle": "水印修复",
+      "watermarkHelp": "选择 LaMa 在哪里处理偏离中心的小水印。“自动”会在配置的机器学习 Python 支持时使用 CUDA，否则回退到 CPU。",
+      "device": "处理设备",
+      "devices": {
+        "auto": "自动（有 GPU 时使用 GPU，否则使用 CPU）",
+        "cuda": "GPU（需要 CUDA；清理时会暂停 ComfyUI）",
+        "cpu": "CPU（不占用 GPU）"
+      },
+      "allowCrop": "允许自动裁剪",
+      "allowCropHelp": "开启：位于边缘的水印会直接裁掉，不生成虚构像素。关闭：使用 LaMa/Klein 重绘边缘水印。可在水印审核中为单张图片覆盖此设置，也可从“清理”工具栏切换。",
+      "faceTitle": "人脸相似度",
+      "faceHelp": "InsightFace 会将每张图片与参考人脸比较并评分。以下阈值决定徽标颜色。",
+      "greenThreshold": "人脸评分——绿色阈值",
+      "orangeThreshold": "人脸评分——橙色阈值",
+      "thresholdHelp": "绿色表示与参考人脸高度匹配；橙色表示临界，应在保留前检查。低于橙色通常意味着是不同人物，建议拒绝。"
+    },
+    "training": {
+      "dialogs": {
+        "presetNamePrompt": "预设名称（与现有名称相同时会覆盖）：",
+        "deletePresetConfirm": "确定删除预设“{name}”吗？",
+        "queueForce": "仍然加入队列（强制）",
+        "scheduleForce": "仍然安排训练（强制）",
+        "trainForce": "仍然开始训练（强制）",
+        "continueForce": "仍然继续训练（强制）",
+        "resumeConfirm": "从第 {step} 步恢复“{name}”的训练，并继续训练 1000 步（到第 {next} 步）吗？",
+        "moveTrashConfirm": "将“{filename}”移入回收站吗？\n\n在设置中清空回收站前仍可恢复。",
+        "cleanupRunConfirm": "清理这次训练吗？\n\n保留 {keepCount} 个检查点（{keepList}），并将其余 {removed} 个移入回收站；在设置中清空回收站前仍可恢复。",
+        "pushForce": "{detail}\n\n仍然强制推送吗？"
+      },
+      "defaultsTitle": "默认设置",
+      "defaultsHelp": "新训练任务预选的模型系列；每个数据集仍可单独覆盖。",
+      "defaultFamily": "默认训练系列",
+      "familyLabels": {
+        "zimage": "Z-Image",
+        "sdxl": "SDXL",
+        "krea": "Krea 2",
+        "flux": "FLUX.1",
+        "flux2klein": "FLUX.2 Klein"
+      },
+      "cloudGpuTitle": "云端 GPU（vast.ai）",
+      "cloudGpuHelp": "没有本地 GPU？应用可为每次任务租用一张 GPU。填写下方密钥后即可使用“☁️ 云端训练”按钮。",
+      "vastKey": "vast.ai API 密钥",
+      "vastKeyHelp": "启用云端 GPU 训练。应用会为任务租用 GPU，并在完成后自动关闭（一次典型任务约 1–2 美元）。可在 cloud.vast.ai → Keys 获取密钥。",
+      "vastGuide": {
+        "summary": "如何获取 vast.ai API 密钥（约 2 分钟）",
+        "step1Before": "在以下网站免费创建账户：",
+        "step1After": "（可使用邮箱或 Google 登录）。",
+        "step2Before": "充值：在左侧边栏打开",
+        "step2Middle": "并点击",
+        "step2After": "。充值 5 美元即可开始；一次典型训练约 1–2 美元，费用由 vast.ai 收取，而不是本应用。",
+        "step3Before": "打开",
+        "step3After": "（左侧边栏“账户”下方），复制 API 密钥；如果列表为空，请先创建一个。",
+        "step4Before": "将密钥粘贴到下方并点击",
+        "step4After": "。应用会自动保存密钥，测试成功时应显示“已连接为 <你的账户>”。"
+      },
+      "cloudTitle": "云端训练",
+      "cloudHelp": "vast.ai GPU 租用保护限制：同时运行的训练实例数量、报价上限、每月预算，以及任务在多久没有训练步数进展后会被自动救援并停止。",
+      "maxRuns": "同时运行的云端任务上限",
+      "maxPrice": "每小时最高价格（美元）",
+      "monthlyBudget": "每月预算（美元，0 表示不限）",
+      "stallTimeout": "停滞超时（分钟）",
+      "minReliability": "主机最低可靠性",
+      "minReliabilityHelp": "降低此值（例如 0.95）可在 GPU 选择器中显示更便宜的主机，但实例无法启动的风险也会提高。失败启动通常只浪费几美分，并会自动清理。",
+      "offerFilters": "GPU 报价筛选",
+      "verifiedOnly": "仅显示已验证主机",
+      "verifiedOnlyHelp": "只显示经过 vast.ai 验证的主机，建议保持开启。关闭后可能出现更多或更便宜的报价，但主机风险更高。",
+      "secureOnly": "仅显示安全云",
+      "secureOnlyHelp": "只显示 vast.ai 标记为“安全云”的报价。这会排除社区云主机，因此可用数量可能更少、价格更高。",
+      "spentMonth": "本月已花费：${amount}"
+    },
+    "server": {
+      "title": "服务器",
+      "help": "配置应用监听位置。主机、端口和局域网访问需重启后生效；修改后请点击“保存并重启以应用”。",
+      "port": "端口",
+      "lanAccess": "允许局域网访问",
+      "lanAccessHelp": "默认关闭：只有此电脑能打开应用。开启后，同一 Wi-Fi/局域网中的其他设备（例如手机）可通过下方地址访问。",
+      "requireToken": "要求访问令牌",
+      "requireTokenOn": "开启：远程设备首次打开地址时必须携带令牌，之后由会话 Cookie 接管。适合共享或不受信任的网络。",
+      "requireTokenOff": "默认关闭：同一 Wi-Fi/局域网中的任何人都能直接打开应用，无需密码。家庭网络通常可保持关闭；共享或不受信任的网络建议开启。",
+      "accessToken": "访问令牌",
+      "generateToken": "生成新令牌",
+      "accessTokenHelp": "远程设备通过下方链接提交一次令牌，之后由签名会话 Cookie 接管。此电脑发出的请求永远不需要令牌。",
+      "tokenPlaceholder": "（下次重启时自动创建，也可点击“生成新令牌”）",
+      "phoneTitle": "在手机上打开",
+      "phoneHelp": "用手机相机扫描二维码，或打开下方链接。局域网链接要求连接同一 Wi-Fi；Tailscale 链接可从任意位置访问。",
+      "sameLan": "同一 Wi-Fi / 局域网",
+      "tailscale": "任意位置 · Tailscale",
+      "tokenNeededBefore": "先启用令牌，然后点击",
+      "tokenNeededAfter": "（或保存并重启）。令牌创建后会显示可扫描链接。",
+      "addressMissingBefore": "无法检测此电脑的地址。请在另一台设备上打开",
+      "addressMissingAfter": "可运行以下命令查找地址：",
+      "lanIpPlaceholder": "本机局域网 IP",
+      "running": "当前运行：",
+      "reachableAt": "——可通过 {url} 访问",
+      "saved": "已保存：",
+      "restarting": "↻ 正在重启…",
+      "saveRestart": "保存并重启以应用",
+      "configMatches": "当前运行配置与已保存配置一致",
+      "restartFailed": "重启失败"
+    },
+    "maintenance": {
+      "updatesTitle": "更新",
+      "updatesHelp": "无需离开应用，即可从 GitHub 拉取最新版本并重启。",
+      "checkFailed": "检查失败",
+      "updateFailed": "更新失败",
+      "checking": "正在检查…",
+      "checkUpdates": "检查更新",
+      "currentBuild": "当前构建：",
+      "latestBuild": "最新构建：",
+      "commitsAhead": "新增 {count} 个提交",
+      "updateAvailable": "有可用更新",
+      "pressCheck": "——请点击“检查更新”",
+      "seeUpdate": "查看本次更新内容 ↗",
+      "browseCommits": "浏览最近提交 ↗",
+      "updatedRestarting": "↻ 更新完成——应用正在重启，恢复后此页面会自动重新加载…",
+      "pulling": "⬇ 正在拉取最新版本…",
+      "downloadingInstalling": "⬇ 正在下载并安装最新版本…",
+      "downloadingProgress": "⬇ 正在下载… {progress}（{downloaded} / {total}）",
+      "downloadingUnknown": "⬇ 正在下载… {downloaded}",
+      "extractingUpdate": "📦 正在解压更新…",
+      "installingFiles": "🔧 正在安装新文件…",
+      "restartingApp": "↻ 正在重启应用…",
+      "updateToVersion": "更新到 v{version}",
+      "downloadSize": "{headline}（下载约 {size}）",
+      "behind": "落后 {count} 个提交{refs}。",
+      "availableVersion": "有可用更新{version}。",
+      "updateRestart": "更新并重启",
+      "downloadRelease": "下载最新发布版本",
+      "replaceFolder": "并替换当前文件夹。",
+      "upToDate": "当前已是最新版本。",
+      "couldNotCheck": "无法检查更新。",
+      "logTitle": "服务器日志",
+      "logStatus": "{file}——最近 {count} 行，每 5 秒刷新",
+      "noLog": "尚无日志文件",
+      "logClosedHelp": "遇到故障？打开这里并将日志复制到问题报告中。",
+      "refresh": "刷新",
+      "copyAll": "复制全部",
+      "logEmpty": "日志为空。",
+      "empty": "空",
+      "openTrashFailed": "无法打开回收站文件夹。",
+      "emptyConfirm": "永久删除回收站中的全部内容？\n\n这是唯一不可恢复的删除操作。清空后，已删除的检查点将无法恢复。",
+      "trashTitle": "回收站",
+      "trashHelp": "应用删除的检查点、云端暂存文件和已部署 LoRA 会先移到这里。只有清空回收站才会真正销毁文件。",
+      "trashSize": "回收站大小：",
+      "openTrashTitle": "在文件资源管理器中打开回收站文件夹",
+      "opening": "正在打开…",
+      "openFolder": "📂 打开文件夹",
+      "emptying": "正在清空…",
+      "emptyTrash": "清空回收站",
+      "dataTitle": "数据",
+      "dataHelp": "数据集图片在磁盘上的存储位置。",
+      "imagesRoot": "数据集图片根目录",
+      "imagesRootPlaceholder": "默认为 data/datasets"
+    }
+  },
+  "cloudRuns": {
+    "title": "训练记录",
+    "subtitle": "在一个页面管理云端和本地训练：查看进度、停止任务、下载完成的 LoRA，并核对每次启动时使用的准确设置。",
+    "status": {
+      "done": "已完成",
+      "error": "失败",
+      "error_pod_kept": "失败 · 实例已保留",
+      "stopped": "已停止",
+      "localTraining": "本地 · 训练中"
+    },
+    "time": {
+      "justNow": "刚刚",
+      "minutesAgo": "{count} 分钟前",
+      "hoursAgo": "{count} 小时前",
+      "daysAgo": "{count} 天前"
+    },
+    "thumbnail": {
+      "open": "打开本次训练生成的最后一张样图",
+      "alt": "{name} 的最后一张训练样图",
+      "thisRun": "本次训练"
+    },
+    "podKept": {
+      "title": "实例已保留，供手动恢复检查点",
+      "body": "在回收前仍会继续计费。请下载其中的 LoRA；恢复窗口结束后系统会自动清理。",
+      "collapsedWarning": "仍有保留实例正在计费，请展开查看详情",
+      "billing": "保留实例仍在计费"
+    },
+    "autoRetry": {
+      "retryOf": "云端训练 #{id} 的自动重试",
+      "retryCount": "自动重试 {count}/1",
+      "relaunchedAsTitle": "已自动重新启动为云端训练 #{id}",
+      "relaunchedAs": "已自动重试为 #{id}"
+    },
+    "recipeWarning": {
+      "title": "Z-Image 配方警告：",
+      "blocked": "已禁用“重试”和“继续”；请重新启动一次通过验证的训练。"
+    },
+    "settings": {
+      "rank": "秩",
+      "saveEvery": "保存间隔",
+      "dropout": "丢弃率",
+      "masked": "使用蒙版",
+      "unmasked": "未使用蒙版",
+      "effectiveTitle": "本次启动实际使用的 ai-toolkit 设置"
+    },
+    "fallback": {
+      "runNumber": "训练 #{id}",
+      "datasetNumber": "数据集 #{id}"
+    },
+    "source": {
+      "cloud": "云端训练（vast.ai）",
+      "local": "本地训练"
+    },
+    "confirm": {
+      "stopCloud": "停止“{name}”的云端训练？\n\n实例将被终止。已生成的检查点仍会下载并可导入，只会放弃尚未完成的训练步数。",
+      "stopLocal": "停止“{name}”的本地训练？\n\n训练进程会被终止，等待中的本地训练队列会被清空；已经保存的检查点仍会保留。",
+      "cleanFinished": "将所有已完成训练的暂存文件夹移入回收站？\n\n已导入的数据集副本、样图和重复检查点会被清理；活动任务和为恢复而保留的实例不会受影响。在设置中清空回收站前均可恢复。"
+    },
+    "prompt": {
+      "additionalSteps": "从最后一个检查点继续训练的额外步数："
+    },
+    "toast": {
+      "stopCloudFailed": "无法停止训练，它可能已经结束。",
+      "stoppingCloud": "正在停止训练，实例正在关闭…",
+      "stopLocalFailed": "无法停止本地训练，它可能已经结束。",
+      "localStopped": "本地训练已停止，ComfyUI 已重新启用。",
+      "stopLocalErrorDetail": "无法停止本地训练：{error}",
+      "stopLocalError": "无法停止本地训练，请重试。",
+      "legacyRetryBlocked": "该训练使用了不兼容的旧版 Z-Image 配方，请重新启动一次通过验证的训练。",
+      "retryFailed": "重试失败",
+      "relaunchedLocal": "已在本地重新启动，请在“进行中”查看…",
+      "relaunchedCloud": "训练已重新启动，正在创建新实例…",
+      "legacyContinueBlocked": "该检查点使用了不兼容的旧版 Z-Image 配方，无法安全继续训练。",
+      "positiveSteps": "请输入大于 0 的额外步数。",
+      "continueFailed": "继续训练失败",
+      "continuing": "正在新实例上从第 {from} 步继续训练到第 {to} 步…",
+      "configBuildFailed": "无法生成配置文件，请重试。",
+      "configDownloadFailed": "无法下载配置文件。",
+      "cleaned": "已清理 {count} 个训练，{size} GB 已移入回收站。"
+    },
+    "actions": {
+      "openDataset": "打开数据集",
+      "openVastConsole": "打开 vast.ai 控制台",
+      "stopRun": "停止训练",
+      "stopping": "正在停止…",
+      "stopLocalTitle": "停止本地训练进程；已经保存的检查点会保留",
+      "retry": "重试",
+      "retrying": "正在重试…",
+      "retryDisabled": "该旧版或不兼容的 Z-Image 配方无法安全重试，请重新启动训练",
+      "retryLocalTitle": "使用相同设置在本地重新启动",
+      "retryCloudTitle": "使用相同设置在新实例上重新启动",
+      "continue": "继续（+1000）",
+      "continuing": "正在继续…",
+      "continueDisabled": "该旧版或不兼容的 Z-Image 检查点无法安全继续，请重新启动训练",
+      "continueTitle": "从本次训练最后一个检查点在新实例上继续训练更多步数",
+      "downloadLora": "下载 LoRA",
+      "downloadLoraTitle": "下载本次训练的 LoRA 检查点",
+      "shareConfig": "分享配置",
+      "shareConfigTitle": "将本次训练的完整设置下载为便于粘贴的文本文件",
+      "vastInstanceTitle": "vast.ai 实例 {id}——查看计费、日志或手动销毁",
+      "vastConsoleTitle": "vast.ai 控制台——查看计费、日志或手动销毁",
+      "cleanFinished": "清理已完成训练",
+      "showDatasetRuns": "展开该数据集的训练记录",
+      "foldDatasetRuns": "折叠该数据集的训练记录"
+    },
+    "notConfigured": {
+      "before": "尚未配置云端训练。请前往",
+      "after": "添加 vast.ai API 密钥，以便按需租用 GPU。"
+    },
+    "summary": {
+      "active": "个活动任务",
+      "hourlyTotal": "总计 ${amount}/小时",
+      "thisMonth": "本月：${amount}",
+      "ofBudget": " / 预算 ${amount}",
+      "noBudget": "（未设置预算上限）"
+    },
+    "sections": {
+      "inProgress": "进行中",
+      "recent": "最近记录",
+      "collapsed": "已折叠",
+      "expanded": "已展开"
+    },
+    "empty": {
+      "inProgress": "当前没有进行中的训练。请从数据集的训练面板启动。"
+    },
+    "metrics": {
+      "durationTitle": "实际运行时长（启动到结束）",
+      "steps": "{count} 步",
+      "savesTitle": "本次训练保存并同步到本地的检查点",
+      "saves": "{count} 次保存",
+      "costTitle": "预计费用（每小时价格 × 运行时间）",
+      "costSoFar": "目前约 ${amount}",
+      "runCount": "{count} 次训练"
+    }
+  },
+  "guide": {
+    "fieldManual": "使用手册",
+    "chapterNavigation": "指南章节",
+    "onThisPage": "本页内容",
+    "openScreen": "打开对应页面",
+    "support": "支持",
+    "chapterNumber": "第 {number} 章",
+    "readingMinutes": "阅读约 {count} 分钟",
+    "chapterPosition": "第 {current} / {total} 章",
+    "previous": "上一章",
+    "next": "下一章",
+    "chapters": {
+      "gettingStarted": {
+        "title": "开始使用",
+        "description": "安装应用、连接所需工具，并了解工作区的基本结构。"
+      },
+      "usingTheApp": {
+        "title": "使用应用",
+        "description": "了解人物、概念和风格数据集的完整工作流程。"
+      },
+      "datasetGuide": {
+        "title": "构建高质量数据集",
+        "description": "更合理地选择图片、标注、训练设置和检查点。"
+      },
+      "settingsReference": {
+        "title": "设置参考",
+        "description": "逐项说明每个设置的作用、默认值以及适合修改的场景。"
+      },
+      "troubleshooting": {
+        "title": "故障排查",
+        "description": "按症状查找原因，并采用最短、可靠的解决方法。"
+      },
+      "gettingHelp": {
+        "title": "获取帮助",
+        "description": "生成有效的诊断报告，并提供解决问题所需的信息。"
+      }
+    },
+    "diagnostic": {
+      "title": "一键生成问题报告",
+      "description": "复制版本、运行环境状态（Python/Pillow/磁盘）、各引擎状态与缺失的 Klein 文件、ComfyUI GPU/显存/队列、最近生成失败和错误堆栈。报告不包含 API 密钥或完整文件夹路径，主目录会替换为 ~。日志仍可能出现文件名，发布前请快速检查。",
+      "copy": "复制诊断报告",
+      "building": "正在生成…",
+      "copied": "诊断报告已复制，请粘贴到问题反馈中。",
+      "failed": "无法生成报告：{error}"
+    }
+  },
+  "studio": {
+    "title": "测试工作室",
+    "requiresComfyUI": "测试工作室需要 ComfyUI，请先在设置中完成配置。",
+    "comparing": "正在比较 {count} 个 LoRA",
+    "emptySelection": "勾选上方的 LoRA 进行调试和测试；勾选至少 2 个即可并排比较。",
+    "common": {
+      "checkpoint": "检查点"
+    },
+    "loraPicker": {
+      "loadFailed": "无法加载 LoRA 列表。",
+      "title": "要测试的 LoRA",
+      "comparison": "比较（{count}）",
+      "checked": "已选 {count} 个",
+      "loading": "正在加载 LoRA…",
+      "empty": "没有可用的已训练 LoRA，请先从数据集完成一次训练。",
+      "familyLocked": "一次测试只能使用一个模型系列；清空选择后可切换系列。",
+      "checkpointFor": "{name} 的检查点"
+    },
+    "solo": {
+      "noCheckpoint": "这个 LoRA 没有可用的检查点。",
+      "savedWinning": "已保存为最佳检查点"
+    },
+    "prompt": {
+      "replaceConfirm": "要替换当前提示词吗？",
+      "title": "提示词",
+      "describeTitle": "描述所选图像",
+      "describe": "识图描述",
+      "label": "测试提示词",
+      "resetTitle": "恢复默认提示词",
+      "default": "恢复默认"
+    },
+    "checkpoints": {
+      "title": "检查点",
+      "test": "测试检查点 {name}"
+    },
+    "strength": {
+      "title": "LoRA 强度",
+      "hideNegative": "隐藏负强度",
+      "showNegative": "显示负强度",
+      "negativeSelected": "已选择负强度",
+      "showNegativeTitle": "显示用于反差测试的负强度",
+      "hideExtended": "隐藏扩展强度",
+      "showExtended": "显示扩展强度",
+      "extendedSelected": "已选择扩展强度",
+      "negativeHint": "负强度会反转 LoRA 的作用，主要用于反差测试。"
+    },
+    "seed": {
+      "seed": "种子",
+      "rerollTitle": "生成新的随机种子",
+      "reroll": "随机",
+      "lockedTitle": "种子已锁定",
+      "autoTitle": "每次启动后自动使用新种子",
+      "auto": "自动",
+      "countTitle": "每组配置生成的图像数量",
+      "perConfig": "每组配置",
+      "batchTitle": "由于启用了批量 LoRA，每组配置会生成 {count} 次",
+      "estimate": "{count} 张图 · 约 {minutes} 分钟"
+    },
+    "family": {
+      "pipeline": "模型系列",
+      "trainedIn": "训练系列",
+      "testTitle": "测试基于 {family} 训练的 LoRA"
+    },
+    "actions": {
+      "launching": "正在启动…",
+      "runTest": "运行测试",
+      "quickNavigation": "测试工作室快捷导航"
+    },
+    "run": {
+      "progress": "正在生成 {generating} 个 · 排队 {queued} 个",
+      "stopResumable": "停止（稍后可继续）",
+      "stopped": "已停止 {count} 个单元，可按原设置继续",
+      "resume": "继续测试",
+      "queued": "已将 {count} 个生成任务加入队列（种子 {seed}{multiplier}）",
+      "launchFailed": "无法启动测试"
+    },
+    "shortcuts": {
+      "loras": "LoRA",
+      "promptSeed": "提示词与种子",
+      "format": "格式",
+      "sampling": "采样",
+      "engine": "引擎",
+      "detail": "细节",
+      "negative": "负向提示词",
+      "results": "结果"
+    },
+    "comparison": {
+      "baseModel": "基础模型（{family}）",
+      "baseModelLabel": "本次测试的基础模型",
+      "empty": "请先在左侧完成设置，再启动测试以并排比较 {count} 个 LoRA。"
+    },
+    "results": {
+      "title": "结果",
+      "imageCount": "{count} 张",
+      "voteTitle": "快速评价所有未评分图像（滑动或使用 👍/👎）",
+      "vote": "评价（{count}）",
+      "revoteTitle": "第二轮仅重新评价 👍 结果，进一步缩小范围",
+      "revote": "复评 👍（{count}）",
+      "reconfirmTitle": "♻️ 重新确认 👍",
+      "exportTitle": "将本次运行合成为一张便于分享的图像（检查点 × 强度）",
+      "exportUnavailable": "暂时没有可导出的已完成图像",
+      "export": "导出网格",
+      "chooseRun": "选择要显示的测试运行",
+      "currentRun": "当前运行",
+      "runNumber": "运行 #{number}"
+    },
+    "vote": {
+      "title": "快速评价",
+      "close": "关闭评价",
+      "strength": "强度",
+      "hint": "← 左滑/左方向键 = 👎 · 右滑/右方向键 = 👍 → · Esc = 关闭 · 跳过可暂不评价",
+      "dislike": "不喜欢",
+      "skip": "跳过",
+      "like": "喜欢"
+    },
+    "setup": {
+      "replaceDescription": "要用识图结果替换当前提示词吗？",
+      "promptOptional": "提示词（可选）",
+      "describeTitle": "使用视觉模型将图像描述为测试提示词",
+      "promptPlaceholder": "留空则使用 LoRA 的默认提示词…",
+      "newSeed": "生成新的随机种子",
+      "imagesPerConfig": "每组图像数",
+      "imagesPerConfigLabel": "每组配置生成的图像数量",
+      "gpuCost": "GPU 开销：已选 LoRA × 强度 × 每组图像数{batch}",
+      "batchCost": " × {count}（批量轴：分别测试不启用及启用每个 LoRA）",
+      "strengthUnit": "档强度",
+      "cellsToGenerate": "个单元待生成",
+      "selectOne": "请至少勾选一个 LoRA。"
+    },
+    "axes": {
+      "baseModel": "基础模型（多选）",
+      "formats": "图像格式（多选）",
+      "cfg": "CFG（多选）— 默认 {value}",
+      "steps": "步数（多选）— 默认 {value}",
+      "stepsPass1": "步数 · 第一阶段 — 经典（多选）— 默认 {value}",
+      "stepsPass2": "步数 · 第二阶段 — 细节增强（多选）— 默认 {value}"
+    },
+    "preflight": {
+      "mismatch": "“{name}” 是 {detected} LoRA，但当前是 {family} 测试工作室。ComfyUI 会静默忽略它，导致所有结果都像未启用 LoRA。请切换到 {detected} 工作室测试，或按该系列重新部署。",
+      "missing": "{family} 测试流程无法运行，因为 ComfyUI 缺少以下资源。添加后请重新启动测试。",
+      "files": "缺少模型文件（{count} 个）— 请放置到",
+      "nodes": "缺少自定义节点（{count} 个）— 请安装到 ComfyUI"
+    },
+    "recent": {
+      "title": "最近提示词（点击载入 · 🗑 删除）— 缩略图为喜欢的图像",
+      "deleteConfirm": "要删除这条最近提示词及其 {count} 张已保存测试图像吗？",
+      "deleteTitle": "删除这条最近提示词及其测试图像",
+      "deleteLabel": "删除这条最近提示词"
+    },
+    "describe": {
+      "invalidType": "请选择 webp、png 或 jpg 图像。",
+      "tooLarge": "图像过大（最大 {size} MB）。",
+      "httpFailed": "识图失败（HTTP {status}）",
+      "empty": "视觉模型返回了空描述。",
+      "failed": "识图失败，请确认应用可以连接 Ollama 后重试。",
+      "dialogLabel": "将图像描述为测试提示词",
+      "title": "识图生成描述",
+      "description": "视觉模型会根据图像生成包含场景、姿势、构图和服装的测试提示词，不会写入人物姓名或触发词，这些由测试工作室处理。",
+      "describing": "正在描述 {name}…",
+      "loadingHint": "视觉模型可能正在加载，通常需要几秒钟。",
+      "drop": "将图像拖到这里，或点击选择",
+      "formats": "webp、png 或 jpg · 最大 {size} MB"
+    },
+    "generation": {
+      "format": "格式",
+      "aspectRatio": "宽高比",
+      "aspect": {
+        "tall": "竖长",
+        "portrait": "人像",
+        "square": "方形",
+        "landscape": "横向",
+        "wide": "宽屏"
+      },
+      "resolution": "分辨率",
+      "outputSizeWithRatio": "输出尺寸由上方比例决定。标准档约为 100 万像素。",
+      "outputSizeWithAxis": "输出尺寸，比例由宽高比测试轴决定。标准档约为 100 万像素。",
+      "sampling": "采样",
+      "sampler": "采样器",
+      "scheduler": "调度器",
+      "kreaSampler": "Krea 采样器",
+      "kreaScheduler": "Krea 调度器",
+      "auto": "自动",
+      "detail": "细节",
+      "detailIntensity": "细节（Daemon 强度）",
+      "detailHint": "0.21 = SDXL 默认值 · ≤0.25 较安全 · 调高会增加细节，也可能产生 HDR/颗粒感",
+      "engine": "引擎",
+      "rebalance": "NSFW / 纹理重平衡",
+      "rebalanceLabel": "Krea 条件重平衡，用于解除限制和改善皮肤纹理",
+      "rebalanceHint": "提升被安全过滤的条件分支，以获得更少限制、减少塑料感的皮肤；关闭时为纯 SFW。",
+      "strength": "强度",
+      "rebalanceStrengthHint": "4 = 默认值 · 调高会增强效果",
+      "enhancer": "Krea2T 增强器（NSFW 提示词遵循）· 实验性",
+      "enhancerLabel": "Krea2T 提示词遵循增强器",
+      "enhancerHint": "模型侧的提示词遵循补丁，与重平衡相互独立；关闭后工作流保持原样。",
+      "enhancerStrengthHint": "1.0 = 默认值 · 范围 0–2",
+      "precision": "精度",
+      "precisionLabel": "Krea 加载器权重精度",
+      "highPrecision": "高精度",
+      "fast": "快速",
+      "fastPlus": "极速",
+      "wideRange": "宽范围",
+      "precisionHint": "如果增强器在 fp8 溢出时生成黑图，请使用 bf16；速度更慢，但显存占用相同。",
+      "alwaysOn": "常驻 LoRA（每个单元 · ⚖ 批量模式会作为测试轴）",
+      "noAlwaysOn": "此流程没有可用的常驻 LoRA。",
+      "negative": "负向提示词",
+      "negativeOptional": "负向提示词（可选）",
+      "negativePlaceholder": "留空则使用流程默认值…",
+      "negativePrompt": "负向提示词"
+    },
+    "best": {
+      "saved": "最佳设置",
+      "deleteConfirm": "要删除已保存的设置吗？",
+      "deleteTitle": "删除这条已保存设置",
+      "deleteLabel": "删除已保存设置",
+      "basedOnVotes": "最佳设置（根据你的评价）",
+      "scoreTitle": "{images} 张图中 +{likes} / −{dislikes}",
+      "votes": "{count} 次评价",
+      "lowSampleTitle": "当前评价样本较少，继续评价可提高推荐可靠性",
+      "lowSample": "样本较少",
+      "saveTitle": "将此配置保存为数据集的最佳设置",
+      "model": "模型",
+      "steps": "步数",
+      "perModel": "各模型最佳设置（{count}）",
+      "breakdown": "生成 {images} 张，其中 {voted} 张已评价",
+      "config": "最佳配置"
+    },
+    "ranking": {
+      "title": "LoRA 排名（{count}）",
+      "rank": "第 {rank} 名",
+      "likes": "{count} 个喜欢",
+      "dislikes": "{count} 个不喜欢",
+      "netTitle": "喜欢数减去不喜欢数",
+      "net": "净值",
+      "confidence": "置信度分数（Wilson 下界）"
+    },
+    "tile": {
+      "generating": "正在生成",
+      "queued": "排队中",
+      "failedTitle": "生成失败，请在设置中查看服务器日志了解详情。",
+      "failed": "失败",
+      "stopped": "已停止",
+      "open": "{name} @ {strength}（{aspect}）种子 {seed}{batch} — 点击放大",
+      "alt": "{name}，强度 {strength}，{aspect}，种子 {seed}",
+      "faceSimilarity": "与数据集参考图的人脸相似度：{score}",
+      "batchAxis": "批量轴：启用 {name}",
+      "like": "喜欢 {name} @ {strength}（{aspect}），种子 {seed}",
+      "dislike": "不喜欢 {name} @ {strength}（{aspect}），种子 {seed}"
+    },
+    "grid": {
+      "caption": "测试网格 {key}：行是检查点，列是强度",
+      "axes": "检查点 \\ 强度"
+    },
+    "lightbox": {
+      "title": "结果预览",
+      "previous": "上一张图",
+      "next": "下一张图",
+      "liked": "已喜欢 ✓",
+      "dislike": "不喜欢",
+      "disliked": "已标记不喜欢 ✓"
+    },
+    "export": {
+      "title": "导出网格",
+      "description": "将本次运行合成为一张带标签的图像（检查点 × 强度），便于直接分享。",
+      "formatBlock": "格式分组",
+      "allFormats": "全部格式（纵向堆叠）",
+      "tileSize": "单元尺寸",
+      "fileFormat": "文件格式",
+      "jpeg": "JPEG（文件较小）",
+      "png": "PNG（文件较大）",
+      "includePrompt": "包含提示词",
+      "promptHint": "默认关闭，因为提示词可能包含个人或 NSFW 内容。",
+      "footer": "添加“Made with LoRA Dataset Studio”页脚",
+      "downscaleWarning": "网格较大，图像会缩小以符合 {size}px 尺寸上限。",
+      "composing": "正在合成…",
+      "httpFailed": "导出失败（HTTP {status}）",
+      "exportedDownscaled": "网格已导出，并已缩小以符合尺寸上限",
+      "exported": "网格已导出",
+      "failed": "导出失败，请重试"
+    },
+    "modelComparison": {
+      "title": "基础模型比较（{count}）",
+      "rate": "喜欢率",
+      "voted": "已评价",
+      "generated": "已生成",
+      "official": "官方模型"
+    }
+  },
+  "errorBoundary": {
+    "unexpected": "发生了意外错误。",
+    "tryAgain": "重试",
+    "backToDatasets": "返回数据集",
+    "reload": "重新加载页面",
+    "technicalDetails": "技术详情",
+    "copyDiagnostic": "复制诊断信息",
+    "inline": "出现错误，请刷新页面。"
+  },
+  "settings": {
+    "title": "设置",
+    "sectionsLabel": "设置分类",
+    "search": "查找设置…",
+    "searchLabel": "查找设置",
+    "loading": "正在加载设置…",
+    "sectionResults": "分类（{count}）",
+    "settingResults": "设置项（{count}）",
+    "unsaved": "有未保存的更改",
+    "saveChanges": "保存更改",
+    "saved": "设置已保存。",
+    "saveFailed": "保存失败：{message}",
+    "loadFailed": "加载设置失败：{message}",
+    "removeConfirm": "移除已保存的 {label}？依赖它的引擎会停止工作，直到添加新密钥。",
+    "removed": "已移除 {label}。",
+    "removeFailed": "移除失败：{message}",
+    "status": {
+      "configured": "已配置",
+      "partial": "部分配置",
+      "off": "未配置"
+    },
+    "section": {
+      "overview": {
+        "title": "概览",
+        "eyebrow": "状态",
+        "description": "查看当前配置状态和建议的下一步。"
+      },
+      "engines": {
+        "title": "图像引擎",
+        "eyebrow": "生成",
+        "description": "配置用于生成数据集图像的 API 密钥和引擎。"
+      },
+      "scraping": {
+        "title": "抓取与来源",
+        "eyebrow": "来源",
+        "description": "配置扫描图像来源时使用的凭据。"
+      },
+      "local-tools": {
+        "title": "本地工具",
+        "eyebrow": "集成",
+        "description": "配置 ComfyUI、Ollama 和 ai-toolkit 的地址与安装位置。"
+      },
+      "captioning": {
+        "title": "标注与质量",
+        "eyebrow": "处理流程",
+        "description": "配置标注生成方式和面部相似度判定。"
+      },
+      "training": {
+        "title": "训练",
+        "eyebrow": "训练",
+        "description": "配置默认模型系列和云端 GPU 安全限制。"
+      },
+      "server": {
+        "title": "服务器与访问",
+        "eyebrow": "网络",
+        "description": "配置端口、局域网访问和访问令牌。"
+      },
+      "maintenance": {
+        "title": "维护",
+        "eyebrow": "维护",
+        "description": "管理更新、服务器日志和数据位置。"
+      }
+    },
+    "overview": {
+      "setupTitle": "先完成基础配置。",
+      "setupBefore": "至少添加一个图像 API 密钥即可开始，或者使用",
+      "setupLink": "设置向导",
+      "setupAfter": "扫描本机并逐步完成配置。",
+      "capabilities": "功能状态",
+      "readyCount": "{ready}/{total} 项就绪",
+      "whereToFix": "配置入口",
+      "imageEngines": "图像引擎",
+      "imageEnginesHint": "API 密钥、ChatGPT 订阅和默认引擎",
+      "localTools": "本地工具",
+      "localToolsHint": "ComfyUI、Ollama、ai-toolkit",
+      "training": "训练",
+      "trainingHint": "默认模型系列与云端 GPU",
+      "setupWizard": "设置向导",
+      "setupWizardHint": "引导扫描并安装上述组件",
+      "capability": {
+        "nanoBanana": "Nano Banana（Gemini）",
+        "chatgpt": "ChatGPT（gpt-image-2）",
+        "klein": "Klein（本地）",
+        "captioning": "自动标注",
+        "framing": "自动构图分类与头部裁剪",
+        "faceScoring": "面部相似度评分",
+        "masks": "人物蒙版",
+        "watermark": "水印修复",
+        "loraTraining": "LoRA 训练",
+        "testStudio": "测试工作室"
+      }
+    },
+    "engines": {
+      "apiKeysTitle": "API 密钥",
+      "apiKeysHelp": "密钥只写入不回显——即使已经保存，输入框仍会保持为空。",
+      "geminiLabel": "Gemini API 密钥",
+      "geminiHelp": "用于 Nano Banana 图像引擎。",
+      "openaiLabel": "OpenAI API 密钥",
+      "openaiHelp": "用于 ChatGPT（gpt-image-2）图像引擎。若连接下方的 ChatGPT 订阅，则此项可不填。",
+      "enginesTitle": "图像引擎",
+      "enginesHelp": "选择生成面板中显示的引擎，以及默认选中的引擎。",
+      "defaultEngine": "默认引擎",
+      "enabledEngines": "启用的引擎",
+      "subscription": {
+        "title": "ChatGPT 订阅（实验性）",
+        "help": "使用 ChatGPT Plus/Pro 的图像额度，而不是按次计费的 API 密钥。该非官方集成可能在 OpenAI 关闭相关入口后失效。与 API 模式相比：最多 5 张参考图，受订阅每日图像额度限制，并且仅支持 SFW。",
+        "connected": "已连接",
+        "connectedAs": "已连接——{email}",
+        "notConnected": "未连接",
+        "waiting": "正在等待输入验证码…",
+        "connect": "连接 ChatGPT",
+        "importCodex": "从 Codex CLI 导入",
+        "disconnect": "断开连接",
+        "openUrl": "1. 在任意设备上打开以下地址并登录：",
+        "enterCode": "2. 输入此一次性验证码（15 分钟后过期）：",
+        "authMode": "ChatGPT 引擎认证方式",
+        "authOptions": {
+          "auto": "自动——已连接时使用订阅，否则使用 API 密钥",
+          "api": "仅使用 API 密钥",
+          "subscription": "仅使用订阅"
+        },
+        "quotaHelp": "如果订阅额度在批次处理中耗尽，剩余任务会明确提示失败；应用不会静默切换到付费 API 密钥。",
+        "connectedToast": "ChatGPT 订阅已连接。",
+        "loginFailed": "登录失败，请重试。",
+        "startFailed": "无法启动登录流程。",
+        "importedToast": "已导入 Codex CLI 会话。",
+        "importFailed": "导入失败。",
+        "disconnectedToast": "已断开 ChatGPT 订阅。",
+        "disconnectFailed": "断开连接失败。"
+      },
+      "presets": {
+        "title": "Klein 生成 LoRA 预设（可选）",
+        "help": "为本地 Klein 引擎创建自定义 LoRA 文件链，并接在一致性 LoRA 之后。顺序即串联顺序；每个预设最多 {loras} 个 LoRA，共可保存 {presets} 个预设。系统会建议 ComfyUI models/loras 中的文件，并优先显示兼容 Klein 的文件；也可手动输入路径。每次生成可在 Klein 调整面板中选择预设。",
+        "none": "还没有预设——可在下方创建第一个组合。",
+        "new": "新建预设",
+        "myPreset": "我的预设",
+        "defaultName": "预设",
+        "copySuffix": "（副本）",
+        "nameLabel": "预设 {number} 名称",
+        "namePlaceholder": "预设名称",
+        "duplicate": "复制",
+        "duplicateTitle": "复制此预设",
+        "deleteTitle": "删除此预设",
+        "empty": "空预设——请在下方添加 LoRA。",
+        "fileLabel": "预设 {preset} 的第 {row} 个 LoRA 文件",
+        "strengthLabel": "预设 {preset} 的第 {row} 个 LoRA 强度",
+        "moveUpLabel": "将预设 {preset} 中的第 {row} 个 LoRA 上移",
+        "moveDownLabel": "将预设 {preset} 中的第 {row} 个 LoRA 下移",
+        "earlier": "提前串联",
+        "later": "延后串联",
+        "removeLabel": "从预设 {preset} 移除第 {row} 个 LoRA",
+        "removeTitle": "移除此 LoRA",
+        "addLora": "添加 LoRA",
+        "chainCount": "串联中已有 {count}/{max} 个"
+      }
+    }
+  },
+  "setup": {
+    "skip": "跳过设置——稍后再配置",
+    "welcome": {
+      "title": "欢迎使用 LoRA 数据集工作室",
+      "description": "先检查这台电脑已经安装的组件，再逐步补齐缺少的部分。你也可以不配置任何工具，直接用自己的照片开始创建数据集。",
+      "scanning": "正在扫描本机…",
+      "machineScan": "本机扫描",
+      "rescan": "重新扫描",
+      "readySummary": "{total} 项功能中已有 {ready} 项就绪；可访问的服务已自动填入。",
+      "allReady": "全部就绪——检查配置 →",
+      "start": "开始设置 →"
+    },
+    "scan": {
+      "comfyui": "本地图像生成——ComfyUI",
+      "ollama": "自动标注——Ollama + 视觉模型",
+      "training": "LoRA 训练——ai-toolkit",
+      "optional": "可选",
+      "ready": "就绪",
+      "notFound": "未找到",
+      "skipped": "已跳过",
+      "comfyPartial": "正在运行——Klein 模型可选",
+      "ollamaModel": "正在运行——需要拉取视觉模型",
+      "ollamaStopped": "已安装——未运行",
+      "trainingPartial": "已在磁盘找到——点击即可使用"
+    },
+    "done": {
+      "title": "设置完成",
+      "readySummary": "{total} 项功能中已有 {ready} 项就绪。",
+      "unlocked": "已解锁功能",
+      "build": "创建第一个数据集 →"
+    },
+    "status": {
+      "ready": "已就绪",
+      "partial": "即将完成",
+      "available": "尚未设置",
+      "skipped": "已跳过"
+    },
+    "step": "第 {current}/{total} 步",
+    "recommended": "推荐",
+    "unlocks": "解锁：{items}",
+    "back": "← 返回",
+    "saving": "正在保存…",
+    "continue": "保存并继续 →",
+    "finish": "保存并完成 →",
+    "setUp": "现在设置",
+    "skipForNow": "暂时跳过",
+    "unsavedBackConfirm": "当前步骤有尚未保存的更改，返回后这些更改将丢失。\n\n确定不保存并返回吗？",
+    "steps": {
+      "image": {
+        "title": "图像生成",
+        "unlocks": "Nano Banana（Gemini）· ChatGPT（gpt-image-2）· Klein（本地）"
+      },
+      "comfyui": {
+        "title": "ComfyUI——本地生成与测试工作室",
+        "unlocks": "Klein 引擎 · 测试工作室"
+      },
+      "ollama": {
+        "title": "Ollama——自动标注与构图识别",
+        "unlocks": "自动标注 · 自动识别构图 · 自动头部裁剪",
+        "modelMissing": "Ollama 正在运行，但尚未拉取视觉模型——自动标注需要该模型。",
+        "modelDescription": "——无内容限制，用于概念标注 · {vram}",
+        "pullModel": "拉取 {model}",
+        "url": "Ollama 地址",
+        "visionModel": "视觉模型",
+        "modelHint": "请使用经过 ABLITERATED 处理的 Qwen3-VL（{vram}）——原版模型会拒绝 NSFW 内容。为获得更好的标注效果，应用会将它与 JoyCaption（ai-toolkit）配合使用。",
+        "readyAt": "Ollama 正在运行：",
+        "configuredUrl": "已配置的地址",
+        "readyWithModel": "，视觉模型 ",
+        "readyDone": " 已就绪，无需其他操作。",
+        "installedAt": "Ollama 已安装于 {path}，但尚未运行。",
+        "installed": "Ollama 已安装，但尚未运行。",
+        "startHint": "启动后将监听 11434 端口，并解锁自动标注和构图识别；无需重启应用。",
+        "starting": "正在启动…",
+        "start": "启动 Ollama",
+        "started": "Ollama 已启动。",
+        "startFailed": "Ollama 启动后仍未就绪。",
+        "startError": "无法启动 Ollama。",
+        "gateNotInstalled": "尚未安装 Ollama——请下载并启动它（端口 11434）后继续。",
+        "gateNotRunning": "Ollama 已安装但尚未运行——请点击下方的“▶ 启动 Ollama”后继续。",
+        "gatePullModel": "请先在下方拉取视觉模型——Z-Image 标注需要该模型（JoyCaption 仅适用于 SDXL）。",
+        "gateFinish": "请完成此步骤后继续。",
+        "intro": "Ollama 用于在本地运行自动标注和构图识别模型。仅安装 Ollama 还不够，还需要拉取视觉模型。",
+        "installStep": "安装并启动 Ollama（默认使用 11434 端口）。",
+        "download": "下载 Ollama →"
+      },
+      "quality": {
+        "title": "质量工具（机器学习扩展）",
+        "unlocks": "人脸相似度评分 · 人物蒙版 · 水印修复"
+      },
+      "training": {
+        "title": "LoRA 训练——ai-toolkit",
+        "unlocks": "LoRA 训练 · JoyCaption 标注（附加功能）",
+        "directory": "ai-toolkit 目录",
+        "noGpu": "没有 GPU？可以跳过此步骤，并在“设置”中添加 vast.ai API 密钥进行云端训练。应用会为每次任务租用一张 GPU（通常约 1–2 美元），完成后自动关闭。",
+        "readyAt": "✓ ai-toolkit 已在 {path} 完成配置，无需其他操作。",
+        "foundAt": "在 {path} 找到 ai-toolkit，是否使用？",
+        "useThis": "使用此 ai-toolkit",
+        "notUsable": "已配置的文件夹 {path} 尚不可用——请按照 README 配置 Python 虚拟环境。",
+        "intro": "ai-toolkit 用于训练 LoRA。只需安装一次，然后将应用指向其文件夹。",
+        "clone": "克隆 ai-toolkit，并按照 README 配置虚拟环境。",
+        "github": "在 GitHub 查看 ai-toolkit →"
+      }
+    }
+  },
+  "toast": {
+    "close": "关闭通知"
+  },
+  "whatsNew": {
+    "title": "更新内容",
+    "newTitle": "更新内容——{count} 条新增",
+    "unread": "更新内容，{count} 条未读",
+    "close": "关闭更新内容",
+    "empty": "暂时没有新内容，请在下次更新后再来查看。",
+    "tryIt": "立即体验"
+  },
+  "help": {
+    "topic": "帮助：{title}",
+    "learnMore": "了解更多",
+    "dismissTip": "关闭提示",
+    "tips": {
+      "dataset-settings-modal": "提示词后缀可为所有生成变体添加创作方向，既可全局设置，也可按构图设置。",
+      "workspace-scrape": "网页采集现已移到侧边栏独立的“采集”分类中。",
+      "page-datasets": "可切换 S/M/L 缩略图大小、折叠分类并按数据集类型筛选。",
+      "klein": {
+        "generation_lora_presets": "请先在“设置 → 图像引擎”中创建并命名生成用 LoRA 预设，之后即可在每次生成时选择一个预设。"
+      },
+      "training": {
+        "dual_captions": "双标注会在本地训练时，为每张图片同时使用一份详细标注和一份简短标注。"
+      },
+      "action-watermark-clean": "水印清理支持两种引擎：LaMa 速度快，Klein 质量更高；也可以关闭自动裁剪。",
+      "continue-training": "可为现有任务追加训练步数、从较早的检查点恢复，或调整安全的保存频率与预览设置。",
+      "action-recaption-targeted": "可以只为单张存在信息泄漏的图片重新生成标注，也可以一次处理全部，无需重新运行完整标注流程。",
+      "action-watermark-restore": "如果不满意水印清理结果，可以恢复原图，然后改用另一种引擎重试。"
+    }
+  }
+}

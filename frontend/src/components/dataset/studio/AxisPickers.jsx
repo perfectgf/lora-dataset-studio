@@ -5,6 +5,8 @@
 //   - formats : aspects tableau de longueur > 1
 //   - CFG : cfgChoices est un tableau
 //   - steps : stepsChoices est un tableau
+import { useI18n } from '../../../i18n/I18nContext';
+
 export default function AxisPickers({
   zModels, effectiveModels, onToggleModel,
   aspects, effectiveAspects, onToggleAspect,
@@ -14,6 +16,7 @@ export default function AxisPickers({
   steps2Choices, effectiveSteps2, onToggleStep2, defaultSteps2,
   fmt,
 }) {
+  const { t } = useI18n();
   // En SDXL (2 passes), le 1er picker devient « pass 1 (classic) » ; sinon « Steps ».
   const hasPass2 = Array.isArray(steps2Choices);
   return (
@@ -22,7 +25,7 @@ export default function AxisPickers({
         <div className="flex flex-col gap-1">
           {/* Libellé générique : la liste vient du payload PAR FAMILLE (Z-Image,
               checkpoints SDXL, ou « Official + UNET Krea locaux »). */}
-          <span className="text-content-muted text-[0.625rem] uppercase">Base model (multi)</span>
+          <span className="text-content-muted text-[0.625rem] uppercase">{t('studio.axes.baseModel')}</span>
           <div className="flex gap-2 flex-wrap">
             {zModels.map((m) => (
               <button key={m.value} type="button" onClick={() => onToggleModel(m.value)}
@@ -40,7 +43,7 @@ export default function AxisPickers({
 
       {Array.isArray(aspects) && aspects.length > 1 && (
         <div className="flex flex-col gap-1">
-          <span className="text-content-muted text-[0.625rem] uppercase">Image formats (multi)</span>
+          <span className="text-content-muted text-[0.625rem] uppercase">{t('studio.axes.formats')}</span>
           <div className="flex gap-2 flex-wrap">
             {aspects.map((a) => (
               <button key={a} type="button" onClick={() => onToggleAspect(a)}
@@ -58,7 +61,7 @@ export default function AxisPickers({
 
       {Array.isArray(cfgChoices) && (
         <div className="flex flex-col gap-1">
-          <span className="text-content-muted text-[0.625rem] uppercase">CFG (multi) — default {fmt(defaultCfg ?? 1.0)}</span>
+          <span className="text-content-muted text-[0.625rem] uppercase">{t('studio.axes.cfg', { value: fmt(defaultCfg ?? 1.0) })}</span>
           <div className="flex gap-2 flex-wrap">
             {cfgChoices.map((v) => (
               <button key={v} type="button" onClick={() => onToggleCfg(v)}
@@ -77,7 +80,9 @@ export default function AxisPickers({
       {Array.isArray(stepsChoices) && (
         <div className="flex flex-col gap-1">
           <span className="text-content-muted text-[0.625rem] uppercase">
-            {hasPass2 ? 'Steps · pass 1 — classic (multi)' : 'Steps (multi)'} — default {defaultSteps ?? 8}
+            {hasPass2
+              ? t('studio.axes.stepsPass1', { value: defaultSteps ?? 8 })
+              : t('studio.axes.steps', { value: defaultSteps ?? 8 })}
           </span>
           <div className="flex gap-2 flex-wrap">
             {stepsChoices.map((v) => (
@@ -98,7 +103,7 @@ export default function AxisPickers({
           quand le backend la propose (steps2Choices non-null = dataset SDXL). */}
       {hasPass2 && (
         <div className="flex flex-col gap-1">
-          <span className="text-content-muted text-[0.625rem] uppercase">Steps · pass 2 — detail daemon (multi) — default {defaultSteps2 ?? 8}</span>
+          <span className="text-content-muted text-[0.625rem] uppercase">{t('studio.axes.stepsPass2', { value: defaultSteps2 ?? 8 })}</span>
           <div className="flex gap-2 flex-wrap">
             {steps2Choices.map((v) => (
               <button key={v} type="button" onClick={() => onToggleStep2(v)}

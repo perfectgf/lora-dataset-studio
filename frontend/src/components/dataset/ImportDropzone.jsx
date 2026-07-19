@@ -1,7 +1,9 @@
 /** Drop / pick real photos to import into the dataset. */
 import { useRef, useState } from 'react';
+import { useI18n } from '../../i18n/I18nContext';
 
 export default function ImportDropzone({ onImport, busy, visionBusy = false, cropOption = false, defaultCrop = true }) {
+  const { t } = useI18n();
   const inputRef = useRef(null);
   const [over, setOver] = useState(false);
   // Auto head-crop (square, vision pass). OFF keeps the original framing —
@@ -24,17 +26,18 @@ export default function ImportDropzone({ onImport, busy, visionBusy = false, cro
         ${over ? 'border-primary bg-primary/10' : 'border-border bg-surface'} ${busy ? 'opacity-50 pointer-events-none' : ''}`}
     >
       <span className="text-xl">📥</span>
-      <span className="text-content text-xs font-medium">Import real photos</span>
+      <span className="text-content text-xs font-medium">{t('workspace.import.title')}</span>
       <span className="text-content-subtle text-[0.625rem]">
-        drag and drop or click (normalized to 1024, kept)
+        {t('workspace.import.description')}
       </span>
       {cropOption && (
         <label onClick={(e) => e.stopPropagation()}
           className="flex items-center gap-1.5 text-[0.625rem] text-content-muted cursor-pointer"
-          title={visionBusy ? 'Auto head-crop is unavailable during local generation; photos import full-frame.' : 'ON: each photo is auto-cropped to a square head shot (vision pass, pauses ComfyUI). OFF: the photo keeps its original framing — use for bust/body shots.'}>
+          title={visionBusy ? t('workspace.import.autoCropUnavailableTitle') : t('workspace.import.autoCropTitle')}>
           <input type="checkbox" checked={crop} disabled={visionBusy} onChange={(e) => setCrop(e.target.checked)}
             className="accent-indigo-500 w-3 h-3" />
-          ✂ Auto head-crop (square){visionBusy ? ' — unavailable during local generation' : ''}
+          ✂ {t('workspace.import.autoCrop')}
+          {visionBusy ? ` — ${t('workspace.reference.unavailableLocal')}` : ''}
         </label>
       )}
       <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"

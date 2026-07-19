@@ -19,6 +19,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../../common/Toast';
+import { useI18n } from '../../../i18n/I18nContext';
 
 // Famille de l'entrée (le backend la fournit ; `train_type` = alias rétro-compat).
 const famOf = (l) => l.family || l.train_type || 'zimage';
@@ -35,6 +36,7 @@ const familyBadgeClass = (fam) => ({
 
 export default function LoraPicker({ preselectDataset, onSelectionChange }) {
   const toast = useToast();
+  const { t } = useI18n();
   const [loras, setLoras] = useState([]);
   const [loading, setLoading] = useState(true);
   // Map "datasetId:family" -> checkpoint filename choisi (présence de la clé = coché).
@@ -56,10 +58,10 @@ export default function LoraPicker({ preselectDataset, onSelectionChange }) {
       .catch(() => {
         if (cancelled) return;
         setLoading(false);
-        toast.error('Could not load the LoRA list');
+        toast.error(t('studio.loraPicker.loadFailed'));
       });
     return () => { cancelled = true; };
-  }, [toast]);
+  }, [t, toast]);
 
   // Pré-coche la 1re ligne du dataset pré-sélectionné (depuis l'URL) une fois la liste
   // chargée : checkpoint par défaut = le 1er (= le final côté backend).
@@ -145,20 +147,22 @@ export default function LoraPicker({ preselectDataset, onSelectionChange }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-content-muted text-[0.6875rem] uppercase">LoRA to test</span>
+        <span className="text-content-muted text-[0.6875rem] uppercase">{t('studio.loraPicker.title')}</span>
         {count >= 2 && (
           <span className="px-2 py-0.5 rounded-full text-[0.625rem] font-semibold bg-amber-400/15 border border-amber-400/40 text-amber-200">
-            ⚖ Comparison ({count})
+            ⚖ {t('studio.loraPicker.comparison', { count })}
           </span>
         )}
-        <span className="ml-auto text-content-subtle text-[0.6875rem]">{count} checked</span>
+        <span className="ml-auto text-content-subtle text-[0.6875rem]">
+          {t('studio.loraPicker.checked', { count })}
+        </span>
       </div>
 
       {loading ? (
-        <p className="text-content-subtle text-sm">Loading LoRA…</p>
+        <p className="text-content-subtle text-sm">{t('studio.loraPicker.loading')}</p>
       ) : loras.length === 0 ? (
         <p className="text-content-subtle text-sm">
-          No trained LoRA available. Train a LoRA from the Dataset Maker first.
+          {t('studio.loraPicker.empty')}
         </p>
       ) : (
         <div className="max-h-72 overflow-auto flex flex-col gap-1.5">
@@ -177,7 +181,7 @@ export default function LoraPicker({ preselectDataset, onSelectionChange }) {
                 }`}>
                 <button type="button" onClick={() => toggle(l)} aria-pressed={on}
                   disabled={locked}
-                  title={locked ? 'One run = one family only (deselect all to switch family)' : undefined}
+                  title={locked ? t('studio.loraPicker.familyLocked') : undefined}
                   className={`flex items-center gap-2 text-left ${locked ? 'cursor-not-allowed' : ''}`}>
                   <span aria-hidden className={`inline-flex w-4 h-4 shrink-0 items-center justify-center rounded border text-[0.625rem] ${on ? 'border-primary bg-primary/30 text-white' : 'border-border text-transparent'}`}>
                     ✓
@@ -202,10 +206,10 @@ export default function LoraPicker({ preselectDataset, onSelectionChange }) {
                 </button>
                 {on && l.checkpoints?.length > 1 && (
                   <label className="flex items-center gap-2 text-content-muted text-[0.6875rem] pl-6">
-                    <span className="whitespace-nowrap">Checkpoint:</span>
+                    <span className="whitespace-nowrap">{t('studio.common.checkpoint')}:</span>
                     <select value={picked[k] || ''}
                       onChange={(e) => setCheckpoint(k, e.target.value)}
-                      aria-label={`Checkpoint for ${l.lora_label}`}
+                      aria-label={t('studio.loraPicker.checkpointFor', { name: l.lora_label })}
                       className="flex-1 min-w-0 rounded border border-border bg-app/60 px-1.5 py-0.5 text-content">
                       {l.checkpoints.map((c) => (
                         <option key={c.filename} value={c.filename}>{c.label}</option>

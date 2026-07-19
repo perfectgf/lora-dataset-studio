@@ -152,6 +152,21 @@ test('(6) tips have unique triggers and non-empty text', () => {
   }
 })
 
+test('(6b) every tip has English and Simplified Chinese text', () => {
+  const packs = {
+    en: JSON.parse(read('../src/i18n/locales/en.json')),
+    'zh-CN': JSON.parse(read('../src/i18n/locales/zh-CN.json')),
+  }
+  const getMessage = (pack, path) => path.split('.').reduce((value, key) => value?.[key], pack)
+  for (const tip of helpTips()) {
+    const path = `help.tips.${tip.topicId}`
+    for (const [locale, pack] of Object.entries(packs)) {
+      const message = getMessage(pack, path)
+      assert.ok(typeof message === 'string' && message.trim(), `${locale}: missing ${path}`)
+    }
+  }
+})
+
 // ---- (7) instrumentation references resolve --------------------------------
 
 test('(7) every topic="…" / requestHelpTip(\'…\') in src resolves', () => {
@@ -182,10 +197,13 @@ test('(8) search matches settings by keyword/id', () => {
 test('(9) GuidePage registers the settings-reference chapter before troubleshooting', () => {
   const guide = read('../src/pages/GuidePage.jsx')
   assert.match(guide, /import settingsReference from '[^']*settings-reference\.md\?raw'/)
-  assert.match(guide, /\{ id: 'settings-reference', num: '04',[^\n]*source: settingsReference \}/)
+  assert.match(guide, /\{ id: 'settings-reference', num: '04',[^\n]*source: settingsReference,[^\n]*\}/)
   // The pre-existing help-navigation contract still holds: HELP_CHAPTER shape and
   // CHAPTERS excluding getting-help.
-  assert.match(guide, /const HELP_CHAPTER = [^\n]*source: gettingHelp, extra: 'diagnostic'/)
+  assert.match(
+    guide,
+    /const HELP_CHAPTER = \{[\s\S]*source: gettingHelp,[\s\S]*extra: 'diagnostic'/,
+  )
   const chaptersBlock = guide.match(/const CHAPTERS = \[([\s\S]*?)\n\]/)?.[1] || ''
   assert.doesNotMatch(chaptersBlock, /getting-help/)
 })

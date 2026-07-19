@@ -3,6 +3,7 @@ import { apiFetch, postJson } from '../../api/fetchClient'
 import DiagnosticReport from '../common/DiagnosticReport'
 import { Card, TextField } from './primitives'
 import { installMode, zipUpdateHeadline, progressLabel, progressPercent } from './updateStatus'
+import { useI18n } from '../../i18n/I18nContext'
 
 /* In-app updater: "Check for updates" hits the git-aware check (commits-behind for a
    clone, release tag for a packaged build). "Update & restart" pulls (git) or downloads
@@ -10,6 +11,7 @@ import { installMode, zipUpdateHeadline, progressLabel, progressPercent } from '
    poll /api/health until the relaunched process answers and hard-reload the SPA so the
    new frontend/dist loads. */
 function UpdatesCard() {
+  const { t } = useI18n()
   const [status, setStatus] = useState(null)
   const [checking, setChecking] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -31,7 +33,7 @@ function UpdatesCard() {
     try {
       setStatus(await apiFetch('/api/update/check?force=1'))
     } catch (e) {
-      setStatus({ ok: false, reason: e.message || 'Check failed' })
+      setStatus({ ok: false, reason: e.message || t('settings.maintenance.checkFailed') })
     } finally {
       setChecking(false)
     }
@@ -89,7 +91,7 @@ function UpdatesCard() {
         setApplying(false); setPhase('')
       }
     } catch (e) {
-      setStatus({ ok: false, reason: e.message || 'Update failed' })
+      setStatus({ ok: false, reason: e.message || t('settings.maintenance.updateFailed') })
       setApplying(false); setPhase('')
     }
   }
@@ -99,27 +101,29 @@ function UpdatesCard() {
   // latest release ships a ZIP asset (download + swap). Otherwise: link out.
   const canPull = s && s.update_available && (mode === 'git' || mode === 'zip')
   return (
-    <Card title="Updates" help="Pull the latest version from GitHub and restart — without leaving the app.">
+    <Card title={t('settings.maintenance.updatesTitle')} help={t('settings.maintenance.updatesHelp')}>
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={check} disabled={checking || applying}
           className="rounded-md border border-border-strong px-3 py-1.5 text-sm font-medium text-content hover:bg-surface-raised disabled:opacity-50">
-          {checking ? 'Checking…' : 'Check for updates'}
+          {checking ? t('settings.maintenance.checking') : t('settings.maintenance.checkUpdates')}
         </button>
         {s?.current && (
           <span className="text-xs text-content-subtle">
-            Current build:{' '}
+            {t('settings.maintenance.currentBuild')}{' '}
             <span className="font-medium text-content">v{s.current}{s.current_sha ? ` (${s.current_sha})` : ''}</span>
           </span>
         )}
         {s && (
           <span className="text-xs text-content-subtle">
-            Latest build:{' '}
+            {t('settings.maintenance.latestBuild')}{' '}
             <span className="font-medium text-content">
               {s.remote_sha
-                ? `${s.remote_sha}${typeof s.behind === 'number' && s.behind > 0 ? ` (+${s.behind} commit${s.behind === 1 ? '' : 's'})` : ''}`
+                ? `${s.remote_sha}${typeof s.behind === 'number' && s.behind > 0
+                  ? ` (${t('settings.maintenance.commitsAhead', { count: s.behind })})`
+                  : ''}`
                 : s.latest ? `v${s.latest}`
-                : s.update_available ? 'update available'
-                : '— press “Check for updates”'}
+                : s.update_available ? t('settings.maintenance.updateAvailable')
+                : t('settings.maintenance.pressCheck')}
             </span>
           </span>
         )}
@@ -129,7 +133,7 @@ function UpdatesCard() {
         {s && (s.compare_url || s.commits_url) && (
           <a href={s.compare_url || s.commits_url} target="_blank" rel="noreferrer"
             className="text-xs font-medium text-sky-300 underline hover:text-sky-200">
-            {s.compare_url ? 'See what’s in this update ↗' : 'Browse recent commits ↗'}
+            {s.compare_url ? t('settings.maintenance.seeUpdate') : t('settings.maintenance.browseCommits')}
           </a>
         )}
       </div>
@@ -138,10 +142,10 @@ function UpdatesCard() {
         <div className="space-y-1.5" role="status" aria-live="polite">
           <p className="text-sm text-content-muted">
             {phase === 'restarting'
-              ? '↻ Updated — the app is restarting. This page reloads automatically when it’s back…'
-              : progressLabel(progress) || (mode === 'zip'
-                ? '⬇ Downloading and installing the latest release…'
-                : '⬇ Pulling the latest version…')}
+              ? t('settings.maintenance.updatedRestarting')
+              : progressLabel(progress, t) || (mode === 'zip'
+                ? t('settings.maintenance.downloadingInstalling')
+                : t('settings.maintenance.pulling'))}
           </p>
           {/* Real progress bar while downloading a release ZIP (indeterminate when
               the server reported no Content-Length). Git pulls stay text-only. */}
@@ -161,25 +165,30 @@ function UpdatesCard() {
               <span className="text-content">
                 <span aria-hidden>⬆</span>{' '}
                 {typeof s.behind === 'number'
-                  ? `${s.behind} commit${s.behind === 1 ? '' : 's'} behind${s.current_sha && s.remote_sha ? ` (${s.current_sha} → ${s.remote_sha})` : ''}.`
-                  : `${zipUpdateHeadline(s)}.`}
+                  ? t('settings.maintenance.behind', {
+                    count: s.behind,
+                    refs: s.current_sha && s.remote_sha ? ` (${s.current_sha} → ${s.remote_sha})` : '',
+                  })
+                  : `${zipUpdateHeadline(s, t)}.`}
               </span>
               <button type="button" onClick={apply}
                 className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">
-                Update &amp; restart
+                {t('settings.maintenance.updateRestart')}
               </button>
             </div>
           ) : s.update_available ? (
             <p className="text-content">
-              Update available{s.latest ? ` — v${s.latest}` : ''} —{' '}
+              {t('settings.maintenance.availableVersion', { version: s.latest ? ` — v${s.latest}` : '' })}{' '}
               <a href={s.url} target="_blank" rel="noreferrer" className="font-semibold text-emerald-300 underline">
-                download the latest release
-              </a>{' '}and replace the folder.
+                {t('settings.maintenance.downloadRelease')}
+              </a>{' '}{t('settings.maintenance.replaceFolder')}
             </p>
           ) : s.ok ? (
-            <p className="text-emerald-400"><span aria-hidden>✓</span> You’re up to date.</p>
+            <p className="text-emerald-400"><span aria-hidden>✓</span> {t('settings.maintenance.upToDate')}</p>
           ) : (
-            <p className="text-content-muted"><span aria-hidden>⚠</span> {s.reason || 'Could not check for updates.'}</p>
+            <p className="text-content-muted">
+              <span aria-hidden>⚠</span> {s.reason || t('settings.maintenance.couldNotCheck')}
+            </p>
           )}
         </div>
       )}
@@ -191,6 +200,7 @@ function UpdatesCard() {
    can be copy-pasted into a bug report without hunting for files. Fetches on
    open, auto-refreshes every 5 s while open. */
 function LogViewer() {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [file, setFile] = useState(null)
   const [lines, setLines] = useState([])
@@ -211,10 +221,13 @@ function LogViewer() {
     <section className="rounded-xl border border-border bg-surface p-5">
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex w-full items-center gap-2 text-left">
-        <h2 className="text-base font-semibold text-content">🪵 Server log</h2>
+        <h2 className="text-base font-semibold text-content">🪵 {t('settings.maintenance.logTitle')}</h2>
         <span className="text-xs text-content-subtle">
-          {open ? (file ? `data/${file} — last ${lines.length} lines, refreshes every 5 s` : 'no log file yet')
-            : 'something failed? open this and copy the log into your bug report'}
+          {open
+            ? (file
+              ? t('settings.maintenance.logStatus', { file: `data/${file}`, count: lines.length })
+              : t('settings.maintenance.noLog'))
+            : t('settings.maintenance.logClosedHelp')}
         </span>
         <span aria-hidden className="ml-auto text-content-subtle">{open ? '▾' : '▸'}</span>
       </button>
@@ -223,15 +236,15 @@ function LogViewer() {
           <div className="flex gap-2">
             <button type="button" onClick={load}
               className="rounded-md border border-border bg-surface-raised px-2.5 py-1 text-xs text-content">
-              ↻ Refresh
+              ↻ {t('settings.maintenance.refresh')}
             </button>
             <button type="button" onClick={copy} disabled={!lines.length}
               className="rounded-md border border-border bg-surface-raised px-2.5 py-1 text-xs text-content disabled:opacity-40">
-              📋 Copy all
+              📋 {t('settings.maintenance.copyAll')}
             </button>
           </div>
           <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-app/60 p-2 text-[11px] leading-snug text-content-muted">
-            {lines.length ? lines.join('\n') : 'Log is empty.'}
+            {lines.length ? lines.join('\n') : t('settings.maintenance.logEmpty')}
           </pre>
         </div>
       )}
@@ -243,6 +256,7 @@ function LogViewer() {
    deployed LoRAs) is MOVED here — this card is the only place bytes actually
    die. Size fetched once on mount (no poll). */
 function TrashCard() {
+  const { t } = useI18n()
   const [size, setSize] = useState(null)
   const [busy, setBusy] = useState(false)
   const [opening, setOpening] = useState(false)
@@ -255,20 +269,20 @@ function TrashCard() {
   }, [])
   const fmt = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB`
     : b >= 1e6 ? `${Math.round(b / 1e6)} MB`
-    : b > 0 ? `${Math.max(1, Math.round(b / 1e3))} KB` : 'empty')
+    : b > 0 ? `${Math.max(1, Math.round(b / 1e3))} KB` : t('settings.maintenance.empty'))
   const openFolder = async () => {
     setOpening(true)
     try {
       const d = await postJson('/api/trash/open', {})
-      if (!d?.ok) window.alert(d?.error || 'Could not open the trash folder.')
+      if (!d?.ok) window.alert(d?.error || t('settings.maintenance.openTrashFailed'))
     } catch {
-      window.alert('Could not open the trash folder.')
+      window.alert(t('settings.maintenance.openTrashFailed'))
     } finally {
       setOpening(false)
     }
   }
   const empty = async () => {
-    if (!window.confirm('Permanently delete everything in the trash?\n\nThis is the ONLY destructive action — deleted checkpoints cannot be recovered afterwards.')) return
+    if (!window.confirm(t('settings.maintenance.emptyConfirm'))) return
     setBusy(true)
     try {
       const d = await postJson('/api/trash/empty', {})
@@ -278,20 +292,20 @@ function TrashCard() {
     }
   }
   return (
-    <Card title="Trash" help="Everything the app deletes (checkpoints, cloud staging, deployed LoRAs) is moved here first — emptying it is the only action that actually destroys files.">
+    <Card title={t('settings.maintenance.trashTitle')} help={t('settings.maintenance.trashHelp')}>
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-content">
-          <span aria-hidden>🗑</span> Trash size:{' '}
+          <span aria-hidden>🗑</span> {t('settings.maintenance.trashSize')}{' '}
           <span className="font-semibold tabular-nums">{size == null ? '…' : fmt(size)}</span>
         </span>
         <button type="button" onClick={openFolder} disabled={opening}
-          title="Open the trash folder in the file explorer"
+          title={t('settings.maintenance.openTrashTitle')}
           className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm font-medium text-content disabled:opacity-40">
-          {opening ? 'Opening…' : '📂 Open folder'}
+          {opening ? t('settings.maintenance.opening') : t('settings.maintenance.openFolder')}
         </button>
         <button type="button" onClick={empty} disabled={busy || !size}
           className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-300 disabled:opacity-40">
-          {busy ? 'Emptying…' : 'Empty trash'}
+          {busy ? t('settings.maintenance.emptying') : t('settings.maintenance.emptyTrash')}
         </button>
       </div>
     </Card>
@@ -299,17 +313,18 @@ function TrashCard() {
 }
 
 export default function MaintenanceSection({ config, setField }) {
+  const { t } = useI18n()
   return (
     <div className="space-y-6">
       <UpdatesCard />
       <TrashCard />
-      <Card title="Data" help="Where dataset images live on disk.">
+      <Card title={t('settings.maintenance.dataTitle')} help={t('settings.maintenance.dataHelp')}>
         <TextField
           id="dataset-images-root"
-          label="Dataset images root"
+          label={t('settings.maintenance.imagesRoot')}
           value={config.paths.dataset_images_root}
           onChange={(v) => setField('paths', 'dataset_images_root', v)}
-          placeholder="Defaults to data/datasets"
+          placeholder={t('settings.maintenance.imagesRootPlaceholder')}
         />
       </Card>
       <DiagnosticReport />

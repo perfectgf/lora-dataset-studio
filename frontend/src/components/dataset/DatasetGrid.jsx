@@ -7,17 +7,11 @@ import {
   runSequentialKleinImprove,
 } from '../../utils/kleinBulkImprove';
 import { useToast } from '../common/Toast';
+import { useI18n } from '../../i18n/I18nContext';
 
 const DEFAULT_GREEN = 0.50;
 
 // 3-4 line plain-language explanation for the 🎯 panel's "?" button.
-const AUTO_TRIAGE_HELP = [
-  'Marks the UNDECIDED, face-scored images: keep when the face similarity is ≥ the threshold, reject below it.',
-  'It never deletes anything and never touches your manual ✓/✕ — those are left as-is and drop out of a Re-apply.',
-  'Images with no score (face too small / no face detected) are skipped — judge those by eye.',
-  'After an Apply, move the slider and Re-apply to re-sort everything it triaged this session at the new threshold.',
-];
-
 // Thumbnail size (S/M/L): 3 crans plutôt qu'un slider (fragile à la souris, pas
 // de granularité utile ici). Persisté en préférence GLOBALE (pas par dataset —
 // même pattern que `datasetGenerator`) : c'est un réglage d'affichage, pas une
@@ -30,12 +24,6 @@ const TILE_SIZE_COLS = {
   M: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4',
   L: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
 };
-const TILE_SIZE_TITLE = {
-  S: 'Small tiles — more per row, quick overview',
-  M: 'Medium tiles (default)',
-  L: 'Large tiles — see the full composition before you crop/keep/reject',
-};
-
 /* Auto-triage (A2): pre-mark scorable images by face-score threshold —
    score >= t -> keep, below -> reject. It marks the currently UNDECIDED scorable
    images AND re-owns the images IT decided earlier in this session, so the panel
@@ -49,6 +37,7 @@ const TILE_SIZE_TITLE = {
    the same batch endpoint as the manual multi-select, which already allows a
    direct keep<->reject switch (no backend change). */
 function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy }) {
+  const { t: translate } = useI18n();
   const [t, setT] = useState(() => faceThresholds?.green ?? DEFAULT_GREEN);
   // Session memory: image id -> the status auto-triage last assigned it
   // ('keep'|'reject'). An image whose CURRENT status still equals this value is
@@ -106,10 +95,12 @@ function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy }) {
 
   return (
     <div className="relative flex items-center gap-3 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
-      <span className="text-content text-sm font-semibold shrink-0">🎯 Auto-triage</span>
+      <span className="text-content text-sm font-semibold shrink-0">
+        🎯 {translate('workspace.imageBulk.autoTriage.title')}
+      </span>
       <button type="button" onClick={() => setShowHelp((v) => !v)}
-        aria-expanded={showHelp} aria-label="What does auto-triage do?"
-        title="What does auto-triage do?"
+        aria-expanded={showHelp} aria-label={translate('workspace.imageBulk.autoTriage.what')}
+        title={translate('workspace.imageBulk.autoTriage.what')}
         className="shrink-0 w-5 h-5 -ml-1 rounded-full border border-border bg-surface-raised text-content-muted text-xs font-bold leading-none hover:text-content hover:bg-surface">
         ?
       </button>
@@ -119,33 +110,47 @@ function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy }) {
           <div className="fixed inset-0 z-40" onClick={() => setShowHelp(false)} aria-hidden />
           <div role="tooltip"
             className="absolute z-50 top-full left-2 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface p-3 shadow-xl flex flex-col gap-1.5">
-            {AUTO_TRIAGE_HELP.map((line) => (
-              <p key={line} className="text-[11px] leading-snug text-content-muted">{line}</p>
+            {[1, 2, 3, 4].map((line) => (
+              <p key={line} className="text-[11px] leading-snug text-content-muted">
+                {translate(`workspace.imageBulk.autoTriage.help.${line}`)}
+              </p>
             ))}
           </div>
         </>
       )}
       <label className="flex items-center gap-2 text-xs text-content-muted">
-        keep&nbsp;≥
+        {translate('workspace.imageBulk.autoTriage.keepAtLeast')}&nbsp;≥
         <input type="range" min="0.30" max="0.70" step="0.01" value={t}
           onChange={(e) => setT(parseFloat(e.target.value))}
-          aria-label="Face-score threshold for auto-triage" className="w-36" />
+          aria-label={translate('workspace.imageBulk.autoTriage.threshold')} className="w-36" />
         <span className="font-mono text-content w-10">{t.toFixed(2)}</span>
       </label>
       <span className="text-xs text-content-subtle">
-        → keep {keepTargets.length} · reject {rejectTargets.length}
+        → {translate('workspace.imageBulk.autoTriage.outcome', {
+          kept: keepTargets.length,
+          rejected: rejectTargets.length,
+        })}
         {isReplay
-          ? ` (re-sort ${ownedImgs.length}${pending.length ? ` + ${pending.length} new` : ''})`
-          : ` (of ${replay.length} undecided)`}
+          ? ` (${translate('workspace.imageBulk.autoTriage.resort', {
+              count: ownedImgs.length,
+              newCount: pending.length,
+            })})`
+          : ` (${translate('workspace.imageBulk.autoTriage.undecided', { count: replay.length })})`}
       </span>
       <button type="button" onClick={apply} disabled={busy || nothingToDo}
-        title="Marks only scored images — your manual ✓/✕ choices are never changed"
+        title={translate('workspace.imageBulk.autoTriage.applyTitle')}
         className="ml-auto px-3 py-1 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold disabled:opacity-40 hover:bg-surface">
-        {isReplay ? 'Re-apply' : 'Apply'}
+        {translate(isReplay
+          ? 'workspace.imageBulk.autoTriage.reapply'
+          : 'workspace.imageBulk.autoTriage.apply')}
       </button>
       {lastRun && (
         <span className="text-xs text-emerald-400">
-          ✓ applied: kept {lastRun.kept} · rejected {lastRun.rejected} at ≥ {lastRun.t.toFixed(2)}
+          ✓ {translate('workspace.imageBulk.autoTriage.applied', {
+            kept: lastRun.kept,
+            rejected: lastRun.rejected,
+            threshold: lastRun.t.toFixed(2),
+          })}
         </span>
       )}
     </div>
@@ -158,6 +163,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
                                       onImprove, onRefresh, kleinAvailable = false,
                                       eligibilityImages, dualCaptions = false }) {
   const toast = useToast();
+  const { t } = useI18n();
   const [selected, setSelected] = useState(() => new Set());
   const [bulkImprove, setBulkImprove] = useState(null); // {running, done, total}
   const datasetIdRef = useRef(datasetId);
@@ -198,7 +204,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
     return (
       <p id="ds-images-review" tabIndex={-1} data-workspace-focus
         className="text-content-subtle text-xs scroll-mt-20">
-        No images — generate variations or import photos.
+        {t('workspace.images.empty')}
       </p>
     );
   }
@@ -208,10 +214,20 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   const ids = [...selected];
   const improveUniverse = Array.isArray(eligibilityImages) ? eligibilityImages : images;
   const improveSelection = partitionKleinImproveSelection(improveUniverse, ids);
+  const exclusionReason = (reason) => {
+    const key = {
+      'image no longer exists': 'missing',
+      'image file is not ready': 'fileNotReady',
+      'resolve the Klein rescue pair first': 'rescuePair',
+      'already an improvement candidate': 'alreadyCandidate',
+      'an improvement is already pending review': 'pendingReview',
+    }[reason];
+    return key ? t(`workspace.imageBulk.reasons.${key}`) : reason;
+  };
   const exclusionSummary = [...improveSelection.excluded.reduce((counts, item) => {
     counts.set(item.reason, (counts.get(item.reason) || 0) + 1);
     return counts;
-  }, new Map())].map(([reason, count]) => `${count} ${reason}`).join(' · ');
+  }, new Map())].map(([reason, count]) => `${count} ${exclusionReason(reason)}`).join(' · ');
   const toggle = (id) => setSelected((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -220,7 +236,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   const act = async (action) => {
     if (bulkBusy) return;
     if (action === 'delete'
-        && !window.confirm(`Permanently delete the ${ids.length} selected image(s) (files included)?`)) return;
+        && !window.confirm(t('workspace.imageBulk.deleteConfirm', { count: ids.length }))) return;
     await onBatch(ids, action);
     setSelected(new Set());
   };
@@ -228,11 +244,14 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
     const { eligible, excluded } = partitionKleinImproveSelection(improveUniverse, ids);
     if (!onImprove || !kleinAvailable || !eligible.length || bulkBusy) return;
     const skipped = excluded.length
-      ? `\n\n${excluded.length} selected image(s) will be skipped: ${exclusionSummary}.`
+      ? `\n\n${t('workspace.imageBulk.improveSkipped', {
+          count: excluded.length,
+          reasons: exclusionSummary,
+        })}`
       : '';
     if (!window.confirm(
-      `Create a separate 2 MP Klein improvement candidate for ${eligible.length} image(s)?`
-      + `${skipped}\n\nOriginal images stay unchanged until you review the candidates.`,
+      t('workspace.imageBulk.improveConfirm', { count: eligible.length })
+      + `${skipped}\n\n${t('workspace.imageBulk.originalsUnchanged')}`,
     )) return;
     const batchDatasetId = datasetId;
     const runToken = ++bulkImproveRunRef.current;
@@ -262,11 +281,18 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
       setSelected(new Set());
       setBulkImprove({ running: false, done: eligible.length, total: eligible.length });
       if (unexpectedError) {
-        toast.error(`Bulk Klein improvement stopped unexpectedly: ${unexpectedError.message || 'unknown error'}`);
+        toast.error(t('workspace.imageBulk.toast.stopped', {
+          error: unexpectedError.message || t('workspace.imageBulk.toast.unknownError'),
+        }));
       } else if (result.failed.length || refreshFailed) {
-        toast.warning(`Klein improvement queued for ${result.succeeded.length}/${eligible.length} image(s) · ${result.failed.length} failed or refused${refreshFailed ? ' · refresh failed' : ''}.`);
+        toast.warning(t('workspace.imageBulk.toast.partial', {
+          succeeded: result.succeeded.length,
+          total: eligible.length,
+          failed: result.failed.length,
+          refresh: refreshFailed ? t('workspace.imageBulk.toast.refreshFailed') : '',
+        }));
       } else {
-        toast.success(`Klein improvement queued for ${result.succeeded.length} image(s) — originals stay intact.`);
+        toast.success(t('workspace.imageBulk.toast.queued', { count: result.succeeded.length }));
       }
     }
   };
@@ -284,57 +310,81 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
         {onBatch && (
           selected.size === 0 ? (
             <>
-              <span className="text-content-subtle">Tick images to curate them in bulk —</span>
+              <span className="text-content-subtle">{t('workspace.imageBulk.hint')}</span>
               <button type="button" data-workspace-focus
                 disabled={bulkBusy}
                 onClick={() => setSelected(new Set(selectable.map((i) => i.id)))}
-                className="text-content-muted underline hover:text-content disabled:opacity-40">select all ({selectable.length})</button>
+                className="text-content-muted underline hover:text-content disabled:opacity-40">
+                {t('workspace.imageBulk.selectAll', { count: selectable.length })}
+              </button>
             </>
           ) : (
-            <div role="toolbar" aria-label="Bulk actions on the selection"
+            <div role="toolbar" aria-label={t('workspace.imageBulk.toolbar')}
               className="flex items-center gap-2 flex-wrap rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-2.5 py-1.5 w-full">
-              <span className="text-content font-semibold">{selected.size} selected</span>
+              <span className="text-content font-semibold">
+                {t('workspace.imageBulk.selected', { count: selected.size })}
+              </span>
               <button type="button" disabled={bulkBusy} onClick={() => act('keep')}
-                className={`${batchBtn} bg-green-600/80 text-white`}>✓ Keep</button>
+                className={`${batchBtn} bg-green-600/80 text-white`}>✓ {t('workspace.imageBulk.keep')}</button>
               <button type="button" disabled={bulkBusy} onClick={() => act('reject')}
-                className={`${batchBtn} bg-red-600/80 text-white`}>✕ Reject</button>
+                className={`${batchBtn} bg-red-600/80 text-white`}>✕ {t('workspace.imageBulk.reject')}</button>
               <button type="button" disabled={bulkBusy} onClick={() => act('pending')}
-                title="Back to undecided" className={`${batchBtn} bg-surface text-content border border-border`}>↺ Undecide</button>
+                title={t('workspace.imageBulk.undecideTitle')}
+                className={`${batchBtn} bg-surface text-content border border-border`}>
+                ↺ {t('workspace.imageBulk.undecide')}
+              </button>
               <button type="button" disabled={bulkBusy} onClick={() => act('clear_caption')}
-                title="Delete the selected images' captions (the Caption button then regenerates them)"
-                className={`${batchBtn} bg-surface text-content border border-border`}>🧹 Clear captions</button>
+                title={t('workspace.imageBulk.clearCaptionsTitle')}
+                className={`${batchBtn} bg-surface text-content border border-border`}>
+                🧹 {t('workspace.imageBulk.clearCaptions')}
+              </button>
               {onImprove && (
                 <button type="button" onClick={improveSelected}
                   disabled={bulkBusy || !kleinAvailable || !improveSelection.eligible.length}
                   title={!kleinAvailable
-                    ? 'Klein is not available in this setup'
+                    ? t('workspace.imageBulk.kleinUnavailable')
                     : improveSelection.eligible.length
-                      ? `Creates separate 2 MP candidates sequentially.${exclusionSummary ? ` Excluded: ${exclusionSummary}.` : ''}`
-                      : `No selected image is eligible.${exclusionSummary ? ` ${exclusionSummary}.` : ''}`}
+                      ? t('workspace.imageBulk.improveTitle', { exclusions: exclusionSummary })
+                      : t('workspace.imageBulk.noneEligible', { exclusions: exclusionSummary })}
                   className={`${batchBtn} border border-indigo-400/50 bg-indigo-500/20 text-indigo-100`}>
                   {bulkImprove?.running
-                    ? `✨ Improving ${bulkImprove.done}/${bulkImprove.total}`
-                    : `✨ Improve via Klein (${improveSelection.eligible.length})`}
+                    ? `✨ ${t('workspace.imageBulk.improving', {
+                        done: bulkImprove.done,
+                        total: bulkImprove.total,
+                      })}`
+                    : `✨ ${t('workspace.imageBulk.improve', {
+                        count: improveSelection.eligible.length,
+                      })}`}
                 </button>
               )}
               {onImprove && improveSelection.excluded.length > 0 && (
                 <span className="text-content-subtle" title={exclusionSummary}>
-                  {improveSelection.excluded.length} not eligible
+                  {t('workspace.imageBulk.notEligible', { count: improveSelection.excluded.length })}
                 </span>
               )}
               <button type="button" disabled={bulkBusy} onClick={() => act('delete')}
-                className={`${batchBtn} bg-red-500/15 border border-red-500/40 text-red-300`}>🗑 Delete</button>
+                className={`${batchBtn} bg-red-500/15 border border-red-500/40 text-red-300`}>
+                🗑 {t('workspace.imageBulk.delete')}
+              </button>
               <span className="ml-auto flex gap-2">
                 <button type="button" disabled={bulkBusy}
                   onClick={() => setSelected(new Set(selectable.map((i) => i.id)))}
-                  className="text-content-muted underline hover:text-content disabled:opacity-40">all ({selectable.length})</button>
+                  className="text-content-muted underline hover:text-content disabled:opacity-40">
+                  {t('workspace.imageBulk.all', { count: selectable.length })}
+                </button>
                 <button type="button" disabled={bulkBusy} onClick={() => setSelected(new Set())}
-                  className="text-content-muted underline hover:text-content disabled:opacity-40">none</button>
+                  className="text-content-muted underline hover:text-content disabled:opacity-40">
+                  {t('workspace.imageBulk.none')}
+                </button>
               </span>
             </div>
           )
         )}
-        <TileSizeControl size={tileSize} onChange={setTileSize} titles={TILE_SIZE_TITLE} className="ml-auto" />
+        <TileSizeControl size={tileSize} onChange={setTileSize} titles={{
+          S: t('workspace.imageBulk.tileSize.small'),
+          M: t('workspace.imageBulk.tileSize.medium'),
+          L: t('workspace.imageBulk.tileSize.large'),
+        }} className="ml-auto" />
       </div>
       <div className={`grid ${TILE_SIZE_COLS[tileSize]} gap-2`}>
         {images.map((img) => (

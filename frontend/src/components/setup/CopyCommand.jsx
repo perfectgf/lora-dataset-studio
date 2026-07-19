@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { useI18n } from '../../i18n/I18nContext'
 
 export default function CopyCommand({ command }) {
+  const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
@@ -16,7 +18,7 @@ export default function CopyCommand({ command }) {
       </code>
       <button type="button" onClick={copy}
         className="shrink-0 rounded-md border border-border-strong px-2 py-1 text-[11px] text-content hover:bg-surface-raised">
-        {copied ? 'Copied' : 'Copy'}
+        {copied ? t('common.copied') : t('common.copy')}
       </button>
     </div>
   )

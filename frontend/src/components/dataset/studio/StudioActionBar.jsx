@@ -14,7 +14,8 @@
  * relevé au-dessus via PAGES_WITH_BOTTOM_BAR ('/studio').
  */
 
-export default function StudioActionBar({ shortcuts = [], canRun, running, onRun, runLabel = '🚀 Run the test' }) {
+export default function StudioActionBar({ shortcuts = [], canRun, running, onRun, runLabel }) {
+  const { t } = useI18n();
   const jump = (id) => {
     try { window.dispatchEvent(new CustomEvent('studio:reveal', { detail: id })); } catch { /* ignore */ }
     // Laisse la section s'ouvrir (setState) avant de scroller vers elle.
@@ -23,7 +24,7 @@ export default function StudioActionBar({ shortcuts = [], canRun, running, onRun
     });
   };
   return (
-    <nav aria-label="Studio quick navigation"
+    <nav aria-label={t('studio.actions.quickNavigation')}
       className="fixed bottom-0 left-0 right-0 z-[9960] border-t border-border bg-app/90 backdrop-blur-md">
       <div className="flex items-center gap-1.5 px-3 sm:px-5 py-2 overflow-x-auto">
         {shortcuts.map((s) => (
@@ -34,9 +35,10 @@ export default function StudioActionBar({ shortcuts = [], canRun, running, onRun
         ))}
         <button type="button" onClick={onRun} disabled={!canRun}
           className="ml-auto shrink-0 px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-          {running ? '…' : runLabel}
+          {running ? '…' : (runLabel || `🚀 ${t('studio.actions.runTest')}`)}
         </button>
       </div>
     </nav>
   );
 }
+import { useI18n } from '../../../i18n/I18nContext';

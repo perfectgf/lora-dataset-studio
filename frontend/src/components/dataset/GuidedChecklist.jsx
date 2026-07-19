@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useI18n } from '../../i18n/I18nContext';
 
 /* Vertical, numbered progress checklist — the workspace's left sidebar. Same step
    data as the old horizontal GuidedStepper (from useGuidedFlow): every step is a
@@ -6,11 +7,12 @@ import { Link } from 'react-router-dom';
    ComfyUI) links to Settings with its hint. Status is glyph + text, never
    color-only, so it stays legible without relying on hue (a11y). */
 export default function GuidedChecklist({ steps, currentId, onJump }) {
+  const { t } = useI18n();
   return (
-    <nav aria-label="Dataset progress"
+    <nav aria-label={t('workspace.guided.progress')}
       className="rounded-lg border border-border bg-surface p-2">
       <p className="px-1.5 pb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wide text-content-subtle">
-        Progress
+        {t('workspace.guided.progress')}
       </p>
       <ol className="flex flex-col gap-0.5">
         {steps.map((s, i) => {
@@ -24,8 +26,8 @@ export default function GuidedChecklist({ steps, currentId, onJump }) {
             <>
               <span aria-hidden className="w-4 shrink-0 text-center">{glyph}</span>
               <span aria-hidden className="shrink-0 tabular-nums text-content-subtle">{i + 1}.</span>
-              <span className="truncate">{s.label}</span>
-              {s.optional && <span className="shrink-0 text-[0.6875rem] text-content-subtle">(opt)</span>}
+              <span className="truncate">{t(`workspace.guided.labels.${s.id}`)}</span>
+              {s.optional && <span className="shrink-0 text-[0.6875rem] text-content-subtle">({t('workspace.guided.optional')})</span>}
               {s.subtitle && (
                 <span className="ml-auto pl-1 shrink-0 max-w-[6.5rem] truncate text-[0.6875rem] text-content-subtle">
                   {s.subtitle}

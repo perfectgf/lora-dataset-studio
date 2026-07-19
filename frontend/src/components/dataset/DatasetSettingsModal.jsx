@@ -22,25 +22,18 @@
  */
 import { useState } from 'react';
 import { HelpBadge } from '../../help/HelpMode';
-import { KIND_LABELS, kindSwitchSummary, normalizeKindLabel } from './datasetKindSwitch';
+import { useI18n } from '../../i18n/I18nContext';
+import { kindSwitchSummary, normalizeKindLabel } from './datasetKindSwitch';
 
 const FIELD =
   'px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm ' +
   'placeholder:text-content-subtle focus:border-indigo-500 outline-none';
 
-const SUFFIX_FRAMINGS = [
-  ['face', 'Face'], ['bust', 'Bust'], ['body', 'Body'], ['back', 'Back'],
-];
-
-// Same order + copy as the New-dataset selector (DatasetListPanel), so the two
-// surfaces read identically.
-const KIND_OPTIONS = [
-  ['character', KIND_LABELS.character, 'A person/face — identity binds to the trigger'],
-  ['concept', KIND_LABELS.concept, 'A recurring act/effect — the concept binds to the trigger'],
-  ['style', KIND_LABELS.style, 'An always-on aesthetic: control its influence with the LoRA weight'],
-];
+const SUFFIX_FRAMINGS = ['face', 'bust', 'body', 'back'];
+const KIND_OPTIONS = ['character', 'concept', 'style'];
 
 export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
+  const { t } = useI18n();
   const initialKind = normalizeKindLabel(d.kind);
   const [kind, setKind] = useState(initialKind);
   const concept = kind === 'concept';
@@ -86,15 +79,17 @@ export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Dataset settings"
+    <div role="dialog" aria-modal="true" aria-label={t('workspace.datasetSettings.title')}
       className="fixed inset-0 z-[9990] bg-black/80 flex items-center justify-center p-3"
       onClick={onClose}>
       <div className="w-full max-w-md rounded-xl border border-border bg-surface-overlay p-4 flex flex-col gap-3 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-content font-semibold flex items-center gap-1.5">⚙️ Dataset settings</h2>
+        <h2 className="text-content font-semibold flex items-center gap-1.5">
+          ⚙️ {t('workspace.datasetSettings.title')}
+        </h2>
 
         <label className="flex flex-col gap-1">
-          <span className="text-content-muted text-xs">Name</span>
+          <span className="text-content-muted text-xs">{t('workspace.datasetSettings.name')}</span>
           <input value={name} onChange={(e) => setName(e.target.value)} className={FIELD} />
         </label>
 
@@ -102,18 +97,19 @@ export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
             reveals the confirmation block below (what changes / what is kept). */}
         <div className="flex flex-col gap-1.5">
           <span className="text-content-muted text-xs flex items-center gap-1">
-            Dataset kind
+            {t('workspace.datasetSettings.kind')}
             <HelpBadge topic="dataset-kind-switch" />
           </span>
           <div className="flex gap-1.5">
-            {KIND_OPTIONS.map(([val, label, hint]) => (
-              <button key={val} type="button" onClick={() => setKind(val)} title={hint}
+            {KIND_OPTIONS.map((val) => (
+              <button key={val} type="button" onClick={() => setKind(val)}
+                title={t(`workspace.datasetSettings.kinds.${val}.hint`)}
                 aria-pressed={kind === val}
                 className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
                   kind === val
                     ? 'border-primary/60 bg-primary/15 text-content'
                     : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised'}`}>
-                {label}
+                {t(`workspace.datasetSettings.kinds.${val}.label`)}
               </button>
             ))}
           </div>
@@ -121,32 +117,28 @@ export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
 
         {style ? (
           <div className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[0.75rem] text-cyan-100">
-            <b>Always-on Style:</b> no activation trigger is written into captions or prompts.
-            Control the effect with the LoRA weight; when combining with a character LoRA,
-            tune the two weights independently.
+            <b>{t('workspace.datasetSettings.styleNoticeTitle')}</b>{' '}
+            {t('workspace.datasetSettings.styleNotice')}
           </div>
         ) : (
           <label className="flex flex-col gap-1">
-            <span className="text-content-muted text-xs">Trigger word</span>
+            <span className="text-content-muted text-xs">{t('workspace.datasetSettings.trigger')}</span>
             <input value={trigger} onChange={(e) => setTrigger(e.target.value)}
-              placeholder="e.g. myTrigger" className={`${FIELD} font-mono`} />
+              placeholder={t('workspace.datasetSettings.triggerPlaceholder')} className={`${FIELD} font-mono`} />
             <span className="text-content-subtle text-[0.6875rem]">
-              The word you put in prompts to summon this LoRA. Safe to change anytime —
-              it&apos;s added at export, so existing captions don&apos;t need redoing.
+              {t('workspace.datasetSettings.triggerHelp')}
             </span>
           </label>
         )}
 
         {concept && (
           <label className="flex flex-col gap-1">
-            <span className="text-content-muted text-xs">Concept description — what captions must OMIT</span>
+            <span className="text-content-muted text-xs">{t('workspace.datasetSettings.conceptDescription')}</span>
             <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2}
-              placeholder="e.g. a mirror selfie / a specific pose / an art style"
+              placeholder={t('workspace.datasetSettings.conceptPlaceholder')}
               className={`${FIELD} resize-y`} />
             <span className="text-content-subtle text-[0.6875rem]">
-              This is the thing the LoRA learns. Captions describe everything <b>except</b> this,
-              so it binds to the trigger. Editing it rebuilds the auto avoid-list —
-              <b> re-caption</b> to apply it to images already captioned.
+              {t('workspace.datasetSettings.conceptHelp')}
             </span>
           </label>
         )}
@@ -156,21 +148,25 @@ export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
             aria-expanded={suffixOpen}
             className="flex items-center gap-1.5 text-left text-content-muted hover:text-content text-xs font-medium">
             <span className={`transition-transform ${suffixOpen ? 'rotate-90' : ''}`}>▸</span>
-            ✨ Prompt suffixes
-            <span className="text-content-subtle font-normal">— optional creative direction</span>
+            ✨ {t('workspace.datasetSettings.suffixes.title')}
+            <span className="text-content-subtle font-normal">
+              — {t('workspace.datasetSettings.suffixes.optional')}
+            </span>
           </button>
           {suffixOpen && (
             <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface px-3 py-2.5">
               <label className="flex flex-col gap-1">
-                <span className="text-content-muted text-xs">All shots</span>
+                <span className="text-content-muted text-xs">{t('workspace.datasetSettings.suffixes.allShots')}</span>
                 <input value={gSuffix} onChange={(e) => setGSuffix(e.target.value)}
-                  maxLength={300} placeholder="e.g. shot on 35mm film, warm tones"
+                  maxLength={300} placeholder={t('workspace.datasetSettings.suffixes.placeholder')}
                   className={FIELD} />
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {SUFFIX_FRAMINGS.map(([key, label]) => (
+                {SUFFIX_FRAMINGS.map((key) => (
                   <label key={key} className="flex flex-col gap-1">
-                    <span className="text-content-muted text-xs">{label} shots</span>
+                    <span className="text-content-muted text-xs">
+                      {t(`workspace.datasetSettings.suffixes.framings.${key}`)}
+                    </span>
                     <input value={fSuffix[key]} maxLength={300}
                       onChange={(e) => setFSuffix({ ...fSuffix, [key]: e.target.value })}
                       className={FIELD} />
@@ -178,10 +174,7 @@ export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
                 ))}
               </div>
               <span className="text-content-subtle text-[0.6875rem]">
-                Free text added to every <b>generated</b> variation — the identity lock is
-                untouched. A framing suffix applies to that shot type first, then the global
-                one. Applied at generation time: safe to change anytime, existing images
-                stay as they are (regenerate to apply).
+                {t('workspace.datasetSettings.suffixes.help')}
               </span>
             </div>
           )}
@@ -192,25 +185,32 @@ export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
         {switchSummary && (
           <div className="rounded-lg border border-amber-400/40 bg-amber-500/5 px-3 py-2.5 flex flex-col gap-2 text-[0.75rem]">
             <div className="text-amber-200 font-semibold flex items-center gap-1.5">
-              ⚠️ Changing kind: {KIND_LABELS[switchSummary.from]} → {KIND_LABELS[switchSummary.to]}
+              ⚠️ {t('workspace.datasetSettings.switch.title', {
+                from: t(`workspace.datasetSettings.kinds.${switchSummary.from}.label`),
+                to: t(`workspace.datasetSettings.kinds.${switchSummary.to}.label`),
+              })}
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-content-muted font-medium">What changes</span>
+              <span className="text-content-muted font-medium">{t('workspace.datasetSettings.switch.changesTitle')}</span>
               <ul className="list-disc pl-4 flex flex-col gap-0.5 text-content-muted">
-                {switchSummary.changes.map((line) => <li key={line}>{line}</li>)}
+                {switchSummary.changeKeys.map((key) => (
+                  <li key={key}>{t(`workspace.datasetSettings.switch.changes.${key}`)}</li>
+                ))}
               </ul>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-content-muted font-medium">What is kept</span>
+              <span className="text-content-muted font-medium">{t('workspace.datasetSettings.switch.keptTitle')}</span>
               <ul className="list-disc pl-4 flex flex-col gap-0.5 text-content-subtle">
-                {switchSummary.preserved.map((line) => <li key={line}>{line}</li>)}
+                {switchSummary.preservedKeys.map((key) => (
+                  <li key={key}>{t(`workspace.datasetSettings.switch.kept.${key}`)}</li>
+                ))}
               </ul>
             </div>
             {switchSummary.recaption && (
               <div className="rounded border border-amber-400/30 bg-amber-500/10 px-2 py-1.5 text-amber-100">
-                Existing captions were written for <b>{KIND_LABELS[switchSummary.from]}</b>. They
-                are <b>not</b> rewritten automatically — use <b>🔄 Re-caption</b> in the Captions
-                section to apply the new strategy.
+                {t('workspace.datasetSettings.switch.recaption', {
+                  kind: t(`workspace.datasetSettings.kinds.${switchSummary.from}.label`),
+                })}
               </div>
             )}
           </div>
@@ -219,11 +219,13 @@ export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" onClick={onClose}
             className="px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content text-sm">
-            Cancel
+            {t('common.cancel')}
           </button>
           <button type="button" onClick={save} disabled={!canSave || busy}
             className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-            {kindChanged ? 'Change kind & save' : 'Save'}
+            {kindChanged
+              ? t('workspace.datasetSettings.changeAndSave')
+              : t('common.save')}
           </button>
         </div>
       </div>

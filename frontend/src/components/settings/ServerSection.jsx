@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { INPUT_CLASS, Card } from './primitives'
+import { useI18n } from '../../i18n/I18nContext'
 
 const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '::1']
 
@@ -12,6 +13,7 @@ const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '::1']
    stamped by run.py) and offers a one-click save-then-restart, mirroring
    UpdatesCard's "poll /api/health, then hard-reload" pattern. */
 export default function ServerSection({ config, setField, runtime, handleSave }) {
+  const { t } = useI18n()
   const toast = useToast()
   const [restarting, setRestarting] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -34,8 +36,8 @@ export default function ServerSection({ config, setField, runtime, handleSave })
   const tokenReady = !requireToken || !!token
   const tokenQS = token ? `?token=${token}` : ''
   const reachUrls = tokenReady ? [
-    lanIp && { key: 'lan', label: 'Same Wi-Fi / LAN', url: `http://${lanIp}:${port}/${tokenQS}` },
-    tsIp && { key: 'ts', label: 'From anywhere · Tailscale', url: `http://${tsIp}:${port}/${tokenQS}` },
+    lanIp && { key: 'lan', label: t('settings.server.sameLan'), url: `http://${lanIp}:${port}/${tokenQS}` },
+    tsIp && { key: 'ts', label: t('settings.server.tailscale'), url: `http://${tsIp}:${port}/${tokenQS}` },
   ].filter(Boolean) : []
   const qrUrl = reachUrls[0]?.url || null
 
@@ -60,7 +62,7 @@ export default function ServerSection({ config, setField, runtime, handleSave })
       await postJson('/api/settings/restart', {})
       waitForHealthAndReload()
     } catch (e) {
-      toast.error(e.message || 'Restart failed')
+      toast.error(e.message || t('settings.server.restartFailed'))
       setRestarting(false)
     }
   }
@@ -88,10 +90,11 @@ export default function ServerSection({ config, setField, runtime, handleSave })
   }
 
   return (
-    <Card title="Server"
-      help="Where the app listens. Host/port and LAN access need a restart to take effect — edit below, then use “Restart to apply”.">
+    <Card title={t('settings.server.title')} help={t('settings.server.help')}>
       <div>
-        <label htmlFor="server-port" className="block text-sm font-medium text-content">Port</label>
+        <label htmlFor="server-port" className="block text-sm font-medium text-content">
+          {t('settings.server.port')}
+        </label>
         <input id="server-port" type="number" min={1} max={65535}
           value={config.server.port ?? ''}
           onChange={(e) => setField('server', 'port', Math.max(1, Math.min(65535, Number(e.target.value) || 1)))}
@@ -100,19 +103,18 @@ export default function ServerSection({ config, setField, runtime, handleSave })
 
       <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-surface-raised px-3 py-2.5">
         <div>
-          <p className="text-sm font-medium text-content">Available on the local network</p>
+          <p className="text-sm font-medium text-content">{t('settings.server.lanAccess')}</p>
           <p className="mt-0.5 text-xs text-content-muted">
-            Off (default): only this computer can open the app. On: any device on your
-            Wi-Fi/LAN can reach it — e.g. from your phone — using the plain URL below.
+            {t('settings.server.lanAccessHelp')}
           </p>
         </div>
         <button id="server-lan" type="button" role="switch" aria-checked={lan}
           data-focus-gate="server-require-token server-token"
           onClick={() => setField('server', 'host', lan ? '127.0.0.1' : '0.0.0.0')}
-          aria-label="Available on the local network"
-          className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors ${lan ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
+          aria-label={t('settings.server.lanAccess')}
+          className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors ${lan ? 'bg-emerald-500' : 'bg-surface ring-1 ring-inset ring-border-strong'}`}>
           <span aria-hidden
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${lan ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${lan ? 'translate-x-5' : 'translate-x-0'}`} />
         </button>
       </div>
 
@@ -122,44 +124,45 @@ export default function ServerSection({ config, setField, runtime, handleSave })
               opt-in extra layer, off by default (see backend server.require_token). */}
           <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-surface-raised px-3 py-2.5">
             <div>
-              <p className="text-sm font-medium text-content">Require an access token</p>
+              <p className="text-sm font-medium text-content">{t('settings.server.requireToken')}</p>
               <p className="mt-0.5 text-xs text-content-muted">
                 {requireToken
-                  ? 'On: remote devices must open the URL WITH the token once (a session cookie takes over after). Extra safety on a shared or untrusted network.'
-                  : 'Off (default): anyone on your Wi-Fi/LAN can open the app with no password. Fine for a home network; turn on if the network is shared or untrusted.'}
+                  ? t('settings.server.requireTokenOn')
+                  : t('settings.server.requireTokenOff')}
               </p>
             </div>
             <button id="server-require-token" type="button" role="switch" aria-checked={requireToken}
               data-focus-gate="server-token"
               onClick={() => setField('server', 'require_token', !requireToken)}
-              aria-label="Require an access token"
-              className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors ${requireToken ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
+              aria-label={t('settings.server.requireToken')}
+              className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors ${requireToken ? 'bg-emerald-500' : 'bg-surface ring-1 ring-inset ring-border-strong'}`}>
               <span aria-hidden
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${requireToken ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${requireToken ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </div>
 
           {requireToken && (
             <div>
               <div className="flex items-center justify-between">
-                <label htmlFor="server-token" className="block text-sm font-medium text-content">Access token</label>
+                <label htmlFor="server-token" className="block text-sm font-medium text-content">
+                  {t('settings.server.accessToken')}
+                </label>
                 <button type="button" onClick={regenerateToken}
                   className="text-xs font-medium text-sky-300 underline hover:text-sky-200">
-                  Generate new token
+                  {t('settings.server.generateToken')}
                 </button>
               </div>
               <p className="mb-1 text-xs text-content-muted">
-                Remote devices present this once (baked into the link below) — a signed session
-                cookie takes over from there. Requests from this computer never need it.
+                {t('settings.server.accessTokenHelp')}
               </p>
               <div className="flex gap-2">
                 <input id="server-token" type="text" readOnly
-                  value={config.server.access_token || '(created automatically on the next restart — or click “Generate new token”)'}
+                  value={config.server.access_token || t('settings.server.tokenPlaceholder')}
                   className={`${INPUT_CLASS} font-mono text-xs`} />
                 {config.server.access_token && (
                   <button type="button" onClick={copyToken}
                     className="shrink-0 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised">
-                    {copied ? 'Copied ✓' : 'Copy'}
+                    {copied ? t('common.copiedCheck') : t('common.copy')}
                   </button>
                 )}
               </div>
@@ -169,7 +172,7 @@ export default function ServerSection({ config, setField, runtime, handleSave })
           {/* Open it on your phone: scannable QR + copyable URLs, detected from
               the machine's real addresses — no more guessing which IP/port. */}
           <div className="rounded-lg border border-border bg-surface-raised px-3 py-3">
-            <p className="text-sm font-medium text-content">Open it on your phone</p>
+            <p className="text-sm font-medium text-content">{t('settings.server.phoneTitle')}</p>
             {reachUrls.length > 0 ? (
               <div className="mt-2 flex items-start gap-4">
                 {qrUrl && (
@@ -179,8 +182,7 @@ export default function ServerSection({ config, setField, runtime, handleSave })
                 )}
                 <div className="min-w-0 flex-1 space-y-2">
                   <p className="text-xs text-content-muted">
-                    Point your phone camera at the code — or open a link below. The LAN link
-                    needs the phone on the same Wi-Fi; the Tailscale link works from anywhere.
+                    {t('settings.server.phoneHelp')}
                   </p>
                   {reachUrls.map((u) => (
                     <div key={u.key} className="flex items-center gap-2">
@@ -190,7 +192,7 @@ export default function ServerSection({ config, setField, runtime, handleSave })
                       </div>
                       <button type="button" onClick={() => copyUrl(u.key, u.url)}
                         className="shrink-0 rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium text-content hover:bg-surface-raised">
-                        {copiedUrl === u.key ? 'Copied ✓' : 'Copy'}
+                        {copiedUrl === u.key ? t('common.copiedCheck') : t('common.copy')}
                       </button>
                     </div>
                   ))}
@@ -198,14 +200,18 @@ export default function ServerSection({ config, setField, runtime, handleSave })
               </div>
             ) : requireToken && !token ? (
               <p className="mt-1 text-xs text-content-subtle">
-                Turn the token on, then <span className="text-content">Generate new token</span> (or
-                Save &amp; restart) — the scannable link appears once a token exists.
+                {t('settings.server.tokenNeededBefore')}{' '}
+                <span className="text-content">{t('settings.server.generateToken')}</span>
+                {t('settings.server.tokenNeededAfter')}
               </p>
             ) : (
               <p className="mt-1 break-all text-xs text-content-subtle">
-                Couldn’t detect this machine’s address. From another device open{' '}
-                <code className="text-content">http://&lt;this-computer&apos;s LAN IP&gt;:{port}/</code>{' '}
-                (find the IP by running <code className="text-content">ipconfig</code>).
+                {t('settings.server.addressMissingBefore')}{' '}
+                <code className="text-content">
+                  {`http://<${t('settings.server.lanIpPlaceholder')}>:${port}/`}
+                </code>{' '}
+                {t('settings.server.addressMissingAfter')}{' '}
+                <code className="text-content">ipconfig</code>。
               </p>
             )}
           </div>
@@ -216,21 +222,25 @@ export default function ServerSection({ config, setField, runtime, handleSave })
         <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-xs ${
           dirty ? 'border-amber-400/50 bg-amber-400/10' : 'border-border bg-surface-raised'}`}>
           <span className="text-content-muted">
-            Running: <span className="font-medium text-content">{runtime.host}:{runtime.port}</span>
+            {t('settings.server.running')} <span className="font-medium text-content">{runtime.host}:{runtime.port}</span>
             {runtime.host === '0.0.0.0' && lanIp && (
-              <span className="text-content-subtle"> — reachable at http://{lanIp}:{runtime.port}/</span>
+              <span className="text-content-subtle">
+                {' '}{t('settings.server.reachableAt', { url: `http://${lanIp}:${runtime.port}/` })}
+              </span>
             )}
             {dirty && (
-              <> · Saved: <span className="font-medium text-content">{config.server.host}:{config.server.port}</span></>
+              <> · {t('settings.server.saved')} <span className="font-medium text-content">{config.server.host}:{config.server.port}</span></>
             )}
           </span>
           {dirty ? (
             <button type="button" onClick={restart} disabled={restarting}
               className="ml-auto shrink-0 rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
-              {restarting ? '↻ Restarting…' : 'Save & restart to apply'}
+              {restarting ? t('settings.server.restarting') : t('settings.server.saveRestart')}
             </button>
           ) : (
-            <span className="ml-auto text-emerald-400"><span aria-hidden>✓</span> Running config matches saved config</span>
+            <span className="ml-auto text-emerald-400">
+              <span aria-hidden>✓</span> {t('settings.server.configMatches')}
+            </span>
           )}
         </div>
       )}

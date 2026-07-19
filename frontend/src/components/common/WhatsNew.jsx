@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useI18n } from '../../i18n/I18nContext';
 import {
   WHATS_NEW,
   sortedEntries,
@@ -28,11 +29,11 @@ import {
 const NAV_ITEM_BASE =
   'px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors';
 
-function formatDate(iso) {
+function formatDate(iso, locale) {
   // iso is 'YYYY-MM-DD'. Parse as local midnight so the day never shifts.
   const d = new Date(`${iso}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString(locale === 'zh-CN' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 /**
@@ -42,6 +43,7 @@ function formatDate(iso) {
  * the badge on all of them.
  */
 export function WhatsNewButton() {
+  const { t } = useI18n();
   const [seenId, setSeenId] = useState(() => readSeenId());
   const count = unseenCount(seenId);
   const has = count > 0;
@@ -63,7 +65,7 @@ export function WhatsNewButton() {
     <button
       type="button"
       onClick={open}
-      title={has ? `What's new — ${count} new` : "What's new"}
+      title={has ? t('whatsNew.newTitle', { count }) : t('whatsNew.title')}
       className={`${NAV_ITEM_BASE} relative ${
         has ? 'text-content hover:text-content' : 'text-content-muted hover:text-content'
       } hover:bg-surface-raised`}
@@ -78,7 +80,7 @@ export function WhatsNewButton() {
         </span>
       )}
       <span className="sr-only">
-        {has ? `What's new, ${count} unread` : "What's new"}
+        {has ? t('whatsNew.unread', { count }) : t('whatsNew.title')}
       </span>
     </button>
   );
@@ -90,6 +92,7 @@ export function WhatsNewButton() {
  * Esc, backdrop click, ✕, or a "Try it →" that navigates away.
  */
 export function WhatsNewModal() {
+  const { locale, t } = useI18n();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const dialogRef = useRef(null);
@@ -140,13 +143,13 @@ export function WhatsNewModal() {
       >
         <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
           <h2 id="whats-new-title" className="flex items-center gap-2 text-base font-semibold text-content">
-            <span aria-hidden>🎁</span> What&apos;s new
+            <span aria-hidden>🎁</span> {t('whatsNew.title')}
           </h2>
           <button
             type="button"
             ref={closeRef}
             onClick={() => setOpen(false)}
-            aria-label="Close what's new"
+            aria-label={t('whatsNew.close')}
             className="rounded-md p-1.5 text-content-subtle hover:bg-surface-raised hover:text-content"
           >
             <span aria-hidden>✕</span>
@@ -155,7 +158,7 @@ export function WhatsNewModal() {
 
         <div className="max-h-[70vh] overflow-y-auto px-5">
           {entries.length === 0 ? (
-            <p className="py-8 text-center text-sm text-content-muted">Nothing new yet — check back after the next update.</p>
+            <p className="py-8 text-center text-sm text-content-muted">{t('whatsNew.empty')}</p>
           ) : (
             <ol className="divide-y divide-border">
               {entries.map((e) => (
@@ -163,7 +166,7 @@ export function WhatsNewModal() {
                   <div className="flex items-baseline justify-between gap-3">
                     <h3 className="text-sm font-semibold text-content">{e.title}</h3>
                     <time dateTime={e.date} className="shrink-0 text-[11px] text-content-subtle">
-                      {formatDate(e.date)}
+                      {formatDate(e.date, locale)}
                     </time>
                   </div>
                   <p className="mt-1 text-sm leading-relaxed text-content-muted">{e.blurb}</p>
@@ -173,7 +176,7 @@ export function WhatsNewModal() {
                       onClick={() => go(e.to)}
                       className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                     >
-                      Try it <span aria-hidden>→</span>
+                      {t('whatsNew.tryIt')} <span aria-hidden>→</span>
                     </button>
                   )}
                 </li>

@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, u
 import { useNavigate } from 'react-router-dom'
 import { getHelpTopic, topicGuideHref, getHelpTip, guideHref } from './helpRegistry'
 import { shouldShowTip, markTipSeen, TIP_EVENT } from './helpTips'
+import { useI18n } from '../i18n/I18nContext'
 
 /* Help mode: a session-persisted toggle that reveals a small "?" badge next to
    instrumented headings/actions. Clicking a badge jumps to the matching spot in
@@ -31,6 +32,7 @@ export function useHelpMode() {
    layout — it warns once and renders nothing. */
 export function HelpBadge({ topic, className = '' }) {
   const { enabled } = useHelpMode()
+  const { t: translate } = useI18n()
   const navigate = useNavigate()
   if (!enabled) return null
   const t = getHelpTopic(topic)
@@ -42,8 +44,8 @@ export function HelpBadge({ topic, className = '' }) {
   return (
     <button
       type="button"
-      aria-label={`Help: ${t.title}`}
-      title={`Help: ${t.title}`}
+      aria-label={translate('help.topic', { title: t.title })}
+      title={translate('help.topic', { title: t.title })}
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(href) }}
       className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-indigo-400/40 bg-indigo-500/15 align-middle text-[10px] font-bold leading-none text-indigo-300 transition-colors hover:bg-indigo-500/30 hover:text-indigo-200 ${className}`}
     >
@@ -57,6 +59,7 @@ export function HelpBadge({ topic, className = '' }) {
    and marks the tip seen the moment it appears — so it never shows twice. Tips
    are independent of Help mode. Mounted once, in App's Shell. */
 export function TipHost() {
+  const { t } = useI18n()
   const [tip, setTip] = useState(null)   // { topicId, text, href }
   const showing = useRef(false)
   const navigate = useNavigate()
@@ -78,20 +81,22 @@ export function TipHost() {
   const dismiss = () => { showing.current = false; setTip(null) }
 
   if (!tip) return null
+  const tipKey = `help.tips.${tip.topicId}`
+  const translatedTip = t(tipKey)
   return (
     <div role="status"
       className="fixed bottom-4 right-4 z-50 max-w-xs rounded-xl border border-indigo-400/40 bg-surface-overlay/95 p-3 shadow-lg backdrop-blur">
       <div className="flex items-start gap-2">
         <span aria-hidden className="text-base leading-none">💡</span>
         <div className="min-w-0 flex-1">
-          <p className="m-0 text-xs leading-relaxed text-content">{tip.text}</p>
+          <p className="m-0 text-xs leading-relaxed text-content">{translatedTip === tipKey ? tip.text : translatedTip}</p>
           <button type="button"
             onClick={() => { navigate(tip.href); dismiss() }}
             className="mt-2 text-xs font-medium text-indigo-300 underline hover:text-indigo-200">
-            Learn more →
+            {t('help.learnMore')} →
           </button>
         </div>
-        <button type="button" onClick={dismiss} aria-label="Dismiss tip"
+        <button type="button" onClick={dismiss} aria-label={t('help.dismissTip')}
           className="-mr-1 -mt-1 shrink-0 px-1.5 text-content-subtle hover:text-content">✕</button>
       </div>
     </div>

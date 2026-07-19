@@ -23,12 +23,21 @@ test('Pexels key and attribution markup stay wired without nested controls', () 
     new URL('../dataset/ConceptSourcesPanel.jsx', import.meta.url), 'utf8');
   const attributionSource = readFileSync(
     new URL('../dataset/PexelsAttribution.jsx', import.meta.url), 'utf8');
+  const en = JSON.parse(readFileSync(
+    new URL('../../i18n/locales/en.json', import.meta.url), 'utf8'));
   const readmeSource = readFileSync(new URL('../../../../README.md', import.meta.url), 'utf8');
   const envSource = readFileSync(new URL('../../../../.env.example', import.meta.url), 'utf8');
 
   assert.match(settingsSource, /key:\s*'PEXELS_API_KEY'/);
+  assert.match(settingsSource, /settings\.scraping\.pexelsAuthorizationBody/);
+  assert.match(en.workspace.scraping.pexelsAuthorizationBody,
+    /An API key alone does not authorize\s+dataset or machine-learning use/,
+    'settings locale: API key is not permission');
+  assert.match(en.workspace.scraping.pexelsAuthorizationBody,
+    /Pexels\s+has explicitly authorized this use case/,
+    'settings locale: explicit authorization gate');
   for (const [label, source] of [
-    ['settings', settingsSource], ['README', readmeSource], ['env example', envSource],
+    ['README', readmeSource], ['env example', envSource],
   ]) {
     assert.match(source, /https:\/\/www\.pexels\.com\/api\/key\//, `${label}: current key URL`);
     assert.doesNotMatch(source, /pexels\.com\/api\/new\//, `${label}: obsolete key URL`);
@@ -44,11 +53,13 @@ test('Pexels key and attribution markup stay wired without nested controls', () 
   }
   assert.match(panelSource, /\['pexels', 'Pexels'\]/);
   assert.match(panelSource, /buildPexelsSearchUrl/);
-  assert.match(panelSource,
+  assert.match(panelSource, /workspace\.scrape\.pexels\.confirm/);
+  assert.match(en.datasets.scrape.pexels.confirm,
     /I confirm I have explicit Pexels authorization for dataset\/ML use/);
   assert.match(panelSource,
     /https:\/\/help\.pexels\.com\/hc\/en-us\/articles\/900005880463-What-are-the-Terms-and-Conditions/);
-  assert.match(panelSource, /Photos provided by Pexels/);
+  assert.match(panelSource, /workspace\.scrape\.results\.providedBy/);
+  assert.equal(en.datasets.scrape.results.providedBy, 'Photos provided by Pexels');
   assert.match(panelSource, /<PexelsAttribution metadata=\{it\}/);
   for (const field of ['platform', 'source_url', 'photographer', 'photographer_url']) {
     assert.match(panelSource, new RegExp(`${field}:`), `selected items forward ${field}`);

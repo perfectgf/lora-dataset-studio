@@ -1,10 +1,13 @@
 // Vignettes des prompts récents (clic pour recharger) — rétro-compat string vs objet.
 // Extrait behavior-preserving de LoraTestStudio.jsx (bloc « Prompts récents »),
 // + bouton 🗑 par preset (supprime le prompt et ses cellules/images de test).
+import { useI18n } from '../../../i18n/I18nContext';
+
 export default function RecentPrompts({ items, datasetId, selectedPrompt, onPick, onDelete }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-content-subtle text-[0.5625rem] uppercase">Recent prompts (click to reload · 🗑 to delete) — thumbnail = image 👍</span>
+      <span className="text-content-subtle text-[0.5625rem] uppercase">{t('studio.recent.title')}</span>
       <div className="flex gap-1.5 flex-wrap">
         {items.map((item) => {
           // rétro-compat : avant restart Flask, l'API renvoie des strings ;
@@ -27,17 +30,16 @@ export default function RecentPrompts({ items, datasetId, selectedPrompt, onPick
                   : <span className="w-8 h-10 rounded bg-app/60 shrink-0 flex items-center justify-center text-content-subtle">?</span>}
                 <span className="flex flex-col items-start min-w-0">
                   <span className="truncate max-w-[150px]">{pr.prompt}</span>
-                  {pr.count ? <span className="text-content-subtle">{pr.count} img{pr.thumb_rating === 1 ? ' · 👍' : ''}</span> : null}
+                  {pr.count ? <span className="text-content-subtle">{t('studio.results.imageCount', { count: pr.count })}{pr.thumb_rating === 1 ? ' · 👍' : ''}</span> : null}
                 </span>
               </button>
               {onDelete && (
                 <button type="button"
                   onClick={() => {
-                    const n = pr.count ? ` and its ${pr.count} test image(s)` : '';
-                    if (window.confirm(`Delete this recent prompt${n}?`)) onDelete(pr.prompt);
+                    if (window.confirm(t('studio.recent.deleteConfirm', { count: pr.count || 0 }))) onDelete(pr.prompt);
                   }}
-                  title="Delete this recent prompt (and its test images)"
-                  aria-label="Delete this recent prompt"
+                  title={t('studio.recent.deleteTitle')}
+                  aria-label={t('studio.recent.deleteLabel')}
                   className="shrink-0 px-1.5 flex items-center border-l border-border text-red-300/70 hover:text-red-300 hover:bg-red-500/15">
                   🗑
                 </button>

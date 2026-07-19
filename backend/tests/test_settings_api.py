@@ -33,6 +33,12 @@ def test_put_settings_persists_config_and_secret(client, tmp_path):
     assert r.get_json()['config']['ollama']['url'] == 'http://127.0.0.1:11500'
     assert r.get_json()['secrets']['GEMINI_API_KEY'] is True
 
+def test_put_settings_normalizes_ollama_url(client):
+    r = client.put('/api/settings', json={
+        'config': {'ollama': {'url': '  http://127.0.0.1:11434/  '}}})
+    assert r.status_code == 200
+    assert r.get_json()['config']['ollama']['url'] == 'http://127.0.0.1:11434'
+
 def test_put_settings_clears_skip_when_dir_provided(client, tmp_path):
     """Entering a ComfyUI directory annuls a prior "continue without ComfyUI" skip —
     the stored flag is cleared so it can't resurface if base_dir is later emptied."""
