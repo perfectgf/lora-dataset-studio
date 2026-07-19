@@ -118,7 +118,7 @@ function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy }) {
           {/* Transparent backdrop: an outside click dismisses the popover. */}
           <div className="fixed inset-0 z-40" onClick={() => setShowHelp(false)} aria-hidden />
           <div role="tooltip"
-            className="absolute z-50 top-full left-2 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface p-3 shadow-xl flex flex-col gap-1.5">
+            className="absolute z-50 top-full left-2 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface-overlay p-3 shadow-xl flex flex-col gap-1.5">
             {AUTO_TRIAGE_HELP.map((line) => (
               <p key={line} className="text-[11px] leading-snug text-content-muted">{line}</p>
             ))}

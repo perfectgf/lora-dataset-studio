@@ -388,7 +388,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           {showAutoReject && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowAutoReject(false)} aria-hidden />
-              <div className="absolute z-50 mt-1 w-72 rounded-lg border border-border bg-surface p-3 shadow-xl space-y-2">
+              <div className="absolute z-50 mt-1 w-72 rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2">
                 <p className="text-xs text-content-muted">
                   Rejects the UNDECIDED images with these flags. Your manual ✓/✕ are never changed;
                   everything stays reversible (nothing is deleted from disk).
