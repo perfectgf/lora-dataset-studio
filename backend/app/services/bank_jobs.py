@@ -42,7 +42,8 @@ def start(app, bank_id, kind, fn, total=0):
             raise BankJobBusy(cur['kind'])
         job = {'kind': kind, 'done': 0, 'total': int(total or 0), 'error': None,
                'cancelled': False, 'finished': False, 'detail': None,
-               'started_at': now, '_touched': now, '_cancel_hook': None}
+               'started_at': now, '_touched': now, '_cancel_hook': None,
+               'pipeline': None}
         _jobs[bank_id] = job
 
     def _run():
@@ -85,6 +86,15 @@ def bump(job, n=1):
         job['_touched'] = time.time()
 
 
+def set_pipeline(job, snapshot):
+    """Attach/replace the multi-step pipeline snapshot (step index/label and the
+    per-step outcomes) carried alongside the plain done/total bar. Only the
+    'pipeline' kind uses this; a copy is stored so later mutation is deliberate."""
+    with _lock:
+        job['pipeline'] = dict(snapshot) if snapshot is not None else None
+        job['_touched'] = time.time()
+
+
 def cancelled(job) -> bool:
     with _lock:
         return job['cancelled']
@@ -117,7 +127,7 @@ def cancel(bank_id) -> bool:
 
 def get(bank_id):
     """Snapshot for the payload: {kind, done, total, error, cancelled,
-    finished, detail, started_at} or None. Purges expired entries."""
+    finished, detail, started_at, pipeline} or None. Purges expired entries."""
     now = time.time()
     with _lock:
         job = _jobs.get(bank_id)
@@ -127,9 +137,11 @@ def get(bank_id):
         if now - job['_touched'] > ttl:
             _jobs.pop(bank_id, None)
             return None
-        return {k: job[k] for k in ('kind', 'done', 'total', 'error',
+        snap = {k: job[k] for k in ('kind', 'done', 'total', 'error',
                                     'cancelled', 'finished', 'detail',
                                     'started_at')}
+        snap['pipeline'] = dict(job['pipeline']) if job['pipeline'] else None
+        return snap
 
 
 def running(bank_id) -> bool:

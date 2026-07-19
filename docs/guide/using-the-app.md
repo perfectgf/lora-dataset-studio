@@ -176,6 +176,19 @@ Work the funnel in that order: quality first (cheap, catches the trash), then
 subject, then selection. A promoted image keeps its ⬆ badge in the bank so you
 always know what's been used where.
 
+**🚀 Launch all** does the whole funnel for you in one go. Tick which passes
+run and how auto-reject behaves, hit Go, and walk away — it chains *scan →
+auto-reject → score → find watermarks → group by person → (optional) caption*
+in that exact order. Two things make it safe to run overnight: a pass whose
+tool isn't installed, or a moment when the GPU is busy with a training run, is
+**skipped with a reason** instead of failing the whole run; and because
+auto-reject runs *before* the heavy passes, scoring/watermarks/person only ever
+process the survivors, never the images you just rejected. Captioning is the one
+pass left **off by default** (it's the slowest GPU pass and a clean-up run
+rarely needs a description on every shot). Stop it any time — and when you come
+back, a saved report at the top of the bank tells you exactly what ran, what was
+skipped and why, with the headline counts.
+
 ## Tips that save runs
 
 - Trust the composition meter over your instinct — a set that "looks varied"

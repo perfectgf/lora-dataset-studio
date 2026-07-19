@@ -92,6 +92,7 @@ _SCHEMA_ADDITIONS = (
     ('bank_image', 'style_cluster', 'INTEGER'),
     ('bank_image', 'watermark_state', 'VARCHAR(16)'),
     ('bank_image', 'caption', 'TEXT'),
+    ('image_bank', 'pipeline_report', 'TEXT'),
 )
 
 def _apply_additive_migrations():

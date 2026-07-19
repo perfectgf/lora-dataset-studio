@@ -138,6 +138,19 @@ def bank_caption(bank_id):
                   ids=data.get('image_ids') or None, force=bool(data.get('force')))
 
 
+@bp.post('/bank/<int:bank_id>/pipeline')
+def bank_pipeline(bank_id):
+    """Launch the chained "Launch all" triage pipeline. Body: {steps:[...],
+    reject_flags:[...], resolve_dups:bool}. 202/409/400 — every step's own
+    prerequisite is checked INSIDE the job (a missing extra skips that step,
+    it never fails the launch)."""
+    data = request.get_json(silent=True) or {}
+    return _start(banks.start_pipeline, _app(), LOCAL_USER, bank_id,
+                  steps=data.get('steps') or None,
+                  reject_flags=data.get('reject_flags') or None,
+                  resolve_dups=bool(data.get('resolve_dups')))
+
+
 @bp.post('/bank/<int:bank_id>/promote')
 def bank_promote(bank_id):
     data = request.get_json(silent=True) or {}

@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-bank-launch-all',
+    date: '2026-07-19',
+    title: '🚀 Launch all — clean a whole bank while you sleep',
+    blurb:
+      "One button now runs the entire Image bank triage end to end: quality scan → auto-reject the flagged and duplicate shots → ✨ score → 🚩 find watermarks → 👥 group by person → (optionally) 🏷️ caption. Hit “🚀 Launch all”, tick which passes run and how auto-reject behaves, and walk away — a pass whose tool isn't installed (or a busy GPU) is simply skipped with a reason instead of failing the run, and the heavy passes only touch the survivors, never the images you just rejected. You can Stop it any time, and when you come back a saved report tells you exactly what ran, what was skipped and why, with the headline counts.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-19-bank-face-pass-gpu',
     date: '2026-07-19',
     title: 'The Image bank face pass can run on your GPU',

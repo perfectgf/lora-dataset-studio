@@ -4,6 +4,8 @@ import { useToast } from '../common/Toast'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import DupGroupsPanel from './DupGroupsPanel'
 import PromoteDialog from './PromoteDialog'
+import LaunchAllDialog from './LaunchAllDialog'
+import PipelineReport from './PipelineReport'
 
 const PAGE_SIZE = 120
 
@@ -38,28 +40,51 @@ async function fetchAllIds(bankId, params) {
   return ids
 }
 
+const STEP_SHORT = {
+  scan: '🔎 Scan', auto_reject: '🧹 Auto-reject', score: '✨ Score',
+  watermark: '🚩 Watermarks', faces: '👥 Person', caption: '🏷️ Caption',
+}
+
 function ProgressBar({ activity, onCancel }) {
   if (!activity || activity.finished) return null
   const { kind, done, total, detail } = activity
   const pct = total > 0 ? Math.round((100 * done) / total) : null
+  const pipe = kind === 'pipeline' ? activity.pipeline : null
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm">
-      <span aria-hidden>⏳</span>
-      <span className="text-content">
-        {{ scan: 'Quality scan', faces: 'Face pass', score: 'Scoring pass',
-          watermark: 'Watermark scan', caption: 'Captioning', promote: 'Promotion' }[kind] || 'Job'} running —
-        {' '}{done}{total ? ` / ${total}` : ''}{detail ? ` · ${detail}` : ''}
-      </span>
-      {pct != null && (
-        <div className="h-1.5 w-40 overflow-hidden rounded bg-surface-raised" role="progressbar"
-          aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-          <div className="h-full bg-amber-400" style={{ width: `${pct}%` }} />
-        </div>
+    <div className="space-y-2 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm">
+      <div className="flex items-center gap-3">
+        <span aria-hidden>⏳</span>
+        <span className="text-content">
+          {pipe
+            ? `🚀 Launch all — step ${(pipe.index ?? 0) + 1}/${pipe.total_steps} · ${STEP_SHORT[pipe.current] || pipe.current}`
+            : ({ scan: 'Quality scan', faces: 'Face pass', score: 'Scoring pass',
+              watermark: 'Watermark scan', caption: 'Captioning', promote: 'Promotion' }[kind] || 'Job') + ' running'}
+          {' — '}{done}{total ? ` / ${total}` : ''}{detail ? ` · ${detail}` : ''}
+        </span>
+        {pct != null && (
+          <div className="h-1.5 w-40 overflow-hidden rounded bg-surface-raised" role="progressbar"
+            aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-full bg-amber-400" style={{ width: `${pct}%` }} />
+          </div>
+        )}
+        <button type="button" onClick={onCancel}
+          className="ml-auto rounded-md border border-border px-2 py-0.5 text-xs text-content hover:bg-surface-raised">
+          Stop
+        </button>
+      </div>
+      {pipe && Array.isArray(pipe.results) && pipe.results.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5 pl-6 text-xs">
+          {pipe.results.map((r, i) => (
+            <li key={`${r.step}-${i}`}
+              className={`rounded px-1.5 py-px ${r.status === 'done' ? 'bg-emerald-500/15 text-emerald-300'
+                : r.status === 'error' ? 'bg-rose-500/15 text-rose-300'
+                : 'bg-black/20 text-content-subtle'}`}
+              title={r.reason || r.detail || ''}>
+              {r.status === 'done' ? '✅' : r.status === 'error' ? '⚠️' : '⏭️'} {STEP_SHORT[r.step] || r.step}
+            </li>
+          ))}
+        </ul>
       )}
-      <button type="button" onClick={onCancel}
-        className="ml-auto rounded-md border border-border px-2 py-0.5 text-xs text-content hover:bg-surface-raised">
-        Cancel
-      </button>
     </div>
   )
 }
@@ -125,6 +150,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const [page, setPage] = useState({ images: [], total: 0 })
   const [selected, setSelected] = useState(() => new Set())
   const [promoteOpen, setPromoteOpen] = useState(false)
+  const [launchOpen, setLaunchOpen] = useState(false)
+  const [dismissedReportAt, setDismissedReportAt] = useState(null)
   const [rejectFlags, setRejectFlags] = useState(() => new Set(['blur', 'uniform']))
   const [showAutoReject, setShowAutoReject] = useState(false)
   const [tileSize, setTileSize] = useState('M')
@@ -224,6 +251,11 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     () => postJson(`/api/bank/${bankId}/caption`,
       selected.size ? { image_ids: [...selected] } : {}), null)
   const cancelJob = () => act(() => postJson(`/api/bank/${bankId}/cancel`, {}), null)
+  const startPipeline = async (config) => {
+    setLaunchOpen(false)
+    await act(() => postJson(`/api/bank/${bankId}/pipeline`, config),
+      '🚀 Launch all started — you can walk away; Stop any time.')
+  }
 
   const batchStatus = async (ids, status) => {
     if (!ids.length) return
@@ -293,10 +325,22 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
 
       <ProgressBar activity={payload?.activity} onCancel={cancelJob} />
 
+      {!live && payload?.pipeline_report
+        && payload.pipeline_report.finished_at !== dismissedReportAt && (
+        <PipelineReport report={payload.pipeline_report}
+          onDismiss={() => setDismissedReportAt(payload.pipeline_report.finished_at)} />
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => setLaunchOpen(true)} disabled={live || !(counts?.total > 0)}
+          title="Run the whole triage in one go — scan, auto-reject, score, watermarks, group by person and (optionally) caption. Start it and walk away."
+          className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-bold text-white shadow disabled:opacity-50">
+          🚀 Launch all…
+        </button>
+        <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
         <button type="button" onClick={() => startScan(false)} disabled={live}
           title="Score every unscanned image (sharpness/noise/flat/size), hash it and group near-duplicates — CPU only, runs in the background"
-          className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
           🔎 Scan quality
         </button>
         {(counts?.scanned || 0) > 0 && (
@@ -563,6 +607,11 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           selectedIds={[...selected]}
           onClose={() => setPromoteOpen(false)}
           onStarted={() => { setPromoteOpen(false); refreshPayload() }} />
+      )}
+
+      {launchOpen && (
+        <LaunchAllDialog caps={caps} visionReady={visionReady}
+          onClose={() => setLaunchOpen(false)} onLaunch={startPipeline} />
       )}
     </div>
   )

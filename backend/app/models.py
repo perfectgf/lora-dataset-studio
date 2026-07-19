@@ -168,6 +168,12 @@ class ImageBank(db.Model):
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(DateTime, default=db.func.current_timestamp(),
                            onupdate=db.func.current_timestamp())
+    # Persisted summary of the last "Launch all" pipeline run (JSON): per-step
+    # done/skipped(reason)/error plus the headline counts, so the outcome is
+    # still there when the user reopens the bank the next morning. NULL = no
+    # pipeline has ever run. Additive column — the image_bank table shipped in
+    # the Beta, so it needs the additive path (see _SCHEMA_ADDITIONS).
+    pipeline_report = db.Column(Text, nullable=True)
 
     def __repr__(self):
         return f'<ImageBank {self.id} {self.name}>'
