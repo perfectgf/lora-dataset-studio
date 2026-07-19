@@ -156,10 +156,21 @@ touching the folder itself:
    person, *no reference photo needed*. Click a person card to see only them,
    select all, keep or reject. Embeddings are cached, so re-running after a
    cull is much faster.
-5. **⬆ Promote** — the kept images are **copied** into the dataset you choose
+5. **🏷️ Caption & 🔍 search** — caption the bank with the same engines your
+   datasets use (JoyCaption / Ollama vision, your *Settings*). Hit **🏷️ Caption
+   all** to describe every not-yet-captioned image, or select some first to
+   caption just those. It runs in the background, frees the GPU like the other
+   passes, and is Stop-able mid-run. The captions are plain descriptions (no
+   trigger word, nothing omitted) whose real job is **search**: type into the
+   🔍 box — `red dress`, `sunset`, a file name — and the grid filters to
+   matching images, combinable with every other filter. It's the fast way to
+   find shots in a 9 000-image dump.
+6. **⬆ Promote** — the kept images are **copied** into the dataset you choose
    through the normal import path: normalized to webp, near-duplicates already
-   in the dataset skipped. From there they get everything datasets have —
-   captions, watermark cleaning, face scoring against a reference, training.
+   in the dataset skipped. Any bank caption **rides along**, so a captioned
+   selection starts already captioned in the dataset. From there they get
+   everything datasets have — captions, watermark cleaning, face scoring against
+   a reference, training.
 
 Work the funnel in that order: quality first (cheap, catches the trash), then
 subject, then selection. A promoted image keeps its ⬆ badge in the bank so you

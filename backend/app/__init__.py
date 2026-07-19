@@ -91,6 +91,7 @@ _SCHEMA_ADDITIONS = (
     ('bank_image', 'nsfw_score', 'REAL'),
     ('bank_image', 'style_cluster', 'INTEGER'),
     ('bank_image', 'watermark_state', 'VARCHAR(16)'),
+    ('bank_image', 'caption', 'TEXT'),
 )
 
 def _apply_additive_migrations():

@@ -47,7 +47,7 @@ function ProgressBar({ activity, onCancel }) {
       <span aria-hidden>⏳</span>
       <span className="text-content">
         {{ scan: 'Quality scan', faces: 'Face pass', score: 'Scoring pass',
-          watermark: 'Watermark scan', promote: 'Promotion' }[kind] || 'Job'} running —
+          watermark: 'Watermark scan', caption: 'Captioning', promote: 'Promotion' }[kind] || 'Job'} running —
         {' '}{done}{total ? ` / ${total}` : ''}{detail ? ` · ${detail}` : ''}
       </span>
       {pct != null && (
@@ -87,7 +87,8 @@ function Tile({ img, bankId, selected, onToggle, size }) {
           + (img.aesthetic_score != null ? ` · aesthetic ${img.aesthetic_score.toFixed(1)}` : '')
           + (img.nsfw_score != null ? ` · NSFW ${Math.round(img.nsfw_score * 100)}%` : '')
           + (img.face_cluster ? ` · person #${img.face_cluster}` : '')
-          + (img.style_cluster ? ` · style #${img.style_cluster}` : '')}
+          + (img.style_cluster ? ` · style #${img.style_cluster}` : '')
+          + (img.caption ? `\n${img.caption}` : '')}
         className="block w-full">
         <img src={`/api/bank/${bankId}/thumb/${img.id}`} alt={img.name} loading="lazy"
           className={`w-full object-cover ${size === 'S' ? 'h-24' : 'h-36'}`} />
@@ -103,6 +104,7 @@ function Tile({ img, bankId, selected, onToggle, size }) {
         {img.face_cluster != null && badge(`👤${img.face_cluster}`, 'bg-black/60 text-sky-200')}
         {img.style_cluster != null && badge(`🎨${img.style_cluster}`, 'bg-black/60 text-fuchsia-200')}
         {img.dup_group != null && badge(`≈${img.dup_group}`, 'bg-black/60 text-fuchsia-200')}
+        {img.caption && badge('🏷️', 'bg-black/60 text-emerald-200')}
       </span>
       <a href={`/api/bank/${bankId}/file/${img.id}`} target="_blank" rel="noreferrer"
         title="Open the original file" aria-label={`Open ${img.name} full size`}
@@ -116,7 +118,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const { caps } = useCapabilities()
   const [payload, setPayload] = useState(null)
   const [filter, setFilter] = useState({ status: null, flag: null, cluster: null,
-    style: null, subfolder: null })
+    style: null, subfolder: null, search: null })
+  const [searchText, setSearchText] = useState('')
   const [subfolders, setSubfolders] = useState([])
   const [offset, setOffset] = useState(0)
   const [page, setPage] = useState({ images: [], total: 0 })
@@ -147,6 +150,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     // subfolder is a string facet where '' is meaningful (bank root) — send it
     // whenever it isn't null, empty string included.
     if (f.subfolder != null) params.subfolder = f.subfolder
+    if (f.search) params.search = f.search
     return params
   }, [])
 
@@ -188,6 +192,15 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     setFilter(f); setOffset(0); setSelected(new Set())
     refreshImages(f, 0)
   }
+
+  // Debounce the search box, then apply it as a filter (page 1, selection cleared).
+  useEffect(() => {
+    const term = searchText.trim()
+    if ((filter.search || '') === term) return undefined
+    const t = setTimeout(() => setF({ search: term || null }), 300)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchText])
   const goto = (off) => { setOffset(off); refreshImages(filter, off) }
 
   const act = async (fn, okMsg) => {
@@ -207,6 +220,9 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const startFaces = () => act(() => postJson(`/api/bank/${bankId}/faces`, {}), null)
   const startScore = () => act(() => postJson(`/api/bank/${bankId}/score`, {}), null)
   const startWatermark = () => act(() => postJson(`/api/bank/${bankId}/watermark`, {}), null)
+  const startCaption = () => act(
+    () => postJson(`/api/bank/${bankId}/caption`,
+      selected.size ? { image_ids: [...selected] } : {}), null)
   const cancelJob = () => act(() => postJson(`/api/bank/${bankId}/cancel`, {}), null)
 
   const batchStatus = async (ids, status) => {
@@ -310,6 +326,13 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             : 'Pull the vision model (Settings ▸ Captioning & quality) to scan for watermarks'}
           className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
           🚩 Find watermarks{!visionReady && ' (needs setup)'}
+        </button>
+        <button type="button" onClick={startCaption} disabled={live}
+          title={selected.size
+            ? `Caption the ${selected.size} selected image(s) with your caption engine (Settings ▸ Captioning & quality). Captions become searchable and follow the images when you promote them to a dataset.`
+            : 'Caption every not-yet-captioned image (skips rejected) with your caption engine. Captions become searchable tags and follow the images when you promote them to a dataset. Select images first to caption just those.'}
+          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
+          🏷️ Caption{selected.size ? ` ${selected.size} selected` : ' all'}
         </button>
         <div className="relative">
           <button type="button" onClick={() => setShowAutoReject((v) => !v)} disabled={live}
@@ -424,6 +447,19 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           </select>
         </div>
       )}
+
+      {/* Full-text search over captions + file paths */}
+      <div className="relative max-w-md">
+        <span aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-content-subtle">🔍</span>
+        <input type="search" value={searchText} onChange={(e) => setSearchText(e.target.value)}
+          placeholder="Search captions and file names… (e.g. red dress)"
+          aria-label="Search the bank by caption or file name"
+          className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-8 text-sm text-content placeholder:text-content-subtle" />
+        {searchText && (
+          <button type="button" onClick={() => setSearchText('')} aria-label="Clear search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-content-subtle hover:text-content">✕</button>
+        )}
+      </div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-1.5">

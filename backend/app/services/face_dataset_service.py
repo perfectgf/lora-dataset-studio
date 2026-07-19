@@ -36,6 +36,7 @@ from .dataset_storage import dataset_path, ensure_dataset_dir
 # de batch pour rendre la VRAM à ComfyUI. ComfyUI est déjà en pause pendant la passe.
 _VISION_BATCH_KEEPALIVE = '5m'
 from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU,
+                              DESCRIPTIVE_CAPTION_PROMPT,
                               CAPTION_REFINE_CONCEPT_PROMPT, CAPTION_LEAK_FIX_PROMPT,
                               EXPAND_CONCEPT_TERMS_PROMPT,
                               CLASSIFY_PROMPT, HEAD_BBOX_PROMPT, WATERMARK_BBOX_PROMPT,
@@ -2223,7 +2224,7 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
 
 # --- Import + classify (Qwen3-VL) ------------------------------------------
 def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, stats=None,
-                  source_metadata=None):
+                  source_metadata=None, captions=None):
     """Normalize (or head-crop) + persist + create import rows (status=keep).
     When crop=True, each image is auto head-cropped via Qwen3-VL - the CALLER
     must then hold the GPU-exclusive window - and is by construction a face,
@@ -2240,6 +2241,11 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     ``source_metadata`` is an optional list parallel to ``files_bytes``. Only
     validated Pexels provenance is stored; existing callers can omit it.
 
+    ``captions`` is an optional list parallel to ``files_bytes`` — a pre-existing
+    caption to carry onto the new row (the image-bank promotion path passes the bank
+    captions here, so a promoted selection starts already captioned). Empty/None entries
+    leave the row uncaptioned. A skipped duplicate simply drops its caption with it.
+
     Returns (ids, failed_count)."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
@@ -2250,6 +2256,7 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
     # doit rester tel quel (ai-toolkit gère le bucketing multi-ratios).
     seen = _existing_dhashes(dataset_id) if dedupe else None
     metadata_by_index = list(source_metadata) if source_metadata is not None else []
+    captions_by_index = list(captions) if captions is not None else []
     ids = []
     failed = 0
     for index, raw in enumerate(files_bytes):
@@ -2288,9 +2295,11 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
         fn = f"{user_id}_dataset_{uuid.uuid4().hex[:8]}.webp"
         with open(os.path.join(_dataset_dir(dataset_id), fn), 'wb') as fh:
             fh.write(webp)
+        cap = (captions_by_index[index] if index < len(captions_by_index) else None)
+        cap = _cap_caption(cap) if (cap or '').strip() else None
         img = FaceDatasetImage(dataset_id=dataset_id, source='import', status='keep',
                                filename=fn, framing='face' if crop else None,
-                               upscale_ratio=scale,
+                               upscale_ratio=scale, caption=cap,
                                source_metadata=_source_metadata_storage(
                                    metadata_by_index[index]
                                    if index < len(metadata_by_index) else None))
@@ -3380,6 +3389,123 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
         raise
     finally:
         dataset_activity.end(token)
+
+
+def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
+                  extra_instructions=None, should_cancel=None, on_caption=None,
+                  progress=None) -> dict:
+    """Caption a list of image FILE PATHS with the app's configured engines, returning
+    {path: caption}. Dataset-free, purely DESCRIPTIVE captioning (no trigger word, no
+    identity/concept/style omission) for the image bank and the future launch-all
+    pipeline — a bank caption is a plain description that doubles as search text.
+
+    Reuses the SAME inference bricks as the dataset caption pass (`caption_images`):
+    JoyCaption in one batch load, then Ollama (Qwen3-VL) per image for whatever it
+    didn't cover, gated by `captioning.backend`. What it deliberately SKIPS is all the
+    per-dataset kind logic (prompt building, leak cleaners, dual shorts).
+
+    prompt          : override the default neutral descriptive prompt.
+    backend         : override captioning.backend ('auto'|'joycaption'|'ollama'|'none').
+    ollama_model    : override the Ollama vision model (None = global default).
+    extra_instructions : appended to the prompt (both engines), like the dataset options.
+    should_cancel() : polled at each image boundary in the Ollama phase for a graceful
+                      stop (JoyCaption runs as one batch and isn't interruptible mid-load,
+                      same as the dataset pass).
+    on_caption(path, caption) : fired as each caption lands, for incremental persistence.
+    progress(done, total)     : progress callback (every handled image, captioned or not).
+
+    Best-effort: a totally unavailable engine raises RuntimeError (so the caller can
+    surface WHY); an individual empty caption is simply skipped. Unloads the Ollama model
+    at the end (VRAM back to ComfyUI). Holding the GPU-exclusive vision window is the
+    CALLER's job, so launch-all can keep ONE window across several steps."""
+    paths = [p for p in (paths or []) if p and os.path.isfile(p)]
+    total = len(paths)
+    out: dict = {}
+    if progress:
+        progress(0, total)
+    if not paths:
+        return out
+    backend = (backend or cfg.get('captioning.backend') or 'auto').lower()
+    if backend == 'none':
+        raise RuntimeError('No captioning backend configured')
+    cap_prompt = prompt or DESCRIPTIVE_CAPTION_PROMPT
+    if extra_instructions:
+        cap_prompt = _with_caption_instructions(cap_prompt, (extra_instructions or '').strip())
+    ollama_model = (ollama_model or '').strip() or None
+    done = 0
+
+    def _emit(p, cap):
+        nonlocal done
+        out[p] = cap
+        if on_caption:
+            on_caption(p, cap)
+        done += 1
+        if progress:
+            progress(done, total)
+
+    remaining = list(paths)
+    # 1) JoyCaption batch (single 8B NF4 load via the ai-toolkit venv) — skipped when
+    # the backend forces 'ollama'.
+    joycaption_note = ''
+    if backend in ('auto', 'joycaption'):
+        jc = {}
+        try:
+            from .joycaption import availability, caption_images_joycaption, is_available
+            if is_available():
+                jc = caption_images_joycaption(remaining, prompt=cap_prompt)
+            elif backend == 'joycaption':
+                raise RuntimeError(
+                    'JoyCaption backend is not available — '
+                    + (availability().get('detail') or 'check the ai-toolkit folder in Settings'))
+            else:  # auto: unavailable → remember why, fall back to Ollama
+                joycaption_note = availability().get('detail') or 'JoyCaption unavailable'
+        except RuntimeError:
+            raise
+        except Exception as e:  # noqa: BLE001 — any JoyCaption crash falls back to Ollama in auto
+            joycaption_note = str(e)
+            logger.warning('caption_paths: JoyCaption unavailable (%s)', e)
+        still = []
+        for p in remaining:
+            cap = (jc.get(p) or '').strip().strip('"').strip()
+            if cap:
+                _emit(p, _cap_caption(cap))
+            else:
+                still.append(p)
+        remaining = still
+        if backend == 'joycaption':
+            return out
+    # 2) Ollama (Qwen3-VL) for whatever JoyCaption didn't cover, or the whole set when
+    # the backend forces 'ollama'.
+    if remaining:
+        try:
+            from .vision_ollama import describe_image_ollama, unload_vision_model
+        except ImportError:
+            raise RuntimeError('vision (Ollama) service not configured/available yet')
+        try:
+            for index, p in enumerate(remaining, 1):
+                if should_cancel and should_cancel():
+                    break  # graceful stop at an image boundary (see caption_images)
+                with open(p, 'rb') as fh:
+                    cap = describe_image_ollama(
+                        fh.read(), cap_prompt, num_predict=2000, model=ollama_model,
+                        keep_alive=_VISION_BATCH_KEEPALIVE,
+                        auto_start_local=(index == 1), timeout=(10, 300))
+                cap = (cap or '').strip().strip('"').strip()
+                if cap:
+                    _emit(p, _cap_caption(cap))
+                else:
+                    done += 1  # handled-but-empty still advances the bar
+                    if progress:
+                        progress(done, total)
+        except RuntimeError as e:
+            # 'auto' tried JoyCaption first and it was unavailable, then Ollama failed too
+            # — report BOTH so the caller isn't debugging blind (issue #6 reasoning).
+            if joycaption_note:
+                raise RuntimeError(f'JoyCaption unavailable: {joycaption_note} · Ollama: {e}') from e
+            raise
+        finally:
+            unload_vision_model()  # hand the VRAM back to ComfyUI
+    return out
 
 
 # --- Short-caption derivation (ai-toolkit dual long+short captioning) --------

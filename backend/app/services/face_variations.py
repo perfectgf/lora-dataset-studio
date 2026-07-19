@@ -636,6 +636,22 @@ CAPTION_PROMPT = (
 JOYCAPTION_PROMPT = CAPTION_PROMPT
 
 
+# Neutral DESCRIPTIVE caption — used by the image bank (and the launch-all pipeline),
+# NOT by dataset training. A bank has no trigger word and nothing to protect, so unlike
+# the dataset prompts this one omits NOTHING: it names everything visible (subjects and
+# their appearance, clothing colours, objects, setting, mood) precisely because the
+# caption doubles as SEARCH text — "show me every image with a red dress" only works if
+# "red dress" actually made it into the caption. One compact paragraph of plain prose.
+DESCRIPTIVE_CAPTION_PROMPT = (
+    "Caption Type: Straightforward.\n\n"
+    "Describe this image plainly and completely, so the description can be searched "
+    "later. Name what is actually visible: the subjects and their appearance, their "
+    "pose and expression, the clothing and accessories WITH their colours, any notable "
+    "objects, the setting or location, and the overall lighting and mood.\n\n"
+    "Output ONE caption as flowing natural-language prose. Output only the caption "
+    "itself — no preamble, no \"Here is\", no quotation marks, no commentary.")
+
+
 # Dataset STYLE : l'invariant du set est le RENDU (esthétique, médium, palette, trait…),
 # qui doit être absorbé par le LoRA — donc jamais décrit. Règle miroir du concept :
 # ce qui est captionné reste contrôlable par le prompt, ce qui est tu est absorbé.

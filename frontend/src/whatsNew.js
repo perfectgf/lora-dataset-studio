@@ -58,6 +58,14 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-07-19-bank-captions-search',
+    date: '2026-07-19',
+    title: '🗃️ Caption images inside the Bank and search a big dump by what’s in it',
+    blurb:
+      "The Image bank can now caption its images with the same engines your datasets use (JoyCaption / Ollama vision, your Settings). Hit “🏷️ Caption” to describe every not-yet-captioned image, or select some first to caption just those — it runs in the background, is Stop-able mid-run, and never races your GPU. The captions then power a new 🔍 search bar: type “red dress” and the grid filters to matching images (it matches file names too), combinable with every existing filter — the fast way to find shots in a 9,000-image Telegram export. Best of all, captions follow the images: promote a captioned selection and the dataset starts already captioned for them.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-19-folder-browse-button',
     date: '2026-07-19',
     title: 'Browse for a folder instead of typing its path',

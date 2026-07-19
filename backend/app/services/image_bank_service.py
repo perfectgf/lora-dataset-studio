@@ -203,6 +203,7 @@ def _image_dict(row: BankImage, th: dict) -> dict:
         'face_state': row.face_state, 'face_cluster': row.face_cluster,
         'status': row.status, 'reject_reason': row.reject_reason,
         'promoted_dataset_id': row.promoted_dataset_id,
+        'caption': row.caption,
     }
 
 
@@ -353,12 +354,14 @@ def list_banks(user_id) -> list:
 
 
 def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
-                group=None, style=None, subfolder=None,
+                group=None, style=None, subfolder=None, search=None,
                 offset=0, limit=200) -> dict | None:
     """One PAGE of the bank grid (a 9 000-image bank must never ship whole).
-    Filters compose: status ∩ flag ∩ cluster ∩ dup-group ∩ style ∩ subfolder.
-    Flag filters sort by the relevant score (worst first) so the review reads
-    top-down."""
+    Filters compose: status ∩ flag ∩ cluster ∩ dup-group ∩ style ∩ subfolder ∩ search.
+    ``search`` is a plain full-text term matched (case-insensitive LIKE) against the
+    caption AND the relpath — so captions double as searchable tags for a big dump
+    ("red dress"), combinable with every other filter. Flag filters sort by the
+    relevant score (worst first) so the review reads top-down."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         return None
@@ -414,6 +417,14 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
             q = q.filter(~BankImage.relpath.contains(os.sep))
         else:
             q = q.filter(BankImage.relpath.startswith(subfolder + os.sep))
+    term = (search or '').strip()
+    if term:
+        # Full-text over caption + relpath. Escape LIKE metacharacters so a literal
+        # '%'/'_' in the query matches itself, then wrap in wildcards.
+        esc = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        like = f'%{esc}%'
+        q = q.filter(or_(BankImage.caption.ilike(like, escape='\\'),
+                         BankImage.relpath.ilike(like, escape='\\')))
     total = q.count()
     order_by = order if isinstance(order, tuple) else (order,)
     rows = q.order_by(*order_by).offset(max(0, int(offset))) \
@@ -1113,6 +1124,85 @@ def _watermark_job(bank_id, rescan):
     return run
 
 
+# --- caption pass (reuses the dataset caption engines) ----------------------
+def start_caption(app, user_id, bank_id, ids=None, force=False):
+    """Launch the caption pass over a selection (``ids``) or, when empty, every
+    non-rejected readable image. Reuses the dataset caption engines (JoyCaption /
+    Ollama per Settings) through a dataset-free descriptive brick; the captions
+    double as the bank's search text and ride along on promotion. Serialized
+    against training/vision like the score/watermark passes (503 when the GPU is
+    held). BankJobBusy when a job is already live, ValueError on a bad bank/config."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    backend = (cfg.get('captioning.backend') or 'auto').lower()
+    if backend == 'none':
+        raise ValueError('no captioning backend configured (Settings ▸ Captioning & quality)')
+    reason = _gpu_busy_reason()
+    if reason:
+        raise RuntimeError(reason)
+    ids = [int(i) for i in ids] if ids else None
+    q = BankImage.query.filter_by(bank_id=bank_id).filter(BankImage.status != 'reject')
+    if ids is not None:
+        q = q.filter(BankImage.id.in_(ids[:_SQL_IN_CHUNK]))
+    if not force:
+        q = q.filter(or_(BankImage.caption.is_(None), BankImage.caption == ''))
+    total = q.count()
+    return bank_jobs.start(app, bank_id, 'caption',
+                           _caption_job(bank_id, ids, force), total=total)
+
+
+def _caption_job(bank_id, ids, force):
+    def run(job):
+        from .face_dataset_service import caption_paths
+        from ..gpu_window import gpu_exclusive_vision_window
+        bank = db.session.get(ImageBank, bank_id)
+        if not bank:
+            return
+        q = BankImage.query.filter_by(bank_id=bank_id).filter(BankImage.status != 'reject')
+        if ids is not None:
+            rows = []
+            for i0 in range(0, len(ids), _SQL_IN_CHUNK):
+                rows.extend(q.filter(BankImage.id.in_(ids[i0:i0 + _SQL_IN_CHUNK])).all())
+            rows.sort(key=lambda r: r.id)
+        else:
+            rows = q.order_by(BankImage.id.asc()).all()
+        if not force:
+            rows = [r for r in rows if not (r.caption or '').strip()]
+        by_path = {}
+        for r in rows:
+            p = abs_image_path(bank, r)
+            if p and os.path.isfile(p):
+                by_path[p] = r.id
+        paths = list(by_path)
+        bank_jobs.progress(job, done=0, total=len(paths), detail='captioning')
+        if not paths:
+            return
+        captioned = 0
+
+        def _on_caption(path, caption):
+            nonlocal captioned
+            row = db.session.get(BankImage, by_path.get(path))
+            if row is not None:
+                row.caption = caption
+                db.session.commit()
+                captioned += 1
+
+        # GPU-exclusive for the whole pass, exactly like the score/watermark passes:
+        # frees ComfyUI VRAM and blocks a training start for the duration.
+        with gpu_exclusive_vision_window(flag_ttl=1800):
+            caption_paths(
+                paths,
+                should_cancel=lambda: bank_jobs.cancelled(job),
+                on_caption=_on_caption,
+                progress=lambda d, t: bank_jobs.progress(job, done=d, total=t))
+        if bank_jobs.cancelled(job):
+            bank_jobs.progress(job, detail=f'cancelled — {captioned} captioned so far')
+            return
+        bank_jobs.progress(job, detail=f'done — {captioned} captioned')
+    return run
+
+
 # --- subfolders (scoping facet) ---------------------------------------------
 def subfolders_payload(user_id, bank_id) -> dict | None:
     """Top-level subfolders of the bank's source folder with image counts, for
@@ -1175,18 +1265,21 @@ def _promote_job(user_id, bank_id, ids, dataset_id):
             if bank_jobs.cancelled(job):
                 break
             chunk = rows[c0:c0 + _PROMOTE_CHUNK]
-            blobs, chunk_rows = [], []
+            blobs, chunk_rows, caps = [], [], []
             for r in chunk:
                 p = abs_image_path(bank, r)
                 try:
                     with open(p, 'rb') as fh:
                         blobs.append(fh.read())
                     chunk_rows.append(r)
+                    # Carry the bank caption onto the dataset image (parallel to blobs),
+                    # so a captioned selection lands already captioned.
+                    caps.append(r.caption)
                 except (OSError, TypeError):
                     failed += 1
             if blobs:
                 new_ids, bad = import_images(user_id, dataset_id, blobs,
-                                             dedupe=True, stats=stats)
+                                             dedupe=True, stats=stats, captions=caps)
                 imported += len(new_ids)
                 failed += bad
                 # 'Promoted' = handed to the dataset — a dedupe skip means the

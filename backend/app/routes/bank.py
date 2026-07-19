@@ -73,6 +73,7 @@ def bank_images(bank_id):
         flag=args.get('flag') or None,
         cluster=_int('cluster'), group=_int('group'), style=_int('style'),
         subfolder=subfolder if subfolder is not None else None,
+        search=args.get('search') or None,
         offset=_int('offset') or 0, limit=_int('limit') or 200)
     if payload is None:
         return jsonify({'error': 'not found'}), 404
@@ -125,6 +126,16 @@ def bank_watermark(bank_id):
     data = request.get_json(silent=True) or {}
     return _start(banks.start_watermark, _app(), LOCAL_USER, bank_id,
                   rescan=bool(data.get('rescan')))
+
+
+@bp.post('/bank/<int:bank_id>/caption')
+def bank_caption(bank_id):
+    """Caption a selection (image_ids) or every non-rejected image, reusing the
+    dataset caption engines. {force:true} re-captions already-captioned rows.
+    202/409/503/400."""
+    data = request.get_json(silent=True) or {}
+    return _start(banks.start_caption, _app(), LOCAL_USER, bank_id,
+                  ids=data.get('image_ids') or None, force=bool(data.get('force')))
 
 
 @bp.post('/bank/<int:bank_id>/promote')
