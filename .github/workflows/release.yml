@@ -67,6 +67,10 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --disable-pip-version-check -r backend/requirements.txt
+          # Test-only extras, same as ci.yml: a few suites exercise the numpy/cv2
+          # seams inline (never shipped in requirements — the app installs them
+          # into dedicated envs on demand).
+          python -m pip install --disable-pip-version-check "numpy>=1.26,<2" "opencv-python-headless>=4.9"
           python -m pytest backend/tests -q
 
       - name: Build the Windows source ZIP
