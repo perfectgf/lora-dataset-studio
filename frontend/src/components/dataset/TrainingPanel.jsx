@@ -34,6 +34,7 @@ import { HelpBadge } from '../../help/HelpMode';
 import { requestHelpTip } from '../../help/helpTips';
 import { useToast } from '../common/Toast';
 import ContinueDialog from './ContinueDialog';
+import RunLineageGraph from './RunLineageGraph';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
 import { DatasetVersionChip, RunIdChip } from './RunIdentityBadges';
@@ -121,6 +122,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [checkpointsOpen, setCheckpointsOpen] = useState(false);
+  // ◉ Graph of this dataset's runs + checkpoints, opened from the manager. Lazy —
+  // fetched on first open, refetched when the browse filter changes.
+  const [datasetGraph, setDatasetGraph] = useState(null);   // {tree|loading|error} | null
   const [checkpoints, setCheckpoints] = useState([]);
   const [ckLoaded, setCkLoaded] = useState(false);
   // {registered, version, changed, diff} — provenance du dataset (registre).
@@ -838,6 +842,24 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       + (Array.isArray(data.imported) ? data.imported.length : 0),
     );
   };
+  // ◉ Graph: the whole dataset's runs + their checkpoints as one genealogy
+  // forest, scoped to the browse filter's family/variant so it matches the list.
+  // Reuses the exact component the Runs hub draws (RunLineageGraph) — no copy.
+  const openDatasetGraph = async () => {
+    setDatasetGraph({ loading: true });
+    try {
+      const qs = new URLSearchParams();
+      if (checkpointTrainType) qs.set('train_type', checkpointTrainType);
+      if (checkpointVariant) qs.set('variant', checkpointVariant);
+      const r = await fetch(`/api/dataset/${ds.currentId}/train/lineage?${qs.toString()}`,
+        { credentials: 'include' });
+      if (!r.ok) throw new Error('unavailable');
+      setDatasetGraph({ tree: await r.json() });
+    } catch {
+      setDatasetGraph({ error: 'Could not load this dataset’s run graph.' });
+    }
+  };
+
   // Recharge dès que le filtre de résultats change. On
   // attend baseInfo pour charger directement la BONNE base persistée (pas de flash
   // « Officiel » avant que la base du dataset soit appliquée).
@@ -2176,6 +2198,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
               ↻ Refresh checkpoints
             </button>
+            <button type="button" onClick={openDatasetGraph}
+              title="See this dataset's runs and their checkpoints as a graph — continuations shown, download or continue from any checkpoint"
+              className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
+              ◉ Graph
+            </button>
             {/* Ouvre les dossiers dans l'explorateur du poste (app locale) :
                 loras = imports ComfyUI de la famille ; run = checkpoints bruts. */}
             <button type="button"
@@ -2508,6 +2535,40 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             sample_prompts: adv?.sample_prompts }}
           busy={status.in_progress}
           onResolve={runContinue} />
+      )}
+
+      {/* ◉ Graph of the dataset's runs + checkpoints — the same view the Runs
+          hub opens, in a modal. Read-first: each checkpoint pill offers ⬇
+          download (self-contained links); continue stays on the Runs hub where
+          the cloud-continue flow lives.
+          TODO(lineage): a fuller Test-Studio-embedded graph will land here too. */}
+      {datasetGraph && (
+        <div role="dialog" aria-modal="true" aria-label="Dataset run graph"
+          className="fixed inset-0 z-[9990] bg-black/80 flex items-center justify-center p-3"
+          onClick={(e) => { if (e.target === e.currentTarget) setDatasetGraph(null); }}>
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border border-indigo-400/40 bg-app p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-content font-semibold"><span aria-hidden>◉</span> Runs &amp; checkpoints graph</span>
+              <span className="text-content-subtle text-[0.75rem] truncate">{checkpointBaseLabel} · {checkpointVariantDisplay}</span>
+              <button type="button" onClick={() => setDatasetGraph(null)}
+                className="ml-auto text-content-subtle hover:text-content" aria-label="Close">✕</button>
+            </div>
+            {datasetGraph.loading && (
+              <div className="flex items-center gap-2 text-content-subtle text-[0.75rem]">
+                <span aria-hidden className="h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-indigo-400" />
+                Building the graph…
+              </div>
+            )}
+            {datasetGraph.error && <p className="m-0 text-rose-300/80 text-[0.75rem]">{datasetGraph.error}</p>}
+            {datasetGraph.tree && (
+              Array.isArray(datasetGraph.tree.nodes) && datasetGraph.tree.nodes.length
+                ? <RunLineageGraph tree={datasetGraph.tree} />
+                : <p className="m-0 text-content-subtle text-[0.75rem]">
+                    No training runs recorded for this family yet — train once and its runs will appear here.
+                  </p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

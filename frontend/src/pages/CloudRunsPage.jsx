@@ -414,16 +414,21 @@ export default function CloudRunsPage() {
   // auto-resume — the monitor seeds the checkpoint onto the pod before start).
   const [continuing, setContinuing] = useState({});   // run_id -> bool
   const [continueRunTarget, setContinueRunTarget] = useState(null);   // run being continued | null
+  // A specific checkpoint to open the Continue dialog on, when it was launched
+  // from a ◉ Graph pill ("continue from here"); null = the dialog's own default.
+  const [continueInitialStep, setContinueInitialStep] = useState(null);
   const continueRun = (run) => {
     if (isTrainingRecipeReplayBlocked(run)) {
       toast.error('This checkpoint uses an incompatible legacy Z-Image recipe and cannot be continued safely.');
       return;
     }
+    setContinueInitialStep(null);
     setContinueRunTarget(run);
   };
   const submitContinue = async (payload) => {
     const run = continueRunTarget;
     setContinueRunTarget(null);
+    setContinueInitialStep(null);
     if (!run || !payload) return;
     setContinuing((m) => ({ ...m, [run.run_id]: true }));
     try {
@@ -466,6 +471,26 @@ export default function CloudRunsPage() {
   const limit = data?.limit || 1;
   const budget = data?.monthly_budget || 0;
   const spent = data?.month_spend || 0;
+
+  // ▶ Continue from a ◉ Graph checkpoint pill: open the Continue dialog on THAT
+  // step. Cloud-only, mirroring the per-run Continue button (a local run has no
+  // cloud-continue path). Prefer the live run row (full recipe/settings/steps);
+  // fall back to a node-derived target when the run sits outside the window.
+  const continueFromCheckpoint = (node, pill) => {
+    if (!node || node.source !== 'cloud' || node.run_id == null) return;
+    const row = [...actives, ...recent].find((r) => r.run_id === node.run_id);
+    const target = row || {
+      run_id: node.run_id, train_type: node.train_type, variant: node.variant,
+      steps: node.steps,
+      resume_steps: (node.checkpoints || []).map((c) => c.step),
+    };
+    if (isTrainingRecipeReplayBlocked(target)) {
+      toast.error('This checkpoint uses an incompatible legacy Z-Image recipe and cannot be continued safely.');
+      return;
+    }
+    setContinueInitialStep(pill?.step ?? null);
+    setContinueRunTarget(target);
+  };
 
   /* One HISTORY card. Visual hierarchy: rank 1 = thumbnail + identity chip +
      name + a strong status pill; rank 2 = the metrics that matter (duration,
@@ -582,12 +607,19 @@ export default function CloudRunsPage() {
                 ⬇ LoRA
               </a>
             )}
-            {run.lineage && run.record_id != null && (
+            {/* The graph opens for ANY run with saved checkpoints (a single run
+                already shows its epochs), and labels as Lineage once it has a
+                parent or a branch. */}
+            {run.record_id != null && (run.lineage || run.checkpoint_ready) && (
               <button type="button" onClick={() => toggleLineage(run.record_id)}
                 aria-expanded={!!lineageOpen[run.record_id]}
-                title="Show this run's lineage — the runs it continued from or that branched off it"
+                title={run.lineage
+                  ? "Show this run's lineage — the runs it continued from or that branched off it"
+                  : "Show this run's checkpoints as a graph — download or continue from any of them"}
                 className="rounded-lg border border-transparent px-2 py-1 text-content-muted hover:border-border hover:text-content text-xs font-medium">
-                {lineageOpen[run.record_id] ? '🌳 Hide lineage' : '🌳 Lineage'}
+                {lineageOpen[run.record_id]
+                  ? (run.lineage ? '🌳 Hide lineage' : '◉ Hide graph')
+                  : (run.lineage ? '🌳 Lineage' : '◉ Graph')}
               </button>
             )}
             {run.share_key && (
@@ -598,12 +630,13 @@ export default function CloudRunsPage() {
               </button>
             )}
           </div>
-          {run.lineage && run.record_id != null && lineageOpen[run.record_id] && (
+          {run.record_id != null && (run.lineage || run.checkpoint_ready) && lineageOpen[run.record_id] && (
             <RunLineageTree
               tree={lineageData[run.record_id]?.tree}
               loading={lineageData[run.record_id]?.loading}
               error={lineageData[run.record_id]?.error}
-              onSelect={jumpToRun} />
+              onSelect={jumpToRun}
+              onContinueCheckpoint={continueFromCheckpoint} />
           )}
         </div>
       </div>
@@ -878,6 +911,7 @@ export default function CloudRunsPage() {
           checkpoints={((continueRunTarget.resume_steps?.length
             ? continueRunTarget.resume_steps
             : [continueRunTarget.steps]).filter(Boolean)).map((step) => ({ step }))}
+          initialFromStep={continueInitialStep}
           busy={!!continuing[continueRunTarget.run_id]}
           onResolve={submitContinue} />
       )}

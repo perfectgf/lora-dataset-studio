@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { buildLineageGraph, CARD_W, CARD_H } from '../../utils/lineageGraph';
+import { buildLineageGraph, CARD_W, CARD_H, PILL_W, PILL_H } from '../../utils/lineageGraph';
 import { resumeCaption } from '../../utils/lineageTree';
 import { famLabel, StatusDot, SavesChip } from './lineageChrome';
 
@@ -7,16 +7,21 @@ import { famLabel, StatusDot, SavesChip } from './lineageChrome';
    tree: the root on the left, each continuation one generation to the right,
    forks stacking. Cards carry the same vocabulary as the list (status dot, ☁/💻,
    family, steps, v{n}, 💾), the current run wears an indigo glow, and the runs
-   are joined by flowing bezier edges whose gradient runs parent→child. The trunk
-   (root→current) is drawn brighter; a superseded branch is dashed and dimmed.
-   Hover any run to light its whole path back to the root. SVG-native (no graph
-   library) so every pixel is ours; geometry comes from utils/lineageGraph.js. */
+   are joined by flowing bezier edges whose gradient runs parent→child.
+
+   Under each run sit its CHECKPOINTS as sober pills (step · 💾). A continuation's
+   run→run edge starts from the exact pill it resumed from, so the graph reads
+   "this run started from THIS checkpoint". Click a pill for its actions
+   (⬇ download, ▶ continue from here). The trunk (root→current) is drawn brighter;
+   a superseded branch is dashed and dimmed. Hover any run to light its whole path
+   back to the root. SVG-native (no graph library); geometry comes from
+   utils/lineageGraph.js so the pills line up exactly with the edge anchors. */
 
 const MIN_SCALE = 0.5;   // shrink to fit down to here, then pan instead
-const MAX_H = 480;       // the panel never grows taller than this before it pans
+const MAX_H = 560;       // the panel never grows taller than this before it pans
 
-/** One run as a fixed-size card inside its <foreignObject>. Mirrors the list
- *  card's content, sized to the graph's card box. */
+/** One run as a fixed-size card. Mirrors the list card's content, sized to the
+ *  graph's card box; sits at the top of the run's cell (pills go below). */
 function GraphCard({ node, lit, onSelect }) {
   const cur = node.is_current;
   const dim = node.checkpoint_ready === false;
@@ -28,7 +33,8 @@ function GraphCard({ node, lit, onSelect }) {
       onClick={clickable ? () => onSelect(node) : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(node); } } : undefined}
       title={clickable ? 'Jump to this run' : undefined}
-      className={'lds-gcard flex h-full w-full flex-col justify-center gap-1 rounded-xl border px-2.5 py-1.5 '
+      style={{ height: CARD_H }}
+      className={'lds-gcard flex w-full flex-col justify-center gap-1 rounded-xl border px-2.5 py-1.5 '
         + (cur
           ? 'lds-gcard-current border-indigo-400/70 bg-indigo-500/10 ring-1 ring-indigo-400/30 '
           : dim
@@ -73,11 +79,40 @@ function GraphCard({ node, lit, onSelect }) {
   );
 }
 
-export default function RunLineageGraph({ tree, onSelect }) {
+/** One checkpoint as a compact pill: its step, 💾, a ✓ for the final save, and an
+ *  indigo ring when it's the point another run branched off. Clicking opens the
+ *  pill's actions. Absolutely positioned inside the run cell at the exact box the
+ *  layout computed, so the edge anchored on it lands dead-centre. */
+function CheckpointPill({ pill, offX, offY, active, onOpen }) {
+  const gone = pill.present === false;
+  return (
+    <button type="button"
+      onClick={(e) => { e.stopPropagation(); onOpen(pill); }}
+      title={`Checkpoint at step ${pill.step}${pill.final ? ' — final' : ''}${pill.isResumeSource ? ' — a run continued from here' : ''}`}
+      style={{ position: 'absolute', left: offX, top: offY, width: PILL_W, height: PILL_H }}
+      className={'lds-ckpill flex items-center justify-center gap-0.5 rounded-md border text-[0.5625rem] font-medium tabular-nums transition-colors '
+        + (gone
+          ? 'border-dashed border-border bg-transparent text-content-subtle '
+          : pill.final
+            ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-200 '
+            : 'border-border bg-app/70 text-content-muted hover:border-indigo-400/50 hover:text-content ')
+        + (pill.isResumeSource ? 'ring-1 ring-indigo-400/60 border-indigo-400/60 ' : '')
+        + (active ? 'ring-2 ring-indigo-400/80 ' : '')}>
+      {pill.final && <span aria-hidden className="text-emerald-300">✓</span>}
+      <span>{pill.step >= 1000 && pill.step % 1000 === 0 ? `${pill.step / 1000}k` : pill.step}</span>
+      <span aria-hidden className="opacity-70">💾</span>
+    </button>
+  );
+}
+
+export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }) {
   const g = useMemo(() => buildLineageGraph(tree), [tree]);
   const scrollRef = useRef(null);
   const [scale, setScale] = useState(1);
   const [hoverId, setHoverId] = useState(null);
+  // The open checkpoint popover: { node, pill } | null.
+  const [openCk, setOpenCk] = useState(null);
+  const closePopover = useCallback(() => setOpenCk(null), []);
 
   // Fit horizontally to the panel, shrinking no further than MIN_SCALE (then the
   // panel pans). Re-measured on resize so it always poses well in a screenshot.
@@ -100,8 +135,11 @@ export default function RunLineageGraph({ tree, onSelect }) {
   const onPointerDown = useCallback((e) => {
     const el = scrollRef.current;
     if (!el) return;
+    // A press outside a pill/card/popover dismisses an open popover.
+    if (!e.target.closest('.lds-ckpill') && !e.target.closest('.lds-ck-popover')) setOpenCk(null);
     const overflow = el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
-    if (!overflow || e.target.closest('.lds-gcard')) return; // let cards take clicks
+    if (!overflow || e.target.closest('.lds-gcard') || e.target.closest('.lds-ckpill')
+        || e.target.closest('.lds-ck-popover')) return; // let cards/pills take clicks
     drag.current = { x: e.clientX, y: e.clientY, l: el.scrollLeft, t: el.scrollTop };
     el.setPointerCapture?.(e.pointerId);
     el.classList.add('is-grabbing');
@@ -132,6 +170,13 @@ export default function RunLineageGraph({ tree, onSelect }) {
 
   const vw = g.width * scale, vh = g.height * scale;
   const capped = Math.min(vh, MAX_H);
+  // Can this checkpoint be continued from? Only cloud runs carry a run_id and the
+  // Runs hub's Continue flow is cloud-only — mirror that here (a local run shows
+  // download only). TODO(lineage): once local resume is wired into this view and
+  // generations can be launched from a node (with their results shown, and a
+  // Test-Studio graph), extend this popover with those actions.
+  const canContinue = (node) => typeof onContinueCheckpoint === 'function'
+    && node.source === 'cloud' && node.run_id != null && node.status === 'done';
 
   return (
     <div
@@ -206,14 +251,71 @@ export default function RunLineageGraph({ tree, onSelect }) {
           {g.nodes.map((n) => (
             <foreignObject key={n.node.record_id}
               className="lds-gnode overflow-visible"
-              x={n.x} y={n.y} width={CARD_W} height={CARD_H}
+              x={n.x} y={n.y} width={CARD_W} height={n.cellH}
               style={{ '--enter-delay': `${Math.min(n.depth, 8) * 90 + 40}ms` }}
               onPointerEnter={() => setHoverId(n.node.record_id)}
               onPointerLeave={() => setHoverId((cur) => (cur === n.node.record_id ? null : cur))}>
-              <GraphCard node={n.node} lit={isLit(n.node.record_id)} onSelect={onSelect} />
+              <div style={{ position: 'relative', width: CARD_W, height: n.cellH }}>
+                <GraphCard node={n.node} lit={isLit(n.node.record_id)} onSelect={onSelect} />
+                {n.checkpoints.map((p) => (
+                  <CheckpointPill key={`${p.step}-${p.filename ?? p.x}`}
+                    pill={p} offX={p.x - n.x} offY={p.y - n.y}
+                    active={openCk?.pill === p}
+                    onOpen={(pill) => setOpenCk({ node: n.node, pill })} />
+                ))}
+              </div>
             </foreignObject>
           ))}
         </g>
+
+        {/* Actions popover — drawn last so it sits above every node. OPAQUE
+            surface (bg-surface-overlay) so the graph behind never shows through.
+            Flips ABOVE the pill when there's no room below (bottom rows), and is
+            clamped horizontally, so the scroll panel never clips it. */}
+        {openCk && (() => {
+          const POP_W = 210, POP_H = 112;
+          const below = openCk.pill.y + PILL_H + 4;
+          const py = below + POP_H > g.height ? Math.max(0, openCk.pill.y - POP_H - 4) : below;
+          const px = Math.max(0, Math.min(openCk.pill.x, g.width - POP_W));
+          return (
+          <foreignObject className="lds-gnode overflow-visible"
+            x={px} y={py} width={POP_W + 10} height={POP_H + 8}>
+            <div className="lds-ck-popover w-[210px] rounded-lg border border-indigo-400/40 bg-surface-overlay p-2 shadow-xl"
+              onPointerDown={(e) => e.stopPropagation()}>
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <span className="text-content text-[0.6875rem] font-semibold tabular-nums">
+                  Step {openCk.pill.step.toLocaleString()}
+                </span>
+                {openCk.pill.final && (
+                  <span className="rounded bg-emerald-500/15 px-1 py-px text-emerald-200 text-[0.5rem] font-semibold uppercase">final</span>
+                )}
+                <button type="button" onClick={closePopover}
+                  className="ml-auto text-content-subtle hover:text-content text-[0.75rem]" aria-label="Close">✕</button>
+              </div>
+              <div className="flex flex-col gap-1">
+                {openCk.pill.download_url ? (
+                  <a href={openCk.pill.download_url} download
+                    onClick={closePopover}
+                    className="flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-600/15 px-2 py-1 text-emerald-100 text-[0.6875rem] font-medium no-underline hover:bg-emerald-600/25">
+                    <span aria-hidden>⬇</span> Download
+                  </a>
+                ) : (
+                  <span className="rounded-md border border-border bg-app/40 px-2 py-1 text-content-subtle text-[0.625rem]">
+                    Download unavailable for this save
+                  </span>
+                )}
+                {canContinue(openCk.node) && (
+                  <button type="button"
+                    onClick={() => { onContinueCheckpoint(openCk.node, openCk.pill); closePopover(); }}
+                    className="flex items-center gap-1.5 rounded-md border border-indigo-400/40 bg-indigo-500/15 px-2 py-1 text-indigo-100 text-[0.6875rem] font-medium hover:bg-indigo-500/25">
+                    <span aria-hidden>▶</span> Continue from here
+                  </button>
+                )}
+              </div>
+            </div>
+          </foreignObject>
+          );
+        })()}
       </svg>
     </div>
   );

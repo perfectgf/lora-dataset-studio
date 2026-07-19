@@ -1428,7 +1428,60 @@ def dataset_train_cloud_checkpoint(dataset_id):
             run = None
     else:
         run = ct.latest_run_for(dataset_id, request.args.get('train_type'))
-    if not run or not run.checkpoint_local_path \
-            or not os.path.isfile(run.checkpoint_local_path):
+    if not run:
+        abort(404)
+    # ?filename targets ONE harvested epoch in this run's staging (the ◉ Graph's
+    # per-checkpoint ⬇). Path-guarded: basename only, and it must really be a
+    # .safetensors sitting in THIS run's staging_dir. Absent → the run's final
+    # LoRA, the historical behaviour.
+    fn = request.args.get('filename')
+    if fn:
+        safe = os.path.basename(fn)
+        if (safe != fn or not safe.lower().endswith('.safetensors')
+                or not run.staging_dir):
+            abort(404)
+        path = os.path.join(run.staging_dir, safe)
+        if not os.path.isfile(path):
+            abort(404)
+        return send_file(path, as_attachment=True)
+    if not run.checkpoint_local_path or not os.path.isfile(run.checkpoint_local_path):
         abort(404)
     return send_file(run.checkpoint_local_path, as_attachment=True)
+
+
+@bp.get('/dataset/<int:dataset_id>/train/checkpoint/file')
+def dataset_train_checkpoint_file(dataset_id):
+    """Download ONE local run-dir checkpoint by filename — the ◉ Graph's
+    per-checkpoint ⬇ for local runs (the cloud sibling is train/cloud/checkpoint
+    ?filename). Path-guarded server-side to this run's own saves (see
+    lt.checkpoint_file_path); the client never sends a path. Unknown → 404."""
+    from flask import send_file, abort
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        abort(404)
+    fam = request.args.get('train_type') or None
+    variant = request.args.get('variant') or None
+    bm = request.args.get('base_model')
+    kw = {} if bm is None else {'base_model': bm}
+    if fam:
+        kw['family'] = fam
+    if variant:
+        kw['variant'] = variant
+    path = lt.checkpoint_file_path(
+        LOCAL_USER, dataset_id, request.args.get('filename', ''), **kw)
+    if not path:
+        abort(404)
+    return send_file(path, as_attachment=True)
+
+
+@bp.get('/dataset/<int:dataset_id>/train/lineage')
+def dataset_train_dataset_lineage(dataset_id):
+    """🌳 Genealogy forest of ALL this dataset's runs (every launch + its
+    checkpoints), for the ◉ Graph the Checkpoints & LoRAs manager opens.
+    Optionally scoped to the family/variant the panel shows (train_type/variant).
+    Unlike the per-run lineage there is no single current run. Empty → 200 with
+    an empty tree so the caller renders nothing, never an error page."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(ct.dataset_lineage(
+        dataset_id, train_type=request.args.get('train_type') or None,
+        variant=request.args.get('variant') or None))

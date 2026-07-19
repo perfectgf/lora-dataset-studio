@@ -2146,10 +2146,69 @@ def all_runs(limit: int = 20) -> dict:
             'monthly_budget': float(c.get('monthly_budget_usd') or 0)}
 
 
+def _checkpoint_download_url(dataset_id, source, run_id, filename,
+                            family=None, variant=None, base_model=None):
+    """The EXISTING browser-download endpoint for one saved checkpoint, so the
+    ◉ Graph's per-checkpoint ⬇ reuses the same serving path as the Runs hub /
+    Checkpoints panel instead of a parallel one. Cloud saves stream from the
+    run's staging dir (train/cloud/checkpoint, extended with ?filename); local
+    saves from the run dir (train/checkpoint/file). Query values are url-encoded
+    so a trigger with odd characters can't break the link."""
+    from urllib.parse import quote
+    if source == 'cloud':
+        return (f'/api/dataset/{dataset_id}/train/cloud/checkpoint'
+                f'?run_id={run_id}&filename={quote(filename)}')
+    qs = [f'filename={quote(filename)}']
+    if family:
+        qs.append(f'train_type={quote(str(family))}')
+    if variant:
+        qs.append(f'variant={quote(str(variant))}')
+    if base_model:
+        qs.append(f'base_model={quote(str(base_model))}')
+    return f'/api/dataset/{dataset_id}/train/checkpoint/file?' + '&'.join(qs)
+
+
+def _node_checkpoints(rec, crun):
+    """Every save this ONE run produced, as compact nodes for the ◉ Graph: a
+    step-sorted list of {step, filename, final, present, download_url}. Cloud
+    runs read their harvested staging saves; local runs read the run-dir files
+    list_checkpoints already attributes to this record. `present` is True for a
+    listed file (it is on disk); a run whose saves are all gone simply lists
+    none. Best-effort — a failed scan yields [] (the node shows no pills), never
+    a wrong claim. Mirrors the Runs-hub / Checkpoints-panel step extraction so a
+    pill's step is exactly what 'continue from here' resumes."""
+    out = []
+    if crun is not None:
+        for c in _run_staging_checkpoints(crun):
+            final = not re.search(r'_(\d{6,})\.safetensors$', c['filename'])
+            out.append({
+                'step': c['step'], 'filename': c['filename'],
+                'final': bool(final and crun.status == 'done'), 'present': True,
+                'download_url': _checkpoint_download_url(
+                    rec.dataset_id, 'cloud', crun.id, c['filename'])})
+        return out
+    # Local: list_checkpoints may raise if ai-toolkit isn't configured — let it
+    # propagate so the caller can tell "scan failed" (None) from "no saves" ([]).
+    cks = lt.list_checkpoints(cfg.LOCAL_USER, rec.dataset_id,
+                              rec.base_model or '', rec.family, rec.variant)
+    for c in cks:
+        if c.get('run_source') != 'local' or c.get('run_id') != rec.id:
+            continue
+        out.append({
+            'step': c['step'], 'filename': c['filename'],
+            'final': bool(c.get('final')), 'present': True,
+            'download_url': _checkpoint_download_url(
+                rec.dataset_id, 'local', rec.id, c['filename'],
+                family=rec.family, variant=rec.variant, base_model=rec.base_model)})
+    return out
+
+
 def _lineage_node(rec, crun, requested_id, failed_local_id):
     """One genealogy-tree node from a provenance record, enriched with what the
     card badge shows: family/variant/base/version/date, run status, and whether
     its LoRA/checkpoints are still ON DISK vs gone (superseded aside or deleted).
+    Each node also carries its own `checkpoints` (the ◉ Graph draws them as pills
+    under the run and anchors a continuation's edge on the exact one it resumed).
     Checkpoint presence is best-effort — a disk scan that fails degrades to
     None (the UI shows nothing) rather than a wrong "available" claim."""
     node = {
@@ -2175,6 +2234,7 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
         node['status'] = crun.status
         node['checkpoint_ready'] = bool(
             crun.checkpoint_local_path and os.path.isfile(crun.checkpoint_local_path))
+        node['checkpoints'] = _node_checkpoints(rec, crun)
         node['saves'] = _staging_save_count(crun)
     else:
         node['status'] = ('error' if (rec.source == 'local'
@@ -2183,13 +2243,12 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
         # THIS record (record_for_mtime). Superseded/deleted saves simply don't
         # appear — honest "what's recoverable now", never invented.
         try:
-            cks = lt.list_checkpoints(cfg.LOCAL_USER, rec.dataset_id,
-                                      rec.base_model or '', rec.family, rec.variant)
-            mine = [c for c in cks
-                    if c.get('run_source') == 'local' and c.get('run_id') == rec.id]
-            node['saves'] = len(mine)
-            node['checkpoint_ready'] = len(mine) > 0
+            cks = _node_checkpoints(rec, None)
+            node['checkpoints'] = cks
+            node['saves'] = len(cks)
+            node['checkpoint_ready'] = len(cks) > 0
         except Exception:
+            node['checkpoints'] = []
             node['saves'] = None
             node['checkpoint_ready'] = None
     return node
@@ -2232,6 +2291,59 @@ def run_lineage(record_id) -> dict:
     for node in nodes:
         node['has_superseded_tail'] = node['record_id'] in superseded_parents
     return {'root_id': records[0].id, 'current_id': requested_id,
+            'nodes': nodes, 'edges': edges, 'single': len(nodes) < 2}
+
+
+def _lineage_edges(records):
+    """parent→child edges over a SET of records (the genealogy the ◉ Graph draws),
+    with the superseded flag (a child resumed BELOW where its parent ended) — the
+    same rule run_lineage uses, factored so a dataset-wide forest reuses it."""
+    steps_by_id = {r.id: (r.steps or 0) for r in records}
+    ids = set(steps_by_id)
+    edges, superseded_parents = [], set()
+    for rec in records:
+        pid = rec.parent_record_id
+        if pid and pid in ids:
+            superseded = (rec.resumed_from is not None
+                          and rec.resumed_from < steps_by_id[pid])
+            if superseded:
+                superseded_parents.add(pid)
+            edges.append({'parent': pid, 'child': rec.id,
+                          'resumed_from': rec.resumed_from,
+                          'superseded': superseded})
+    return edges, superseded_parents
+
+
+def dataset_lineage(dataset_id, train_type=None, variant=None) -> dict:
+    """Every run this dataset produced, as ONE genealogy forest for the ◉ Graph
+    the Checkpoints & LoRAs manager opens — not a single record's lineage but all
+    of them (several independent trees stack; the graph layout already handles
+    multiple roots). Optionally scoped to the family/variant the panel is showing,
+    so it matches the checkpoints listed there. Nodes carry their checkpoints
+    exactly like run_lineage; there is no single 'current' run here (root_id /
+    current_id are None). Empty dataset → an empty, safe shape."""
+    from ..models import TrainingRunRecord
+    fam = fds.normalize_train_type(train_type) if train_type else None
+    q = TrainingRunRecord.query.filter_by(dataset_id=dataset_id)
+    if fam:
+        q = q.filter_by(family=fam)
+    if variant:
+        q = q.filter_by(variant=str(variant).strip().lower())
+    records = q.order_by(TrainingRunRecord.id.asc()).all()
+    if not records:
+        return {'nodes': [], 'edges': [], 'root_id': None,
+                'current_id': None, 'single': True}
+    cloud_ids = {r.cloud_run_id for r in records if r.cloud_run_id}
+    cloud_by_id = ({r.id: r for r in CloudTrainingRun.query
+                    .filter(CloudTrainingRun.id.in_(cloud_ids)).all()}
+                   if cloud_ids else {})
+    failed_local_id = (lt.failed_local_run() or (None, None))[0]
+    nodes = [_lineage_node(rec, cloud_by_id.get(rec.cloud_run_id), None,
+                           failed_local_id) for rec in records]
+    edges, superseded_parents = _lineage_edges(records)
+    for node in nodes:
+        node['has_superseded_tail'] = node['record_id'] in superseded_parents
+    return {'root_id': None, 'current_id': None,
             'nodes': nodes, 'edges': edges, 'single': len(nodes) < 2}
 
 

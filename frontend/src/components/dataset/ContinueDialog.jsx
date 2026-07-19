@@ -21,6 +21,7 @@ export default function ContinueDialog({
   where = 'local',         // 'local' | 'cloud' — only tweaks the seeding note wording
   checkpoints = [],        // [{ step, final?, best? }] — the run's saves
   bestStep = null,         // optional « Find best epoch » recommendation to flag
+  initialFromStep = null,  // pre-select a specific checkpoint (◉ Graph "continue from here")
   settings = {},           // inherited effective settings shown as the starting point
   defaultExtra = 1000,
   busy = false,
@@ -32,7 +33,10 @@ export default function ContinueDialog({
     [checkpoints]);
   const latest = steps.length ? steps[steps.length - 1] : 0;
 
-  const [fromStep, setFromStep] = useState(latest);
+  // Open on the requested checkpoint when it's a real save of this run, else the
+  // newest (the historical default).
+  const [fromStep, setFromStep] = useState(
+    initialFromStep != null && steps.includes(initialFromStep) ? initialFromStep : latest);
   const [extra, setExtra] = useState(String(defaultExtra));
   const [showSettings, setShowSettings] = useState(false);
 

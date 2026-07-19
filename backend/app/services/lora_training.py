@@ -2901,6 +2901,24 @@ def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None,
     return out
 
 
+def checkpoint_file_path(user_id, dataset_id, filename, base_model=_PERSISTED,
+                         family=None, variant=_PERSISTED):
+    """Absolute path of ONE local run-dir checkpoint for a browser download, or
+    None if it isn't a real save of that run. Anti path-traversal: the filename
+    must appear in this run's list_checkpoints (the same whitelist import_checkpoint
+    uses), so `..`/absolute paths never resolve. Powers the ◉ Graph's per-checkpoint
+    ⬇ for local runs, mirroring the cloud endpoint's staging serve."""
+    run = _run_dir(user_id, dataset_id, base_model, family, variant)
+    if not os.path.isdir(run):
+        return None
+    allowed = {c['filename'] for c in list_checkpoints(
+        user_id, dataset_id, base_model, family, variant)}
+    if filename not in allowed:
+        return None
+    path = os.path.join(run, filename)
+    return path if os.path.isfile(path) else None
+
+
 def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, family=None,
                       src_dir=None, version=None, variant=_PERSISTED,
                       run_id=None, run_source=None, return_meta=False):

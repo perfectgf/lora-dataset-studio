@@ -7,12 +7,18 @@
    Layout is a tidy left-to-right tree: the root sits on the left and each
    continuation flows one generation to the right, so a lineage reads as a
    timeline (run → continue → re-continue) with forks stacking vertically.
-   Positions use the leaf-slot method — every leaf gets its own row, each parent
-   is centred over the span of its children — which never overlaps for the small
-   trees a lineage is (3-10 runs) without pulling in a graph library. Defensive
-   against a missing root, a cycle, or an orphaned edge, exactly like the list:
-   every node is placed once, unreachable nodes become their own roots so
-   nothing vanishes. */
+   Positions use the leaf-slot method — every leaf gets its own vertical band,
+   each parent is centred over the span of its children — which never overlaps
+   for the small trees a lineage is (3-10 runs) without pulling in a graph
+   library. Defensive against a missing root, a cycle, or an orphaned edge,
+   exactly like the list: every node is placed once, unreachable nodes become
+   their own roots so nothing vanishes.
+
+   Each run also carries its CHECKPOINTS as compact pills laid out in a wrapped
+   row beneath the card. A continuation's run→run edge is anchored on the exact
+   pill it resumed from (step === resumed_from), so the graph reads "this run
+   started from THIS checkpoint"; when no pill matches (final save, superseded
+   and gone, or a legacy run) the edge falls back to the parent card's edge. */
 
 import { siblingSort } from './lineageTree.js';
 
@@ -21,11 +27,40 @@ import { siblingSort } from './lineageTree.js';
 export const CARD_W = 264;
 export const CARD_H = 64;
 export const H_GAP = 62;   // gap between one generation and the next (→)
-export const V_GAP = 26;   // gap between sibling rows (↓)
+export const V_GAP = 26;   // gap between sibling bands (↓)
 export const PAD = 22;     // breathing room around the whole tree
 
+// Checkpoint pills: a compact wrapped grid under the card. Sized so a run with
+// ~13 saves stays a tidy few rows (screenshot-able) instead of an exploding
+// tree — the saves are satellites of the run, never their own generations.
+export const PILL_W = 60;
+export const PILL_H = 20;
+export const PILL_GAP = 6;         // between pills, both axes
+export const PILL_TOP_GAP = 8;     // card bottom → first pill row
+export const PILLS_PER_ROW = Math.max(1, Math.floor((CARD_W + PILL_GAP) / (PILL_W + PILL_GAP)));
+
 const COL = CARD_W + H_GAP;   // centre-to-centre horizontal step per depth
-const ROW = CARD_H + V_GAP;   // centre-to-centre vertical step per leaf row
+
+/** Rows a run's pills wrap into, and the pixel height of that block (0 saves =
+ *  no block). */
+function pillRows(n) { return n > 0 ? Math.ceil(n / PILLS_PER_ROW) : 0; }
+function pillsBlockH(n) {
+  const rows = pillRows(n);
+  return rows ? rows * PILL_H + (rows - 1) * PILL_GAP : 0;
+}
+/** A run cell's full height: the card, plus its wrapped pills when it has any. */
+function cellHeight(nCk) {
+  const block = pillsBlockH(nCk);
+  return CARD_H + (block ? PILL_TOP_GAP + block : 0);
+}
+/** Pill position (top-left) relative to the run card's top-left, by index. */
+function pillOffset(i) {
+  const col = i % PILLS_PER_ROW, row = Math.floor(i / PILLS_PER_ROW);
+  return {
+    dx: col * (PILL_W + PILL_GAP),
+    dy: CARD_H + PILL_TOP_GAP + row * (PILL_H + PILL_GAP),
+  };
+}
 
 /** Children-by-parent map (sorted oldest-first, same order as the list), plus a
  *  by-id index — the shared spine of both layouts. */
@@ -46,12 +81,10 @@ function indexTree(tree) {
   return { nodes, byId, childrenOf };
 }
 
-/** Cubic-bezier path from a parent card's right edge to a child card's left
- *  edge, with horizontal tangents so the curve leaves and arrives flat — the
- *  smooth "flowing" connector, not a kinked polyline. */
-function edgePath(parent, child) {
-  const x1 = parent.x + CARD_W, y1 = parent.y + CARD_H / 2;
-  const x2 = child.x, y2 = child.y + CARD_H / 2;
+/** Cubic-bezier path from a point on the parent (card edge OR a checkpoint pill)
+ *  to a child card's left edge, with horizontal tangents so the curve leaves and
+ *  arrives flat — the smooth "flowing" connector, not a kinked polyline. */
+function edgePath(x1, y1, x2, y2) {
   const mx = x1 + (x2 - x1) / 2;
   return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
 }
@@ -59,8 +92,13 @@ function edgePath(parent, child) {
 /**
  * Lay out a {root_id, current_id, nodes, edges} lineage for the graph view.
  * Returns:
- *   nodes: [{ node, x, y, depth, isCurrent, onSpine }]  — top-left of each card
- *   edges: [{ parentId, childId, d, superseded, onSpine }]  — `d` is an SVG path
+ *   nodes: [{ node, x, y, depth, isCurrent, onSpine, cellH, checkpoints }]
+ *          — top-left of each card; `checkpoints` are the pills in ABSOLUTE
+ *            coords: [{ step, final, present, download_url, x, y, w, h,
+ *            isResumeSource }]
+ *   edges: [{ parentId, childId, d, superseded, onSpine, anchoredStep }]
+ *          — `d` is an SVG path; `anchoredStep` is the pill step it starts from
+ *            (null when it leaves the parent card edge)
  *   width, height     — content bounds (PAD included) for the viewBox
  *   spine             — Set of node ids on the root→current path (the trunk)
  *   ancestorsOf       — Map id → Set of that node's ancestor ids (self excluded),
@@ -72,6 +110,8 @@ export function buildLineageGraph(tree) {
     spine: new Set(), ancestorsOf: new Map() };
   const { nodes, byId, childrenOf } = indexTree(tree);
   if (!nodes.length) return empty;
+
+  const ckOf = (id) => (Array.isArray(byId.get(id)?.checkpoints) ? byId.get(id).checkpoints : []);
 
   // Roots: the declared root if present, else every parentless node, else the
   // first node — then any node an edge never reached is appended as its own root
@@ -85,46 +125,54 @@ export function buildLineageGraph(tree) {
   }
   if (!roots.length) roots.push(nodes[0].record_id);
 
-  const placed = new Map();   // id -> { node, x, y, depth }
+  const placed = new Map();   // id -> { node, x, y, depth, cellH }
   const parentOf = new Map(); // id -> parent id (as laid out)
-  let nextRow = 0;
+  let nextY = PAD;            // running top for the next leaf band
 
-  // Post-order walk: leaves take the next free row, a parent centres on the span
-  // of its children. A seen-set breaks cycles and shared-child anomalies so each
-  // node is placed exactly once.
+  // Post-order walk: a leaf takes the next free vertical band (its own cell
+  // height), a parent centres its CARD on the span of its children's cards. A
+  // seen-set breaks cycles and shared-child anomalies so each node is placed
+  // exactly once. Parent and child never share an X column (child is a full
+  // generation to the right), so a tall pills block can't collide with them —
+  // only siblings share a column, and each leaf reserves its full height.
   const place = (id, depth, parentId) => {
-    if (placed.has(id)) return placed.get(id).row;
+    if (placed.has(id)) return placed.get(id).cy;
     const node = byId.get(id);
     if (!node) return null;
-    placed.set(id, { node, depth, row: 0, x: 0, y: 0 }); // reserve (cycle guard)
+    const cellH = cellHeight(ckOf(id).length);
+    const slot = { node, depth, x: PAD + depth * COL, y: 0, cellH, cy: 0 };
+    placed.set(id, slot);                       // reserve (cycle guard)
     if (parentId != null) parentOf.set(id, parentId);
     const kids = (childrenOf.get(id) || []).filter((cid) => !placed.has(cid));
-    let row;
+    let cardCenter;
     if (!kids.length) {
-      row = nextRow++;
+      slot.y = nextY;
+      cardCenter = slot.y + CARD_H / 2;
+      nextY += cellH + V_GAP;                   // advance past this whole cell
     } else {
-      const childRows = kids.map((cid) => place(cid, depth + 1, id)).filter((r) => r != null);
-      row = childRows.length
-        ? (Math.min(...childRows) + Math.max(...childRows)) / 2
-        : nextRow++;
+      const centers = kids.map((cid) => place(cid, depth + 1, id)).filter((c) => c != null);
+      cardCenter = centers.length
+        ? (Math.min(...centers) + Math.max(...centers)) / 2
+        : (nextY += 0, nextY);
+      slot.y = cardCenter - CARD_H / 2;
     }
-    const slot = placed.get(id);
-    slot.row = row;
-    slot.depth = depth;
-    slot.x = PAD + depth * COL;
-    slot.y = PAD + row * ROW;
-    return row;
+    slot.cy = cardCenter;
+    return cardCenter;
   };
   for (const rid of roots) place(rid, 0, null);
   // Any node still unplaced (unreachable) becomes its own root band.
   for (const n of nodes) if (!placed.has(n.record_id)) place(n.record_id, 0, null);
 
-  const outNodes = [];
-  let maxX = 0, maxY = 0;
-  for (const { node, x, y, depth } of placed.values()) {
-    outNodes.push({ node, x, y, depth, isCurrent: !!node.is_current, onSpine: false });
-    maxX = Math.max(maxX, x + CARD_W);
-    maxY = Math.max(maxY, y + CARD_H);
+  // Absolute pill boxes per node, and a step → pill index lookup for edge anchoring.
+  const pillsByNode = new Map();   // id -> [{ step, final, present, download_url, x, y, w, h }]
+  for (const { node, x, y } of placed.values()) {
+    const cks = ckOf(node.record_id).map((c, i) => {
+      const { dx, dy } = pillOffset(i);
+      return { step: c.step, final: !!c.final, present: c.present !== false,
+        download_url: c.download_url || null, filename: c.filename,
+        x: x + dx, y: y + dy, w: PILL_W, h: PILL_H, isResumeSource: false };
+    });
+    pillsByNode.set(node.record_id, cks);
   }
 
   // Ancestor chains, from the laid-out parent links (each node has ≤ 1 parent).
@@ -141,27 +189,48 @@ export function buildLineageGraph(tree) {
   const spine = new Set();
   const currentId = tree?.current_id != null && placed.has(tree.current_id)
     ? tree.current_id
-    : (outNodes.find((n) => n.isCurrent)?.node.record_id ?? null);
+    : ([...placed.values()].find((p) => p.node.is_current)?.node.record_id ?? null);
   if (currentId != null) {
     spine.add(currentId);
     for (const a of (ancestorsOf.get(currentId) || [])) spine.add(a);
   }
-  for (const on of outNodes) on.onSpine = spine.has(on.node.record_id);
 
-  // Edges from the persisted graph, carrying the superseded flag through. An
-  // edge is on the spine only when BOTH ends are (so the trunk lights, forks
-  // off it stay quiet).
-  const posOf = new Map([...placed.values()].map((p) => [p.node.record_id, p]));
+  // Edges from the persisted graph, carrying the superseded flag through and
+  // anchored on the parent pill the child resumed from when one matches.
   const outEdges = [];
   for (const e of (tree?.edges || [])) {
-    const p = posOf.get(e.parent), c = posOf.get(e.child);
+    const p = placed.get(e.parent), c = placed.get(e.child);
     if (!p || !c) continue;
+    const x2 = c.x, y2 = c.y + CARD_H / 2;
+    // The child's resume step: prefer the edge's, fall back to the child node's.
+    const step = e.resumed_from != null ? e.resumed_from : c.node.resumed_from;
+    const pills = pillsByNode.get(e.parent) || [];
+    const anchor = step != null ? pills.find((pl) => pl.step === step) : undefined;
+    let x1, y1, anchoredStep = null;
+    if (anchor) {
+      anchor.isResumeSource = true;
+      x1 = anchor.x + anchor.w; y1 = anchor.y + anchor.h / 2;
+      anchoredStep = anchor.step;
+    } else {
+      x1 = p.x + CARD_W; y1 = p.y + CARD_H / 2;
+    }
     outEdges.push({
       parentId: e.parent, childId: e.child,
       superseded: !!e.superseded,
       onSpine: spine.has(e.parent) && spine.has(e.child),
-      d: edgePath(p, c),
+      anchoredStep,
+      d: edgePath(x1, y1, x2, y2),
     });
+  }
+
+  const outNodes = [];
+  let maxX = 0, maxY = 0;
+  for (const { node, x, y, depth, cellH } of placed.values()) {
+    outNodes.push({ node, x, y, depth, cellH,
+      isCurrent: !!node.is_current, onSpine: spine.has(node.record_id),
+      checkpoints: pillsByNode.get(node.record_id) || [] });
+    maxX = Math.max(maxX, x + CARD_W);
+    maxY = Math.max(maxY, y + cellH);
   }
 
   return {

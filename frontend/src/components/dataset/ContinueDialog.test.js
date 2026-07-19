@@ -44,3 +44,21 @@ test('the continue hook forwards from_step and overrides only when present', () 
   assert.match(hook, /opts\.fromStep\s*!=\s*null\s*\?\s*\{\s*from_step:\s*opts\.fromStep\s*\}/);
   assert.match(hook, /opts\.overrides\s*\?\s*\{\s*overrides:\s*opts\.overrides\s*\}/);
 });
+
+test('the dialog can open on a specific checkpoint (◉ Graph "continue from here")', () => {
+  // opt-in prop, defaulting to the newest when the step is not a real save
+  assert.match(dialog, /initialFromStep\s*=\s*null/);
+  assert.match(dialog, /initialFromStep\s*!=\s*null\s*&&\s*steps\.includes\(initialFromStep\)/);
+});
+
+test('a ◉ Graph checkpoint pill opens the cloud Continue dialog pre-filled', () => {
+  const graph = fs.readFileSync(new URL('./RunLineageGraph.jsx', import.meta.url), 'utf8');
+  const tree = fs.readFileSync(new URL('./RunLineageTree.jsx', import.meta.url), 'utf8');
+  // the graph surfaces a "continue from here" action, threaded through the tree
+  assert.match(graph, /onContinueCheckpoint\(openCk\.node,\s*openCk\.pill\)/);
+  assert.match(tree, /onContinueCheckpoint=\{onContinueCheckpoint\}/);
+  // the Runs page maps a pill to the run and opens the dialog on that step
+  assert.match(cloud, /continueFromCheckpoint/);
+  assert.match(cloud, /setContinueInitialStep\(pill\?\.step/);
+  assert.match(cloud, /initialFromStep=\{continueInitialStep\}/);
+});
