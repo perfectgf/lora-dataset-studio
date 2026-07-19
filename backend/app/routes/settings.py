@@ -149,7 +149,7 @@ def put_settings():
     # which probe_watermark_inpaint falls back to the app's own Pillow-12 venv and the
     # feature reads "NOT installed" forever despite a perfect install. Drop the blank so
     # a stale Save can't undo an install. (aitoolkit.python IS user-editable — not here.)
-    for _managed in ('watermark', 'masks', 'face_scoring'):
+    for _managed in ('watermark', 'masks', 'face_scoring', 'bank_scoring'):
         node = config_partial.get(_managed)
         if isinstance(node, dict) and 'python' in node and not str(node.get('python') or '').strip():
             node.pop('python')

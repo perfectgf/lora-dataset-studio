@@ -125,6 +125,10 @@ DEFAULTS = {
              'aesthetic_min': 5.0, 'nsfw_max': 0.5, 'style_threshold': 0.6,
              'semantic_dup_threshold': 0.96},
     'masks': {'python': ''},
+    # Bank ✨ Score pass interpreter (CLIP aesthetic/NSFW stack). Auto-provisioned
+    # by the bank_scoring installer into its own venv — declared here so a
+    # full-config Save round-trips it instead of failing "unknown config section".
+    'bank_scoring': {'python': ''},
     # Watermark inpainting (simple-lama-inpainting, extra ML). Dedicated key so a
     # user can override it, but defaults empty -> reuse the same ML interpreter as
     # rembg/insightface (masks.python) then sys.executable. Never imported in-process.

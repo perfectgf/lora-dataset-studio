@@ -165,6 +165,21 @@ def test_put_settings_full_config_save_keeps_autoprovisioned_watermark_python(cl
     assert r.get_json()['config']['watermark']['allow_crop'] is True
 
 
+def test_put_settings_accepts_and_protects_bank_scoring_section(client):
+    """The bank_scoring installer records bank_scoring.python out-of-band. The section
+    must (a) be a known DEFAULTS section — a full-config Save echoing it back used to
+    fail 400 "unknown config section 'bank_scoring'" (the reported bug) — and (b) enjoy
+    the same blank-python clobber guard as the other auto-provisioned interpreters."""
+    from app import config
+    config.save_config({'bank_scoring': {'python': '/data/envs/bank_scoring/py.exe'}})
+    r = client.put('/api/settings', json={'config': {
+        'bank_scoring': {'python': ''},
+    }})
+    assert r.status_code == 200, r.get_json()
+    assert (r.get_json()['config']['bank_scoring']['python']
+            == '/data/envs/bank_scoring/py.exe')
+
+
 def test_capabilities_endpoint(client):
     caps = client.get('/api/capabilities').get_json()
     assert 'engines' in caps and 'studio_visible' in caps
