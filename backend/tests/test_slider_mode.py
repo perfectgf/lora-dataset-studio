@@ -93,6 +93,29 @@ def test_slider_default_rank_is_low_but_explicit_rank_wins(app):
         assert lt._lora_rank(ds, 'zimage') == 32          # user choice always wins
 
 
+def test_slider_default_alpha_is_four_but_explicit_alpha_wins(app, tmp_path):
+    """Ostris slider notebook ships rank 8 / alpha 4 (scale 0.5, "bigger is not
+    always better, especially for sliders"). The emitted network alpha defaults to
+    4, the snapshot agrees, and the panel exposes 4 as the default — while the
+    existing alpha knob still lets a user put 8 back for repro of an older run."""
+    from app.services import lora_training as lt
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        ds = _mk(app, train_type='zimage')
+        _enable_slider(ds)
+        folder = tmp_path / 'ds_sl'; folder.mkdir()
+        p = lt.build_job_config(ds, str(folder), steps=1000)['config']['process'][0]
+        assert p['network']['linear'] == 8 and p['network']['linear_alpha'] == 4
+        assert lt.launch_settings_snapshot(ds)['alpha'] == 4
+        assert lt.effective_train_settings(ds)['default_alpha'] == 4
+        assert lt.effective_slider_settings(ds)['default_alpha'] == 4
+        # explicit alpha override wins (a user reproducing a pre-change slider run)
+        lt.update_train_settings(LOCAL_USER, ds.id, {'alpha': 8})
+        p8 = lt.build_job_config(ds, str(folder), steps=1000)['config']['process'][0]
+        assert p8['network']['linear_alpha'] == 8
+
+
 # --- 2) job config emission (the ConceptSliderTrainerConfig contract) -----------
 
 def _slider_process(app, tmp_path, train_type, variant=None, anchor='',

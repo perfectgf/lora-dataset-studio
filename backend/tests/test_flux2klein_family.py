@@ -129,6 +129,58 @@ def test_build_job_config_flux2klein_4b_default_and_9b_optin(app, tmp_path):
         assert p9['model']['model_kwargs'] == {'match_target_res': False}
 
 
+def test_flux2klein_style_emits_conv_lora_dims(app, tmp_path):
+    """FLUX.2 Klein STYLE only: the researched 128/64/64/32 network (linear +
+    Conv2d LoRA, 4:2:2:1). Sweep Herbst (64 runs) + BFL official example. The
+    conv/conv_alpha keys sit at the same level as linear/linear_alpha (verified
+    against ai-toolkit NetworkConfig). The snapshot carries the conv dims too."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        ds = svc.create_dataset(LOCAL_USER, 'Sty', 'zsty', kind='style',
+                                train_type='flux2klein')
+        folder = tmp_path / 'ds'; folder.mkdir()
+        p = lt.build_job_config(ds, str(folder), steps=1500)['config']['process'][0]
+        assert p['network'] == {'type': 'lora', 'linear': 128, 'linear_alpha': 64,
+                                'conv': 64, 'conv_alpha': 32}
+        snap = lt.launch_settings_snapshot(ds, family='flux2klein')
+        assert snap['rank'] == 128 and snap['alpha'] == 64
+        assert snap['conv'] == 64 and snap['conv_alpha'] == 32
+        # the panel exposes the researched default so the summary matches the job
+        eff = lt.effective_train_settings(ds, family='flux2klein')
+        assert eff['default_rank'] == 128 and eff['default_alpha'] == 64
+
+
+def test_flux2klein_non_style_kinds_stay_linear_only(app, tmp_path):
+    """Regression guard: the conv dims are STYLE-specific. Character (default) and
+    concept Klein keep the linear-only 16/16 block — the sweep never covered them."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'aitoolkit': {'dir': str(tmp_path / 'aitoolkit')}})
+        folder = tmp_path / 'ds'; folder.mkdir()
+        char = svc.create_dataset(LOCAL_USER, 'Ch', 'zch', train_type='flux2klein')
+        pc = lt.build_job_config(char, str(folder), steps=1500)['config']['process'][0]
+        assert pc['network'] == {'type': 'lora', 'linear': 16, 'linear_alpha': 16}
+        assert 'conv' not in pc['network']
+        con = svc.create_dataset(LOCAL_USER, 'Co', 'zco', kind='concept',
+                                 concept_desc='a red ceramic mug', train_type='flux2klein')
+        pk = lt.build_job_config(con, str(folder), steps=1500)['config']['process'][0]
+        assert pk['network'] == {'type': 'lora', 'linear': 16, 'linear_alpha': 16}
+        # ... and a LoKr style run stays linear-only (the 4:2:2:1 recipe is LoRA-only)
+        sty = svc.create_dataset(LOCAL_USER, 'St2', 'zst2', kind='style',
+                                 train_type='flux2klein')
+        lt.update_train_settings(LOCAL_USER, sty.id, {'network_type': 'lokr'})
+        pl = lt.build_job_config(svc.get_dataset(LOCAL_USER, sty.id), str(folder),
+                                 steps=1500)['config']['process'][0]
+        assert pl['network']['type'] == 'lokr' and 'conv' not in pl['network']
+
+
 def test_flux2klein_expects_prose_captions(app):
     """Everything != sdxl expects prose: booru-tag captions on a flux2klein
     dataset trip the MISMATCH_CAPTION guard (forceable, like the others)."""

@@ -754,6 +754,10 @@ def _valid_variants_for(family) -> tuple:
 #     (cf. Research vault 2026-07-10). Toute valeur hors des listes autorisées
 #     retombe sur le défaut : on ne pousse JAMAIS une config invalide à ai-toolkit. ---
 _DEFAULT_RANK = {'zimage': 16, 'krea': 32, 'sdxl': 32, 'flux': 16, 'flux2klein': 16}   # Z-Image reste 16 (choix user) ; Krea/SDXL 32 ; Flux/FLUX.2 Klein 16 (défaut des exemples officiels)
+# FLUX.2 Klein STYLE only : linear 128 (+ Conv2d 64) — la recette dominante du sweep
+# Calvin Herbst (64 runs, fév. 2026) ET l'exemple de training officiel BFL, tous deux
+# sur les dims 128/64/64/32 (ratio 4:2:2:1). Les AUTRES kinds Klein gardent 16.
+_KLEIN_STYLE_RANK = 128
 _RANK_CHOICES = (8, 16, 24, 32, 48, 64)
 # multi-échelle par défaut ; '768' seul = LE levier basse-VRAM (Krea 12B : 1024
 # sature un 24 GB à ~180 s/it, 768 mesuré ~3,5 s/it — cf. commentaire de tête).
@@ -799,11 +803,22 @@ def _train_settings(ds) -> dict:
     return d if isinstance(d, dict) else {}
 
 
+def _klein_style(ds, family) -> bool:
+    """FLUX.2 Klein STYLE LoRA — la SEULE combinaison famille×kind qui s'écarte du
+    schéma linear-only / alpha=rank : réseau 128/64 + Conv2d 64/32 (ratio 4:2:2:1).
+    Le sweep Herbst (64 runs) et l'exemple officiel BFL convergent dessus ; les
+    autres kinds Klein (character/concept/slider) gardent le défaut linear-only."""
+    return (family or '') == 'flux2klein' and fds.is_style(ds)
+
+
 def _default_rank_for(ds, family) -> int:
     """Family default rank — except in slider mode, where public concept sliders
-    ship at rank 4-8 (a slider is a low-rank direction, not an identity)."""
+    ship at rank 4-8 (a slider is a low-rank direction, not an identity), and
+    FLUX.2 Klein style, whose researched recipe is a 128-dim linear + Conv2d LoRA."""
     if slider_mode_enabled(ds):
         return _SLIDER_DEFAULT_RANK
+    if _klein_style(ds, family):
+        return _KLEIN_STYLE_RANK
     return _DEFAULT_RANK.get(family, 32)
 
 
@@ -812,17 +827,25 @@ def _lora_rank(ds, family) -> int:
     return r if r in _RANK_CHOICES else _default_rank_for(ds, family)
 
 
-def _lora_alpha(rank, family) -> int:
-    """ai-toolkit : alpha = rank (échelle 1.0) pour zimage/krea. SDXL garde son
-    choix délibéré alpha = rank/2 (« demi-force », validé par la recherche)."""
-    return max(1, rank // 2) if family == 'sdxl' else rank
+def _lora_alpha(rank, family, ds=None) -> int:
+    """Alpha dérivé du rank. Défaut alpha = rank (échelle 1.0) pour zimage/krea/flux.
+    Trois écarts délibérés, tous sourcés : SDXL = rank/2 (« demi-force », recherche) ;
+    FLUX.2 Klein style = rank/2 (dims 128/64 du sweep Herbst + exemple BFL) ; slider =
+    alpha 4 fixe (notebook Ostris « bigger is not always better, especially for
+    sliders » — rank 8 / alpha 4, échelle 0.5)."""
+    if ds is not None and slider_mode_enabled(ds):
+        return _SLIDER_DEFAULT_ALPHA
+    if family == 'sdxl' or _klein_style(ds, family):
+        return max(1, rank // 2)
+    return rank
 
 
 def _lora_alpha_eff(ds, rank, family) -> int:
     """Alpha EFFECTIF : un `alpha` explicite dans train_settings prime sur le dérivé.
-    Découpler alpha du rank = levier de LR « doux » (échelle effective = alpha/rank)."""
+    Découpler alpha du rank = levier de LR « doux » (échelle effective = alpha/rank).
+    En mode slider, l'utilisateur peut ainsi remettre alpha 8 (défaut 4) via ce knob."""
     a = _train_settings(ds).get('alpha')
-    return a if a in _ALPHA_CHOICES else _lora_alpha(rank, family)
+    return a if a in _ALPHA_CHOICES else _lora_alpha(rank, family, ds)
 
 
 def _network_type_eff(ds) -> str:
@@ -840,6 +863,14 @@ def _network_block(ds, rank, family) -> dict:
     (-1 = auto) donc non émis."""
     net = {'type': _network_type_eff(ds), 'linear': rank,
            'linear_alpha': _lora_alpha_eff(ds, rank, family)}
+    if _klein_style(ds, family) and net['type'] == 'lora':
+        # FLUX.2 Klein STYLE : ajoute un LoRA Conv2d aux moitiés du linear (conv_alpha
+        # au quart) → dims 128/64/64/32 au rank par défaut. Combo dominant du sweep
+        # Herbst (64 runs, fév. 2026) et de l'exemple de training officiel BFL. Clés
+        # ai-toolkit VÉRIFIÉES : NetworkConfig lit conv/conv_alpha au même niveau que
+        # linear/linear_alpha (toolkit/config_modules.py). LoKr garde le linear-only.
+        net['conv'] = max(1, rank // 2)
+        net['conv_alpha'] = max(1, rank // 4)
     d = _train_settings(ds).get('dropout')
     if isinstance(d, (int, float)) and d in _DROPOUT_CHOICES:
         net['dropout'] = d
@@ -912,6 +943,8 @@ def _ema_fields(ds) -> dict:
 # ConceptSliderTrainerConfig (guidance_strength, anchor_strength, positive_prompt,
 # negative_prompt, target_class, anchor_class).
 _SLIDER_DEFAULT_RANK = 8            # public concept sliders ship at rank 4-8
+_SLIDER_DEFAULT_ALPHA = 4           # Ostris slider notebook: rank 8 / alpha 4 (scale 0.5),
+                                    # "bigger is not always better, especially for sliders"
 _SLIDER_DEFAULT_GUIDANCE = 3.0      # ConceptSliderTrainerConfig default
 _SLIDER_DEFAULT_ANCHOR_STRENGTH = 1.0
 _SLIDER_GUIDANCE_RANGE = (1.0, 10.0)
@@ -956,6 +989,7 @@ def effective_slider_settings(ds) -> dict:
         'guidance': _slider_guidance(ds),
         'anchor_strength': _slider_anchor_strength(ds),
         'default_rank': _SLIDER_DEFAULT_RANK,
+        'default_alpha': _SLIDER_DEFAULT_ALPHA,   # Ostris slider recipe (scale 0.5)
         'default_steps': SLIDER_DEFAULT_STEPS,
         'min_images': TRAIN_MIN_IMAGES_SLIDER[0],
     }
@@ -1243,6 +1277,11 @@ def launch_settings_snapshot(ds, family=None) -> dict:
         'optimizer': _optimizer_eff(ds),
         'lr': _lr_eff(ds),
     }
+    if _klein_style(ds, fam) and _network_type_eff(ds) == 'lora':
+        # FLUX.2 Klein style adds a Conv2d LoRA (128/64/64/32) — carry the conv dims
+        # in provenance / ⎘ Share config so the emitted recipe is reproducible.
+        snap['conv'] = max(1, rank // 2)
+        snap['conv_alpha'] = max(1, rank // 4)
     if slider_mode_enabled(ds):
         # Slider mode (Beta): the prompt pair IS the recipe — it must travel in
         # provenance and ⎘ Share config. Like Style, the trigger is only an
@@ -1322,7 +1361,7 @@ def effective_train_settings(ds, family=None) -> dict:
             'default_rank': _default_rank_for(ds, fam),
             # --- Expert levers (None/off = comportement actuel ; le select recoche « Auto ») ---
             'alpha_setting': s.get('alpha') if s.get('alpha') in _ALPHA_CHOICES else None,
-            'default_alpha': _lora_alpha(eff_rank, fam),
+            'default_alpha': _lora_alpha(eff_rank, fam, ds),
             'alpha_choices': list(_ALPHA_CHOICES),
             'dropout': s.get('dropout') if s.get('dropout') in _DROPOUT_CHOICES else None,
             'dropout_choices': list(_DROPOUT_CHOICES),

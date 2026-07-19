@@ -58,6 +58,14 @@ export const WHATS_NEW = [
     to: '/cloud',
   },
   {
+    id: '2026-07-19-training-recipe-tuning',
+    date: '2026-07-19',
+    title: '🎓 Sharper training recipes from verified community research',
+    blurb:
+      "Two training defaults were re-tuned from a fact-checked sweep of recent community results. A FLUX.2 Klein STYLE LoRA now trains the winning 128/64/64/32 network (a linear + Conv2d LoRA) that a 64-run sweep and Black Forest Labs' own example converge on — noticeably better at capturing a look. And Slider LoRAs now default to alpha 4 (scale 0.5), matching the Ostris slider notebook (\"bigger is not always better, especially for sliders\") for a cleaner ± sweep. Both are just smarter defaults: your other Klein LoRAs are unchanged, existing runs aren't touched, and Advanced options still lets you set the network alpha back to 8 if you're reproducing an older slider.",
+    to: '/datasets?section=training&panel=advanced',
+  },
+  {
     id: '2026-07-19-bank-launch-all',
     date: '2026-07-19',
     title: '🚀 Launch all — clean a whole bank while you sleep',
