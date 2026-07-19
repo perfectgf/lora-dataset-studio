@@ -386,7 +386,7 @@ def test_resolver_honours_pick_from_diffusion_models_folder(app, tmp_path):
 
 
 # --- Flat / Stability-Matrix layout: klein model at the ROOT of a search folder ---
-# vvilams (Discord dev-chat) hit this: his flux-2-klein-9b-fp8.safetensors sat
+# waltm (Discord dev-chat) hit this: his flux-2-klein-9b-fp8.safetensors sat
 # straight in diffusion_models/ with NO klein/ subfolder, so the scan (subfolders
 # only) never bucketed it and the picker/resolver were both blind. The scan and the
 # resolver must now BOTH see a root-level file — and stay in lockstep.

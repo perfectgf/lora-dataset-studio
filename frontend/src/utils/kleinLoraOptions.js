@@ -54,7 +54,7 @@ export function groupLoras(loras) {
 /**
  * Case-insensitive SUBSTRING filter over the LoRA name (subfolders included) and
  * its arch label — a `<datalist>` would only match a prefix, so typing "klein"
- * must still find "lora1_klein1.2_detail.safetensors" (vvilams). An empty/blank
+ * must still find "lora1_klein1.2_detail.safetensors" (waltm). An empty/blank
  * query returns the list unchanged.
  */
 export function filterLoras(loras, query) {
@@ -67,7 +67,7 @@ export function filterLoras(loras, query) {
 }
 
 // Cap on rendered options — the dropdown never floods the viewport, and the
-// keyboard-navigation index stays bounded (vvilams: ≤20 shown). Filtering narrows
+// keyboard-navigation index stays bounded (waltm: ≤20 shown). Filtering narrows
 // further; a footer tells the user to refine when matches exceed the cap.
 export const MAX_VISIBLE_OPTIONS = 20;
 

@@ -352,7 +352,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     setCustomPresets((items) => deleteShotPreset(items, preset.id));
   };
 
-  // ✨ Prompt suffixes (Idea by vvilams — Discord): the dataset's creative-
+  // ✨ Prompt suffixes (Idea by waltm — Discord): the dataset's creative-
   // direction text (one global + one per framing), surfaced here so it can be
   // tuned PER BATCH without opening the Settings modal. These are the SAME
   // dataset fields the modal edits (one shared truth) — pre-filled from the
@@ -433,7 +433,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
       + `≈ $${cost.toFixed(2)} (${isNB ? 'Nano Banana' : 'ChatGPT'}).\n\nProceed?`)) return;
     // Persist any per-batch suffix edit BEFORE enqueueing: the backend applies
     // the dataset's CURRENT suffix at wrap time, so the save must land first or
-    // the batch would generate with the old creative direction (Idea by vvilams).
+    // the batch would generate with the old creative direction (Idea by waltm).
     if (suffixDirty && onSaveSuffixes) {
       const res = await onSaveSuffixes(suffixPayload());
       if (!res?.ok) return;   // save failed → don't generate with a stale suffix
@@ -841,7 +841,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
       </details>
 
       {/* ✨ Prompt suffixes — the dataset's creative-direction text, editable
-          right here so it can be adjusted per batch (Idea by vvilams — Discord).
+          right here so it can be adjusted per batch (Idea by waltm — Discord).
           Applies to EVERY engine at generation time and shares the dataset
           fields with the ⚙️ Settings modal; persisted just before the batch is
           enqueued. Collapsed unless a suffix is already set. */}

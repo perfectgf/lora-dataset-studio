@@ -126,7 +126,7 @@ def test_klein_engine_stays_dark_until_all_three_assets_present(app, monkeypatch
 
 
 def test_klein_engine_lights_for_flat_root_layout_unet(app, monkeypatch, tmp_path):
-    """vvilams' flat / Stability-Matrix layout: the UNET sits straight in
+    """waltm' flat / Stability-Matrix layout: the UNET sits straight in
     diffusion_models/ with NO klein/ subfolder. The engine gate now runs on
     resolve_klein_unet() (symmetric with the vae/te resolvers), so a root-level
     model that the picker lists and the resolver can build ALSO lights the engine —

@@ -608,7 +608,7 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     # reconstructs the links reliably only for numeric ids: the old non-numeric
     # 'ds_consistency_lora' / 'ds_gen_lora_1' keys made the dropped-in canvas show
     # the chain collapsed to the LAST LoRA past the consistency node, even though
-    # every LoRA WAS applied at generation (bug report by @vvilams). The counter
+    # every LoRA WAS applied at generation (bug report by @waltm). The counter
     # advances only when a node is actually added, so a degraded row burns no id.
     _next_node_id = max((int(k) for k in workflow if k.isdigit()), default=0)
     if "139" not in workflow:
