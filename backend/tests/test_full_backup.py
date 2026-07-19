@@ -399,6 +399,43 @@ def test_v1_backup_without_runs_still_restores(app, tmp_path):
         assert report['restored'] == 1 and report['runs_restored'] == 0
 
 
+def test_resync_recovers_trained_from_on_disk_lora(app, tmp_path):
+    """Same-machine case: a v1-style backup carries NO runs, but the trained LoRA
+    still sits in ComfyUI. Restore must re-detect it as trained without the user
+    opening the dataset — the app's open-time baseline, run at restore."""
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    from app.services import full_backup as fb
+    from app import config as cfg
+
+    loras_root = tmp_path / 'comfy_loras'
+    with app.app_context():
+        cfg.save_config({'comfyui': {'loras_dir': str(loras_root)}})
+        alice = _dataset_with_image(svc, LOCAL_USER, 'Alice', 'alice')
+        # A trained LoRA on disk, but NO run record and LoRAs NOT bundled.
+        _deploy_fake_lora(str(loras_root), 'sdxl', 'alice')
+        alice.train_type = 'sdxl'
+        svc.db.session.commit()
+        assert svc.dataset_list_stats(LOCAL_USER)[alice.id]['trained_families'] == []
+
+        out = str(tmp_path / 'master.zip')
+        result = fb.build_full_backup(LOCAL_USER, out)
+        assert result['runs_total'] == 0        # nothing to carry
+
+        for ds in list(svc.list_datasets(LOCAL_USER)):
+            svc.delete_dataset(LOCAL_USER, ds.id)
+        # delete_dataset purges deployed LoRAs; Jeremy's same-machine case is the
+        # file STILL on disk at restore time (he re-imported without deleting), so
+        # put it back to reproduce faithfully.
+        _deploy_fake_lora(str(loras_root), 'sdxl', 'alice')
+
+        report = fb.restore_full_backup(LOCAL_USER, out)
+        assert report['runs_restored'] == 0
+        assert report['runs_resynced'] == 1     # re-detected from the on-disk LoRA
+        new = svc.list_datasets(LOCAL_USER)[0]
+        assert svc.dataset_list_stats(LOCAL_USER)[new.id]['trained_families'] == ['sdxl']
+
+
 def test_include_loras_bundles_and_restores_the_file(app, tmp_path):
     from app.config import LOCAL_USER
     from app.services import face_dataset_service as svc

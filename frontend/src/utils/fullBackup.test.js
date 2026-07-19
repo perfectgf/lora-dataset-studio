@@ -85,6 +85,11 @@ test('summarizeRestoreReport reports restored runs and skipped LoRAs', () => {
   });
   assert.ok(r.notes.some((n) => /Training history restored \(2 runs\)/.test(n)));
   assert.ok(r.notes.some((n) => /1 trained LoRA re-deployed/.test(n)));
+
+  const resync = summarizeRestoreReport({
+    datasets_total: 1, restored: 1, runs_restored: 0, runs_resynced: 1,
+  });
+  assert.ok(resync.notes.some((n) => /1 dataset re-detected as trained from files already/.test(n)));
   assert.ok(r.notes.some((n) => /1 LoRA file not restored:/.test(n)));
   assert.ok(r.notes.some((n) => /lora_bob\.safetensors — ComfyUI not configured/.test(n)));
 });

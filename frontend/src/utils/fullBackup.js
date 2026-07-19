@@ -70,6 +70,8 @@ export function summarizeRestoreReport(result) {
   const notes = [];
   const runs = result.runs_restored ?? 0;
   if (runs) notes.push(`Training history restored (${plural(runs, 'run')}) — your datasets are back under “Trained”.`);
+  const resynced = result.runs_resynced ?? 0;
+  if (resynced) notes.push(`${plural(resynced, 'dataset')} re-detected as trained from files already on this machine.`);
   const loras = result.loras_restored ?? 0;
   if (loras) notes.push(`${plural(loras, 'trained LoRA')} re-deployed to ComfyUI.`);
   if (result.config_restored) notes.push('Settings restored — re-enter your API keys on this install.');

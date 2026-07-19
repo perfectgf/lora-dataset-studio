@@ -508,9 +508,16 @@ def restore_full_backup(user_id, master_path: str, *,
         runs_restored = _restore_runs(z, names, id_map)
         loras_restored, loras_skipped = _restore_loras(
             user_id, z, manifest, id_map)
-    logger.info('full backup restored: %d dataset(s), %d skipped, %d run(s), '
-                '%d LoRA (%d skipped), config=%s', restored, len(skipped),
-                runs_restored, loras_restored, len(loras_skipped), config_restored)
+    # Same-machine safety net: the app already back-fills a v1 baseline when a
+    # dataset is OPENED and on-disk training evidence (local checkpoints / deployed
+    # LoRAs) exists but nothing is registered. Do it now, per restored dataset, so
+    # a restore lands under "Trained" WITHOUT the user having to open each one.
+    # No-op where a carried run already registered the dataset (that history wins).
+    runs_resynced = _resync_training_state(user_id, id_map.values())
+    logger.info('full backup restored: %d dataset(s), %d skipped, %d run(s) '
+                '(%d resynced), %d LoRA (%d skipped), config=%s', restored,
+                len(skipped), runs_restored, runs_resynced, loras_restored,
+                len(loras_skipped), config_restored)
     return {
         'ok': True,
         'datasets_total': total,
@@ -519,9 +526,52 @@ def restore_full_backup(user_id, master_path: str, *,
         'renamed': renamed,
         'config_restored': config_restored,
         'runs_restored': runs_restored,
+        'runs_resynced': runs_resynced,
         'loras_restored': loras_restored,
         'loras_skipped': loras_skipped,
     }
+
+
+# The model families a restored dataset could carry on-disk training evidence for.
+_RESYNC_FAMILIES = ('zimage', 'sdxl', 'krea', 'flux', 'flux2klein')
+
+
+def _resync_training_state(user_id, new_ids) -> int:
+    """For each restored dataset, register a v1 baseline in any family that has
+    on-disk training evidence (local checkpoints or deployed LoRA) but no record
+    yet — mirroring the app's open-a-dataset retrofit. Best-effort and idempotent:
+    ensure_baseline no-ops when a record already exists, so carried run history is
+    never overwritten. Returns how many baselines were newly created."""
+    ids = [i for i in set(new_ids or []) if i is not None]
+    if not ids:
+        return 0
+    from . import checkpoint_registry as reg
+    from . import lora_training as lt
+    created = 0
+    for ds_id in ids:
+        for fam in _RESYNC_FAMILIES:
+            try:
+                if reg.latest_record(ds_id, fam) is not None:
+                    continue
+                evidence = False
+                try:
+                    evidence = bool(lt.list_checkpoints(user_id, ds_id, family=fam))
+                except Exception:
+                    evidence = False
+                if not evidence:
+                    try:
+                        evidence = bool(lt.deployed_lora_paths(user_id, ds_id, family=fam))
+                    except Exception:
+                        evidence = False
+                if not evidence:
+                    continue
+                reg.ensure_baseline(user_id, ds_id, fam, True)
+                if reg.latest_record(ds_id, fam) is not None:
+                    created += 1
+            except Exception:
+                logger.exception('full restore: resync of dataset #%s (%s) failed',
+                                 ds_id, fam)
+    return created
 
 
 def _restore_runs(z, names, id_map) -> int:
