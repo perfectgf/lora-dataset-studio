@@ -379,8 +379,11 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
         q = q.filter(BankImage.dup_group.isnot(None))
         order = (BankImage.dup_group.asc(), BankImage.id.asc())
     elif flag == 'no_face':
-        q = q.filter(BankImage.face_state.isnot(None),
-                     BankImage.face_state != 'scorable')
+        # Literally "no face was found" — ONLY face_state == 'no_face'. The other
+        # non-scorable states (low_det / too_small / extreme_pose) DID detect a
+        # face; lumping them in here surfaced photos with visible faces under a
+        # "No face" chip. 'unreadable'/'error' are read failures, not "no face".
+        q = q.filter(BankImage.face_state == 'no_face')
     elif flag in _QUALITY_FLAGS:
         crit = _flag_filter(flag, th)
         if crit is not None:
@@ -743,6 +746,19 @@ _EMBED_SCRIPT = str(cfg.BACKEND_DIR / 'infer' / 'face_embed_infer.py')
 _PROGRESS_RE = re.compile(r'\[embed\] (\d+)/(\d+)')
 
 
+def _resolve_face_device():
+    """(device, use_gpu) for the face pass. 'cpu' is the safe default and never
+    touches the GPU; GPU is used ONLY when the face interpreter truly exposes
+    CUDA (onnxruntime-gpu installed) and the config allows it. Config
+    face_scoring.device: 'auto' (default — GPU if available) | 'cpu' | 'cuda'.
+    A 'cuda' request without CUDA available still degrades to CPU here, so the
+    parent never opens the GPU-exclusive window for a pass that will run on CPU."""
+    from .. import capabilities
+    pref = str(cfg.get('face_scoring.device') or 'auto').lower()
+    use_gpu = pref in ('auto', 'cuda') and capabilities.face_gpu_available()
+    return ('cuda' if use_gpu else 'cpu'), use_gpu
+
+
 def start_faces(app, user_id, bank_id):
     """Launch the face embedding + person clustering pass over the bank's
     non-rejected images. Needs the face-scoring extra (Setup ▸ Quality tools)."""
@@ -779,42 +795,54 @@ def _faces_job(bank_id):
             return
         _bank_dir(bank_id).mkdir(parents=True, exist_ok=True)
         th = thresholds()
+        # Device: 'cpu' (default, never touches the GPU/ComfyUI) or 'cuda'.
+        # 'auto' = GPU when the face interpreter actually exposes CUDA
+        # (onnxruntime-gpu installed), else CPU. The GPU path is used ONLY when
+        # CUDA is truly available AND must run inside the GPU-exclusive window so
+        # it never competes with a training / scoring pass; a CPU pass stays out
+        # of the window (it can run alongside GPU work).
+        from ..gpu_window import gpu_exclusive_vision_window
+        from contextlib import nullcontext
+        device, use_gpu = _resolve_face_device()
         payload = _json.dumps({
             'images': paths,
             'models_root': cfg.get('face_scoring.models_root') or None,
             'cache': str(_face_cache_path(bank_id)),
             'threshold': th['face_threshold'],
+            'device': device,
         })
         python = cfg.get('face_scoring.python') or sys.executable
-        proc = subprocess.Popen(
-            [python, _EMBED_SCRIPT], stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding='utf-8', errors='replace',
-            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        bank_jobs.set_cancel_hook(job, proc.kill)
-        stderr_tail = deque(maxlen=5)
+        window = gpu_exclusive_vision_window(flag_ttl=1800) if use_gpu else nullcontext()
+        with window:
+            proc = subprocess.Popen(
+                [python, _EMBED_SCRIPT], stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding='utf-8', errors='replace',
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            bank_jobs.set_cancel_hook(job, proc.kill)
+            stderr_tail = deque(maxlen=5)
 
-        def _drain_stderr():
-            for line in proc.stderr:
-                line = line.strip()
-                if line:
-                    stderr_tail.append(line)
-                m = _PROGRESS_RE.search(line)
-                if m:
-                    bank_jobs.progress(job, done=int(m.group(1)),
-                                       total=int(m.group(2)))
+            def _drain_stderr():
+                for line in proc.stderr:
+                    line = line.strip()
+                    if line:
+                        stderr_tail.append(line)
+                    m = _PROGRESS_RE.search(line)
+                    if m:
+                        bank_jobs.progress(job, done=int(m.group(1)),
+                                           total=int(m.group(2)))
 
-        import threading
-        t = threading.Thread(target=_drain_stderr, daemon=True)
-        t.start()
-        try:
-            proc.stdin.write(payload)
-            proc.stdin.close()
-        except OSError:
-            pass  # process died early — surfaced through the exit path below
-        stdout = proc.stdout.read()
-        proc.wait()
-        t.join(timeout=5)
+            import threading
+            t = threading.Thread(target=_drain_stderr, daemon=True)
+            t.start()
+            try:
+                proc.stdin.write(payload)
+                proc.stdin.close()
+            except OSError:
+                pass  # process died early — surfaced through the exit path below
+            stdout = proc.stdout.read()
+            proc.wait()
+            t.join(timeout=5)
         if bank_jobs.cancelled(job):
             return
         line = next((ln for ln in reversed(stdout.splitlines())

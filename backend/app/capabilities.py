@@ -399,6 +399,19 @@ def probe_face_scoring() -> dict:
     return {'ok': ok, 'detail': 'insightface + onnxruntime import OK' if ok else 'import failed'}
 
 
+def face_gpu_available() -> bool:
+    """True only when the face interpreter can run InsightFace on CUDA — i.e.
+    onnxruntime exposes CUDAExecutionProvider (needs onnxruntime-gpu + a working
+    CUDA/cuDNN runtime). The stock face_scoring extra ships CPU onnxruntime, so
+    this is False until the user installs onnxruntime-gpu into that interpreter.
+    Same cached subprocess probe as the import checks (exit 0 == available)."""
+    python = cfg.get('face_scoring.python') or sys.executable
+    return _cached_import(
+        'face_gpu', python,
+        "import onnxruntime,sys; "
+        "sys.exit(0 if 'CUDAExecutionProvider' in onnxruntime.get_available_providers() else 1)")
+
+
 def probe_masks() -> dict:
     python = cfg.get('masks.python') or sys.executable
     ok = _cached_import('masks', python, 'import rembg')

@@ -299,6 +299,7 @@ These have no UI control — they're for advanced users editing `config.json` by
 |---|---|---|
 | `face_scoring.python` | `''` | Interpreter for the InsightFace subprocess (empty = current interpreter). |
 | `face_scoring.models_root` | `''` | Where InsightFace weights are stored/downloaded. |
+| `face_scoring.device` | `'auto'` | Device for the Image-bank face pass. `auto` uses the GPU when the face interpreter exposes CUDA (needs `onnxruntime-gpu` installed in it) and falls back to CPU otherwise; `cpu` forces CPU (never touches the GPU); `cuda` requests the GPU but still falls back to CPU when unavailable. A GPU run is serialized through the GPU-exclusive window so it never competes with a training/scoring pass. |
 | `masks.python` | `''` | Interpreter for the rembg (person-mask) subprocess. |
 | `watermark.python` | `''` | Interpreter for the LaMa watermark subprocess. **Auto-managed:** leave it empty and the **Install inpainting** button builds a dedicated Python 3.10-3.12 environment for you (`simple-lama-inpainting` needs Pillow&lt;10, so it can't share the app's own Python) and fills this in automatically. Set it yourself only to point at an environment you already have — a manual value is always respected and never overwritten. |
 

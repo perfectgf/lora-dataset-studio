@@ -37,8 +37,8 @@ export default function PromoteDialog({ bankId, keepCount, selectedIds, onClose,
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Promote to dataset"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-xl border border-border bg-surface p-5 shadow-2xl space-y-4">
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="w-full max-w-md rounded-xl border border-border bg-surface-overlay p-5 shadow-2xl space-y-4">
         <h2 className="text-base font-bold text-content">⬆ Promote to dataset</h2>
         <p className="text-sm text-content-muted">
           {useSelection

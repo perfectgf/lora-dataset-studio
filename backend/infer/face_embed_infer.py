@@ -1,12 +1,15 @@
 """Bank face pass — InsightFace antelopev2 embeddings + person clustering, run
 in the DEDICATED ML interpreter (insightface/numpy are not in the Flask venv).
-CPU (onnxruntime CPU here) → never touches the GPU/ComfyUI.
+Device is chosen by the parent: 'cpu' (default — never touches the GPU/ComfyUI)
+or 'cuda' (only when onnxruntime-gpu is present; the parent then runs this pass
+inside its GPU-exclusive window). CUDA requested but unavailable → CPU fallback.
 
 Protocol (same family as face_score_infer.py):
   stdin  : {"images": [abs paths], "models_root": path|null,
-            "cache": abs path to a .npz|null, "threshold": 0.45}
+            "cache": abs path to a .npz|null, "threshold": 0.45,
+            "device": "cpu"|"cuda"}
   stdout : ONE JSON line {"ok": bool, "results": {path: {state, det, bbox_frac}},
-            "clusters": {path: int}, "error"?: str}
+            "clusters": {path: int}, "used_gpu": bool, "error"?: str}
   stderr : "[embed] i/N <state>" progress lines (the parent streams these to
             drive the UI progress bar).
 
@@ -124,7 +127,9 @@ def main() -> int:
     models_root = req.get('models_root') or None
     cache_path = req.get('cache') or None
     threshold = float(req.get('threshold') or 0.45)
+    device = str(req.get('device') or 'cpu').lower()   # 'cpu' | 'cuda'
 
+    used_gpu = False   # set when the model actually loads on CUDA below
     cache = _load_cache(cache_path)
     todo = [p for p in images if p not in cache]
     _log(f'[embed] {len(images)} image(s), {len(images) - len(todo)} cached')
@@ -134,13 +139,25 @@ def main() -> int:
         import numpy as np  # noqa: F401 — insightface needs it importable
         from insightface.app import FaceAnalysis
         _repair_nested_antelopev2(models_root)
+        # Provider selection is EXPLICIT per requested device — a bare
+        # ['CUDAExecutionProvider', ...] would silently grab the GPU the moment
+        # onnxruntime-gpu is present, outside the parent's GPU-exclusive window.
+        # cpu → CPU only (ctx_id=-1); cuda → try CUDA, fall back to CPU (logged).
+        import onnxruntime as ort
+        avail = ort.get_available_providers()
+        used_gpu = device == 'cuda' and 'CUDAExecutionProvider' in avail
+        if device == 'cuda' and not used_gpu:
+            _log('[embed] CUDA requested but CUDAExecutionProvider unavailable '
+                 '(install onnxruntime-gpu) — falling back to CPU')
+        providers = (['CUDAExecutionProvider', 'CPUExecutionProvider']
+                     if used_gpu else ['CPUExecutionProvider'])
+        _log(f'[embed] providers={avail} device={device} used_gpu={used_gpu}')
         try:
-            kwargs = {'name': 'antelopev2',
-                      'providers': ['CUDAExecutionProvider', 'CPUExecutionProvider']}
+            kwargs = {'name': 'antelopev2', 'providers': providers}
             if models_root:
                 kwargs['root'] = models_root
             app = FaceAnalysis(**kwargs)
-            app.prepare(ctx_id=0, det_size=(640, 640))
+            app.prepare(ctx_id=0 if used_gpu else -1, det_size=(640, 640))
         except Exception as e:  # noqa: BLE001 — must exit as clean JSON, not a mute traceback
             print(json.dumps({'ok': False, 'results': {}, 'clusters': {},
                               'error': f'model load failed: {type(e).__name__}: {e}'}))
@@ -202,7 +219,8 @@ def main() -> int:
         state, det, bfrac, _emb = cache.get(p) or ('error', 0.0, 0.0, None)
         results[p] = {'state': str(state), 'det': float(det), 'bbox_frac': float(bfrac)}
     clusters = _cluster(images, cache, threshold)
-    print(json.dumps({'ok': True, 'results': results, 'clusters': clusters}))
+    print(json.dumps({'ok': True, 'results': results, 'clusters': clusters,
+                      'used_gpu': used_gpu}))
     return 0
 
 

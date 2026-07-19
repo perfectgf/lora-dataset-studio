@@ -267,6 +267,55 @@ def test_images_filters_and_pagination(client, tmp_path):
     assert status['total'] == 0
 
 
+def test_no_face_filter_only_matches_no_face_state(client, tmp_path, app):
+    """The "No face" chip must show ONLY images where NO face was detected. The
+    other non-scorable states (low_det / too_small / extreme_pose) DID find a
+    face and must NOT appear — that regression surfaced photos with visible
+    faces under a "No face" label. Unscanned rows (face_state NULL) stay out."""
+    files = {f'n{i}.jpg': checkerboard(size=256) for i in range(6)}
+    bank_id, _src = _mkbank(client, tmp_path, files)
+    client.post(f'/api/bank/{bank_id}/scan', json={})
+    states = ['no_face', 'low_det', 'too_small', 'extreme_pose', 'scorable', None]
+    with app.app_context():
+        from app.extensions import db
+        from app.models import BankImage
+        rows = (BankImage.query.filter_by(bank_id=bank_id)
+                .order_by(BankImage.id.asc()).all())
+        for row, state in zip(rows, states):
+            row.face_state = state
+        db.session.commit()
+    got = client.get(f'/api/bank/{bank_id}/images?flag=no_face').get_json()
+    assert [i['face_state'] for i in got['images']] == ['no_face']
+
+
+def test_face_device_resolves_cpu_without_cuda(app, monkeypatch):
+    """Default device is CPU and the GPU window is never opened unless the face
+    interpreter truly exposes CUDA. 'cuda' requested without CUDA degrades to
+    CPU (so the parent won't serialize a CPU pass behind training)."""
+    from app.services import image_bank_service as svc
+    from app import capabilities
+    with app.app_context():
+        monkeypatch.setattr(capabilities, 'face_gpu_available', lambda: False)
+        assert svc._resolve_face_device() == ('cpu', False)          # auto, no CUDA
+        monkeypatch.setattr(svc.cfg, 'get',
+                            lambda k, d=None: 'cuda' if k == 'face_scoring.device' else d)
+        assert svc._resolve_face_device() == ('cpu', False)          # cuda asked, none
+        monkeypatch.setattr(capabilities, 'face_gpu_available', lambda: True)
+        assert svc._resolve_face_device() == ('cuda', True)          # cuda asked + CUDA
+
+
+def test_face_embed_infer_cpu_providers_no_device():
+    """The infer script must default to CPU-only providers — a bare CUDA-first
+    list would grab the GPU the instant onnxruntime-gpu is present, outside the
+    parent's GPU-exclusive window."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / 'infer' / 'face_embed_infer.py').read_text(encoding='utf-8')
+    # No unconditional CUDA-first provider list survives.
+    assert "['CUDAExecutionProvider', 'CPUExecutionProvider']}" not in src
+    assert "device = str(req.get('device') or 'cpu').lower()" in src
+
+
 # --- promotion ---------------------------------------------------------------
 def test_promote_keeps_into_dataset(client, tmp_path, app):
     bank_id, _src = _mkbank(client, tmp_path, {

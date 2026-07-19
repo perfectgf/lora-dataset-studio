@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-bank-face-pass-gpu',
+    date: '2026-07-19',
+    title: 'The Image bank face pass can run on your GPU',
+    blurb:
+      "The bank's subject (face) pass now uses your GPU automatically when it can — much faster on a big bank — and quietly falls back to CPU when it can't, so nothing breaks. It only takes the GPU when nothing else is using it, never competing with a training run. (GPU needs onnxruntime-gpu in the face-scoring interpreter; without it the pass keeps running on CPU exactly as before.) The “No face” filter is also sharper now: it shows only photos where no face was found — pictures with a small, low-confidence or side-profile face no longer slip into that list.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-19-folder-browse-button',
     date: '2026-07-19',
     title: 'Browse for a folder instead of typing its path',
