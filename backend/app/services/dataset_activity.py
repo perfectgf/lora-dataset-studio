@@ -38,6 +38,13 @@ import time
 KINDS = ('watermark_detect', 'watermark_clean', 'caption', 'recaption',
          'analyze_faces', 'classify', 'generate')
 
+# Kinds a user can gracefully STOP mid-batch (the ▶ Stop button). Only the
+# per-image captioning passes qualify: the worker checks the cancel flag at each
+# image boundary and stops cleanly, keeping what it already wrote. The others are
+# either near-instant (classify), one-shot subprocess passes with no cooperative
+# seam, or already Stop-able through their own path ('generate' → cancel_pending).
+CANCELLABLE_KINDS = ('caption', 'recaption')
+
 # Safety TTL: an entry not touched for this long is purged on read even if end()
 # never ran (process alive but the batch thread died without unwinding). 30 min is
 # far longer than any real batch on a local dataset.
@@ -46,6 +53,12 @@ _TTL_SECONDS = 30 * 60
 _lock = threading.Lock()
 # dataset_id -> { token -> {kind, done, total, started_at, _touched} }
 _active: dict = {}
+# dataset_id -> True while a graceful stop has been REQUESTED for the currently
+# running cancellable batch. Armed by request_cancel (only if a batch is live),
+# read by the worker loop between images, and cleared on the next begin() of a
+# cancellable kind so a leaked/stale arm can never cancel a fresh run. Lives with
+# _active under _lock; in-memory only (dies with the process, like _active).
+_cancel: dict = {}
 _counter = itertools.count(1)
 
 
@@ -55,6 +68,11 @@ def begin(dataset_id, kind, total=0, detail=None, engine=None):
     batch will process (0 when not enumerable up front)."""
     now = time.time()
     with _lock:
+        # Fresh cancellable batch → disarm any stale/leaked stop request so it can
+        # never cancel this new run before it starts (a prior run that armed the flag
+        # then crashed before it was consumed would otherwise poison this one).
+        if kind in CANCELLABLE_KINDS:
+            _cancel.pop(dataset_id, None)
         token = f'{dataset_id}:{kind}:{next(_counter)}'
         _active.setdefault(dataset_id, {})[token] = {
             'kind': kind, 'done': 0, 'total': int(total or 0),
@@ -176,7 +194,44 @@ def get(dataset_id):
             result['detail'] = entry['detail']
         if entry.get('engine'):
             result['engine'] = entry['engine']
+        # A stop was requested but the worker hasn't reached the next image boundary
+        # yet — the UI flips the Stop button to a disabled "Stopping…" state.
+        if _cancel.get(dataset_id):
+            result['cancelling'] = True
         return result
+
+
+def request_cancel(dataset_id, kinds=CANCELLABLE_KINDS):
+    """Ask the running cancellable batch on ``dataset_id`` to stop at its next image
+    boundary. Arms the per-dataset flag ONLY if such a batch is actually live, so the
+    caller (route) can answer 409 when there is nothing to stop. Idempotent: a second
+    call while the same batch still runs simply re-arms (returns True again).
+
+    We never interrupt an in-flight inference — the worker finishes the current image,
+    then sees the flag and unwinds through the SAME cleanup as a normal finish (model
+    unload, indicator end). Returns True when a batch was live and is now flagged."""
+    with _lock:
+        bucket = _active.get(dataset_id) or {}
+        if not any(e['kind'] in kinds for e in bucket.values()):
+            return False
+        _cancel[dataset_id] = True
+        return True
+
+
+def cancel_requested(dataset_id):
+    """True when a graceful stop is pending for ``dataset_id``. Called by the caption
+    worker between images (and by the route to learn a pass ended because it was
+    stopped). Cheap and lock-guarded — safe to poll in a tight per-image loop."""
+    with _lock:
+        return bool(_cancel.get(dataset_id))
+
+
+def clear_cancel(dataset_id):
+    """Consume the stop flag for ``dataset_id`` (idempotent). The route clears it once
+    the whole caption operation has unwound so it can never bleed into a later run —
+    begin() also clears defensively, this just makes the intent explicit at the seam."""
+    with _lock:
+        _cancel.pop(dataset_id, None)
 
 
 def _entry(token):
@@ -195,3 +250,4 @@ def reset():
     """Test helper: clear the whole registry between cases."""
     with _lock:
         _active.clear()
+        _cancel.clear()

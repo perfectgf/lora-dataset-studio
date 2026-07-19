@@ -17,6 +17,7 @@ from ..config import LOCAL_USER
 from .. import config as cfg
 from ..gpu_window import gpu_exclusive_vision_window
 from ..services import face_dataset_service as svc
+from ..services import dataset_activity
 from ..services.dataset_storage import dataset_path, ensure_dataset_dir
 from ..services import lora_test_studio as lts
 from ..services import studio_grid_export as sge
@@ -552,10 +553,13 @@ def dataset_caption(dataset_id):
         with gpu_exclusive_vision_window(flag_ttl=1800):
             n = svc.caption_images(LOCAL_USER, dataset_id, force=force, mode=mode,
                                    image_ids=image_ids)
+            # Did the long pass end because the user hit Stop? If so, skip the short
+            # pass entirely — the point of stopping is to run NO more inference.
+            stopped = dataset_activity.cancel_requested(dataset_id)
             # Dual captions on: regenerate the short variants for the same scope in the
             # SAME vision window (serialized against training). Best-effort — the long
             # captions are already saved, so a short-pass hiccup must not fail the call.
-            if svc.dual_captions_enabled(ds):
+            if not stopped and svc.dual_captions_enabled(ds):
                 try:
                     svc.derive_short_captions(LOCAL_USER, dataset_id, image_ids=image_ids,
                                               force=force, mode=mode)
@@ -563,9 +567,29 @@ def dataset_caption(dataset_id):
                     logging.getLogger(__name__).warning(
                         'short-caption derivation failed for dataset %s', dataset_id,
                         exc_info=True)
+                # The short pass owns its own Stop-able indicator, so re-check.
+                stopped = stopped or dataset_activity.cancel_requested(dataset_id)
     except Exception as e:
         return _map_error(e)
-    return jsonify({'ok': True, 'captioned': n})
+    finally:
+        # Consume the flag once the whole operation has unwound so a stop can never
+        # bleed into a later run (begin() also disarms defensively).
+        dataset_activity.clear_cancel(dataset_id)
+    return jsonify({'ok': True, 'captioned': n, 'stopped': stopped})
+
+
+@bp.post('/dataset/<int:dataset_id>/caption/cancel')
+def dataset_caption_cancel(dataset_id):
+    """Ask an in-progress captioning batch to stop gracefully at the next image
+    boundary. What's already captioned is kept; the rest stays uncaptioned. Never
+    interrupts a running inference and never kills a process. Idempotent: a second
+    Stop while the same batch still runs re-arms and returns 200. 404 when the dataset
+    is unknown, 409 when no captioning batch is currently running."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    if not dataset_activity.request_cancel(dataset_id):
+        return jsonify({'error': 'no captioning batch in progress'}), 409
+    return jsonify({'ok': True, 'stopping': True})
 
 
 @bp.get('/dataset/<int:dataset_id>/caption/options')

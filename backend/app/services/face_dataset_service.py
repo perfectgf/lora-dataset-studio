@@ -3093,6 +3093,8 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
                                                        describe=describe_image_ollama))
         try:
             for img, p, joycap in refine_targets:
+                if dataset_activity.cancel_requested(ds.id):
+                    break   # graceful stop at an image boundary (see caption_images)
                 dataset_activity.bump(token)
                 with open(p, 'rb') as fh:
                     data = fh.read()
@@ -3142,6 +3144,8 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
                 db.session.commit()
                 n += 1
             for img, p in remaining:
+                if dataset_activity.cancel_requested(ds.id):
+                    break   # graceful stop at an image boundary (see caption_images)
                 dataset_activity.bump(token)
                 with open(p, 'rb') as fh:
                     data = fh.read()
@@ -3337,6 +3341,11 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None):
                 raise RuntimeError('vision (Ollama) service not configured/available yet')
             try:
                 for index, (img, p) in enumerate(remaining, 1):
+                    # Graceful stop: the user asked to stop and we're at an image
+                    # boundary (nothing decoding) — leave the rest uncaptioned and let
+                    # the finally below free the model, exactly like a normal finish.
+                    if dataset_activity.cancel_requested(dataset_id):
+                        break
                     dataset_activity.progress(
                         token,
                         detail=f'Captioning with Ollama — image {index}/{len(remaining)}…')
@@ -3464,11 +3473,22 @@ def derive_short_captions(user_id, dataset_id, image_ids=None, force=False, mode
         gen = generate
         def _unload():
             return None
+    # When no caller owns an indicator (the /caption route runs shorts as a follow-up
+    # pass), own one here so this loop is visible AND Stop-able like the long pass: the
+    # kind matches (caption/recaption) so request_cancel finds it and the amber banner
+    # names it. A caller-supplied token means the long pass still owns the indicator.
+    own_token = None
+    if token is None:
+        own_token = dataset_activity.begin(dataset_id, 'recaption' if force else 'caption',
+                                           total=len(rows),
+                                           detail=f'Deriving {len(rows)} short caption(s)…')
+        token = own_token
     n = 0
     try:
         for img in rows:
-            if token is not None:
-                dataset_activity.bump(token)
+            if dataset_activity.cancel_requested(dataset_id):
+                break   # graceful stop at an image boundary (see caption_images)
+            dataset_activity.bump(token)
             short = _scrub_short_like_long(ds, gen(_shorten_prompt(ds, img.caption)), mode)
             if not short:
                 continue
@@ -3477,6 +3497,8 @@ def derive_short_captions(user_id, dataset_id, image_ids=None, force=False, mode
             n += 1
     finally:
         _unload()
+        if own_token is not None:
+            dataset_activity.end(own_token)
     return n
 
 

@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-stop-captioning-batch',
+    date: '2026-07-19',
+    title: 'Stop a captioning batch mid-run',
+    blurb:
+      "Launched a big caption pass and realized it's captioning badly, or you mis-set an option? A ⏹ Stop button now sits in the captioning progress banner. It finishes the image currently being written — never cuts an inference off mid-way — then stops cleanly: everything captioned so far is kept, the rest is left untouched, and the GPU is freed exactly as on a normal finish. You get an honest \"stopped — X captioned\" summary. No more waiting out a 100-image run you already know is wrong.",
+    to: '/datasets?section=captions',
+  },
+  {
     id: '2026-07-19-caption-method-options',
     date: '2026-07-19',
     title: 'Choose your caption engine, model and instructions — per dataset',

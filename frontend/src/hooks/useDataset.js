@@ -469,7 +469,8 @@ export function useDataset() {
     try {
       const d = await postJson(`/api/dataset/${currentId}/caption`, mode ? { mode } : {});
       if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
-      toast.success(`${d.captioned} captioned`);
+      if (d.stopped) toast.info(`Stopped — ${d.captioned} captioned before you stopped; the rest stays uncaptioned.`);
+      else toast.success(`${d.captioned} captioned`);
       await refresh();
     } finally {
       setCaptioning(false);
@@ -484,12 +485,27 @@ export function useDataset() {
     try {
       const d = await postJson(`/api/dataset/${currentId}/caption`, { force: true, ...(mode ? { mode } : {}) });
       if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
-      toast.success(`${d.captioned} re-captioned`);
+      if (d.stopped) toast.info(`Stopped — ${d.captioned} re-captioned before you stopped; the rest keeps its previous caption.`);
+      else toast.success(`${d.captioned} re-captioned`);
       await refresh();
     } finally {
       setCaptioning(false);
     }
   }), [wrap, currentId, refresh, toast]);
+
+  // Graceful Stop for a running captioning batch: the server flips a flag the worker
+  // checks between images, so the current image finishes and the rest is left as-is.
+  // The button shows "Stopping…" (driven by activity.cancelling) until the pass ends.
+  const cancelCaption = useCallback(async () => {
+    const d = await postJson(`/api/dataset/${currentId}/caption/cancel`, {});
+    if (d.ok) {
+      toast.info('Stopping after the current image…');
+      await refresh();   // pull activity.cancelling so the button flips immediately
+    } else {
+      // 409 = the batch already finished on its own between the poll and the click.
+      toast.error(d.error || 'Nothing to stop');
+    }
+  }, [currentId, refresh, toast]);
 
   // Re-caption ciblé : ré-écrit la caption d'un sous-ensemble d'images gardées (une
   // ligne fuyante, ou « toutes les fuyantes ») avec le MÊME moteur/mode/contexte que le
@@ -1086,7 +1102,7 @@ export function useDataset() {
            nonces, mirroringIds, refNonce, recaptioningIds, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, classify, caption, recaption, recaptionImages,
-           setStatus, setCaption, mirrorImage, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, regenerate, analyzeFaces,
+           setStatus, setCaption, mirrorImage, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, cancelCaption, regenerate, analyzeFaces,
            findWatermarks, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder,
            backupEverything, backupJob, downloadBackup, openBackupsFolder, dismissBackup, restoreJob, dismissRestore,

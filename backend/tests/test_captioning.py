@@ -739,3 +739,140 @@ def test_joycaption_timeout_returns_empty_and_logs_first_run_hint(app, monkeypat
     assert fake.killed, 'a timed-out subprocess must be killed'
     # The timeout message explains the first-run download so the user knows to re-run.
     assert '7 GB' in caplog.text and 'resume' in caplog.text.lower()
+
+
+# --- graceful caption-batch cancellation ------------------------------------
+
+def _dataset_with_n_kept_images(svc, LOCAL_USER, n=3):
+    """A FaceDataset with ``n`` kept, uncaptioned images backed by real files."""
+    from app.models import FaceDatasetImage
+    ds = svc.create_dataset(LOCAL_USER, 'CancelTest', 'cancel')
+    d = svc._dataset_dir(ds.id)
+    os.makedirs(d, exist_ok=True)
+    imgs = []
+    for i in range(n):
+        fn = f'kept{i}.webp'
+        with open(os.path.join(d, fn), 'wb') as fh:
+            fh.write(_png((10 * i % 255, 0, 0)))
+        img = FaceDatasetImage(dataset_id=ds.id, source='import', status='keep',
+                               filename=fn, framing='face')
+        svc.db.session.add(img)
+        imgs.append(img)
+    svc.db.session.commit()
+    return ds, imgs
+
+
+def test_caption_batch_stops_at_image_boundary_keeps_written(app, monkeypatch):
+    """A stop requested mid-batch takes effect at the NEXT image boundary: the images
+    already captioned keep their captions, the rest stay uncaptioned, and the model is
+    unloaded (GPU freed) exactly like a normal finish."""
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    from app.services import dataset_activity as da
+    from app.config import LOCAL_USER, save_config
+    from app.models import FaceDatasetImage
+
+    unloaded = []
+    monkeypatch.setattr(vision_ollama, 'unload_vision_model',
+                        lambda *a, **k: unloaded.append(True))
+    with app.app_context():
+        save_config({'captioning': {'backend': 'ollama'}})
+        ds, imgs = _dataset_with_n_kept_images(svc, LOCAL_USER, n=3)
+
+        calls = {'n': 0}
+
+        def _post(*a, **k):
+            calls['n'] += 1
+            # The user hits Stop while the 2nd image is being captioned: the batch is
+            # live, so the request is honoured and the loop breaks before image 3.
+            if calls['n'] == 2:
+                assert da.request_cancel(ds.id) is True
+            return _Resp({'response': f'caption {calls["n"]}'})
+
+        monkeypatch.setattr(vision_ollama.requests, 'post', _post)
+        n = svc.caption_images(LOCAL_USER, ds.id)
+
+        # Two images inferred and written; the third never touched.
+        assert n == 2
+        assert calls['n'] == 2
+        captions = [svc.db.session.get(FaceDatasetImage, i.id).caption for i in imgs]
+        assert sum(1 for c in captions if c) == 2
+        assert sum(1 for c in captions if not c) == 1
+        # Model freed and the indicator ended, just like a normal finish…
+        assert unloaded == [True]
+        assert da.get(ds.id) is None
+        # …but the stop flag is still armed so the route learns the pass was stopped.
+        assert da.cancel_requested(ds.id) is True
+
+
+def test_request_cancel_is_idempotent_and_needs_a_live_batch(app):
+    """Double-Stop while the same batch runs re-arms (True both times); with no live
+    cancellable batch, request_cancel refuses (the route maps that to 409)."""
+    from app.services import dataset_activity as da
+    with app.app_context():
+        da.reset()
+        assert da.request_cancel(123) is False           # nothing running
+        token = da.begin(123, 'caption', total=3)
+        assert da.request_cancel(123) is True             # first Stop
+        assert da.request_cancel(123) is True             # idempotent second Stop
+        assert da.cancel_requested(123) is True
+        assert da.get(123)['cancelling'] is True          # UI flips to "Stopping…"
+        da.end(token)
+
+
+def test_begin_disarms_a_stale_cancel_flag(app):
+    """A leaked arm (a prior run that armed then died before consuming) must never
+    cancel a fresh batch: begin() of a cancellable kind disarms it."""
+    from app.services import dataset_activity as da
+    with app.app_context():
+        da.reset()
+        token = da.begin(7, 'caption', total=2)
+        da.request_cancel(7)
+        da.end(token)                       # crash path: flag left armed, never consumed
+        assert da.cancel_requested(7) is True
+        token2 = da.begin(7, 'caption', total=2)   # a fresh run starts…
+        assert da.cancel_requested(7) is False     # …with a clean slate
+        da.end(token2)
+
+
+def test_caption_cancel_route_404_409_and_stopped_report(app, client, monkeypatch):
+    """The cancel endpoint: 404 for an unknown dataset, 409 when nothing is running,
+    and a real mid-batch stop reports stopped=True with the honest captioned count —
+    with the per-dataset flag consumed by the time the route returns."""
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    from app.services import dataset_activity as da
+    from app.config import LOCAL_USER, save_config
+
+    monkeypatch.setattr(vision_ollama, 'unload_vision_model', lambda *a, **k: None)
+    with app.app_context():
+        save_config({'captioning': {'backend': 'ollama'}})
+        ds, imgs = _dataset_with_n_kept_images(svc, LOCAL_USER, n=3)
+        dsid = ds.id
+
+    # Unknown dataset → 404; a real dataset with no running batch → 409.
+    assert client.post('/api/dataset/999999/caption/cancel').status_code == 404
+    r409 = client.post(f'/api/dataset/{dsid}/caption/cancel')
+    assert r409.status_code == 409
+
+    calls = {'n': 0}
+
+    def _post(*a, **k):
+        # The GPU vision window also POSTs (to free ComfyUI VRAM) — count only the
+        # actual Ollama caption calls, which carry the image in their JSON payload.
+        if not (k.get('json') or {}).get('images'):
+            return _Resp({'response': ''})
+        calls['n'] += 1
+        if calls['n'] == 2:
+            da.request_cancel(dsid)   # in-memory registry, no app context needed
+        return _Resp({'response': f'caption {calls["n"]}'})
+
+    monkeypatch.setattr(vision_ollama.requests, 'post', _post)
+    resp = client.post(f'/api/dataset/{dsid}/caption', json={})
+    body = resp.get_json()
+    assert resp.status_code == 200
+    assert body['stopped'] is True
+    assert body['captioned'] == 2
+    # The route consumed the flag on the way out — a later run starts clean.
+    with app.app_context():
+        assert da.cancel_requested(dsid) is False

@@ -792,6 +792,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
             <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2">
               <span className="inline-block w-4 h-4 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" aria-hidden />
               <span className="text-content text-sm">{activityBanner}</span>
+              {(act?.kind === 'caption' || act?.kind === 'recaption') && (
+                <button type="button" onClick={ds.cancelCaption} disabled={!!act?.cancelling}
+                  title="Stops after the current image finishes — captions already written are kept; the rest stays uncaptioned."
+                  className="ml-auto shrink-0 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed">
+                  {act?.cancelling ? 'Stopping…' : '⏹ Stop'}
+                </button>
+              )}
             </div>
           )}
 

@@ -95,6 +95,13 @@ describe everything **except the concept** — the concept is what must bind to 
 trigger. Keep masked training **off** for concepts (a person mask would erase the
 very thing you're training).
 
+**Stopping a run.** Started a big caption pass and realized it's captioning badly,
+or an option was mis-set? A **⏹ Stop** button sits in the captioning progress
+banner. It finishes the image being written (an inference is never cut off
+mid-way), then stops cleanly: every caption written so far is kept, the rest is
+left untouched, and you get a *"stopped — X captioned"* summary. Nothing is killed
+and nothing already done is lost — just fix the option and run again on what's left.
+
 ---
 
 ## 4. Settings cheat-sheet
