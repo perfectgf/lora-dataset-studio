@@ -234,6 +234,18 @@ Click **Train** and ai-toolkit runs underneath. The recommended path needs no co
 - **Advanced controls** — rank/alpha, resolution, LoRA or LoKr, network dropout, timestep weighting, optimizer, learning-rate scheduler/warmup, gradient accumulation, EMA, save/sample cadence and preview prompts.
 - **Checkpoint housekeeping** — a **Saves kept** cap lets ai-toolkit trim older intermediate checkpoints during the run (default 4, so a long Krea run no longer piles up ~10 GB of snapshots), and everything the app deletes goes to an app-wide **Trash** (Settings → Maintenance) that you empty on your own terms.
 - **One place for every run** — **🏋️ Runs** collects cloud and local training: live step/loss/ETA/samples, the exact recipe and dataset version, **Stop**, cloud **Retry/Continue**, downloads, and **⎘ Share config** — a paste-safe parameter/outcome summary with local paths and keys stripped.
+- **Lineage at a glance** — every continuation and fork is drawn as a **family tree** (☰ List or ◉ Graph). Each run shows the checkpoints it saved as pills, an edge is anchored on the exact epoch a continuation resumed from, the path to the current run lights up, and a branch that resumed from an earlier save stays visible — dashed — instead of vanishing. Click any checkpoint to download it or **continue from there**.
+
+<p align="center">
+  <img src="docs/screenshots/07-lineage-graph.png" alt="◉ Graph view of a run's lineage: a root Z-Image · turbo run with six saved checkpoints and four continuations laid out left to right, edges anchored on the exact checkpoint each run resumed from, the current run glowing indigo, and two set-aside branches dashed in amber" width="900">
+</p>
+<p align="center"><em>◉ Graph — a run's whole lineage as a family tree. The trunk lights the path root → current run, each continuation's edge starts on the checkpoint it resumed from, and set-aside branches stay dashed. Cloud ☁ and local 💻 runs sit side by side, each tagged on-disk or gone.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/08-lineage-checkpoint-actions.png" alt="A checkpoint pill's popover open on step 1500, offering Download and Continue-from-here" width="440">
+</p>
+<p align="center"><em>Every saved checkpoint is actionable: download that exact epoch, or continue a fresh run from it.</em></p>
+
 - **Five training families with distinct recipes** — **Z-Image** (Turbo/Base/De-Turbo), **SDXL**, **Krea 2** (Raw/Turbo), **FLUX.1**, and **FLUX.2 Klein** (4B/9B). Custom compatible weights train locally for any family, and Z-Image, Krea 2 and FLUX.2 Klein can also train on a custom base **in the cloud** via a one-time push to a private Hugging Face repo (SDXL and FLUX.1 stay local-only).
 - **🎚 Slider LoRA mode (Beta)** — turn any dataset into a **concept slider**: give a positive and a negative prompt and ai-toolkit's `concept_slider` trainer learns a single bipolar LoRA whose ±strength dials the trait at inference (the images are only a denoising substrate, so caption guards the slider never reads are skipped). A fixed 1000-step policy, low default rank, bipolar preview samples and an isolated `_slider` run tag keep it from clobbering a normal setup. All five families are offered behind honest experimental notes — **Krea 2 is the reference** — and it runs **locally or in the cloud**: slider settings are snapshotted at launch so a mid-run edit can never retarget a rented run (the first paid slider run is still unproven — extra-Beta). Beta, so expect to iterate. Test both poles with Test Studio's **negative strengths**.
 
