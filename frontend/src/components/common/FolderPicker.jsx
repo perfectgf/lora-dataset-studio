@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, postJson } from '../../api/fetchClient'
+import { useI18n } from '../../i18n/I18nContext'
 
 /** Ask the SERVER to open its native "choose a folder" dialog (the folder lives
  * on the machine running the app, so a browser file-picker can't reach it).
@@ -19,6 +20,7 @@ export async function pickNativeFolder(initial) {
  * server has no native dialog — used from the LAN/tablet or a Linux/vast.ai box.
  * Nothing is written; only directories are listed. onPick(path) then onClose. */
 export function FolderBrowserModal({ initial, onPick, onClose }) {
+  const { t } = useI18n()
   const [path, setPath] = useState(initial || null)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -34,12 +36,12 @@ export function FolderBrowserModal({ initial, onPick, onClose }) {
     } catch (e) {
       // A bad starting path (e.g. a stale pasted value) shouldn't dead-end the
       // browser — surface it and drop back to the drive list.
-      setError(e?.message || 'Could not open that folder.')
+      setError(e?.message || t('folderPicker.openFailed'))
       if (p) load(null)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => { load(initial || null) }, [load, initial])
 
@@ -47,25 +49,24 @@ export function FolderBrowserModal({ initial, onPick, onClose }) {
   const atRoot = !data || data.is_root
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Choose a folder"
+    <div role="dialog" aria-modal="true" aria-label={t('folderPicker.choose')}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="flex w-full max-w-lg flex-col rounded-xl border border-border bg-surface p-5 shadow-2xl"
         style={{ maxHeight: '80vh' }}>
-        <h2 className="text-base font-bold text-content">📁 Choose a folder</h2>
+        <h2 className="text-base font-bold text-content">📁 {t('folderPicker.choose')}</h2>
         <p className="mt-1 text-xs text-content-muted">
-          Folders on the machine running the app. Nothing is opened or modified —
-          you're only picking a location.
+          {t('folderPicker.description')}
         </p>
 
         <div className="mt-3 flex items-center gap-2">
           <button type="button" onClick={() => load(atRoot ? null : (data?.parent ?? null))}
             disabled={loading || atRoot}
             className="rounded-md border border-border px-2 py-1 text-xs text-content hover:bg-surface-raised disabled:opacity-40">
-            ⬆ Up
+            ⬆ {t('folderPicker.up')}
           </button>
           <span className="min-w-0 grow truncate font-mono text-xs text-content-subtle"
-            title={data?.path || 'This computer'}>
-            {data?.path || 'This computer'}
+            title={data?.path || t('folderPicker.thisComputer')}>
+            {data?.path || t('folderPicker.thisComputer')}
           </span>
         </div>
 
@@ -73,9 +74,9 @@ export function FolderBrowserModal({ initial, onPick, onClose }) {
 
         <ul className="mt-2 grow overflow-y-auto rounded-md border border-border bg-surface-raised">
           {loading ? (
-            <li className="px-3 py-2 text-xs text-content-muted">Loading…</li>
+            <li className="px-3 py-2 text-xs text-content-muted">{t('common.loading')}</li>
           ) : entries.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-content-muted">No subfolders here.</li>
+            <li className="px-3 py-2 text-xs text-content-muted">{t('folderPicker.noSubfolders')}</li>
           ) : entries.map((e) => (
             <li key={e.path}>
               <button type="button" onClick={() => load(e.path)}
@@ -90,12 +91,12 @@ export function FolderBrowserModal({ initial, onPick, onClose }) {
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose}
             className="rounded-md border border-border px-3 py-1.5 text-sm text-content hover:bg-surface-raised">
-            Cancel
+            {t('common.cancel')}
           </button>
           <button type="button" disabled={atRoot || loading}
             onClick={() => { onPick(data.path); onClose() }}
             className="rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
-            Use this folder
+            {t('folderPicker.useFolder')}
           </button>
         </div>
       </div>
@@ -110,6 +111,7 @@ export function FolderBrowserModal({ initial, onPick, onClose }) {
 export default function FolderPickerField({
   id, label, value, onChange, placeholder, required, hint,
 }) {
+  const { t } = useI18n()
   const [busy, setBusy] = useState(false)
   const [browsing, setBrowsing] = useState(false)
 
@@ -140,7 +142,7 @@ export default function FolderPickerField({
           className="w-full min-w-0 grow rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content font-mono" />
         <button type="button" onClick={browse} disabled={busy}
           className="shrink-0 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm font-semibold text-content hover:bg-surface disabled:opacity-50">
-          {busy ? 'Opening…' : '📂 Browse…'}
+          {busy ? t('folderPicker.opening') : `📂 ${t('folderPicker.browse')}`}
         </button>
       </div>
       {hint && <p className="mt-1 text-xs text-content-muted">{hint}</p>}

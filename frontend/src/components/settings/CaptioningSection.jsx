@@ -104,99 +104,99 @@ export default function CaptioningSection({ config, setField }) {
       </Card>
 
       <Card
-        title="Image bank triage"
-        help="Thresholds for the 🗃️ Bank quality flags. Raw scores are stored per image, so changing a threshold re-sorts an already-scanned bank instantly — no rescan."
+        title={t('settings.captioning.bank.title')}
+        help={t('settings.captioning.bank.help')}
       >
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div>
             <label htmlFor="bank-sharpness-min" className="block text-sm font-medium text-content">
-              Sharpness minimum
+              {t('settings.captioning.bank.sharpness')}
             </label>
             <input id="bank-sharpness-min" type="number" min="0" step="10"
               value={config.bank?.sharpness_min ?? 100}
               onChange={(e) => setField('bank', 'sharpness_min', parseFloat(e.target.value) || 0)}
               className={INPUT_CLASS} />
-            <p className="mt-0.5 text-xs text-content-muted">Laplacian variance under this = 🌫 blurry.</p>
+            <p className="mt-0.5 text-xs text-content-muted">{t('settings.captioning.bank.sharpnessHelp')}</p>
           </div>
           <div>
             <label htmlFor="bank-noise-max" className="block text-sm font-medium text-content">
-              Noise maximum
+              {t('settings.captioning.bank.noise')}
             </label>
             <input id="bank-noise-max" type="number" min="0" step="1"
               value={config.bank?.noise_max ?? 15}
               onChange={(e) => setField('bank', 'noise_max', parseFloat(e.target.value) || 0)}
               className={INPUT_CLASS} />
-            <p className="mt-0.5 text-xs text-content-muted">Residual grain over this = 📺 noisy.</p>
+            <p className="mt-0.5 text-xs text-content-muted">{t('settings.captioning.bank.noiseHelp')}</p>
           </div>
           <div>
             <label htmlFor="bank-uniformity-min" className="block text-sm font-medium text-content">
-              Uniformity minimum
+              {t('settings.captioning.bank.uniformity')}
             </label>
             <input id="bank-uniformity-min" type="number" min="0" step="1"
               value={config.bank?.uniformity_min ?? 12}
               onChange={(e) => setField('bank', 'uniformity_min', parseFloat(e.target.value) || 0)}
               className={INPUT_CLASS} />
-            <p className="mt-0.5 text-xs text-content-muted">Grayscale spread under this = ⬜ flat frame.</p>
+            <p className="mt-0.5 text-xs text-content-muted">{t('settings.captioning.bank.uniformityHelp')}</p>
           </div>
           <div>
             <label htmlFor="bank-min-side" className="block text-sm font-medium text-content">
-              Minimum side (px)
+              {t('settings.captioning.bank.minSide')}
             </label>
             <input id="bank-min-side" type="number" min="0" step="64"
               value={config.bank?.min_side ?? 768}
               onChange={(e) => setField('bank', 'min_side', parseInt(e.target.value, 10) || 0)}
               className={INPUT_CLASS} />
-            <p className="mt-0.5 text-xs text-content-muted">Smaller side under this = 📐 small (trainers only downscale).</p>
+            <p className="mt-0.5 text-xs text-content-muted">{t('settings.captioning.bank.minSideHelp')}</p>
           </div>
           <div>
             <label htmlFor="bank-dup-distance" className="block text-sm font-medium text-content">
-              Duplicate distance
+              {t('settings.captioning.bank.duplicateDistance')}
             </label>
             <input id="bank-dup-distance" type="number" min="0" max="16" step="1"
               value={config.bank?.dup_distance ?? 8}
               onChange={(e) => setField('bank', 'dup_distance', parseInt(e.target.value, 10) || 0)}
               className={INPUT_CLASS} />
-            <p className="mt-0.5 text-xs text-content-muted">dHash bits (of 64) two images may differ by and still group as ≈ duplicates. Applies at the next scan.</p>
+            <p className="mt-0.5 text-xs text-content-muted">{t('settings.captioning.bank.duplicateDistanceHelp')}</p>
           </div>
           <div>
             <label htmlFor="bank-face-threshold" className="block text-sm font-medium text-content">
-              Same-person similarity
+              {t('settings.captioning.bank.personSimilarity')}
             </label>
             <input id="bank-face-threshold" type="number" min="0" max="1" step="0.01"
               value={config.bank?.face_threshold ?? 0.45}
               onChange={(e) => setField('bank', 'face_threshold', parseFloat(e.target.value) || 0)}
               className={INPUT_CLASS} />
-            <p className="mt-0.5 text-xs text-content-muted">Cosine similarity for the 👥 person clustering. Applies at the next face pass.</p>
+            <p className="mt-0.5 text-xs text-content-muted">{t('settings.captioning.bank.personSimilarityHelp')}</p>
           </div>
           <div>
             <label htmlFor="bank-aesthetic-min" className="block text-sm font-medium text-content">
-              Aesthetic minimum
+              {t('settings.captioning.bank.aesthetic')}
             </label>
             <input id="bank-aesthetic-min" type="number" min="0" max="10" step="0.5"
               value={config.bank?.aesthetic_min ?? 5}
               onChange={(e) => setField('bank', 'aesthetic_min', parseFloat(e.target.value) || 0)}
               className={INPUT_CLASS} />
-            <p className="mt-0.5 text-xs text-content-muted">LAION score (~1–10) under which an image is flagged 💔 low aesthetic. Set by the ✨ Score pass.</p>
+            <p className="mt-0.5 text-xs text-content-muted">{t('settings.captioning.bank.aestheticHelp')}</p>
           </div>
           <div>
             <label htmlFor="bank-nsfw-max" className="block text-sm font-medium text-content">
-              NSFW maximum
+              {t('settings.captioning.bank.nsfw')}
             </label>
             <input id="bank-nsfw-max" type="number" min="0" max="1" step="0.05"
               value={config.bank?.nsfw_max ?? 0.5}
               onChange={(e) => setField('bank', 'nsfw_max', parseFloat(e.target.value) || 0)}
               className={INPUT_CLASS} />
-            <p className="mt-0.5 text-xs text-content-muted">NSFW probability (0–1) over which an image is flagged 🔞 NSFW. Set by the ✨ Score pass.</p>
+            <p className="mt-0.5 text-xs text-content-muted">{t('settings.captioning.bank.nsfwHelp')}</p>
           </div>
           <div>
             <label htmlFor="bank-style-threshold" className="block text-sm font-medium text-content">
-              Same-style similarity
+              {t('settings.captioning.bank.styleSimilarity')}
             </label>
             <input id="bank-style-threshold" type="number" min="0" max="1" step="0.01"
               value={config.bank?.style_threshold ?? 0.6}
               onChange={(e) => setField('bank', 'style_threshold', parseFloat(e.target.value) || 0)}
               className={INPUT_CLASS} />
-            <p className="mt-0.5 text-xs text-content-muted">Cosine similarity for the 🎨 style clustering. Applies at the next scoring pass.</p>
+            <p className="mt-0.5 text-xs text-content-muted">{t('settings.captioning.bank.styleSimilarityHelp')}</p>
           </div>
         </div>
       </Card>

@@ -19,7 +19,7 @@ import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
 import { useI18n } from './i18n/I18nContext'
 
 const NAV_ITEM_BASE =
-  'px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors'
+  'whitespace-nowrap px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors'
 const navItemClass = ({ isActive }) =>
   `${NAV_ITEM_BASE} ${
     isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:text-content hover:bg-surface-raised'
@@ -124,9 +124,9 @@ function LanguageSwitcher({ onChange }) {
       <select value={locale}
         onChange={(event) => { setLocale(event.target.value); onChange?.() }}
         aria-label={t('language.label')}
-        className="max-w-28 cursor-pointer border-0 bg-transparent p-0 text-sm font-medium text-inherit outline-none">
+        className="max-w-28 cursor-pointer border-0 bg-transparent p-0 text-sm font-medium text-inherit outline-none [color-scheme:dark]">
         {locales.map((option) => (
-          <option key={option.code} value={option.code} className="bg-surface text-content">
+          <option key={option.code} value={option.code} className="bg-surface-overlay text-content">
             {option.label}
           </option>
         ))}
@@ -186,13 +186,13 @@ function NavBar() {
   )
   return (
     <header className="border-b border-border bg-surface-overlay/90 backdrop-blur-sm sticky top-0 z-40">
-      <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 sm:gap-6">
+      <div className="mx-auto flex w-full max-w-screen-2xl items-center justify-center gap-3 px-4 py-3 sm:gap-6 sm:px-6 lg:px-8">
         <NavLink to="/datasets" title={t('nav.backToDatasets')} onClick={goHome}
           className="shrink-0 whitespace-nowrap bg-gradient-primary bg-clip-text text-base font-bold text-transparent no-underline">
           LoRA Dataset Studio
         </NavLink>
         {/* Workflow first (make → train in cloud → test), docs/config last. */}
-        <nav className="hidden md:flex gap-1" aria-label={t('nav.main')}>
+        <nav className="hidden items-center gap-1 md:flex" aria-label={t('nav.main')}>
           {navLinks}
           <WhatsNewButton />
           <CheckUpdatesButton />

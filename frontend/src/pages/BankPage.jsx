@@ -28,10 +28,10 @@ export default function BankPage() {
       const d = await apiFetch('/api/banks')
       setBanks(d.banks || [])
     } catch (e) {
-      toast.error(e?.message || 'Could not load the banks.')
+      toast.error(e?.message || t('bank.page.loadFailed'))
       setBanks([])
     }
-  }, [toast])
+  }, [toast, t])
 
   useEffect(() => { if (currentId == null) refresh() }, [currentId, refresh])
 
@@ -50,11 +50,11 @@ export default function BankPage() {
     setCreating(true)
     try {
       const d = await postJson('/api/bank/create', { name, folder })
-      toast.success(`Bank created — ${d.added} image(s) inventoried.`)
+      toast.success(t('bank.page.created', { count: d.added }))
       setName(''); setFolder('')
       open(d.id)
     } catch (err) {
-      toast.error(err?.message || 'Could not create the bank.')
+      toast.error(err?.message || t('bank.page.createFailed'))
     } finally {
       setCreating(false)
     }
@@ -65,10 +65,10 @@ export default function BankPage() {
     if (!window.confirm(t('bank.removeConfirm', { name: bank.name }))) return
     try {
       await del(`/api/bank/${bank.id}`)
-      toast.success('Bank removed — source folder untouched.')
+      toast.success(t('bank.page.removed'))
       refresh()
     } catch (e) {
-      toast.error(e?.message || 'Could not remove the bank.')
+      toast.error(e?.message || t('bank.page.removeFailed'))
     }
   }
 
@@ -79,41 +79,38 @@ export default function BankPage() {
   return (
     <div className="space-y-6">
       <header className="flex items-center gap-2">
-        <h1 className="text-xl font-bold text-content">🗃️ Image bank</h1>
-        <span className="px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.625rem] font-semibold uppercase tracking-wide">Beta</span>
+        <h1 className="text-xl font-bold text-content">🗃️ {t('bank.page.title')}</h1>
+        <span className="px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.625rem] font-semibold uppercase tracking-wide">{t('common.beta')}</span>
         <HelpBadge topic="page-bank" />
       </header>
       <p className="text-sm text-content-muted max-w-3xl">
-        Point the app at a big unsorted folder (a Telegram export, a scrape dump…) and triage it
-        into dataset-ready selections: a quality pass flags blur/noise/flat/small shots and groups
-        near-duplicates, the face pass sorts the dump by person — then you promote the keepers
-        into a dataset. The folder itself is never modified.
+        {t('bank.page.description')}
       </p>
 
       <form onSubmit={create}
         className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface p-4">
         <div className="grow min-w-40">
-          <label htmlFor="bank-name" className="block text-sm font-medium text-content">Name</label>
+          <label htmlFor="bank-name" className="block text-sm font-medium text-content">{t('bank.page.name')}</label>
           <input id="bank-name" value={name} onChange={(e) => setName(e.target.value)}
-            placeholder="Telegram export 07/2026" required
+            placeholder={t('bank.page.namePlaceholder')} required
             className="mt-1 w-full rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content" />
         </div>
         <div className="grow-[3] min-w-64">
-          <FolderPickerField id="bank-folder" label="Folder on this computer"
+          <FolderPickerField id="bank-folder" label={t('bank.page.folder')}
             value={folder} onChange={setFolder} required
-            placeholder="C:\path\to\unsorted-images (subfolders included)" />
+            placeholder={t('bank.page.folderPlaceholder')} />
         </div>
         <button type="submit" disabled={creating}
           className="rounded-md bg-gradient-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-          {creating ? 'Inventorying…' : '➕ Create bank'}
+          {creating ? t('bank.page.inventorying') : `➕ ${t('bank.page.create')}`}
         </button>
       </form>
 
       {banks == null ? (
-        <p className="text-sm text-content-muted">Loading…</p>
+        <p className="text-sm text-content-muted">{t('common.loading')}</p>
       ) : banks.length === 0 ? (
         <p className="text-sm text-content-muted">
-          No bank yet — create one above to start triaging a folder.
+          {t('bank.page.empty')}
         </p>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">
@@ -126,20 +123,26 @@ export default function BankPage() {
                   {b.name}
                 </button>
                 {b.activity && !b.activity.finished && (
-                  <span className="text-xs text-amber-300">⏳ {b.activity.kind}…</span>
+                  <span className="text-xs text-amber-300">
+                    ⏳ {t(`bank.activity.${['scan', 'faces', 'score', 'watermark', 'promote'].includes(b.activity.kind)
+                      ? b.activity.kind : 'job'}`)}…
+                  </span>
                 )}
-                <button type="button" onClick={() => remove(b)} aria-label={`Remove bank ${b.name}`}
+                <button type="button" onClick={() => remove(b)}
+                  aria-label={t('bank.page.removeLabel', { name: b.name })}
                   className="ml-auto px-1.5 text-content-subtle hover:text-rose-300">✕</button>
               </div>
               <p className="truncate font-mono text-xs text-content-subtle" title={b.source_path}>
                 {b.source_path}
               </p>
               <p className="text-xs text-content-muted">
-                {b.total} image(s) · {b.scanned} scanned · <span className="text-emerald-300">{b.keep} kept</span> · <span className="text-rose-300">{b.reject} rejected</span>
+                {t('bank.counts.images', { count: b.total })} · {t('bank.counts.scanned', { count: b.scanned })} ·{' '}
+                <span className="text-emerald-300">{t('bank.counts.kept', { count: b.keep })}</span> ·{' '}
+                <span className="text-rose-300">{t('bank.counts.rejected', { count: b.reject })}</span>
               </p>
               <button type="button" onClick={() => open(b.id)}
                 className="self-start rounded-md border border-border bg-surface-raised px-3 py-1 text-xs font-semibold text-content hover:bg-surface">
-                Open →
+                {t('bank.page.open')} →
               </button>
             </li>
           ))}
