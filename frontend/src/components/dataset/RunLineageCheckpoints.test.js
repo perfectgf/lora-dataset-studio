@@ -32,3 +32,17 @@ test('the LoRA manager opens the same graph component for the whole dataset', ()
   assert.match(panel, /train\/lineage\?/);
   assert.match(panel, /<RunLineageGraph tree=\{datasetGraph\.tree\}/);
 });
+
+test('the ◉ Graph modal portals to <body> so the hidden section never eats it', () => {
+  // The Checkpoints & LoRAs manager portals into its OWN sidebar section; when
+  // that section is active, TrainingPanel's home container carries `hidden`
+  // (display:none). A modal rendered inline there inherits display:none and
+  // never shows (fixed positioning does NOT escape an ancestor's display:none) —
+  // the button looked dead. The dataset-graph dialog must therefore be portaled
+  // to document.body, exactly like CaptionEditorDialog.
+  assert.match(panel, /datasetGraph && createPortal\(/);
+  assert.match(
+    panel,
+    /aria-label="Dataset run graph"[\s\S]*?\),\s*document\.body\)}/);
+  assert.match(panel, /import \{ createPortal \} from 'react-dom'/);
+});

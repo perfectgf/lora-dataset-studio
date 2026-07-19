@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-graph-modal-visible-from-checkpoints',
+    date: '2026-07-19',
+    title: '◉ Graph now opens from the Checkpoints panel',
+    blurb:
+      "Opening ◉ Graph from the Checkpoints & LoRAs section did nothing — no window, no error. The run-and-checkpoints graph was being drawn inside the hidden Training section, so it never showed. It now pops up over the page from wherever you open it, with your dataset's runs and their saved checkpoints.",
+    to: '/datasets?section=checkpoints',
+  },
+  {
     id: '2026-07-19-bank-semantic-dedup',
     date: '2026-07-19',
     title: '✂ Catch the same shot in a dozen crops',
