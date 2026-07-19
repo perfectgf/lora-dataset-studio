@@ -1,54 +1,23 @@
+import { useCallback, useState } from 'react';
 import { buildLineageRows, resumeCaption } from '../../utils/lineageTree';
+import { famLabel, StatusDot, SavesChip } from './lineageChrome';
+import RunLineageGraph from './RunLineageGraph';
 
-/* 🌳 Genealogy tree of a run's lineage — the runs linked by continuations
-   (run → continue → re-continue, and forks). A light, polished indented tree
-   (no graph library): file-tree connector rails draw who descends from whom,
-   each run is a compact card, the current run wears a primary accent, and a
-   branch resumed from an earlier step is greyed and marks its parent's set-aside
-   saves. Designed to read at a glance in a single screenshot — no hover or
-   scroll needed to understand it. Stays inside the app's dark design system
-   (surface/border/indigo accent tokens). */
-
-const FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein' };
-const famLabel = (f) => FAMILY_LABEL[f] || f || 'LoRA';
+/* 🌳 A run's lineage — the runs linked by continuations (run → continue →
+   re-continue, and forks). Two views of the same genealogy, toggled in the
+   header and remembered per browser:
+     ☰ List  — a compact indented tree (file-tree rails), dense and scannable.
+     ◉ Graph — a left-to-right showcase tree with flowing bezier edges.
+   Both stay inside the app's dark design system (surface/border/indigo tokens),
+   share the run vocabulary from lineageChrome, and read at a glance in a single
+   screenshot. Click any run to jump to its card. */
 
 const INDENT_REM = 1.5;   // width of one connector column
-
-const STATUS_TONE = {
-  done: 'bg-emerald-400',
-  error: 'bg-rose-400',
-  error_pod_kept: 'bg-amber-400',
+const VIEW_KEY = 'lds.lineageView';   // 'graph' | 'list'
+const readView = () => {
+  try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'graph'; }
+  catch { return 'graph'; }
 };
-function StatusDot({ status }) {
-  const tone = STATUS_TONE[status] || (status ? 'bg-sky-400' : 'bg-content-subtle');
-  return (
-    <span aria-hidden title={status || 'no recorded status'}
-      className={`h-2 w-2 shrink-0 rounded-full ${tone} ${status === 'done' ? 'shadow-[0_0_6px] shadow-emerald-400/50' : ''}`} />
-  );
-}
-
-/** LoRA/checkpoint availability chip: on-disk vs gone (superseded aside or
- *  deleted). null availability (a scan we couldn't run) shows nothing. */
-function SavesChip({ node }) {
-  if (node.checkpoint_ready === true) {
-    const n = node.saves;
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-200 text-[0.5625rem] font-medium"
-        title={n ? `${n} checkpoint${n > 1 ? 's' : ''} still on disk` : 'LoRA on disk'}>
-        <span aria-hidden>💾</span>{n ? `${n} on disk` : 'on disk'}
-      </span>
-    );
-  }
-  if (node.checkpoint_ready === false) {
-    return (
-      <span className="inline-flex items-center rounded-full border border-border px-1.5 py-0.5 text-content-subtle text-[0.5625rem] font-medium"
-        title="This run's checkpoint is no longer on disk (set aside by a later resume, or deleted)">
-        gone
-      </span>
-    );
-  }
-  return null;
-}
 
 /** The file-tree connector gutter for one row: a fixed-width cell per ancestor
  *  column (a continuing vertical rail where guides[i] is true), then the elbow
@@ -141,7 +110,44 @@ function LineageNode({ row, onSelect, index }) {
   );
 }
 
+/** The indented-tree body (☰ List). */
+function LineageList({ rows, onSelect }) {
+  return (
+    <div className="flex min-w-fit flex-col">
+      {rows.map((row, i) => (
+        <LineageNode key={row.node.record_id} row={row} onSelect={onSelect} index={i} />
+      ))}
+    </div>
+  );
+}
+
+/** Segmented ☰ List / ◉ Graph switch. */
+function ViewToggle({ view, onChange }) {
+  const opt = (id, glyph, label) => (
+    <button type="button" onClick={() => onChange(id)}
+      aria-pressed={view === id} title={`${label} view`}
+      className={'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.5625rem] font-semibold transition-colors '
+        + (view === id
+          ? 'bg-indigo-500/20 text-indigo-100 '
+          : 'text-content-subtle hover:text-content')}>
+      <span aria-hidden>{glyph}</span>{label}
+    </button>
+  );
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg border border-border bg-app/40 p-0.5">
+      {opt('list', '☰', 'List')}
+      {opt('graph', '◉', 'Graph')}
+    </div>
+  );
+}
+
 export default function RunLineageTree({ tree, loading, error, onSelect }) {
+  const [view, setView] = useState(readView);
+  const changeView = useCallback((v) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* private mode: keep it in memory */ }
+  }, []);
+
   if (loading) {
     return (
       <div className="lds-lineage-in flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-content-subtle text-[0.6875rem]">
@@ -161,20 +167,21 @@ export default function RunLineageTree({ tree, loading, error, onSelect }) {
         <span className="rounded-full bg-app/60 px-1.5 py-0.5 text-content-muted text-[0.5625rem] font-medium">
           {rows.length} run{rows.length > 1 ? 's' : ''}
         </span>
-        <span className="ml-auto flex items-center gap-2 text-content-subtle text-[0.5rem]">
-          <span className="inline-flex items-center gap-1">
-            <span aria-hidden className="h-2 w-2 rounded-full border border-indigo-400/70 bg-indigo-500/20" />current
+        <div className="ml-auto flex items-center gap-2">
+          <span className="hidden items-center gap-2 text-content-subtle text-[0.5rem] sm:flex">
+            <span className="inline-flex items-center gap-1">
+              <span aria-hidden className="h-2 w-2 rounded-full border border-indigo-400/70 bg-indigo-500/20" />current
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span aria-hidden>↳</span>continued from
+            </span>
           </span>
-          <span className="inline-flex items-center gap-1">
-            <span aria-hidden>↳</span>continued from
-          </span>
-        </span>
+          <ViewToggle view={view} onChange={changeView} />
+        </div>
       </div>
-      <div className="flex min-w-fit flex-col">
-        {rows.map((row, i) => (
-          <LineageNode key={row.node.record_id} row={row} onSelect={onSelect} index={i} />
-        ))}
-      </div>
+      {view === 'graph'
+        ? <RunLineageGraph tree={tree} onSelect={onSelect} />
+        : <LineageList rows={rows} onSelect={onSelect} />}
     </div>
   );
 }

@@ -10,7 +10,8 @@
 
 // Order siblings oldest-first so a lineage reads top-to-bottom in the order the
 // runs actually happened (created_at, record_id as the stable tiebreaker).
-function siblingSort(a, b) {
+// Exported so the graph view (utils/lineageGraph.js) orders forks identically.
+export function siblingSort(a, b) {
   const ta = a.created_at || '';
   const tb = b.created_at || '';
   if (ta !== tb) return ta < tb ? -1 : 1;

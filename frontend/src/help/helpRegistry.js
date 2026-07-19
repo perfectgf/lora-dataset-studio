@@ -189,7 +189,7 @@ const TOPICS = [
     app: { route: '/studio' } },
   { id: 'page-cloud', kind: 'page', title: 'Runs (cloud & local)',
     keywords: ['runs', 'cloud', 'vast', 'stuck', 'history', 'training', 'gpu',
-      'lineage', 'tree', 'genealogy', 'continue', 'resumed', 'branch', 'superseded', 'descend'],
+      'lineage', 'tree', 'genealogy', 'graph', 'continue', 'resumed', 'branch', 'superseded', 'descend'],
     guide: { chapter: 'troubleshooting', anchor: 'a-cloud-run-seems-stuck' },
     app: { route: '/cloud' } },
 
