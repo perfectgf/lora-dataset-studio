@@ -116,9 +116,14 @@ DEFAULTS = {
     #   mixed SFW/NSFW dump.
     # style_threshold: cosine similarity on the CLIP image embeddings at or above
     #   which two images share a visual STYLE when clustering by style.
+    # semantic_dup_threshold: cosine similarity on the SAME CLIP embeddings at or
+    #   above which two scored images are flagged a SEMANTIC near-duplicate (stage 2:
+    #   crops / re-compressed variants of the same shot a dHash misses). Higher than
+    #   style_threshold on purpose — a crop is far closer than merely "same style".
     'bank': {'sharpness_min': 100.0, 'noise_max': 15.0, 'uniformity_min': 12.0,
              'dup_distance': 8, 'min_side': 768, 'face_threshold': 0.45,
-             'aesthetic_min': 5.0, 'nsfw_max': 0.5, 'style_threshold': 0.6},
+             'aesthetic_min': 5.0, 'nsfw_max': 0.5, 'style_threshold': 0.6,
+             'semantic_dup_threshold': 0.96},
     'masks': {'python': ''},
     # Watermark inpainting (simple-lama-inpainting, extra ML). Dedicated key so a
     # user can override it, but defaults empty -> reuse the same ML interpreter as

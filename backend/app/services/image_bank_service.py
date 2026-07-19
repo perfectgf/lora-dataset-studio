@@ -200,6 +200,7 @@ def _image_dict(row: BankImage, th: dict) -> dict:
         'subfolder': _subfolder_of(row.relpath),
         'flags': image_flags(row, th),
         'dup_group': row.dup_group,
+        'semantic_dup_group': row.semantic_dup_group,
         'face_state': row.face_state, 'face_cluster': row.face_cluster,
         'status': row.status, 'reject_reason': row.reject_reason,
         'promoted_dataset_id': row.promoted_dataset_id,
@@ -247,13 +248,14 @@ def _subfolder_of(relpath: str) -> str:
     return parts[0] if len(parts) > 1 else ''
 
 
-def _unresolved_dup_groups_q(bank_id):
-    """Groups still holding ≥2 NON-rejected members — i.e. still to resolve."""
-    return (db.session.query(BankImage.dup_group)
+def _unresolved_dup_groups_q(bank_id, col=BankImage.dup_group):
+    """Groups still holding ≥2 NON-rejected members — i.e. still to resolve. ``col``
+    selects the stage: dup_group (exact/resized) or semantic_dup_group (crops)."""
+    return (db.session.query(col)
             .filter(BankImage.bank_id == bank_id,
-                    BankImage.dup_group.isnot(None),
+                    col.isnot(None),
                     BankImage.status != 'reject')
-            .group_by(BankImage.dup_group)
+            .group_by(col)
             .having(func.count(BankImage.id) >= 2))
 
 
@@ -290,6 +292,16 @@ def bank_payload(user_id, bank_id) -> dict | None:
     dup = {'groups': len(dup_rows),
            'images': sum(n for _g, n in dup_rows),
            'unresolved': _unresolved_dup_groups_q(bank_id).count()}
+    # Stage-2 semantic near-duplicate groups (crops/variants), same summary shape.
+    sem_rows = (db.session.query(BankImage.semantic_dup_group, func.count(BankImage.id))
+                .filter(BankImage.bank_id == bank_id,
+                        BankImage.semantic_dup_group.isnot(None))
+                .group_by(BankImage.semantic_dup_group).all())
+    semantic_dup = {
+        'groups': len(sem_rows),
+        'images': sum(n for _g, n in sem_rows),
+        'unresolved': _unresolved_dup_groups_q(
+            bank_id, BankImage.semantic_dup_group).count()}
     # Person clusters, biggest first; cover = the member with the surest face.
     cl_rows = (db.session.query(BankImage.face_cluster, func.count(BankImage.id))
                .filter(BankImage.bank_id == bank_id,
@@ -329,6 +341,7 @@ def bank_payload(user_id, bank_id) -> dict | None:
         'id': bank.id, 'name': bank.name, 'source_path': bank.source_path,
         'created_at': bank.created_at.isoformat() if bank.created_at else None,
         'counts': counts, 'flags': flags, 'dup': dup,
+        'semantic_dup': semantic_dup,
         'clusters': clusters, 'faces_scanned': faces_scanned,
         'style_clusters': style_clusters,
         'activity': bank_jobs.get(bank_id),
@@ -369,7 +382,7 @@ def list_banks(user_id) -> list:
 
 def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
                 group=None, style=None, subfolder=None, search=None,
-                offset=0, limit=200) -> dict | None:
+                semantic_group=None, offset=0, limit=200) -> dict | None:
     """One PAGE of the bank grid (a 9 000-image bank must never ship whole).
     Filters compose: status ∩ flag ∩ cluster ∩ dup-group ∩ style ∩ subfolder ∩ search.
     ``search`` is a plain full-text term matched (case-insensitive LIKE) against the
@@ -395,6 +408,9 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
     elif flag == 'dups':
         q = q.filter(BankImage.dup_group.isnot(None))
         order = (BankImage.dup_group.asc(), BankImage.id.asc())
+    elif flag == 'semantic_dups':
+        q = q.filter(BankImage.semantic_dup_group.isnot(None))
+        order = (BankImage.semantic_dup_group.asc(), BankImage.id.asc())
     elif flag == 'no_face':
         # Literally "no face was found" — ONLY face_state == 'no_face'. The other
         # non-scorable states (low_det / too_small / extreme_pose) DID detect a
@@ -422,6 +438,8 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
         q = q.filter(BankImage.face_cluster == int(cluster))
     if group is not None:
         q = q.filter(BankImage.dup_group == int(group))
+    if semantic_group is not None:
+        q = q.filter(BankImage.semantic_dup_group == int(semantic_group))
     if style is not None:
         q = q.filter(BankImage.style_cluster == int(style))
     if subfolder is not None:
@@ -636,25 +654,186 @@ def rebuild_dup_groups(bank_id, max_distance=None) -> int:
     return len(groups)
 
 
-def dup_groups_payload(user_id, bank_id, offset=0, limit=50) -> dict | None:
+# --- semantic near-duplicate groups (stage 2 — crops / re-compressed variants) --
+def _load_score_embeddings(bank: ImageBank) -> dict:
+    """{abs_path: emb (np.float32, L2-normed)} from the ✨ Score pass cache, for the
+    scored 'ok' images whose file still matches what was scored. Empty when the pass
+    never ran (no cache) — the caller then surfaces the "run Score first" hint. A
+    STALE entry (a same-path edit since scoring, detected via the cached size+mtime
+    signature) is dropped, so a semantic group is never built on an outdated
+    embedding. Reads the .npz directly (numpy is in the Flask venv); torch/open_clip
+    are NOT needed here — stage 2 costs no new GPU work, it reuses Score's output."""
+    import numpy as np
+    path = _score_cache_path(bank.id)
+    if not path.is_file():
+        return {}
+    try:
+        with np.load(str(path), allow_pickle=False) as z:
+            paths = [str(p) for p in z['paths']]
+            states = [str(s) for s in z['states']]
+            embs = z['embs']
+            sigs = ([str(s) for s in z['sigs']] if 'sigs' in z.files
+                    else [''] * len(paths))
+    except Exception as e:  # noqa: BLE001 — a corrupt cache = "no embeddings", never fatal
+        logger.warning('bank %s score cache unreadable: %s', bank.id, e)
+        return {}
+    out = {}
+    for i, p in enumerate(paths):
+        if states[i] != 'ok':
+            continue
+        emb = embs[i]
+        if float(np.abs(emb).sum()) <= 0:       # zero sentinel = errored image
+            continue
+        sig = sigs[i]
+        if sig:                                 # drop a since-edited file
+            try:
+                st = os.stat(p)
+                if f'{st.st_size}:{st.st_mtime_ns}' != sig:
+                    continue
+            except OSError:
+                continue
+        out[p] = np.asarray(emb, dtype='float32')
+    return out
+
+
+def rebuild_semantic_dup_groups(bank_id, threshold=None) -> int | None:
+    """Stage-2 near-duplicate grouping over the CLIP embeddings the ✨ Score pass
+    cached — catches crops and re-compressed variants of the SAME shot that the
+    dHash (stage 1) misses. Returns the group count (groups of ≥2), or None when NO
+    embeddings are available (Score hasn't run) so the caller shows the "run Score
+    first" hint instead of a silent empty result.
+
+    Cost: a semantic near-dup (cosine ≥ threshold) is necessarily inside one style
+    union-find component (that clustering uses style_threshold ≤ threshold), so we
+    BLOCK by style_cluster and only compare within a block — Σ block² dot-products,
+    not the full n². A config with style_threshold > threshold would break that
+    guarantee, so we fall back to a single global block then. Re-running at another
+    threshold is CPU-only and near-instant: it re-reads the cached embeddings — no
+    GPU, no re-scan."""
+    import numpy as np
+    bank = db.session.get(ImageBank, bank_id)
+    if not bank:
+        return None
+    emb_by_path = _load_score_embeddings(bank)
+    if not emb_by_path:
+        return None
+    th = thresholds()
+    t = float(threshold if threshold is not None else th['semantic_dup_threshold'])
+    block_by_style = th['style_threshold'] <= t
+    rows = (BankImage.query.filter_by(bank_id=bank_id)
+            .order_by(BankImage.id.asc()).all())
+    items = []      # (image_id, block_key, emb)
+    for r in rows:
+        p = abs_image_path(bank, r)
+        emb = emb_by_path.get(p) if p else None
+        if emb is None:
+            continue
+        block = (r.style_cluster if r.style_cluster is not None else -1) \
+            if block_by_style else 0
+        items.append((r.id, block, emb))
+    # A re-run fully recomputes — clear every semantic group first.
+    BankImage.query.filter_by(bank_id=bank_id).update(
+        {'semantic_dup_group': None}, synchronize_session=False)
+    if not items:
+        db.session.commit()
+        return 0
+    blocks: dict = {}
+    for idx, (_id, block, _emb) in enumerate(items):
+        blocks.setdefault(block, []).append(idx)
+    parent = list(range(len(items)))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    chunk = 512
+    for members in blocks.values():
+        if len(members) < 2:
+            continue
+        E = np.stack([items[i][2] for i in members]).astype('float32')
+        E /= (np.linalg.norm(E, axis=1, keepdims=True) + 1e-8)
+        m = len(members)
+        for i0 in range(0, m, chunk):
+            sims = E[i0:i0 + chunk] @ E.T
+            for a, b in np.argwhere(sims >= t):
+                a += i0
+                if a < b:                       # skip the diagonal + mirror pairs
+                    union(members[int(a)], members[int(b)])
+    comps: dict = {}
+    for i in range(len(items)):
+        comps.setdefault(find(i), []).append(i)
+    groups = sorted((m for m in comps.values() if len(m) >= 2),
+                    key=lambda m: (-len(m), items[m[0]][0]))
+    for gid, members in enumerate(groups, start=1):
+        member_ids = [items[i][0] for i in members]
+        for i0 in range(0, len(member_ids), _SQL_IN_CHUNK):
+            BankImage.query.filter(
+                BankImage.id.in_(member_ids[i0:i0 + _SQL_IN_CHUNK])).update(
+                {'semantic_dup_group': gid}, synchronize_session=False)
+    db.session.commit()
+    return len(groups)
+
+
+def start_semantic_dedup(app, user_id, bank_id, threshold=None):
+    """Launch the stage-2 semantic near-duplicate pass (CPU, reuses the ✨ Score
+    embeddings — no GPU). ValueError (→400) when Score hasn't produced any usable
+    embedding yet, so the UI shows the clear "run Score first" hint rather than a
+    job that quietly does nothing."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    if not _load_score_embeddings(bank):
+        raise ValueError('run ✨ Score first — semantic near-duplicates reuse its '
+                         'embeddings')
+    return bank_jobs.start(app, bank_id, 'semantic_dedup',
+                           _semantic_dedup_job(bank_id, threshold), total=0)
+
+
+def _semantic_dedup_job(bank_id, threshold):
+    def run(job):
+        bank_jobs.progress(job, done=0, total=0, detail='finding crops & variants')
+        n = rebuild_semantic_dup_groups(bank_id, threshold)
+        if n is None:
+            bank_jobs.progress(job, detail='no embeddings — run ✨ Score first')
+            return
+        bank_jobs.progress(job, detail=f'done — {n} semantic near-duplicate group(s)')
+    return run
+
+
+def dup_groups_payload(user_id, bank_id, offset=0, limit=50,
+                       col=BankImage.dup_group) -> dict | None:
     """Unresolved groups (≥2 non-rejected members) with their full membership,
-    for the resolution panel."""
+    for the resolution panel. ``col`` picks the stage: dup_group (exact/resized) or
+    semantic_dup_group (crops/variants)."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         return None
     th = thresholds()
-    gids = [g for (g,) in _unresolved_dup_groups_q(bank_id)
-            .order_by(BankImage.dup_group.asc()).all()]
+    gids = [g for (g,) in _unresolved_dup_groups_q(bank_id, col)
+            .order_by(col.asc()).all()]
     total = len(gids)
     page = gids[max(0, int(offset)):max(0, int(offset)) + max(1, min(200, int(limit)))]
     groups = []
     for gid in page:
-        rows = (BankImage.query.filter_by(bank_id=bank_id, dup_group=gid)
+        rows = (BankImage.query.filter(BankImage.bank_id == bank_id, col == gid)
                 .order_by(BankImage.id.asc()).all())
         groups.append({'group': gid,
                        'best_id': _best_of(rows).id if rows else None,
                        'images': [_image_dict(r, th) for r in rows]})
     return {'groups': groups, 'total': total, 'offset': max(0, int(offset))}
+
+
+def semantic_dup_groups_payload(user_id, bank_id, offset=0, limit=50) -> dict | None:
+    """dup_groups_payload for stage 2 (semantic_dup_group)."""
+    return dup_groups_payload(user_id, bank_id, offset=offset, limit=limit,
+                              col=BankImage.semantic_dup_group)
 
 
 def _best_of(rows):
@@ -671,13 +850,15 @@ def _best_of(rows):
     return max(rows, key=key)
 
 
-def resolve_dups(user_id, bank_id, strategy='best', group=None, keep_ids=None):
-    """Resolve duplicate groups: keep one member, REJECT the others (reason
-    'duplicate' — a status, never a file deletion, so it's reversible).
-    strategy 'best'|'first' applies to one group or, when ``group`` is None,
-    to every unresolved group at once; explicit ``keep_ids`` (manual pick)
-    applies to their own groups. Only non-rejected members are touched; a
-    member the user already KEPT stays kept (never flipped by a bulk resolve).
+def resolve_dups(user_id, bank_id, strategy='best', group=None, keep_ids=None,
+                 col=BankImage.dup_group, attr='dup_group', reason='duplicate'):
+    """Resolve duplicate groups: keep one member, REJECT the others (a status,
+    never a file deletion, so it's reversible). strategy 'best'|'first' applies to
+    one group or, when ``group`` is None, to every unresolved group at once;
+    explicit ``keep_ids`` (manual pick) applies to their own groups. Only
+    non-rejected members are touched; a member the user already KEPT stays kept
+    (never flipped by a bulk resolve). ``col``/``attr``/``reason`` pick the stage:
+    dup_group (exact/'duplicate') or semantic_dup_group (crops/'semantic_dup').
     Returns {'resolved': groups, 'rejected': images}."""
     bank = get_bank(user_id, bank_id)
     if not bank:
@@ -687,16 +868,17 @@ def resolve_dups(user_id, bank_id, strategy='best', group=None, keep_ids=None):
         rows = BankImage.query.filter(BankImage.bank_id == bank_id,
                                       BankImage.id.in_(list(keep_ids)[:_SQL_IN_CHUNK])).all()
         for r in rows:
-            if r.dup_group:
-                keep_by_group.setdefault(r.dup_group, set()).add(r.id)
+            g = getattr(r, attr)
+            if g:
+                keep_by_group.setdefault(g, set()).add(r.id)
         gids = list(keep_by_group)
     elif group is not None:
         gids = [int(group)]
     else:
-        gids = [g for (g,) in _unresolved_dup_groups_q(bank_id).all()]
+        gids = [g for (g,) in _unresolved_dup_groups_q(bank_id, col).all()]
     resolved = rejected = 0
     for gid in gids:
-        rows = (BankImage.query.filter_by(bank_id=bank_id, dup_group=gid)
+        rows = (BankImage.query.filter(BankImage.bank_id == bank_id, col == gid)
                 .filter(BankImage.status != 'reject')
                 .order_by(BankImage.id.asc()).all())
         if len(rows) < 2 and gid not in keep_by_group:
@@ -711,13 +893,22 @@ def resolve_dups(user_id, bank_id, strategy='best', group=None, keep_ids=None):
         for r in rows:
             if r.id in keep or r.status == 'keep':
                 continue
-            r.status, r.reject_reason = 'reject', 'duplicate'
+            r.status, r.reject_reason = 'reject', reason
             rejected += 1
             changed = True
         if changed or len(rows) >= 2:
             resolved += 1
     db.session.commit()
     return {'resolved': resolved, 'rejected': rejected}
+
+
+def resolve_semantic_dups(user_id, bank_id, strategy='best', group=None,
+                          keep_ids=None):
+    """resolve_dups for stage 2 (semantic_dup_group, reject reason
+    'semantic_dup')."""
+    return resolve_dups(user_id, bank_id, strategy=strategy, group=group,
+                        keep_ids=keep_ids, col=BankImage.semantic_dup_group,
+                        attr='semantic_dup_group', reason='semantic_dup')
 
 
 # --- statuses & flag application --------------------------------------------
@@ -1225,7 +1416,8 @@ def _caption_job(bank_id, ids, force):
 # ever touch the SURVIVORS — the costly work never pays for images we just
 # dropped (the deliberate cost/quality trade-off: duplicate "keep best" therefore
 # ranks on sharpness/size, not the aesthetic score that isn't computed yet).
-PIPELINE_STEPS = ('scan', 'auto_reject', 'score', 'watermark', 'faces', 'caption')
+PIPELINE_STEPS = ('scan', 'auto_reject', 'score', 'semantic_dedup', 'watermark',
+                  'faces', 'caption')
 # Auto-reject inside the pipeline runs right after the quality scan, so it can
 # only act on the CPU-scan flags (and duplicates). The score-derived flags
 # (low_aesthetic/nsfw/watermark) have no data yet at that point.
@@ -1296,6 +1488,10 @@ def _bank_counts(bank_id) -> dict:
                     .filter(BankImage.bank_id == bank_id,
                             BankImage.style_cluster.isnot(None))
                     .distinct().count())
+    semantic_groups = (db.session.query(BankImage.semantic_dup_group)
+                       .filter(BankImage.bank_id == bank_id,
+                               BankImage.semantic_dup_group.isnot(None))
+                       .distinct().count())
     person_groups = (db.session.query(BankImage.face_cluster)
                      .filter(BankImage.bank_id == bank_id,
                              BankImage.face_cluster.isnot(None))
@@ -1311,6 +1507,7 @@ def _bank_counts(bank_id) -> dict:
                                        BankImage.caption != '')).count(),
         'dup_groups': dup_groups,
         'style_groups': style_groups,
+        'semantic_groups': semantic_groups,
         'person_groups': person_groups,
     }
 
@@ -1439,6 +1636,19 @@ def _run_pipeline_step(job, user_id, bank_id, step, reject_flags, resolve_dups, 
         c = _bank_counts(bank_id)
         entry['counts'] = {'scored': c['scored'], 'style_groups': c['style_groups']}
         entry['detail'] = job.get('detail') or f"scored {c['scored']} image(s)"
+        return
+    if step == 'semantic_dedup':
+        # Runs right after Score, reusing its cached embeddings (no GPU). Groups
+        # crops/variants for review; resolution stays a UI action (keep best/first
+        # /manual) — near-dups are fuzzier than exact dHash, so the overnight run
+        # surfaces them rather than auto-rejecting. Skipped-with-reason (never a
+        # mute ✗) when Score produced no embeddings.
+        n = rebuild_semantic_dup_groups(bank_id)
+        if n is None:
+            entry['status'], entry['reason'] = 'skipped', 'run ✨ Score first — no embeddings'
+            return
+        entry['counts'] = {'semantic_groups': n}
+        entry['detail'] = f'{n} semantic near-duplicate group(s) to review'
         return
     if step == 'watermark':
         reason = _watermark_prereq() or _gpu_busy_reason()

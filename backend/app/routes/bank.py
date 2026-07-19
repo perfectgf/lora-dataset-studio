@@ -72,6 +72,7 @@ def bank_images(bank_id):
         status=args.get('status') or None,
         flag=args.get('flag') or None,
         cluster=_int('cluster'), group=_int('group'), style=_int('style'),
+        semantic_group=_int('semantic_group'),
         subfolder=subfolder if subfolder is not None else None,
         search=args.get('search') or None,
         offset=_int('offset') or 0, limit=_int('limit') or 200)
@@ -118,6 +119,22 @@ def bank_faces(bank_id):
 def bank_score(bank_id):
     """Aesthetic + NSFW + style scoring pass (bank-scoring extra). 202/409/503."""
     return _start(banks.start_score, _app(), LOCAL_USER, bank_id)
+
+
+@bp.post('/bank/<int:bank_id>/semantic-dedup')
+def bank_semantic_dedup(bank_id):
+    """Stage-2 semantic near-duplicate pass (crops/variants) over the ✨ Score
+    embeddings — CPU, no GPU. {threshold: 0.95} overrides the config for an ad-hoc
+    re-tri without a re-scan. 202/409; 400 with a "run Score first" hint when no
+    embeddings exist yet."""
+    data = request.get_json(silent=True) or {}
+    threshold = data.get('threshold')
+    try:
+        threshold = float(threshold) if threshold not in (None, '') else None
+    except (TypeError, ValueError):
+        threshold = None
+    return _start(banks.start_semantic_dedup, _app(), LOCAL_USER, bank_id,
+                  threshold=threshold)
 
 
 @bp.post('/bank/<int:bank_id>/watermark')
@@ -191,6 +208,35 @@ def bank_dups_resolve(bank_id):
         out = banks.resolve_dups(LOCAL_USER, bank_id, strategy=strategy,
                                  group=data.get('group'),
                                  keep_ids=data.get('keep_ids'))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, **out})
+
+
+@bp.get('/bank/<int:bank_id>/semantic-dup-groups')
+def bank_semantic_dup_groups(bank_id):
+    try:
+        offset = int(request.args.get('offset') or 0)
+        limit = int(request.args.get('limit') or 50)
+    except ValueError:
+        offset, limit = 0, 50
+    payload = banks.semantic_dup_groups_payload(LOCAL_USER, bank_id,
+                                                offset=offset, limit=limit)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
+
+
+@bp.post('/bank/<int:bank_id>/semantic-dups/resolve')
+def bank_semantic_dups_resolve(bank_id):
+    data = request.get_json(silent=True) or {}
+    strategy = data.get('strategy') or 'best'
+    if strategy not in ('best', 'first'):
+        return jsonify({'error': 'strategy must be best or first'}), 400
+    try:
+        out = banks.resolve_semantic_dups(LOCAL_USER, bank_id, strategy=strategy,
+                                          group=data.get('group'),
+                                          keep_ids=data.get('keep_ids'))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, **out})

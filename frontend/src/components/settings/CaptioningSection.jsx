@@ -193,6 +193,16 @@ export default function CaptioningSection({ config, setField }) {
               className={INPUT_CLASS} />
             <p className="mt-0.5 text-xs text-content-muted">Cosine similarity for the 🎨 style clustering. Applies at the next scoring pass.</p>
           </div>
+          <div>
+            <label htmlFor="bank-semantic-dup-threshold" className="block text-sm font-medium text-content">
+              Semantic duplicate similarity
+            </label>
+            <input id="bank-semantic-dup-threshold" type="number" min="0" max="1" step="0.01"
+              value={config.bank?.semantic_dup_threshold ?? 0.96}
+              onChange={(e) => setField('bank', 'semantic_dup_threshold', parseFloat(e.target.value) || 0)}
+              className={INPUT_CLASS} />
+            <p className="mt-0.5 text-xs text-content-muted">Cosine similarity at or above which two scored images are a ✂ semantic near-duplicate (crop/variant of the same shot). Re-runs instantly from cached embeddings — no re-scan.</p>
+          </div>
         </div>
       </Card>
     </div>

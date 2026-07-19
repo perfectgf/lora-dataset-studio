@@ -203,8 +203,16 @@ class BankImage(db.Model):
     uniformity_score = db.Column(Float, nullable=True)   # grayscale std (low = flat)
     dhash = db.Column(String(16), nullable=True)         # 64-bit hex, same dHash as imports
     # Duplicate group id (bank-local, rebuilt at the end of every quality scan).
-    # NULL = no near-duplicate found.
+    # NULL = no near-duplicate found. This is the EXACT/resized dedup (stage 1):
+    # same 64-bit dHash family (Hamming <= dup_distance).
     dup_group = db.Column(Integer, nullable=True, index=True)
+    # Semantic near-duplicate group id (stage 2 — "same shot, different crop"):
+    # cosine of the CLIP embeddings the ✨ Score pass cached >= semantic_dup_threshold.
+    # Catches crops / re-compressed variants a dHash misses. Assigned by the
+    # semantic-dedup pass over the scored images; NULL = no semantic near-dup /
+    # the pass hasn't run. Distinct column from dup_group so the two stages
+    # co-exist (an image can belong to both).
+    semantic_dup_group = db.Column(Integer, nullable=True, index=True)
     # Subject pass (InsightFace subprocess). face_state mirrors the dataset
     # vocabulary (scorable|no_face|low_det|too_small|extreme_pose|unreadable|error);
     # face_cluster is a bank-local person-cluster id (1 = biggest cluster),

@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-bank-semantic-dedup',
+    date: '2026-07-19',
+    title: '✂ Catch the same shot in a dozen crops',
+    blurb:
+      "The Image bank already grouped exact and resized copies with a perceptual hash. Now a second pass catches what that misses: the same photo re-cropped, re-compressed or lightly re-touched — the “same shot, different crop” that fills a Telegram export. After you run ✨ Score, hit ✂ Find crops & variants (it reuses Score's embeddings, so it costs no extra GPU time) and the near-duplicate variants group up under their own ✂ chip, with the same keep-best / keep-first / pick-one resolution you already know — losers are rejected, never deleted. It also rides along in 🚀 Launch all, right after Score. Tune how close counts as a match in Settings ▸ Captioning & quality; re-running re-sorts instantly from the cached embeddings.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-19-runs-lineage-tree',
     date: '2026-07-19',
     title: '🌳 See how your runs descend from each other — down to every checkpoint',

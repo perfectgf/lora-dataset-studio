@@ -4,11 +4,37 @@ import { useToast } from '../common/Toast'
 
 const GROUPS_PAGE = 25
 
+// Two stages share this panel — exact/resized copies (dHash, stage 1) and
+// semantic near-duplicates (crops/variants of the same shot, stage 2). They
+// differ only in the endpoints and the wording; the resolution UX is identical.
+const KINDS = {
+  exact: {
+    groupsPath: 'dup-groups',
+    resolvePath: 'dups/resolve',
+    header: (n) => `≈ ${n} unresolved group${n > 1 ? 's' : ''}`,
+    lead: 'Losers are rejected, never deleted — undo any of it from the ✕ Rejected filter.',
+    cardHint: 'exact or resized copy — click the one to KEEP',
+    empty: 'No unresolved duplicate group — either the bank is clean, or every group has been resolved. (Groups appear after a 🔎 quality scan.)',
+    pagesLabel: 'Duplicate group pages',
+  },
+  semantic: {
+    groupsPath: 'semantic-dup-groups',
+    resolvePath: 'semantic-dups/resolve',
+    header: (n) => `✂ ${n} “same shot” group${n > 1 ? 's' : ''}`,
+    lead: 'Same shot, different crop/compression — the dHash never linked these. Losers are rejected (reversible), never deleted.',
+    cardHint: 'same shot, different crop — click the one to KEEP',
+    empty: 'No unresolved semantic near-duplicate group. (Groups appear after ✨ Score, then ✂ Find crops & variants.)',
+    pagesLabel: 'Semantic duplicate group pages',
+  },
+}
+
 /** Near-duplicate resolution: one card per unresolved group. "Keep best"
- * keeps the highest-resolution/sharpest member, "Keep first" the oldest by
- * import order; clicking a member keeps THAT one. Losers are rejected (a
- * reversible status) — nothing is ever deleted from disk. */
-export default function DupGroupsPanel({ bankId, live, onChanged }) {
+ * keeps the highest-resolution/sharpest (or best-scored) member, "Keep first"
+ * the oldest by import order; clicking a member keeps THAT one. Losers are
+ * rejected (a reversible status) — nothing is ever deleted from disk. ``kind``
+ * selects stage 1 (exact/resized) or stage 2 (semantic crops/variants). */
+export default function DupGroupsPanel({ bankId, live, onChanged, kind = 'exact' }) {
+  const k = KINDS[kind] || KINDS.exact
   const toast = useToast()
   const [data, setData] = useState(null)
   const [offset, setOffset] = useState(0)
@@ -16,21 +42,21 @@ export default function DupGroupsPanel({ bankId, live, onChanged }) {
 
   const refresh = useCallback(async (off = offset) => {
     try {
-      const d = await apiFetch(`/api/bank/${bankId}/dup-groups?offset=${off}&limit=${GROUPS_PAGE}`)
+      const d = await apiFetch(`/api/bank/${bankId}/${k.groupsPath}?offset=${off}&limit=${GROUPS_PAGE}`)
       setData(d); setOffset(off)
     } catch (e) {
       toast.error(e?.message || 'Could not load the duplicate groups.')
     }
-  }, [bankId, offset, toast])
+  }, [bankId, offset, toast, k.groupsPath])
 
   useEffect(() => { refresh(0) // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bankId])
+  }, [bankId, kind])
 
   const resolve = async (body, okMsg) => {
     if (busy) return
     setBusy(true)
     try {
-      const d = await postJson(`/api/bank/${bankId}/dups/resolve`, body)
+      const d = await postJson(`/api/bank/${bankId}/${k.resolvePath}`, body)
       toast.success(okMsg || `Resolved ${d.resolved} group(s) — ${d.rejected} duplicate(s) rejected.`)
       await refresh(0)
       onChanged?.()
@@ -43,27 +69,18 @@ export default function DupGroupsPanel({ bankId, live, onChanged }) {
 
   if (data == null) return <p className="text-sm text-content-muted">Loading duplicate groups…</p>
   if (data.total === 0) {
-    return (
-      <p className="text-sm text-content-muted">
-        No unresolved duplicate group — either the bank is clean, or every group has been resolved.
-        (Groups appear after a 🔎 quality scan.)
-      </p>
-    )
+    return <p className="text-sm text-content-muted">{k.empty}</p>
   }
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-        <span className="text-sm font-semibold text-content">
-          ≈ {data.total} unresolved group{data.total > 1 ? 's' : ''}
-        </span>
-        <span className="text-xs text-content-subtle">
-          Losers are rejected, never deleted — undo any of it from the ✕ Rejected filter.
-        </span>
+        <span className="text-sm font-semibold text-content">{k.header(data.total)}</span>
+        <span className="text-xs text-content-subtle">{k.lead}</span>
         <span className="ml-auto" />
         <button type="button" disabled={busy || live}
           onClick={() => resolve({ strategy: 'best' })}
-          title="In every group: keep the highest-resolution (then sharpest) member, reject the rest"
+          title="In every group: keep the best (aesthetic score, then resolution/sharpness) member, reject the rest"
           className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
           Resolve ALL — keep best
         </button>
@@ -80,7 +97,7 @@ export default function DupGroupsPanel({ bankId, live, onChanged }) {
           <li key={g.group} className="rounded-lg border border-border bg-surface p-3">
             <div className="mb-2 flex items-center gap-2 text-xs text-content-muted">
               <span className="font-semibold text-content">Group #{g.group}</span>
-              <span>{g.images.length} images — click the one to KEEP</span>
+              <span>{g.images.length} images — {k.cardHint}</span>
               <span className="ml-auto" />
               <button type="button" disabled={busy || live}
                 onClick={() => resolve({ strategy: 'best', group: g.group })}
@@ -119,7 +136,7 @@ export default function DupGroupsPanel({ bankId, live, onChanged }) {
       </ul>
 
       {data.total > GROUPS_PAGE && (
-        <nav className="flex items-center gap-3 text-sm" aria-label="Duplicate group pages">
+        <nav className="flex items-center gap-3 text-sm" aria-label={k.pagesLabel}>
           <button type="button" disabled={offset === 0}
             onClick={() => refresh(Math.max(0, offset - GROUPS_PAGE))}
             className="rounded-md border border-border px-2 py-1 text-content disabled:opacity-40">← Prev</button>

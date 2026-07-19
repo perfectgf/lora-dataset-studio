@@ -174,6 +174,7 @@ const TOPICS = [
       'telegram', 'duplicates', 'blurry', 'quality', 'cluster', 'person', 'sort',
       'promote', 'unsorted',
       'aesthetic', 'score', 'nsfw', 'watermark', 'style', 'subfolder', 'keep best',
+      'semantic', 'near-duplicate', 'crop', 'crops', 'variant', 'same shot',
       'caption', 'captions', 'search', 'find', 'tag', 'tags', 'describe',
       'launch all', 'pipeline', 'auto-reject', 'overnight', 'run everything',
       'one click', 'batch', 'chain'],
@@ -270,6 +271,9 @@ const TOPICS = [
     ['bank', 'triage', 'nsfw', 'sfw', 'explicit', 'safe', 'threshold']),
   setting('bank.style_threshold', 'captioning', 'bank-style-threshold', 'Bank — same-style similarity',
     ['bank', 'triage', 'style', 'cluster', 'group by style', 'screenshot', 'meme', 'threshold']),
+  setting('bank.semantic_dup_threshold', 'captioning', 'bank-semantic-dup-threshold', 'Bank — semantic duplicate similarity',
+    ['bank', 'triage', 'semantic', 'duplicate', 'near-duplicate', 'crop', 'crops', 'variant',
+     'same shot', 'embedding', 'clip', 'cosine', 'threshold']),
   // training
   setting('training.default_family', 'training', 'training-default-family', 'Default training family',
     ['training', 'family', 'default', 'zimage', 'sdxl', 'krea', 'flux']),

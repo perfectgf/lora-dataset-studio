@@ -42,7 +42,8 @@ async function fetchAllIds(bankId, params) {
 
 const STEP_SHORT = {
   scan: '🔎 Scan', auto_reject: '🧹 Auto-reject', score: '✨ Score',
-  watermark: '🚩 Watermarks', faces: '👥 Person', caption: '🏷️ Caption',
+  semantic_dedup: '✂ Crops', watermark: '🚩 Watermarks', faces: '👥 Person',
+  caption: '🏷️ Caption',
 }
 
 function ProgressBar({ activity, onCancel }) {
@@ -58,7 +59,8 @@ function ProgressBar({ activity, onCancel }) {
           {pipe
             ? `🚀 Launch all — step ${(pipe.index ?? 0) + 1}/${pipe.total_steps} · ${STEP_SHORT[pipe.current] || pipe.current}`
             : ({ scan: 'Quality scan', faces: 'Face pass', score: 'Scoring pass',
-              watermark: 'Watermark scan', caption: 'Captioning', promote: 'Promotion' }[kind] || 'Job') + ' running'}
+              semantic_dedup: 'Crops & variants', watermark: 'Watermark scan',
+              caption: 'Captioning', promote: 'Promotion' }[kind] || 'Job') + ' running'}
           {' — '}{done}{total ? ` / ${total}` : ''}{detail ? ` · ${detail}` : ''}
         </span>
         {pct != null && (
@@ -113,6 +115,7 @@ function Tile({ img, bankId, selected, onToggle, size }) {
           + (img.nsfw_score != null ? ` · NSFW ${Math.round(img.nsfw_score * 100)}%` : '')
           + (img.face_cluster ? ` · person #${img.face_cluster}` : '')
           + (img.style_cluster ? ` · style #${img.style_cluster}` : '')
+          + (img.semantic_dup_group ? ` · same shot #${img.semantic_dup_group}` : '')
           + (img.caption ? `\n${img.caption}` : '')}
         className="block w-full">
         <img src={`/api/bank/${bankId}/thumb/${img.id}`} alt={img.name} loading="lazy"
@@ -129,6 +132,7 @@ function Tile({ img, bankId, selected, onToggle, size }) {
         {img.face_cluster != null && badge(`👤${img.face_cluster}`, 'bg-black/60 text-sky-200')}
         {img.style_cluster != null && badge(`🎨${img.style_cluster}`, 'bg-black/60 text-fuchsia-200')}
         {img.dup_group != null && badge(`≈${img.dup_group}`, 'bg-black/60 text-fuchsia-200')}
+        {img.semantic_dup_group != null && badge(`✂${img.semantic_dup_group}`, 'bg-black/60 text-orange-200')}
         {img.caption && badge('🏷️', 'bg-black/60 text-emerald-200')}
       </span>
       <a href={`/api/bank/${bankId}/file/${img.id}`} target="_blank" rel="noreferrer"
@@ -246,6 +250,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     () => postJson(`/api/bank/${bankId}/scan`, { rescan: !!rescan }), null)
   const startFaces = () => act(() => postJson(`/api/bank/${bankId}/faces`, {}), null)
   const startScore = () => act(() => postJson(`/api/bank/${bankId}/score`, {}), null)
+  const startSemanticDedup = () => act(
+    () => postJson(`/api/bank/${bankId}/semantic-dedup`, {}), null)
   const startWatermark = () => act(() => postJson(`/api/bank/${bankId}/watermark`, {}), null)
   const startCaption = () => act(
     () => postJson(`/api/bank/${bankId}/caption`,
@@ -377,6 +383,13 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             : 'Caption every not-yet-captioned image (skips rejected) with your caption engine. Captions become searchable tags and follow the images when you promote them to a dataset. Select images first to caption just those.'}
           className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
           🏷️ Caption{selected.size ? ` ${selected.size} selected` : ' all'}
+        </button>
+        <button type="button" onClick={startSemanticDedup} disabled={live || scored === 0}
+          title={scored > 0
+            ? 'Group crops and re-compressed variants of the SAME shot the exact-duplicate hash misses — reuses the ✨ Score embeddings, so it costs no extra GPU time. Review them under the ✂ Same shot chip.'
+            : 'Run ✨ Score first — semantic near-duplicates reuse its embeddings'}
+          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
+          ✂ Find crops &amp; variants{scored === 0 && ' (needs Score)'}
         </button>
         <div className="relative">
           <button type="button" onClick={() => setShowAutoReject((v) => !v)} disabled={live}
@@ -530,9 +543,16 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           </Chip>
         ))}
         <Chip active={filter.flag === 'dups'} onClick={() => setF({ flag: filter.flag === 'dups' ? null : 'dups', cluster: null })}
-          title="Near-duplicate groups with their resolution panel">
+          title="Exact / resized duplicate groups (perceptual hash) with their resolution panel">
           ≈ Duplicates {payload?.dup?.unresolved ?? 0}
         </Chip>
+        {(payload?.semantic_dup?.groups ?? 0) > 0 && (
+          <Chip active={filter.flag === 'semantic_dups'}
+            onClick={() => setF({ flag: filter.flag === 'semantic_dups' ? null : 'semantic_dups', cluster: null })}
+            title="Semantic near-duplicates — same shot, different crop/compression — with their resolution panel">
+            ✂ Same shot {payload?.semantic_dup?.unresolved ?? 0}
+          </Chip>
+        )}
         {payload?.faces_scanned > 0 && (
           <Chip active={filter.flag === 'no_face'} onClick={() => setF({ flag: filter.flag === 'no_face' ? null : 'no_face' })}>
             🚫👤 No face
@@ -567,7 +587,10 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       </div>
 
       {filter.flag === 'dups' ? (
-        <DupGroupsPanel bankId={bankId} live={live}
+        <DupGroupsPanel bankId={bankId} live={live} kind="exact"
+          onChanged={() => { refreshPayload(); refreshImages() }} />
+      ) : filter.flag === 'semantic_dups' ? (
+        <DupGroupsPanel bankId={bankId} live={live} kind="semantic"
           onChanged={() => { refreshPayload(); refreshImages() }} />
       ) : (
         <>

@@ -74,13 +74,18 @@ def test_pipeline_runs_every_step_in_canonical_order(client, tmp_path, monkeypat
     monkeypatch.setattr(svc, '_watermark_job', _fake_pass(log, 'watermark'))
     monkeypatch.setattr(svc, '_faces_job', _fake_pass(log, 'faces'))
     monkeypatch.setattr(svc, '_caption_job', _fake_pass(log, 'caption'))
+    # semantic_dedup reads the ✨ Score embedding cache (mocked away here) — stand
+    # it in so the step runs to 'done' like the other mocked passes.
+    monkeypatch.setattr(svc, 'rebuild_semantic_dup_groups',
+                        lambda *_a, **_k: (log.append(('semantic_dedup', 0)) or 0))
 
     bank_id, _src = _mkbank(client, tmp_path, {'a.jpg': _photo(), 'b.jpg': _flat()})
     r = client.post(f'/api/bank/{bank_id}/pipeline', json={
         'steps': list(svc.PIPELINE_STEPS), 'reject_flags': [], 'resolve_dups': False})
     assert r.status_code == 202, r.get_json()
 
-    assert [name for name, _ in log] == ['score', 'watermark', 'faces', 'caption']
+    assert [name for name, _ in log] == ['score', 'semantic_dedup', 'watermark',
+                                         'faces', 'caption']
     report = _report(client, bank_id)
     assert report is not None
     assert [s['step'] for s in report['steps']] == list(svc.PIPELINE_STEPS)

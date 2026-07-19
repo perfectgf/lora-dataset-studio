@@ -48,7 +48,22 @@ def _log(m):
     print(m, file=sys.stderr, flush=True)
 
 
+def _file_sig(path):
+    """A cheap identity signature for a file — size + mtime (ns). A cached entry
+    whose signature no longer matches the file on disk is STALE (the image was
+    edited/replaced at the same path) and must be re-scored, so a stale embedding
+    never lingers behind a semantic near-duplicate group. '' when the file is
+    unreachable (leaves the entry as-is rather than churning it every run)."""
+    try:
+        st = os.stat(path)
+        return f'{st.st_size}:{st.st_mtime_ns}'
+    except OSError:
+        return ''
+
+
 # --- caching (parallel-array .npz, same idea as the face cache) ----------------
+# Cache tuple: (state, aesthetic|None, nsfw|None, emb, sig). ``sig`` is the file
+# signature at scoring time (see _file_sig) — used to invalidate a changed image.
 def _load_cache(path):
     import numpy as np
     out = {}
@@ -58,17 +73,36 @@ def _load_cache(path):
         with np.load(path, allow_pickle=False) as z:
             paths, states = z['paths'], z['states']
             aes, nsfw, embs = z['aes'], z['nsfw'], z['embs']
+            # 'sigs' is additive — a cache written before signatures shipped has
+            # none, so those entries carry an empty sig (never treated as stale).
+            sigs = z['sigs'] if 'sigs' in z.files else [''] * len(paths)
         for i, p in enumerate(paths):
             a = float(aes[i])
             n = float(nsfw[i])
             out[str(p)] = (str(states[i]),
                            None if a != a else a,      # NaN sentinel = "not scored"
                            None if n != n else n,
-                           embs[i])
+                           embs[i], str(sigs[i]))
     except Exception as e:  # noqa: BLE001 — a corrupt cache = recompute, never fatal
         _log(f'[score] cache unreadable, recomputing: {e}')
         return {}
     return out
+
+
+def _cache_sig(entry):
+    """The signature of a cache tuple, tolerant of a legacy 4-tuple (no sig)."""
+    return entry[4] if len(entry) > 4 else ''
+
+
+def _is_stale(path, entry):
+    """True when the file at ``path`` differs from what the cache recorded — a
+    same-path edit. An empty stored/current sig (unreadable then or now) is never
+    called stale, so we never thrash a file we cannot stat."""
+    stored = _cache_sig(entry)
+    if not stored:
+        return False
+    current = _file_sig(path)
+    return bool(current) and current != stored
 
 
 def _save_cache(path, cache):
@@ -86,7 +120,8 @@ def _save_cache(path, cache):
                      dtype='float32'),
         nsfw=np.array([nan if cache[p][2] is None else cache[p][2] for p in paths],
                       dtype='float32'),
-        embs=np.stack([cache[p][3] for p in paths]).astype('float32'))
+        embs=np.stack([cache[p][3] for p in paths]).astype('float32'),
+        sigs=np.array([_cache_sig(cache[p]) for p in paths]))
     os.replace(tmp, path)
 
 
@@ -227,7 +262,9 @@ def main() -> int:
     style_threshold = float(req.get('style_threshold') or 0.6)
 
     cache = _load_cache(cache_path)
-    todo = [p for p in images if p not in cache]
+    # Re-score anything not cached OR whose file changed on disk since (a same-path
+    # edit invalidates the stale embedding/scores).
+    todo = [p for p in images if p not in cache or _is_stale(p, cache[p])]
     _log(f'[score] {len(images)} image(s), {len(images) - len(todo)} cached')
 
     if todo:
@@ -273,9 +310,9 @@ def main() -> int:
                             logits = model(**inp).logits
                             probs = torch.softmax(logits, dim=-1)[0]
                             nsfw = round(float(probs[nsfw_idx].item()), 4)
-                    cache[p] = ('ok', aesthetic, nsfw, emb_np)
+                    cache[p] = ('ok', aesthetic, nsfw, emb_np, _file_sig(p))
             except Exception as e:  # noqa: BLE001 — one broken file never sinks the pass
-                cache[p] = ('error', None, None, zero)
+                cache[p] = ('error', None, None, zero, _file_sig(p))
                 _log(f'[score] {i}/{len(todo)} ERROR {e}')
                 continue
             finally:
@@ -289,7 +326,8 @@ def main() -> int:
 
     results = {}
     for p in images:
-        state, aesthetic, nsfw, _emb = cache.get(p) or ('error', None, None, None)
+        entry = cache.get(p) or ('error', None, None, None, '')
+        state, aesthetic, nsfw = entry[0], entry[1], entry[2]
         entry = {'state': str(state)}
         if aesthetic is not None:
             entry['aesthetic'] = float(aesthetic)

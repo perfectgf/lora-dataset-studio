@@ -25,6 +25,9 @@ export default function LaunchAllDialog({ caps, visionReady, onClose, onLaunch }
     scan: true,
     auto_reject: true,
     score: !!caps?.bank_scoring,
+    // Stage 2 reuses Score's embeddings — ready exactly when Score is (and it's
+    // skipped at run time if Score didn't actually produce any).
+    semantic_dedup: !!caps?.bank_scoring,
     watermark: !!visionReady,
     faces: !!caps?.face_scoring,
     caption: !!visionReady,
@@ -37,6 +40,8 @@ export default function LaunchAllDialog({ caps, visionReady, onClose, onLaunch }
       desc: 'Reject the images carrying the flags below — reversible, nothing deleted.' },
     { key: 'score', label: '✨ Score', needs: 'Bank scoring extra',
       desc: 'Aesthetic 1–10, NSFW, style groups (GPU).' },
+    { key: 'semantic_dedup', label: '✂ Find crops & variants', needs: 'Bank scoring extra',
+      desc: 'Group crops/variants of the same shot from Score’s embeddings — no extra GPU (needs Score first).' },
     { key: 'watermark', label: '🚩 Find watermarks', needs: 'Vision model',
       desc: 'Detect overlaid watermarks/logos with the Qwen3-VL detector (GPU).' },
     { key: 'faces', label: '👥 Group by person', needs: 'Quality tools',
@@ -46,7 +51,8 @@ export default function LaunchAllDialog({ caps, visionReady, onClose, onLaunch }
   ]
 
   const [steps, setSteps] = useState(() => new Set(
-    ['scan', 'auto_reject', 'score', 'watermark', 'faces'].filter((k) => ready[k])))
+    ['scan', 'auto_reject', 'score', 'semantic_dedup', 'watermark', 'faces']
+      .filter((k) => ready[k])))
   const [rejectFlags, setRejectFlags] = useState(() => new Set(['blur', 'uniform']))
   const [resolveDups, setResolveDups] = useState(true)
 
