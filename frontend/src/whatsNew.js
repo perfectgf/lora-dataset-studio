@@ -58,6 +58,14 @@ export const WHATS_NEW = [
     to: '/datasets?section=checkpoints',
   },
   {
+    id: '2026-07-19-continue-lr-factor',
+    date: '2026-07-19',
+    title: 'Finish a run gentler with a lower learning rate',
+    blurb:
+      "The ▶ Continue training dialog gains one more safe knob under “Adjust settings”: the learning rate. Resume the epoch that held up best, then finish at half (polish) or a tenth (gentle finish) of the current rate — a smaller rate polishes fine texture without moving the identity, the learning-rate pendant of the low-noise timestep recipe. The values are factors of this run's rate, and the dialog shows the resulting number (a 1e-4 run → 5e-5 or 1e-5). Works for local and cloud runs; hidden for Prodigy, which adapts its own rate.",
+    to: '/cloud',
+  },
+  {
     id: '2026-07-19-bank-semantic-dedup',
     date: '2026-07-19',
     title: '✂ Catch the same shot in a dozen crops',

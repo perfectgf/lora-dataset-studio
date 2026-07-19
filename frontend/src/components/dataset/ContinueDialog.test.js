@@ -45,6 +45,27 @@ test('the continue hook forwards from_step and overrides only when present', () 
   assert.match(hook, /opts\.overrides\s*\?\s*\{\s*overrides:\s*opts\.overrides\s*\}/);
 });
 
+test('the dialog offers the LR factor knob and sends it only as a real reduction', () => {
+  // a factor selector in the safe-overrides section, with its resulting-value hint
+  assert.match(dialog, /LR_FACTOR_CHOICES/);
+  assert.match(dialog, /half \(polish\)/);
+  assert.match(dialog, /tenth \(gentle finish\)/);
+  assert.match(dialog, /aria-label="Learning rate for the continuation"/);
+  // keep-current (1) and adaptive (Prodigy) runs never send lr_factor
+  assert.match(dialog, /lrFactor\s*!==\s*1\s*&&\s*!isAdaptiveLR\).*overrides\.lr_factor\s*=\s*lrFactor/s);
+  // Prodigy disables the control with a reason rather than hiding it silently
+  assert.match(dialog, /isAdaptiveLR\s*=\s*String\(settings\.optimizer\s*\|\|\s*''\)\.startsWith\('prodigy'\)/);
+  assert.match(dialog, /disabled=\{isAdaptiveLR\}/);
+  // the hint shows the resulting rate (→ 5e-5) computed from the run's current LR
+  assert.match(dialog, /fmtLR\(currentLR\s*\*\s*lrFactor\)/);
+});
+
+test('both hubs feed the dialog the run optimizer + current LR for the hint', () => {
+  assert.match(panel, /optimizer:\s*adv\?\.optimizer,\s*learning_rate:\s*adv\?\.learning_rate/);
+  assert.match(cloud, /optimizer:\s*continueRunTarget\.settings\?\.optimizer/);
+  assert.match(cloud, /learning_rate:\s*continueRunTarget\.settings\?\.lr/);
+});
+
 test('the dialog can open on a specific checkpoint (◉ Graph "continue from here")', () => {
   // opt-in prop, defaulting to the newest when the step is not a real save
   assert.match(dialog, /initialFromStep\s*=\s*null/);

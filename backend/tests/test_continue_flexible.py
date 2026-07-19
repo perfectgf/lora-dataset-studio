@@ -337,3 +337,143 @@ def test_cloud_continue_from_missing_step_is_rejected(ct, app, seeded_dataset,
         src = _seed_done_run(ct, seeded_dataset, staging)
         with pytest.raises(ValueError, match='no harvested checkpoint at step 700'):
             ct.continue_cloud_run('local', src.id, from_step=700)
+
+
+# --- LR factor: scale the continuation's learning rate (½ polish / ⅒ finish) -----
+
+def test_resolve_resume_lr_rules():
+    from app.services import lora_training as lt
+    assert lt.resolve_resume_lr({}, None) is None            # keep current
+    assert lt.resolve_resume_lr({}, 1) is None
+    # factors scale the family-fixed 1e-4 default of a non-adaptive run
+    assert lt.resolve_resume_lr({}, 0.5) == pytest.approx(5e-5)
+    assert lt.resolve_resume_lr({}, 0.1) == pytest.approx(1e-5)
+    # an explicit stored learning_rate is the base a further continue scales
+    assert lt.resolve_resume_lr({'learning_rate': 5e-5}, 0.5) == pytest.approx(2.5e-5)
+    with pytest.raises(ValueError, match='lr_factor must be one of'):
+        lt.resolve_resume_lr({}, 0.25)
+    # Prodigy adapts the LR itself → the factor is refused, not silently swallowed
+    with pytest.raises(ValueError, match='Prodigy'):
+        lt.resolve_resume_lr({'optimizer': 'prodigy'}, 0.5)
+
+
+def test_validate_resume_overrides_lr_factor():
+    from app.services import lora_training as lt
+    assert lt.validate_resume_overrides({'lr_factor': 0.5}) == {'lr_factor': 0.5}
+    assert lt.validate_resume_overrides({'lr_factor': 0.1}) == {'lr_factor': 0.1}
+    # keep-current (1) is a no-op: dropped so nothing redundant persists
+    assert lt.validate_resume_overrides({'lr_factor': 1}) == {}
+    with pytest.raises(ValueError, match='lr_factor must be one of'):
+        lt.validate_resume_overrides({'lr_factor': 0.75})
+
+
+def test_continue_lr_factor_half_reduces_effective_lr(app, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'LR half', 'lrhalf')
+        monkeypatch.setattr(lt, 'assert_trainable', lambda *a, **k: None)
+        monkeypatch.setattr(lt, 'list_checkpoints',
+                            lambda *a, **k: [{'step': 1000, 'filename': 'b.safetensors'}])
+        monkeypatch.setattr(lt, 'launch_training', lambda *a, **k: {'started': True})
+
+        lt.continue_training(LOCAL_USER, ds.id, extra_steps=500,
+                             overrides={'lr_factor': 0.5})
+
+        eff = lt.effective_train_settings(svc.get_dataset(LOCAL_USER, ds.id))
+    # 1e-4 run → 5e-5, exposed as the effective LR the Continue dialog reads back.
+    assert eff['learning_rate'] == pytest.approx(5e-5)
+
+
+def test_continue_keep_current_lr_leaves_default(app, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'LR keep', 'lrkeep')
+        monkeypatch.setattr(lt, 'assert_trainable', lambda *a, **k: None)
+        monkeypatch.setattr(lt, 'list_checkpoints',
+                            lambda *a, **k: [{'step': 1000, 'filename': 'b.safetensors'}])
+        monkeypatch.setattr(lt, 'launch_training', lambda *a, **k: {'started': True})
+
+        lt.continue_training(LOCAL_USER, ds.id, extra_steps=500)   # no lr_factor
+
+        after = svc.get_dataset(LOCAL_USER, ds.id)
+        assert lt.effective_train_settings(after)['learning_rate'] == pytest.approx(1e-4)
+        # no learning_rate persisted → the dataset stays byte-identical to a default
+        assert 'learning_rate' not in (lt._train_settings(after))
+
+
+def test_continue_lr_factor_emitted_in_job_config(app, tmp_path, monkeypatch):
+    """The reduced LR reaches the ACTUAL ai-toolkit job config (and thus the run's
+    provenance snapshot), not just the stored settings."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _stub_launch(monkeypatch, tmp_path, app)
+    with app.app_context():
+        ds, run_dir, trig = _seed_run(lt, svc, LOCAL_USER, 'LR cfg', 'lrcfg', [1000])
+        res = lt.continue_training(LOCAL_USER, ds.id, extra_steps=200,
+                                   overrides={'lr_factor': 0.1})
+        with open(res['config_path'], encoding='utf-8') as fh:
+            cfg = json.load(fh)
+        assert cfg['config']['process'][0]['train']['lr'] == pytest.approx(1e-5)
+        # provenance/⎘ Share-config snapshot records the effective LR too
+        assert lt.launch_settings_snapshot(
+            svc.get_dataset(LOCAL_USER, ds.id))['lr'] == pytest.approx(1e-5)
+
+
+def test_continue_lr_factor_refused_on_prodigy_no_side_effect(app, monkeypatch):
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'LR prodigy', 'lrprodigy')
+        ds.train_settings = json.dumps({'optimizer': 'prodigy'})
+        svc.db.session.commit()
+        launched = []
+        monkeypatch.setattr(lt, 'assert_trainable', lambda *a, **k: None)
+        monkeypatch.setattr(lt, 'list_checkpoints',
+                            lambda *a, **k: [{'step': 1000, 'filename': 'b.safetensors'}])
+        monkeypatch.setattr(lt, 'launch_training',
+                            lambda *a, **k: launched.append(k) or {'started': True})
+
+        with pytest.raises(ValueError, match='Prodigy'):
+            lt.continue_training(LOCAL_USER, ds.id, overrides={'lr_factor': 0.5})
+        # refused BEFORE launch, and no learning_rate leaked into the settings
+        assert launched == []
+        assert 'learning_rate' not in lt._train_settings(
+            svc.get_dataset(LOCAL_USER, ds.id))
+
+
+def test_cloud_continue_lr_factor_folds_learning_rate_into_snapshot(
+        ct, app, seeded_dataset, monkeypatch, tmp_path):
+    staging = tmp_path / 'run_src'
+    staging.mkdir()
+    with app.app_context():
+        src = _seed_done_run(ct, seeded_dataset, staging)
+        captured = {}
+        monkeypatch.setattr(ct, 'launch_cloud_training',
+                            lambda user_id, dataset_id, **kw:
+                            (captured.update(**kw), {'ok': True})[1])
+        ct.continue_cloud_run('local', src.id, extra_steps=500,
+                              overrides={'lr_factor': 0.5})
+    merged = json.loads(captured['train_settings_snapshot'])
+    # a default (1e-4) cloud run continues at 5e-5, carried in the per-run snapshot
+    assert merged['learning_rate'] == pytest.approx(5e-5)
+
+
+def test_cloud_continue_lr_factor_refused_on_prodigy(ct, app, seeded_dataset,
+                                                     monkeypatch, tmp_path):
+    staging = tmp_path / 'run_src'
+    staging.mkdir()
+    with app.app_context():
+        src = _seed_done_run(ct, seeded_dataset, staging,
+                             train_settings_snapshot=json.dumps({'optimizer': 'prodigy'}))
+        launched = []
+        monkeypatch.setattr(ct, 'launch_cloud_training',
+                            lambda *a, **k: launched.append(k))
+        with pytest.raises(ValueError, match='Prodigy'):
+            ct.continue_cloud_run('local', src.id, overrides={'lr_factor': 0.5})
+        assert launched == []

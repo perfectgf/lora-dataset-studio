@@ -439,6 +439,20 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000, from_step=None,
     except (TypeError, ValueError):
         extra = 1000
     snapshot = p.get(_TRAIN_SETTINGS_SNAPSHOT, _UNSET)
+    # Resolve the LR factor against the SOURCE run's frozen settings (never the live
+    # dataset): a 1e-4 run continues at 5e-5 / 1e-5. Refused loudly on a Prodigy run
+    # before any launch. The resulting learning_rate merges into the per-run snapshot
+    # exactly like cadence/timestep — the pod's _lr_eff then reads it.
+    lr_factor = override_patch.pop('lr_factor', None)
+    if lr_factor is not None:
+        run_settings = {}
+        if snapshot not in (_UNSET, None):
+            try:
+                parsed = json.loads(snapshot)
+                run_settings = parsed if isinstance(parsed, dict) else {}
+            except (ValueError, TypeError):
+                run_settings = {}
+        override_patch['learning_rate'] = lt.resolve_resume_lr(run_settings, lr_factor)
     if override_patch:
         snapshot = _merge_resume_overrides(snapshot, override_patch)
     # Lineage: the parent is the provenance record of the cloud run being

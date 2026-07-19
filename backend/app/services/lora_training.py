@@ -889,9 +889,46 @@ def _optimizer_eff(ds) -> str:
     return o if o in _OPTIMIZER_CHOICES else 'adamw8bit'
 
 
+_DEFAULT_LR = 1e-4                         # base LR for every non-adaptive optimizer
+_RESUME_LR_FACTORS = (0.5, 0.1)           # ▶ Continue "half (polish)" / "tenth (gentle finish)"
+
+
+def _lr_from_settings(s: dict) -> float:
+    """Effective LR for a settings dict (live train_settings OR a frozen run
+    snapshot). Prodigy drives the LR itself → the lr≈1.0 convention always wins,
+    even over a stale stored value. Otherwise an explicit `learning_rate` (set on
+    a resume via the LR factor knob) overrides the family-fixed 1e-4 default."""
+    opt = s.get('optimizer')
+    opt = opt if opt in _OPTIMIZER_CHOICES else 'adamw8bit'
+    if opt.startswith('prodigy'):
+        return 1.0
+    lr = s.get('learning_rate')
+    return float(lr) if isinstance(lr, (int, float)) and lr > 0 else _DEFAULT_LR
+
+
 def _lr_eff(ds) -> float:
-    """Prodigy pilote le LR lui-même → convention lr≈1.0 ; les autres gardent 1e-4."""
-    return 1.0 if _optimizer_eff(ds).startswith('prodigy') else 1e-4
+    return _lr_from_settings(_train_settings(ds))
+
+
+def resolve_resume_lr(settings: dict, lr_factor) -> float | None:
+    """Turn a ▶ Continue LR *factor* into the absolute `learning_rate` to persist for
+    the continuation, given the run's effective ``settings`` (live dict or snapshot).
+    ``None`` / 1 = keep current (no change). A real factor (½/⅒) scales the run's
+    current effective LR — a 1e-4 run continues at 5e-5 or 1e-5. Refused loudly on a
+    Prodigy run: it adapts the LR itself (lr=1), so there is no base rate to scale and
+    a factor would be meaningless — same "regime-bound settings are refused, never
+    silently swallowed" contract as the rest of validate_resume_overrides."""
+    if lr_factor in (None, 1, 1.0):
+        return None
+    if lr_factor not in _RESUME_LR_FACTORS:
+        raise ValueError(f'lr_factor must be one of {_RESUME_LR_FACTORS} (or 1 to keep current)')
+    opt = settings.get('optimizer')
+    opt = opt if opt in _OPTIMIZER_CHOICES else 'adamw8bit'
+    if opt.startswith('prodigy'):
+        raise ValueError(
+            'the learning-rate factor cannot apply to a Prodigy run — Prodigy adapts '
+            'the LR itself (lr=1), so there is no base rate to halve or tenth')
+    return _lr_from_settings(settings) * float(lr_factor)
 
 
 def _grad_accum(ds) -> int:
@@ -1371,6 +1408,10 @@ def effective_train_settings(ds, family=None) -> dict:
             'timestep_type_supported': fam != 'sdxl',
             'optimizer': s.get('optimizer') if s.get('optimizer') in _OPTIMIZER_CHOICES else None,   # None → adamw8bit
             'optimizer_choices': list(_OPTIMIZER_CHOICES),
+            # Effective LR (absolute) this run trains at — the ▶ Continue dialog's LR
+            # factor shows the resulting rate and hides the knob when it's adaptive
+            # (Prodigy). Not an editable Advanced-options control; read-only here.
+            'learning_rate': _lr_eff(ds),
             'lr_scheduler': s.get('lr_scheduler') if s.get('lr_scheduler') in _LR_SCHEDULER_CHOICES else None,  # None → constant
             'lr_scheduler_choices': list(_LR_SCHEDULER_CHOICES),
             'warmup': s.get('warmup') if s.get('warmup') in _WARMUP_CHOICES else None,
@@ -1543,6 +1584,17 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
             cur['dual_captions'] = True
         else:
             cur.pop('dual_captions', None)
+    if 'learning_rate' in patch:
+        # Not a general Advanced-options control: the family-fixed 1e-4 (or the
+        # Prodigy lr=1 convention) is the default, and only the ▶ Continue dialog's
+        # LR factor writes an explicit absolute rate here (see resolve_resume_lr).
+        v = patch['learning_rate']
+        if v in (None, 'auto', ''):
+            cur.pop('learning_rate', None)                 # back to the family-fixed default
+        elif isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            cur['learning_rate'] = float(v)
+        else:
+            raise ValueError('learning_rate must be a positive number (or auto)')
     ds.train_settings = json.dumps(cur) if cur else None
     fds.db.session.commit()
     return effective_train_settings(ds)
@@ -1554,7 +1606,8 @@ def update_train_settings(user_id, dataset_id, patch: dict) -> dict:
 TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
                       'sample_every', 'sample_prompts', 'dropout', 'alpha',
                       'timestep_type', 'optimizer', 'lr_scheduler', 'warmup',
-                      'grad_accum', 'network_type', 'ema', 'dual_captions')
+                      'grad_accum', 'network_type', 'ema', 'dual_captions',
+                      'learning_rate')
 
 # The ONLY settings a resume/continue may change. ai-toolkit rebuilds the job
 # config from scratch on every launch, so a re-read setting is honored on resume —
@@ -1569,8 +1622,12 @@ TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
 # resume low-noise-leaning to polish fine texture) — the user picks it explicitly
 # in the Continue dialog, so it is a stated intent, never a silent drift. SDXL
 # ignores it (flowmatch weighting does not apply there) — a harmless no-op.
+# lr_factor is the second deliberate exception: it scales the LR of the continuation
+# only (½ polish / ⅒ gentle finish — the LR pendant of the low-noise timestep
+# recipe), touches no weight shape, and resolves to an explicit `learning_rate`
+# via resolve_resume_lr (refused on a Prodigy run, whose LR is self-adaptive).
 RESUME_SAFE_SETTING_KEYS = ('save_every', 'sample_every', 'sample_prompts',
-                            'timestep_type')
+                            'timestep_type', 'lr_factor')
 
 
 def validate_resume_overrides(overrides) -> dict:
@@ -1616,6 +1673,19 @@ def validate_resume_overrides(overrides) -> dict:
         if v not in _TIMESTEP_TYPE_CHOICES:
             raise ValueError(f'timestep_type must be one of {_TIMESTEP_TYPE_CHOICES}')
         patch['timestep_type'] = v
+    if 'lr_factor' in overrides:
+        # A FACTOR (½/⅒) scaling the run's current LR, kept as-is in the patch: the
+        # caller (continue_training / continue_cloud_run) resolves it to an absolute
+        # `learning_rate` against the run's own optimizer + LR, where the Prodigy
+        # refusal lives (resolve_resume_lr). Here we only vet the value; 1 / keep
+        # is dropped so a no-op never persists a redundant learning_rate.
+        v = overrides['lr_factor']
+        if v in (None, 1, 1.0):
+            pass                                            # keep current — no override
+        elif v in _RESUME_LR_FACTORS:
+            patch['lr_factor'] = v
+        else:
+            raise ValueError(f'lr_factor must be one of {_RESUME_LR_FACTORS} (or 1 to keep current)')
     return patch
 
 # Built-in quick presets: shipped with the app (every install sees them),
@@ -4301,7 +4371,13 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
         extra = max(100, int(extra_steps))
     except (TypeError, ValueError):
         extra = 1000
-    # Apply the safe overrides (cadence / preview prompts) before building the job.
+    # Resolve the LR factor (½/⅒) against THIS run's current effective settings into
+    # an absolute learning_rate, refusing loudly on a Prodigy run BEFORE any side
+    # effect (nothing archived or persisted). Keep current (factor absent) is a no-op.
+    lr_factor = override_patch.pop('lr_factor', None)
+    if lr_factor is not None:
+        override_patch['learning_rate'] = resolve_resume_lr(_train_settings(ds), lr_factor)
+    # Apply the safe overrides (cadence / preview prompts / LR) before building the job.
     if override_patch:
         update_train_settings(user_id, dataset_id, override_patch)
     # Restarting from BELOW the latest: seed the chosen checkpoint into a clean

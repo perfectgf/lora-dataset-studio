@@ -2532,7 +2532,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           checkpoints={checkpoints}
           bestStep={bestEpoch?.available ? bestEpoch.best_step : null}
           settings={{ save_every: advSave, sample_every: advSampleEvery,
-            sample_prompts: adv?.sample_prompts }}
+            sample_prompts: adv?.sample_prompts,
+            optimizer: adv?.optimizer, learning_rate: adv?.learning_rate }}
           busy={status.in_progress}
           onResolve={runContinue} />
       )}

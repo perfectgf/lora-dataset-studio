@@ -912,6 +912,8 @@ export default function CloudRunsPage() {
             ? continueRunTarget.resume_steps
             : [continueRunTarget.steps]).filter(Boolean)).map((step) => ({ step }))}
           initialFromStep={continueInitialStep}
+          settings={{ optimizer: continueRunTarget.settings?.optimizer,
+            learning_rate: continueRunTarget.settings?.lr }}
           busy={!!continuing[continueRunTarget.run_id]}
           onResolve={submitContinue} />
       )}

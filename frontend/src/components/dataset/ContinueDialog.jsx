@@ -7,7 +7,11 @@
  * Purely presentational and props-driven so the local panel and the cloud Runs hub
  * share one dialog. onResolve(payload | null): payload =
  * { extraSteps, fromStep, overrides } (fromStep null = resume from the latest,
- * in place), or null on cancel. */
+ * in place), or null on cancel. overrides may carry save_every / sample_every /
+ * sample_prompts / timestep_type / lr_factor — the safe subset a resume can change;
+ * lr_factor (0.5/0.1) scales the run's current LR and is omitted for an adaptive
+ * (Prodigy) run. `settings` supplies optimizer + learning_rate so the LR hint and
+ * the Prodigy-disabled state are truthful. */
 import { useEffect, useMemo, useState } from 'react';
 import { HelpBadge } from '../../help/HelpMode';
 
@@ -15,6 +19,17 @@ const SAVE_CHOICES = [250, 500, 1000];
 const SAMPLE_EVERY_CHOICES = [100, 250, 500, 1000];
 // Mirrors the backend's _TIMESTEP_TYPE_CHOICES. '' = keep the run's weighting.
 const TIMESTEP_CHOICES = ['sigmoid', 'linear', 'weighted', 'shift'];
+// LR factors applied to the run's CURRENT rate (backend _RESUME_LR_FACTORS).
+// 1 = keep current (sent as no override). Mirrors the timestep low-noise recipe.
+const LR_FACTOR_CHOICES = [
+  { value: 1, label: 'keep current' },
+  { value: 0.5, label: 'half (polish)' },
+  { value: 0.1, label: 'tenth (gentle finish)' },
+];
+const DEFAULT_LR = 1e-4;   // backend _DEFAULT_LR for every non-adaptive optimizer
+
+// Compact scientific form for a LR (5e-5, 1e-5, 2.5e-5) — trims a bare ".0".
+const fmtLR = (lr) => Number(lr).toExponential(1).replace('.0e', 'e');
 
 export default function ContinueDialog({
   context,                 // short run identity, e.g. "Lola — Z-Image · Turbo"
@@ -51,6 +66,14 @@ export default function ContinueDialog({
   const [sampleEvery, setSampleEvery] = useState(inheritedSampleEvery);
   const [prompts, setPrompts] = useState('');   // blank = keep the run's prompts
   const [timestep, setTimestep] = useState(inheritedTimestep); // '' = keep current
+  const [lrFactor, setLrFactor] = useState(1);  // 1 = keep the run's LR
+
+  // Prodigy drives its own LR (lr=1) → scaling it is meaningless: the knob is shown
+  // but disabled with the reason, never silently hidden. Everyone else has a real
+  // base rate (an explicit learning_rate from a prior resume, else the 1e-4 default).
+  const isAdaptiveLR = String(settings.optimizer || '').startsWith('prodigy');
+  const currentLR = typeof settings.learning_rate === 'number' && settings.learning_rate > 0
+    ? settings.learning_rate : DEFAULT_LR;
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onResolve(null); };
@@ -70,6 +93,8 @@ export default function ContinueDialog({
       overrides.sample_prompts = prompts.split('\n').map((s) => s.trim()).filter(Boolean);
     }
     if (timestep !== '' && timestep !== inheritedTimestep) overrides.timestep_type = timestep;
+    // A real LR reduction only — Prodigy (adaptive) never sends it, and 1 = keep.
+    if (lrFactor !== 1 && !isAdaptiveLR) overrides.lr_factor = lrFactor;
     onResolve({
       extraSteps: extraNum,
       // null when the newest checkpoint is chosen → the historical in-place resume.
@@ -187,9 +212,31 @@ export default function ContinueDialog({
                 first, then continues with a different noise-level emphasis to polish fine texture — changing it here is
                 a deliberate recipe change for the extra steps, applied via this dataset&apos;s settings.
               </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-content text-[0.75rem] w-28 shrink-0">Learning rate</span>
+                <select value={String(lrFactor)} onChange={(e) => setLrFactor(Number(e.target.value))}
+                  disabled={isAdaptiveLR}
+                  aria-label="Learning rate for the continuation"
+                  title={isAdaptiveLR
+                    ? 'Prodigy adapts the learning rate itself (lr=1) — there is no base rate to scale'
+                    : undefined}
+                  className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] disabled:opacity-40">
+                  {LR_FACTOR_CHOICES.map((c) => <option key={c.value} value={String(c.value)}>{c.label}</option>)}
+                </select>
+                <span className="text-content-muted text-[0.625rem] tabular-nums">
+                  {isAdaptiveLR
+                    ? 'Prodigy — adaptive'
+                    : (lrFactor === 1 ? `keeps ${fmtLR(currentLR)}` : `→ ${fmtLR(currentLR * lrFactor)}`)}
+                </span>
+              </div>
               <span className="text-content-subtle text-[0.625rem] leading-relaxed">
-                Only cadence, preview prompts and the timestep weighting can change on a resume — rank, base, optimizer
-                and the like are locked to the checkpoint being continued.
+                <b className="text-content-muted font-medium">Why LR:</b> resume the epoch that held up best and finish
+                gentler — a smaller rate polishes texture without moving the identity, the LR pendant of the low-noise
+                timestep recipe. The values are factors of this run&apos;s current rate.
+              </span>
+              <span className="text-content-subtle text-[0.625rem] leading-relaxed">
+                Only cadence, preview prompts, the timestep weighting and the learning rate can change on a resume —
+                rank, base, optimizer and the like are locked to the checkpoint being continued.
               </span>
             </div>
           )}
