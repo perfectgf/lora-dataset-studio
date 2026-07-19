@@ -21,6 +21,34 @@ test('buildLineageRows flattens a chain root-first with increasing depth', () =>
   assert.deepEqual(rows.map((r) => r.depth), [0, 1, 2]);
   assert.equal(rows[0].hasChildren, true);
   assert.equal(rows[2].hasChildren, false);
+  // guides length tracks depth; a straight chain never continues a rail
+  assert.deepEqual(rows.map((r) => r.guides), [[], [false], [false, false]]);
+  assert.deepEqual(rows.map((r) => r.isLast), [true, true, true]);
+});
+
+test('buildLineageRows marks a rail that continues past a non-last sibling', () => {
+  // root with two children: the first child's subtree must keep the parent rail
+  const forked = {
+    root_id: 1,
+    nodes: [
+      { record_id: 1, parent_record_id: null, created_at: '2026-07-01T00:00:00' },
+      { record_id: 2, parent_record_id: 1, created_at: '2026-07-02T00:00:00' },
+      { record_id: 3, parent_record_id: 1, created_at: '2026-07-03T00:00:00' },
+      { record_id: 4, parent_record_id: 2, created_at: '2026-07-04T00:00:00' },
+    ],
+    edges: [
+      { parent: 1, child: 2 }, { parent: 1, child: 3 }, { parent: 2, child: 4 },
+    ],
+  };
+  const rows = buildLineageRows(forked);
+  assert.deepEqual(rows.map((r) => r.node.record_id), [1, 2, 4, 3]);
+  // node 2 is NOT last (3 follows) -> its child 4 keeps a live rail at column 1
+  const n4 = rows.find((r) => r.node.record_id === 4);
+  assert.deepEqual(n4.guides, [false, true]);
+  const n2 = rows.find((r) => r.node.record_id === 2);
+  assert.equal(n2.isLast, false);
+  const n3 = rows.find((r) => r.node.record_id === 3);
+  assert.equal(n3.isLast, true);
 });
 
 test('buildLineageRows orders sibling branches oldest-first under the shared parent', () => {

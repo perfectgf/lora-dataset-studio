@@ -19,10 +19,14 @@ function siblingSort(a, b) {
 
 /**
  * Flatten a {root_id, nodes, edges} lineage into pre-order rows for an indented
- * tree. Each row: { node, depth, isLast, hasChildren }. `depth` = distance from
- * the root (0 = root). Defensive against a missing root or a cycle: every node
- * is emitted at most once, and an unreachable node (orphaned by a broken edge)
- * is appended at depth 0 so nothing silently vanishes.
+ * tree. Each row: { node, depth, isLast, hasChildren, guides }. `depth` =
+ * distance from the root (0 = root). `guides` is one boolean per ANCESTOR
+ * column (length = depth): true where that ancestor still has a following
+ * sibling, so the renderer draws a continuing vertical rail there and a plain
+ * gap otherwise — the classic file-tree connector metadata. `isLast` marks the
+ * node as the last of its siblings (elbow └ vs tee ├). Defensive against a
+ * missing root or a cycle: each node is emitted once, and an unreachable node
+ * (orphaned by a broken edge) is appended as its own root so nothing vanishes.
  */
 export function buildLineageRows(tree) {
   const nodes = Array.isArray(tree?.nodes) ? tree.nodes : [];
@@ -35,23 +39,26 @@ export function buildLineageRows(tree) {
   }
   const rows = [];
   const seen = new Set();
-  const walk = (id, depth, isLast) => {
+  const walk = (id, depth, isLast, guides) => {
     const node = byId.get(id);
     if (!node || seen.has(id)) return;
     seen.add(id);
     const kids = (childrenOf.get(id) || [])
       .map((cid) => byId.get(cid)).filter(Boolean).sort(siblingSort)
       .map((n) => n.record_id);
-    rows.push({ node, depth, isLast, hasChildren: kids.length > 0 });
-    kids.forEach((cid, i) => walk(cid, depth + 1, i === kids.length - 1));
+    rows.push({ node, depth, isLast, hasChildren: kids.length > 0, guides });
+    // children inherit this node's ancestor rails plus one for THIS column:
+    // it continues iff this node itself has a sibling below it.
+    const childGuides = [...guides, !isLast];
+    kids.forEach((cid, i) => walk(cid, depth + 1, i === kids.length - 1, childGuides));
   };
   const rootId = tree.root_id != null && byId.has(tree.root_id)
     ? tree.root_id
     : (nodes.find((n) => n.parent_record_id == null) || nodes[0]).record_id;
-  walk(rootId, 0, true);
+  walk(rootId, 0, true, []);
   // Any node not reached (broken/foreign edge) still gets shown, as its own root.
   for (const n of nodes) {
-    if (!seen.has(n.record_id)) walk(n.record_id, 0, true);
+    if (!seen.has(n.record_id)) walk(n.record_id, 0, true, []);
   }
   return rows;
 }
