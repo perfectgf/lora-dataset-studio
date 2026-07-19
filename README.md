@@ -8,7 +8,7 @@
 
 📑 **Not sure which settings to use?** Fifteen researched presets ship built-in — a Character, Style and Concept recipe for each family, sourced from Ostris' ai-toolkit defaults, vendor guidance and documented community consensus. One click applies the whole recipe.
 
-The useful part of LoRA training isn't only the training — it's building a clean, varied, well-captioned image set. That job is normally scattered across a scraper, an image editor, a captioning script, and training configs. LoRA Dataset Studio puts the pipeline behind one UI: fan out a character from reference photos, import or scrape Concept/Style material, curate and caption it, run quality checks, train locally or in the cloud, then compare the resulting checkpoints — without leaving the page.
+The useful part of LoRA training isn't only the training — it's building a clean, varied, well-captioned image set. That job is normally scattered across a scraper, an image editor, a captioning script, and training configs. LoRA Dataset Studio puts the pipeline behind one UI: fan out a character from reference photos, import or scrape material for a concept or a style, triage a giant unsorted folder down to its keepers, curate and caption, run quality checks, train locally or in the cloud, then rank the resulting checkpoints in a test studio — without leaving the page.
 
 <p align="center">
   <img src="docs/screenshots/03-curate.png" alt="Curation grid: framing badges, face-similarity scores, per-image captions, keep/reject" width="900">
@@ -174,7 +174,7 @@ The scraper can reach adult communities as well — this is an NSFW-capable tool
 
 ### 3. The guided workspace
 
-For Character datasets, the composition meter is the quiet workhorse: as you keep and reject, it tracks your framing mix against the **12 / 6 / 6 / 1** target and tells you what the set is still missing (*"needs more full-body shots"*) — the difference between a dataset that renders faces well and one that also knows the body. The progress rail on the left keeps the whole pipeline legible: what's done, what's next, what's blocking Train. Long server-side batches — captioning, face analysis, framing classify, watermark scan/clean — show a live progress indicator that **survives a page reload**: refresh mid-run and the button picks the batch back up instead of looking idle.
+Whatever you're building — character, concept, style or a slider — the progress rail on the left keeps the whole pipeline legible: what's done, what's next, what's blocking Train. Long server-side batches — captioning, face analysis, framing classify, watermark scan/clean — show a live progress indicator that **survives a page reload**: refresh mid-run and the button picks the batch back up instead of looking idle. For character sets specifically, a composition meter also rides along: as you keep and reject, it tracks your framing mix against the **12 / 6 / 6 / 1** target and tells you what the set is still missing (*"needs more full-body shots"*) — the difference between a dataset that renders faces well and one that also knows the body.
 
 The grid is built for real curation work: resize thumbnails, zoom, crop or mirror individual images, then multi-select to **Keep, Reject, Undecide, clear captions, delete, or Improve via Klein**. Klein improvements run sequentially as separate 2 MP candidates and leave every source untouched. On mouse/trackpad the per-image controls stay out of the way until hover/focus; on touch devices they remain visible.
 

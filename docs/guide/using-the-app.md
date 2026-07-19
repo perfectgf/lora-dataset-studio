@@ -6,6 +6,11 @@ and what's blocking the next step. You never have to guess what comes next —
 this chapter just explains what each stage does and where the useful buttons
 hide.
 
+The walkthrough below follows a **character** dataset end to end because it
+exercises the most stages; **concept**, **style** and the **image bank** each
+get their own section after it. The flow is the same for all of them — only the
+captioning rules and a few guards change with the dataset kind.
+
 ---
 
 ## The character walkthrough (reference photo → trained LoRA)
