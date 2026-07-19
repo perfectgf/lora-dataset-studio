@@ -505,6 +505,11 @@ class TrainingRunRecord(db.Model):
     # (the resume link was never persisted before) — added idempotently at boot.
     parent_record_id = db.Column(db.Integer, index=True)
     resumed_from = db.Column(db.Integer)
+    # How the parent edge above came to exist. NULL = persisted natively by the
+    # continuation that drew it; 'backfill' = reconstructed at boot for a
+    # continuation that ran before the edge was persisted (see lineage_backfill).
+    # Kept distinct so a reconstructed edge stays auditable and reversible.
+    lineage_origin = db.Column(db.String(16))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 

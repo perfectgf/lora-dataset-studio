@@ -527,6 +527,7 @@ def diagnostic():
     import time
     from ..version import APP_VERSION
     from ..services import updater
+    from ..services import lineage_backfill as _lineage_backfill
     conf = cfg.load_config()
     caps = capabilities.probe()
     e = caps.get('engines') or {}
@@ -605,6 +606,10 @@ def diagnostic():
         # so the stack is in the report instead of asked for in a follow-up. Like
         # log_tail it is log-derived and may still cite non-home file names.
         'error_log': _error_log_records(),
+        # One-shot boot pass that reconnects continuations trained before their
+        # lineage edge was persisted: how many edges it reconstructed (0 on a fresh
+        # or fully-native database). Paste-safe — counts only, no paths.
+        'lineage_backfill': _lineage_backfill.summary(),
         'log_tail': log_lines,
         'generated_at': int(time.time()),
     })
