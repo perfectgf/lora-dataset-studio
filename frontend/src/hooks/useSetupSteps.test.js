@@ -147,3 +147,142 @@ test('kleinMissingLabels maps required assets to words in a stable order', () =>
   assert.deepEqual(kleinMissingLabels(['klein_lora']), []);
   assert.equal(KLEIN_ASSET_LABELS.klein_text_encoder, 'text encoder');
 });
+
+// --- installAllPlan (mirror of the backend orchestrator) --------------------
+import { installAllPlan, INSTALL_ALL_ORDER } from './useSetupSteps.js';
+
+// A fully-installed snapshot; each test flips just the pieces it needs MISSING.
+const fullCaps = () => ({
+  python: { ml_supported: true },
+  face_scoring: true, masks: true, watermark_inpaint: true,
+  ollama: { reachable: true, vision_model_ready: true, vision_model: 'qwen3-vl:8b' },
+  comfyui: { dir_valid: true, klein_missing: [] },
+});
+
+test('installAllPlan is empty when everything installable is present', () => {
+  assert.deepEqual(installAllPlan(fullCaps()), []);
+});
+
+test('installAllPlan folds null/empty caps to the always-runnable ML extras', () => {
+  const mlOnly = ['face_scoring', 'masks', 'watermark_inpaint'];
+  assert.deepEqual(installAllPlan(null), mlOnly);
+  assert.deepEqual(installAllPlan({}), mlOnly);
+});
+
+test('installAllPlan skips face/masks on an unsupported Python but keeps watermark', () => {
+  const caps = { ...fullCaps(), python: { ml_supported: false },
+    face_scoring: false, masks: false, watermark_inpaint: false };
+  assert.deepEqual(installAllPlan(caps), ['watermark_inpaint']);
+});
+
+test('installAllPlan queues the vision model only when Ollama is up and named', () => {
+  const up = { ...fullCaps(),
+    ollama: { reachable: true, vision_model_ready: false, vision_model: 'qwen3-vl:8b' } };
+  assert.ok(installAllPlan(up).includes('ollama_model'));
+  const noName = { ...fullCaps(),
+    ollama: { reachable: true, vision_model_ready: false, vision_model: '' } };
+  assert.ok(!installAllPlan(noName).includes('ollama_model'));
+  const down = { ...fullCaps(),
+    ollama: { reachable: false, vision_model_ready: false, vision_model: 'qwen3-vl:8b' } };
+  assert.ok(!installAllPlan(down).includes('ollama_model'));
+});
+
+test('installAllPlan takes Klein weights only into a validated ComfyUI, in order', () => {
+  const valid = { ...fullCaps(),
+    comfyui: { dir_valid: true, klein_missing: ['klein_lora', 'klein_model', 'klein_vae'] } };
+  assert.deepEqual(installAllPlan(valid), ['klein_model', 'klein_vae', 'klein_lora']);
+  const invalid = { ...fullCaps(),
+    comfyui: { dir_valid: false, klein_missing: ['klein_model'] } };
+  assert.deepEqual(installAllPlan(invalid), []);
+});
+
+test('installAllPlan full order groups ML -> vision model -> Klein', () => {
+  const caps = {
+    python: { ml_supported: true },
+    face_scoring: false, masks: false, watermark_inpaint: false,
+    ollama: { reachable: true, vision_model_ready: false, vision_model: 'm' },
+    comfyui: { dir_valid: true,
+      klein_missing: ['klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora'] },
+  };
+  assert.deepEqual(installAllPlan(caps), INSTALL_ALL_ORDER);
+});
+
+// --- installCatalog (the full one-by-one install/reinstall menu) -------------
+import { installCatalog } from './useSetupSteps.js';
+
+const byAction = (cat) => Object.fromEntries(cat.map((c) => [c.action, c]));
+
+test('installCatalog lists every app-installable component, present + available', () => {
+  const cat = byAction(installCatalog(fullCaps()));
+  // The eight components the app can install itself (never ComfyUI/Ollama/API keys).
+  assert.deepEqual(
+    installCatalog(fullCaps()).map((c) => c.action),
+    ['face_scoring', 'masks', 'watermark_inpaint', 'ollama_model',
+      'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora'],
+  );
+  // Everything installed in fullCaps -> every tile present, and available to REINSTALL.
+  for (const c of Object.values(cat)) {
+    assert.equal(c.present, true, `${c.action} present`);
+    assert.equal(c.available, true, `${c.action} available to reinstall`);
+  }
+});
+
+test('installCatalog stays fully available for reinstall when all is green', () => {
+  // The menu must never collapse once installed — each item can always be repaired.
+  const cat = installCatalog(fullCaps());
+  assert.ok(cat.length === 8 && cat.every((c) => c.available));
+});
+
+test('installCatalog marks missing ML extras not-present but still available', () => {
+  const cat = byAction(installCatalog({ ...fullCaps(),
+    face_scoring: false, masks: false, watermark_inpaint: false }));
+  for (const a of ['face_scoring', 'masks', 'watermark_inpaint']) {
+    assert.equal(cat[a].present, false);
+    assert.equal(cat[a].available, true);   // installable now (supported Python)
+  }
+});
+
+test('installCatalog blocks fresh ML installs on an unsupported Python, with a hint', () => {
+  const cat = byAction(installCatalog({ ...fullCaps(),
+    python: { ml_supported: false, ml_range: '3.10–3.12' },
+    face_scoring: false, masks: false }));
+  // Can't install into the app's out-of-range Python -> unavailable + an actionable hint.
+  assert.equal(cat.face_scoring.available, false);
+  assert.match(cat.face_scoring.hint, /3\.10–3\.12/);
+  // watermark auto-provisions its own venv, so it stays available regardless.
+  assert.equal(cat.watermark_inpaint.available, true);
+});
+
+test('installCatalog still lets you REPAIR a present ML extra on an unsupported Python', () => {
+  // A face-scoring already installed (into a dedicated env) can be reinstalled/repaired
+  // even when the app's own Python is out of the wheel range.
+  const cat = byAction(installCatalog({ ...fullCaps(),
+    python: { ml_supported: false, ml_range: '3.10–3.12' }, face_scoring: true }));
+  assert.equal(cat.face_scoring.present, true);
+  assert.equal(cat.face_scoring.available, true);
+});
+
+test('installCatalog gates the vision model on a reachable, named Ollama', () => {
+  const down = byAction(installCatalog({ ...fullCaps(),
+    ollama: { reachable: false, vision_model_ready: false, vision_model: 'm' } }));
+  assert.equal(down.ollama_model.available, false);
+  assert.match(down.ollama_model.hint, /Start Ollama/);
+  const noName = byAction(installCatalog({ ...fullCaps(),
+    ollama: { reachable: true, vision_model_ready: false, vision_model: '' } }));
+  assert.equal(noName.ollama_model.available, false);
+  assert.match(noName.ollama_model.hint, /model name/);
+});
+
+test('installCatalog gates Klein weights on a validated ComfyUI', () => {
+  const invalid = byAction(installCatalog({ ...fullCaps(),
+    comfyui: { dir_valid: false, klein_missing: ['klein_model'] } }));
+  for (const a of ['klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora']) {
+    assert.equal(invalid[a].available, false);
+    assert.match(invalid[a].hint, /valid ComfyUI folder/);
+  }
+  const valid = byAction(installCatalog({ ...fullCaps(),
+    comfyui: { dir_valid: true, klein_missing: ['klein_vae'] } }));
+  assert.equal(valid.klein_vae.present, false);       // still missing
+  assert.equal(valid.klein_vae.available, true);      // installable into the valid tree
+  assert.equal(valid.klein_model.present, true);      // not in klein_missing -> installed
+});

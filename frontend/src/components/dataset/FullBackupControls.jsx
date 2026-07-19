@@ -9,6 +9,7 @@
  * Presentational + props-driven (the `backup` bundle from useDataset); the
  * progress phrasing and summaries come from utils/fullBackup (pure, tested).
  */
+import { useState } from 'react';
 import { HelpBadge } from '../../help/HelpMode';
 import {
   describeProgress, progressPercent, summarizeBackupResult, summarizeRestoreReport,
@@ -134,17 +135,25 @@ function RestoreOverlay({ job, onDismiss }) {
 }
 
 export default function FullBackupControls({ backup }) {
+  const [includeLoras, setIncludeLoras] = useState(false);
   if (!backup) return null;
   const running = backup.job?.state === 'running';
   return (
     <>
       <span className="inline-flex items-center gap-1">
-        <button type="button" onClick={backup.start} disabled={running}
-          title="Archive every dataset + your settings (API keys excluded) into one file"
+        <button type="button" onClick={() => backup.start(includeLoras)} disabled={running}
+          title="Archive every dataset, its training history + your settings (API keys excluded) into one file"
           aria-label="Back up everything"
           className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-content transition-colors hover:border-primary/40 hover:bg-surface-raised disabled:opacity-50">
           💾<span className="hidden sm:inline"> Back up everything</span>
         </button>
+        <label className="hidden items-center gap-1 text-xs text-content-muted sm:inline-flex"
+          title="Also bundle the trained LoRA files (larger backup). Training history is always included regardless.">
+          <input type="checkbox" checked={includeLoras} disabled={running}
+            onChange={(e) => setIncludeLoras(e.target.checked)}
+            className="accent-primary" />
+          Include trained LoRAs
+        </label>
         <HelpBadge topic="library-backup" />
       </span>
       <BackupOverlay job={backup.job} onDownload={backup.download}

@@ -53,8 +53,11 @@ def full_start():
         fb.check_disk_space()
     except fb.DiskSpaceError as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 409
+    body = request.get_json(silent=True) or {}
+    include_loras = bool(body.get('include_loras'))
     try:
-        fb.start_backup(current_app._get_current_object(), LOCAL_USER)
+        fb.start_backup(current_app._get_current_object(), LOCAL_USER,
+                        include_loras=include_loras)
     except fb.AlreadyRunning as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 409
     return jsonify({'ok': True, 'running': True})

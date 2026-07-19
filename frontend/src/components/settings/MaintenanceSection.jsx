@@ -2,16 +2,19 @@ import { useEffect, useState } from 'react'
 import { apiFetch, postJson } from '../../api/fetchClient'
 import DiagnosticReport from '../common/DiagnosticReport'
 import { Card, TextField } from './primitives'
+import { installMode, zipUpdateHeadline, progressLabel, progressPercent } from './updateStatus'
 
 /* In-app updater: "Check for updates" hits the git-aware check (commits-behind for a
-   clone, release tag for a packaged build). "Update & restart" pulls + restarts the
-   server; we then poll /api/health until the relaunched process answers and hard-reload
-   the SPA so the new frontend/dist loads. */
+   clone, release tag for a packaged build). "Update & restart" pulls (git) or downloads
+   and swaps in the latest release ZIP (packaged install), then restarts the server; we
+   poll /api/health until the relaunched process answers and hard-reload the SPA so the
+   new frontend/dist loads. */
 function UpdatesCard() {
   const [status, setStatus] = useState(null)
   const [checking, setChecking] = useState(false)
   const [applying, setApplying] = useState(false)
   const [phase, setPhase] = useState('')     // '' | 'pulling' | 'restarting'
+  const [progress, setProgress] = useState(null)   // ZIP mode: {phase, downloaded, total}
 
   // Passive check on mount (cached server-side, no git fetch): the card shows
   // the current build immediately instead of waiting for a manual check.
@@ -47,14 +50,41 @@ function UpdatesCard() {
     setApplying(false); setPhase('')          // gave up after ~2 min
   }
 
+  // Packaged (ZIP) installs download+swap the release (with a progress bar); a git
+  // clone fast-forwards. 'unavailable' = non-git with no downloadable release.
+  const mode = installMode(status)
+
+  // ZIP mode: poll the server's progress until it restarts / finishes / fails.
+  // A release ZIP is tens of MB, so the user needs to see it advancing.
+  const pollProgress = async () => {
+    for (let i = 0; i < 1200; i += 1) {       // ~10 min ceiling at 500 ms
+      await new Promise((r) => setTimeout(r, 500))
+      let p
+      try { p = await apiFetch('/api/update/progress') } catch { continue }
+      setProgress(p)
+      if (p.phase === 'restarting') { setPhase('restarting'); waitForHealthAndReload(); return }
+      if (p.phase === 'error') {
+        setStatus({ ok: false, reason: p.error || 'Update failed and was rolled back.' })
+        setApplying(false); setPhase(''); setProgress(null); return
+      }
+      if (p.phase === 'done') {               // server decided it was already up to date
+        setStatus({ ...status, up_to_date: true }); setApplying(false); setPhase(''); setProgress(null); return
+      }
+    }
+    setApplying(false); setPhase(''); setProgress(null)   // gave up
+  }
+
   const apply = async () => {
-    setApplying(true); setPhase('pulling')
+    setApplying(true); setPhase('pulling'); setProgress(null)
     try {
       const res = await postJson('/api/update/apply', {})
-      if (res.restarting) {
+      if (res.restarting) {                   // git path: synchronous restart
         setPhase('restarting')
         waitForHealthAndReload()              // not awaited: UI shows "restarting…"
-      } else {
+      } else if (res.async) {                 // ZIP path: download+swap on the server, poll it
+        setProgress({ phase: 'downloading', downloaded: 0, total: res.total || 0 })
+        pollProgress()                        // not awaited
+      } else {                                // up to date / manual / error, inline
         setStatus(res.ok ? { ...res, up_to_date: true } : res)
         setApplying(false); setPhase('')
       }
@@ -65,7 +95,9 @@ function UpdatesCard() {
   }
 
   const s = status
-  const canPull = s && s.update_available && s.is_git
+  // In-app update is possible for a git clone (pull) or a packaged install whose
+  // latest release ships a ZIP asset (download + swap). Otherwise: link out.
+  const canPull = s && s.update_available && (mode === 'git' || mode === 'zip')
   return (
     <Card title="Updates" help="Pull the latest version from GitHub and restart — without leaving the app.">
       <div className="flex flex-wrap items-center gap-3">
@@ -103,11 +135,23 @@ function UpdatesCard() {
       </div>
 
       {applying && (
-        <p className="text-sm text-content-muted" role="status">
-          {phase === 'restarting'
-            ? '↻ Updated — the app is restarting. This page reloads automatically when it’s back…'
-            : '⬇ Pulling the latest version…'}
-        </p>
+        <div className="space-y-1.5" role="status" aria-live="polite">
+          <p className="text-sm text-content-muted">
+            {phase === 'restarting'
+              ? '↻ Updated — the app is restarting. This page reloads automatically when it’s back…'
+              : progressLabel(progress) || (mode === 'zip'
+                ? '⬇ Downloading and installing the latest release…'
+                : '⬇ Pulling the latest version…')}
+          </p>
+          {/* Real progress bar while downloading a release ZIP (indeterminate when
+              the server reported no Content-Length). Git pulls stay text-only. */}
+          {phase !== 'restarting' && progress && progress.phase === 'downloading' && (
+            <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-surface-raised">
+              <div className="h-full rounded-full bg-gradient-primary transition-[width] duration-300"
+                style={{ width: `${progressPercent(progress) ?? 40}%` }} />
+            </div>
+          )}
+        </div>
       )}
 
       {!applying && s && (
@@ -118,7 +162,7 @@ function UpdatesCard() {
                 <span aria-hidden>⬆</span>{' '}
                 {typeof s.behind === 'number'
                   ? `${s.behind} commit${s.behind === 1 ? '' : 's'} behind${s.current_sha && s.remote_sha ? ` (${s.current_sha} → ${s.remote_sha})` : ''}.`
-                  : `Update available${s.latest ? ` — v${s.latest}` : ''}.`}
+                  : `${zipUpdateHeadline(s)}.`}
               </span>
               <button type="button" onClick={apply}
                 className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">

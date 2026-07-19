@@ -71,6 +71,24 @@ def test_start_rejects_second_run():
         setup_installer.start('ml_extras')
 
 
+def test_reinstall_reruns_worker_after_a_successful_install(monkeypatch):
+    """Reinstall = re-clicking an already-green item (the Setup install menu's ↻ Reinstall).
+    start() must RE-RUN the worker on a terminal (success/error) run — there is deliberately
+    NO 'already installed, skip' gate, so a broken venv sitting behind a green capability can
+    always be re-provisioned in place (the whole point of a reinstall button)."""
+    from app import setup_installer
+    calls = []
+    monkeypatch.setattr(setup_installer, '_execute', lambda a: calls.append(a))  # thread no-ops
+    setup_installer._pip_current = None
+    setup_installer._pip_queue = []
+    # A prior install of a venv-backed capability finished successfully.
+    setup_installer._runs['masks'] = {'state': 'success', 'returncode': 0, 'log': [],
+                                      'progress': None, 'waiting_for': None}
+    state = setup_installer.start('masks')
+    assert state['state'] == 'running'   # reset to running (not rejected as AlreadyRunning)
+    assert calls == ['masks']            # the worker (which re-provisions/repairs) re-ran
+
+
 def test_execute_success_clears_import_cache(monkeypatch):
     from app import setup_installer, capabilities
     calls = []
@@ -1193,6 +1211,151 @@ def test_manual_command_watermark_inpaint_points_to_managed_env_when_unconfigure
     assert sys.executable not in cmd                        # never the app's own Python
     assert 'pip install' in cmd and 'simple-lama-inpainting' in cmd
     assert not cmd.startswith('pip ')
+
+
+# --- "Install everything" orchestrator (plan / start_all / batched status) -------
+# install_all_plan is a PURE function of live capabilities: the missing components the
+# app can install itself (ML extras, the vision model when Ollama is up, the Klein
+# weights when a valid ComfyUI is set), in a deterministic order. start_all fans out to
+# start() per action, so it inherits the pip-FIFO serialization and preconditions.
+
+
+def _caps(**over):
+    """A fully-installed capabilities snapshot (everything present) — each test flips
+    just the pieces it needs MISSING, so the plan reflects exactly that gap."""
+    caps = {
+        'python': {'ml_supported': True},
+        'face_scoring': True, 'masks': True, 'watermark_inpaint': True,
+        'ollama': {'reachable': True, 'vision_model_ready': True, 'vision_model': 'qwen3-vl:8b'},
+        'comfyui': {'dir_valid': True, 'klein_missing': []},
+    }
+    caps.update(over)
+    return caps
+
+
+def test_install_all_plan_empty_when_everything_installed():
+    """Idempotence: a machine with every installable component already in place yields an
+    EMPTY plan — 'Install everything' has nothing to do and the UI shows the done state."""
+    from app import setup_installer
+    assert setup_installer.install_all_plan(_caps()) == []
+
+
+def test_install_all_plan_none_and_empty_caps_are_safe():
+    """None (couldn't probe) folds to {} — never raises. With nothing detected, the ML
+    tiles read missing (default present=falsey) and Ollama/ComfyUI are absent so their
+    gated actions are skipped; only the always-runnable ML extras remain."""
+    from app import setup_installer
+    ml_only = ['face_scoring', 'masks', 'watermark_inpaint']
+    assert setup_installer.install_all_plan(None) == ml_only
+    assert setup_installer.install_all_plan({}) == ml_only
+
+
+def test_install_all_plan_lists_missing_ml_extras():
+    from app import setup_installer
+    caps = _caps(face_scoring=False, masks=False, watermark_inpaint=False)
+    assert setup_installer.install_all_plan(caps) == ['face_scoring', 'masks', 'watermark_inpaint']
+
+
+def test_install_all_plan_skips_face_masks_on_unsupported_python():
+    """face_scoring/masks install into the app's own Python — outside the ML wheel range
+    they'd only source-build and fail, so the plan omits them. watermark_inpaint builds
+    its OWN 3.10-3.12 venv, so it stays in even on a 3.14 interpreter."""
+    from app import setup_installer
+    caps = _caps(python={'ml_supported': False},
+                 face_scoring=False, masks=False, watermark_inpaint=False)
+    assert setup_installer.install_all_plan(caps) == ['watermark_inpaint']
+
+
+def test_install_all_plan_ollama_model_only_when_reachable_and_named():
+    from app import setup_installer
+    # reachable + model configured + not pulled -> queue the pull
+    caps = _caps(ollama={'reachable': True, 'vision_model_ready': False, 'vision_model': 'qwen3-vl:8b'})
+    assert 'ollama_model' in setup_installer.install_all_plan(caps)
+    # reachable but NO model name configured -> nothing to pull, skip it
+    caps = _caps(ollama={'reachable': True, 'vision_model_ready': False, 'vision_model': ''})
+    assert 'ollama_model' not in setup_installer.install_all_plan(caps)
+    # Ollama not running -> can't pull, skip (Ollama itself isn't auto-installed)
+    caps = _caps(ollama={'reachable': False, 'vision_model_ready': False, 'vision_model': 'qwen3-vl:8b'})
+    assert 'ollama_model' not in setup_installer.install_all_plan(caps)
+
+
+def test_install_all_plan_klein_only_into_valid_comfyui():
+    from app import setup_installer
+    # valid dir + assets missing -> the missing assets, in canonical order (LoRA last)
+    caps = _caps(comfyui={'dir_valid': True,
+                          'klein_missing': ['klein_lora', 'klein_model', 'klein_vae']})
+    plan = setup_installer.install_all_plan(caps)
+    assert plan == ['klein_model', 'klein_vae', 'klein_lora']
+    # same gap but NO valid ComfyUI folder -> never scatter multi-GB files, skip all
+    caps = _caps(comfyui={'dir_valid': False,
+                          'klein_missing': ['klein_model', 'klein_vae']})
+    assert setup_installer.install_all_plan(caps) == []
+
+
+def test_install_all_plan_full_order():
+    """Everything missing at once: the plan is grouped ML -> vision model -> Klein, in a
+    stable order (drives the 'X / N' progress list)."""
+    from app import setup_installer
+    caps = _caps(
+        face_scoring=False, masks=False, watermark_inpaint=False,
+        ollama={'reachable': True, 'vision_model_ready': False, 'vision_model': 'qwen3-vl:8b'},
+        comfyui={'dir_valid': True,
+                 'klein_missing': ['klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora']})
+    assert setup_installer.install_all_plan(caps) == [
+        'face_scoring', 'masks', 'watermark_inpaint', 'ollama_model',
+        'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora']
+
+
+def test_start_all_queues_each_planned_action(app, monkeypatch):
+    """start_all fans out to start() per planned action. Two ML pip installs -> the first
+    runs, the second is QUEUED behind it (the existing FIFO), proving install-all reuses
+    the serialization instead of racing two pips into one venv."""
+    from app import setup_installer
+    monkeypatch.setattr(setup_installer, '_execute', lambda a: None)  # threads no-op
+    setup_installer._pip_current = None
+    setup_installer._pip_queue.clear()
+    caps = _caps(face_scoring=False, masks=False)
+    with app.app_context():
+        res = setup_installer.start_all(caps)
+    assert res['plan'] == ['face_scoring', 'masks']
+    assert res['statuses']['face_scoring']['state'] == 'running'
+    assert res['statuses']['masks']['state'] == 'queued'
+    assert res['statuses']['masks']['waiting_for'] == 'face_scoring'
+    setup_installer._pip_current = None
+    setup_installer._pip_queue.clear()
+
+
+def test_start_all_empty_plan_starts_nothing(app):
+    from app import setup_installer
+    with app.app_context():
+        res = setup_installer.start_all(_caps())
+    assert res == {'plan': [], 'statuses': {}}
+
+
+def test_start_all_already_running_action_is_reused_not_fatal(app, monkeypatch):
+    """An action already in flight (AlreadyRunning) is reported with its live state, not
+    raised — install-all must never abort because one piece is already installing."""
+    from app import setup_installer
+    monkeypatch.setattr(setup_installer, '_execute', lambda a: None)
+    setup_installer._pip_current = None
+    setup_installer._pip_queue.clear()
+    setup_installer._runs['face_scoring'] = {'state': 'running', 'returncode': None,
+                                             'log': [], 'progress': None, 'waiting_for': None}
+    setup_installer._pip_current = 'face_scoring'
+    caps = _caps(face_scoring=False)
+    with app.app_context():
+        res = setup_installer.start_all(caps)
+    assert res['plan'] == ['face_scoring']
+    assert res['statuses']['face_scoring']['state'] == 'running'
+    setup_installer._pip_current = None
+    setup_installer._pip_queue.clear()
+
+
+def test_status_many_returns_only_known_actions():
+    from app import setup_installer
+    out = setup_installer.status_many(['face_scoring', 'not_an_action', 'klein_vae'])
+    assert set(out) == {'face_scoring', 'klein_vae'}
+    assert out['face_scoring']['state'] == 'idle'
 
 
 def test_run_ml_capability_pins_pillow_when_targeting_flask_venv(app, monkeypatch):

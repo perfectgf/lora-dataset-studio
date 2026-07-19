@@ -1,14 +1,21 @@
-"""In-app self-update for GIT checkouts: report how many commits behind origin the
-working tree is, `git pull --ff-only`, then relaunch the server.
+"""In-app self-update, for both install shapes:
+
+* A GIT checkout: report how many commits behind origin the tree is,
+  `git pull --ff-only`, then relaunch the server.
+* A packaged install (the Windows release ZIP — no `.git`): compare the latest
+  GitHub release tag to the local version, then, on apply, download that
+  release's ZIP asset and swap the app's files in place (backing up the old
+  ones, rolling back on any mid-way failure), then relaunch. `apply_zip_update`
+  preserves everything a ZIP archive never carries anyway — `data/`,
+  `config.json`, `.env`, `.venv`, `.python` — so user state and the live runtime
+  survive the swap. See `_PROTECTED_TOP_LEVEL`.
 
 Dependency installation is deliberately deferred to the detached restart helper.
 Running pip inside the live Flask process can corrupt locked packages on Windows.
 
-Only meaningful for a git checkout. A packaged build (the Windows release ZIP) has no
-`.git`, so `is_git_checkout()` is False and the caller falls back to the releases
-page — a running bundle can't safely overwrite its own live runtime files anyway.
-`git` must be on PATH; if it isn't we say so rather than fail cryptically (a clone
-user has git by definition, so this only bites an unusual setup).
+`git` must be on PATH for the checkout path; if it isn't we say so rather than
+fail cryptically (a clone user has git by definition, so this only bites an
+unusual setup).
 """
 from __future__ import annotations
 
@@ -17,10 +24,19 @@ import shutil
 import subprocess
 import sys
 import threading
+from pathlib import Path
 
 from ..config import REPO_ROOT, get as _cfg_get
 
 _GIT_TIMEOUT = 120
+
+# Top-level entries the ZIP update must NEVER overwrite or delete: user state and
+# the live runtime. A real release ZIP contains none of these (it ships only the
+# app source + built frontend + launcher), so this guard is defense in depth — it
+# also protects a user who unpacked the archive on top of an existing install.
+_PROTECTED_TOP_LEVEL = frozenset({
+    'data', 'config.json', '.env', '.venv', 'venv', '.python', '.git',
+})
 
 
 def is_git_checkout(root=None) -> bool:
@@ -127,6 +143,310 @@ def apply_update(root=None) -> dict:
         deps_changed = any('requirements' in n for n in names.splitlines())
     return {'ok': True, 'changed': changed, 'from': before[:8], 'to': after[:8],
             'deps_changed': deps_changed, 'log': log[-1500:]}
+
+
+# --- Release-ZIP update path (packaged install, no .git) ----------------------
+
+def latest_release(repo=None, timeout=6) -> dict:
+    """The repo's latest GitHub release as {version, tag, zip_url, html_url}, or
+    {'reason': ...} when the public feed can't be read (offline, rate-limited, no
+    release yet). No auth — the release feed of a public repo is world-readable;
+    a 403 (rate limit) or network error degrades to a reason, never an exception.
+    `version` is the tag with a leading v/V stripped so it compares to APP_VERSION.
+    `zip_url` is the .zip asset's download URL (the '*-windows.zip' one wins if
+    several exist), or None when the release published no ZIP asset."""
+    import requests
+    repo = repo or _cfg_get('updates.repo') or 'perfectgf/lora-dataset-studio'
+    try:
+        r = requests.get(f'https://api.github.com/repos/{repo}/releases/latest',
+                         timeout=timeout, headers={'Accept': 'application/vnd.github+json'})
+    except requests.RequestException:
+        return {'reason': 'offline or GitHub unreachable'}
+    if r.status_code != 200:
+        return {'reason': f'release feed answered {r.status_code} (no public release yet?)'}
+    j = r.json()
+    tag = (j.get('tag_name') or '').strip()
+    zip_url, zip_size = None, 0
+    for asset in (j.get('assets') or []):
+        name = (asset.get('name') or '').lower()
+        url = asset.get('browser_download_url')
+        if name.endswith('.zip') and url:
+            zip_url, zip_size = url, int(asset.get('size') or 0)
+            if 'windows' in name:      # the supported bundle — prefer it, keep looking otherwise
+                break
+    return {'version': tag.lstrip('vV').strip() or None, 'tag': tag or None,
+            'zip_url': zip_url, 'zip_size': zip_size, 'html_url': j.get('html_url')}
+
+
+def _staged_app_root(extract_dir) -> Path:
+    """Locate the app root inside an extracted release. Compress-Archive wraps
+    everything in a single top-level folder (`LoRA-Dataset-Studio.../`), so the
+    real tree is usually one level down; tolerate an unwrapped archive too. The
+    app root is whichever directory directly contains `backend/`."""
+    extract_dir = Path(extract_dir)
+    if (extract_dir / 'backend').is_dir():
+        return extract_dir
+    subdirs = [p for p in extract_dir.iterdir() if p.is_dir()]
+    for d in subdirs:
+        if (d / 'backend').is_dir():
+            return d
+    return subdirs[0] if len(subdirs) == 1 else extract_dir
+
+
+def plan_update_items(staged_root) -> list[str]:
+    """Top-level paths (relative to the app root) the release will replace,
+    derived from what the ZIP actually contains — so it adapts if a release adds
+    or drops a file. `frontend` is narrowed to `frontend/dist` (never clobber a
+    dev-style frontend/src, even though a ZIP install has none). Protected
+    user-state / runtime entries are skipped (see `_PROTECTED_TOP_LEVEL`)."""
+    staged_root = Path(staged_root)
+    items = []
+    for name in sorted(p.name for p in staged_root.iterdir()):
+        if name in _PROTECTED_TOP_LEVEL:
+            continue
+        if name == 'frontend':
+            if (staged_root / 'frontend' / 'dist').exists():
+                items.append('frontend/dist')
+            continue
+        items.append(name)
+    return items
+
+
+def _requirements_changed(staged_root, root) -> bool:
+    """Whether the staged backend/requirements.txt differs from the live one, so
+    the caller can ask the restart helper to re-run pip. Any read error errs
+    towards True (re-install rather than skip a needed dependency)."""
+    staged = Path(staged_root) / 'backend' / 'requirements.txt'
+    live = Path(root) / 'backend' / 'requirements.txt'
+    try:
+        a = staged.read_bytes() if staged.exists() else b''
+        b = live.read_bytes() if live.exists() else b''
+        return a != b
+    except OSError:
+        return True
+
+
+def apply_release_files(staged_root, repo_root, backup_root) -> list[str]:
+    """Replace the app's files with the staged release, transactionally.
+
+    For each top-level item (see :func:`plan_update_items`): move the current
+    version into `backup_root`, then move the staged version into place. On any
+    failure the completed moves are rolled back in reverse and the exception is
+    re-raised, leaving the install byte-for-byte as it was. Moves are atomic
+    renames on the same volume, so each switch is near-instant and there is no
+    partially-copied tree to reason about. Never touches user state / the runtime
+    (`_PROTECTED_TOP_LEVEL`). Returns the list of replaced relative paths."""
+    staged_root, repo_root, backup_root = Path(staged_root), Path(repo_root), Path(backup_root)
+    if backup_root.exists():
+        shutil.rmtree(backup_root)
+    backup_root.mkdir(parents=True, exist_ok=True)
+    done = []                                   # [(rel, had_original)] already switched
+    try:
+        for rel in plan_update_items(staged_root):
+            src = staged_root / rel
+            if not src.exists():
+                continue
+            dst = repo_root / rel
+            bak = backup_root / rel
+            bak.parent.mkdir(parents=True, exist_ok=True)
+            had = dst.exists()
+            if had:
+                shutil.move(str(dst), str(bak))     # current -> backup
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))     # new -> live
+            except Exception:
+                if had and bak.exists():            # restore just-backed-up item, then unwind the rest
+                    shutil.move(str(bak), str(dst))
+                raise
+            done.append((rel, had))
+        return [rel for rel, _ in done]
+    except Exception:
+        for rel, had in reversed(done):
+            dst = repo_root / rel
+            bak = backup_root / rel
+            try:
+                if dst.exists():
+                    shutil.rmtree(dst) if dst.is_dir() else dst.unlink()
+            except OSError:
+                pass
+            if had and bak.exists():
+                try:
+                    shutil.move(str(bak), str(dst))
+                except OSError:
+                    pass
+        raise
+
+
+def apply_zip_update(root=None, *, release=None, on_progress=None) -> dict:
+    """Release-ZIP update for a NON-git install: resolve the latest release,
+    download its ZIP asset, extract it, and swap the app's files in place
+    (backing up the old ones; rolling back on failure). Restart is scheduled by
+    the caller. Returns a dict shaped like :func:`apply_update`
+    ({ok, changed, from, to, deps_changed, ...}) so the route treats both paths
+    the same. `deps_changed` lets the caller defer pip to the restart helper.
+
+    `release` skips the network resolve when the caller already fetched it (the
+    async worker does, to size the progress bar). `on_progress(phase, done, total)`
+    is called through the phases ('downloading' with byte counts, then
+    'extracting', 'installing') so the UI can show a real progress bar — a release
+    ZIP is tens of MB, far slower than a git pull."""
+    root = Path(root or REPO_ROOT)
+    from ..version import APP_VERSION
+    from ..config import data_dir
+    rel = release or latest_release()
+    if rel.get('reason'):
+        return {'ok': False, 'reason': rel['reason']}
+    latest = rel.get('version')
+    if not latest:
+        return {'ok': False, 'reason': 'the latest release has no version tag to update to.'}
+    if not (latest > APP_VERSION):          # date-based versions -> plain string comparison
+        return {'ok': True, 'changed': False, 'from': APP_VERSION, 'to': latest}
+    if not rel.get('zip_url'):
+        repo = _cfg_get('updates.repo') or 'perfectgf/lora-dataset-studio'
+        return {'ok': False, 'manual': True,
+                'reason': 'the latest release published no downloadable ZIP asset.',
+                'url': rel.get('html_url') or f'https://github.com/{repo}/releases'}
+
+    def _emit(phase, done=0, total=0):
+        if on_progress:
+            try:
+                on_progress(phase, done, total)
+            except Exception:               # progress is cosmetic — never let it break the update
+                pass
+
+    # Everything transient lives under data/ (writable, protected from the swap,
+    # same volume as the app -> atomic renames). Wiped and recreated each run.
+    work = data_dir() / '_update'
+    if work.exists():
+        shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True, exist_ok=True)
+    zip_path, staging, backup = work / 'release.zip', work / 'staging', work / 'backup'
+
+    try:
+        _download_file(rel['zip_url'], zip_path,
+                       on_progress=lambda d, t: _emit('downloading', d, t or rel.get('zip_size') or 0))
+    except Exception as exc:
+        return {'ok': False, 'reason': f'download failed: {exc}'}
+    _emit('extracting')
+    import zipfile
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(staging)
+    except (zipfile.BadZipFile, OSError) as exc:
+        return {'ok': False, 'reason': f'the downloaded release is not a readable ZIP: {exc}'}
+
+    app_root = _staged_app_root(staging)
+    if not (app_root / 'backend' / 'app').is_dir() or not (app_root / 'backend' / 'run.py').exists():
+        return {'ok': False,
+                'reason': 'the release archive is missing backend/ — refusing to swap.'}
+    deps_changed = _requirements_changed(app_root, root)
+
+    # Move out of any directory being replaced before the swap: after an in-app
+    # restart the process CWD is backend/, and Windows refuses to move the CWD or
+    # a directory in use as CWD. Pinning CWD to the app root sidesteps that.
+    try:
+        os.chdir(str(root))
+    except OSError:
+        pass
+    _emit('installing')
+    try:
+        apply_release_files(app_root, root, backup)
+    except Exception as exc:
+        return {'ok': False,
+                'reason': f'installing the new files failed and was rolled back: {exc}',
+                'backup': str(backup)}
+    return {'ok': True, 'changed': True, 'from': APP_VERSION, 'to': latest,
+            'deps_changed': deps_changed, 'backup': str(backup)}
+
+
+def _download_file(url, dest, timeout=300, on_progress=None) -> None:
+    """Stream a URL to `dest` (chunked so a large ZIP never loads fully into RAM).
+    `on_progress(downloaded, total)` fires per chunk; total is the Content-Length
+    when the server sends one, else 0 (unknown — the UI shows an indeterminate bar)."""
+    import requests
+    with requests.get(url, stream=True, timeout=timeout) as r:
+        r.raise_for_status()
+        total = int(r.headers.get('Content-Length') or 0)
+        downloaded = 0
+        with open(dest, 'wb') as fh:
+            for chunk in r.iter_content(chunk_size=1 << 16):
+                if not chunk:
+                    continue
+                fh.write(chunk)
+                downloaded += len(chunk)
+                if on_progress:
+                    on_progress(downloaded, total)
+
+
+# --- Async release update with progress (the UI polls /api/update/progress) ---
+
+_zip_lock = threading.Lock()
+_zip_state: dict = {'phase': 'idle'}
+_ACTIVE_PHASES = ('downloading', 'extracting', 'installing')
+
+
+def zip_update_progress() -> dict:
+    """A snapshot of the running (or last) release update for the progress poll."""
+    with _zip_lock:
+        return dict(_zip_state)
+
+
+def start_zip_update(root=None) -> dict:
+    """Kick off the release-ZIP update on a background thread and return
+    immediately so the download doesn't block the request. The trivial outcomes
+    (already up to date, no ZIP asset, feed unreachable) are decided synchronously
+    and returned inline — no thread, the button handles them like the git path.
+    A real update returns {ok, async:True, from, to, total}; the client then polls
+    :func:`zip_update_progress`. On success the worker schedules the restart."""
+    root = Path(root or REPO_ROOT)
+    from ..version import APP_VERSION
+    rel = latest_release()
+    if rel.get('reason'):
+        return {'ok': False, 'reason': rel['reason']}
+    latest = rel.get('version')
+    if not latest:
+        return {'ok': False, 'reason': 'the latest release has no version tag to update to.'}
+    if not (latest > APP_VERSION):
+        return {'ok': True, 'changed': False, 'from': APP_VERSION, 'to': latest}
+    if not rel.get('zip_url'):
+        repo = _cfg_get('updates.repo') or 'perfectgf/lora-dataset-studio'
+        return {'ok': False, 'manual': True,
+                'reason': 'the latest release published no downloadable ZIP asset.',
+                'url': rel.get('html_url') or f'https://github.com/{repo}/releases'}
+    with _zip_lock:
+        if _zip_state.get('phase') in _ACTIVE_PHASES:
+            return {'ok': True, 'async': True, **{k: _zip_state.get(k) for k in ('from', 'to', 'total')}}
+        _zip_state.clear()
+        _zip_state.update(phase='downloading', downloaded=0,
+                          total=rel.get('zip_size') or 0,
+                          **{'from': APP_VERSION, 'to': latest})
+    threading.Thread(target=_run_zip_update, args=(root, rel), daemon=True).start()
+    return {'ok': True, 'async': True, 'from': APP_VERSION, 'to': latest,
+            'total': rel.get('zip_size') or 0}
+
+
+def _run_zip_update(root, rel) -> None:
+    """Worker body: run the update, mirror its phase into `_zip_state`, and on
+    success schedule the restart. Any failure lands as phase 'error' (already
+    rolled back inside apply_zip_update), which the UI surfaces honestly."""
+    def cb(phase, done=0, total=0):
+        with _zip_lock:
+            _zip_state['phase'] = phase
+            if total:
+                _zip_state['total'] = total
+            if done:
+                _zip_state['downloaded'] = done
+    res = apply_zip_update(root, release=rel, on_progress=cb)
+    with _zip_lock:
+        if res.get('ok') and res.get('changed'):
+            _zip_state.update(phase='restarting', deps_changed=bool(res.get('deps_changed')))
+        elif res.get('ok'):
+            _zip_state.update(phase='done', changed=False)
+        else:
+            _zip_state.update(phase='error', error=res.get('reason'), rolled_back=True)
+    if res.get('ok') and res.get('changed'):
+        schedule_restart(install_requirements=bool(res.get('deps_changed')))
 
 
 def _dependency_install_command(root=None, executable=None) -> list[str]:

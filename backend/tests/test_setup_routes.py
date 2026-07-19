@@ -44,6 +44,43 @@ def test_status_idle(client):
     assert r.status_code == 200 and r.get_json()['state'] == 'idle'
 
 
+# --- "Install everything" orchestrator endpoints ---------------------------
+
+def test_install_all_plan_endpoint(client, monkeypatch):
+    from app import capabilities, setup_installer
+    monkeypatch.setattr(capabilities, 'probe', lambda force=False: {'python': {'ml_supported': True}})
+    monkeypatch.setattr(setup_installer, 'install_all_plan', lambda caps: ['face_scoring', 'masks'])
+    r = client.get('/api/setup/install-all/plan')
+    assert r.status_code == 200 and r.get_json()['plan'] == ['face_scoring', 'masks']
+
+
+def test_install_all_starts_plan(client, monkeypatch):
+    from app import capabilities, setup_installer
+    started = []
+    monkeypatch.setattr(capabilities, 'probe', lambda force=False: {})
+    monkeypatch.setattr(setup_installer, 'start',
+                        lambda a: (started.append(a) or {'state': 'running', 'returncode': None,
+                                                          'log': [], 'progress': None,
+                                                          'waiting_for': None,
+                                                          'manual_command': ''}))
+    r = client.post('/api/setup/install-all')
+    body = r.get_json()
+    assert r.status_code == 200
+    # the {} snapshot -> the three always-runnable ML extras
+    assert body['plan'] == ['face_scoring', 'masks', 'watermark_inpaint']
+    assert set(body['statuses']) == set(body['plan'])
+    assert started == body['plan']
+
+
+def test_install_all_status_batches_requested_actions(client):
+    r = client.get('/api/setup/install-all/status',
+                   query_string={'actions': 'face_scoring,masks,not_real'})
+    body = r.get_json()
+    assert r.status_code == 200
+    assert set(body['statuses']) == {'face_scoring', 'masks'}   # unknown dropped
+    assert body['statuses']['face_scoring']['state'] == 'idle'
+
+
 # --- ComfyUI directory validation endpoint (Setup Volet 1) -----------------
 
 def test_validate_comfyui_dir_blank(client):

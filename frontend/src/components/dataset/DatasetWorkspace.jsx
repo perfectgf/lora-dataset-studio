@@ -11,6 +11,7 @@ import { isDatasetImportBlocked } from './scraperState';
 import DatasetGrid from './DatasetGrid';
 import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
+import CaptionOptionsPopover from './CaptionOptionsPopover';
 import { recaptionConfirmation } from './captionCategory';
 import CropModal from './CropModal';
 import DatasetLightbox from './DatasetLightbox';
@@ -125,6 +126,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const { caps, refresh: refreshCaps } = useCapabilities();
   const d = ds.data;
   const [cropImg, setCropImg] = useState(null);
+  const [captionOptionsOpen, setCaptionOptionsOpen] = useState(false);
   // Frozen snapshot of the flagged queue when review mode opens (null = closed).
   const [reviewQueue, setReviewQueue] = useState(null);
   const zipInput = useRef(null);   // hidden input for "Import dataset (ZIP)"
@@ -797,6 +799,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
             <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2">
               <span className="inline-block w-4 h-4 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin" aria-hidden />
               <span className="text-content text-sm">{activityBanner}</span>
+              {(act?.kind === 'caption' || act?.kind === 'recaption') && (
+                <button type="button" onClick={ds.cancelCaption} disabled={!!act?.cancelling}
+                  title="Stops after the current image finishes — captions already written are kept; the rest stays uncaptioned."
+                  className="ml-auto shrink-0 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed">
+                  {act?.cancelling ? 'Stopping…' : '⏹ Stop'}
+                </button>
+              )}
             </div>
           )}
 
@@ -1137,6 +1146,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
                   🔄 Re-caption
                 </button>
+                <button type="button" data-workspace-focus
+                  onClick={() => setCaptionOptionsOpen(true)} disabled={ds.busy}
+                  title="Choose the caption engine, Ollama model and vocabulary, pull a new model, and add custom instructions — for this dataset"
+                  className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
+                  ⚙️ Options
+                </button>
+                <HelpBadge topic="action-caption-options" />
                 {/* Caption-leak badge — KIND-aware. character: identity words
                     (hair/face/skin); concept: the caption NAMING the concept (must bind to
                     the trigger, not the words); style: not applicable (the subjects'
@@ -1537,6 +1553,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
         <FolderBrowserModal
           onPick={(p) => ds.importDatasetFolder(p)}
           onClose={() => setFolderBrowseOpen(false)} />
+      )}
+      {captionOptionsOpen && (
+        <CaptionOptionsPopover datasetId={d.id}
+          onClose={() => setCaptionOptionsOpen(false)} />
       )}
       {reviewQueue && reviewQueue.length > 0 && (
         <WatermarkReviewLightbox

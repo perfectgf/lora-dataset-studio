@@ -266,6 +266,20 @@ def update_check():
             out['url'] = j.get('html_url') or out['url']
             # Date-based versions (YYYY.MM.DD[.N]) -> plain string comparison.
             out['update_available'] = bool(latest) and latest > APP_VERSION
+            # can_apply: this release ships a downloadable ZIP asset, so a packaged
+            # (non-git) install can update in-app instead of only linking out to the
+            # releases page. The button keys off this for a ZIP install.
+            zip_size = 0
+            for a in (j.get('assets') or []):
+                name = (a.get('name') or '').lower()
+                if name.endswith('.zip') and a.get('browser_download_url'):
+                    zip_size = int(a.get('size') or 0)
+                    if 'windows' in name:
+                        break
+            out['can_apply'] = bool(zip_size) or any(
+                (a.get('name') or '').lower().endswith('.zip') and a.get('browser_download_url')
+                for a in (j.get('assets') or []))
+            out['zip_size'] = zip_size          # bytes, for the "download ~XX MB" hint
         else:
             out['reason'] = (f'release feed answered {r.status_code} '
                              '(no public release yet?)')
@@ -277,21 +291,37 @@ def update_check():
 
 @bp.post('/update/apply')
 def update_apply():
-    """Pull the latest commits (git checkout only) and, if anything changed, restart the
-    server. Returns immediately with {ok, changed, from, to, restarting, log, ...}; the
-    actual re-launch happens ~1 s after this response flushes, so the client can start
-    polling /api/health. A packaged build (no git) gets {manual:true, url} instead."""
+    """Update to the latest version and, if anything changed, restart the server.
+
+    A git checkout pulls the latest commits and restarts synchronously (fast).
+    A packaged (ZIP) install starts the download+swap on a background thread and
+    returns {ok, async:true, from, to, total}; the client then polls
+    /api/update/progress and, when it reports 'restarting', /api/health. The
+    trivial ZIP outcomes (up to date / no ZIP asset / offline) come back inline
+    just like the git path. Both defer changed requirements to the restart helper."""
     from ..services import updater
-    res = updater.apply_update()
-    res['restarting'] = bool(res.get('ok') and res.get('changed'))
-    if res['restarting']:
-        # invalidate the cached checks so the banner/badge re-evaluate post-update
-        _update_cache.update(ts=0.0, data=None)
-        _git_check_cache.update(ts=0.0, data=None)
-        updater.schedule_restart(
-            install_requirements=bool(res.get('deps_changed'))
-        )
-    return jsonify(res)
+    if updater.is_git_checkout():
+        res = updater.apply_update()
+        res['restarting'] = bool(res.get('ok') and res.get('changed'))
+        if res['restarting']:
+            # invalidate the cached checks so the banner/badge re-evaluate post-update
+            _update_cache.update(ts=0.0, data=None)
+            _git_check_cache.update(ts=0.0, data=None)
+            updater.schedule_restart(install_requirements=bool(res.get('deps_changed')))
+        return jsonify(res)
+    # Packaged install: async release update with a progress poll.
+    _update_cache.update(ts=0.0, data=None)
+    return jsonify(updater.start_zip_update())
+
+
+@bp.get('/update/progress')
+def update_progress():
+    """Live progress of an in-flight release-ZIP update (packaged install). The
+    client polls this after an async /update/apply: phase is one of downloading /
+    extracting / installing / restarting / done / error, with byte counts while
+    downloading and an honest `error` (already rolled back) on failure."""
+    from ..services import updater
+    return jsonify(updater.zip_update_progress())
 
 
 @bp.post('/settings/restart')

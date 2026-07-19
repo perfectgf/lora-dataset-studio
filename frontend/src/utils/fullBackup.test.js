@@ -63,6 +63,37 @@ test('summarizeRestoreReport is honest about restored/renamed/skipped/config', (
   assert.ok(r.notes.some((n) => /datasets\/9-bad\.zip — corrupt/.test(n)));
 });
 
+test('summarizeBackupResult surfaces training history and bundled LoRAs', () => {
+  const withRuns = summarizeBackupResult({
+    size_bytes: 5e6, datasets_backed_up: 2, runs_total: 3, skipped: [],
+    loras_included: true, loras_total: 4, loras_bytes: 8e8,
+  });
+  assert.ok(withRuns.notes.some((n) => /Training history included \(3 runs\)/.test(n)));
+  assert.ok(withRuns.notes.some((n) => /4 trained LoRAs bundled \(800 MB\)/.test(n)));
+
+  const optedInEmpty = summarizeBackupResult({
+    size_bytes: 1e6, datasets_backed_up: 1, runs_total: 0,
+    loras_included: true, loras_total: 0,
+  });
+  assert.ok(optedInEmpty.notes.some((n) => /No deployed LoRA files/.test(n)));
+});
+
+test('summarizeRestoreReport reports restored runs and skipped LoRAs', () => {
+  const r = summarizeRestoreReport({
+    datasets_total: 2, restored: 2, runs_restored: 2, loras_restored: 1,
+    loras_skipped: [{ name: 'lora_bob.safetensors', reason: 'ComfyUI not configured on this machine' }],
+  });
+  assert.ok(r.notes.some((n) => /Training history restored \(2 runs\)/.test(n)));
+  assert.ok(r.notes.some((n) => /1 trained LoRA re-deployed/.test(n)));
+
+  const resync = summarizeRestoreReport({
+    datasets_total: 1, restored: 1, runs_restored: 0, runs_resynced: 1,
+  });
+  assert.ok(resync.notes.some((n) => /1 dataset re-detected as trained from files already/.test(n)));
+  assert.ok(r.notes.some((n) => /1 LoRA file not restored:/.test(n)));
+  assert.ok(r.notes.some((n) => /lora_bob\.safetensors — ComfyUI not configured/.test(n)));
+});
+
 test('isSettled only for done/error', () => {
   assert.equal(isSettled({ state: 'running' }), false);
   assert.equal(isSettled({ state: 'done' }), true);

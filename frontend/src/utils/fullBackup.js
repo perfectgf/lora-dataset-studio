@@ -41,6 +41,14 @@ export function summarizeBackupResult(result) {
   const size = formatBytes(result.size_bytes || 0);
   const headline = `Backup ready — ${plural(n, 'dataset')}, ${size}`;
   const notes = [];
+  const runs = result.runs_total ?? 0;
+  if (runs) notes.push(`Training history included (${plural(runs, 'run')}) — restores your “Trained” status.`);
+  if (result.loras_included) {
+    const loras = result.loras_total ?? 0;
+    notes.push(loras
+      ? `${plural(loras, 'trained LoRA')} bundled (${formatBytes(result.loras_bytes || 0)}).`
+      : 'No deployed LoRA files were found to bundle.');
+  }
   const skipped = result.skipped || [];
   if (skipped.length) {
     notes.push(`${plural(skipped.length, 'dataset')} skipped:`);
@@ -52,7 +60,7 @@ export function summarizeBackupResult(result) {
 /*
  * The honest end-of-restore report. `result`:
  * {datasets_total, restored, skipped:[{entry,reason}], renamed:[{from,to}],
- *  config_restored}.
+ *  config_restored, runs_restored, loras_restored, loras_skipped:[{name,reason}]}.
  */
 export function summarizeRestoreReport(result) {
   if (!result) return { headline: 'Restore finished', notes: [] };
@@ -60,6 +68,12 @@ export function summarizeRestoreReport(result) {
   const restored = result.restored ?? 0;
   const headline = `Restored ${restored} of ${plural(total, 'dataset')}`;
   const notes = [];
+  const runs = result.runs_restored ?? 0;
+  if (runs) notes.push(`Training history restored (${plural(runs, 'run')}) — your datasets are back under “Trained”.`);
+  const resynced = result.runs_resynced ?? 0;
+  if (resynced) notes.push(`${plural(resynced, 'dataset')} re-detected as trained from files already on this machine.`);
+  const loras = result.loras_restored ?? 0;
+  if (loras) notes.push(`${plural(loras, 'trained LoRA')} re-deployed to ComfyUI.`);
   if (result.config_restored) notes.push('Settings restored — re-enter your API keys on this install.');
   const renamed = result.renamed || [];
   for (const r of renamed) notes.push(`• Renamed “${r.from}” → “${r.to}” (a dataset by that name already existed)`);
@@ -67,6 +81,11 @@ export function summarizeRestoreReport(result) {
   if (skipped.length) {
     notes.push(`${plural(skipped.length, 'dataset')} skipped:`);
     for (const s of skipped) notes.push(`• ${s.entry || 'entry'} — ${s.reason || 'could not be restored'}`);
+  }
+  const lorasSkipped = result.loras_skipped || [];
+  if (lorasSkipped.length) {
+    notes.push(`${plural(lorasSkipped.length, 'LoRA file')} not restored:`);
+    for (const s of lorasSkipped) notes.push(`• ${s.name || 'file'} — ${s.reason || 'could not be restored'}`);
   }
   return { headline, notes };
 }

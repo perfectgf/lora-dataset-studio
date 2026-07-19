@@ -66,6 +66,38 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-07-19-stop-captioning-batch',
+    date: '2026-07-19',
+    title: 'Stop a captioning batch mid-run',
+    blurb:
+      "Launched a big caption pass and realized it's captioning badly, or you mis-set an option? A ⏹ Stop button now sits in the captioning progress banner. It finishes the image currently being written — never cuts an inference off mid-way — then stops cleanly: everything captioned so far is kept, the rest is left untouched, and the GPU is freed exactly as on a normal finish. You get an honest \"stopped — X captioned\" summary. No more waiting out a 100-image run you already know is wrong.",
+    to: '/datasets?section=captions',
+  },
+  {
+    id: '2026-07-19-caption-method-options',
+    date: '2026-07-19',
+    title: 'Choose your caption engine, model and instructions — per dataset',
+    blurb:
+      "The Captions area has a new ⚙️ Options button. Pick which engine writes this dataset's captions (Auto, JoyCaption, or Ollama vision), choose which pulled Ollama vision model runs — or pull a new one by name right there, with a live progress readout. A Vocabulary preset sets how the model names nude or sexual content — Explicit (crude, uncensored — pair it with an abliterated vision model), Clinical, or Safe — and you can still add your own extra instructions to steer the wording (e.g. “always name the visible clothing colors”). Presets and instructions ride on top of the built-in prompt, so the identity / concept / style guardrails and the leak cleaners still apply — they change wording, never what binds to the trigger. Everything is remembered on the dataset and used by the next caption or re-caption run; leave any field on “default” to keep following Settings.",
+    to: '/datasets?section=captions',
+  },
+  {
+    id: '2026-07-19-setup-install-everything',
+    date: '2026-07-19',
+    title: 'Setup: an install step with one-click Install everything — and reinstall per item',
+    blurb:
+      "After you've configured your services, Setup has a dedicated install step. One Install everything button queues every component the app can install for you — the ML extras (face scoring, person masks, watermark inpainting), the Ollama vision model when Ollama is running, and the Klein weights when a valid ComfyUI is set — with a live “X / N” progress bar. Heavy installs still run one at a time so they never clash, and the big model downloads run in parallel. Below it, a menu lets you install each component on its own — and it stays there even once everything is in, with a ↻ Reinstall button per item to repair a broken install (a corrupted environment) without redoing the rest.",
+    to: '/setup',
+  },
+  {
+    id: '2026-07-19-zip-install-in-app-update',
+    date: '2026-07-19',
+    title: '“Update & restart” now works even if you installed from a ZIP',
+    blurb:
+      "If you downloaded the app as a ZIP from the releases page (no Git), the “Update & restart” button used to only send you off to download the new version by hand. Now it does it for you, and the button adapts to how you installed: on a ZIP install it names the release and its size (“Update to v2026.07.19 — download ~42 MB”) and shows a live progress bar while it downloads and installs, since that takes longer than a git pull. It backs up your current files, swaps in the new ones — keeping your datasets, settings, .env and Python environment fully intact — then restarts. If anything goes wrong mid-way it rolls back automatically, so a failed update never leaves you with a broken install. Git clones keep updating exactly as before.",
+    to: '/settings/maintenance',
+  },
+  {
     id: '2026-07-18-runs-show-base-model',
     date: '2026-07-18',
     title: 'Run cards now name the exact base model each LoRA trained on',
@@ -84,9 +116,9 @@ export const WHATS_NEW = [
   {
     id: '2026-07-18-back-up-everything',
     date: '2026-07-18',
-    title: 'Back up your whole library — and your settings — in one click',
+    title: 'Back up your whole library — datasets, training history and settings — in one click',
     blurb:
-      "A new “💾 Back up everything” button on the Datasets library packs every dataset (images, captions, statuses, references) plus your settings into a single file, so you can move to a new machine or recover from one without losing anything. It runs in the background with a live progress bar — a big library can be gigabytes — then hands you a download and an “Open folder”. Your API keys and tokens are deliberately left out, so the file is safe to keep around; re-enter them once on the new install. Restoring is the same “📦 Import backup” button: it now accepts the master archive too, rebuilds every dataset without ever overwriting one (name clashes get a “(restored)” suffix) and gives you an honest report of what came back.",
+      "A new “💾 Back up everything” button on the Datasets library packs every dataset (images, captions, statuses, references), its training history, plus your settings into a single file, so you can move to a new machine or recover from one without losing anything. It runs in the background with a live progress bar — a big library can be gigabytes — then hands you a download and an “Open folder”. Your API keys and tokens are deliberately left out, so the file is safe to keep around; re-enter them once on the new install. Restoring is the same “📦 Import backup” button: it now accepts the master archive too, rebuilds every dataset without ever overwriting one (name clashes get a “(restored)” suffix), and — new — brings back each dataset’s training runs so it lands under “Trained” again instead of “Not trained yet”, with its history in the Runs hub. Tick “Include trained LoRAs” before backing up to bundle the trained .safetensors themselves (a much larger file); leave it off and the light training history still restores your “Trained” status. You always get an honest report of exactly what came back and what was skipped.",
     to: '/datasets',
   },
   {

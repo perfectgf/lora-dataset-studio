@@ -43,3 +43,30 @@ def install_status(action):
     if action not in setup_installer.INSTALL_ACTIONS:
         return jsonify({'error': f'unknown action: {action}'}), 404
     return jsonify(setup_installer.status(action))
+
+
+@bp.get('/install-all/plan')
+def install_all_plan():
+    """What 'Install everything' WOULD queue for the current machine — the missing
+    components the app can install itself (ML extras, the vision model when Ollama is
+    up, the Klein weights when a valid ComfyUI is set). Read-only, so the button can
+    show the plan (and an accurate 'X items') before the user commits."""
+    caps = capabilities.probe()
+    return jsonify({'plan': setup_installer.install_all_plan(caps)})
+
+
+@bp.post('/install-all')
+def start_install_all():
+    """One click that queues every install in the plan above. Reuses the per-action
+    serialization (pip FIFO) and preconditions, so it's a safe fan-out — nothing new to
+    race. Returns the plan + each action's status for the global progress bar."""
+    caps = capabilities.probe()
+    return jsonify(setup_installer.start_all(caps))
+
+
+@bp.get('/install-all/status')
+def install_all_status():
+    """Batched status for the actions the caller is tracking (?actions=a,b,c) — one poll
+    for the whole 'Install everything' run instead of one request per action."""
+    actions = [a for a in (request.args.get('actions', '') or '').split(',') if a]
+    return jsonify({'statuses': setup_installer.status_many(actions)})

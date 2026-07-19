@@ -3092,6 +3092,35 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
     return out
 
 
+def lora_deploy_dir(user_id, dataset_id, family=None) -> str:
+    """Absolute ComfyUI loras deploy folder for this dataset's FAMILY. Raises
+    RuntimeError when ComfyUI is unconfigured (the caller — the full-backup
+    service — treats that as "can't place restored LoRA here", never fatal).
+    Public wrapper so backup/restore never reaches into `_lora_dest_dir`."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    return _lora_dest_dir(ds, family)
+
+
+def deployed_lora_paths(user_id, dataset_id, family=None) -> list[str]:
+    """Absolute paths of THIS dataset's LoRA files already deployed in the
+    family's ComfyUI loras folder, for the "include trained LoRAs" backup toggle.
+    [] when ComfyUI is unconfigured or nothing is deployed. Reuses
+    list_imported_checkpoints so cloud-named epochs are captured too."""
+    try:
+        dest = lora_deploy_dir(user_id, dataset_id, family)
+    except (RuntimeError, ValueError):
+        return []
+    out = []
+    for c in list_imported_checkpoints(user_id, dataset_id, family=family):
+        name = os.path.basename(str(c.get('filename', '')).replace('\\', '/'))
+        p = os.path.join(dest, name)
+        if name and os.path.isfile(p):
+            out.append(p)
+    return out
+
+
 def delete_imported_checkpoint(user_id, dataset_id, filename, family=None) -> str:
     """Supprime un checkpoint déployé du dossier loras de ComfyUI. Garde-fous :
     le filename doit appartenir aux checkpoints importés du dataset (whitelist,

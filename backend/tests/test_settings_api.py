@@ -506,3 +506,44 @@ def test_update_apply_defers_changed_requirements_to_restart(client, monkeypatch
     assert response.status_code == 200
     assert response.get_json()['restarting'] is True
     assert calls == [((), {'install_requirements': True})]
+
+
+def test_update_check_reports_can_apply_for_zip_release(client, monkeypatch, _reset_update_cache):
+    """A release with a ZIP asset -> can_apply True, so a packaged install can
+    update in-app instead of only linking to the releases page."""
+    import requests
+    monkeypatch.setattr(requests, 'get', lambda *a, **k: _FakeResp(200, {
+        'tag_name': 'v9999.12.31',
+        'assets': [{'name': 'LoRA-Dataset-Studio-windows.zip',
+                    'browser_download_url': 'https://x/win'}]}))
+    d = client.get('/api/update/check').get_json()
+    assert d['update_available'] is True and d['can_apply'] is True
+
+
+def test_update_apply_zip_install_starts_async_release_update(client, monkeypatch):
+    """A NON-git install routes /update/apply to the async release-ZIP updater
+    (never the git pull path) and returns an async handle the client then polls."""
+    from app.services import updater
+    monkeypatch.setattr(updater, 'is_git_checkout', lambda root=None: False)
+    called = {}
+    def fake_start():
+        called['zip'] = True
+        return {'ok': True, 'async': True, 'from': '2026.07.16.1',
+                'to': '9999.01.01', 'total': 42_000_000}
+    monkeypatch.setattr(updater, 'start_zip_update', fake_start)
+    monkeypatch.setattr(updater, 'apply_update',
+                        lambda: (_ for _ in ()).throw(AssertionError('git path must not run')))
+
+    r = client.post('/api/update/apply')
+
+    body = r.get_json()
+    assert r.status_code == 200 and called.get('zip') is True
+    assert body['async'] is True and body['to'] == '9999.01.01' and body['total'] == 42_000_000
+
+
+def test_update_progress_endpoint_returns_state(client, monkeypatch):
+    from app.services import updater
+    monkeypatch.setattr(updater, 'zip_update_progress',
+                        lambda: {'phase': 'downloading', 'downloaded': 10, 'total': 100})
+    d = client.get('/api/update/progress').get_json()
+    assert d['phase'] == 'downloading' and d['downloaded'] == 10 and d['total'] == 100
