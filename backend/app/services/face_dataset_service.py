@@ -3523,6 +3523,76 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
     return out
 
 
+# --- Caption Lab: per-candidate preview (no persistence) ---------------------
+# The 🧪 Caption Lab lets the user try a caption CONFIG (engine × Ollama model ×
+# vocabulary register) on ONE image and read the result WITHOUT writing anything to
+# the row. It rides on caption_paths() — the dataset-free by-path brick — so it runs
+# purely DESCRIPTIVE captioning (no kind omission, no dual short): the point is to
+# compare raw model output side by side and pick the config, not to produce the final
+# stored caption (that still goes through the normal caption pass with its kind rules).
+
+def _compose_preview_instructions(vocabulary, instructions) -> str | None:
+    """Combine a vocabulary preset (the SAME appended register the dataset pass uses,
+    from _VOCABULARY_INSTRUCTION) with the user's free extra instructions into the single
+    ``extra_instructions`` string caption_paths appends to the prompt. None when neither
+    is set (byte-identical to a plain descriptive pass)."""
+    parts = []
+    if vocabulary:
+        parts.append(_VOCABULARY_INSTRUCTION[vocabulary])
+    extra = (instructions or '').strip()[:_CAPTION_INSTRUCTIONS_MAX]
+    if extra:
+        parts.append(extra)
+    return '\n'.join(parts) if parts else None
+
+
+def preview_caption(user_id, dataset_id, image_id, *, backend=None, ollama_model=None,
+                    vocabulary=None, instructions=None, should_cancel=None) -> dict:
+    """Caption ONE dataset image with a candidate config and return the text WITHOUT
+    persisting it — the Caption Lab's ephemeral A/B probe. Reuses caption_paths(), so the
+    engine/model/GPU serialization contract is identical to the batch pass.
+
+    backend      : '' / None → global default; else one of _CAPTION_BACKENDS ('none' is
+                   rejected here — a preview with captioning disabled makes no sense).
+    vocabulary   : '' / None → the model's own wording; else an _CAPTION_VOCABULARIES
+                   preset, appended as an instruction exactly like the dataset options.
+    instructions : free extra instructions, appended after the vocabulary preset.
+    should_cancel: polled by caption_paths at the image boundary (Ollama phase) so the
+                   existing Stop path can abort a preview cleanly.
+
+    Returns {caption, chars, duration_ms, cancelled}. Raises ValueError (bad image/config)
+    → 400, RuntimeError (engine unavailable) → 409, GpuBusyError → 503 (via the route's
+    vision window). Never writes to the DB or the filesystem."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    img = db.session.get(FaceDatasetImage, image_id)
+    if not img or img.dataset_id != ds.id or not img.filename:
+        raise ValueError('image not found')
+    path = _img_path(img)
+    if not os.path.isfile(path):
+        raise ValueError('image file missing on disk')
+    backend = (backend or '').strip().lower() or None
+    if backend and backend not in _CAPTION_BACKENDS:
+        raise ValueError(f'invalid captioning backend: {backend}')
+    if backend == 'none':
+        raise ValueError('captioning is disabled for this candidate')
+    vocab = (vocabulary or '').strip().lower() or None
+    if vocab and vocab not in _CAPTION_VOCABULARIES:
+        raise ValueError(f'invalid caption vocabulary: {vocab}')
+    extra = _compose_preview_instructions(vocab, instructions)
+    ollama_model = (ollama_model or '').strip() or None
+    started = time.perf_counter()
+    out = caption_paths([path], backend=backend, ollama_model=ollama_model,
+                        extra_instructions=extra, should_cancel=should_cancel)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    caption = (out.get(path) or '').strip()
+    # A stop consumed before the (single) image ran leaves no caption — surface it so the
+    # Lab card reads "cancelled" rather than a misleading empty result.
+    cancelled = bool(not caption and should_cancel and should_cancel())
+    return {'caption': caption, 'chars': len(caption),
+            'duration_ms': duration_ms, 'cancelled': cancelled}
+
+
 # --- Short-caption derivation (ai-toolkit dual long+short captioning) --------
 # When a dataset opts into dual captions, ai-toolkit trains each image with BOTH the long
 # and the short caption in the same step (short_and_long_captions doubles the batch — see

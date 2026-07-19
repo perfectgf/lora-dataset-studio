@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-caption-lab',
+    date: '2026-07-19',
+    title: '🧪 Caption Lab — try caption models side by side before you commit',
+    blurb:
+      "Open any image's caption editor and switch to the new 🧪 Caption Lab tab: line up to four caption configs — engine (JoyCaption or an Ollama vision model), which model, and the nude/sexual vocabulary register (Explicit / Clinical / Safe) — and run them on THIS image. They generate one after another (the GPU stays serialized, never fighting a training run), then land as cards side by side with the caption, its length and how long it took, next to your current caption for reference. A/B your NSFW captioners without guessing. When one wins, ✓ Keep this one drops it straight into the editor, or ⚙️ Make default stores that config as the dataset's caption method. Nothing is saved until you pick — it's a bench, not a batch.",
+    to: '/datasets',
+  },
+  {
     id: '2026-07-19-graph-modal-visible-from-checkpoints',
     date: '2026-07-19',
     title: '◉ Graph now opens from the Checkpoints panel',

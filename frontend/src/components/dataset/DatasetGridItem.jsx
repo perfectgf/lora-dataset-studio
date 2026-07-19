@@ -271,6 +271,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
       )}
       {captionEditorOpen && (
         <CaptionEditorDialog initialCaption={cap} imageUrl={url}
+          datasetId={datasetId} imageId={img.id}
           initialShortCaption={img.caption_short || ''} showShort={dualCaptions}
           imageLabel={displayLabel(img.variation_label)}
           onClose={() => setCaptionEditorOpen(false)}

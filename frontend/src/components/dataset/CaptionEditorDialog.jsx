@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { captionCharacterLabel, isCaptionSaveShortcut, isLikelyTruncatedCaption } from '../../utils/captionEditor';
+import CaptionLab from './CaptionLab';
 
 export default function CaptionEditorDialog({
   initialCaption, initialShortCaption, showShort = false, imageUrl, imageLabel, onClose, onSave,
+  datasetId, imageId,
 }) {
   const [draft, setDraft] = useState(initialCaption || '');
   const [shortDraft, setShortDraft] = useState(initialShortCaption || '');
   // Collapsed by default; auto-open when a short already exists so it isn't hidden.
   const [shortOpen, setShortOpen] = useState(Boolean((initialShortCaption || '').trim()));
+  // 'edit' (the default caption editor) | 'lab' (🧪 try several caption configs). The Lab
+  // is one click away and only offered when we know which image to caption.
+  const [mode, setMode] = useState('edit');
+  const labAvailable = datasetId != null && imageId != null;
   const textareaRef = useRef(null);
 
   useEffect(() => {
@@ -34,9 +40,25 @@ export default function CaptionEditorDialog({
       <section role="dialog" aria-modal="true" aria-labelledby="caption-editor-title"
         className="flex h-[min(92vh,50rem)] w-[min(96vw,72rem)] flex-col overflow-hidden rounded-2xl border border-border bg-app shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-border bg-surface px-4 py-3 sm:px-5">
-          <div>
-            <p className="m-0 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-content-subtle">Dataset image</p>
-            <h2 id="caption-editor-title" className="m-0 mt-0.5 text-lg font-semibold text-content">Edit caption</h2>
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="min-w-0">
+              <p className="m-0 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-content-subtle">Dataset image</p>
+              <h2 id="caption-editor-title" className="m-0 mt-0.5 text-lg font-semibold text-content">
+                {mode === 'lab' ? 'Caption Lab' : 'Edit caption'}
+              </h2>
+            </div>
+            {labAvailable && (
+              <div className="ml-1 flex rounded-lg border border-border bg-app p-0.5" role="tablist" aria-label="Caption editor mode">
+                <button type="button" role="tab" aria-selected={mode === 'edit'} onClick={() => setMode('edit')}
+                  className={`rounded-md px-2.5 py-1 text-xs font-semibold ${mode === 'edit' ? 'bg-surface text-content shadow-sm' : 'text-content-muted hover:text-content'}`}>
+                  Edit
+                </button>
+                <button type="button" role="tab" aria-selected={mode === 'lab'} onClick={() => setMode('lab')}
+                  className={`rounded-md px-2.5 py-1 text-xs font-semibold ${mode === 'lab' ? 'bg-surface text-content shadow-sm' : 'text-content-muted hover:text-content'}`}>
+                  🧪 Caption Lab
+                </button>
+              </div>
+            )}
           </div>
           <button type="button" onClick={onClose} aria-label="Close expanded caption editor"
             className="rounded-lg border border-border bg-app px-2.5 py-1.5 text-sm text-content-muted hover:text-content">
@@ -54,6 +76,12 @@ export default function CaptionEditorDialog({
             )}
           </div>
 
+          {mode === 'lab' ? (
+            <div className="flex min-h-0 flex-col p-4 sm:p-5">
+              <CaptionLab datasetId={datasetId} imageId={imageId} currentCaption={draft}
+                onKeep={(text) => { setDraft(text); setMode('edit'); textareaRef.current?.focus(); }} />
+            </div>
+          ) : (
           <div className="flex min-h-0 flex-col gap-3 p-4 sm:p-5">
             <div className="flex items-center justify-between gap-3">
               <label htmlFor="expanded-caption" className="text-sm font-semibold text-content">Caption text</label>
@@ -123,6 +151,7 @@ export default function CaptionEditorDialog({
               </div>
             </div>
           </div>
+          )}
         </div>
       </section>
     </div>,

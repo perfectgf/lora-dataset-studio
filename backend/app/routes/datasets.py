@@ -616,6 +616,39 @@ def dataset_caption_options_set(dataset_id):
     return jsonify({'ok': True, 'options': options})
 
 
+@bp.post('/dataset/<int:dataset_id>/image/<int:image_id>/caption/preview')
+def dataset_image_caption_preview(dataset_id, image_id):
+    """🧪 Caption Lab: run ONE candidate config on ONE image and return the caption
+    WITHOUT writing it. Ephemeral A/B probe — the modal fires this once per candidate,
+    sequentially, and compares them side by side.
+
+    409 when a captioning batch is already running on THIS dataset (the real pass owns the
+    GPU); 503 when training or another vision task holds the exclusive window. The preview
+    registers itself as a short 'caption' activity so the existing ▶ Stop / cancel path
+    can abort it at the image boundary."""
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    if not ds:
+        return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    active = dataset_activity.get(dataset_id)
+    if active and active.get('kind') in dataset_activity.CANCELLABLE_KINDS:
+        return jsonify({'error': 'a captioning batch is in progress on this dataset'}), 409
+    token = dataset_activity.begin(dataset_id, 'caption', total=1, detail='Caption Lab')
+    try:
+        with gpu_exclusive_vision_window(flag_ttl=600):
+            result = svc.preview_caption(
+                LOCAL_USER, dataset_id, image_id,
+                backend=data.get('backend'), ollama_model=data.get('ollama_model'),
+                vocabulary=data.get('vocabulary'), instructions=data.get('instructions'),
+                should_cancel=lambda: dataset_activity.cancel_requested(dataset_id))
+    except Exception as e:
+        return _map_error(e)
+    finally:
+        dataset_activity.end(token)
+        dataset_activity.clear_cancel(dataset_id)
+    return jsonify({'ok': True, **result})
+
+
 @bp.post('/dataset/<int:dataset_id>/analyze-faces')
 def dataset_analyze_faces(dataset_id):
     # CPU (onnxruntime CPU-only) -> PAS de fenêtre GPU exclusive, ComfyUI non stoppé.

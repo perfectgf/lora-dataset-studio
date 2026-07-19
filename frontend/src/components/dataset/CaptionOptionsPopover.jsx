@@ -10,7 +10,9 @@ import { useToast } from '../common/Toast';
    Saved to caption_options and picked up by the next caption / re-caption run (targeted
    and dual-short included). Modal so it never fights the workspace layout. */
 
-const ENGINE_OPTIONS = [
+// Shared with the 🧪 Caption Lab (CaptionLab.jsx) so the engine/vocabulary choices
+// never drift between "set the dataset default" and "try a candidate".
+export const ENGINE_OPTIONS = [
   { id: '', label: 'Use default (Settings ▸ Captioning)' },
   { id: 'auto', label: 'Auto — JoyCaption, then Ollama' },
   { id: 'joycaption', label: 'JoyCaption only' },
@@ -19,11 +21,11 @@ const ENGINE_OPTIONS = [
 ];
 
 // The Ollama model + pull only bite when the resolved engine can use Ollama.
-const OLLAMA_RELEVANT = new Set(['', 'auto', 'ollama']);
+export const OLLAMA_RELEVANT = new Set(['', 'auto', 'ollama']);
 
 // Vocabulary register for nude/sexual content. '' = leave the model to its own wording.
 // 'explicit' is the NSFW lane — pair it with an abliterated Ollama vision model.
-const VOCABULARY_OPTIONS = [
+export const VOCABULARY_OPTIONS = [
   { id: '', label: 'Default — the model’s own wording' },
   { id: 'explicit', label: 'Explicit — crude, uncensored terms' },
   { id: 'clinical', label: 'Clinical — neutral anatomical terms' },
