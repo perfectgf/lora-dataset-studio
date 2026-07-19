@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-19-bank-sort-resolution',
+    date: '2026-07-19',
+    title: '📐 Sort your Bank by resolution',
+    blurb:
+      "The 🗃️ Bank grid gains a Sort control next to the tiles: order every image by resolution, biggest or smallest first. It ranks by megapixels (width×height), so a crisp 900×900 outranks a stretched 1200×300 — the right way to skim a mixed dump for the sharpest, most trainable shots. It stacks on top of every filter and search you already have, and 'Select all in filter' follows the same order. Images not scanned yet sink to the end.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-19-caption-lab',
     date: '2026-07-19',
     title: '🧪 Caption Lab — try caption models side by side before you commit',

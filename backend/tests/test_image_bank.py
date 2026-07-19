@@ -267,6 +267,47 @@ def test_images_filters_and_pagination(client, tmp_path):
     assert status['total'] == 0
 
 
+def test_images_sort_by_resolution(client, tmp_path, app):
+    """Sort=res_desc/res_asc orders by MEGAPIXELS (width×height), not width — a
+    900×900 (810k px) outranks a wider 1200×300 (360k). Unscanned rows (width or
+    height NULL) sink to the end in BOTH directions, and the sort composes with
+    filters + pagination."""
+    files = {f'{n}.jpg': checkerboard(size=64) for n in ('a', 'b', 'c', 'd', 'e')}
+    bank_id, _src = _mkbank(client, tmp_path, files)
+    # Set dimensions by hand (bypass the scan) so the areas are unambiguous.
+    dims = {'a': (900, 900), 'b': (1200, 300), 'c': (1000, 1000),
+            'd': (400, 400), 'e': (None, None)}   # e = unscanned → NULL area
+    with app.app_context():
+        from app.extensions import db
+        from app.models import BankImage
+        for row in BankImage.query.filter_by(bank_id=bank_id).all():
+            w, h = dims[row.relpath.split('.')[0]]
+            row.width, row.height = w, h
+        db.session.commit()
+
+    def names(sort, **qs):
+        params = '&'.join(f'{k}={v}' for k, v in {'sort': sort, **qs}.items())
+        got = client.get(f'/api/bank/{bank_id}/images?{params}').get_json()
+        return [i['name'].split('.')[0] for i in got['images']]
+
+    # Descending megapixels: c(1M) > a(810k) > b(360k) > d(160k); NULL 'e' last.
+    assert names('res_desc') == ['c', 'a', 'b', 'd', 'e']
+    # Ascending: d < b < a < c; NULL 'e' still last (never first).
+    assert names('res_asc') == ['d', 'b', 'a', 'c', 'e']
+    # Composes with pagination — the top-2 of the descending order.
+    page = client.get(f'/api/bank/{bank_id}/images?sort=res_desc&limit=2').get_json()
+    assert [i['name'].split('.')[0] for i in page['images']] == ['c', 'a']
+    assert page['total'] == 5
+    # Composes with a status filter: reject the two largest, keep the sort.
+    client.post(f'/api/bank/{bank_id}/images/status',
+                json={'ids': [i['id'] for i in
+                              client.get(f'/api/bank/{bank_id}/images?sort=res_desc&limit=2')
+                              .get_json()['images']], 'status': 'reject'})
+    assert names('res_desc', status='pending') == ['b', 'd', 'e']
+    # An unknown sort value is ignored (falls back to the default id order).
+    assert names('bogus') == ['a', 'b', 'c', 'd', 'e']
+
+
 def test_no_face_filter_only_matches_no_face_state(client, tmp_path, app):
     """The "No face" chip must show ONLY images where NO face was detected. The
     other non-scorable states (low_det / too_small / extreme_pose) DID find a

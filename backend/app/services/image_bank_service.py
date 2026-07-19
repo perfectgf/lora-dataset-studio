@@ -382,13 +382,16 @@ def list_banks(user_id) -> list:
 
 def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
                 group=None, style=None, subfolder=None, search=None,
-                semantic_group=None, offset=0, limit=200) -> dict | None:
+                semantic_group=None, sort=None, offset=0, limit=200) -> dict | None:
     """One PAGE of the bank grid (a 9 000-image bank must never ship whole).
     Filters compose: status ∩ flag ∩ cluster ∩ dup-group ∩ style ∩ subfolder ∩ search.
     ``search`` is a plain full-text term matched (case-insensitive LIKE) against the
     caption AND the relpath — so captions double as searchable tags for a big dump
     ("red dress"), combinable with every other filter. Flag filters sort by the
-    relevant score (worst first) so the review reads top-down."""
+    relevant score (worst first) so the review reads top-down.
+    ``sort`` ('res_desc'/'res_asc') overrides the order by image resolution
+    (megapixels = width×height, so 900×900 outranks 1200×300); unscanned rows
+    (width/height NULL) always sink to the end. It composes with every filter."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         return None
@@ -457,6 +460,14 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
         like = f'%{esc}%'
         q = q.filter(or_(BankImage.caption.ilike(like, escape='\\'),
                          BankImage.relpath.ilike(like, escape='\\')))
+    if sort in ('res_desc', 'res_asc'):
+        # Explicit resolution sort wins over the flag worst-first order. Rank by
+        # megapixels (width×height), tie-break on id for a stable page boundary.
+        # Unscanned rows (either dimension NULL → NULL product) sink to the end
+        # in BOTH directions: order by "is NULL" first (0 before 1 in SQLite).
+        area = BankImage.width * BankImage.height
+        area_dir = area.desc() if sort == 'res_desc' else area.asc()
+        order = (area.is_(None).asc(), area_dir, BankImage.id.asc())
     total = q.count()
     order_by = order if isinstance(order, tuple) else (order,)
     rows = q.order_by(*order_by).offset(max(0, int(offset))) \

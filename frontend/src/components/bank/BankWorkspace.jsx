@@ -147,7 +147,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const { caps } = useCapabilities()
   const [payload, setPayload] = useState(null)
   const [filter, setFilter] = useState({ status: null, flag: null, cluster: null,
-    style: null, subfolder: null, search: null })
+    style: null, subfolder: null, search: null, sort: 'default' })
   const [searchText, setSearchText] = useState('')
   const [subfolders, setSubfolders] = useState([])
   const [offset, setOffset] = useState(0)
@@ -182,6 +182,9 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     // whenever it isn't null, empty string included.
     if (f.subfolder != null) params.subfolder = f.subfolder
     if (f.search) params.search = f.search
+    // Resolution sort — sent to the grid AND to fetchAllIds so "Select all in
+    // filter" walks the same order. 'default' keeps the server's flag order.
+    if (f.sort && f.sort !== 'default') params.sort = f.sort
     return params
   }, [])
 
@@ -224,6 +227,14 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const setF = (patch) => {
     const f = { ...filter, ...patch }
     setFilter(f); setOffset(0); setSelected(new Set())
+    refreshImages(f, 0)
+  }
+
+  // Sort only reorders — the same rows match, so the selection (a set of ids)
+  // is kept; just jump back to page 1 to read the new order top-down.
+  const setSort = (sort) => {
+    const f = { ...filter, sort }
+    setFilter(f); setOffset(0)
     refreshImages(f, 0)
   }
 
@@ -562,6 +573,17 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           </Chip>
         )}
         <span className="ml-auto" />
+        <label className="flex items-center gap-1 text-xs text-content-muted">
+          Sort
+          <select value={filter.sort} onChange={(e) => setSort(e.target.value)}
+            title="Order the grid by image resolution (megapixels). Unscanned images sink to the end."
+            aria-label="Sort the grid"
+            className="rounded-md border border-border bg-surface px-2 py-0.5 text-xs text-content">
+            <option value="default">Default</option>
+            <option value="res_desc">Resolution ↓</option>
+            <option value="res_asc">Resolution ↑</option>
+          </select>
+        </label>
         <button type="button" onClick={() => setTileSize((s) => (s === 'M' ? 'S' : 'M'))}
           className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">
           {tileSize === 'M' ? 'Small tiles' : 'Medium tiles'}

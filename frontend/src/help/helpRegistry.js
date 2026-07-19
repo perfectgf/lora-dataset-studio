@@ -174,6 +174,7 @@ const TOPICS = [
   { id: 'page-bank', kind: 'page', title: 'Image bank (triage)',
     keywords: ['bank', 'triage', 'import', 'folder', 'browse', 'choose folder', 'path',
       'telegram', 'duplicates', 'blurry', 'quality', 'cluster', 'person', 'sort',
+      'sort resolution', 'resolution', 'megapixels', 'largest', 'smallest',
       'promote', 'unsorted',
       'aesthetic', 'score', 'nsfw', 'watermark', 'style', 'subfolder', 'keep best',
       'semantic', 'near-duplicate', 'crop', 'crops', 'variant', 'same shot',
