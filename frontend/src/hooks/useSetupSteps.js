@@ -201,17 +201,25 @@ export function deriveCapabilitySummary(caps) {
   const e = c.engines || {}
   const o = c.ollama || {}
   const cap = c.captioners || {}
+  // "Configured but ComfyUI isn't running" is NOT a missing capability: the
+  // install is fine, the process just isn't up. Those rows show as OK with a
+  // "launch ComfyUI to enable" note instead of a discouraging ✗.
+  const cu = c.comfyui || {}
+  const comfyOff = !!cu.dir_valid && !cu.reachable
+  const NOTE = 'launch ComfyUI to enable'
   return [
     { label: 'Nano Banana (Gemini)', ok: !!e.nanobanana },
     { label: 'ChatGPT (gpt-image-2)', ok: !!e.chatgpt },
-    { label: 'Klein (local)', ok: !!e.klein },
+    { label: 'Klein (local)', ok: !!e.klein,
+      ...(!e.klein && comfyOff ? { pending: true, note: NOTE } : {}) },
     { label: 'Captioning', ok: !!(cap.joycaption || cap.ollama) },
     { label: 'Auto-framing & head-crop', ok: !!(o.reachable && o.vision_model_ready) },
     { label: 'Face-similarity scoring', ok: !!c.face_scoring },
     { label: 'Person masks', ok: !!c.masks },
     { label: 'Watermark inpainting', ok: !!c.watermark_inpaint },
     { label: 'LoRA training', ok: !!c.training_visible },
-    { label: 'Test Studio', ok: !!c.studio_visible },
+    { label: 'Test Studio', ok: !!c.studio_visible,
+      ...(!c.studio_visible && comfyOff ? { pending: true, note: NOTE } : {}) },
   ]
 }
 

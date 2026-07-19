@@ -173,7 +173,9 @@ export default function SetupPage() {
   const summary = useMemo(() => deriveCapabilitySummary(caps), [caps])
   // Everything "Install everything" can queue right now (mirrors the backend plan).
   const installPlan = useMemo(() => installAllPlan(caps), [caps])
-  const readyCount = summary.filter((s) => s.ok).length
+  // pending = installed/configured, only waiting for ComfyUI to be launched —
+  // counted as ready so "8 of 10" doesn't scold a perfectly set-up machine.
+  const readyCount = summary.filter((s) => s.ok || s.pending).length
   const stepById = useMemo(() => Object.fromEntries(steps.map((s) => [s.id, s])), [steps])
 
   const setField = (section, key, value) =>
@@ -1009,11 +1011,15 @@ export default function SetupPage() {
               const targetStep = CAPABILITY_STEP_ID[s.label]
               // Every current capability maps to a wizard step (see CAPABILITY_STEP_ID above);
               // this guard is defensive only — an unmapped label just renders inert, as before.
+              const rowOk = s.ok || s.pending
+              const noteEl = s.pending && s.note ? (
+                <span className="text-xs italic text-content-subtle"> — {s.note}</span>
+              ) : null
               if (!targetStep) {
                 return (
-                  <li key={s.label} className={`flex items-center gap-2 px-2 py-1 text-sm ${s.ok ? 'text-content' : 'text-content-subtle'}`}>
-                    <span aria-hidden="true" className={s.ok ? 'text-emerald-400' : 'text-content-subtle'}>{s.ok ? '✓' : '✗'}</span>
-                    {s.label}
+                  <li key={s.label} className={`flex items-center gap-2 px-2 py-1 text-sm ${rowOk ? 'text-content' : 'text-content-subtle'}`}>
+                    <span aria-hidden="true" className={rowOk ? 'text-emerald-400' : 'text-content-subtle'}>{rowOk ? '✓' : '✗'}</span>
+                    <span>{s.label}{noteEl}</span>
                   </li>
                 )
               }
@@ -1022,10 +1028,10 @@ export default function SetupPage() {
                   <button type="button" onClick={() => setScreen(screenOf(targetStep))}
                     className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-sm
                       cursor-pointer transition-colors hover:bg-surface-raised focus:outline-none focus-visible:ring-2
-                      focus-visible:ring-primary ${s.ok ? 'text-content' : 'text-content-subtle'}`}>
+                      focus-visible:ring-primary ${rowOk ? 'text-content' : 'text-content-subtle'}`}>
                     <span className="flex items-center gap-2">
-                      <span aria-hidden="true" className={s.ok ? 'text-emerald-400' : 'text-content-subtle'}>{s.ok ? '✓' : '✗'}</span>
-                      {s.label}
+                      <span aria-hidden="true" className={rowOk ? 'text-emerald-400' : 'text-content-subtle'}>{rowOk ? '✓' : '✗'}</span>
+                      <span>{s.label}{noteEl}</span>
                     </span>
                     <span aria-hidden="true" className={`text-xs ${s.ok ? 'text-content-subtle/60' : 'text-content-subtle'}`}>›</span>
                   </button>

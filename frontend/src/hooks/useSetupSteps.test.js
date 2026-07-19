@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  deriveSetupSteps, kleinMissingLabels, KLEIN_ASSET_LABELS,
+  deriveSetupSteps, deriveCapabilitySummary, kleinMissingLabels, KLEIN_ASSET_LABELS,
   comfyuiDirVerdict, COMFYUI_SKIP_LOST, COMFYUI_SKIP_KEPT,
 } from './useSetupSteps.js';
 
@@ -285,4 +285,21 @@ test('installCatalog gates Klein weights on a validated ComfyUI', () => {
   assert.equal(valid.klein_vae.present, false);       // still missing
   assert.equal(valid.klein_vae.available, true);      // installable into the valid tree
   assert.equal(valid.klein_model.present, true);      // not in klein_missing -> installed
+});
+
+
+test('capability summary: configured-but-not-running ComfyUI reads as OK with a launch note', () => {
+  const row = (caps, label) => deriveCapabilitySummary(caps).find((s) => s.label === label);
+  // dir valid, API down -> Klein/Studio are pending with the launch note, not a bare miss
+  const off = { comfyui: { dir_valid: true, reachable: false }, engines: {} };
+  assert.equal(row(off, 'Klein (local)').pending, true);
+  assert.match(row(off, 'Klein (local)').note, /launch ComfyUI/);
+  assert.equal(row(off, 'Test Studio').pending, true);
+  // no ComfyUI configured at all -> honest plain miss, no note
+  const none = { comfyui: { dir_valid: false, reachable: false }, engines: {} };
+  assert.equal(row(none, 'Klein (local)').pending, undefined);
+  // running -> plain ok, no note
+  const on = { comfyui: { dir_valid: true, reachable: true }, engines: { klein: true }, studio_visible: true };
+  assert.equal(row(on, 'Klein (local)').ok, true);
+  assert.equal(row(on, 'Klein (local)').note, undefined);
 });
