@@ -19,6 +19,16 @@ const FLAG_LABEL = {
 // passes add — auto-reject only offers a flag whose pass has actually run.
 const QUALITY_REJECT_FLAGS = ['blur', 'noise', 'uniform', 'small']
 const SCORE_REJECT_FLAGS = ['low_aesthetic', 'nsfw', 'watermark']
+// Resolution tiers — ids + labels MUST mirror backend _RES_BUCKETS (order and
+// megapixel bands). Rendered as a dedicated chip row so a mixed dump can be
+// sliced by resolution and mass-acted one tier at a time.
+const RES_BUCKETS = [
+  { id: 'res_lt_025', label: '< 0.25 MP' },
+  { id: 'res_025_1', label: '0.25–1 MP' },
+  { id: 'res_1_2', label: '1–2 MP' },
+  { id: 'res_2_4', label: '2–4 MP' },
+  { id: 'res_gt_4', label: '> 4 MP' },
+]
 const STATUS_RING = {
   keep: 'ring-2 ring-emerald-400',
   reject: 'ring-2 ring-rose-400 opacity-60',
@@ -190,7 +200,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const { caps } = useCapabilities()
   const [payload, setPayload] = useState(null)
   const [filter, setFilter] = useState({ status: null, flag: null, cluster: null,
-    style: null, subfolder: null, search: null, sort: 'default' })
+    style: null, subfolder: null, search: null, sort: 'default', resBucket: null })
   const [searchText, setSearchText] = useState('')
   const [subfolders, setSubfolders] = useState([])
   const [offset, setOffset] = useState(0)
@@ -228,6 +238,9 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     // Resolution sort — sent to the grid AND to fetchAllIds so "Select all in
     // filter" walks the same order. 'default' keeps the server's flag order.
     if (f.sort && f.sort !== 'default') params.sort = f.sort
+    // Resolution tier — a facet like the flags; also flows to fetchAllIds so
+    // "Select all in filter" stays scoped to the active tier.
+    if (f.resBucket) params.res_bucket = f.resBucket
     return params
   }, [])
 
@@ -349,6 +362,11 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
 
   const counts = payload?.counts
   const flags = payload?.flags || {}
+  const resBuckets = payload?.res_buckets || {}
+  // Only surface tiers that actually hold scanned images (plus the active one,
+  // so a tier you're filtering on never vanishes mid-review).
+  const shownResBuckets = RES_BUCKETS.filter(
+    (b) => (resBuckets[b.id] || 0) > 0 || filter.resBucket === b.id)
   const clusters = payload?.clusters || []
   const styleClusters = payload?.style_clusters || []
   const visionReady = !!caps.ollama?.vision_model_ready
@@ -638,6 +656,20 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               </Chip>
             )}
           </FilterGroup>
+
+          {/* Resolution tiers — one active at a time; re-click clears.
+              Composes with every filter and with the Resolution ↑/↓ sort. */}
+          {shownResBuckets.length > 0 && (
+            <FilterGroup label="📐 Resolution">
+              {shownResBuckets.map((b) => (
+                <Chip key={b.id} active={filter.resBucket === b.id}
+                  onClick={() => setF({ resBucket: filter.resBucket === b.id ? null : b.id })}
+                  title="Filter the grid to this resolution tier (megapixels = width×height)">
+                  {b.label} {resBuckets[b.id] ?? 0}
+                </Chip>
+              ))}
+            </FilterGroup>
+          )}
         </div>
 
         {/* View controls — order and tile size, off to the right on their own line */}

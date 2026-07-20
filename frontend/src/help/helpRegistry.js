@@ -175,6 +175,8 @@ const TOPICS = [
     keywords: ['bank', 'triage', 'import', 'folder', 'browse', 'choose folder', 'path',
       'telegram', 'duplicates', 'blurry', 'quality', 'cluster', 'person', 'sort',
       'sort resolution', 'resolution', 'megapixels', 'largest', 'smallest',
+      'resolution tier', 'resolution filter', 'filter by resolution', 'megapixel',
+      'small images', 'thumbnails', 'low resolution', 'high resolution',
       'promote', 'unsorted',
       'aesthetic', 'score', 'nsfw', 'watermark', 'style', 'subfolder', 'keep best',
       'semantic', 'near-duplicate', 'crop', 'crops', 'variant', 'same shot',

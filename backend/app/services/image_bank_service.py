@@ -40,7 +40,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from PIL import Image
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, case, func, or_
 
 from .. import config as cfg
 from ..extensions import db
@@ -240,6 +240,24 @@ _QUALITY_FLAGS = ('blur', 'noise', 'uniform', 'small', 'unreadable')
 # and filter independently (each only meaningful once its pass has run).
 _SCORE_FLAGS = ('low_aesthetic', 'nsfw', 'watermark')
 
+# Resolution tiers for the Bank grid — bucketed on MEGAPIXELS (width×height, the
+# same rank as the resolution sort) so a mixed dump can be skimmed and mass-acted
+# one tier at a time. Each entry is (stable_id, lo, hi) in raw pixels, a HALF-OPEN
+# [lo, hi) range (lower-inclusive, upper-exclusive); hi=None means "no ceiling".
+# So a 1000×1000 (1.00 MP) and a 1024×1024 (1.05 MP) both land in 'res_1_2', and a
+# 2000×2000 (4.00 MP) lands in 'res_gt_4'. The 0.25 MP floor (not 0.30) is chosen
+# so a 512×512 (0.26 MP) — a legit small training crop — sits in '0.25–1 MP', while
+# only true junk (Telegram thumbnails ~0.1–0.2 MP, ≤448²) falls in '< 0.25 MP'.
+# Ids are user-facing filter keys — never rename without an alias.
+_RES_BUCKETS = (
+    ('res_lt_025', 0, 250_000),
+    ('res_025_1', 250_000, 1_000_000),
+    ('res_1_2', 1_000_000, 2_000_000),
+    ('res_2_4', 2_000_000, 4_000_000),
+    ('res_gt_4', 4_000_000, None),
+)
+_RES_BOUNDS = {bid: (lo, hi) for bid, lo, hi in _RES_BUCKETS}
+
 
 def _subfolder_of(relpath: str) -> str:
     """Top-level subfolder of a bank-relative path ('' for a root-level file) —
@@ -257,6 +275,30 @@ def _unresolved_dup_groups_q(bank_id, col=BankImage.dup_group):
                     BankImage.status != 'reject')
             .group_by(col)
             .having(func.count(BankImage.id) >= 2))
+
+
+def _res_bucket_case():
+    """A single SQL CASE mapping each scanned row to its resolution-tier id, used
+    both to COUNT per tier (one GROUP BY) and — via _RES_BOUNDS — to FILTER a page
+    to one tier. Rows with a NULL dimension never reach this (callers pre-filter
+    width/height NOT NULL), so no NULL-misfile into the top tier."""
+    area = BankImage.width * BankImage.height
+    whens = [(area < hi, bid) for bid, _lo, hi in _RES_BUCKETS if hi is not None]
+    return case(*whens, else_=_RES_BUCKETS[-1][0])
+
+
+def _res_bucket_counts(bank_id) -> dict:
+    """Per-tier image counts for the resolution chips (bank-wide, like the flag
+    totals) in ONE GROUP BY. Unscanned rows (width/height NULL) are excluded, so a
+    tier that no image falls into simply reports 0. Every tier id is present."""
+    bucket = _res_bucket_case()
+    rows = (db.session.query(bucket, func.count(BankImage.id))
+            .filter(BankImage.bank_id == bank_id,
+                    BankImage.width.isnot(None),
+                    BankImage.height.isnot(None))
+            .group_by(bucket).all())
+    got = {bid: n for bid, n in rows}
+    return {bid: int(got.get(bid, 0)) for bid, _lo, _hi in _RES_BUCKETS}
 
 
 def bank_payload(user_id, bank_id) -> dict | None:
@@ -285,6 +327,7 @@ def bank_payload(user_id, bank_id) -> dict | None:
     for flag in _QUALITY_FLAGS + _SCORE_FLAGS:
         crit = _flag_filter(flag, th)
         flags[flag] = base.filter(crit).count() if crit is not None else 0
+    res_buckets = _res_bucket_counts(bank_id)
     dup_rows = (db.session.query(BankImage.dup_group, func.count(BankImage.id))
                 .filter(BankImage.bank_id == bank_id,
                         BankImage.dup_group.isnot(None))
@@ -340,7 +383,7 @@ def bank_payload(user_id, bank_id) -> dict | None:
     return {
         'id': bank.id, 'name': bank.name, 'source_path': bank.source_path,
         'created_at': bank.created_at.isoformat() if bank.created_at else None,
-        'counts': counts, 'flags': flags, 'dup': dup,
+        'counts': counts, 'flags': flags, 'res_buckets': res_buckets, 'dup': dup,
         'semantic_dup': semantic_dup,
         'clusters': clusters, 'faces_scanned': faces_scanned,
         'style_clusters': style_clusters,
@@ -382,7 +425,8 @@ def list_banks(user_id) -> list:
 
 def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
                 group=None, style=None, subfolder=None, search=None,
-                semantic_group=None, sort=None, offset=0, limit=200) -> dict | None:
+                semantic_group=None, sort=None, res_bucket=None,
+                offset=0, limit=200) -> dict | None:
     """One PAGE of the bank grid (a 9 000-image bank must never ship whole).
     Filters compose: status ∩ flag ∩ cluster ∩ dup-group ∩ style ∩ subfolder ∩ search.
     ``search`` is a plain full-text term matched (case-insensitive LIKE) against the
@@ -391,7 +435,10 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
     relevant score (worst first) so the review reads top-down.
     ``sort`` ('res_desc'/'res_asc') overrides the order by image resolution
     (megapixels = width×height, so 900×900 outranks 1200×300); unscanned rows
-    (width/height NULL) always sink to the end. It composes with every filter."""
+    (width/height NULL) always sink to the end. It composes with every filter.
+    ``res_bucket`` (a _RES_BUCKETS id) narrows to one resolution tier — a
+    half-open [lo, hi) megapixel band — and composes with every filter AND the
+    sort (the tier + Resolution↑/↓ combo is the mixed-dump cleanup flow)."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         return None
@@ -460,6 +507,17 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
         like = f'%{esc}%'
         q = q.filter(or_(BankImage.caption.ilike(like, escape='\\'),
                          BankImage.relpath.ilike(like, escape='\\')))
+    if res_bucket in _RES_BOUNDS:
+        # One resolution tier: [lo, hi) on megapixels (width×height). The NOT-NULL
+        # guards drop unscanned rows (a NULL product would satisfy neither bound
+        # cleanly), so a tier never leaks unscanned images. Composes with the sort.
+        lo, hi = _RES_BOUNDS[res_bucket]
+        area = BankImage.width * BankImage.height
+        q = q.filter(BankImage.width.isnot(None), BankImage.height.isnot(None))
+        if lo:
+            q = q.filter(area >= lo)
+        if hi is not None:
+            q = q.filter(area < hi)
     if sort in ('res_desc', 'res_asc'):
         # Explicit resolution sort wins over the flag worst-first order. Rank by
         # megapixels (width×height), tie-break on id for a stable page boundary.

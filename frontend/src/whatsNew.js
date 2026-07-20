@@ -60,9 +60,9 @@ export const WHATS_NEW = [
   {
     id: '2026-07-19-bank-sort-resolution',
     date: '2026-07-19',
-    title: '📐 Sort your Bank by resolution',
+    title: '📐 Sort AND filter your Bank by resolution',
     blurb:
-      "The 🗃️ Bank grid gains a Sort control next to the tiles: order every image by resolution, biggest or smallest first. It ranks by megapixels (width×height), so a crisp 900×900 outranks a stretched 1200×300 — the right way to skim a mixed dump for the sharpest, most trainable shots. It stacks on top of every filter and search you already have, and 'Select all in filter' follows the same order. Images not scanned yet sink to the end.",
+      "The 🗃️ Bank grid gains a Sort control next to the tiles: order every image by resolution, biggest or smallest first. It ranks by megapixels (width×height), so a crisp 900×900 outranks a stretched 1200×300 — the right way to skim a mixed dump for the sharpest, most trainable shots. New: a 📐 Resolution row of tier chips (< 0.25 MP · 0.25–1 · 1–2 · 2–4 · > 4 MP), each showing its count — click a tier to see just those images, then 'Select all in filter' + reject to clear out the tiny thumbnails of a 20k-image Telegram dump in seconds. Both stack on top of every filter and search you already have. Images not scanned yet sink to the end and count toward no tier.",
     to: '/bank',
   },
   {

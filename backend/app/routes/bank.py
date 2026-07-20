@@ -76,6 +76,7 @@ def bank_images(bank_id):
         subfolder=subfolder if subfolder is not None else None,
         search=args.get('search') or None,
         sort=args.get('sort') or None,
+        res_bucket=args.get('res_bucket') or None,
         offset=_int('offset') or 0, limit=_int('limit') or 200)
     if payload is None:
         return jsonify({'error': 'not found'}), 404

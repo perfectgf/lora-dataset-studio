@@ -308,6 +308,63 @@ def test_images_sort_by_resolution(client, tmp_path, app):
     assert names('bogus') == ['a', 'b', 'c', 'd', 'e']
 
 
+def test_resolution_buckets_counts_and_filter(client, tmp_path, app):
+    """Resolution tiers bucket on MEGAPIXELS with HALF-OPEN [lo, hi) bounds. The
+    exact boundaries matter: 1000×1000 (1.00 MP) and 1024×1024 (1.05 MP) both land
+    in '1–2 MP' (lower-inclusive), 512×512 (0.26 MP) in '0.25–1 MP' (never the junk
+    tier), 2000×2000 (4.00 MP) in '> 4 MP'. The payload reports one count per tier
+    (unscanned excluded), and res_bucket narrows a page, composing with status +
+    sort + pagination."""
+    names = ('thumb', 'small', 'std', 'std2', 'big', 'huge', 'unscanned')
+    files = {f'{n}.jpg': checkerboard(size=64) for n in names}
+    bank_id, _src = _mkbank(client, tmp_path, files)
+    # Hand-set dimensions on the exact tier boundaries (bypass the scan).
+    dims = {'thumb': (400, 400),      # 0.16 MP  → res_lt_025
+            'small': (512, 512),      # 0.26 MP  → res_025_1 (NOT junk)
+            'std':   (1000, 1000),    # 1.00 MP  → res_1_2 (lower-inclusive)
+            'std2':  (1024, 1024),    # 1.05 MP  → res_1_2
+            'big':   (1920, 1080),    # 2.07 MP  → res_2_4
+            'huge':  (2000, 2000),    # 4.00 MP  → res_gt_4 (lower-inclusive)
+            'unscanned': (None, None)}  # NULL area → excluded from every tier
+    with app.app_context():
+        from app.extensions import db
+        from app.models import BankImage
+        for row in BankImage.query.filter_by(bank_id=bank_id).all():
+            w, h = dims[row.relpath.split('.')[0]]
+            row.width, row.height = w, h
+        db.session.commit()
+
+    # One count per tier, every id present, unscanned counted nowhere.
+    buckets = client.get(f'/api/bank/{bank_id}').get_json()['res_buckets']
+    assert buckets == {'res_lt_025': 1, 'res_025_1': 1, 'res_1_2': 2,
+                       'res_2_4': 1, 'res_gt_4': 1}
+
+    def names_in(bucket, **qs):
+        params = '&'.join(f'{k}={v}' for k, v in {'res_bucket': bucket, **qs}.items())
+        got = client.get(f'/api/bank/{bank_id}/images?{params}').get_json()
+        return sorted(i['name'].split('.')[0] for i in got['images'])
+
+    # Each tier returns exactly its members — the boundary cases sit where claimed.
+    assert names_in('res_lt_025') == ['thumb']
+    assert names_in('res_025_1') == ['small']
+    assert names_in('res_1_2') == ['std', 'std2']     # 1.00 and 1.05 MP together
+    assert names_in('res_2_4') == ['big']
+    assert names_in('res_gt_4') == ['huge']
+    # Composes with the resolution sort: the two '1–2 MP' rows, largest first.
+    got = client.get(f'/api/bank/{bank_id}/images'
+                     '?res_bucket=res_1_2&sort=res_desc').get_json()
+    assert [i['name'].split('.')[0] for i in got['images']] == ['std2', 'std']
+    # Composes with a status filter + pagination: reject 'std', page the rest.
+    std_id = next(i['id'] for i in
+                  client.get(f'/api/bank/{bank_id}/images?res_bucket=res_1_2')
+                  .get_json()['images'] if i['name'].startswith('std.'))
+    client.post(f'/api/bank/{bank_id}/images/status',
+                json={'ids': [std_id], 'status': 'reject'})
+    assert names_in('res_1_2', status='pending') == ['std2']
+    # An unknown tier id is ignored (no filter → the whole scanned+unscanned set).
+    assert names_in('bogus') == sorted(names)
+
+
 def test_no_face_filter_only_matches_no_face_state(client, tmp_path, app):
     """The "No face" chip must show ONLY images where NO face was detected. The
     other non-scorable states (low_det / too_small / extreme_pose) DID find a
