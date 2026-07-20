@@ -300,3 +300,62 @@ def test_similar_result_feeds_ids_view_end_to_end(client, tmp_path, app):
     csv = ','.join(str(i) for i in ranked)
     grid = client.get(f'/api/bank/{bank_id}/images?ids={csv}').get_json()
     assert [im['id'] for im in grid['images']] == ranked   # grid mirrors the ranking
+
+
+# --- the two selectors are DISTINCT, and similarity is REFERENCE-sensitive ---
+# Regression guard for the reported symptom "🎨 Pick diverse and 🎯 Similar to
+# selected show EXACTLY the same thing, whatever the reference". Every other test
+# here exercises one selector in isolation; none pins that the two DISAGREE on a
+# shared pool, nor that select-similar actually follows its ref_id. A pool whose
+# embeddings collapsed to one vector (or a selector that ignored the cache / the
+# reference) would silently pass the isolated tests yet return identical,
+# ref-insensitive selections — exactly the failure this locks out. Two disjoint
+# neighbour clusters (around refA and refB) plus two off-axis outliers.
+def _two_cluster_bank(client, tmp_path, app):
+    embs = {
+        'a0.jpg': _emb(1.0, 0.0),                       # refA cluster …
+        'a1.jpg': _emb(0.96, np.sqrt(1 - 0.96 ** 2)),
+        'a2.jpg': _emb(0.92, np.sqrt(1 - 0.92 ** 2)),
+        'b0.jpg': _emb(0.0, 1.0),                       # refB cluster (orthogonal) …
+        'b1.jpg': _emb(np.sqrt(1 - 0.96 ** 2), 0.96),
+        'b2.jpg': _emb(np.sqrt(1 - 0.92 ** 2), 0.92),
+        'x0.jpg': _emb(0.0, 0.0, 1.0),                  # far outliers on their own axes
+        'x1.jpg': _emb(0.0, 0.0, 0.0, 1.0),
+    }
+    bank_id, _ = _mkbank(client, tmp_path, list(embs))
+    _write_score_cache(app, bank_id, embs)
+    return bank_id
+
+
+def test_similar_is_reference_sensitive(client, tmp_path, app):
+    """Two DIFFERENT references over the same pool ⇒ two DIFFERENT selections,
+    each led by its own reference — the core of "regardless of the reference"."""
+    bank_id = _two_cluster_bank(client, tmp_path, app)
+    a0, b0 = (_id_of(app, bank_id, n) for n in ('a0.jpg', 'b0.jpg'))
+    sa = client.post(f'/api/bank/{bank_id}/select-similar',
+                     json={'ref_id': a0, 'n': 3}).get_json()
+    sb = client.post(f'/api/bank/{bank_id}/select-similar',
+                     json={'ref_id': b0, 'n': 3}).get_json()
+    assert sa['results'][0]['id'] == a0 and sb['results'][0]['id'] == b0   # ref first
+    assert sa['image_ids'] != sb['image_ids']                             # NOT identical
+    # Each ref pulls its own orthogonal cluster — the two selections are disjoint.
+    assert set(sa['image_ids']).isdisjoint(sb['image_ids'])
+    assert _names_of(app, bank_id, sa['image_ids']) == {'a0.jpg', 'a1.jpg', 'a2.jpg'}
+    assert _names_of(app, bank_id, sb['image_ids']) == {'b0.jpg', 'b1.jpg', 'b2.jpg'}
+
+
+def test_diverse_differs_from_similar_on_same_pool(client, tmp_path, app):
+    """Diversity coverage ≠ reference similarity on the same real-shaped pool: FPS
+    reaches the far outliers a near-neighbour ranking never would, so the two
+    selectors return genuinely different sets (they must never coincide)."""
+    bank_id = _two_cluster_bank(client, tmp_path, app)
+    a0 = _id_of(app, bank_id, 'a0.jpg')
+    div = client.post(f'/api/bank/{bank_id}/select-diverse',
+                      json={'n': 3}).get_json()
+    sim = client.post(f'/api/bank/{bank_id}/select-similar',
+                      json={'ref_id': a0, 'n': 3}).get_json()
+    assert sorted(div['image_ids']) != sorted(sim['image_ids'])           # NOT identical
+    # Diversity reaches the outliers; similarity-to-a0 stays inside a0's cluster.
+    div_names = _names_of(app, bank_id, div['image_ids'])
+    assert div_names & {'x0.jpg', 'x1.jpg'}                               # coverage grabs a far point
+    assert _names_of(app, bank_id, sim['image_ids']) == {'a0.jpg', 'a1.jpg', 'a2.jpg'}
