@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-runs-history-load-more',
+    date: '2026-07-20',
+    title: '📜 See more than the last 15 runs — “Load older runs”',
+    blurb:
+      "The Runs page only kept the 15 most recent runs in its history, so anything older dropped off the list. The live view still refreshes lightly on those recent runs, but a new “Load older runs” button now pulls the rest on demand (up to 100), so a long training history stays reachable without slowing the page down.",
+    to: '/cloud',
+  },
+  {
     id: '2026-07-20-lineage-diff',
     date: '2026-07-20',
     title: '⚖️ Compare two runs and see exactly what changed',

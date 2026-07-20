@@ -202,6 +202,10 @@ export default function CloudRunsPage() {
   const [data, setData] = useState(null);
   const [stopping, setStopping] = useState({});     // run_id -> bool
   const [stoppingLocal, setStoppingLocal] = useState(false);
+  // Recent-history depth. The 5 s poll stays light by default (15); "Load older
+  // runs" bumps this on demand (backend caps the history at 100), so a long
+  // history is opt-in rather than paid on every tick.
+  const [historyLimit, setHistoryLimit] = useState(15);
   // React disables the button on the next render. The ref also closes the tiny
   // gap before that render, so a fast double-click cannot send two kill calls.
   const stoppingLocalRef = useRef(false);
@@ -269,10 +273,10 @@ export default function CloudRunsPage() {
 
   const poll = useCallback(async () => {
     try {
-      const r = await fetch('/api/dataset/train/cloud/runs?limit=15', { credentials: 'include' });
+      const r = await fetch(`/api/dataset/train/cloud/runs?limit=${historyLimit}`, { credentials: 'include' });
       if (r.ok) setData(await r.json());
     } catch { /* transient — next tick retries */ }
-  }, []);
+  }, [historyLimit]);
 
   useEffect(() => {
     let alive = true;
@@ -897,6 +901,14 @@ export default function CloudRunsPage() {
                 </section>
               );
             })}
+            {recent.length >= historyLimit && historyLimit < 100 && (
+              <button type="button"
+                onClick={() => setHistoryLimit((n) => Math.min(n + 25, 100))}
+                title="The list keeps only the most recent runs to stay light; load older ones on demand."
+                className="self-center mt-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-content-muted hover:text-content text-xs font-semibold">
+                Load older runs
+              </button>
+            )}
           </div>
           )}
         </div>
