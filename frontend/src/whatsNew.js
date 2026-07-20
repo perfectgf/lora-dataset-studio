@@ -50,6 +50,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-bank-workspace-tidy',
+    date: '2026-07-20',
+    title: '🗃️ A calmer, clearer Bank workspace',
+    blurb:
+      "The 🗃️ Bank toolbar is reorganized around what you actually do: Launch all and Promote stand out as the two outcomes, the individual analysis passes (Scan, Score, Watermarks, Person, Crops, Caption) sit together below them, and the flag filters are now grouped by Status, Quality, Score and Groups with a live \"N shown of total\" count. Same tools, nothing removed — just far easier to read on a wide screen or a phone.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-19-bank-sort-resolution',
     date: '2026-07-19',
     title: '📐 Sort your Bank by resolution',

@@ -102,6 +102,49 @@ function Chip({ active, onClick, children, title }) {
   )
 }
 
+// One header stat — a bold tabular figure with a subtle label. Kept/rejected/
+// promoted carry their status colour so the strip reads at a glance.
+function Stat({ label, value, tone }) {
+  const toneCls = { emerald: 'text-emerald-300', rose: 'text-rose-300', indigo: 'text-indigo-300' }[tone] || 'text-content'
+  const n = typeof value === 'number' ? value.toLocaleString() : value
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      <span className={`font-semibold tabular-nums ${toneCls}`}>{n}</span>
+      <span className="text-xs text-content-subtle">{label}</span>
+    </span>
+  )
+}
+
+// A small uppercase eyebrow that names a group of controls (a filter facet, the
+// passes toolbar) so dense rows read as grouped rather than as a flat wall.
+function GroupLabel({ children }) {
+  return (
+    <span className="text-[10px] font-semibold uppercase tracking-wide text-content-subtle">{children}</span>
+  )
+}
+
+// A labelled cluster of filter chips — the eyebrow names the facet (Status,
+// Quality, Score, Groups); chips wrap together within it on narrow viewports.
+function FilterGroup({ label, children }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <GroupLabel>{label}</GroupLabel>
+      {children}
+    </div>
+  )
+}
+
+// The individual analysis passes share one quiet, uniform button so they read
+// as a secondary group next to the prominent Launch all / Promote actions.
+function PassButton({ onClick, disabled, title, children }) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} title={title}
+      className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content transition-colors hover:bg-surface disabled:opacity-50 disabled:hover:bg-surface-raised">
+      {children}
+    </button>
+  )
+}
+
 function Tile({ img, bankId, selected, onToggle, size }) {
   const badge = (txt, cls) => (
     <span className={`rounded px-1 py-px text-[10px] font-semibold leading-none ${cls}`}>{txt}</span>
@@ -315,33 +358,39 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const availableScoreFlags = SCORE_REJECT_FLAGS.filter(
     (f) => (f === 'watermark' ? watermarkScanned : scored) > 0)
   const canPromote = (counts?.keep || 0) > 0 || selected.size > 0
+  // Is any facet narrowing the grid? Drives the "N shown of TOTAL" readout.
+  const isFiltered = !!(filter.status || filter.flag || filter.cluster != null
+    || filter.style != null || filter.subfolder != null || filter.search)
 
   return (
     <div className="space-y-4">
-      <header className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={onBack}
-          className="rounded-md border border-border px-2 py-1 text-xs text-content-muted hover:text-content hover:bg-surface-raised">
-          ← Banks
-        </button>
-        <h1 className="text-lg font-bold text-content">🗃️ {payload?.name || `Bank #${bankId}`}</h1>
-        <span className="px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.625rem] font-semibold uppercase tracking-wide">Beta</span>
-        <span className="truncate font-mono text-xs text-content-subtle" title={payload?.source_path}>
-          {payload?.source_path}
-        </span>
+      <header className="space-y-2 rounded-xl border border-border bg-surface px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={onBack}
+            className="rounded-md border border-border px-2 py-1 text-xs text-content-muted hover:text-content hover:bg-surface-raised">
+            ← Banks
+          </button>
+          <h1 className="text-lg font-bold text-content">🗃️ {payload?.name || `Bank #${bankId}`}</h1>
+          <span className="rounded border border-amber-400/50 bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-amber-300">Beta</span>
+        </div>
+        {payload?.source_path && (
+          <p className="truncate font-mono text-xs text-content-subtle" title={payload.source_path}>
+            {payload.source_path}
+          </p>
+        )}
+        {counts && (
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-border pt-2 text-sm">
+            <Stat label="images" value={counts.total} />
+            <Stat label="scanned" value={counts.scanned} />
+            {scored > 0 && <Stat label="scored" value={scored} />}
+            {watermarkScanned > 0 && <Stat label="watermark-checked" value={watermarkScanned} />}
+            <Stat label="undecided" value={counts.pending} />
+            <Stat label="kept" value={counts.keep} tone="emerald" />
+            <Stat label="rejected" value={counts.reject} tone="rose" />
+            <Stat label="promoted" value={counts.promoted} tone="indigo" />
+          </div>
+        )}
       </header>
-
-      {counts && (
-        <p className="text-sm text-content-muted">
-          <span className="font-semibold text-content">{counts.total}</span> images ·
-          {' '}{counts.scanned} scanned ·
-          {scored > 0 && <> {scored} scored ·</>}
-          {watermarkScanned > 0 && <> {watermarkScanned} watermark-checked ·</>}
-          {' '}{counts.pending} undecided ·
-          {' '}<span className="text-emerald-300">{counts.keep} kept</span> ·
-          {' '}<span className="text-rose-300">{counts.reject} rejected</span> ·
-          {' '}<span className="text-indigo-300">{counts.promoted} promoted</span>
-        </p>
-      )}
 
       <ProgressBar activity={payload?.activity} onCancel={cancelJob} />
 
@@ -351,107 +400,112 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           onDismiss={() => setDismissedReportAt(payload.pipeline_report.finished_at)} />
       )}
 
+      {/* Primary actions — the two outcomes stand out; the passes sit below. */}
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => setLaunchOpen(true)} disabled={live || !(counts?.total > 0)}
           title="Run the whole triage in one go — scan, auto-reject, score, watermarks, group by person and (optionally) caption. Start it and walk away."
-          className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-bold text-white shadow disabled:opacity-50">
+          className="rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-white shadow disabled:opacity-50">
           🚀 Launch all…
         </button>
-        <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
-        <button type="button" onClick={() => startScan(false)} disabled={live}
-          title="Score every unscanned image (sharpness/noise/flat/size), hash it and group near-duplicates — CPU only, runs in the background"
-          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
-          🔎 Scan quality
-        </button>
-        {(counts?.scanned || 0) > 0 && (
-          <button type="button" onClick={() => startScan(true)} disabled={live}
-            title="Re-score everything (e.g. after files changed on disk)"
-            className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
-            Rescan all
+        <p className="hidden text-xs text-content-subtle md:block">
+          One-click funnel — or step through the passes below.
+        </p>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="relative">
+            <button type="button" onClick={() => setShowAutoReject((v) => !v)} disabled={live}
+              aria-expanded={showAutoReject}
+              title="Bulk-reject the still-undecided images carrying the chosen quality flags"
+              className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
+              🧹 Auto-reject…
+            </button>
+            {showAutoReject && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowAutoReject(false)} aria-hidden />
+                <div className="absolute right-0 z-50 mt-1 w-72 rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2">
+                  <p className="text-xs text-content-muted">
+                    Rejects the UNDECIDED images with these flags. Your manual ✓/✕ are never changed;
+                    everything stays reversible (nothing is deleted from disk).
+                  </p>
+                  {[...QUALITY_REJECT_FLAGS, ...availableScoreFlags].map((f) => (
+                    <label key={f} className="flex items-center gap-2 text-sm text-content">
+                      <input type="checkbox" checked={rejectFlags.has(f)}
+                        onChange={(e) => setRejectFlags((prev) => {
+                          const next = new Set(prev)
+                          if (e.target.checked) next.add(f); else next.delete(f)
+                          return next
+                        })} />
+                      {FLAG_LABEL[f]} <span className="text-content-subtle">({flags[f] ?? 0} flagged)</span>
+                    </label>
+                  ))}
+                  <button type="button" onClick={applyAutoReject} disabled={!rejectFlags.size}
+                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
+                    Reject them
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          <button type="button" onClick={() => setPromoteOpen(true)} disabled={live || !canPromote}
+            title={canPromote ? 'Copy the kept selection into a dataset' : 'Keep some images first'}
+            className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+            ⬆ Promote to dataset…
           </button>
-        )}
-        <button type="button" onClick={startFaces} disabled={live || !caps.face_scoring}
-          title={caps.face_scoring
-            ? 'Detect the dominant face of every non-rejected image and cluster the bank by person (no reference needed). CPU, can take a while on thousands of images.'
-            : 'Install the Quality tools (Setup) to sort by person'}
-          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
-          👥 Group by person
-        </button>
-        <button type="button" onClick={startScore} disabled={live || !caps.bank_scoring}
-          title={caps.bank_scoring
-            ? 'Rate every non-rejected image for aesthetics (1–10), flag NSFW, and group by visual style — one CLIP pass. Powers a smarter "keep best". GPU when available; runs in the background.'
-            : 'Install the Bank scoring extra (Setup ▸ Quality tools) to score aesthetics / NSFW / style'}
-          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
-          ✨ Score{!caps.bank_scoring && ' (needs setup)'}
-        </button>
-        <button type="button" onClick={startWatermark} disabled={live || !visionReady}
-          title={visionReady
-            ? 'Scan every non-rejected image for an overlaid watermark/logo/URL with the same Qwen3-VL detector the datasets use (detection only — the bank never edits your files). GPU vision pass.'
-            : 'Pull the vision model (Settings ▸ Captioning & quality) to scan for watermarks'}
-          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
-          🚩 Find watermarks{!visionReady && ' (needs setup)'}
-        </button>
-        <button type="button" onClick={startCaption} disabled={live}
-          title={selected.size
-            ? `Caption the ${selected.size} selected image(s) with your caption engine (Settings ▸ Captioning & quality). Captions become searchable and follow the images when you promote them to a dataset.`
-            : 'Caption every not-yet-captioned image (skips rejected) with your caption engine. Captions become searchable tags and follow the images when you promote them to a dataset. Select images first to caption just those.'}
-          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
-          🏷️ Caption{selected.size ? ` ${selected.size} selected` : ' all'}
-        </button>
-        <button type="button" onClick={startSemanticDedup} disabled={live || scored === 0}
-          title={scored > 0
-            ? 'Group crops and re-compressed variants of the SAME shot the exact-duplicate hash misses — reuses the ✨ Score embeddings, so it costs no extra GPU time. Review them under the ✂ Same shot chip.'
-            : 'Run ✨ Score first — semantic near-duplicates reuse its embeddings'}
-          className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
-          ✂ Find crops &amp; variants{scored === 0 && ' (needs Score)'}
-        </button>
-        <div className="relative">
-          <button type="button" onClick={() => setShowAutoReject((v) => !v)} disabled={live}
-            aria-expanded={showAutoReject}
-            title="Bulk-reject the still-undecided images carrying the chosen quality flags"
-            className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content disabled:opacity-50 hover:bg-surface">
-            🧹 Auto-reject flagged…
-          </button>
-          {showAutoReject && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowAutoReject(false)} aria-hidden />
-              <div className="absolute z-50 mt-1 w-72 rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2">
-                <p className="text-xs text-content-muted">
-                  Rejects the UNDECIDED images with these flags. Your manual ✓/✕ are never changed;
-                  everything stays reversible (nothing is deleted from disk).
-                </p>
-                {[...QUALITY_REJECT_FLAGS, ...availableScoreFlags].map((f) => (
-                  <label key={f} className="flex items-center gap-2 text-sm text-content">
-                    <input type="checkbox" checked={rejectFlags.has(f)}
-                      onChange={(e) => setRejectFlags((prev) => {
-                        const next = new Set(prev)
-                        if (e.target.checked) next.add(f); else next.delete(f)
-                        return next
-                      })} />
-                    {FLAG_LABEL[f]} <span className="text-content-subtle">({flags[f] ?? 0} flagged)</span>
-                  </label>
-                ))}
-                <button type="button" onClick={applyAutoReject} disabled={!rejectFlags.size}
-                  className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
-                  Reject them
-                </button>
-              </div>
-            </>
-          )}
         </div>
-        <button type="button" onClick={() => setPromoteOpen(true)} disabled={live || !canPromote}
-          title={canPromote ? 'Copy the kept selection into a dataset' : 'Keep some images first'}
-          className="ml-auto rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
-          ⬆ Promote to dataset…
-        </button>
+      </div>
+
+      {/* Analysis passes — individual, quieter than the primary actions. */}
+      <div className="space-y-1.5">
+        <GroupLabel>Analysis passes</GroupLabel>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <PassButton onClick={() => startScan(false)} disabled={live}
+            title="Score every unscanned image (sharpness/noise/flat/size), hash it and group near-duplicates — CPU only, runs in the background">
+            🔎 Scan quality
+          </PassButton>
+          {(counts?.scanned || 0) > 0 && (
+            <PassButton onClick={() => startScan(true)} disabled={live}
+              title="Re-score everything (e.g. after files changed on disk)">
+              Rescan all
+            </PassButton>
+          )}
+          <PassButton onClick={startFaces} disabled={live || !caps.face_scoring}
+            title={caps.face_scoring
+              ? 'Detect the dominant face of every non-rejected image and cluster the bank by person (no reference needed). CPU, can take a while on thousands of images.'
+              : 'Install the Quality tools (Setup) to sort by person'}>
+            👥 Group by person
+          </PassButton>
+          <PassButton onClick={startScore} disabled={live || !caps.bank_scoring}
+            title={caps.bank_scoring
+              ? 'Rate every non-rejected image for aesthetics (1–10), flag NSFW, and group by visual style — one CLIP pass. Powers a smarter "keep best". GPU when available; runs in the background.'
+              : 'Install the Bank scoring extra (Setup ▸ Quality tools) to score aesthetics / NSFW / style'}>
+            ✨ Score{!caps.bank_scoring && ' (needs setup)'}
+          </PassButton>
+          <PassButton onClick={startWatermark} disabled={live || !visionReady}
+            title={visionReady
+              ? 'Scan every non-rejected image for an overlaid watermark/logo/URL with the same Qwen3-VL detector the datasets use (detection only — the bank never edits your files). GPU vision pass.'
+              : 'Pull the vision model (Settings ▸ Captioning & quality) to scan for watermarks'}>
+            🚩 Find watermarks{!visionReady && ' (needs setup)'}
+          </PassButton>
+          <PassButton onClick={startSemanticDedup} disabled={live || scored === 0}
+            title={scored > 0
+              ? 'Group crops and re-compressed variants of the SAME shot the exact-duplicate hash misses — reuses the ✨ Score embeddings, so it costs no extra GPU time. Review them under the ✂ Same shot chip.'
+              : 'Run ✨ Score first — semantic near-duplicates reuse its embeddings'}>
+            ✂ Find crops &amp; variants{scored === 0 && ' (needs Score)'}
+          </PassButton>
+          <PassButton onClick={startCaption} disabled={live}
+            title={selected.size
+              ? `Caption the ${selected.size} selected image(s) with your caption engine (Settings ▸ Captioning & quality). Captions become searchable and follow the images when you promote them to a dataset.`
+              : 'Caption every not-yet-captioned image (skips rejected) with your caption engine. Captions become searchable tags and follow the images when you promote them to a dataset. Select images first to caption just those.'}>
+            🏷️ Caption{selected.size ? ` ${selected.size} selected` : ' all'}
+          </PassButton>
+        </div>
       </div>
 
       {/* Person clusters (after the face pass) */}
       {clusters.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-content-subtle">
+          <GroupLabel>
             People ({clusters.length} cluster{clusters.length > 1 ? 's' : ''} — biggest first)
-          </p>
+          </GroupLabel>
           <ul className="flex gap-2 overflow-x-auto pb-1">
             {clusters.map((c) => (
               <li key={c.id} className="shrink-0">
@@ -476,9 +530,9 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       {/* Style clusters (after the scoring pass) — group screenshots/memes vs photoreal */}
       {styleClusters.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-content-subtle">
+          <GroupLabel>
             Styles ({styleClusters.length} group{styleClusters.length > 1 ? 's' : ''} — biggest first)
-          </p>
+          </GroupLabel>
           <ul className="flex gap-2 overflow-x-auto pb-1">
             {styleClusters.map((c) => (
               <li key={c.id} className="shrink-0">
@@ -500,98 +554,123 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
         </div>
       )}
 
-      {/* Subfolder scoping (a Telegram export nests one folder per chat/date) */}
-      {subfolders.length > 1 && (
+      {/* Search, subfolder scoping, and the grouped flag filters. */}
+      <div className="space-y-2.5 rounded-lg border border-border bg-surface px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-xs font-semibold uppercase tracking-wide text-content-subtle">
-            Subfolder
-          </label>
-          <select value={filter.subfolder ?? '__all__'}
-            onChange={(e) => setF({ subfolder: e.target.value === '__all__' ? null : e.target.value })}
-            className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-content">
-            <option value="__all__">All subfolders</option>
-            {subfolders.map((s) => (
-              <option key={s.name || '__root__'} value={s.name}>
-                {s.name === '' ? '(bank root)' : s.name} · {s.count}
-              </option>
-            ))}
-          </select>
+          <div className="relative min-w-[12rem] max-w-md flex-1">
+            <span aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-content-subtle">🔍</span>
+            <input type="search" value={searchText} onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search captions and file names… (e.g. red dress)"
+              aria-label="Search the bank by caption or file name"
+              className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-8 text-sm text-content placeholder:text-content-subtle" />
+            {searchText && (
+              <button type="button" onClick={() => setSearchText('')} aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-content-subtle hover:text-content">✕</button>
+            )}
+          </div>
+          {/* Subfolder scoping (a Telegram export nests one folder per chat/date) */}
+          {subfolders.length > 1 && (
+            <div className="flex items-center gap-1.5">
+              <GroupLabel>Subfolder</GroupLabel>
+              <select value={filter.subfolder ?? '__all__'}
+                onChange={(e) => setF({ subfolder: e.target.value === '__all__' ? null : e.target.value })}
+                className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-content">
+                <option value="__all__">All subfolders</option>
+                {subfolders.map((s) => (
+                  <option key={s.name || '__root__'} value={s.name}>
+                    {s.name === '' ? '(bank root)' : s.name} · {s.count}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Full-text search over captions + file paths */}
-      <div className="relative max-w-md">
-        <span aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-content-subtle">🔍</span>
-        <input type="search" value={searchText} onChange={(e) => setSearchText(e.target.value)}
-          placeholder="Search captions and file names… (e.g. red dress)"
-          aria-label="Search the bank by caption or file name"
-          className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-8 text-sm text-content placeholder:text-content-subtle" />
-        {searchText && (
-          <button type="button" onClick={() => setSearchText('')} aria-label="Clear search"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-content-subtle hover:text-content">✕</button>
-        )}
+        {/* Filters — grouped by facet so the chips read as a system, not a wall */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <FilterGroup label="Status">
+            <Chip active={!filter.status && !filter.flag && filter.cluster == null && filter.style == null}
+              onClick={() => setF({ status: null, flag: null, cluster: null, style: null })}>All</Chip>
+            <Chip active={filter.status === 'pending'} onClick={() => setF({ status: filter.status === 'pending' ? null : 'pending' })}>Undecided</Chip>
+            <Chip active={filter.status === 'keep'} onClick={() => setF({ status: filter.status === 'keep' ? null : 'keep' })}>✓ Kept</Chip>
+            <Chip active={filter.status === 'reject'} onClick={() => setF({ status: filter.status === 'reject' ? null : 'reject' })}>✕ Rejected</Chip>
+          </FilterGroup>
+
+          <FilterGroup label="Quality">
+            {['blur', 'noise', 'uniform', 'small', 'unreadable'].map((f) => (
+              <Chip key={f} active={filter.flag === f}
+                onClick={() => setF({ flag: filter.flag === f ? null : f })}
+                title="Sorted worst-first">
+                {FLAG_LABEL[f]} {flags[f] ?? 0}
+              </Chip>
+            ))}
+            <Chip active={filter.flag === 'clean'} onClick={() => setF({ flag: filter.flag === 'clean' ? null : 'clean' })}>✨ Clean</Chip>
+          </FilterGroup>
+
+          {/* Score-derived flags — only surfaced once their pass has produced data. */}
+          {availableScoreFlags.length > 0 && (
+            <FilterGroup label="Score">
+              {availableScoreFlags.map((f) => (
+                <Chip key={f} active={filter.flag === f}
+                  onClick={() => setF({ flag: filter.flag === f ? null : f, cluster: null, style: null })}
+                  title={f === 'watermark' ? 'Overlaid watermark detected' : 'Sorted worst-first'}>
+                  {FLAG_LABEL[f]} {flags[f] ?? 0}
+                </Chip>
+              ))}
+            </FilterGroup>
+          )}
+
+          <FilterGroup label="Groups">
+            <Chip active={filter.flag === 'dups'} onClick={() => setF({ flag: filter.flag === 'dups' ? null : 'dups', cluster: null })}
+              title="Exact / resized duplicate groups (perceptual hash) with their resolution panel">
+              ≈ Duplicates {payload?.dup?.unresolved ?? 0}
+            </Chip>
+            {(payload?.semantic_dup?.groups ?? 0) > 0 && (
+              <Chip active={filter.flag === 'semantic_dups'}
+                onClick={() => setF({ flag: filter.flag === 'semantic_dups' ? null : 'semantic_dups', cluster: null })}
+                title="Semantic near-duplicates — same shot, different crop/compression — with their resolution panel">
+                ✂ Same shot {payload?.semantic_dup?.unresolved ?? 0}
+              </Chip>
+            )}
+            {payload?.faces_scanned > 0 && (
+              <Chip active={filter.flag === 'no_face'} onClick={() => setF({ flag: filter.flag === 'no_face' ? null : 'no_face' })}>
+                🚫👤 No face
+              </Chip>
+            )}
+          </FilterGroup>
+        </div>
+
+        {/* View controls — order and tile size, off to the right on their own line */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
+          <GroupLabel>View</GroupLabel>
+          <label className="flex items-center gap-1 text-xs text-content-muted">
+            Sort
+            <select value={filter.sort} onChange={(e) => setSort(e.target.value)}
+              title="Order the grid by image resolution (megapixels). Unscanned images sink to the end."
+              aria-label="Sort the grid"
+              className="rounded-md border border-border bg-surface px-2 py-0.5 text-xs text-content">
+              <option value="default">Default</option>
+              <option value="res_desc">Resolution ↓</option>
+              <option value="res_asc">Resolution ↑</option>
+            </select>
+          </label>
+          <span className="ml-auto" />
+          <button type="button" onClick={() => setTileSize((s) => (s === 'M' ? 'S' : 'M'))}
+            className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">
+            {tileSize === 'M' ? 'Small tiles' : 'Medium tiles'}
+          </button>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Chip active={!filter.status && !filter.flag && filter.cluster == null && filter.style == null}
-          onClick={() => setF({ status: null, flag: null, cluster: null, style: null })}>All</Chip>
-        <Chip active={filter.status === 'pending'} onClick={() => setF({ status: filter.status === 'pending' ? null : 'pending' })}>Undecided</Chip>
-        <Chip active={filter.status === 'keep'} onClick={() => setF({ status: filter.status === 'keep' ? null : 'keep' })}>✓ Kept</Chip>
-        <Chip active={filter.status === 'reject'} onClick={() => setF({ status: filter.status === 'reject' ? null : 'reject' })}>✕ Rejected</Chip>
-        <span aria-hidden className="mx-1 h-4 w-px bg-border" />
-        {['blur', 'noise', 'uniform', 'small', 'unreadable'].map((f) => (
-          <Chip key={f} active={filter.flag === f}
-            onClick={() => setF({ flag: filter.flag === f ? null : f })}
-            title="Sorted worst-first">
-            {FLAG_LABEL[f]} {flags[f] ?? 0}
-          </Chip>
-        ))}
-        <Chip active={filter.flag === 'clean'} onClick={() => setF({ flag: filter.flag === 'clean' ? null : 'clean' })}>✨ Clean</Chip>
-        {/* Score-derived flags — only surfaced once their pass has produced data. */}
-        {availableScoreFlags.map((f) => (
-          <Chip key={f} active={filter.flag === f}
-            onClick={() => setF({ flag: filter.flag === f ? null : f, cluster: null, style: null })}
-            title={f === 'watermark' ? 'Overlaid watermark detected' : 'Sorted worst-first'}>
-            {FLAG_LABEL[f]} {flags[f] ?? 0}
-          </Chip>
-        ))}
-        <Chip active={filter.flag === 'dups'} onClick={() => setF({ flag: filter.flag === 'dups' ? null : 'dups', cluster: null })}
-          title="Exact / resized duplicate groups (perceptual hash) with their resolution panel">
-          ≈ Duplicates {payload?.dup?.unresolved ?? 0}
-        </Chip>
-        {(payload?.semantic_dup?.groups ?? 0) > 0 && (
-          <Chip active={filter.flag === 'semantic_dups'}
-            onClick={() => setF({ flag: filter.flag === 'semantic_dups' ? null : 'semantic_dups', cluster: null })}
-            title="Semantic near-duplicates — same shot, different crop/compression — with their resolution panel">
-            ✂ Same shot {payload?.semantic_dup?.unresolved ?? 0}
-          </Chip>
-        )}
-        {payload?.faces_scanned > 0 && (
-          <Chip active={filter.flag === 'no_face'} onClick={() => setF({ flag: filter.flag === 'no_face' ? null : 'no_face' })}>
-            🚫👤 No face
-          </Chip>
-        )}
-        <span className="ml-auto" />
-        <label className="flex items-center gap-1 text-xs text-content-muted">
-          Sort
-          <select value={filter.sort} onChange={(e) => setSort(e.target.value)}
-            title="Order the grid by image resolution (megapixels). Unscanned images sink to the end."
-            aria-label="Sort the grid"
-            className="rounded-md border border-border bg-surface px-2 py-0.5 text-xs text-content">
-            <option value="default">Default</option>
-            <option value="res_desc">Resolution ↓</option>
-            <option value="res_asc">Resolution ↑</option>
-          </select>
-        </label>
-        <button type="button" onClick={() => setTileSize((s) => (s === 'M' ? 'S' : 'M'))}
-          className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">
-          {tileSize === 'M' ? 'Small tiles' : 'Medium tiles'}
-        </button>
-      </div>
-
-      {/* Selection bar */}
+      {/* Results readout + selection actions */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-content-muted">
+          <span className="font-semibold tabular-nums text-content">{(page.total ?? 0).toLocaleString()}</span> shown
+          {isFiltered && (
+            <span className="text-content-subtle"> of {(counts?.total ?? 0).toLocaleString()}</span>
+          )}
+        </span>
+        <span aria-hidden className="h-4 w-px bg-border" />
         <span className="text-content-muted">{selected.size} selected</span>
         <button type="button" onClick={selectAllCurrent}
           className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content hover:bg-surface-raised">
@@ -602,9 +681,9 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             <button type="button" onClick={() => setSelected(new Set())}
               className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">Clear</button>
             <button type="button" onClick={() => batchStatus([...selected], 'keep')}
-              className="rounded-md border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">✓ Keep</button>
+              className="rounded-md border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/20">✓ Keep</button>
             <button type="button" onClick={() => batchStatus([...selected], 'reject')}
-              className="rounded-md border border-rose-400/50 bg-rose-500/10 px-2 py-0.5 text-xs font-semibold text-rose-200">✕ Reject</button>
+              className="rounded-md border border-rose-400/50 bg-rose-500/10 px-2 py-0.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/20">✕ Reject</button>
             <button type="button" onClick={() => batchStatus([...selected], 'pending')}
               className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">↺ Undecided</button>
           </>
