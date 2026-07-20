@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-bank-guided-zones',
+    date: '2026-07-20',
+    title: '🧭 The Bank top is now a guided path, not a wall of buttons',
+    blurb:
+      "The 🗃️ Bank's controls are now grouped into four ordered, labeled zones — ① Analyser, ② Trier, ③ Curer, ④ Promouvoir — that follow the natural workflow, and a subtle amber marker points at the recommended next step based on where your bank is (nothing scanned → Analyse; scored with images kept → Promote). Nothing is hidden — every control stays where you can reach it — it just finally reads as a path instead of a pile.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-20-bank-explicit-caption',
     date: '2026-07-20',
     title: '🏷️ Caption your bank crude — explicit lane, right at triage',
