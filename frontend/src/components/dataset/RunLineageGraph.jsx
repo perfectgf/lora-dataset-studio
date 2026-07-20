@@ -6,6 +6,7 @@ import LineageDetailPanel from './LineageDetailPanel';
 import LineageDiffPanel from './LineageDiffPanel';
 import { noteBadge, toggleDiffSelection } from './lineageDetail.js';
 import { removeRunFromTree } from '../../utils/runDeletable.js';
+import { postJson } from '../../api/fetchClient';
 import {
   checkpointKey, toggleCheckpointSelection, selectedCheckpointRefs,
   describePreviewSelection, parseSeedInput,
@@ -263,16 +264,12 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
     const family = firstNode?.node.train_type || null;
     setGen({ busy: true, error: null, note: null });
     try {
-      const resp = await fetch(`/api/dataset/${datasetId}/lineage/previews`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: genPrompt || null, seed: seedParsed.seed,
-          family, checkpoints: refs }),
+      // postJson (not raw fetch) so the state-changing POST carries the X-CSRFToken
+      // header + the app's one-shot CSRF-refresh retry — a bare fetch is rejected
+      // 400 (CSRF missing) by Flask-WTF, which is exactly what broke browser Generate.
+      const body = await postJson(`/api/dataset/${datasetId}/lineage/previews`, {
+        prompt: genPrompt || null, seed: seedParsed.seed, family, checkpoints: refs,
       });
-      const body = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        setGen({ busy: false, error: body.detail || body.error || 'Generation failed', note: null });
-        return;
-      }
       // Optimistically mark the queued checkpoints as rendering, clear the picks.
       setPreviewOverlay((cur) => {
         const nx = { ...cur };
@@ -298,7 +295,7 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
         }, 4000);
       }
     } catch (e) {
-      setGen({ busy: false, error: 'Network error — is the app still running?', note: null });
+      setGen({ busy: false, error: e?.message || 'Generation failed', note: null });
     }
   }, [selectedCk, pillByKey, datasetId, genSeed, genPrompt, g.nodes, refetchTree, mergeFromTree]);
 
