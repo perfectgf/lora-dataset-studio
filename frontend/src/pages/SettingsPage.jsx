@@ -58,6 +58,10 @@ export default function SettingsPage() {
   // the edited config drifts from it (or a secret paste is pending).
   const [savedConfig, setSavedConfig] = useState(null)
   const [runtime, setRuntime] = useState({ host: null, port: null })
+  // Read-only shipped defaults of the editable identity/quality prompts, so the
+  // UI can SHOW the real default text (and "Load default to edit") rather than
+  // an empty box. Never persisted; a blank override still means "use default".
+  const [promptDefaults, setPromptDefaults] = useState({})
   const [secretsPresence, setSecretsPresence] = useState({})
   const [secretInputs, setSecretInputs] = useState({})
   const [testResults, setTestResults] = useState({})
@@ -72,6 +76,7 @@ export default function SettingsPage() {
       setConfig(data.config)
       setSavedConfig(data.config)
       setRuntime(data.runtime || { host: null, port: null })
+      setPromptDefaults(data.identity_prompt_defaults || {})
       setSecretsPresence(data.secrets)
     } catch (e) {
       toast.error(`Failed to load settings: ${e.message}`)
@@ -254,7 +259,7 @@ export default function SettingsPage() {
   const sectionProps = {
     config, setField, secretsPresence, secretInputs, setSecretInputs,
     testResults, recordTestResult, saveSecretIfPending, saveConfigSection, handleDeleteSecret,
-    toggleEngine, handleSave, saving, runtime, caps, refreshCaps: refresh, toast,
+    toggleEngine, handleSave, saving, runtime, promptDefaults, caps, refreshCaps: refresh, toast,
   }
 
   const activeId = SECTION_COMPONENTS[section] ? section : 'overview'

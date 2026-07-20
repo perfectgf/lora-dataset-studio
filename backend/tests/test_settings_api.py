@@ -25,6 +25,17 @@ def test_get_settings_masks_secrets(client, monkeypatch):
     assert data['secrets']['OPENAI_API_KEY'] is True
     assert 'sk-secret' not in str(data)
 
+def test_get_settings_exposes_identity_prompt_defaults(client):
+    """The payload carries the four shipped default prompts read-only, so the UI
+    can show the real default text instead of a blank "leave blank" field."""
+    from app.services import face_variations as fv
+    data = client.get('/api/settings').get_json()
+    defaults = data['identity_prompt_defaults']
+    assert defaults == {'face_single': fv.IDENTITY_GUARD, 'face_multi': fv.IDENTITY_GUARD_MULTI,
+                        'klein_identity': fv.IDENTITY_GUARD_KLEIN,
+                        'klein_improve': fv.KLEIN_IMAGE_IMPROVE_PROMPT}
+
+
 def test_put_settings_persists_config_and_secret(client, tmp_path):
     r = client.put('/api/settings', json={
         'config': {'ollama': {'url': 'http://127.0.0.1:11500'}},

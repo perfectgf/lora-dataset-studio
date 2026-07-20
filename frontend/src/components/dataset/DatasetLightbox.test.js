@@ -37,9 +37,11 @@ test('dataset hook starts improvement, reports the preserved original, then refr
 });
 
 test('settings separates scraper rescue instructions from manual lightbox improvement', () => {
-  assert.match(settings, /title="Klein image improvement"/);
+  assert.match(settings, /title="Klein rescue — small scraped images"/);
   assert.match(settings, /automatic rescue of scraped images under 768 px/);
   assert.match(settings, /Manual Upscale & improve uses its dedicated metadata-derived quality profile/);
+  // the rescue card points at the separate manual "Identity & Klein prompts" card
+  assert.match(settings, /separate from the manual .Klein upscale &amp; improve. prompt/i);
 });
 
 test('manual improvement candidates cannot use the unrelated generic regenerate path', () => {

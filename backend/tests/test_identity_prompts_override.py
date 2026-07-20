@@ -46,6 +46,16 @@ def test_default_registry_matches_constants():
     assert set(fv.IDENTITY_PROMPT_KINDS) == set(fv._IDENTITY_PROMPT_DEFAULTS)
 
 
+def test_identity_prompt_defaults_returns_all_four_constants():
+    d = fv.identity_prompt_defaults()
+    assert d == {'face_single': fv.IDENTITY_GUARD, 'face_multi': fv.IDENTITY_GUARD_MULTI,
+                 'klein_identity': fv.IDENTITY_GUARD_KLEIN,
+                 'klein_improve': fv.KLEIN_IMAGE_IMPROVE_PROMPT}
+    # a copy, not the live registry — a mutating caller cannot corrupt defaults
+    d['face_single'] = 'x'
+    assert fv.identity_prompt_default('face_single') == fv.IDENTITY_GUARD
+
+
 def test_get_identity_prompt_returns_default_when_unconfigured(monkeypatch):
     _patch_overrides(monkeypatch, {})
     for kind in fv.IDENTITY_PROMPT_KINDS:

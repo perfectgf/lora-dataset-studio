@@ -253,7 +253,7 @@ const TOPICS = [
     ['civitai', 'api key', 'nsfw', 'adult', 'scrape', 'key']),
   setting('PEXELS_API_KEY', 'scraping', 'PEXELS_API_KEY', 'Pexels API key',
     ['pexels', 'api key', 'scrape', 'stock', 'key']),
-  setting('klein.small_image_prompt', 'scraping', 'klein-small-image-prompt', 'Klein image improvement',
+  setting('klein.small_image_prompt', 'scraping', 'klein-small-image-prompt', 'Klein rescue — small scraped images',
     ['klein', 'small image', 'rescue', 'upscale', 'improve', 'prompt', 'scrape']),
   // local-tools
   setting('comfyui.api_url', 'local-tools', 'comfyui-api-url', 'ComfyUI API URL',

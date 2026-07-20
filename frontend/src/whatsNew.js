@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-identity-prompts-show-defaults',
+    date: '2026-07-20',
+    title: '👁️ See the built-in identity prompts, not just an empty box',
+    blurb:
+      "The editable identity & Klein prompts used to show a blank field with a generic \"leave blank\" note, so you could never see the actual default text that was being applied. Each field now displays its real built-in default, and a \"Load default to edit\" button drops that exact text into the box so you can tweak it instead of writing one from scratch. Leaving a field blank still uses the shipped default, byte-for-byte. Completes @bbsorry (雨田壹)'s request to see and adjust these prompts.",
+    to: '/settings/engines',
+  },
+  {
     id: '2026-07-20-runs-history-load-more',
     date: '2026-07-20',
     title: '📜 See more than the last 15 runs — “Load older runs”',

@@ -107,9 +107,9 @@ None of these has a Test button; you find out they work on your next scan.
 - **Civitai API key** → `CIVITAI_API_KEY` (secret). Optional. Without it, Civitai scans return **SFW results only**; add a key to reach adult content you're entitled to use.
 - **Pexels API key (required for Pexels)** → `PEXELS_API_KEY` (secret). **Required** for any Pexels search — there's no shared fallback. The free quota is **200 requests/hour and 20,000/month**. [Create one here](https://www.pexels.com/api/key/). Note the standing warning: an API key alone does **not** authorize dataset or machine-learning use — configure this only if Pexels has explicitly authorized your use case.
 
-### Klein image improvement
+### Klein rescue — small scraped images
 
-- **Klein instruction** → `klein.small_image_prompt`. An optional free-text instruction shared by two flows: the automatic Klein **rescue** of scraped images under 768 px, and the manual **single/bulk 2 MP improvement**. Default **empty** — and empty is intentional: with nothing here the app improves from the reference image alone rather than inventing a restoration prompt on your behalf. Add an instruction only if you want to steer that improvement (e.g. "sharpen skin texture, keep natural tones").
+- **Small-image rescue instruction** → `klein.small_image_prompt`. An optional free-text instruction for **one flow only**: the automatic Klein **rescue** of scraped images under 768 px. Default **empty** — and empty is intentional: with nothing here the app improves from the reference image alone rather than inventing a restoration prompt on your behalf. Add an instruction only if you want to steer that rescue (e.g. "sharpen skin texture, keep natural tones"). The manual **"Klein upscale & improve"** action in the lightbox does **not** use this field — it has its own editable prompt under Settings ▸ Engines ▸ **Identity & Klein prompts** (`identity_prompts.klein_improve`), which can also be turned off for a pure upscale.
 
 ## Local tools
 

@@ -174,7 +174,29 @@ const IDENTITY_PROMPTS = [
     desc: 'The instruction block Klein (local) uses to restage the shot while keeping the face identical. Steers pose/framing/outfit changes without altering the person.' },
 ]
 
-function IdentityPromptField({ field, value, onChange, onRestore }) {
+/* The default is real code text shipped in face_variations.py, delivered
+   read-only in the settings payload (identity_prompt_defaults). When a field is
+   blank the app uses this exact text — so we SHOW it (grey mono block) and offer
+   "Load default to edit", which copies it into the textarea (you can't edit a
+   placeholder). Loading it makes the field a real override on next save, which is
+   the point: you start from the true prompt and change it. `disabled` mutes the
+   whole block when the parent step is toggled off. */
+function DefaultPromptPreview({ text, onLoad, disabled }) {
+  if (!text) return null
+  return (
+    <div className={`mt-1 rounded-md border border-border bg-surface p-2 ${disabled ? 'opacity-50' : ''}`}>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-content-subtle">Built-in default (currently in use)</span>
+        <button type="button" onClick={onLoad} disabled={disabled} className={TEXT_BTN}>
+          Load default to edit
+        </button>
+      </div>
+      <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-content-muted">{text}</p>
+    </div>
+  )
+}
+
+function IdentityPromptField({ field, value, onChange, onRestore, defaultText }) {
   const blank = !(value || '').trim()
   return (
     <div>
@@ -185,7 +207,7 @@ function IdentityPromptField({ field, value, onChange, onRestore }) {
         rows={4}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Leave blank to use the built-in default."
+        placeholder={defaultText || 'Leave blank to use the built-in default.'}
         className={`${INPUT_CLASS} font-mono leading-relaxed`}
       />
       <div className="mt-1 flex items-center justify-between">
@@ -194,12 +216,14 @@ function IdentityPromptField({ field, value, onChange, onRestore }) {
           Restore default
         </button>
       </div>
+      {blank && <DefaultPromptPreview text={defaultText} onLoad={() => onChange(defaultText)} />}
     </div>
   )
 }
 
-function IdentityPromptsCard({ config, setField }) {
+function IdentityPromptsCard({ config, setField, promptDefaults }) {
   const ip = config.identity_prompts || {}
+  const defaults = promptDefaults || {}
   const set = (key, v) => setField('identity_prompts', key, v)
   const improveEnabled = ip.klein_improve_enabled !== false
   const improveBlank = !(ip.klein_improve || '').trim()
@@ -214,6 +238,7 @@ function IdentityPromptsCard({ config, setField }) {
           key={f.key}
           field={f}
           value={ip[f.key]}
+          defaultText={defaults[f.key]}
           onChange={(v) => set(f.key, v)}
           onRestore={() => set(f.key, '')}
         />
@@ -239,7 +264,7 @@ function IdentityPromptsCard({ config, setField }) {
           value={ip.klein_improve ?? ''}
           onChange={(e) => set('klein_improve', e.target.value)}
           disabled={!improveEnabled}
-          placeholder="Leave blank to use the built-in default."
+          placeholder={defaults.klein_improve || 'Leave blank to use the built-in default.'}
           className={`${INPUT_CLASS} font-mono leading-relaxed disabled:opacity-50`}
         />
         <div className="mt-1 flex items-center justify-between">
@@ -250,6 +275,12 @@ function IdentityPromptsCard({ config, setField }) {
             Restore default
           </button>
         </div>
+        {improveEnabled && improveBlank && (
+          <DefaultPromptPreview text={defaults.klein_improve} onLoad={() => set('klein_improve', defaults.klein_improve)} />
+        )}
+        <p className="mt-3 text-xs text-content-subtle">
+          Separate from the scraper rescue prompt for small images — see Settings ▸ Scraping ▸ “Klein rescue — small scraped images”.
+        </p>
       </div>
     </Card>
   )
@@ -428,7 +459,7 @@ export default function EnginesSection(props) {
 
       <KleinLorasCard config={config} setField={setField} />
 
-      <IdentityPromptsCard config={config} setField={setField} />
+      <IdentityPromptsCard config={config} setField={setField} promptDefaults={props.promptDefaults} />
     </div>
   )
 }

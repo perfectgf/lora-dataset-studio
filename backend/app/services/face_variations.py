@@ -78,6 +78,15 @@ def identity_prompt_default(kind: str) -> str:
     return _IDENTITY_PROMPT_DEFAULTS[kind]
 
 
+def identity_prompt_defaults() -> dict:
+    """All four shipped defaults as a fresh {kind: text} dict — read-only view
+    surfaced in the settings payload so the UI can SHOW the effective default
+    prompt (and let the user copy it into the field to edit), instead of an
+    empty box with a generic "leave blank" placeholder. These are code
+    constants, not secrets, so they are safe to return verbatim."""
+    return dict(_IDENTITY_PROMPT_DEFAULTS)
+
+
 def get_identity_prompt(kind: str) -> str:
     """Effective identity/quality prompt for `kind`: the user's Settings override
     when it holds non-blank text, else the shipped default (byte-identical to the

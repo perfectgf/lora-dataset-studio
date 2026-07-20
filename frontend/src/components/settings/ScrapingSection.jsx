@@ -94,20 +94,21 @@ export default function ScrapingSection(props) {
         {SCRAPE_SECRETS.map((f) => <SecretField key={f.key} field={f} {...props} />)}
       </Card>
       <Card
-        title="Klein image improvement"
+        title="Klein rescue — small scraped images"
         help="Optional instruction for automatic rescue of scraped images under 768 px. Manual Upscale & improve uses its dedicated metadata-derived quality profile. Klein creates a separate 2 MP version to validate and leaves the original intact."
       >
         <div>
           <div className="flex items-center justify-between gap-3">
             <label htmlFor="klein-small-image-prompt" className="text-sm font-medium text-content">
-              Klein instruction
+              Small-image rescue instruction
             </label>
             <span className="text-xs text-content-subtle">optional</span>
           </div>
           <p className="mb-1 text-xs leading-relaxed text-content-muted">
             Leave this empty to let Klein use the reference image alone. Add a short instruction only
             when you want to guide automatic scraper rescue; Klein remains generative and may change
-            details. Manual lightbox improvement uses its dedicated quality profile.
+            details. This is separate from the manual “Klein upscale &amp; improve” prompt — see
+            Settings ▸ Engines ▸ “Identity &amp; Klein prompts”.
           </p>
           <textarea id="klein-small-image-prompt" rows={4} value={prompt}
             onChange={(e) => props.setField('klein', 'small_image_prompt', e.target.value)}
