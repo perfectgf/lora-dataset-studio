@@ -334,6 +334,21 @@ def bank_select_similar(bank_id):
     return jsonify({'ok': True, **out})
 
 
+@bp.post('/bank/<int:bank_id>/delete-rejected')
+def bank_delete_rejected(bank_id):
+    """Destructive: delete the SOURCE files of every rejected image from disk
+    (OS trash when send2trash is present, hard delete otherwise) and drop their
+    rows. The ONLY bank action that writes to the source folder — the front-end
+    gates it behind a type-DELETE confirmation."""
+    try:
+        out = banks.delete_rejected(LOCAL_USER, bank_id)
+    except ValueError:
+        return jsonify({'error': 'not found'}), 404
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 409
+    return jsonify({'ok': True, **out})
+
+
 def _row_or_404(bank_id, image_id):
     bank = banks.get_bank(LOCAL_USER, bank_id)
     if not bank:

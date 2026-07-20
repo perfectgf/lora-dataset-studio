@@ -1188,6 +1188,79 @@ def select_similar(user_id, bank_id, ref_id, n=60, min_score=None, *, filters=No
     results = [{'id': ids[k], 'score': round(float(sims[k]), 4)} for k in keep]
     return {'results': results, 'image_ids': [ids[k] for k in keep],
             'pool': len(ids), 'ref_id': int(ref_id)}
+def _trash_or_remove(path: str) -> str:
+    """Send a source file to the OS trash when send2trash is installed, else
+    hard-delete it. Returns the mode actually used ('trash' | 'delete'). The
+    import is optional so an install that predates the dependency still works
+    (degraded to a permanent delete) — the caller reports which happened."""
+    try:
+        from send2trash import send2trash   # optional dependency
+    except Exception:
+        os.remove(path)
+        return 'delete'
+    send2trash(path)
+    return 'trash'
+
+
+def delete_rejected(user_id, bank_id) -> dict:
+    """Delete the SOURCE files of every status='reject' image from disk, then
+    drop their bank_image rows.
+
+    This is the ONLY bank action that writes to the user's source folder. It is
+    destructive: with send2trash installed the files go to the OS trash (real,
+    OS-level recovery); without it they are permanently removed. Either way the
+    app's own trash cannot bring them back — these are files outside the app.
+
+    Non-rejected images are never touched. Per-file failures (permission, a path
+    that escapes the bank folder) are collected and reported; they never abort
+    the batch. A row is dropped only when its file is gone afterwards (deleted,
+    trashed, or already absent) — a file we failed to remove keeps its row so the
+    user can see and retry it. Returns
+    {'mode', 'deleted', 'trashed', 'already_absent', 'rows_removed', 'skipped'}.
+    """
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    if bank_jobs.running(bank_id):
+        raise RuntimeError('a job is running on this bank — stop it first')
+
+    rows = BankImage.query.filter_by(bank_id=bank_id, status='reject').all()
+    out = {'mode': 'trash', 'deleted': 0, 'trashed': 0, 'already_absent': 0,
+           'rows_removed': 0, 'skipped': []}
+    remove_ids = []
+    saw_hard_delete = False
+    for row in rows:
+        path = abs_image_path(bank, row)
+        if path is None:
+            # relpath escapes the bank folder — refuse to touch it, keep the row.
+            out['skipped'].append({'relpath': row.relpath, 'reason': 'unsafe_path'})
+            continue
+        if not os.path.exists(path):
+            out['already_absent'] += 1
+            remove_ids.append(row.id)
+            continue
+        try:
+            mode = _trash_or_remove(path)
+        except OSError as e:
+            out['skipped'].append({'relpath': row.relpath, 'reason': str(e)})
+            continue
+        if mode == 'trash':
+            out['trashed'] += 1
+        else:
+            out['deleted'] += 1
+            saw_hard_delete = True
+        remove_ids.append(row.id)
+
+    for i0 in range(0, len(remove_ids), _SQL_IN_CHUNK):
+        BankImage.query.filter(
+            BankImage.id.in_(remove_ids[i0:i0 + _SQL_IN_CHUNK])
+        ).delete(synchronize_session=False)
+    out['rows_removed'] = len(remove_ids)
+    db.session.commit()
+    # 'delete' means at least one file was permanently removed (send2trash absent
+    # or it refused a path); the UI wording follows this.
+    out['mode'] = 'delete' if saw_hard_delete else 'trash'
+    return out
 
 
 # --- cooperative-cancel subprocess driver (shared by the face + score passes) --

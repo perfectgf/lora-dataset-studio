@@ -1,7 +1,5 @@
-// ============================================================================
-//  🎁 What's new — in-app changelog feed (source of truth)
-// ============================================================================
-//
+// =====================================================================//  🎁 What's new — in-app changelog feed (source of truth)
+// =====================================================================//
 //  WHY THIS FILE EXISTS
 //  --------------------
 //  The update banner only fires on TAGGED releases. Between releases, features
@@ -42,8 +40,7 @@
 //    stale target fails the test the moment a section is renamed.
 //  • Keep the list tidy: tail entries older than a couple of months can be
 //    pruned once everyone has cycled through an update or two.
-// ============================================================================
-
+// =====================================================================
 import { SETTINGS_SECTIONS } from './components/settings/registry.js';
 import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 
@@ -63,6 +60,11 @@ export const WHATS_NEW = [
     title: '🗃️ A calmer, clearer Bank workspace',
     blurb:
       "The 🗃️ Bank toolbar is reorganized around what you actually do: Launch all and Promote stand out as the two outcomes, the individual analysis passes (Scan, Score, Watermarks, Person, Crops, Caption) sit together below them, and the flag filters are now grouped by Status, Quality, Score, Groups and 📐 Resolution with a live \"N shown of total\" count. Same tools, nothing removed — just far easier to read on a wide screen or a phone.",
+    id: '2026-07-20-bank-delete-rejected',
+    date: '2026-07-20',
+    title: '🗑 Delete rejected images from your disk',
+    blurb:
+      "Done triaging a 🗃️ Bank? A new 'Delete rejected from disk' button next to Promote clears every image you marked ✕ rejected straight off your drive — the one Bank action that touches your source files. It asks you to type DELETE first, and sends the files to your OS trash when possible (a hard delete otherwise). Heads up: this is irreversible — the app's own trash can't bring them back. Kept and undecided images are never touched.",
     to: '/bank',
   },
   {

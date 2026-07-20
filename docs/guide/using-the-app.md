@@ -198,6 +198,15 @@ Both honour whatever filter and 🔍 search are active ("the 60 most diverse of
 *this* subfolder"), and both just **select** — the images light up and you review
 them with the same ✓ Keep / ✕ Reject / ⬆ Promote bar. Nothing is auto-kept or
 deleted, so a selection you don't like costs one click to clear.
+**🗑 Delete rejected from disk** (next to Promote) is the one exception to the
+"your source folder is never modified" rule, and it's opt-in. Once you're happy
+with your triage, it removes every image you marked ✕ rejected from its source
+folder — the actual files, not just the status. It asks you to type **DELETE**
+first, and sends the files to your OS trash when [`send2trash`](https://pypi.org/project/Send2Trash/)
+is installed (a permanent delete otherwise). This is **irreversible** — the
+app's own trash can't recover these, they live outside the app. Kept and
+undecided images are never touched, and a file it can't remove (locked,
+read-only) is reported and left alone rather than aborting the batch.
 
 **🚀 Launch all** does the whole funnel for you in one go. Tick which passes
 run and how auto-reject behaves, hit Go, and walk away — it chains *scan →

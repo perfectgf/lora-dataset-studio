@@ -4,6 +4,7 @@ import { useToast } from '../common/Toast'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import DupGroupsPanel from './DupGroupsPanel'
 import PromoteDialog from './PromoteDialog'
+import DeleteRejectedDialog from './DeleteRejectedDialog'
 import LaunchAllDialog from './LaunchAllDialog'
 import PipelineReport from './PipelineReport'
 
@@ -207,6 +208,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const [page, setPage] = useState({ images: [], total: 0 })
   const [selected, setSelected] = useState(() => new Set())
   const [promoteOpen, setPromoteOpen] = useState(false)
+  const [deleteRejectedOpen, setDeleteRejectedOpen] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
   const [dismissedReportAt, setDismissedReportAt] = useState(null)
   const [rejectFlags, setRejectFlags] = useState(() => new Set(['blur', 'uniform']))
@@ -497,6 +499,14 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               </>
             )}
           </div>
+          <button type="button" onClick={() => setDeleteRejectedOpen(true)}
+            disabled={live || !(counts?.reject > 0)}
+            title={(counts?.reject > 0)
+              ? 'Delete the rejected images from your disk (OS trash when available). Irreversible — asks you to type DELETE first. Kept images are untouched.'
+              : 'No rejected images to delete'}
+            className="rounded-md border border-rose-500/50 px-3 py-1.5 text-sm text-rose-300 disabled:opacity-40 hover:bg-rose-500/10">
+            🗑 Delete rejected from disk{(counts?.reject > 0) ? ` (${counts.reject})` : ''}
+          </button>
           <button type="button" onClick={() => setPromoteOpen(true)} disabled={live || !canPromote}
             title={canPromote ? 'Copy the kept selection into a dataset' : 'Keep some images first'}
             className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
@@ -878,6 +888,13 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           selectedIds={[...selected]}
           onClose={() => setPromoteOpen(false)}
           onStarted={() => { setPromoteOpen(false); refreshPayload() }} />
+      )}
+
+      {deleteRejectedOpen && (
+        <DeleteRejectedDialog bankId={bankId} count={counts?.reject || 0}
+          sourcePath={payload?.source_path}
+          onClose={() => setDeleteRejectedOpen(false)}
+          onDone={() => { setDeleteRejectedOpen(false); setSelected(new Set()); refreshPayload(); refreshImages() }} />
       )}
 
       {launchOpen && (
