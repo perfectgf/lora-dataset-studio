@@ -219,7 +219,9 @@ def test_resolve_keep_first_and_manual_pick(client, tmp_path, app):
     assert by['b_copy.jpg']['status'] == 'reject'
 
 
-def test_resolve_never_flips_a_manual_keep(client, tmp_path):
+def test_auto_resolve_never_flips_a_manual_keep(client, tmp_path, app):
+    """The AUTOMATIC resolver (pipeline auto-reject) must never un-keep a manual
+    pick: resolve_dups_keep_best keeps respect_existing_keep=True."""
     im = checkerboard(size=256, cell=16)
     bank_id, _src = _mkbank(client, tmp_path, {'a.jpg': im, 'b.jpg': im})
     client.post(f'/api/bank/{bank_id}/scan', json={})
@@ -227,10 +229,76 @@ def test_resolve_never_flips_a_manual_keep(client, tmp_path):
     ids = {i['name']: i['id'] for i in groups[0]['images']}
     client.post(f'/api/bank/{bank_id}/images/status',
                 json={'ids': [ids['b.jpg']], 'status': 'keep'})
-    client.post(f'/api/bank/{bank_id}/dups/resolve', json={'strategy': 'first'})
+    with app.app_context():
+        from app.services import image_bank_service as banks
+        assert banks.resolve_dups_keep_best('local', bank_id) == 0   # keep protected
     by = {i['name']: i for i in
           client.get(f'/api/bank/{bank_id}/images').get_json()['images']}
-    assert by['b.jpg']['status'] == 'keep'               # manual keep survives
+    assert by['b.jpg']['status'] == 'keep'               # manual keep survives auto
+
+
+def test_explicit_resolve_rejects_kept_losers(client, tmp_path, app):
+    """An EXPLICIT resolve (user clicks Keep best / Keep first / Resolve ALL on a
+    same-shot group) must collapse the group to ONE — even when every member is
+    already 'keep' (the usual same-shot case). Before the fix the guard skipped
+    'keep' members, so the losers stayed kept and the toast read '0 rejected'."""
+    im = checkerboard(size=256, cell=16)
+    bank_id, _src = _mkbank(client, tmp_path, {
+        'a.jpg': im, 'b.jpg': im, 'c.jpg': im,
+    })
+    client.post(f'/api/bank/{bank_id}/scan', json={})
+    groups = client.get(f'/api/bank/{bank_id}/dup-groups').get_json()['groups']
+    ids = {i['name']: i['id'] for i in groups[0]['images']}
+    # ALL three members kept — the shape that produced 'Resolved N — 0 rejected'.
+    client.post(f'/api/bank/{bank_id}/images/status',
+                json={'ids': list(ids.values()), 'status': 'keep'})
+
+    # AUTO path first: with every member kept it rejects nobody (unchanged).
+    with app.app_context():
+        from app.services import image_bank_service as banks
+        assert banks.resolve_dups_keep_best('local', bank_id) == 0
+
+    # EXPLICIT path: keep first → a.jpg elected, b + c fall to reject.
+    r = client.post(f'/api/bank/{bank_id}/dups/resolve', json={'strategy': 'first'})
+    assert r.get_json() == {'ok': True, 'resolved': 1, 'rejected': 2}
+    by = {i['name']: i for i in
+          client.get(f'/api/bank/{bank_id}/images').get_json()['images']}
+    assert by['a.jpg']['status'] == 'keep'               # elected keeper untouched
+    assert by['b.jpg']['status'] == 'reject'
+    assert by['c.jpg']['status'] == 'reject'
+    assert by['b.jpg']['reject_reason'] == 'duplicate'
+
+
+def test_explicit_semantic_resolve_rejects_kept_losers(client, tmp_path, app):
+    """Same per-group collapse for stage-2 semantic groups: an explicit resolve
+    over an all-kept semantic_dup_group rejects the losers (reason semantic_dup),
+    while the elected keeper survives — set up at the service layer so no CLIP
+    extra is needed."""
+    im = checkerboard(size=256, cell=16)
+    bank_id, _src = _mkbank(client, tmp_path, {
+        'a.jpg': im, 'b.jpg': im, 'c.jpg': im,
+    })
+    client.post(f'/api/bank/{bank_id}/scan', json={})
+    with app.app_context():
+        from app.models import BankImage
+        from app.extensions import db
+        rows = (BankImage.query.filter_by(bank_id=bank_id)
+                .order_by(BankImage.id.asc()).all())
+        for r in rows:
+            r.semantic_dup_group, r.status = 1, 'keep'
+        db.session.commit()
+        keeper_id = rows[0].id
+    # Explicit manual pick keeps the first row; the two kept losers get rejected.
+    r = client.post(f'/api/bank/{bank_id}/semantic-dups/resolve',
+                    json={'keep_ids': [keeper_id]})
+    assert r.get_json()['rejected'] == 2
+    with app.app_context():
+        from app.models import BankImage
+        rows = BankImage.query.filter_by(bank_id=bank_id).all()
+        kept = [x for x in rows if x.status == 'keep']
+        rej = [x for x in rows if x.status == 'reject']
+        assert len(kept) == 1 and kept[0].id == keeper_id
+        assert len(rej) == 2 and all(x.reject_reason == 'semantic_dup' for x in rej)
 
 
 # --- flag application + statuses --------------------------------------------

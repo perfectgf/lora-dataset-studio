@@ -975,15 +975,23 @@ def _best_of(rows):
 
 
 def resolve_dups(user_id, bank_id, strategy='best', group=None, keep_ids=None,
-                 col=BankImage.dup_group, attr='dup_group', reason='duplicate'):
+                 col=BankImage.dup_group, attr='dup_group', reason='duplicate',
+                 respect_existing_keep=True):
     """Resolve duplicate groups: keep one member, REJECT the others (a status,
     never a file deletion, so it's reversible). strategy 'best'|'first' applies to
     one group or, when ``group`` is None, to every unresolved group at once;
     explicit ``keep_ids`` (manual pick) applies to their own groups. Only
-    non-rejected members are touched; a member the user already KEPT stays kept
-    (never flipped by a bulk resolve). ``col``/``attr``/``reason`` pick the stage:
+    non-rejected members are touched. ``col``/``attr``/``reason`` pick the stage:
     dup_group (exact/'duplicate') or semantic_dup_group (crops/'semantic_dup').
-    Returns {'resolved': groups, 'rejected': images}."""
+
+    ``respect_existing_keep`` (default True) protects members the user already
+    KEPT from a bulk resolve — right for the AUTOMATIC pipeline auto-reject, so a
+    mass resolve never un-keeps a manual pick. An EXPLICIT resolve the user fired
+    from a dup/same-shot group passes False: the whole point is to collapse the
+    group to ONE, and the members of a same-shot group are typically ALL 'keep',
+    so respecting keep would reject nobody. The elected keeper is always safe
+    (``r.id in keep``); with False every OTHER member falls to reject, keep
+    included. Returns {'resolved': groups, 'rejected': images}."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
@@ -1015,7 +1023,7 @@ def resolve_dups(user_id, bank_id, strategy='best', group=None, keep_ids=None,
             keep = {_best_of(rows).id}
         changed = False
         for r in rows:
-            if r.id in keep or r.status == 'keep':
+            if r.id in keep or (respect_existing_keep and r.status == 'keep'):
                 continue
             r.status, r.reject_reason = 'reject', reason
             rejected += 1
@@ -1027,12 +1035,13 @@ def resolve_dups(user_id, bank_id, strategy='best', group=None, keep_ids=None,
 
 
 def resolve_semantic_dups(user_id, bank_id, strategy='best', group=None,
-                          keep_ids=None):
+                          keep_ids=None, respect_existing_keep=True):
     """resolve_dups for stage 2 (semantic_dup_group, reject reason
     'semantic_dup')."""
     return resolve_dups(user_id, bank_id, strategy=strategy, group=group,
                         keep_ids=keep_ids, col=BankImage.semantic_dup_group,
-                        attr='semantic_dup_group', reason='semantic_dup')
+                        attr='semantic_dup_group', reason='semantic_dup',
+                        respect_existing_keep=respect_existing_keep)
 
 
 # --- statuses & flag application --------------------------------------------

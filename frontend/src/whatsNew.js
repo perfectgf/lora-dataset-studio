@@ -69,6 +69,15 @@ export const WHATS_NEW = [
     blurb:
       "Promoting kept images into a dataset used to lock them out of every OTHER dataset — a second promote showed \"nothing to promote\" even though the dialog had just offered to copy them. Now “promote all kept” is per-target: images already sitting in another dataset stay promotable to a new one, and the dialog’s count reflects exactly what will be copied into the dataset you picked. Near-duplicates already in the target are still skipped on import.",
     to: '/bank',
+  },
+  {
+    id: '2026-07-20-resolve-rejects-losers',
+    date: '2026-07-20',
+    title: '✂ “Keep best” on same-shot groups now actually rejects the extras',
+    blurb:
+      "Resolving a duplicate or same-shot group with “Keep best”, “Keep first” or “Resolve ALL” used to report “0 duplicate(s) rejected” whenever the group’s images were already kept — so the near-identical shots you meant to thin all stayed in. Now an explicit resolve keeps the chosen one and rejects the rest, kept or not. The automatic pipeline pass is unchanged: a mass auto-reject still never un-keeps an image you picked by hand.",
+    to: '/bank',
+  },
   {
     id: '2026-07-20-lineage-inspect-notes',
     date: '2026-07-20',

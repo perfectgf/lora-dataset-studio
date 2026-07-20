@@ -261,7 +261,8 @@ def bank_dups_resolve(bank_id):
     try:
         out = banks.resolve_dups(LOCAL_USER, bank_id, strategy=strategy,
                                  group=data.get('group'),
-                                 keep_ids=data.get('keep_ids'))
+                                 keep_ids=data.get('keep_ids'),
+                                 respect_existing_keep=False)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, **out})
@@ -290,7 +291,8 @@ def bank_semantic_dups_resolve(bank_id):
     try:
         out = banks.resolve_semantic_dups(LOCAL_USER, bank_id, strategy=strategy,
                                           group=data.get('group'),
-                                          keep_ids=data.get('keep_ids'))
+                                          keep_ids=data.get('keep_ids'),
+                                          respect_existing_keep=False)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, **out})
