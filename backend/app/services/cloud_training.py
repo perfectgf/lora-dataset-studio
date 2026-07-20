@@ -2308,13 +2308,20 @@ def training_in_progress() -> bool:
 def _step_of_testable(filename) -> int | None:
     """The training step embedded in a deployed testable LoRA filename, so a
     lineage pill (which carries its own step) can be joined to the deployed LoRA
-    of the same step. Names are '<trigger>-<step>' / 'lora_<trigger>_<step>'
-    (the Studio's trigger-token convention), optionally folder-prefixed; a final
-    save with no number yields None (matched by step only)."""
+    of the same step. ai-toolkit deploys the step ZERO-PADDED IN THE MIDDLE, e.g.
+    'lora_morgot_cv_000001500_Krea-2-Raw_rc74_v3' (step 1500) — not at the end, so
+    an end-anchored match misses every real checkpoint. Match the zero-padded run
+    first (unambiguous: base/rc/version tokens aren't zero-padded), then fall back
+    to a plain step at the very end ('<trigger>-<step>' / 'lora_<trigger>_<step>').
+    A final save with no number yields None (matched by step only)."""
     stem = os.path.basename(str(filename or '')).rsplit('.', 1)[0]
     if stem.lower().startswith('lora_'):
         stem = stem[5:]
-    m = re.search(r'[-_](\d+)$', stem)
+    # Zero-padded step anywhere in the name (leading 0, ≥4 digits) — this is the
+    # ai-toolkit convention and never collides with 'Krea-2-Raw'/'rc74'/'v3'.
+    m = re.search(r'[-_](0\d{3,})(?=[-_]|$)', stem)
+    if not m:
+        m = re.search(r'[-_](\d+)$', stem)   # legacy: plain step at the end
     return int(m.group(1)) if m else None
 
 

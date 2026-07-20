@@ -40,6 +40,15 @@ def test_step_of_testable_parses_both_conventions(app):
     assert _step_of_testable('lora_EVA6938_000001000.safetensors') == 1000
     assert _step_of_testable('sdxl\\nova-1500.safetensors') == 1500
     assert _step_of_testable('lora_nova.safetensors') is None   # final, no step
+    # Real ai-toolkit deploy: the zero-padded step sits IN THE MIDDLE, followed by
+    # base / rc<run> / v<version> tokens — an end-anchored match would miss it and
+    # leave every real checkpoint non-testable (the shipped bug this locks against).
+    assert _step_of_testable(
+        'krea\\lora_morgot_cv_000001500_Krea-2-Raw_rc74_v3.safetensors') == 1500
+    assert _step_of_testable(
+        'lora_morgot_cv_000003000_Krea-2-Raw_rc73_v3.safetensors') == 3000
+    # base/rc/version tokens must NOT be mistaken for the step.
+    assert _step_of_testable('lora_x_000000750_SDXL_rc12_v2.safetensors') == 750
 
 
 # --- pinning + storage -------------------------------------------------------
