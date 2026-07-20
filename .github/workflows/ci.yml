@@ -176,6 +176,17 @@ jobs:
             sleep 2
           done
 
+      # No bru run here (yet): this repo has no bruno/ collection committed to
+      # main today (ALP-1010 found the only copy in an orphaned, never-pushed
+      # local branch elsewhere) -- bruno-drift-check gracefully SKIPPED/exit 0
+      # in that state (tools/bruno-drift-check/README.md), so it's safe to
+      # wire now and it'll start reporting real drift once a bruno/ collection
+      # lands on main. See ALP-1010 for the orphaned-branch discovery.
+      - name: Bruno collection drift check
+        run: |
+          pip install "bruno-drift-check @ git+https://github.com/dabeezor/alpha-technology.git#subdirectory=tools/bruno-drift-check"
+          bruno-drift-check .
+
       - name: Show container logs on failure
         if: failure()
         shell: bash
