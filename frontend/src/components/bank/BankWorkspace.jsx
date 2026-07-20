@@ -30,6 +30,15 @@ const RES_BUCKETS = [
   { id: 'res_2_4', label: '2–4 MP' },
   { id: 'res_gt_4', label: '> 4 MP' },
 ]
+// Framing buckets — ids MUST mirror backend _FRAMING_KEYS. Face/bust/body/back
+// are the character composition axes; 'unknown' is a parseable-but-unclassed shot.
+const FRAMING_BUCKETS = [
+  { id: 'face', label: '😀 Face' },
+  { id: 'bust', label: '👤 Bust' },
+  { id: 'body', label: '🧍 Body' },
+  { id: 'back', label: '🔙 Back' },
+  { id: 'unknown', label: '❔ Unknown' },
+]
 const STATUS_RING = {
   keep: 'ring-2 ring-emerald-400',
   reject: 'ring-2 ring-rose-400 opacity-60',
@@ -54,7 +63,7 @@ async function fetchAllIds(bankId, params) {
 const STEP_SHORT = {
   scan: '🔎 Scan', auto_reject: '🧹 Auto-reject', score: '✨ Score',
   semantic_dedup: '✂ Crops', watermark: '🚩 Watermarks', faces: '👥 Person',
-  caption: '🏷️ Caption',
+  framing: '📐 Framing', caption: '🏷️ Caption',
 }
 
 function ProgressBar({ activity, onCancel }) {
@@ -71,7 +80,7 @@ function ProgressBar({ activity, onCancel }) {
             ? `🚀 Launch all — step ${(pipe.index ?? 0) + 1}/${pipe.total_steps} · ${STEP_SHORT[pipe.current] || pipe.current}`
             : ({ scan: 'Quality scan', faces: 'Face pass', score: 'Scoring pass',
               semantic_dedup: 'Crops & variants', watermark: 'Watermark scan',
-              caption: 'Captioning', promote: 'Promotion' }[kind] || 'Job') + ' running'}
+              framing: 'Framing pass', caption: 'Captioning', promote: 'Promotion' }[kind] || 'Job') + ' running'}
           {' — '}{done}{total ? ` / ${total}` : ''}{detail ? ` · ${detail}` : ''}
         </span>
         {pct != null && (
@@ -156,6 +165,66 @@ function PassButton({ onClick, disabled, title, children }) {
   )
 }
 
+// 📊 Coverage advice (idea by @antonp) — a read-only, collapsible panel. Reads
+// what the passes already computed (framing, person/style clusters, resolution)
+// and says, in plain sentences, what the kept set leans on and what's thin for a
+// good LoRA. Never selects or rejects; warnings first, then gentler notes.
+function FramingBar({ framing }) {
+  const total = FRAMING_BUCKETS.reduce((a, b) => a + (framing[b.id] || 0), 0)
+  if (!total) return null
+  const tone = { face: 'bg-teal-400', bust: 'bg-sky-400', body: 'bg-indigo-400',
+    back: 'bg-fuchsia-400', unknown: 'bg-content-subtle' }
+  return (
+    <div className="space-y-1">
+      <div className="flex h-2 overflow-hidden rounded bg-surface-raised" role="img"
+        aria-label="Framing distribution of the set">
+        {FRAMING_BUCKETS.map((b) => (framing[b.id] || 0) > 0 && (
+          <div key={b.id} className={tone[b.id]} style={{ width: `${(100 * framing[b.id]) / total}%` }}
+            title={`${b.label}: ${framing[b.id]}`} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-content-subtle">
+        {FRAMING_BUCKETS.map((b) => (framing[b.id] || 0) > 0 && (
+          <span key={b.id}>{b.label} {framing[b.id]}</span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CoveragePanel({ coverage, onClose }) {
+  if (!coverage) {
+    return <p className="text-sm text-content-subtle">Reading coverage…</p>
+  }
+  const poolWord = coverage.pool === 'kept' ? 'kept' : 'candidate (nothing kept yet)'
+  return (
+    <div className="space-y-3 rounded-lg border border-indigo-400/40 bg-indigo-500/5 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-content">📊 Coverage advice</span>
+        <span className="text-xs text-content-subtle">
+          {coverage.total.toLocaleString()} {poolWord} image{coverage.total === 1 ? '' : 's'}
+        </span>
+        <span className="ml-auto rounded border border-indigo-400/40 px-1.5 py-px text-[10px] uppercase tracking-wide text-indigo-300"
+          title="Community idea by @antonp">idea by @antonp</span>
+        <button type="button" onClick={onClose} aria-label="Hide coverage advice"
+          className="rounded-md border border-border px-1.5 py-0.5 text-xs text-content-subtle hover:text-content">✕</button>
+      </div>
+      {coverage.framing_available && <FramingBar framing={coverage.framing} />}
+      <ul className="space-y-1 text-sm">
+        {coverage.advice.map((a, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <span aria-hidden>{a.tone === 'warn' ? '⚠️' : '💡'}</span>
+            <span className={a.tone === 'warn' ? 'text-amber-200' : 'text-content-muted'}>{a.text}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-content-subtle">
+        Advice only — nothing is kept or rejected. Based on what the passes already computed.
+      </p>
+    </div>
+  )
+}
+
 function Tile({ img, bankId, selected, onToggle, size }) {
   const badge = (txt, cls) => (
     <span className={`rounded px-1 py-px text-[10px] font-semibold leading-none ${cls}`}>{txt}</span>
@@ -168,6 +237,7 @@ function Tile({ img, bankId, selected, onToggle, size }) {
           + (img.aesthetic_score != null ? ` · aesthetic ${img.aesthetic_score.toFixed(1)}` : '')
           + (img.nsfw_score != null ? ` · NSFW ${Math.round(img.nsfw_score * 100)}%` : '')
           + (img.face_cluster ? ` · person #${img.face_cluster}` : '')
+          + (img.framing ? ` · ${img.framing}` : '')
           + (img.style_cluster ? ` · style #${img.style_cluster}` : '')
           + (img.semantic_dup_group ? ` · same shot #${img.semantic_dup_group}` : '')
           + (img.caption ? `\n${img.caption}` : '')}
@@ -184,6 +254,7 @@ function Tile({ img, bankId, selected, onToggle, size }) {
         {img.promoted_dataset_id != null && badge('⬆', 'bg-indigo-500/80 text-white')}
         {img.flags.map((f) => badge(FLAG_LABEL[f]?.slice(0, 2) || f, 'bg-black/60 text-amber-200'))}
         {img.face_cluster != null && badge(`👤${img.face_cluster}`, 'bg-black/60 text-sky-200')}
+        {img.framing && badge(`📐${img.framing}`, 'bg-black/60 text-teal-200')}
         {img.style_cluster != null && badge(`🎨${img.style_cluster}`, 'bg-black/60 text-fuchsia-200')}
         {img.dup_group != null && badge(`≈${img.dup_group}`, 'bg-black/60 text-fuchsia-200')}
         {img.semantic_dup_group != null && badge(`✂${img.semantic_dup_group}`, 'bg-black/60 text-orange-200')}
@@ -201,7 +272,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const { caps } = useCapabilities()
   const [payload, setPayload] = useState(null)
   const [filter, setFilter] = useState({ status: null, flag: null, cluster: null,
-    style: null, subfolder: null, search: null, sort: 'default', resBucket: null })
+    style: null, subfolder: null, search: null, sort: 'default', resBucket: null,
+    framing: null })
   const [searchText, setSearchText] = useState('')
   const [subfolders, setSubfolders] = useState([])
   const [offset, setOffset] = useState(0)
@@ -218,7 +290,17 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const [diverseN, setDiverseN] = useState(60)
   const [similarN, setSimilarN] = useState(60)
   const [tileSize, setTileSize] = useState('M')
+  // Coverage advice (idea by @antonp) — a collapsible read-only panel, fetched
+  // on demand (and refreshed whenever it's open and the bank changes).
+  const [coverageOpen, setCoverageOpen] = useState(false)
+  const [coverage, setCoverage] = useState(null)
   const activityWasLive = useRef(false)
+
+  const loadCoverage = useCallback(async () => {
+    try {
+      setCoverage(await apiFetch(`/api/bank/${bankId}/coverage`))
+    } catch { /* transient — the panel keeps its last read */ }
+  }, [bankId])
 
   const refreshPayload = useCallback(async () => {
     try {
@@ -247,6 +329,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     // Resolution tier — a facet like the flags; also flows to fetchAllIds so
     // "Select all in filter" stays scoped to the active tier.
     if (f.resBucket) params.res_bucket = f.resBucket
+    // Framing bucket (face/bust/body/back/unknown) — a facet like the flags.
+    if (f.framing) params.framing = f.framing
     return params
   }, [])
 
@@ -285,6 +369,13 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     return () => clearInterval(t)
   }, [live, refreshPayload, refreshImages, toast, payload?.activity?.error,
       payload?.activity?.cancelled, payload?.activity?.detail])
+
+  // Keep the coverage panel current: refetch when it opens, and whenever the kept
+  // set or the framing classification changes (a keep/reject or the framing pass).
+  useEffect(() => {
+    if (coverageOpen) loadCoverage()
+  }, [coverageOpen, loadCoverage, payload?.counts?.keep,
+      payload?.counts?.framing_classified])
 
   const setF = (patch) => {
     const f = { ...filter, ...patch }
@@ -329,6 +420,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const startSemanticDedup = () => act(
     () => postJson(`/api/bank/${bankId}/semantic-dedup`, {}), null)
   const startWatermark = () => act(() => postJson(`/api/bank/${bankId}/watermark`, {}), null)
+  const startFraming = () => act(() => postJson(`/api/bank/${bankId}/framing`, {}), null)
   const startCaption = () => act(
     () => postJson(`/api/bank/${bankId}/caption`,
       selected.size ? { image_ids: [...selected] } : {}), null)
@@ -405,6 +497,12 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     (b) => (resBuckets[b.id] || 0) > 0 || filter.resBucket === b.id)
   const clusters = payload?.clusters || []
   const styleClusters = payload?.style_clusters || []
+  const framingCounts = payload?.framing || {}
+  const framingClassified = counts?.framing_classified || 0
+  // Only surface framing chips once the pass has classified something (plus the
+  // active one, so a chip you're filtering on never vanishes mid-review).
+  const shownFramings = FRAMING_BUCKETS.filter(
+    (b) => (framingCounts[b.id] || 0) > 0 || filter.framing === b.id)
   const visionReady = !!caps.ollama?.vision_model_ready
   const scored = counts?.scored || 0
   const watermarkScanned = counts?.watermark_scanned || 0
@@ -414,7 +512,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const canPromote = (counts?.keep || 0) > 0 || selected.size > 0
   // Is any facet narrowing the grid? Drives the "N shown of TOTAL" readout.
   const isFiltered = !!(filter.status || filter.flag || filter.cluster != null
-    || filter.style != null || filter.subfolder != null || filter.search)
+    || filter.style != null || filter.subfolder != null || filter.search
+    || filter.resBucket || filter.framing)
 
   return (
     <div className="space-y-4">
@@ -546,6 +645,12 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               ? 'Scan every non-rejected image for an overlaid watermark/logo/URL with the same Qwen3-VL detector the datasets use (detection only — the bank never edits your files). GPU vision pass.'
               : 'Pull the vision model (Settings ▸ Captioning & quality) to scan for watermarks'}>
             🚩 Find watermarks{!visionReady && ' (needs setup)'}
+          </PassButton>
+          <PassButton onClick={startFraming} disabled={live || !visionReady}
+            title={visionReady
+              ? 'Classify every non-rejected image by shot type — face close-up, bust, full body, back view — with the same Qwen3-VL classifier the datasets use. Powers the 📐 Framing filter and the coverage advice. GPU vision pass.'
+              : 'Pull the vision model (Settings ▸ Captioning & quality) to classify framing'}>
+            📐 Classify framing{!visionReady && ' (needs setup)'}
           </PassButton>
           <PassButton onClick={startSemanticDedup} disabled={live || scored === 0}
             title={scored > 0
@@ -714,6 +819,20 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               ))}
             </FilterGroup>
           )}
+
+          {/* Framing tiers — face/bust/body/back (+ unknown), from the 📐 Framing
+              pass. One active at a time; re-click clears. Composes with everything. */}
+          {shownFramings.length > 0 && (
+            <FilterGroup label="📐 Framing">
+              {shownFramings.map((b) => (
+                <Chip key={b.id} active={filter.framing === b.id}
+                  onClick={() => setF({ framing: filter.framing === b.id ? null : b.id })}
+                  title="Filter the grid to this shot type (from the Framing pass)">
+                  {b.label} {framingCounts[b.id] ?? 0}
+                </Chip>
+              ))}
+            </FilterGroup>
+          )}
         </div>
 
         {/* View controls — order and tile size, off to the right on their own line */}
@@ -842,7 +961,17 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
         {scored === 0 && (
           <span className="text-xs text-content-subtle">Run ✨ Score to unlock curation.</span>
         )}
+        <button type="button" onClick={() => setCoverageOpen((v) => !v)}
+          aria-expanded={coverageOpen}
+          title="See what your kept set leans on and what's thin for a good LoRA — advice only, nothing is kept or rejected."
+          className="rounded-md border border-border bg-surface-raised px-2.5 py-0.5 text-xs text-content disabled:opacity-50 hover:bg-surface">
+          📊 Coverage advice{coverageOpen ? ' ▲' : ' ▼'}
+        </button>
       </div>
+
+      {coverageOpen && (
+        <CoveragePanel coverage={coverage} onClose={() => setCoverageOpen(false)} />
+      )}
 
       {filter.flag === 'dups' ? (
         <DupGroupsPanel bankId={bankId} live={live} kind="exact"

@@ -68,11 +68,13 @@ def test_pipeline_runs_every_step_in_canonical_order(client, tmp_path, monkeypat
     monkeypatch.setattr(svc, '_score_prereq', lambda: None)
     monkeypatch.setattr(svc, '_watermark_prereq', lambda: None)
     monkeypatch.setattr(svc, '_faces_prereq', lambda: None)
+    monkeypatch.setattr(svc, '_framing_prereq', lambda: None)
     monkeypatch.setattr(svc, '_caption_prereq', lambda: None)
     monkeypatch.setattr(svc, '_gpu_busy_reason', lambda: None)
     monkeypatch.setattr(svc, '_score_job', _fake_pass(log, 'score'))
     monkeypatch.setattr(svc, '_watermark_job', _fake_pass(log, 'watermark'))
     monkeypatch.setattr(svc, '_faces_job', _fake_pass(log, 'faces'))
+    monkeypatch.setattr(svc, '_framing_job', _fake_pass(log, 'framing'))
     monkeypatch.setattr(svc, '_caption_job', _fake_pass(log, 'caption'))
     # semantic_dedup reads the ✨ Score embedding cache (mocked away here) — stand
     # it in so the step runs to 'done' like the other mocked passes.
@@ -85,7 +87,7 @@ def test_pipeline_runs_every_step_in_canonical_order(client, tmp_path, monkeypat
     assert r.status_code == 202, r.get_json()
 
     assert [name for name, _ in log] == ['score', 'semantic_dedup', 'watermark',
-                                         'faces', 'caption']
+                                         'faces', 'framing', 'caption']
     report = _report(client, bank_id)
     assert report is not None
     assert [s['step'] for s in report['steps']] == list(svc.PIPELINE_STEPS)

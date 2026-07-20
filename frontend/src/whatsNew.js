@@ -47,6 +47,22 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-bank-framing-filter',
+    date: '2026-07-20',
+    title: '📐 Sort a Bank by shot type — face, bust, body, back',
+    blurb:
+      "The 🗃️ Bank can now classify every image by framing — face close-up, bust, full body or back view — with the same detector the datasets use. New 📐 Framing filter chips slice the grid one shot type at a time (and compose with every other filter and search), so balancing a character set's angles is a couple of clicks. Run 📐 Classify framing, or just add it to your 🚀 Launch all overnight run.",
+    to: '/bank',
+  },
+  {
+    id: '2026-07-20-bank-coverage-advice',
+    date: '2026-07-20',
+    title: '📊 Coverage advice — what your kept set is missing',
+    blurb:
+      "A new 📊 Coverage advice panel in the 🗃️ Bank reads what you've kept and tells you, in plain sentences, what leans and what's thin for a good LoRA — '70% face shots, add body/back', 'person #1 is 60% of the set — one subject or a mix?', 'only 8 kept, most families want 20+'. It's advice only (nothing is kept or rejected) and pure maths on data the passes already computed, so it costs no GPU. Idea by @antonp.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-20-bank-curation-diverse-similar',
     date: '2026-07-20',
     title: '🎨 Curate a big Bank down to the images that actually train well',

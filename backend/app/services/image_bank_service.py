@@ -202,6 +202,7 @@ def _image_dict(row: BankImage, th: dict) -> dict:
         'dup_group': row.dup_group,
         'semantic_dup_group': row.semantic_dup_group,
         'face_state': row.face_state, 'face_cluster': row.face_cluster,
+        'framing': row.framing,
         'status': row.status, 'reject_reason': row.reject_reason,
         'promoted_dataset_id': row.promoted_dataset_id,
         'caption': row.caption,
@@ -257,6 +258,28 @@ _RES_BUCKETS = (
     ('res_gt_4', 4_000_000, None),
 )
 _RES_BOUNDS = {bid: (lo, hi) for bid, lo, hi in _RES_BUCKETS}
+
+# Framing buckets — the SAME four shot types the datasets classify (face close-up,
+# bust, full body, back view). 'unknown' is a parseable-but-not-one-of-four answer;
+# it counts and filters but is never a training target. Ids are user-facing filter
+# keys — never rename without an alias. The built-in character composition aims for
+# a 12/6/6/1 face/bust/body/back mix; the coverage advice phrases against that
+# proportion, never as a hard rule.
+_FRAMINGS = ('face', 'bust', 'body', 'back')
+_FRAMING_KEYS = _FRAMINGS + ('unknown',)
+_FRAMING_TARGET = {'face': 12, 'bust': 6, 'body': 6, 'back': 1}
+
+
+def _framing_counts(bank_id, extra_crit=None) -> dict:
+    """Per-bucket image counts for the 📐 Framing chips in ONE GROUP BY. Rows with
+    a NULL framing (not classified) are excluded, so every key is present with a
+    real count. ``extra_crit`` narrows the pool (e.g. status='keep' for coverage)."""
+    q = (db.session.query(BankImage.framing, func.count(BankImage.id))
+         .filter(BankImage.bank_id == bank_id, BankImage.framing.isnot(None)))
+    if extra_crit is not None:
+        q = q.filter(extra_crit)
+    got = {k: n for k, n in q.group_by(BankImage.framing).all()}
+    return {k: int(got.get(k, 0)) for k in _FRAMING_KEYS}
 
 
 def _subfolder_of(relpath: str) -> str:
@@ -322,7 +345,9 @@ def bank_payload(user_id, bank_id) -> dict | None:
         'scored': base.filter(or_(BankImage.aesthetic_score.isnot(None),
                                   BankImage.nsfw_score.isnot(None))).count(),
         'watermark_scanned': base.filter(BankImage.watermark_state.isnot(None)).count(),
+        'framing_classified': base.filter(BankImage.framing.isnot(None)).count(),
     }
+    framing = _framing_counts(bank_id)
     flags = {}
     for flag in _QUALITY_FLAGS + _SCORE_FLAGS:
         crit = _flag_filter(flag, th)
@@ -383,7 +408,8 @@ def bank_payload(user_id, bank_id) -> dict | None:
     return {
         'id': bank.id, 'name': bank.name, 'source_path': bank.source_path,
         'created_at': bank.created_at.isoformat() if bank.created_at else None,
-        'counts': counts, 'flags': flags, 'res_buckets': res_buckets, 'dup': dup,
+        'counts': counts, 'flags': flags, 'res_buckets': res_buckets,
+        'framing': framing, 'dup': dup,
         'semantic_dup': semantic_dup,
         'clusters': clusters, 'faces_scanned': faces_scanned,
         'style_clusters': style_clusters,
@@ -425,7 +451,7 @@ def list_banks(user_id) -> list:
 
 def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
                 group=None, style=None, subfolder=None, search=None,
-                semantic_group=None, sort=None, res_bucket=None,
+                semantic_group=None, sort=None, res_bucket=None, framing=None,
                 offset=0, limit=200) -> dict | None:
     """One PAGE of the bank grid (a 9 000-image bank must never ship whole).
     Filters compose: status ∩ flag ∩ cluster ∩ dup-group ∩ style ∩ subfolder ∩ search.
@@ -492,6 +518,10 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
         q = q.filter(BankImage.semantic_dup_group == int(semantic_group))
     if style is not None:
         q = q.filter(BankImage.style_cluster == int(style))
+    if framing in _FRAMING_KEYS:
+        # One framing bucket (face/bust/body/back/unknown) — composes with every
+        # other facet. An unknown/absent value simply doesn't filter.
+        q = q.filter(BankImage.framing == framing)
     if subfolder is not None:
         # '' scopes to root-level files; any other value to that top-level folder
         # and everything nested under it. startswith() escapes LIKE metachars.
@@ -1707,6 +1737,90 @@ def _watermark_job(bank_id, rescan):
     return run
 
 
+# --- framing pass (reuses the dataset face/bust/body/back classifier) -------
+def start_framing(app, user_id, bank_id, rescan=False):
+    """Classify every non-rejected image by SHOT TYPE (face / bust / body / back),
+    reusing the SAME Qwen3-VL classifier the datasets use (CLASSIFY_PROMPT). Feeds
+    the 📐 Framing filter chips and the coverage advice. Needs the vision model
+    pulled; serialized against training/vision like the watermark pass (503 when
+    the GPU is held). ``rescan`` re-classifies rows that already have a framing."""
+    from ..capabilities import probe_ollama_model
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    if not probe_ollama_model().get('ok'):
+        raise RuntimeError('the vision model is not available '
+                           '(Settings ▸ Captioning & quality)')
+    reason = _gpu_busy_reason()
+    if reason:
+        raise RuntimeError(reason)
+    q = BankImage.query.filter_by(bank_id=bank_id).filter(BankImage.status != 'reject')
+    if not rescan:
+        q = q.filter(BankImage.framing.is_(None))
+    return bank_jobs.start(app, bank_id, 'framing',
+                           _framing_job(bank_id, rescan), total=q.count())
+
+
+def _framing_job(bank_id, rescan):
+    def run(job):
+        from .face_dataset_service import CLASSIFY_PROMPT, _parse_classify
+        from .vision_ollama import describe_image_ollama, unload_vision_model
+        from ..gpu_window import gpu_exclusive_vision_window
+        bank = db.session.get(ImageBank, bank_id)
+        if not bank:
+            return
+        q = (BankImage.query.filter_by(bank_id=bank_id)
+             .filter(BankImage.status != 'reject'))
+        if not rescan:
+            q = q.filter(BankImage.framing.is_(None))
+        rows = q.order_by(BankImage.id.asc()).all()
+        bank_jobs.progress(job, done=0, total=len(rows), detail='framing')
+        if not rows:
+            return
+        classified = errors = 0
+        with gpu_exclusive_vision_window(flag_ttl=1800):
+            try:
+                for row in rows:
+                    if bank_jobs.cancelled(job):
+                        break
+                    path = abs_image_path(bank, row)
+                    if not path or not os.path.isfile(path):
+                        bank_jobs.bump(job)
+                        continue
+                    try:
+                        with open(path, 'rb') as fh:
+                            raw = describe_image_ollama(
+                                fh.read(), CLASSIFY_PROMPT, num_predict=400,
+                                prefer_json=True, fmt='json', keep_alive='5m')
+                    except Exception:  # noqa: BLE001 — one bad file never sinks the pass
+                        errors += 1
+                        bank_jobs.bump(job)
+                        continue
+                    # Empty output = Ollama unreachable, NOT "unknown": leave the
+                    # framing NULL so a retry can finish it (same reasoning as the
+                    # watermark/dataset classifier), never mislabel everything.
+                    if not (raw or '').strip():
+                        bank_jobs.bump(job)
+                        continue
+                    framing, _label = _parse_classify(raw)
+                    row.framing = framing            # face|bust|body|back|unknown
+                    classified += 1
+                    if classified % 25 == 0:
+                        db.session.commit()
+                    bank_jobs.bump(job)
+            finally:
+                db.session.commit()
+                unload_vision_model()  # hand the VRAM back to ComfyUI
+        if bank_jobs.cancelled(job):
+            bank_jobs.progress(job, detail=f'cancelled — {classified} classified so far')
+            return
+        detail = f'done — {classified} classified'
+        if errors:
+            detail += f', {errors} unreadable'
+        bank_jobs.progress(job, detail=detail)
+    return run
+
+
 # --- caption pass (reuses the dataset caption engines) ----------------------
 def start_caption(app, user_id, bank_id, ids=None, force=False):
     """Launch the caption pass over a selection (``ids``) or, when empty, every
@@ -1795,7 +1909,7 @@ def _caption_job(bank_id, ids, force):
 # dropped (the deliberate cost/quality trade-off: duplicate "keep best" therefore
 # ranks on sharpness/size, not the aesthetic score that isn't computed yet).
 PIPELINE_STEPS = ('scan', 'auto_reject', 'score', 'semantic_dedup', 'watermark',
-                  'faces', 'caption')
+                  'faces', 'framing', 'caption')
 # Auto-reject inside the pipeline runs right after the quality scan, so it can
 # only act on the CPU-scan flags (and duplicates). The score-derived flags
 # (low_aesthetic/nsfw/watermark) have no data yet at that point.
@@ -1827,6 +1941,13 @@ def _faces_prereq() -> str | None:
     from .face_similarity import is_available
     if not is_available():
         return 'face scoring extra not installed (Setup ▸ Quality tools)'
+    return None
+
+
+def _framing_prereq() -> str | None:
+    from ..capabilities import probe_ollama_model
+    if not probe_ollama_model().get('ok'):
+        return 'vision model not available (Settings ▸ Captioning & quality)'
     return None
 
 
@@ -1881,6 +2002,7 @@ def _bank_counts(bank_id) -> dict:
         'scored': base.filter(or_(BankImage.aesthetic_score.isnot(None),
                                   BankImage.nsfw_score.isnot(None))).count(),
         'watermark_detected': base.filter(BankImage.watermark_state == 'detected').count(),
+        'framing_classified': base.filter(BankImage.framing.isnot(None)).count(),
         'captioned': base.filter(and_(BankImage.caption.isnot(None),
                                        BankImage.caption != '')).count(),
         'dup_groups': dup_groups,
@@ -2048,6 +2170,16 @@ def _run_pipeline_step(job, user_id, bank_id, step, reject_flags, resolve_dups, 
         entry['counts'] = {'person_groups': c['person_groups']}
         entry['detail'] = job.get('detail') or f"{c['person_groups']} person cluster(s)"
         return
+    if step == 'framing':
+        reason = _framing_prereq() or _gpu_busy_reason()
+        if reason:
+            entry['status'], entry['reason'] = 'skipped', reason
+            return
+        _framing_job(bank_id, rescan=False)(job)
+        c = _bank_counts(bank_id)
+        entry['counts'] = {'framing_classified': c['framing_classified']}
+        entry['detail'] = job.get('detail') or f"{c['framing_classified']} classified by framing"
+        return
     if step == 'caption':
         reason = _caption_prereq() or _gpu_busy_reason()
         if reason:
@@ -2085,6 +2217,158 @@ def subfolders_payload(user_id, bank_id) -> dict | None:
     items = [{'name': name, 'count': n}
              for name, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
     return {'subfolders': items, 'total': sum(counts.values())}
+
+
+# --- coverage advice (idea by @antonp) --------------------------------------
+# A read-only ADVICE panel: from what you'd actually train on (the kept set, or
+# every non-rejected image before anything is kept), it says what leans and what
+# is thin for a good LoRA — purely from data the passes already computed (framing,
+# person clusters, style clusters, resolution). It NEVER selects or rejects; it
+# only phrases honest, non-alarmist sentences. Everything here is pure DB math,
+# zero GPU — the framing part just needs the 📐 Framing pass to have run.
+def _pct(n, total) -> int:
+    return int(round(100 * n / total)) if total else 0
+
+
+def _coverage_stats(bank_id) -> dict:
+    """Everything the coverage panel needs, from the pool the user would train on:
+    the KEPT images, or — before anything is kept — every non-rejected image (so
+    the panel is useful from the first look). Pure aggregate SQL, no GPU."""
+    base = BankImage.query.filter_by(bank_id=bank_id)
+    kept_n = base.filter_by(status='keep').count()
+    pool_is_kept = kept_n > 0
+    crit = (BankImage.status == 'keep') if pool_is_kept \
+        else (BankImage.status != 'reject')
+    pool = base.filter(crit)
+    total = pool.count()
+
+    framing = _framing_counts(bank_id, extra_crit=crit)
+    framing_known = sum(framing[k] for k in _FRAMINGS)
+    framing_available = framing_known + framing['unknown'] > 0
+
+    # Person clusters within the pool, biggest first (list of sizes).
+    person_rows = (db.session.query(BankImage.face_cluster, func.count(BankImage.id))
+                   .filter(BankImage.bank_id == bank_id, crit,
+                           BankImage.face_cluster.isnot(None))
+                   .group_by(BankImage.face_cluster)
+                   .order_by(func.count(BankImage.id).desc()).all())
+    person_sizes = [int(n) for _c, n in person_rows]
+    style_rows = (db.session.query(BankImage.style_cluster, func.count(BankImage.id))
+                  .filter(BankImage.bank_id == bank_id, crit,
+                          BankImage.style_cluster.isnot(None))
+                  .group_by(BankImage.style_cluster)
+                  .order_by(func.count(BankImage.id).desc()).all())
+    style_sizes = [int(n) for _c, n in style_rows]
+    top_person_id = int(person_rows[0][0]) if person_rows else None
+
+    # Resolution: how much of the pool is small (< 1 MP), where low-res caps detail.
+    res_scanned = pool.filter(BankImage.width.isnot(None),
+                              BankImage.height.isnot(None)).count()
+    under_1mp = pool.filter(BankImage.width.isnot(None), BankImage.height.isnot(None),
+                            BankImage.width * BankImage.height < 1_000_000).count()
+
+    return {
+        'pool': 'kept' if pool_is_kept else 'candidates',
+        'total': total,
+        'framing': framing, 'framing_known': framing_known,
+        'framing_available': framing_available,
+        'person': {'clusters': person_sizes, 'top_id': top_person_id,
+                   'total': sum(person_sizes),
+                   'singletons': sum(1 for n in person_sizes if n == 1)},
+        'style': {'clusters': style_sizes, 'total': sum(style_sizes)},
+        'resolution': {'scanned': res_scanned, 'under_1mp': under_1mp},
+    }
+
+
+def _coverage_advice(stats: dict) -> list:
+    """Turn the coverage stats into a short list of honest, actionable sentences.
+    Each is {'tone': 'warn'|'info', 'text': ...}. Pure function of ``stats`` (unit
+    of the logic — deterministic on a known distribution). Never alarmist: a
+    dominance reads as a QUESTION, a thin axis as a gentle 'add a few'."""
+    total = stats['total']
+    pool = stats['pool']
+    noun = 'kept' if pool == 'kept' else 'candidate'
+    out = []
+    if total == 0:
+        return [{'tone': 'info',
+                 'text': 'Nothing to advise on yet — keep some images (or run a '
+                         'pass) and the coverage read appears here.'}]
+
+    # Size — most families want a couple dozen.
+    if total < 20:
+        out.append({'tone': 'warn',
+                    'text': f'Only {total} {noun} — most LoRA families train more '
+                            f'reliably with 20+ images.'})
+
+    # Framing balance (needs the 📐 Framing pass).
+    fr, known = stats['framing'], stats['framing_known']
+    if not stats['framing_available']:
+        out.append({'tone': 'info',
+                    'text': 'Run the 📐 Framing pass to see how your face / bust / '
+                            'body / back shots balance.'})
+    elif known > 0:
+        dom = max(_FRAMINGS, key=lambda k: fr[k])
+        dom_share = fr[dom] / known
+        thin = [k for k in _FRAMINGS if _pct(fr[k], known) < 10]
+        if dom_share >= 0.55 and total >= 8:
+            add = ' / '.join(k for k in ('body', 'back', 'bust', 'face')
+                             if k in thin) or 'other angles'
+            out.append({'tone': 'warn',
+                        'text': f'{_pct(fr[dom], known)}% {dom} shots — add '
+                                f'{add} for a fuller character.'})
+        elif fr['back'] == 0 and known >= 10:
+            out.append({'tone': 'info',
+                        'text': 'No back views — a few help a character hold up '
+                                'from behind (optional).'})
+
+    # Person mix — a dominance is a question, not a verdict.
+    ppl = stats['person']
+    if ppl['total'] > 0 and ppl['clusters']:
+        top = ppl['clusters'][0]
+        if len(ppl['clusters']) >= 2 and top / ppl['total'] >= 0.5:
+            out.append({'tone': 'info',
+                        'text': f'Person #{ppl["top_id"]} is {_pct(top, ppl["total"])}% '
+                                f'of the set — is this one subject, or a mix?'})
+        if ppl['singletons'] >= 3 and total >= 10:
+            out.append({'tone': 'info',
+                        'text': f'{ppl["singletons"]} people appear only once — a '
+                                f'character LoRA wants one consistent subject.'})
+
+    # Style spread — only when it's genuinely mixed (no single dominant style).
+    st = stats['style']
+    if len(st['clusters']) >= 2 and st['total'] > 0 \
+            and st['clusters'][0] / st['total'] < 0.7 and total >= 8:
+        out.append({'tone': 'info',
+                    'text': f'{len(st["clusters"])} visual styles in the set — '
+                            f'mixing photoreal and illustration can dilute a LoRA.'})
+
+    # Resolution — low-res caps the training resolution.
+    res = stats['resolution']
+    if res['scanned'] > 0:
+        share = res['under_1mp'] / res['scanned']
+        if share >= 0.3:
+            out.append({'tone': 'info',
+                        'text': f'{_pct(res["under_1mp"], res["scanned"])}% are under '
+                                f'1 MP — low-res images cap the detail a LoRA can learn.'})
+
+    if not out:
+        out.append({'tone': 'info',
+                    'text': 'Nothing stands out — your set looks reasonably balanced.'})
+    # Warnings first so the panel reads worst-to-mildest.
+    out.sort(key=lambda a: 0 if a['tone'] == 'warn' else 1)
+    return out
+
+
+def coverage(user_id, bank_id) -> dict | None:
+    """The read-only coverage advice for the bank (idea by @antonp). Returns the
+    distributions the panel renders plus the generated advice, or None if the bank
+    is gone. Never mutates; pure DB, zero GPU."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        return None
+    stats = _coverage_stats(bank_id)
+    stats['advice'] = _coverage_advice(stats)
+    return stats
 
 
 # --- promotion --------------------------------------------------------------

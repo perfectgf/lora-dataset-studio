@@ -245,6 +245,13 @@ class BankImage(db.Model):
     # dataset on promotion, so a promoted selection starts already captioned. NULL =
     # not captioned yet. Additive column — created by db.create_all(), no migration.
     caption = db.Column(Text, nullable=True)
+    # Framing pass — the SAME face/bust/body/back classification the datasets use
+    # (Qwen3-VL, CLASSIFY_PROMPT). face = head close-up | bust = upper body |
+    # body = full body | back = seen from behind | 'unknown' = a parseable answer
+    # that wasn't one of the four | NULL = not classified yet (retryable). Powers
+    # the 📐 Framing filter chips AND the coverage advice. Additive column —
+    # created by db.create_all(), no migration (see _SCHEMA_ADDITIONS).
+    framing = db.Column(String(8), nullable=True, index=True)
     # Triage decision — same words as dataset images (pending|keep|reject).
     # reject_reason: blur|noise|uniform|small|duplicate|unreadable|manual
     #                |low_aesthetic|nsfw|watermark (the V2 score-derived flags).

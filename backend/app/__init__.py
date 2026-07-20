@@ -96,6 +96,7 @@ _SCHEMA_ADDITIONS = (
     ('bank_image', 'watermark_state', 'VARCHAR(16)'),
     ('bank_image', 'caption', 'TEXT'),
     ('bank_image', 'semantic_dup_group', 'INTEGER'),
+    ('bank_image', 'framing', 'VARCHAR(8)'),
     ('image_bank', 'pipeline_report', 'TEXT'),
 )
 

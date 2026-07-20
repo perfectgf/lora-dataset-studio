@@ -30,6 +30,7 @@ export default function LaunchAllDialog({ caps, visionReady, onClose, onLaunch }
     semantic_dedup: !!caps?.bank_scoring,
     watermark: !!visionReady,
     faces: !!caps?.face_scoring,
+    framing: !!visionReady,
     caption: !!visionReady,
   }), [caps, visionReady])
 
@@ -46,12 +47,14 @@ export default function LaunchAllDialog({ caps, visionReady, onClose, onLaunch }
       desc: 'Detect overlaid watermarks/logos with the Qwen3-VL detector (GPU).' },
     { key: 'faces', label: '👥 Group by person', needs: 'Quality tools',
       desc: 'Face embeddings + person clusters, no reference photo (CPU/GPU).' },
+    { key: 'framing', label: '📐 Classify framing', needs: 'Vision model',
+      desc: 'Tag each shot face/bust/body/back — powers the framing filter & coverage advice (GPU).' },
     { key: 'caption', label: '🏷️ Caption', needs: 'Caption engine',
       desc: 'Describe every image so it becomes searchable and rides to the dataset (GPU).' },
   ]
 
   const [steps, setSteps] = useState(() => new Set(
-    ['scan', 'auto_reject', 'score', 'semantic_dedup', 'watermark', 'faces']
+    ['scan', 'auto_reject', 'score', 'semantic_dedup', 'watermark', 'faces', 'framing']
       .filter((k) => ready[k])))
   const [rejectFlags, setRejectFlags] = useState(() => new Set(['blur', 'uniform']))
   const [resolveDups, setResolveDups] = useState(true)

@@ -77,6 +77,7 @@ def bank_images(bank_id):
         search=args.get('search') or None,
         sort=args.get('sort') or None,
         res_bucket=args.get('res_bucket') or None,
+        framing=args.get('framing') or None,
         offset=_int('offset') or 0, limit=_int('limit') or 200)
     if payload is None:
         return jsonify({'error': 'not found'}), 404
@@ -145,6 +146,27 @@ def bank_watermark(bank_id):
     data = request.get_json(silent=True) or {}
     return _start(banks.start_watermark, _app(), LOCAL_USER, bank_id,
                   rescan=bool(data.get('rescan')))
+
+
+@bp.post('/bank/<int:bank_id>/framing')
+def bank_framing(bank_id):
+    """Classify every non-rejected image by shot type (face/bust/body/back),
+    reusing the dataset Qwen3-VL classifier. {rescan:true} re-classifies scanned
+    rows. 202/409/503."""
+    data = request.get_json(silent=True) or {}
+    return _start(banks.start_framing, _app(), LOCAL_USER, bank_id,
+                  rescan=bool(data.get('rescan')))
+
+
+@bp.get('/bank/<int:bank_id>/coverage')
+def bank_coverage(bank_id):
+    """Read-only coverage advice (idea by @antonp): what the kept set leans on and
+    what's thin for a good LoRA, from data the passes already computed. 404 when
+    the bank is gone."""
+    payload = banks.coverage(LOCAL_USER, bank_id)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
 
 
 @bp.post('/bank/<int:bank_id>/caption')
