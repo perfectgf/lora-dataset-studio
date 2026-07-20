@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { buildLineageGraph, CARD_W, CARD_H, PILL_W, PILL_H } from '../../utils/lineageGraph';
 import { resumeCaption } from '../../utils/lineageTree';
 import { famLabel, StatusDot, SavesChip } from './lineageChrome';
+import LineageDetailPanel from './LineageDetailPanel';
 
 /* ◉ Graph view of a run's lineage — the showcase rendering. A tidy left-to-right
    tree: the root on the left, each continuation one generation to the right,
@@ -32,7 +33,7 @@ function GraphCard({ node, lit, onSelect }) {
       tabIndex={clickable ? 0 : undefined}
       onClick={clickable ? () => onSelect(node) : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(node); } } : undefined}
-      title={clickable ? 'Jump to this run' : undefined}
+      title={clickable ? 'Inspect this run' : undefined}
       style={{ height: CARD_H }}
       className={'lds-gcard flex w-full flex-col justify-center gap-1 rounded-xl border px-2.5 py-1.5 '
         + (cur
@@ -113,6 +114,12 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
   // The open checkpoint popover: { node, pill } | null.
   const [openCk, setOpenCk] = useState(null);
   const closePopover = useCallback(() => setOpenCk(null), []);
+  // The Lab detail panel's open node (click a run card to inspect its config).
+  const [openNode, setOpenNode] = useState(null);
+  const handleNodeClick = useCallback((node) => {
+    setOpenNode(node);
+    if (typeof onSelect === 'function') onSelect(node);   // keep the Runs-hub jump
+  }, [onSelect]);
 
   // Fit horizontally to the panel, shrinking no further than MIN_SCALE (then the
   // panel pans). Re-measured on resize so it always poses well in a screenshot.
@@ -179,6 +186,7 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
     && node.source === 'cloud' && node.run_id != null && node.status === 'done';
 
   return (
+    <>
     <div
       ref={scrollRef}
       className="lds-lgraph-scroll relative overflow-auto rounded-xl"
@@ -256,7 +264,7 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
               onPointerEnter={() => setHoverId(n.node.record_id)}
               onPointerLeave={() => setHoverId((cur) => (cur === n.node.record_id ? null : cur))}>
               <div style={{ position: 'relative', width: CARD_W, height: n.cellH }}>
-                <GraphCard node={n.node} lit={isLit(n.node.record_id)} onSelect={onSelect} />
+                <GraphCard node={n.node} lit={isLit(n.node.record_id)} onSelect={handleNodeClick} />
                 {n.checkpoints.map((p) => (
                   <CheckpointPill key={`${p.step}-${p.filename ?? p.x}`}
                     pill={p} offX={p.x - n.x} offY={p.y - n.y}
@@ -318,5 +326,7 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
         })()}
       </svg>
     </div>
+    <LineageDetailPanel node={openNode} onClose={() => setOpenNode(null)} />
+    </>
   );
 }
