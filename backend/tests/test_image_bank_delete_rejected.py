@@ -165,7 +165,7 @@ def test_delete_rejected_404_for_missing_bank(client, monkeypatch):
     assert r.status_code == 404
 
 
-def test_delete_rejected_never_escapes_bank_folder(client, tmp_path, monkeypatch):
+def test_delete_rejected_never_escapes_bank_folder(client, app, tmp_path, monkeypatch):
     _force_trash(monkeypatch)
     bank_id, src = _mkbank(client, tmp_path, ['bad.jpg'])
     by = _by_name(client, bank_id)
@@ -176,9 +176,10 @@ def test_delete_rejected_never_escapes_bank_folder(client, tmp_path, monkeypatch
 
     from app.models import BankImage
     from app.extensions import db
-    row = BankImage.query.filter_by(bank_id=bank_id).first()
-    row.relpath = os.path.join('..', 'precious.txt')     # escape attempt
-    db.session.commit()
+    with app.app_context():                              # direct DB write between requests
+        row = BankImage.query.filter_by(bank_id=bank_id).first()
+        row.relpath = os.path.join('..', 'precious.txt')  # escape attempt
+        db.session.commit()
 
     out = client.post(f'/api/bank/{bank_id}/delete-rejected', json={}).get_json()
     assert out['skipped'] and out['skipped'][0]['reason'] == 'unsafe_path'
