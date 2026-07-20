@@ -1373,6 +1373,24 @@ def dataset_train_run_lineage(record_id):
     return jsonify(tree)
 
 
+@bp.put('/dataset/train/runs/<int:record_id>/note')
+def dataset_train_run_note(record_id):
+    """Save the Lab's free-form note on a run. Unknown run → 404."""
+    text = (request.get_json(silent=True) or {}).get('note', '')
+    if not ct.set_run_note(record_id, text):
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True})
+
+
+@bp.put('/dataset/train/runs/<int:record_id>/checkpoints/<int:step>/note')
+def dataset_train_checkpoint_note(record_id, step):
+    """Save the Lab's free-form note on one checkpoint (record_id, step)."""
+    text = (request.get_json(silent=True) or {}).get('note', '')
+    if not ct.set_checkpoint_note(record_id, step, text):
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True})
+
+
 @bp.get('/dataset/train/runs/<run_key>/preview')
 def dataset_train_run_preview(run_key):
     """Newest sample image a run produced — the Runs-hub card thumbnail.

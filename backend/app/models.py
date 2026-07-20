@@ -525,7 +525,21 @@ class TrainingRunRecord(db.Model):
     # continuation that ran before the edge was persisted (see lineage_backfill).
     # Kept distinct so a reconstructed edge stays auditable and reversible.
     lineage_origin = db.Column(db.String(16))
+    note = db.Column(db.Text)                                # free-form run note (Lab)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class CheckpointNote(db.Model):
+    """A free-form note on one checkpoint of a run, keyed by (record_id, step).
+    Checkpoints aren't their own rows, so notes live here. New table -> created
+    by db.create_all(), no migration."""
+    __tablename__ = 'checkpoint_note'
+    id = db.Column(db.Integer, primary_key=True)
+    record_id = db.Column(db.Integer, nullable=False, index=True)
+    step = db.Column(db.Integer, nullable=False)
+    note = db.Column(db.Text, nullable=False, default='')
+    __table_args__ = (db.UniqueConstraint('record_id', 'step',
+                                          name='uq_checkpoint_note'),)
 
 
 class TrainingPreset(db.Model):

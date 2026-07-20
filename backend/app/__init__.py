@@ -84,6 +84,7 @@ _SCHEMA_ADDITIONS = (
     ('training_run_record', 'parent_record_id', 'INTEGER'),
     ('training_run_record', 'resumed_from', 'INTEGER'),
     ('training_run_record', 'lineage_origin', 'VARCHAR(16)'),
+    ('training_run_record', 'note', 'TEXT'),
     ('training_preset', 'dataset_kind', 'VARCHAR(16)'),
     ('training_preset', 'variants', 'TEXT'),
     ('lora_test_image', 'error', 'TEXT'),

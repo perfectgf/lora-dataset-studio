@@ -2252,6 +2252,42 @@ def _rec_config(rec):
         return None
 
 
+def set_run_note(record_id, text):
+    """Save the free-form Lab note on a run. False (no-op) if the record is gone."""
+    from ..models import TrainingRunRecord
+    from ..extensions import db
+    rec = TrainingRunRecord.query.get(record_id)
+    if rec is None:
+        return False
+    rec.note = text or ''
+    db.session.commit()
+    return True
+
+
+def set_checkpoint_note(record_id, step, text):
+    """Save the free-form Lab note on one checkpoint (record_id, step). False if
+    the owning run is gone."""
+    from ..models import TrainingRunRecord, CheckpointNote
+    from ..extensions import db
+    if TrainingRunRecord.query.get(record_id) is None:
+        return False
+    row = CheckpointNote.query.filter_by(record_id=record_id, step=step).first()
+    if row is None:
+        row = CheckpointNote(record_id=record_id, step=step)
+        db.session.add(row)
+    row.note = text or ''
+    db.session.commit()
+    return True
+
+
+def checkpoint_notes_for(record_id):
+    """{step: note} for a run's annotated checkpoints (empty notes omitted)."""
+    from ..models import CheckpointNote
+    return {r.step: r.note for r in
+            CheckpointNote.query.filter_by(record_id=record_id).all()
+            if r.note}
+
+
 def _lineage_node(rec, crun, requested_id, failed_local_id):
     """One genealogy-tree node from a provenance record, enriched with what the
     card badge shows: family/variant/base/version/date, run status, and whether
@@ -2273,6 +2309,8 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
         'version': rec.version,
         'steps': rec.steps,
         'config': _rec_config(rec),
+        'note': rec.note or '',
+        'has_note': bool((rec.note or '').strip()),
         'created_at': rec.created_at.isoformat() if rec.created_at else None,
         'is_current': rec.id == requested_id,
         # A record with a resume step but no resolvable parent (legacy: the edge
@@ -2301,6 +2339,9 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
             node['checkpoints'] = []
             node['saves'] = None
             node['checkpoint_ready'] = None
+    _cnotes = checkpoint_notes_for(rec.id)
+    for _ck in (node.get('checkpoints') or []):
+        _ck['note'] = _cnotes.get(_ck.get('step'), '')
     return node
 
 
