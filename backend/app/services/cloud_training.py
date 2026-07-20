@@ -2239,6 +2239,19 @@ def _node_checkpoints(rec, crun):
     return out
 
 
+def _rec_config(rec):
+    """The settings the run actually used, for the Lab inspector. None (not {})
+    when a run recorded nothing (legacy) so the UI can say 'config not recorded'
+    instead of showing an empty table."""
+    if not rec.settings:
+        return None
+    try:
+        cfg = json.loads(rec.settings)
+        return cfg if isinstance(cfg, dict) else None
+    except (ValueError, TypeError):
+        return None
+
+
 def _lineage_node(rec, crun, requested_id, failed_local_id):
     """One genealogy-tree node from a provenance record, enriched with what the
     card badge shows: family/variant/base/version/date, run status, and whether
@@ -2259,6 +2272,7 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
         'base_model': rec.base_model or '',
         'version': rec.version,
         'steps': rec.steps,
+        'config': _rec_config(rec),
         'created_at': rec.created_at.isoformat() if rec.created_at else None,
         'is_current': rec.id == requested_id,
         # A record with a resume step but no resolvable parent (legacy: the edge

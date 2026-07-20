@@ -155,3 +155,26 @@ def test_cloud_checkpoint_download_by_filename(app, client, tmp_path):
         assert client.get(
             f'/api/dataset/1/train/cloud/checkpoint?run_id={rid}&filename={bad}'
         ).status_code == 404
+
+
+def test_lineage_node_carries_config_or_null(client, app):
+    """The node payload surfaces the run's recorded settings (parsed dict) for
+    the Lab inspector, and None (not {}) for a legacy run that recorded nothing
+    so the UI can honestly say 'config not recorded'."""
+    from app.services import cloud_training as ct
+    with app.app_context():
+        from app.models import TrainingRunRecord
+        from app.extensions import db
+        import json
+        rec = TrainingRunRecord(
+            dataset_id=1, family='zimage', source='local', version=1,
+            fingerprint='fp', steps=2000,
+            settings=json.dumps({'rank': 32, 'learning_rate': '1e-4'}))
+        legacy = TrainingRunRecord(
+            dataset_id=1, family='zimage', source='local', version=1,
+            fingerprint='fp2', steps=2000, settings=None)
+        db.session.add_all([rec, legacy]); db.session.commit()
+        node = ct._lineage_node(rec, None, rec.id, None)
+        assert node['config'] == {'rank': 32, 'learning_rate': '1e-4'}
+        node_legacy = ct._lineage_node(legacy, None, legacy.id, None)
+        assert node_legacy['config'] is None
