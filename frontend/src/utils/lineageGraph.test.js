@@ -38,6 +38,34 @@ test('a chain lays out left-to-right: depth increases, x increases, one row', ()
   assert.equal(m.get(1).y, PAD);
 });
 
+test('a parent with a tall pill block is not overlapped by the next root (#76-over-#81 bug)', () => {
+  // #76 had 12 checkpoints (3 pill rows) but its child continued far to the right;
+  // the next root (#81) was placed in the same column and landed INSIDE #76's pills.
+  const many = Array.from({ length: 12 }, (_, i) => ck((i + 1) * 250));
+  const tree = {
+    root_id: 1,
+    nodes: [
+      { record_id: 1, parent_record_id: null, created_at: '2026-07-01T00:00:00', checkpoints: many },
+      { record_id: 2, parent_record_id: 1, resumed_from: 3000, created_at: '2026-07-02T00:00:00',
+        checkpoints: [ck(500), ck(1000)] },
+      { record_id: 3, parent_record_id: null, created_at: '2026-07-03T00:00:00',
+        checkpoints: [ck(500), ck(1000)] },
+    ],
+    edges: [{ parent: 1, child: 2, resumed_from: 3000 }],
+  };
+  const g = buildLineageGraph(tree);
+  const m = byId(g);
+  // #1 (parent, 12 pills) and #3 (second root) share the left column
+  assert.equal(m.get(1).x, m.get(3).x);
+  // #3's card must start below #1's WHOLE cell (card + tall pill block)
+  assert.ok(m.get(3).y >= m.get(1).y + m.get(1).cellH,
+    `#3 (y=${m.get(3).y}) overlaps #1's cell (y=${m.get(1).y}, cellH=${m.get(1).cellH})`);
+  // concretely: #1's lowest pill sits above #3's card top — no visual collision
+  const lowestPill = Math.max(...m.get(1).checkpoints.map((p) => p.y + p.h));
+  assert.ok(lowestPill <= m.get(3).y,
+    `#1 pills (bottom ${lowestPill}) overlap #3 card (top ${m.get(3).y})`);
+});
+
 test('every edge carries a bezier path and the whole chain is on the spine', () => {
   const g = buildLineageGraph(chain);
   assert.equal(g.edges.length, 2);

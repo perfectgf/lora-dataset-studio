@@ -149,9 +149,12 @@ export function buildLineageGraph(tree, { bigPreviews = false } = {}) {
   // Post-order walk: a leaf takes the next free vertical band (its own cell
   // height), a parent centres its CARD on the span of its children's cards. A
   // seen-set breaks cycles and shared-child anomalies so each node is placed
-  // exactly once. Parent and child never share an X column (child is a full
-  // generation to the right), so a tall pills block can't collide with them —
-  // only siblings share a column, and each leaf reserves its full height.
+  // exactly once. A parent's card centres on its children (a full generation to
+  // the RIGHT), but the parent still owns a tall PILL BLOCK in its own column —
+  // and other roots/siblings share that column. So after centring a parent we
+  // push nextY below the BOTTOM of the parent's whole cell (card + pill block),
+  // otherwise a parent with more checkpoints than its child gets overlapped by
+  // the next node placed in the same column (the #76-over-#81 bug).
   const place = (id, depth, parentId) => {
     if (placed.has(id)) return placed.get(id).cy;
     const node = byId.get(id);
@@ -172,6 +175,9 @@ export function buildLineageGraph(tree, { bigPreviews = false } = {}) {
         ? (Math.min(...centers) + Math.max(...centers)) / 2
         : (nextY += 0, nextY);
       slot.y = cardCenter - CARD_H / 2;
+      // Reserve the parent's OWN cell height too: its pill block extends below
+      // the card and must not be overlapped by the next node in this column.
+      nextY = Math.max(nextY, slot.y + cellH + V_GAP);
     }
     slot.cy = cardCenter;
     return cardCenter;
