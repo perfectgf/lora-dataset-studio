@@ -154,6 +154,107 @@ function KleinLorasCard({ config, setField }) {
   )
 }
 
+/* Editable identity / quality prompts (feature request by @bbsorry / 雨田壹).
+   The identity "locks" that ride ahead of every generated variation used to be
+   hardcoded and invisible; here each is a GLOBAL override with a one-line
+   description (the discoverability the request asked for) and a Restore default.
+   Blank = the shipped default is used (the app stays byte-identical to before),
+   so Restore just clears the field. The Klein-improve prompt additionally has an
+   on/off toggle: off applies NO prompt to the manual "Klein upscale & improve".
+   Keys mirror config identity_prompts.* — never renamed (persisted globally). */
+const IDENTITY_PROMPTS = [
+  { key: 'face_single', id: 'identity-prompt-face-single',
+    label: 'API engine — identity lock (single reference)',
+    desc: 'Prepended to every Nano Banana / ChatGPT variation made from ONE reference photo. Tells the model to keep the exact face and take outfit + expression from the description, not the reference.' },
+  { key: 'face_multi', id: 'identity-prompt-face-multi',
+    label: 'API engine — identity lock (multiple references)',
+    desc: 'Same, but for variations generated from SEVERAL reference photos of the person — tells the model all references are the same person and to use them together.' },
+  { key: 'klein_identity', id: 'identity-prompt-klein-identity',
+    label: 'Klein — restage & face-identity block',
+    desc: 'The instruction block Klein (local) uses to restage the shot while keeping the face identical. Steers pose/framing/outfit changes without altering the person.' },
+]
+
+function IdentityPromptField({ field, value, onChange, onRestore }) {
+  const blank = !(value || '').trim()
+  return (
+    <div>
+      <label htmlFor={field.id} className="block text-sm font-medium text-content">{field.label}</label>
+      <p className="mb-1 text-xs text-content-muted">{field.desc}</p>
+      <textarea
+        id={field.id}
+        rows={4}
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Leave blank to use the built-in default."
+        className={`${INPUT_CLASS} font-mono leading-relaxed`}
+      />
+      <div className="mt-1 flex items-center justify-between">
+        <span className="text-xs text-content-subtle">{blank ? 'Using the built-in default.' : 'Custom override active.'}</span>
+        <button type="button" onClick={onRestore} disabled={blank} className={TEXT_BTN}>
+          Restore default
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function IdentityPromptsCard({ config, setField }) {
+  const ip = config.identity_prompts || {}
+  const set = (key, v) => setField('identity_prompts', key, v)
+  const improveEnabled = ip.klein_improve_enabled !== false
+  const improveBlank = !(ip.klein_improve || '').trim()
+  return (
+    <Card
+      id="identity-prompts"
+      title="Identity & Klein prompts (advanced)"
+      help="The hidden prompts that lock a subject's facial identity across generated variations, now editable. Each applies globally to every dataset; leave a field blank to keep the shipped default. Reproducibility note: with everything blank, generation is byte-identical to before. Feature request by @bbsorry (雨田壹)."
+    >
+      {IDENTITY_PROMPTS.map((f) => (
+        <IdentityPromptField
+          key={f.key}
+          field={f}
+          value={ip[f.key]}
+          onChange={(v) => set(f.key, v)}
+          onRestore={() => set(f.key, '')}
+        />
+      ))}
+
+      <div className="border-t border-border pt-4">
+        <label htmlFor="identity-prompt-klein-improve-enabled" className="flex items-center gap-2 text-sm font-medium text-content">
+          <input
+            id="identity-prompt-klein-improve-enabled"
+            type="checkbox"
+            checked={improveEnabled}
+            onChange={(e) => set('klein_improve_enabled', e.target.checked)}
+            className="h-4 w-4 rounded border-border-strong"
+          />
+          Apply an improvement prompt on “Klein upscale &amp; improve”
+        </label>
+        <p className="mt-1 mb-1 text-xs text-content-muted">
+          The fixed instruction the manual “Klein upscale &amp; improve” action sends to add texture and detail. Turn this off to upscale with no prompt at all (pure enhancement).
+        </p>
+        <textarea
+          id="identity-prompt-klein-improve"
+          rows={3}
+          value={ip.klein_improve ?? ''}
+          onChange={(e) => set('klein_improve', e.target.value)}
+          disabled={!improveEnabled}
+          placeholder="Leave blank to use the built-in default."
+          className={`${INPUT_CLASS} font-mono leading-relaxed disabled:opacity-50`}
+        />
+        <div className="mt-1 flex items-center justify-between">
+          <span className="text-xs text-content-subtle">
+            {!improveEnabled ? 'Disabled — no prompt is applied.' : improveBlank ? 'Using the built-in default.' : 'Custom override active.'}
+          </span>
+          <button type="button" onClick={() => set('klein_improve', '')} disabled={improveBlank || !improveEnabled} className={TEXT_BTN}>
+            Restore default
+          </button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 const CHATGPT_AUTH_OPTIONS = [
   { id: 'auto', label: 'Auto — subscription when connected, otherwise API key' },
   { id: 'api', label: 'API key only' },
@@ -326,6 +427,8 @@ export default function EnginesSection(props) {
       </Card>
 
       <KleinLorasCard config={config} setField={setField} />
+
+      <IdentityPromptsCard config={config} setField={setField} />
     </div>
   )
 }

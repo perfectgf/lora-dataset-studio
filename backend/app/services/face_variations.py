@@ -33,6 +33,66 @@ IDENTITY_GUARD_MULTI = (
     "the expression shown in the reference images. "
     "SFW, realistic photographic portrait.")
 
+# Klein restage + face-identity block (see wrap_variation_klein). Held as a named
+# constant so it can be the DEFAULT of the editable klein_identity override, byte
+# for byte what the wrapper used to inline. The nsfw-dependent tail ({ending}) is
+# NOT part of it — that stays a separate SFW/nudity clamp the wrapper appends.
+IDENTITY_GUARD_KLEIN = (
+    "Restage the shot to match this description — change the pose, camera angle, "
+    "framing, clothing and facial expression accordingly; do not copy the "
+    "composition, the outfit or the facial expression of the reference image (use "
+    "it only for the facial identity). "
+    "Keep the facial identity exactly the same: same eye shape and color, nose, "
+    "jawline, lips, skin tone and texture, and face proportions. Do not beautify "
+    "or alter the face. Sharp focus, natural skin texture with visible pores, "
+    "realistic lighting with soft shadows, high detail.")
+
+# Fixed instruction for the manual "Klein upscale & improve" action. Lives here
+# (not in face_dataset_service) so all four editable identity/quality prompts share
+# ONE default registry; face_dataset_service re-imports it under the same name so
+# `svc.KLEIN_IMAGE_IMPROVE_PROMPT` (persisted-in-tests) keeps resolving.
+KLEIN_IMAGE_IMPROVE_PROMPT = (
+    'add detailed texture, add sharp details, add candid shot, add soft focus effect')
+
+
+# --- Editable identity / quality prompts (feature request @bbsorry / 雨田壹) ---
+# The four identity "locks" above were hardcoded and invisible. They are now
+# overridable GLOBALLY (config identity_prompts.<kind>) with a Settings UI +
+# "Restore default". get_identity_prompt returns the override ONLY when it is set
+# to non-blank text, otherwise the shipped constant — so the default path stays
+# byte-identical to the pre-feature behaviour (the reproducibility invariant the
+# existing wrapper tests lock). The config read is lazy: this module stays
+# import-pure (no Flask), and a caller with no config configured gets the default.
+IDENTITY_PROMPT_KINDS = ('face_single', 'face_multi', 'klein_identity', 'klein_improve')
+_IDENTITY_PROMPT_DEFAULTS = {
+    'face_single': IDENTITY_GUARD,
+    'face_multi': IDENTITY_GUARD_MULTI,
+    'klein_identity': IDENTITY_GUARD_KLEIN,
+    'klein_improve': KLEIN_IMAGE_IMPROVE_PROMPT,
+}
+
+
+def identity_prompt_default(kind: str) -> str:
+    """The shipped (hardcoded) default for an identity-prompt kind — what a
+    Settings "Restore default" returns to. Raises KeyError on an unknown kind."""
+    return _IDENTITY_PROMPT_DEFAULTS[kind]
+
+
+def get_identity_prompt(kind: str) -> str:
+    """Effective identity/quality prompt for `kind`: the user's Settings override
+    when it holds non-blank text, else the shipped default (byte-identical to the
+    hardcoded constant). Lazy, defensive config read so the no-override path a unit
+    test exercises returns the default unchanged even outside a Flask app."""
+    default = _IDENTITY_PROMPT_DEFAULTS[kind]
+    try:
+        from .. import config as cfg
+        override = cfg.get(f'identity_prompts.{kind}')
+    except Exception:
+        return default
+    if isinstance(override, str) and override.strip():
+        return override
+    return default
+
 
 # --- Prompt suffixes (community feature request) -----------------------------
 # A FREE creative direction the user attaches to the DATASET (global text and/or a
@@ -82,7 +142,7 @@ def wrap_variation(prompt: str, ref_count: int = 1, suffix: str = '') -> str:
     """Guard-FIRST wrapper (API engines). The identity guard stays the very first
     thing the model reads; the dataset suffix extends the descriptive tail AFTER
     it (appended to the creative prompt), so the lock is never diluted."""
-    guard = IDENTITY_GUARD_MULTI if ref_count > 1 else IDENTITY_GUARD
+    guard = get_identity_prompt('face_multi' if ref_count > 1 else 'face_single')
     return f"{guard} {_append_suffix(prompt, suffix)}"
 
 
@@ -135,14 +195,7 @@ def wrap_variation_klein(prompt: str, nsfw: bool = False, framing: str | None = 
     return (
         f"Create a new photograph of the same person as the reference image: {_append_suffix(prompt, suffix)}. "
         + (f"{detail} " if detail else "")
-        + "Restage the shot to match this description — change the pose, camera angle, "
-          "framing, clothing and facial expression accordingly; do not copy the "
-          "composition, the outfit or the facial expression of the reference image (use "
-          "it only for the facial identity). "
-          "Keep the facial identity exactly the same: same eye shape and color, nose, "
-          "jawline, lips, skin tone and texture, and face proportions. Do not beautify "
-          "or alter the face. Sharp focus, natural skin texture with visible pores, "
-          f"realistic lighting with soft shadows, high detail. {ending}")
+        + f"{get_identity_prompt('klein_identity')} {ending}")
 
 
 # --- Anti-fuite tenue / expression (constat terrain 2026-07-14) ---------------

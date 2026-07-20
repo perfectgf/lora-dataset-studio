@@ -46,7 +46,8 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU,
                               compose_prompt_suffix, concept_lexical_field,
                               drop_identity_sentences, drop_identity_tags,
                               is_nsfw_label, prompt_by_label, wrap_variation,
-                              wrap_variation_klein)
+                              wrap_variation_klein, get_identity_prompt,
+                              KLEIN_IMAGE_IMPROVE_PROMPT)
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +150,9 @@ _ACTIVE_RUN_MESSAGE = (
 SMALL_IMAGE_SOURCE = 'small_image_source'
 KLEIN_SMALL_IMAGE = 'klein_small_image'
 KLEIN_IMAGE_IMPROVE = 'klein_image_improve'
-KLEIN_IMAGE_IMPROVE_PROMPT = (
-    'add detailed texture, add sharp details, add candid shot, add soft focus effect')
+# KLEIN_IMAGE_IMPROVE_PROMPT is the shipped DEFAULT of the editable klein_improve
+# prompt (imported from face_variations, which owns the identity/quality prompt
+# registry). Re-exported here so `svc.KLEIN_IMAGE_IMPROVE_PROMPT` keeps resolving.
 _SMALL_IMAGE_DERIVATIONS = (SMALL_IMAGE_SOURCE, KLEIN_SMALL_IMAGE)
 # A striped in-process lock is sufficient for LDS's single local server process
 # and makes the active-candidate check + row creation + enqueue one critical
@@ -4414,7 +4416,12 @@ def _improve_existing_image_locked(user_id, image_id):
 
     # Profile reproduced from the user-provided ComfyUI PNG metadata.
     # Keep the selected/default Klein model; override only prompt/sampling/LoRA.
-    prompt = KLEIN_IMAGE_IMPROVE_PROMPT
+    # The improvement instruction is editable (Settings ▸ identity_prompts.klein_improve)
+    # and can be turned OFF entirely — disabled applies NO prompt (pure upscale).
+    if cfg.get('identity_prompts.klein_improve_enabled', True):
+        prompt = get_identity_prompt('klein_improve')
+    else:
+        prompt = ''
     stored_prompt = prompt[:500]
     base_label = 'Klein upscale & improve'
     source_label = (img.variation_label or '').strip()

@@ -82,6 +82,19 @@ How presets are used matters:
 - **Trap:** *renaming* a preset does **not** follow a run that referenced it by the old name — that run silently falls back to no extra LoRAs. Rename before you queue, or re-pick the preset on the run.
 - There is deliberately **no automatic NSFW gating** on individual LoRAs — the preset you pick carries the intent. If you want an "NSFW full" stack, make it a preset.
 
+### Identity & Klein prompts (advanced)
+
+*Feature request by @bbsorry (雨田壹).* Every generated variation is prefixed by a hidden **identity lock** — a block of text that tells the engine to keep the subject's exact face and take the outfit and expression from the description, not the reference photo. These used to be baked in and invisible; now you can read and edit them. All are **global** (they apply to every dataset) and stored under `identity_prompts.*`.
+
+**Reproducibility guarantee:** every field **defaults to blank**, and blank means *use the shipped default*. With nothing overridden, generation is **byte-identical** to before this setting existed — so you only change behaviour if you deliberately type an override. **Restore default** simply clears the field back to blank.
+
+- **API engine — identity lock (single reference)** → `identity_prompts.face_single`. Prepended to Nano Banana / ChatGPT variations built from **one** reference photo.
+- **API engine — identity lock (multiple references)** → `identity_prompts.face_multi`. The same, for variations built from **several** reference photos — it tells the model every reference is the same person and to use them together.
+- **Klein — restage & face-identity block** → `identity_prompts.klein_identity`. The instruction block the local **Klein** engine uses to restage the shot (pose, framing, outfit, expression) while keeping the face identical.
+- **Klein upscale & improve prompt** → `identity_prompts.klein_improve`, with an on/off toggle `identity_prompts.klein_improve_enabled` (default **on**). The fixed instruction the manual **Klein upscale & improve** action sends to add texture and detail. **Turn the toggle off** to run that action with **no prompt at all** — a pure upscale with no added styling.
+
+Each field is a plain textarea; there's no Test button — you see the effect on your next generation. If an override ever makes results worse, hit **Restore default**.
+
 ## Scraping & sources
 
 Credentials for the built-in web scraper. **All of these apply immediately — no restart** — because sources read their key at request time.

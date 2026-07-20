@@ -79,6 +79,14 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-07-20-editable-identity-prompts',
+    date: '2026-07-20',
+    title: '🪪 Edit the hidden identity prompts that keep a face consistent',
+    blurb:
+      "The prompts that lock a subject's facial identity across every generated variation used to be baked in and invisible. They're now editable in Settings → Image engines: the API-engine identity locks, the Klein restage block, and the “Klein upscale & improve” instruction — each with a one-line explanation and a Restore default. You can also switch the improve prompt off entirely for a pure upscale. Leave everything blank and generation is exactly as before. Feature request by @bbsorry (雨田壹).",
+    to: '/settings/engines',
+  },
+  {
     id: '2026-07-20-lineage-inspect-notes',
     date: '2026-07-20',
     title: '🔬 Inspect any run’s settings and take notes, right on the graph',

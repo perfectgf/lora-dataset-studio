@@ -162,6 +162,21 @@ DEFAULTS = {
               # Manual "Upscale & improve" uses its own fixed quality profile.
               # Empty is intentional: never invent a restoration prompt for the user.
               'small_image_prompt': ''},
+    # Editable identity / quality prompts (feature request by @bbsorry / 雨田壹).
+    # The identity "locks" that ride ahead of every generated variation used to be
+    # hardcoded and invisible; these overrides expose them without touching the
+    # reproducibility invariant. EACH string default is '' on purpose: blank means
+    # "use the shipped default", so the no-override path stays byte-identical to
+    # the historical hardcoded prompt (get_identity_prompt falls back to the
+    # constant). A non-blank value wins. Keys:
+    #   face_single  — API-engine identity guard, single reference (IDENTITY_GUARD)
+    #   face_multi   — API-engine identity guard, multi reference (IDENTITY_GUARD_MULTI)
+    #   klein_identity — Klein restage + face-identity block (wrap_variation_klein)
+    #   klein_improve  — the fixed "Klein upscale & improve" instruction
+    # klein_improve_enabled (default True): when False the manual "Klein upscale &
+    # improve" applies NO prompt at all (pure upscale), instead of the default/override.
+    'identity_prompts': {'face_single': '', 'face_multi': '', 'klein_identity': '',
+                         'klein_improve': '', 'klein_improve_enabled': True},
     'updates': {'repo': 'perfectgf/lora-dataset-studio'},      # GitHub repo for the release feed
 }
 
