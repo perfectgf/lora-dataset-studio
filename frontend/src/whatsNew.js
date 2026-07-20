@@ -69,6 +69,15 @@ export const WHATS_NEW = [
     blurb:
       "Open Checkpoints & LoRAs and you now land on the ◉ Graph — your dataset's runs and every checkpoint they made, at a glance (the flat ☰ List is one click away). Deploy any checkpoint straight from its pill with 📦 Import → loras/…, generate a preview per checkpoint, then click a preview thumbnail to see it LARGE and compare epochs like in ComfyUI. See it, deploy it, judge it — all without leaving the graph.",
     to: '/datasets?section=checkpoints',
+  },
+  {
+    id: '2026-07-20-graph-big-previews',
+    date: '2026-07-20',
+    title: '🔍 Big-preview mode — compare checkpoints like a ComfyUI grid',
+    blurb:
+      "The lineage graph gets a 🔍 Big previews toggle: the generated thumbnails on each checkpoint blow up into large tiles laid out like a ComfyUI grid, so you can eyeball several epochs side by side and pick the sweet spot without clicking into each one. It's remembered between visits; leave it off for the compact pill view. Click any tile to still open it full-screen.",
+    to: '/datasets?section=checkpoints',
+  },
   {
     id: '2026-07-20-lineage-inline-generation',
     date: '2026-07-20',

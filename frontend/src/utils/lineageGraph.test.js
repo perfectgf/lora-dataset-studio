@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildLineageGraph, CARD_W, CARD_H, PAD, PILL_H, PILLS_PER_ROW,
+  buildLineageGraph, graphMetrics, CARD_W, CARD_H, PAD, PILL_W, PILL_H,
+  PILL_W_BIG, PILL_H_BIG, PILLS_PER_ROW,
 } from './lineageGraph.js';
 
 const ck = (step, extra = {}) => ({ step, present: true,
@@ -202,6 +203,39 @@ test('edge falls back to the card edge when no pill matches the resume step', ()
   assert.equal(parent.checkpoints.every((p) => !p.isResumeSource), true);
   const start = g.edges[0].d.match(/^M([\d.]+),/);
   assert.ok(Math.abs(Number(start[1]) - (parent.x + CARD_W)) < 0.01); // card right edge
+});
+
+// --- 🔍 big-preview mode (adaptive geometry) --------------------------------
+
+test('graphMetrics: compact is the default, big enlarges the tiles', () => {
+  const compact = graphMetrics(false);
+  assert.equal(compact.pillW, PILL_W);
+  assert.equal(compact.pillH, PILL_H);
+  assert.equal(compact.perRow, PILLS_PER_ROW);
+  const big = graphMetrics(true);
+  assert.equal(big.pillW, PILL_W_BIG);
+  assert.equal(big.pillH, PILL_H_BIG);
+  assert.ok(big.pillW > compact.pillW && big.pillH > compact.pillH);
+  // fewer, bigger tiles per row — but always at least one
+  assert.ok(big.perRow >= 1 && big.perRow < compact.perRow);
+});
+
+test('big-preview mode sizes the pills up and grows the cell height', () => {
+  const nodes = [{ record_id: 1, parent_record_id: null, is_current: true,
+    checkpoints: [ck(500), ck(1000, { final: true }), ck(1500)] }];
+  const tree = { root_id: 1, current_id: 1, single: true, nodes, edges: [] };
+  const compact = buildLineageGraph(tree);
+  const big = buildLineageGraph(tree, { bigPreviews: true });
+  // Each pill carries the big geometry...
+  for (const p of big.nodes[0].checkpoints) {
+    assert.equal(p.w, PILL_W_BIG);
+    assert.equal(p.h, PILL_H_BIG);
+    // ...and still never spills past the card width.
+    assert.ok(p.x + p.w <= big.nodes[0].x + CARD_W + 0.01);
+  }
+  // The taller tiles make the cell (and the whole graph) taller than compact.
+  assert.ok(big.nodes[0].cellH > compact.nodes[0].cellH);
+  assert.ok(big.height > compact.height);
 });
 
 test('empty / missing payloads return a safe empty shape', () => {

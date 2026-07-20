@@ -35,30 +35,46 @@ export const PAD = 22;     // breathing room around the whole tree
 // tree — the saves are satellites of the run, never their own generations.
 export const PILL_W = 60;
 export const PILL_H = 20;
+// 🔍 Big-preview mode: the pill becomes a ComfyUI-style preview tile so several
+// checkpoints' generated images can be compared at a glance without opening each.
+// Square-ish, ~2 tiles per card row — the layout below adapts to these.
+export const PILL_W_BIG = 128;
+export const PILL_H_BIG = 132;
 export const PILL_GAP = 6;         // between pills, both axes
 export const PILL_TOP_GAP = 8;     // card bottom → first pill row
 export const PILLS_PER_ROW = Math.max(1, Math.floor((CARD_W + PILL_GAP) / (PILL_W + PILL_GAP)));
 
 const COL = CARD_W + H_GAP;   // centre-to-centre horizontal step per depth
 
+/** Per-mode pill geometry. Compact (default) keeps the satellite pills; big turns
+ *  each into a large preview tile. `perRow` re-derives from the tile width so the
+ *  wrapped grid still fits the card. Threaded through the layout so cells never
+ *  overlap in either mode. */
+export function graphMetrics(bigPreviews = false) {
+  const pillW = bigPreviews ? PILL_W_BIG : PILL_W;
+  const pillH = bigPreviews ? PILL_H_BIG : PILL_H;
+  const perRow = Math.max(1, Math.floor((CARD_W + PILL_GAP) / (pillW + PILL_GAP)));
+  return { pillW, pillH, perRow };
+}
+
 /** Rows a run's pills wrap into, and the pixel height of that block (0 saves =
  *  no block). */
-function pillRows(n) { return n > 0 ? Math.ceil(n / PILLS_PER_ROW) : 0; }
-function pillsBlockH(n) {
-  const rows = pillRows(n);
-  return rows ? rows * PILL_H + (rows - 1) * PILL_GAP : 0;
+function pillRows(n, m) { return n > 0 ? Math.ceil(n / m.perRow) : 0; }
+function pillsBlockH(n, m) {
+  const rows = pillRows(n, m);
+  return rows ? rows * m.pillH + (rows - 1) * PILL_GAP : 0;
 }
 /** A run cell's full height: the card, plus its wrapped pills when it has any. */
-function cellHeight(nCk) {
-  const block = pillsBlockH(nCk);
+function cellHeight(nCk, m) {
+  const block = pillsBlockH(nCk, m);
   return CARD_H + (block ? PILL_TOP_GAP + block : 0);
 }
 /** Pill position (top-left) relative to the run card's top-left, by index. */
-function pillOffset(i) {
-  const col = i % PILLS_PER_ROW, row = Math.floor(i / PILLS_PER_ROW);
+function pillOffset(i, m) {
+  const col = i % m.perRow, row = Math.floor(i / m.perRow);
   return {
-    dx: col * (PILL_W + PILL_GAP),
-    dy: CARD_H + PILL_TOP_GAP + row * (PILL_H + PILL_GAP),
+    dx: col * (m.pillW + PILL_GAP),
+    dy: CARD_H + PILL_TOP_GAP + row * (m.pillH + PILL_GAP),
   };
 }
 
@@ -105,7 +121,8 @@ function edgePath(x1, y1, x2, y2) {
  *                       so hover can light a node's whole path back to the root
  * Empty / malformed payloads return an empty, safe shape.
  */
-export function buildLineageGraph(tree) {
+export function buildLineageGraph(tree, { bigPreviews = false } = {}) {
+  const m = graphMetrics(bigPreviews);
   const empty = { nodes: [], edges: [], width: 0, height: 0,
     spine: new Set(), ancestorsOf: new Map() };
   const { nodes, byId, childrenOf } = indexTree(tree);
@@ -139,7 +156,7 @@ export function buildLineageGraph(tree) {
     if (placed.has(id)) return placed.get(id).cy;
     const node = byId.get(id);
     if (!node) return null;
-    const cellH = cellHeight(ckOf(id).length);
+    const cellH = cellHeight(ckOf(id).length, m);
     const slot = { node, depth, x: PAD + depth * COL, y: 0, cellH, cy: 0 };
     placed.set(id, slot);                       // reserve (cycle guard)
     if (parentId != null) parentOf.set(id, parentId);
@@ -167,14 +184,14 @@ export function buildLineageGraph(tree) {
   const pillsByNode = new Map();   // id -> [{ step, final, present, download_url, x, y, w, h }]
   for (const { node, x, y } of placed.values()) {
     const cks = ckOf(node.record_id).map((c, i) => {
-      const { dx, dy } = pillOffset(i);
+      const { dx, dy } = pillOffset(i, m);
       return { step: c.step, final: !!c.final, present: c.present !== false,
         download_url: c.download_url || null, filename: c.filename,
         // Lab inline generation: whether this checkpoint has a deployed LoRA the
         // engine can preview, and its generated preview (url + async status).
         testable: c.testable === true,
         preview_url: c.preview_url || null, preview_status: c.preview_status || null,
-        x: x + dx, y: y + dy, w: PILL_W, h: PILL_H, isResumeSource: false };
+        x: x + dx, y: y + dy, w: m.pillW, h: m.pillH, isResumeSource: false };
     });
     pillsByNode.set(node.record_id, cks);
   }

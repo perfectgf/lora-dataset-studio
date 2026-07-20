@@ -78,6 +78,16 @@ test('a preview thumbnail opens LARGE in a lightbox, distinct from the popover',
   assert.match(graph, /bigPreview/);
 });
 
+test('a persisted 🔍 Big-previews mode enlarges the generated tiles', () => {
+  // Toggle + persistence in the graph, geometry threaded to the layout.
+  assert.match(graph, /🔍 Big previews/);
+  assert.match(graph, /localStorage\.getItem\('lds\.graphBigPreviews'\)/);
+  assert.match(graph, /setItem\('lds\.graphBigPreviews'/);
+  assert.match(graph, /buildLineageGraph\(shownTree, \{ bigPreviews \}\)/);
+  // The pill sizes off the layout's per-mode geometry (pill.w/pill.h), not a const.
+  assert.match(graph, /width: pill\.w, height: pill\.h/);
+});
+
 test('the ◉ Graph button is the prominent (accent) view control', () => {
   // On the Runs hub the graph toggle wears the indigo accent, not a bare grey.
   assert.match(cloud, /border-indigo-400\/40 bg-indigo-500\/10 text-indigo-200/);
