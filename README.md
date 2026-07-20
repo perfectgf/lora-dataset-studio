@@ -234,7 +234,7 @@ Click **Train** and ai-toolkit runs underneath. The recommended path needs no co
 - **Advanced controls** — rank/alpha, resolution, LoRA or LoKr, network dropout, timestep weighting, optimizer, learning-rate scheduler/warmup, gradient accumulation, EMA, save/sample cadence and preview prompts.
 - **Checkpoint housekeeping** — a **Saves kept** cap lets ai-toolkit trim older intermediate checkpoints during the run (default 4, so a long Krea run no longer piles up ~10 GB of snapshots), and everything the app deletes goes to an app-wide **Trash** (Settings → Maintenance) that you empty on your own terms.
 - **One place for every run** — **🏋️ Runs** collects cloud and local training: live step/loss/ETA/samples, the exact recipe and dataset version, **Stop**, cloud **Retry/Continue**, downloads, and **⎘ Share config** — a paste-safe parameter/outcome summary with local paths and keys stripped.
-- **Lineage at a glance** — every continuation and fork is drawn as a **family tree** (☰ List or ◉ Graph). Each run shows the checkpoints it saved as pills, an edge is anchored on the exact epoch a continuation resumed from, the path to the current run lights up, and a branch that resumed from an earlier save stays visible — dashed — instead of vanishing. Click any checkpoint to download it or **continue from there**.
+- **The lineage graph is an experiment lab** — every continuation and fork is drawn as a **family tree** (☰ List or ◉ Graph, now the default). Each run shows the checkpoints it saved as pills, an edge is anchored on the exact epoch a continuation resumed from, the path to the current run lights up, and a branch that resumed from an earlier save stays visible — dashed — instead of vanishing. But it does far more than draw: **click a run to inspect the exact settings it trained with** (rank, alpha, LR, optimizer, timestep, base, EMA…), **take notes** on any run or checkpoint, **shift-click two runs to diff their configs** side by side with the differences highlighted, **deploy any checkpoint straight from its pill** (📦 Import → ComfyUI), and **generate a same-prompt / same-seed preview per checkpoint** to compare how the LoRA evolves epoch by epoch — with a 🔍 big-preview mode that lays the results out like a ComfyUI grid. Click any checkpoint to download it or **continue from there** (even from a run that failed at pod teardown but kept its saves).
 
 <p align="center">
   <img src="docs/screenshots/07-lineage-graph.png" alt="◉ Graph view of a run's lineage: a root Z-Image · turbo run with six saved checkpoints and four continuations laid out left to right, edges anchored on the exact checkpoint each run resumed from, the current run glowing indigo, and two set-aside branches dashed in amber" width="900">
@@ -244,7 +244,29 @@ Click **Train** and ai-toolkit runs underneath. The recommended path needs no co
 <p align="center">
   <img src="docs/screenshots/08-lineage-checkpoint-actions.png" alt="A checkpoint pill's popover open on step 1500, offering Download and Continue-from-here" width="440">
 </p>
-<p align="center"><em>Every saved checkpoint is actionable: download that exact epoch, or continue a fresh run from it.</em></p>
+<p align="center"><em>Every saved checkpoint is actionable: download that exact epoch, deploy it to ComfyUI, or continue a fresh run from it.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/lineage-04-inspector.png" alt="A run node clicked open in the graph, with a side panel showing its exact training config: rank 24, alpha 24, learning rate 8e-5, optimizer prodigy, timestep weighting sigmoid, network lora, EMA off — and dot badges marking runs that carry notes" width="900">
+</p>
+<p align="center"><em>Click any run to inspect the exact settings it trained with — and jot notes on runs or checkpoints (● marks the annotated ones).</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/lineage-05-diff.png" alt="Two runs shift-clicked in the graph, opening a Compare-runs panel that lists their configs in two columns with the six differing rows highlighted: rank 16 → 32, learning rate 1e-4 → 5e-5, optimizer adamw8bit → prodigy, timestep sigmoid → linear, EMA off → on, dataset version 1 → 2" width="900">
+</p>
+<p align="center"><em>Shift-click two runs to diff their configs side by side — only what changed is highlighted.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/lineage-06-previews-grid.png" alt="The lineage graph in big-preview mode: each checkpoint pill shows a large generated-preview tile laid out like a ComfyUI grid, so several epochs can be compared at a glance" width="900">
+</p>
+<p align="center"><em>Generate a same-prompt / same-seed preview per checkpoint and flip on 🔍 big previews to compare epochs like a ComfyUI grid — pick the sweet spot before it overcooks.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/lineage-01-linear.png" alt="A linear lineage: a Z-Image turbo run continued twice (v1 → v2 → v3), each generation resuming from the previous run's final checkpoint" width="440">
+  &nbsp;
+  <img src="docs/screenshots/lineage-02-fork.png" alt="A forked lineage: two runs branching from the same checkpoint of an SDXL run — one a clean continuation on the lit trunk, the other a set-aside branch dashed in amber" width="440">
+</p>
+<p align="center"><em>Different shapes read at a glance: a linear v1 → v3 chain (left) and a fork where two runs branch from the same checkpoint, the set-aside branch kept dashed (right).</em></p>
 
 - **Five training families with distinct recipes** — **Z-Image** (Turbo/Base/De-Turbo), **SDXL**, **Krea 2** (Raw/Turbo), **FLUX.1**, and **FLUX.2 Klein** (4B/9B). Custom compatible weights train locally for any family, and Z-Image, Krea 2 and FLUX.2 Klein can also train on a custom base **in the cloud** via a one-time push to a private Hugging Face repo (SDXL and FLUX.1 stay local-only).
 - **🎚 Slider LoRA mode (Beta)** — turn any dataset into a **concept slider**: give a positive and a negative prompt and ai-toolkit's `concept_slider` trainer learns a single bipolar LoRA whose ±strength dials the trait at inference (the images are only a denoising substrate, so caption guards the slider never reads are skipped). A fixed 1000-step policy, low default rank, bipolar preview samples and an isolated `_slider` run tag keep it from clobbering a normal setup. All five families are offered behind honest experimental notes — **Krea 2 is the reference** — and it runs **locally or in the cloud**: slider settings are snapshotted at launch so a mid-run edit can never retarget a rented run (the first paid slider run is still unproven — extra-Beta). Beta, so expect to iterate. Test both poles with Test Studio's **negative strengths**.
