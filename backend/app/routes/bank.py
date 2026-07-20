@@ -188,10 +188,12 @@ def bank_coverage(bank_id):
 def bank_caption(bank_id):
     """Caption a selection (image_ids) or every non-rejected image, reusing the
     dataset caption engines. {force:true} re-captions already-captioned rows.
-    202/409/503/400."""
+    {vocabulary} picks the register ('explicit'|'clinical'|'safe') — same lane as
+    the dataset caption; invalid → 400. 202/409/503/400."""
     data = request.get_json(silent=True) or {}
     return _start(banks.start_caption, _app(), LOCAL_USER, bank_id,
-                  ids=data.get('image_ids') or None, force=bool(data.get('force')))
+                  ids=data.get('image_ids') or None, force=bool(data.get('force')),
+                  vocabulary=data.get('vocabulary') or None)
 
 
 @bp.post('/bank/<int:bank_id>/pipeline')

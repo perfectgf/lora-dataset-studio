@@ -7,6 +7,8 @@ import PromoteDialog from './PromoteDialog'
 import DeleteRejectedDialog from './DeleteRejectedDialog'
 import LaunchAllDialog from './LaunchAllDialog'
 import PipelineReport from './PipelineReport'
+// Reuse the dataset's register list so the Bank lane never drifts from it.
+import { VOCABULARY_OPTIONS } from '../dataset/CaptionOptionsPopover'
 
 const PAGE_SIZE = 120
 
@@ -297,6 +299,9 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const [showSelected, setShowSelected] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [tileSize, setTileSize] = useState('M')
+  // Caption register for the 🏷️ Caption pass ('' = model's own wording). Explicit is
+  // the NSFW lane — same registers as the dataset caption, passed per-run.
+  const [captionVocab, setCaptionVocab] = useState('')
   // Coverage advice (idea by @antonp) — a collapsible read-only panel, fetched
   // on demand (and refreshed whenever it's open and the bank changes).
   const [coverageOpen, setCoverageOpen] = useState(false)
@@ -451,8 +456,10 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const startWatermark = () => act(() => postJson(`/api/bank/${bankId}/watermark`, {}), null)
   const startFraming = () => act(() => postJson(`/api/bank/${bankId}/framing`, {}), null)
   const startCaption = () => act(
-    () => postJson(`/api/bank/${bankId}/caption`,
-      selected.size ? { image_ids: [...selected] } : {}), null)
+    () => postJson(`/api/bank/${bankId}/caption`, {
+      ...(selected.size ? { image_ids: [...selected] } : {}),
+      ...(captionVocab ? { vocabulary: captionVocab } : {}),
+    }), null)
   const cancelJob = () => act(() => postJson(`/api/bank/${bankId}/cancel`, {}), null)
   const startPipeline = async (config) => {
     setLaunchOpen(false)
@@ -556,6 +563,12 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const shownFramings = FRAMING_BUCKETS.filter(
     (b) => (framingCounts[b.id] || 0) > 0 || filter.framing === b.id)
   const visionReady = !!caps.ollama?.vision_model_ready
+  // The explicit lane only spells acts out with an uncensored (abliterated) vision
+  // model. We can't prove abliteration, but the common builds name themselves — a soft
+  // heuristic drives an honest "may soften" hint (never a hard block: a differently
+  // named abliterated model still works).
+  const visionModel = caps.ollama?.vision_model || ''
+  const visionModelLooksUncensored = /abliterat|uncensor|huihui|nsfw/i.test(visionModel)
   const scored = counts?.scored || 0
   const watermarkScanned = counts?.watermark_scanned || 0
   // Score flags only make sense once their pass ran; watermark is its own pass.
@@ -716,7 +729,23 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               : 'Caption every not-yet-captioned image (skips rejected) with your caption engine. Captions become searchable tags and follow the images when you promote them to a dataset. Select images first to caption just those.'}>
             🏷️ Caption{selected.size ? ` ${selected.size} selected` : ' all'}
           </PassButton>
+          <label className="flex items-center gap-1 text-xs text-content-subtle">
+            <span className="sr-only">Caption vocabulary register</span>
+            <select value={captionVocab} onChange={(e) => setCaptionVocab(e.target.value)}
+              disabled={live} aria-label="Caption vocabulary register"
+              title="How captions name nude or sexual content. Explicit needs an uncensored (abliterated) Ollama vision model. Richer, more explicit captions also make the 🔍 search find more."
+              className="px-2 py-1 rounded-lg bg-app/60 border border-border text-content text-xs disabled:opacity-40">
+              {VOCABULARY_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+          </label>
         </div>
+        {captionVocab === 'explicit' && !visionModelLooksUncensored && (
+          <p className="text-xs text-amber-400/90">
+            ⚠️ Explicit captions need an uncensored (abliterated) Ollama vision model
+            {visionModel ? ` — “${visionModel}” may refuse or soften explicit terms` : ''}.
+            Pull one in Settings ▸ Captioning &amp; quality. Richer captions also feed the 🔍 search.
+          </p>
+        )}
       </div>
 
       {/* Person clusters (after the face pass) */}

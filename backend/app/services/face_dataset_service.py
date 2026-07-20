@@ -3547,6 +3547,20 @@ def _compose_preview_instructions(vocabulary, instructions) -> str | None:
     return '\n'.join(parts) if parts else None
 
 
+# Public so the image bank's caption lane validates against — and appends — the SAME
+# vocabulary registers as the dataset pass, rather than duplicating the tuple or the text.
+CAPTION_VOCABULARIES = _CAPTION_VOCABULARIES
+
+
+def vocabulary_instruction(vocabulary) -> str | None:
+    """The caption instruction appended for a vocabulary register (one of
+    CAPTION_VOCABULARIES: 'explicit' | 'clinical' | 'safe'), or None for '' / an unknown
+    value. Shared with the image bank so its NSFW lane reuses the dataset's exact register
+    text — 'explicit' only spells acts out when paired with an abliterated vision model,
+    and the output cleaners still run, so it changes wording, never what binds."""
+    return _VOCABULARY_INSTRUCTION.get((vocabulary or '').strip().lower())
+
+
 def preview_caption(user_id, dataset_id, image_id, *, backend=None, ollama_model=None,
                     vocabulary=None, instructions=None, should_cancel=None) -> dict:
     """Caption ONE dataset image with a candidate config and return the text WITHOUT

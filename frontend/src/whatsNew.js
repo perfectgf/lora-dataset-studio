@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-bank-explicit-caption',
+    date: '2026-07-20',
+    title: '🏷️ Caption your bank crude — explicit lane, right at triage',
+    blurb:
+      "The 🏷️ Caption pass in the Bank now has a vocabulary picker, the same one the datasets use: Explicit, Clinical or Safe. Pick Explicit (paired with an uncensored/abliterated Ollama vision model) and captions name nude and sexual content plainly instead of tip-toeing around it — so you capture what's really there the moment you triage. Bonus: richer, more explicit captions also give the 🔍 Bank search far more to match on. Leave it on default and nothing changes.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-20-lineage-inline-generation',
     date: '2026-07-20',
     title: '🎨 Generate a preview per checkpoint, right in the lineage graph',

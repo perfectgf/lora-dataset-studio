@@ -1856,16 +1856,27 @@ def _framing_job(bank_id, rescan):
 
 
 # --- caption pass (reuses the dataset caption engines) ----------------------
-def start_caption(app, user_id, bank_id, ids=None, force=False):
+def start_caption(app, user_id, bank_id, ids=None, force=False, vocabulary=None):
     """Launch the caption pass over a selection (``ids``) or, when empty, every
     non-rejected readable image. Reuses the dataset caption engines (JoyCaption /
     Ollama per Settings) through a dataset-free descriptive brick; the captions
     double as the bank's search text and ride along on promotion. Serialized
     against training/vision like the score/watermark passes (503 when the GPU is
-    held). BankJobBusy when a job is already live, ValueError on a bad bank/config."""
+    held). BankJobBusy when a job is already live, ValueError on a bad bank/config.
+
+    ``vocabulary`` picks a caption REGISTER (one of face_dataset_service's
+    CAPTION_VOCABULARIES: 'explicit' | 'clinical' | 'safe') — the SAME lane the
+    dataset caption uses, appended as an instruction. Explicit only spells sexual
+    content out when the backend runs an abliterated Ollama model; the choice rides
+    per-call (the UI passes it), so a call WITHOUT it is byte-identical to before
+    (no instruction appended). Richer captions also mean richer 🔍 search text."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
+    from .face_dataset_service import CAPTION_VOCABULARIES
+    vocab = (vocabulary or '').strip().lower() or None
+    if vocab and vocab not in CAPTION_VOCABULARIES:
+        raise ValueError(f'invalid caption vocabulary: {vocab}')
     backend = (cfg.get('captioning.backend') or 'auto').lower()
     if backend == 'none':
         raise ValueError('no captioning backend configured (Settings ▸ Captioning & quality)')
@@ -1880,12 +1891,12 @@ def start_caption(app, user_id, bank_id, ids=None, force=False):
         q = q.filter(or_(BankImage.caption.is_(None), BankImage.caption == ''))
     total = q.count()
     return bank_jobs.start(app, bank_id, 'caption',
-                           _caption_job(bank_id, ids, force), total=total)
+                           _caption_job(bank_id, ids, force, vocab), total=total)
 
 
-def _caption_job(bank_id, ids, force):
+def _caption_job(bank_id, ids, force, vocabulary=None):
     def run(job):
-        from .face_dataset_service import caption_paths
+        from .face_dataset_service import caption_paths, vocabulary_instruction
         from ..gpu_window import gpu_exclusive_vision_window
         bank = db.session.get(ImageBank, bank_id)
         if not bank:
@@ -1921,9 +1932,13 @@ def _caption_job(bank_id, ids, force):
 
         # GPU-exclusive for the whole pass, exactly like the score/watermark passes:
         # frees ComfyUI VRAM and blocks a training start for the duration.
+        # The vocabulary register rides in as the SAME appended instruction the
+        # dataset pass uses (None when unset → byte-identical to the plain pass).
+        extra = vocabulary_instruction(vocabulary)
         with gpu_exclusive_vision_window(flag_ttl=1800):
             caption_paths(
                 paths,
+                extra_instructions=extra,
                 should_cancel=lambda: bank_jobs.cancelled(job),
                 on_caption=_on_caption,
                 progress=lambda d, t: bank_jobs.progress(job, done=d, total=t))

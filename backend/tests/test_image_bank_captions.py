@@ -208,6 +208,62 @@ def test_promotion_carries_captions_into_dataset(client, tmp_path, app, monkeypa
     assert caps == {'caption for a', 'caption for b'}
 
 
+# --- vocabulary lane (explicit / clinical / safe) ----------------------------
+def _capture_prompts(monkeypatch):
+    """Mock the vision seam and record every prompt caption_paths sends, so a test
+    can assert WHICH register instruction (if any) was appended."""
+    from app.services import vision_ollama
+    seen = []
+
+    def fake_describe(image_bytes, prompt, *a, **k):
+        seen.append(prompt)
+        return 'a caption'
+
+    monkeypatch.setattr(vision_ollama, 'describe_image_ollama', fake_describe)
+    monkeypatch.setattr(vision_ollama, 'unload_vision_model', lambda *a, **k: True)
+    return seen
+
+
+def test_caption_default_prompt_is_byte_identical(client, tmp_path, app, monkeypatch):
+    """Retro-compat: no vocabulary → the prompt is exactly the plain descriptive one,
+    with NO appended instruction (byte-stable with the pre-lane behaviour)."""
+    _use_ollama_backend(app)
+    bank_id, _ = _mkbank(client, tmp_path, {'a.png': _flat()})
+    seen = _capture_prompts(monkeypatch)
+    client.post(f'/api/bank/{bank_id}/caption', json={})
+    from app.services.face_dataset_service import DESCRIPTIVE_CAPTION_PROMPT
+    assert seen == [DESCRIPTIVE_CAPTION_PROMPT]
+    assert 'Additional instructions' not in seen[0]
+
+
+def test_caption_explicit_injects_crude_instruction(client, tmp_path, app, monkeypatch):
+    """The explicit lane appends the SAME crude register the dataset pass uses."""
+    _use_ollama_backend(app)
+    bank_id, _ = _mkbank(client, tmp_path, {'a.png': _flat()})
+    seen = _capture_prompts(monkeypatch)
+    client.post(f'/api/bank/{bank_id}/caption', json={'vocabulary': 'explicit'})
+    from app.services.face_dataset_service import DESCRIPTIVE_CAPTION_PROMPT, vocabulary_instruction
+    expected = f'{DESCRIPTIVE_CAPTION_PROMPT}\n\nAdditional instructions from the user:\n{vocabulary_instruction("explicit")}'
+    assert seen == [expected]
+    assert 'crude anatomical terms' in seen[0]
+
+
+def test_caption_safe_injects_non_explicit_instruction(client, tmp_path, app, monkeypatch):
+    _use_ollama_backend(app)
+    bank_id, _ = _mkbank(client, tmp_path, {'a.png': _flat()})
+    seen = _capture_prompts(monkeypatch)
+    client.post(f'/api/bank/{bank_id}/caption', json={'vocabulary': 'safe'})
+    assert 'strictly non-explicit' in seen[0]
+
+
+def test_caption_rejects_unknown_vocabulary(client, tmp_path, app):
+    _use_ollama_backend(app)
+    bank_id, _ = _mkbank(client, tmp_path, {'a.png': _flat()})
+    r = client.post(f'/api/bank/{bank_id}/caption', json={'vocabulary': 'spicy'})
+    assert r.status_code == 400
+    assert 'vocabulary' in r.get_json()['error']
+
+
 # --- gates -------------------------------------------------------------------
 def test_caption_gate_400_when_backend_none(client, tmp_path, app):
     bank_id, _ = _mkbank(client, tmp_path, {'a.png': _flat()})
