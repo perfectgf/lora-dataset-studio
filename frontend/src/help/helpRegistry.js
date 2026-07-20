@@ -223,6 +223,11 @@ const TOPICS = [
     ['remove run', 'delete run', 'gone', 'tidy graph', 'clean up runs',
      'no checkpoints', 'clear run', 'lineage cleanup'],
     '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  action('lineage-generate-previews', 'Generate a preview per checkpoint',
+    ['generate preview', 'preview checkpoint', 'inline generation', 'sample image',
+     'same prompt', 'same seed', 'epoch by epoch', 'compare checkpoints', 'strength 1.0',
+     'test studio', 'experiment lab', 'lab', 'which epoch', 'best checkpoint'],
+    '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
 
   // ---- Settings: per-field topics (kind 'setting') -----------------------
   // engines

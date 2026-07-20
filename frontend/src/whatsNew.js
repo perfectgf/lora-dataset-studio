@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-lineage-inline-generation',
+    date: '2026-07-20',
+    title: '🎨 Generate a preview per checkpoint, right in the lineage graph',
+    blurb:
+      "Turn the ◉ Graph into an experiment lab: tick the checkpoints you want (across any runs), type ONE shared prompt and seed, and hit Generate. Each selected checkpoint renders a strength-1.0 image under the exact same conditions — reusing the Test Studio engine — so you can see at a glance how a LoRA evolves epoch by epoch and pick the sweet spot before it overcooks. The thumbnail lands on its checkpoint pill (◌ while it renders, ⚠ if it fails). It shares the GPU politely: a checkpoint that isn't deployed yet can't be picked (with a clear hint), and while a training is running the previews wait rather than fight it.",
+    to: '/cloud',
+  },
+  {
     id: '2026-07-20-identity-prompts-show-defaults',
     date: '2026-07-20',
     title: '👁️ See the built-in identity prompts, not just an empty box',

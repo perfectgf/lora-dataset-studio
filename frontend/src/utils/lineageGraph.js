@@ -170,6 +170,10 @@ export function buildLineageGraph(tree) {
       const { dx, dy } = pillOffset(i);
       return { step: c.step, final: !!c.final, present: c.present !== false,
         download_url: c.download_url || null, filename: c.filename,
+        // Lab inline generation: whether this checkpoint has a deployed LoRA the
+        // engine can preview, and its generated preview (url + async status).
+        testable: c.testable === true,
+        preview_url: c.preview_url || null, preview_status: c.preview_status || null,
         x: x + dx, y: y + dy, w: PILL_W, h: PILL_H, isResumeSource: false };
     });
     pillsByNode.set(node.record_id, cks);

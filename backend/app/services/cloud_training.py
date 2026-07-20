@@ -2288,6 +2288,142 @@ def checkpoint_notes_for(record_id):
             if r.note}
 
 
+def training_in_progress() -> bool:
+    """True while a LoRA training holds the GPU — the Lab's inline generation is
+    refused with a 409 in that window (a training and a generation must never
+    share the GPU). Reads the same persisted flag the queue and the vision window
+    check, so all three agree on 'GPU held by training'."""
+    from ..job_queue import queue_manager
+    return bool(queue_manager._get_system_state('training_in_progress', False))
+
+
+# --- Lab inline previews (D) -------------------------------------------------
+# The flagship: render ONE same-prompt/same-seed image per selected lineage
+# checkpoint, reusing the EXISTING Test-Studio ComfyUI engine pinned to those
+# checkpoints at strength 1.0 (not a checkpoint×strength grid). A checkpoint is
+# "testable" only when its step has a matching DEPLOYED LoRA in the family pool
+# (the same pool the Studio tests) — otherwise there is nothing ComfyUI can load,
+# so we say "not deployed" instead of launching a silent no-op.
+
+def _step_of_testable(filename) -> int | None:
+    """The training step embedded in a deployed testable LoRA filename, so a
+    lineage pill (which carries its own step) can be joined to the deployed LoRA
+    of the same step. Names are '<trigger>-<step>' / 'lora_<trigger>_<step>'
+    (the Studio's trigger-token convention), optionally folder-prefixed; a final
+    save with no number yields None (matched by step only)."""
+    stem = os.path.basename(str(filename or '')).rsplit('.', 1)[0]
+    if stem.lower().startswith('lora_'):
+        stem = stem[5:]
+    m = re.search(r'[-_](\d+)$', stem)
+    return int(m.group(1)) if m else None
+
+
+def _testable_by_step(dataset_id, family) -> dict:
+    """{step: deployed_lora_filename} for this dataset+family — the checkpoints
+    the Lab can actually generate a preview for. Best-effort: no dataset / no
+    deployed LoRA → {} (every pill reads as not-testable, the Generate button
+    stays disabled with the app's usual 'needs setup' hint)."""
+    ds = fds.get_dataset(cfg.LOCAL_USER, dataset_id)
+    if not ds:
+        return {}
+    from . import lora_test_studio as studio
+    out = {}
+    try:
+        cands = studio.list_test_checkpoints(ds, family)
+    except Exception:
+        return {}
+    for c in cands:
+        s = _step_of_testable(c.get('filename'))
+        if s is not None:
+            out[s] = c['filename']
+    return out
+
+
+def checkpoint_previews_for(record_id) -> dict:
+    """{step: {status, url, seed}} for a run's inline-generated previews. Each
+    stored pointer resolves LIVE to its reused LoraTestImage: 'done' with a served
+    url once the file exists, 'failed' if the cell failed, else 'pending' (the job
+    is still in the serial queue). A dangling pointer (image row gone) is dropped
+    so the node never claims a preview it can't show."""
+    from ..models import CheckpointPreview, LoraTestImage
+    rows = CheckpointPreview.query.filter_by(record_id=record_id).all()
+    if not rows:
+        return {}
+    img_ids = [r.lora_test_image_id for r in rows if r.lora_test_image_id]
+    imgs = ({i.id: i for i in LoraTestImage.query
+             .filter(LoraTestImage.id.in_(img_ids)).all()} if img_ids else {})
+    out = {}
+    for r in rows:
+        img = imgs.get(r.lora_test_image_id)
+        if img is None:
+            continue
+        status = img.status if img.status in ('pending', 'done', 'failed') else 'pending'
+        url = (f'/api/dataset/{r.dataset_id}/img/{img.filename}'
+               if status == 'done' and img.filename else None)
+        out[r.step] = {'status': status, 'url': url, 'seed': r.seed}
+    return out
+
+
+def generate_checkpoint_previews(user_id, dataset_id, checkpoints, prompt=None,
+                                 seed=None, family=None) -> dict:
+    """Point the EXISTING Test-Studio engine at the selected lineage checkpoints,
+    each at strength 1.0, with ONE shared prompt+seed — a same-conditions look at
+    how the LoRA evolves epoch by epoch. `checkpoints` = [{record_id, step}].
+
+    Each is resolved to the deployed LoRA of its step; checkpoints with no deployed
+    LoRA are SKIPPED (reported, never a silent no-op). None resolvable → needs_setup
+    True so the route answers an actionable 409 instead of launching an empty run.
+    GPU serialization is the engine's own (each cell rides the serial image queue,
+    which the queue leaves pending while a training/vision pass holds the GPU); the
+    training→409 guard sits in the route. Stores/refreshes a CheckpointPreview per
+    rendered checkpoint pointing at the reused LoraTestImage row (regeneration just
+    re-points it). Returns {queued, skipped:[{record_id,step,reason}], needs_setup,
+    seed}."""
+    from ..models import CheckpointPreview
+    fam = (family or '').strip().lower() or None
+    if fam is None:
+        ds = fds.get_dataset(cfg.LOCAL_USER, dataset_id)
+        fam = (getattr(ds, 'train_type', None) or 'zimage').lower() if ds else 'zimage'
+    by_step = _testable_by_step(dataset_id, fam)
+    resolved, skipped = [], []
+    for c in (checkpoints or []):
+        try:
+            rid, step = int(c['record_id']), int(c['step'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        fn = by_step.get(step)
+        if not fn:
+            skipped.append({'record_id': rid, 'step': step, 'reason': 'not_deployed'})
+            continue
+        resolved.append((rid, step, fn))
+    if not resolved:
+        return {'queued': 0, 'skipped': skipped, 'needs_setup': True, 'seed': None}
+
+    from . import lora_test_studio as studio
+    # Pin the engine to EXACTLY these checkpoints at strength 1.0, one image each
+    # (count=1). The Studio validates/preflights + enqueues; a GpuBusyError (vision
+    # holding the GPU) or a StudioAssetsMissing (ComfyUI not set up) propagates and
+    # the route maps it to the same structured error the Studio already returns.
+    result = studio.create_run(
+        user_id, dataset_id, checkpoints=[fn for _, _, fn in resolved],
+        strengths=[1.0], seed=seed, prompt=prompt, family=fam, count=1)
+    ids = result.get('ids') or []
+    run_seed = result.get('seed', seed)
+    # Single base model × single strength × count=1 → cells are 1:1 with `resolved`
+    # in order; zip guards against any engine-side short count (never a wrong link).
+    for (rid, step, _fn), img_id in zip(resolved, ids):
+        row = CheckpointPreview.query.filter_by(record_id=rid, step=step).first()
+        if row is None:
+            row = CheckpointPreview(record_id=rid, step=step, dataset_id=dataset_id)
+            db.session.add(row)
+        row.lora_test_image_id = img_id
+        row.prompt = prompt or ''
+        row.seed = run_seed
+    db.session.commit()
+    return {'queued': len(resolved), 'skipped': skipped, 'needs_setup': False,
+            'seed': run_seed}
+
+
 def _record_checkpoints_on_disk(rec) -> int:
     """How many of this run's checkpoints are still on disk RIGHT NOW — the guard
     the "remove a gone run" action checks. Mirrors the graph badge: a cloud run
@@ -2405,8 +2541,20 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
             node['saves'] = None
             node['checkpoint_ready'] = None
     _cnotes = checkpoint_notes_for(rec.id)
+    _cprev = checkpoint_previews_for(rec.id)
+    # A pill is `testable` when its step maps to a deployed LoRA the Studio engine
+    # can load — the front enables Generate only for testable selections and shows
+    # the app's usual 'needs setup' hint otherwise. `preview_*` render the inline
+    # thumbnail (or its pending/failed state) in the node card.
+    _testable = _testable_by_step(rec.dataset_id, rec.family)
     for _ck in (node.get('checkpoints') or []):
-        _ck['note'] = _cnotes.get(_ck.get('step'), '')
+        _step = _ck.get('step')
+        _ck['note'] = _cnotes.get(_step, '')
+        _ck['testable'] = _step in _testable
+        _pv = _cprev.get(_step)
+        if _pv:
+            _ck['preview_url'] = _pv.get('url')
+            _ck['preview_status'] = _pv.get('status')
     return node
 
 

@@ -542,6 +542,31 @@ class CheckpointNote(db.Model):
                                           name='uq_checkpoint_note'),)
 
 
+class CheckpointPreview(db.Model):
+    """The Lab's inline-generated preview for one checkpoint (record_id, step):
+    a same-prompt/same-seed image so an experienced user can eyeball how the LoRA
+    evolves epoch by epoch. Checkpoints aren't their own rows, so — like notes —
+    the preview mapping lives here, keyed by (record_id, step). It does NOT store
+    an image itself: the picture is produced by the reused Test-Studio engine and
+    lands in the per-dataset folder as a LoraTestImage; `lora_test_image_id` points
+    at that row so the node reads the (async) filename + status live. Regenerating
+    a checkpoint replaces the pointer. New table -> created by db.create_all(),
+    no migration."""
+    __tablename__ = 'checkpoint_preview'
+    id = db.Column(db.Integer, primary_key=True)
+    record_id = db.Column(db.Integer, nullable=False, index=True)
+    step = db.Column(db.Integer, nullable=False)
+    dataset_id = db.Column(db.Integer, nullable=False, index=True)
+    # The reused Test-Studio result row that carries the actual image (its
+    # filename is null until the job completes); the node joins through it.
+    lora_test_image_id = db.Column(db.Integer, nullable=True)
+    prompt = db.Column(db.Text, nullable=False, default='')
+    seed = db.Column(db.BigInteger, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('record_id', 'step',
+                                          name='uq_checkpoint_preview'),)
+
+
 class TrainingPreset(db.Model):
     """Named, shareable snapshot of the ⚙️ advanced training settings.
 

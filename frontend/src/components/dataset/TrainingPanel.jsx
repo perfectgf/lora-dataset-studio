@@ -2570,7 +2570,18 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             {datasetGraph.error && <p className="m-0 text-rose-300/80 text-[0.75rem]">{datasetGraph.error}</p>}
             {datasetGraph.tree && (
               Array.isArray(datasetGraph.tree.nodes) && datasetGraph.tree.nodes.length
-                ? <RunLineageGraph tree={datasetGraph.tree} />
+                ? <RunLineageGraph tree={datasetGraph.tree}
+                    refetchTree={async () => {
+                      const qs = new URLSearchParams();
+                      if (checkpointTrainType) qs.set('train_type', checkpointTrainType);
+                      if (checkpointVariant) qs.set('variant', checkpointVariant);
+                      const r = await fetch(`/api/dataset/${ds.currentId}/train/lineage?${qs.toString()}`,
+                        { credentials: 'include' });
+                      if (!r.ok) throw new Error('unavailable');
+                      const tree = await r.json();
+                      setDatasetGraph({ tree });
+                      return tree;
+                    }} />
                 : <p className="m-0 text-content-subtle text-[0.75rem]">
                     No training runs recorded for this family yet — train once and its runs will appear here.
                   </p>

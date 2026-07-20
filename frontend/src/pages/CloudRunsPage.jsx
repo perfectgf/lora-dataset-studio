@@ -640,7 +640,14 @@ export default function CloudRunsPage() {
               loading={lineageData[run.record_id]?.loading}
               error={lineageData[run.record_id]?.error}
               onSelect={jumpToRun}
-              onContinueCheckpoint={continueFromCheckpoint} />
+              onContinueCheckpoint={continueFromCheckpoint}
+              refetchTree={async () => {
+                const r = await fetch(`/api/dataset/train/runs/${run.record_id}/lineage`, { credentials: 'include' });
+                if (!r.ok) throw new Error('unavailable');
+                const tree = await r.json();
+                setLineageData((m) => ({ ...m, [run.record_id]: { tree } }));
+                return tree;
+              }} />
           )}
         </div>
       </div>
