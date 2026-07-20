@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-bank-show-selected-view',
+    date: '2026-07-20',
+    title: '🔎 See your curated picks together — 🎯 Similar & 🎨 Diverse now show their results',
+    blurb:
+      "Picking the images that look like one reference, or the most varied of a big dump, used to just tick boxes — on a 20 000-image bank those picks were scattered across pages you'd never scroll to, so it felt like nothing happened. Now 🎯 Similar to selected and 🎨 Pick diverse drop the grid straight into a “selected” view that shows ONLY your picks — and 🎯 Similar orders them closest-first, reference at the top. A new “🔎 Show selected” toggle flips any selection into that view (and “↩ Show all” takes you back). Keep, Reject and Promote still act on the selection exactly as before — this is just a way to look at it.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-20-bank-framing-filter',
     date: '2026-07-20',
     title: '📐 Sort a Bank by shot type — face, bust, body, back',

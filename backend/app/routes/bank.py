@@ -67,6 +67,20 @@ def bank_images(bank_id):
 
     # subfolder is a STRING facet ('' = bank root), distinct from the int filters.
     subfolder = args.get('subfolder')
+    # ids: the "show selected" VIEW — a comma-separated ordered id list that
+    # overrides the facets. Present-but-empty means "an empty selection" (0 rows),
+    # so distinguish None (no id view) from '' (empty view).
+    ids_arg = args.get('ids')
+    ids = None
+    if ids_arg is not None:
+        ids = []
+        for tok in ids_arg.split(','):
+            tok = tok.strip()
+            if tok:
+                try:
+                    ids.append(int(tok))
+                except ValueError:
+                    pass
     payload = banks.list_images(
         LOCAL_USER, bank_id,
         status=args.get('status') or None,
@@ -78,6 +92,7 @@ def bank_images(bank_id):
         sort=args.get('sort') or None,
         res_bucket=args.get('res_bucket') or None,
         framing=args.get('framing') or None,
+        ids=ids,
         offset=_int('offset') or 0, limit=_int('limit') or 200)
     if payload is None:
         return jsonify({'error': 'not found'}), 404

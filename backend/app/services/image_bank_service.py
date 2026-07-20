@@ -452,7 +452,7 @@ def list_banks(user_id) -> list:
 def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
                 group=None, style=None, subfolder=None, search=None,
                 semantic_group=None, sort=None, res_bucket=None, framing=None,
-                offset=0, limit=200) -> dict | None:
+                ids=None, offset=0, limit=200) -> dict | None:
     """One PAGE of the bank grid (a 9 000-image bank must never ship whole).
     Filters compose: status ∩ flag ∩ cluster ∩ dup-group ∩ style ∩ subfolder ∩ search.
     ``search`` is a plain full-text term matched (case-insensitive LIKE) against the
@@ -464,11 +464,36 @@ def list_images(user_id, bank_id, status=None, flag=None, cluster=None,
     (width/height NULL) always sink to the end. It composes with every filter.
     ``res_bucket`` (a _RES_BUCKETS id) narrows to one resolution tier — a
     half-open [lo, hi) megapixel band — and composes with every filter AND the
-    sort (the tier + Resolution↑/↓ combo is the mixed-dump cleanup flow)."""
+    sort (the tier + Resolution↑/↓ combo is the mixed-dump cleanup flow).
+    ``ids`` is the "show selected" VIEW: an explicit ordered list of image ids
+    that OVERRIDES every facet/sort (the selection IS the scope) and renders the
+    page in the SAME order the caller passed — so a similarity ranking from
+    ``select_similar`` shows reference-first, closest-to-farthest, instead of the
+    default id order. Unknown/foreign ids are dropped silently."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         return None
     th = thresholds()
+    if ids is not None:
+        # Explicit id view — the selection is the scope, order is preserved.
+        # Dedupe keeping first occurrence so the requested order is authoritative.
+        seen = set()
+        ordered = [i for i in ids if not (i in seen or seen.add(i))]
+        by_id = {}
+        # Chunk the IN() so a big selection can't blow past SQLite's bound-
+        # variable limit (default 999); the curation cap is 2 000 ids.
+        for start in range(0, len(ordered), 500):
+            chunk = ordered[start:start + 500]
+            for r in (BankImage.query
+                      .filter(BankImage.bank_id == bank_id,
+                              BankImage.id.in_(chunk)).all()):
+                by_id[r.id] = r
+        ordered_rows = [by_id[i] for i in ordered if i in by_id]
+        total = len(ordered_rows)
+        off = max(0, int(offset))
+        page = ordered_rows[off:off + max(1, min(500, int(limit)))]
+        return {'images': [_image_dict(r, th) for r in page], 'total': total,
+                'offset': off}
     q = BankImage.query.filter_by(bank_id=bank_id)
     if status in ('pending', 'keep', 'reject'):
         q = q.filter(BankImage.status == status)

@@ -289,6 +289,13 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const [curateOpen, setCurateOpen] = useState(null)
   const [diverseN, setDiverseN] = useState(60)
   const [similarN, setSimilarN] = useState(60)
+  // "Show selected" VIEW: render ONLY the selected ids, in a chosen order.
+  // showSelected flips the grid from the facet page to the selection; selectedOrder
+  // holds the order to render them in — the similarity/diversity ranking after a
+  // curate action (reference first, closest→farthest), else insertion order. It's a
+  // VIEW, not a status: Keep/Reject/Promote still act on the selection itself.
+  const [showSelected, setShowSelected] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState(null)
   const [tileSize, setTileSize] = useState('M')
   // Coverage advice (idea by @antonp) — a collapsible read-only panel, fetched
   // on demand (and refreshed whenever it's open and the bank changes).
@@ -334,13 +341,19 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     return params
   }, [])
 
-  const refreshImages = useCallback(async (f = filter, off = offset) => {
-    const params = { ...filterParams(f), offset: String(off), limit: String(PAGE_SIZE) }
+  const refreshImages = useCallback(async (f = filter, off = offset, view) => {
+    // `view` (optional) lets a caller drive the fetch with values it just set,
+    // dodging state-closure lag; otherwise read the current selection view.
+    const on = view ? view.on : showSelected
+    const order = view ? view.order : selectedOrder
+    const params = on
+      ? { ids: (order || []).join(','), offset: String(off), limit: String(PAGE_SIZE) }
+      : { ...filterParams(f), offset: String(off), limit: String(PAGE_SIZE) }
     try {
       const d = await apiFetch(`/api/bank/${bankId}/images?${new URLSearchParams(params)}`)
       setPage(d)
     } catch { /* transient — next poll retries */ }
-  }, [bankId, filter, offset, filterParams])
+  }, [bankId, filter, offset, filterParams, showSelected, selectedOrder])
 
   useEffect(() => {
     refreshPayload(); refreshImages()
@@ -377,18 +390,34 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   }, [coverageOpen, loadCoverage, payload?.counts?.keep,
       payload?.counts?.framing_classified])
 
+  // Leaving the selection view: back to the facet grid.
+  const exitSelectionView = () => { setShowSelected(false); setSelectedOrder(null) }
+
+  // The "Show selected (N)" / "Show all" toggle. Entering keeps any curate ranking
+  // (selectedOrder); a plain manual selection shows in insertion order.
+  const toggleSelectionView = () => {
+    if (showSelected) {
+      exitSelectionView(); setOffset(0); refreshImages(filter, 0, { on: false })
+    } else {
+      const order = (selectedOrder && selectedOrder.length) ? selectedOrder : [...selected]
+      setSelectedOrder(order); setShowSelected(true); setOffset(0)
+      refreshImages(filter, 0, { on: true, order })
+    }
+  }
+
   const setF = (patch) => {
     const f = { ...filter, ...patch }
-    setFilter(f); setOffset(0); setSelected(new Set())
-    refreshImages(f, 0)
+    setFilter(f); setOffset(0); setSelected(new Set()); exitSelectionView()
+    refreshImages(f, 0, { on: false })
   }
 
   // Sort only reorders — the same rows match, so the selection (a set of ids)
-  // is kept; just jump back to page 1 to read the new order top-down.
+  // is kept; just jump back to page 1 to read the new order top-down. A facet
+  // sort has no meaning inside the selection view, so it drops back to the grid.
   const setSort = (sort) => {
     const f = { ...filter, sort }
-    setFilter(f); setOffset(0)
-    refreshImages(f, 0)
+    setFilter(f); setOffset(0); exitSelectionView()
+    refreshImages(f, 0, { on: false })
   }
 
   // Debounce the search box, then apply it as a filter (page 1, selection cleared).
@@ -436,6 +465,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     await act(() => postJson(`/api/bank/${bankId}/images/status`, { ids, status }),
       `${ids.length} image(s) → ${status}`)
     setSelected(new Set())
+    // The selection is gone, so its view has nothing left to show — return to the grid.
+    if (showSelected) { exitSelectionView(); setOffset(0); refreshImages(filter, 0, { on: false }) }
   }
 
   const applyAutoReject = async () => {
@@ -462,13 +493,28 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   // Both build a SELECTION the user then reviews with the existing ✓/✕/Promote
   // bar — nothing is auto-kept or deleted. The candidate pool is the current
   // filter (composable), so "60 most diverse of this subfolder" just works.
+  // Curate a selection AND switch to the "show selected" view so the result is
+  // actually visible (60 ids scattered across a 24k-image bank are invisible as
+  // mere checkmarks). `order` is the ids in the order the grid should render them.
+  const showCuratedSelection = (order) => {
+    setSelected(new Set(order))
+    setSelectedOrder(order)
+    setShowSelected(true)
+    setOffset(0)
+    refreshImages(filter, 0, { on: true, order })
+  }
+
   const pickDiverse = async () => {
     setCurateOpen(null)
     try {
       const d = await postJson(`/api/bank/${bankId}/select-diverse`,
         { n: diverseN, ...filterParams(filter) })
-      setSelected(new Set(d.image_ids))
-      toast.info(`Selected the ${d.image_ids.length} most diverse of ${d.pool}. Review, then ✓ Keep or ⬆ Promote.`)
+      if (!d.image_ids?.length) {   // scored, but the current filter holds nothing
+        toast.info('Nothing to sample — no scored images match the current filter.')
+        return
+      }
+      showCuratedSelection(d.image_ids)
+      toast.info(`Showing the ${d.image_ids.length} most diverse of ${d.pool}. Review, then ✓ Keep or ⬆ Promote — or “Show all” to leave this view.`)
     } catch (e) {
       toast.error(e?.message || 'Diversity sampling failed.')
     }
@@ -481,8 +527,14 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     try {
       const d = await postJson(`/api/bank/${bankId}/select-similar`,
         { ref_id: ref, n: similarN, ...filterParams(filter) })
-      setSelected(new Set(d.image_ids))
-      toast.info(`Selected the ${d.image_ids.length} most similar to the reference (of ${d.pool}). Review, then ✓ Keep or ⬆ Promote.`)
+      if (!d.image_ids?.length) {
+        toast.info('No matches — no scored images match the current filter.')
+        return
+      }
+      // Backend returns the ids ranked by similarity (reference first); keep that
+      // order so the view reads closest→farthest instead of by id.
+      showCuratedSelection(d.image_ids)
+      toast.info(`Showing the ${d.image_ids.length} most similar to the reference (of ${d.pool}), closest first. Review, then ✓ Keep or ⬆ Promote — or “Show all” to leave this view.`)
     } catch (e) {
       toast.error(e?.message || 'Similarity search failed.')
     }
@@ -871,9 +923,21 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content hover:bg-surface-raised">
           Select all in filter
         </button>
+        {(selected.size > 0 || showSelected) && (
+          <button type="button" onClick={toggleSelectionView}
+            aria-pressed={showSelected}
+            title={showSelected
+              ? 'Back to the full grid with its filters'
+              : 'Show only the selected images (as their own view), so a scattered curation/similarity result is visible in one place'}
+            className={`rounded-md border px-2 py-0.5 text-xs font-medium ${showSelected
+              ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
+              : 'border-border text-content-muted hover:text-content hover:bg-surface-raised'}`}>
+            {showSelected ? '↩ Show all' : `🔎 Show selected (${selected.size})`}
+          </button>
+        )}
         {selected.size > 0 && (
           <>
-            <button type="button" onClick={() => setSelected(new Set())}
+            <button type="button" onClick={() => { setSelected(new Set()); if (showSelected) { exitSelectionView(); setOffset(0); refreshImages(filter, 0, { on: false }) } }}
               className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">Clear</button>
             <button type="button" onClick={() => batchStatus([...selected], 'keep')}
               className="rounded-md border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/20">✓ Keep</button>

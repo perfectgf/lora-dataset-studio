@@ -234,3 +234,69 @@ def test_similar_ref_without_embedding_is_400(client, tmp_path, app):
                     json={'ref_id': ref_id, 'n': 2})
     assert r.status_code == 400
     assert 'embedding' in r.get_json()['error']
+
+
+# --- "show selected" grid view (?ids=…) --------------------------------------
+# The curation selectors return a SELECTION scattered across the bank; the grid
+# must be able to render exactly those ids, in the order given, so the result is
+# actually visible (and a similarity ranking reads closest→farthest).
+def test_ids_view_preserves_given_order(client, tmp_path, app):
+    names = [f'i{k}.jpg' for k in range(5)]
+    bank_id, _ = _mkbank(client, tmp_path, names)
+    a, b, c = (_id_of(app, bank_id, n) for n in ('i0.jpg', 'i2.jpg', 'i4.jpg'))
+    r = client.get(f'/api/bank/{bank_id}/images?ids={c},{a},{b}')
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body['total'] == 3
+    assert [im['id'] for im in body['images']] == [c, a, b]     # exact order kept
+
+
+def test_ids_view_overrides_facets_and_drops_unknown(client, tmp_path, app):
+    """The id list is the scope: it ignores status/flag facets, and ids that
+    aren't in this bank (or don't exist) are silently dropped."""
+    names = [f'i{k}.jpg' for k in range(4)]
+    bank_id, _ = _mkbank(client, tmp_path, names)
+    with app.app_context():
+        from app.extensions import db
+        from app.models import BankImage
+        rows = sorted(BankImage.query.filter_by(bank_id=bank_id).all(), key=lambda r: r.id)
+        rows[0].status = 'reject'                  # i0 rejected — must still show in the view
+        db.session.commit()
+    i0, i1 = (_id_of(app, bank_id, n) for n in ('i0.jpg', 'i1.jpg'))
+    # status=keep would normally hide i0/i1; the id view ignores it. 999999 is unknown.
+    r = client.get(f'/api/bank/{bank_id}/images?status=keep&ids={i1},999999,{i0}')
+    body = r.get_json()
+    assert [im['id'] for im in body['images']] == [i1, i0]      # facet ignored, unknown dropped
+    assert body['total'] == 2
+
+
+def test_ids_view_paginates_in_order(client, tmp_path, app):
+    names = [f'i{k}.jpg' for k in range(6)]
+    bank_id, _ = _mkbank(client, tmp_path, names)
+    order = [_id_of(app, bank_id, f'i{k}.jpg') for k in (5, 4, 3, 2, 1, 0)]
+    csv = ','.join(str(i) for i in order)
+    p1 = client.get(f'/api/bank/{bank_id}/images?ids={csv}&offset=0&limit=2').get_json()
+    p2 = client.get(f'/api/bank/{bank_id}/images?ids={csv}&offset=2&limit=2').get_json()
+    assert p1['total'] == 6 and p2['total'] == 6
+    assert [im['id'] for im in p1['images']] == order[:2]
+    assert [im['id'] for im in p2['images']] == order[2:4]
+
+
+def test_similar_result_feeds_ids_view_end_to_end(client, tmp_path, app):
+    """The whole fix: select-similar returns ranked ids, and feeding them back as
+    the ?ids= view renders the grid reference-first, closest→farthest."""
+    names = ['ref.jpg', 'near.jpg', 'mid.jpg', 'far.jpg']
+    bank_id, _ = _mkbank(client, tmp_path, names)
+    _write_score_cache(app, bank_id, {
+        'ref.jpg':  _emb(1.0, 0.0),
+        'near.jpg': _emb(0.98, np.sqrt(1 - 0.98 ** 2)),
+        'mid.jpg':  _emb(0.80, np.sqrt(1 - 0.80 ** 2)),
+        'far.jpg':  _emb(0.10, np.sqrt(1 - 0.10 ** 2))})
+    ref_id = _id_of(app, bank_id, 'ref.jpg')
+    sel = client.post(f'/api/bank/{bank_id}/select-similar',
+                      json={'ref_id': ref_id, 'n': 4}).get_json()
+    ranked = sel['image_ids']
+    assert ranked[0] == ref_id                     # reference first (cosine 1.0)
+    csv = ','.join(str(i) for i in ranked)
+    grid = client.get(f'/api/bank/{bank_id}/images?ids={csv}').get_json()
+    assert [im['id'] for im in grid['images']] == ranked   # grid mirrors the ranking
