@@ -63,6 +63,13 @@ export const WHATS_NEW = [
     to: '/cloud',
   },
   {
+    id: '2026-07-20-bank-promote-per-target',
+    date: '2026-07-20',
+    title: '⬆ Promote the same Bank picks into more than one dataset',
+    blurb:
+      "Promoting kept images into a dataset used to lock them out of every OTHER dataset — a second promote showed \"nothing to promote\" even though the dialog had just offered to copy them. Now “promote all kept” is per-target: images already sitting in another dataset stay promotable to a new one, and the dialog’s count reflects exactly what will be copied into the dataset you picked. Near-duplicates already in the target are still skipped on import.",
+    to: '/bank',
+  {
     id: '2026-07-20-lineage-inspect-notes',
     date: '2026-07-20',
     title: '🔬 Inspect any run’s settings and take notes, right on the graph',

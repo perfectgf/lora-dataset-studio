@@ -2397,11 +2397,34 @@ def coverage(user_id, bank_id) -> dict | None:
 
 
 # --- promotion --------------------------------------------------------------
+def _promotable_query(bank_id, dataset_id):
+    """The KEPT images eligible to promote into ``dataset_id``: everything kept
+    that isn't ALREADY sitting on this exact target. promoted_dataset_id is a
+    scalar (it remembers only the LAST target), so the guard is per-target, not
+    a global 'promoted anywhere' lock — an image promoted to dataset A stays
+    promotable to B. (The dataset-side perceptual dedup on import is the real
+    guard against genuine duplicates.)"""
+    return (BankImage.query.filter_by(bank_id=bank_id, status='keep')
+            .filter(or_(BankImage.promoted_dataset_id.is_(None),
+                        BankImage.promoted_dataset_id != dataset_id)))
+
+
+def promotable_count(user_id, bank_id, dataset_id) -> int | None:
+    """How many kept images the 'promote all' path would send to ``dataset_id``
+    right now — the honest number behind the modal's copy line. None = bank or
+    dataset gone."""
+    if not get_bank(user_id, bank_id):
+        return None
+    if not FaceDataset.query.filter_by(id=dataset_id, user_id=user_id).first():
+        return None
+    return _promotable_query(bank_id, dataset_id).count()
+
+
 def start_promote(app, user_id, bank_id, ids, dataset_id):
     """Copy a selection into a dataset through the normal import path
-    (normalize + perceptual dedup vs the dataset). ``ids`` empty = every KEPT,
-    not-yet-promoted image. Background job (a big promotion decodes hundreds
-    of files)."""
+    (normalize + perceptual dedup vs the dataset). ``ids`` empty = every KEPT
+    image not already on THIS dataset. Background job (a big promotion decodes
+    hundreds of files)."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
@@ -2412,8 +2435,7 @@ def start_promote(app, user_id, bank_id, ids, dataset_id):
         ids = [int(i) for i in ids]
     else:
         ids = [r.id for r in
-               BankImage.query.filter_by(bank_id=bank_id, status='keep')
-               .filter(BankImage.promoted_dataset_id.is_(None))
+               _promotable_query(bank_id, dataset_id)
                .order_by(BankImage.id.asc()).all()]
     if not ids:
         raise ValueError('nothing to promote — keep some images first')

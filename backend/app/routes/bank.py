@@ -218,6 +218,21 @@ def bank_promote(bank_id):
                   data.get('image_ids') or [], dataset_id)
 
 
+@bp.get('/bank/<int:bank_id>/promotable')
+def bank_promotable(bank_id):
+    """How many kept images 'promote all' would copy into ?dataset_id right now
+    — the honest count for the promote modal (per-target: images already on
+    OTHER datasets still count)."""
+    try:
+        dataset_id = int(request.args.get('dataset_id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'dataset_id is required'}), 400
+    n = banks.promotable_count(LOCAL_USER, bank_id, dataset_id)
+    if n is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'count': n})
+
+
 @bp.post('/bank/<int:bank_id>/cancel')
 def bank_cancel(bank_id):
     return jsonify({'ok': bank_jobs.cancel(bank_id)})

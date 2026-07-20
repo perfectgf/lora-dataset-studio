@@ -445,6 +445,51 @@ def test_promote_keeps_into_dataset(client, tmp_path, app):
     assert r.status_code == 400
 
 
+def test_promote_same_image_to_a_second_dataset(client, tmp_path, app):
+    """A kept image already promoted to dataset A must still be promotable to a
+    DIFFERENT dataset B. The scalar promoted_dataset_id only remembers the LAST
+    target, so the eligible set is per-target (promoted-elsewhere ≠ promoted-here),
+    not a global 'promoted anywhere' lock. Regression for the Bank 'nothing to
+    promote' toast when the modal still counted the kept images."""
+    bank_id, _src = _mkbank(client, tmp_path, {
+        'a.jpg': checkerboard(size=256, cell=16), 'b.jpg': noisy(size=256),
+    })
+    client.post(f'/api/bank/{bank_id}/scan', json={})
+    imgs = client.get(f'/api/bank/{bank_id}/images').get_json()['images']
+    keep_ids = [i['id'] for i in imgs]
+    client.post(f'/api/bank/{bank_id}/images/status',
+                json={'ids': keep_ids, 'status': 'keep'})
+    with app.app_context():
+        from app.services import face_dataset_service as svc
+        ds_a = svc.create_dataset('local', 'Dataset A', 'dsa').id
+        ds_b = svc.create_dataset('local', 'Dataset B', 'dsb').id
+
+    # Promote everything kept to A.
+    r = client.post(f'/api/bank/{bank_id}/promote', json={'dataset_id': ds_a})
+    assert r.status_code == 202
+
+    # The honest promotable count must be per-target: 0 left for A, but all
+    # kept images are still promotable to B.
+    ca = client.get(f'/api/bank/{bank_id}/promotable?dataset_id={ds_a}').get_json()
+    cb = client.get(f'/api/bank/{bank_id}/promotable?dataset_id={ds_b}').get_json()
+    assert ca['count'] == 0
+    assert cb['count'] == 2
+
+    # Promoting to a DIFFERENT dataset succeeds (this raised 400 before the fix).
+    r = client.post(f'/api/bank/{bank_id}/promote', json={'dataset_id': ds_b})
+    assert r.status_code == 202
+    payload = client.get(f'/api/bank/{bank_id}').get_json()
+    assert payload['activity']['finished'] is True
+    assert payload['activity']['error'] is None
+    with app.app_context():
+        from app.models import FaceDatasetImage
+        assert FaceDatasetImage.query.filter_by(dataset_id=ds_b).count() == 2
+
+    # Re-promoting to B (all now sit on B) is a no-op → 400, same as same-target.
+    r = client.post(f'/api/bank/{bank_id}/promote', json={'dataset_id': ds_b})
+    assert r.status_code == 400
+
+
 def test_promote_requires_dataset(client, tmp_path):
     bank_id, _src = _mkbank(client, tmp_path, {'a.jpg': checkerboard()})
     r = client.post(f'/api/bank/{bank_id}/promote', json={})

@@ -6,10 +6,11 @@ import { useToast } from '../common/Toast'
  * path (webp normalization + perceptual dedup vs the dataset). With images
  * selected in the grid, THOSE are promoted; otherwise every KEPT image not
  * yet promoted. The bank keeps its files — promotion copies. */
-export default function PromoteDialog({ bankId, keepCount, selectedIds, onClose, onStarted }) {
+export default function PromoteDialog({ bankId, selectedIds, onClose, onStarted }) {
   const toast = useToast()
   const [datasets, setDatasets] = useState(null)
   const [datasetId, setDatasetId] = useState('')
+  const [promotable, setPromotable] = useState(null)
   const [busy, setBusy] = useState(false)
   const useSelection = selectedIds.length > 0
 
@@ -18,6 +19,19 @@ export default function PromoteDialog({ bankId, keepCount, selectedIds, onClose,
       .then((d) => setDatasets(d.datasets || []))
       .catch(() => setDatasets([]))
   }, [])
+
+  // The kept-but-not-yet-on-THIS-dataset count is per-target (an image promoted
+  // to another dataset still counts), so it can only be known once a target is
+  // chosen. Fetch it then, so the copy line reflects what the server will do.
+  useEffect(() => {
+    if (useSelection || !datasetId) { setPromotable(null); return }
+    let live = true
+    setPromotable(null)
+    apiFetch(`/api/bank/${bankId}/promotable?dataset_id=${Number(datasetId)}`)
+      .then((d) => { if (live) setPromotable(d.count) })
+      .catch(() => { if (live) setPromotable(null) })
+    return () => { live = false }
+  }, [bankId, datasetId, useSelection])
 
   const promote = async () => {
     if (busy || !datasetId) return
@@ -43,7 +57,11 @@ export default function PromoteDialog({ bankId, keepCount, selectedIds, onClose,
         <p className="text-sm text-content-muted">
           {useSelection
             ? `The ${selectedIds.length} selected image(s) will be COPIED into the dataset`
-            : `The ${keepCount} kept image(s) not yet promoted will be COPIED into the dataset`}
+            : !datasetId
+              ? `Kept image(s) not yet in the chosen dataset will be COPIED into it`
+              : promotable == null
+                ? `The kept image(s) not yet in this dataset will be COPIED into it`
+                : `The ${promotable} kept image(s) not yet in this dataset will be COPIED into it`}
           {' '}— normalized to webp, near-duplicates already in the dataset skipped. The bank and
           its source folder are left as they are.
         </p>

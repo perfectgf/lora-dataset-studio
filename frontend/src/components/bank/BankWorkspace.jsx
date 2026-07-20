@@ -1077,7 +1077,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       )}
 
       {promoteOpen && (
-        <PromoteDialog bankId={bankId} keepCount={counts?.keep || 0}
+        <PromoteDialog bankId={bankId}
           selectedIds={[...selected]}
           onClose={() => setPromoteOpen(false)}
           onStarted={() => { setPromoteOpen(false); refreshPayload() }} />
