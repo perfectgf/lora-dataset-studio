@@ -383,8 +383,8 @@ def _merge_resume_overrides(snapshot, patch):
 
 def continue_cloud_run(user_id, run_id, extra_steps=1000, from_step=None,
                        overrides=None) -> dict:
-    """Reprend un run cloud TERMINÉ (done) depuis un checkpoint harvesté et vise
-    step_de_reprise + extra_steps — le pendant cloud de
+    """Reprend un run cloud TERMINAL (done OU en échec) depuis un checkpoint
+    harvesté et vise step_de_reprise + extra_steps — le pendant cloud de
     lora_training.continue_training. C'est un VRAI launch_cloud_training (pod
     frais, mêmes garde-fous : limite de runs actifs, budget, unicité par
     famille) avec les paramètres persistés du run source (variante/famille/
@@ -402,8 +402,14 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000, from_step=None,
     run = db.session.get(CloudTrainingRun, int(run_id))
     if not run:
         raise ValueError('unknown cloud run')
-    if run.status != 'done':
-        raise ValueError('only a finished (done) run can be continued')
+    # Continue from any TERMINAL run — a run that failed at pod teardown
+    # ('pod did not become ready in time') can still have harvested, complete
+    # checkpoints in its staging, and resuming from one is valid. Only a run
+    # that is STILL RUNNING is blocked; the `no harvested checkpoint` check
+    # below is the real gate for a terminal run whose staging was cleaned.
+    if run.status in ACTIVE_STATES:
+        raise ValueError('a run that is still running cannot be continued — '
+                         'wait for it to finish or fail')
     try:
         p = json.loads(run.train_params or '{}')
     except ValueError:

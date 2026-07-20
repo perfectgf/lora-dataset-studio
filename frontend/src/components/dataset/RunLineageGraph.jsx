@@ -368,8 +368,15 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
   // download only). TODO(lineage): once local resume is wired into this view and
   // generations can be launched from a node (with their results shown, and a
   // Test-Studio graph), extend this popover with those actions.
-  const canContinue = (node) => typeof onContinueCheckpoint === 'function'
-    && node.source === 'cloud' && node.run_id != null && node.status === 'done';
+  // Continue from a checkpoint of any STOPPED cloud run. A run that failed (e.g.
+  // 'pod did not become ready in time') can still hold a valid harvested save, so
+  // for a non-'done' run we additionally require THIS pill to be present
+  // (downloadable). An actively-running run is never offered Continue.
+  const canContinue = (node, pill) => typeof onContinueCheckpoint === 'function'
+    && node.source === 'cloud' && node.run_id != null
+    && (node.status === 'done'
+        || (['error', 'error_pod_kept', 'stopped', 'failed'].includes(node.status)
+            && !!pill?.download_url));
 
   return (
     <>
@@ -552,7 +559,7 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
                     Download unavailable for this save
                   </span>
                 )}
-                {canContinue(openCk.node) && (
+                {canContinue(openCk.node, openCk.pill) && (
                   <button type="button"
                     onClick={() => { onContinueCheckpoint(openCk.node, openCk.pill); closePopover(); }}
                     className="flex items-center gap-1.5 rounded-md border border-indigo-400/40 bg-indigo-500/15 px-2 py-1 text-indigo-100 text-[0.6875rem] font-medium hover:bg-indigo-500/25">

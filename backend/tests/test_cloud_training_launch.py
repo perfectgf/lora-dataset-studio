@@ -381,6 +381,35 @@ def test_continue_blocks_legacy_incompatible_zimage_before_checkpoint_seed(
         assert (run.status, run.train_params) == before
 
 
+def test_continue_from_a_failed_run_with_harvested_checkpoint(
+        ct, app, seeded_dataset, monkeypatch, tmp_path):
+    """A run that failed at pod teardown ('pod did not become ready in time') can
+    still hold a valid harvested checkpoint — continuing from it is allowed. Only a
+    still-running run is refused."""
+    staging = tmp_path / 'failed_run'
+    staging.mkdir()
+    (staging / 'morgot_000003000.safetensors').write_bytes(b'w')
+    launched = []
+    monkeypatch.setattr(ct, 'launch_cloud_training',
+                        lambda user_id, dataset_id, **kw:
+                        launched.append(kw) or {'run_id': 42, 'status': 'preparing'})
+    with app.app_context():
+        failed = ct.CloudTrainingRun(
+            dataset_id=seeded_dataset, status='error', run_name='pod-teardown-failed',
+            staging_dir=str(staging), train_params=json.dumps({
+                'steps': 3000, 'variant': 'base', 'train_type': 'krea'}))
+        active = ct.CloudTrainingRun(
+            dataset_id=seeded_dataset, status='training', run_name='still-running',
+            staging_dir=str(staging), train_params=json.dumps({
+                'steps': 3000, 'variant': 'base', 'train_type': 'krea'}))
+        ct.db.session.add_all([failed, active])
+        ct.db.session.commit()
+        ct.continue_cloud_run('local', failed.id, extra_steps=500)   # failed+harvested → OK
+        assert len(launched) == 1
+        with pytest.raises(ValueError, match='still running'):        # active → refused
+            ct.continue_cloud_run('local', active.id)
+
+
 def test_auto_retry_freezes_advanced_settings_after_dataset_edit(
         ct, app, seeded_dataset, monkeypatch):
     """A paid automatic retry must rebuild the original recipe, even when the
@@ -1306,16 +1335,29 @@ def test_continue_from_done_calls_launch_with_resume_params(ct, app, seeded_data
     assert res['resumed_from'] == 750 and res['target_steps'] == 1250
 
 
-def test_continue_refuses_non_done_run(ct, app, seeded_dataset, tmp_path):
-    staging = tmp_path / 'run_src'
+def test_continue_refuses_active_run_but_allows_terminal(
+        ct, app, seeded_dataset, tmp_path, monkeypatch):
+    staging = tmp_path / 'run_src'   # _seed_done_run drops a harvested checkpoint here
     staging.mkdir()
+    launched = []
+    monkeypatch.setattr(ct, 'launch_cloud_training',
+                        lambda user_id, dataset_id, **kw:
+                        launched.append(kw) or {'run_id': 7, 'status': 'preparing'})
     with app.app_context():
-        for status in ('training', 'error', 'stopped'):
+        # A still-running run can never be continued — blocked before any launch.
+        run = _seed_done_run(ct, seeded_dataset, staging)
+        run.status = 'training'
+        ct.db.session.commit()
+        with pytest.raises(ValueError, match='still running'):
+            ct.continue_cloud_run('local', run.id)
+        assert launched == []
+        # A terminal run (error/stopped) WITH a harvested checkpoint now continues.
+        for status in ('error', 'stopped'):
             run = _seed_done_run(ct, seeded_dataset, staging)
             run.status = status
             ct.db.session.commit()
-            with pytest.raises(ValueError, match='done'):
-                ct.continue_cloud_run('local', run.id)
+            ct.continue_cloud_run('local', run.id, extra_steps=500)
+        assert len(launched) == 2
         with pytest.raises(ValueError, match='unknown'):
             ct.continue_cloud_run('local', 999999)
 

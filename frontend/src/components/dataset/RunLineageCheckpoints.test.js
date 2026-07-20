@@ -22,8 +22,13 @@ test('the graph opens for any run with a checkpoint, not only 2+ run lineages', 
   assert.match(cloud, /run\.lineage \? '🌳 Lineage' : '◉ Graph'/);
 });
 
-test('continue-from-checkpoint is cloud-only, mirroring the per-run button', () => {
-  assert.match(graph, /node\.source === 'cloud' && node\.run_id != null && node\.status === 'done'/);
+test('continue-from-checkpoint is cloud-only and allows terminal (done OR failed) runs', () => {
+  // still cloud-only with a run id
+  assert.match(graph, /node\.source === 'cloud' && node\.run_id != null/);
+  // a 'done' run always; a failed/stopped run only when THIS pill is present
+  assert.match(graph, /node\.status === 'done'/);
+  assert.match(graph, /'error', 'error_pod_kept', 'stopped', 'failed'/);
+  assert.match(graph, /pill\?\.download_url/);
 });
 
 test('the LoRA manager opens the same graph component for the whole dataset', () => {
