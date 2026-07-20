@@ -209,6 +209,11 @@ const TOPICS = [
       'checkpoints', 'checkpoint', 'epoch', 'download', 'continue from here'],
     guide: { chapter: 'troubleshooting', anchor: 'a-cloud-run-seems-stuck' },
     app: { route: '/cloud' } },
+  action('lineage-inspect-notes', 'Inspect a run & take notes',
+    ['inspect run', 'run settings', 'settings used', 'lineage notes', 'config',
+     'compare runs', 'note', 'annotate', 'lab', 'rank', 'learning rate',
+     'which params', 'experiment'],
+    '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
 
   // ---- Settings: per-field topics (kind 'setting') -----------------------
   // engines

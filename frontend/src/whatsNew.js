@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-lineage-inspect-notes',
+    date: '2026-07-20',
+    title: '🔬 Inspect any run’s settings and take notes, right on the graph',
+    blurb:
+      "Click a run in the ◉ Graph and a panel now shows the exact settings it trained with — rank, alpha, learning rate, optimizer, timestep, base model, steps. Jot a note on any run or checkpoint (\"step 1500 = best face\", \"3000 overcooks\") and a dot marks the ones you've annotated, so a lineage becomes a lab notebook instead of a list. Older runs that never recorded their settings simply say so.",
+    to: '/cloud',
+  },
+  {
     id: '2026-07-20-bank-show-selected-view',
     date: '2026-07-20',
     title: '🔎 See your curated picks together — 🎯 Similar & 🎨 Diverse now show their results',

@@ -3,6 +3,7 @@ import { buildLineageGraph, CARD_W, CARD_H, PILL_W, PILL_H } from '../../utils/l
 import { resumeCaption } from '../../utils/lineageTree';
 import { famLabel, StatusDot, SavesChip } from './lineageChrome';
 import LineageDetailPanel from './LineageDetailPanel';
+import { noteBadge } from './lineageDetail.js';
 
 /* ◉ Graph view of a run's lineage — the showcase rendering. A tidy left-to-right
    tree: the root on the left, each continuation one generation to the right,
@@ -23,7 +24,7 @@ const MAX_H = 560;       // the panel never grows taller than this before it pan
 
 /** One run as a fixed-size card. Mirrors the list card's content, sized to the
  *  graph's card box; sits at the top of the run's cell (pills go below). */
-function GraphCard({ node, lit, onSelect }) {
+function GraphCard({ node, lit, annotated, onSelect }) {
   const cur = node.is_current;
   const dim = node.checkpoint_ready === false;
   const clickable = typeof onSelect === 'function';
@@ -57,6 +58,9 @@ function GraphCard({ node, lit, onSelect }) {
           <span className="shrink-0 rounded-full bg-indigo-500/25 px-1.5 py-0.5 text-indigo-100 text-[0.5rem] font-bold uppercase tracking-wider">
             this run
           </span>
+        )}
+        {annotated && (
+          <span aria-hidden title="Has notes" className="shrink-0 text-amber-300 text-[0.625rem] leading-none">●</span>
         )}
         <span className="ml-auto shrink-0"><SavesChip node={node} /></span>
       </div>
@@ -120,6 +124,13 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
     setOpenNode(node);
     if (typeof onSelect === 'function') onSelect(node);   // keep the Runs-hub jump
   }, [onSelect]);
+  // Note edits happen in the panel; mirror them here (record_id -> updated node)
+  // so the ● badge lights live without a full refetch of the graph.
+  const [noteEdits, setNoteEdits] = useState({});
+  const handleNodeChanged = useCallback((updated) => {
+    setNoteEdits((m) => ({ ...m, [updated.record_id]: updated }));
+    setOpenNode((cur) => (cur && cur.record_id === updated.record_id ? updated : cur));
+  }, []);
 
   // Fit horizontally to the panel, shrinking no further than MIN_SCALE (then the
   // panel pans). Re-measured on resize so it always poses well in a screenshot.
@@ -264,7 +275,9 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
               onPointerEnter={() => setHoverId(n.node.record_id)}
               onPointerLeave={() => setHoverId((cur) => (cur === n.node.record_id ? null : cur))}>
               <div style={{ position: 'relative', width: CARD_W, height: n.cellH }}>
-                <GraphCard node={n.node} lit={isLit(n.node.record_id)} onSelect={handleNodeClick} />
+                <GraphCard node={n.node} lit={isLit(n.node.record_id)}
+                  annotated={noteBadge(noteEdits[n.node.record_id] || n.node)}
+                  onSelect={handleNodeClick} />
                 {n.checkpoints.map((p) => (
                   <CheckpointPill key={`${p.step}-${p.filename ?? p.x}`}
                     pill={p} offX={p.x - n.x} offY={p.y - n.y}
@@ -326,7 +339,8 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
         })()}
       </svg>
     </div>
-    <LineageDetailPanel node={openNode} onClose={() => setOpenNode(null)} />
+    <LineageDetailPanel node={openNode} onClose={() => setOpenNode(null)}
+      onNodeChanged={handleNodeChanged} />
     </>
   );
 }
