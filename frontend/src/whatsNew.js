@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-lineage-diff',
+    date: '2026-07-20',
+    title: '⚖️ Compare two runs and see exactly what changed',
+    blurb:
+      "Shift-click two runs in the ◉ Graph and a side-by-side panel shows their settings, with the ones that DIFFER highlighted (and the identical ones dimmed and foldable). Stop eyeballing two panels to answer \"what did I change between v2 and v3\" — the diff spells it out: rank, learning rate, optimizer, steps and the rest. Older runs that never recorded their settings say so honestly instead of faking a comparison.",
+    to: '/cloud',
+  },
+  {
     id: '2026-07-20-lineage-inspect-notes',
     date: '2026-07-20',
     title: '🔬 Inspect any run’s settings and take notes, right on the graph',

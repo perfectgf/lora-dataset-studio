@@ -3,7 +3,8 @@ import { buildLineageGraph, CARD_W, CARD_H, PILL_W, PILL_H } from '../../utils/l
 import { resumeCaption } from '../../utils/lineageTree';
 import { famLabel, StatusDot, SavesChip } from './lineageChrome';
 import LineageDetailPanel from './LineageDetailPanel';
-import { noteBadge } from './lineageDetail.js';
+import LineageDiffPanel from './LineageDiffPanel';
+import { noteBadge, toggleDiffSelection } from './lineageDetail.js';
 
 /* ◉ Graph view of a run's lineage — the showcase rendering. A tidy left-to-right
    tree: the root on the left, each continuation one generation to the right,
@@ -24,7 +25,7 @@ const MAX_H = 560;       // the panel never grows taller than this before it pan
 
 /** One run as a fixed-size card. Mirrors the list card's content, sized to the
  *  graph's card box; sits at the top of the run's cell (pills go below). */
-function GraphCard({ node, lit, annotated, onSelect }) {
+function GraphCard({ node, lit, annotated, compareRole, onSelect }) {
   const cur = node.is_current;
   const dim = node.checkpoint_ready === false;
   const clickable = typeof onSelect === 'function';
@@ -32,9 +33,9 @@ function GraphCard({ node, lit, annotated, onSelect }) {
     <div
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
-      onClick={clickable ? () => onSelect(node) : undefined}
-      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(node); } } : undefined}
-      title={clickable ? 'Inspect this run' : undefined}
+      onClick={clickable ? (e) => onSelect(node, e) : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(node, e); } } : undefined}
+      title={clickable ? 'Click to inspect · Shift-click to compare' : undefined}
       style={{ height: CARD_H }}
       className={'lds-gcard flex w-full flex-col justify-center gap-1 rounded-xl border px-2.5 py-1.5 '
         + (cur
@@ -43,6 +44,7 @@ function GraphCard({ node, lit, annotated, onSelect }) {
             ? 'border-border bg-app/40 '
             : 'border-border bg-surface-raised ')
         + (lit && !cur ? 'ring-1 ring-indigo-300/40 border-indigo-400/50 ' : '')
+        + (compareRole ? 'ring-2 ring-amber-400/70 border-amber-400/60 ' : '')
         + (clickable ? 'cursor-pointer' : '')}>
       <div className="flex min-w-0 items-center gap-1.5">
         <StatusDot status={node.status} />
@@ -61,6 +63,12 @@ function GraphCard({ node, lit, annotated, onSelect }) {
         )}
         {annotated && (
           <span aria-hidden title="Has notes" className="shrink-0 text-amber-300 text-[0.625rem] leading-none">●</span>
+        )}
+        {compareRole && (
+          <span title={`Selected for compare (${compareRole})`}
+            className="shrink-0 rounded-full bg-amber-500/25 px-1.5 py-0.5 text-amber-100 text-[0.5rem] font-bold uppercase tracking-wider">
+            {compareRole}
+          </span>
         )}
         <span className="ml-auto shrink-0"><SavesChip node={node} /></span>
       </div>
@@ -120,10 +128,24 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
   const closePopover = useCallback(() => setOpenCk(null), []);
   // The Lab detail panel's open node (click a run card to inspect its config).
   const [openNode, setOpenNode] = useState(null);
-  const handleNodeClick = useCallback((node) => {
+  // Bounded-to-2 "compare" selection (record ids) — a DISTINCT interaction from
+  // the single-run inspector: SHIFT-click toggles a run in/out of the compare
+  // set; a plain click still opens the inspector (slice-1 behaviour untouched).
+  const [selectedForDiff, setSelectedForDiff] = useState([]);
+  const handleNodeClick = useCallback((node, e) => {
+    if (e && e.shiftKey) {
+      setSelectedForDiff((sel) => toggleDiffSelection(sel, node.record_id));
+      return;   // compare only — don't open the inspector or jump the Runs hub
+    }
     setOpenNode(node);
     if (typeof onSelect === 'function') onSelect(node);   // keep the Runs-hub jump
   }, [onSelect]);
+  // record_id -> node, so the two picked ids resolve to the nodes the diff reads.
+  const nodeById = useMemo(() => {
+    const m = new Map();
+    for (const n of g.nodes) m.set(n.node.record_id, n.node);
+    return m;
+  }, [g.nodes]);
   // Note edits happen in the panel; mirror them here (record_id -> updated node)
   // so the ● badge lights live without a full refetch of the graph.
   const [noteEdits, setNoteEdits] = useState({});
@@ -186,6 +208,12 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
   }
   const isLit = (id) => litNodes.has(id);
 
+  // Which compare slot a run holds, if any: first pick = A, second = B.
+  const diffRole = (id) => {
+    const i = selectedForDiff.indexOf(id);
+    return i === 0 ? 'A' : i === 1 ? 'B' : null;
+  };
+
   const vw = g.width * scale, vh = g.height * scale;
   const capped = Math.min(vh, MAX_H);
   // Can this checkpoint be continued from? Only cloud runs carry a run_id and the
@@ -198,6 +226,19 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
 
   return (
     <>
+    <div className="mb-1.5 flex items-center justify-end gap-2 text-[0.625rem] text-content-subtle">
+      {selectedForDiff.length === 0 ? (
+        <span><span className="font-semibold">⇧ Shift-click</span> two runs to compare their settings</span>
+      ) : (
+        <>
+          <span className="text-amber-200">
+            {selectedForDiff.length === 1 ? 'Shift-click another run to compare' : 'Comparing two runs →'}
+          </span>
+          <button type="button" onClick={() => setSelectedForDiff([])}
+            className="underline decoration-dotted hover:text-content">Clear</button>
+        </>
+      )}
+    </div>
     <div
       ref={scrollRef}
       className="lds-lgraph-scroll relative overflow-auto rounded-xl"
@@ -277,6 +318,7 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
               <div style={{ position: 'relative', width: CARD_W, height: n.cellH }}>
                 <GraphCard node={n.node} lit={isLit(n.node.record_id)}
                   annotated={noteBadge(noteEdits[n.node.record_id] || n.node)}
+                  compareRole={diffRole(n.node.record_id)}
                   onSelect={handleNodeClick} />
                 {n.checkpoints.map((p) => (
                   <CheckpointPill key={`${p.step}-${p.filename ?? p.x}`}
@@ -339,8 +381,18 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
         })()}
       </svg>
     </div>
-    <LineageDetailPanel node={openNode} onClose={() => setOpenNode(null)}
-      onNodeChanged={handleNodeChanged} />
+    {/* The right rail hosts ONE drawer at a time: two picked runs → the compare
+        diff; otherwise the slice-1 single-run inspector (openNode is preserved
+        underneath, so closing the diff returns to whatever was inspected). */}
+    {selectedForDiff.length === 2 ? (
+      <LineageDiffPanel
+        a={nodeById.get(selectedForDiff[0])}
+        b={nodeById.get(selectedForDiff[1])}
+        onClose={() => setSelectedForDiff([])} />
+    ) : (
+      <LineageDetailPanel node={openNode} onClose={() => setOpenNode(null)}
+        onNodeChanged={handleNodeChanged} />
+    )}
     </>
   );
 }

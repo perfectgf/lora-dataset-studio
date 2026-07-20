@@ -214,6 +214,11 @@ const TOPICS = [
      'compare runs', 'note', 'annotate', 'lab', 'rank', 'learning rate',
      'which params', 'experiment'],
     '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  action('lineage-compare-runs', 'Compare two runs side by side',
+    ['compare runs', 'compare two runs', 'diff', 'difference', 'what changed',
+     'side by side', 'shift click', 'lineage compare', 'ab compare', 'settings diff',
+     'which setting changed', 'experiment', 'lab'],
+    '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
 
   // ---- Settings: per-field topics (kind 'setting') -----------------------
   // engines
