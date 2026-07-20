@@ -2288,6 +2288,71 @@ def checkpoint_notes_for(record_id):
             if r.note}
 
 
+def _record_checkpoints_on_disk(rec) -> int:
+    """How many of this run's checkpoints are still on disk RIGHT NOW — the guard
+    the "remove a gone run" action checks. Mirrors the graph badge: a cloud run
+    counts its staging saves (plus a harvested final LoRA), a local run counts the
+    run-dir files the checkpoint scan attributes to this record. Best-effort: a
+    scan we can't run reports 0 — an unprovable presence must never block removing
+    a run the graph already shows as gone, and never raise (no 500)."""
+    try:
+        if rec.source == 'cloud':
+            crun = (db.session.get(CloudTrainingRun, rec.cloud_run_id)
+                    if rec.cloud_run_id else None)
+            if crun is None:
+                return 0
+            n = _staging_save_count(crun)
+            if not n and crun.checkpoint_local_path \
+                    and os.path.isfile(crun.checkpoint_local_path):
+                n = 1
+            return n
+        return len(_node_checkpoints(rec, None))
+    except Exception:
+        return 0
+
+
+def delete_run_record(record_id) -> str:
+    """Remove a GONE run (no checkpoints on disk) from the lineage graph — its
+    TrainingRunRecord, its checkpoint notes, and (by detaching) its lineage edge.
+    METADATA ONLY: the checkpoints are already gone, so nothing on disk is touched.
+
+    Guards instead of deleting silently:
+      • a run whose checkpoints are still on disk is REFUSED ('has_saves') so a
+        recoverable run is never discarded from under the user;
+      • children that resumed FROM this run are DETACHED (parent_record_id → NULL),
+        keeping them in the graph as honest "origin unknown" roots rather than
+        breaking the tree on a dangling edge.
+
+    Returns 'not_found' | 'has_saves' | 'deleted' | 'conflict'. The FK children
+    (CheckpointNote — no relationship cascade in this schema) are deleted and
+    FLUSHED before the parent row so SQLite never raises the repo's "delete 500"
+    IntegrityError; a stray one is caught and reported as 'conflict', never a 500."""
+    from ..models import TrainingRunRecord, CheckpointNote
+    from sqlalchemy.exc import IntegrityError
+    rec = db.session.get(TrainingRunRecord, int(record_id))
+    if rec is None:
+        return 'not_found'
+    if _record_checkpoints_on_disk(rec) > 0:
+        return 'has_saves'
+    try:
+        # Detach any run that resumed from this one BEFORE deleting it: the child
+        # stays displayed (as a root), the parent edge just disappears.
+        (TrainingRunRecord.query
+         .filter_by(parent_record_id=rec.id)
+         .update({'parent_record_id': None}, synchronize_session=False))
+        # Delete FK children first and flush, so deleting the parent row can't hit
+        # an IntegrityError (the "delete 500" trap — no cascade on these tables).
+        CheckpointNote.query.filter_by(record_id=rec.id).delete(
+            synchronize_session=False)
+        db.session.flush()
+        db.session.delete(rec)
+        db.session.commit()
+        return 'deleted'
+    except IntegrityError:
+        db.session.rollback()
+        return 'conflict'
+
+
 def _lineage_node(rec, crun, requested_id, failed_local_id):
     """One genealogy-tree node from a provenance record, enriched with what the
     card badge shows: family/variant/base/version/date, run status, and whether

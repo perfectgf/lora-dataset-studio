@@ -5,6 +5,7 @@ import { famLabel, StatusDot, SavesChip } from './lineageChrome';
 import LineageDetailPanel from './LineageDetailPanel';
 import LineageDiffPanel from './LineageDiffPanel';
 import { noteBadge, toggleDiffSelection } from './lineageDetail.js';
+import { removeRunFromTree } from '../../utils/runDeletable.js';
 
 /* ◉ Graph view of a run's lineage — the showcase rendering. A tidy left-to-right
    tree: the root on the left, each continuation one generation to the right,
@@ -119,7 +120,13 @@ function CheckpointPill({ pill, offX, offY, active, onOpen }) {
 }
 
 export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }) {
-  const g = useMemo(() => buildLineageGraph(tree), [tree]);
+  // Runs removed in-session (a gone run deleted from the detail panel) drop from
+  // the graph without a full refetch; children re-root via removeRunFromTree.
+  const [deletedIds, setDeletedIds] = useState([]);
+  const shownTree = useMemo(
+    () => deletedIds.reduce((t, id) => removeRunFromTree(t, id), tree),
+    [tree, deletedIds]);
+  const g = useMemo(() => buildLineageGraph(shownTree), [shownTree]);
   const scrollRef = useRef(null);
   const [scale, setScale] = useState(1);
   const [hoverId, setHoverId] = useState(null);
@@ -152,6 +159,11 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
   const handleNodeChanged = useCallback((updated) => {
     setNoteEdits((m) => ({ ...m, [updated.record_id]: updated }));
     setOpenNode((cur) => (cur && cur.record_id === updated.record_id ? updated : cur));
+  }, []);
+  // A gone run removed from the panel: drop it from the graph and close the panel.
+  const handleNodeDeleted = useCallback((recordId) => {
+    setDeletedIds((ids) => (ids.includes(recordId) ? ids : [...ids, recordId]));
+    setOpenNode(null);
   }, []);
 
   // Fit horizontally to the panel, shrinking no further than MIN_SCALE (then the
@@ -391,7 +403,7 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint }
         onClose={() => setSelectedForDiff([])} />
     ) : (
       <LineageDetailPanel node={openNode} onClose={() => setOpenNode(null)}
-        onNodeChanged={handleNodeChanged} />
+        onNodeChanged={handleNodeChanged} onNodeDeleted={handleNodeDeleted} />
     )}
     </>
   );

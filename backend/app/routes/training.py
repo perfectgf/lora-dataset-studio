@@ -1373,6 +1373,25 @@ def dataset_train_run_lineage(record_id):
     return jsonify(tree)
 
 
+@bp.delete('/dataset/train/runs/<int:record_id>')
+def dataset_train_run_delete(record_id):
+    """Remove a GONE run (no checkpoints on disk) from the lineage graph — metadata
+    only: the record, its checkpoint notes, and its lineage edge (disk untouched;
+    the checkpoints are already gone). A run whose checkpoints are still on disk is
+    refused with 409 (delete those first) — never a silent erase. Children that
+    resumed from it are detached, not deleted. Unknown id → 404."""
+    status = ct.delete_run_record(record_id)
+    if status == 'not_found':
+        return jsonify({'error': 'unknown run'}), 404
+    if status == 'has_saves':
+        return jsonify({'error': 'This run still has checkpoints on disk. Delete '
+                                 'its checkpoints first, then remove the run.'}), 409
+    if status == 'conflict':
+        return jsonify({'error': 'This run is still referenced and could not be '
+                                 'removed. Refresh and try again.'}), 409
+    return jsonify({'ok': True})
+
+
 @bp.put('/dataset/train/runs/<int:record_id>/note')
 def dataset_train_run_note(record_id):
     """Save the Lab's free-form note on a run. Unknown run → 404."""

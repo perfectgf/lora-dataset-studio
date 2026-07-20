@@ -55,6 +55,14 @@ export const WHATS_NEW = [
     to: '/cloud',
   },
   {
+    id: '2026-07-20-delete-gone-runs',
+    date: '2026-07-20',
+    title: '🗑 Tidy up the lineage graph — remove runs whose checkpoints are gone',
+    blurb:
+      "Runs whose checkpoints are no longer on disk used to pile up in the ◉ Graph as \"gone\" cards you couldn't clear. Click a gone run and the inspector now offers “Remove this run” — it clears the leftover entry and its notes (no files are touched, they're already gone). A run that still has checkpoints on disk is protected: it shows no remove button, and the server refuses to delete it. A removed run that others continued from doesn't break the tree — its children stay, re-rooted.",
+    to: '/cloud',
+  },
+  {
     id: '2026-07-20-lineage-inspect-notes',
     date: '2026-07-20',
     title: '🔬 Inspect any run’s settings and take notes, right on the graph',

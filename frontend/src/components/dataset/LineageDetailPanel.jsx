@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { configRows } from './lineageDetail.js';
-import { putJson } from '../../api/fetchClient';
+import { isRunDeletable } from '../../utils/runDeletable.js';
+import { putJson, del } from '../../api/fetchClient';
 import { useToast } from '../common/Toast';
 
 /* The Lab detail panel — opens on a node click in the ◉ Graph. It turns the
@@ -14,10 +15,11 @@ import { useToast } from '../common/Toast';
 
    Opaque side drawer (bg-surface-overlay, never the see-through bg-surface) so
    the graph behind it never bleeds through. */
-export default function LineageDetailPanel({ node, onClose, onNodeChanged }) {
+export default function LineageDetailPanel({ node, onClose, onNodeChanged, onNodeDeleted }) {
   const toast = useToast();
   const [runNote, setRunNote] = useState('');
   const [ckNotes, setCkNotes] = useState({});   // step -> text
+  const [deleting, setDeleting] = useState(false);
 
   // Reseed local editors whenever a DIFFERENT run opens. Keyed on record_id so a
   // same-node re-render (e.g. the parent echoing our own onNodeChanged) doesn't
@@ -32,6 +34,28 @@ export default function LineageDetailPanel({ node, onClose, onNodeChanged }) {
   if (!node) return null;
   const rows = configRows(node.config);
   const checkpoints = node.checkpoints || [];
+  // Only a GONE run (no checkpoints on disk) may be removed — the graph guards a
+  // recoverable run behind the same rule the backend enforces (deleting one is
+  // refused with 409). The action clears metadata only; nothing on disk is touched.
+  const deletable = isRunDeletable(node);
+
+  const deleteRun = async () => {
+    if (!deletable || deleting) return;
+    if (!window.confirm(
+      `Remove run #${node.record_id} from the graph?\n\n`
+      + 'Its checkpoints are already gone from disk. This clears the leftover '
+      + 'run entry and its notes — it does not delete any files.')) return;
+    setDeleting(true);
+    try {
+      await del(`/api/dataset/train/runs/${node.record_id}`);
+      toast.success('Run removed');
+      onNodeDeleted?.(node.record_id);
+    } catch (e) {
+      toast.error(e?.message || 'Could not remove this run');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const saveRunNote = async () => {
     const text = runNote || '';
@@ -121,6 +145,18 @@ export default function LineageDetailPanel({ node, onClose, onNodeChanged }) {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {deletable && (
+        <section className="mt-auto pt-4">
+          <button type="button" onClick={deleteRun} disabled={deleting}
+            className="w-full rounded-md border border-rose-500/40 bg-rose-600/10 px-2 py-1.5 text-xs font-medium text-rose-200 hover:bg-rose-600/20 disabled:opacity-50">
+            {deleting ? 'Removing…' : 'Remove this run'}
+          </button>
+          <p className="mt-1 text-[0.625rem] leading-snug text-content-subtle">
+            No checkpoints left on disk. Removes the leftover run entry and its notes — no files are deleted.
+          </p>
         </section>
       )}
     </div>

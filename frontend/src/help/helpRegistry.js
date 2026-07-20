@@ -219,6 +219,10 @@ const TOPICS = [
      'side by side', 'shift click', 'lineage compare', 'ab compare', 'settings diff',
      'which setting changed', 'experiment', 'lab'],
     '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  action('lineage-remove-gone-run', 'Remove a gone run from the graph',
+    ['remove run', 'delete run', 'gone', 'tidy graph', 'clean up runs',
+     'no checkpoints', 'clear run', 'lineage cleanup'],
+    '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
 
   // ---- Settings: per-field topics (kind 'setting') -----------------------
   // engines
