@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   checkpointKey, toggleCheckpointSelection, selectedCheckpointRefs,
   describePreviewSelection, parseSeedInput,
+  checkpointDeployed, lineageImportPayload,
 } from './lineagePreview.js';
 
 const pills = new Map([
@@ -55,6 +56,41 @@ test('describePreviewSelection: all testable → enabled, no hint', () => {
   const d = describePreviewSelection(new Set(['7:500', '7:1000']), pills);
   assert.equal(d.enabled, true);
   assert.equal(d.hint, null);
+});
+
+test('checkpointDeployed: true only when the pill is testable', () => {
+  assert.equal(checkpointDeployed({ testable: true }), true);
+  assert.equal(checkpointDeployed({ testable: false }), false);
+  assert.equal(checkpointDeployed({}), false);
+  assert.equal(checkpointDeployed(null), false);
+});
+
+test('lineageImportPayload: cloud node carries cloud_run_id + run family/variant/base', () => {
+  const node = { source: 'cloud', run_id: 42, train_type: 'flux', variant: 'turbo', base_model: '' };
+  const pill = { step: 500, filename: 'lora_000500.safetensors' };
+  assert.deepEqual(lineageImportPayload(node, pill), {
+    filename: 'lora_000500.safetensors',
+    base_model: '', train_type: 'flux', variant: 'turbo', cloud_run_id: 42,
+  });
+});
+
+test('lineageImportPayload: local node has no cloud_run_id', () => {
+  const node = { source: 'local', train_type: 'sdxl', variant: 'base', base_model: 'sd_xl_base.safetensors' };
+  const pill = { step: 1000, filename: 'lora_001000.safetensors' };
+  const body = lineageImportPayload(node, pill);
+  assert.equal('cloud_run_id' in body, false);
+  assert.deepEqual(body, {
+    filename: 'lora_001000.safetensors',
+    base_model: 'sd_xl_base.safetensors', train_type: 'sdxl', variant: 'base',
+  });
+});
+
+test('lineageImportPayload: null when nothing to deploy', () => {
+  assert.equal(lineageImportPayload(null, { filename: 'x' }), null);
+  assert.equal(lineageImportPayload({ source: 'local' }, null), null);
+  assert.equal(lineageImportPayload({ source: 'local' }, { step: 1 }), null);   // no filename
+  // a cloud node with no resolved run has nothing importable
+  assert.equal(lineageImportPayload({ source: 'cloud', run_id: null }, { filename: 'x' }), null);
 });
 
 test('parseSeedInput: blank → null (engine picks), int → number, junk → error', () => {

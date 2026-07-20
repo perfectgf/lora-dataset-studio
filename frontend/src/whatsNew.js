@@ -63,6 +63,13 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-07-20-graph-hub',
+    date: '2026-07-20',
+    title: '◉ The lineage graph is now home for your checkpoints',
+    blurb:
+      "Open Checkpoints & LoRAs and you now land on the ◉ Graph — your dataset's runs and every checkpoint they made, at a glance (the flat ☰ List is one click away). Deploy any checkpoint straight from its pill with 📦 Import → loras/…, generate a preview per checkpoint, then click a preview thumbnail to see it LARGE and compare epochs like in ComfyUI. See it, deploy it, judge it — all without leaving the graph.",
+    to: '/datasets?section=checkpoints',
+  {
     id: '2026-07-20-lineage-inline-generation',
     date: '2026-07-20',
     title: '🎨 Generate a preview per checkpoint, right in the lineage graph',

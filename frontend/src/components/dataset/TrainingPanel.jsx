@@ -122,9 +122,21 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [checkpointsOpen, setCheckpointsOpen] = useState(false);
-  // ◉ Graph of this dataset's runs + checkpoints, opened from the manager. Lazy —
-  // fetched on first open, refetched when the browse filter changes.
-  const [datasetGraph, setDatasetGraph] = useState(null);   // {tree|loading|error} | null
+  // ◉ Graph of this dataset's runs + checkpoints — now the DEFAULT surface of the
+  // Checkpoints & LoRAs manager (a flat ☰ List stays one click away). Lazy: the
+  // lineage is fetched when the graph view is showing and the browse filter/
+  // dataset changes. {tree|loading|error} | null.
+  const [datasetGraph, setDatasetGraph] = useState(null);
+  // Which view the manager opens on. Persisted; defaults to the graph — the
+  // showcase surface — so a checkpoint's whole genealogy is the first thing seen.
+  const [checkpointsView, setCheckpointsView] = useState(() => {
+    try { return localStorage.getItem('lds.checkpointsView') === 'list' ? 'list' : 'graph'; }
+    catch { return 'graph'; }
+  });
+  const setCkView = (v) => {
+    setCheckpointsView(v);
+    try { localStorage.setItem('lds.checkpointsView', v); } catch { /* ignore */ }
+  };
   const [checkpoints, setCheckpoints] = useState([]);
   const [ckLoaded, setCkLoaded] = useState(false);
   // {registered, version, changed, diff} — provenance du dataset (registre).
@@ -845,20 +857,36 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // ◉ Graph: the whole dataset's runs + their checkpoints as one genealogy
   // forest, scoped to the browse filter's family/variant so it matches the list.
   // Reuses the exact component the Runs hub draws (RunLineageGraph) — no copy.
-  const openDatasetGraph = async () => {
+  const loadDatasetGraph = async () => {
     setDatasetGraph({ loading: true });
     try {
-      const qs = new URLSearchParams();
-      if (checkpointTrainType) qs.set('train_type', checkpointTrainType);
-      if (checkpointVariant) qs.set('variant', checkpointVariant);
-      const r = await fetch(`/api/dataset/${ds.currentId}/train/lineage?${qs.toString()}`,
-        { credentials: 'include' });
-      if (!r.ok) throw new Error('unavailable');
-      setDatasetGraph({ tree: await r.json() });
+      setDatasetGraph({ tree: await fetchDatasetLineage() });
     } catch {
       setDatasetGraph({ error: 'Could not load this dataset’s run graph.' });
     }
   };
+  // Bare fetch of the lineage tree (used by the initial load AND the child's
+  // refetch after an inline import, so a freshly-deployed pill flips to testable).
+  const fetchDatasetLineage = async () => {
+    const qs = new URLSearchParams();
+    if (checkpointTrainType) qs.set('train_type', checkpointTrainType);
+    if (checkpointVariant) qs.set('variant', checkpointVariant);
+    const r = await fetch(`/api/dataset/${ds.currentId}/train/lineage?${qs.toString()}`,
+      { credentials: 'include' });
+    if (!r.ok) throw new Error('unavailable');
+    return r.json();
+  };
+  // The manager is "open" when portaled to its sidebar host, or expanded inline.
+  const checkpointManagerOpen = Boolean(checkpointHost) || checkpointsOpen;
+  // Auto-load the lineage the moment the graph view is the one showing (default),
+  // and reload it when the browse filter/dataset changes — so the graph is ready
+  // without a manual click. The list view keeps its own loadCheckpoints effect.
+  useEffect(() => {
+    if (!caps.training_visible || !ds.currentId || !baseInfo) return;
+    if (checkpointsView !== 'graph' || !checkpointManagerOpen) return;
+    loadDatasetGraph();
+  }, [checkpointsView, checkpointManagerOpen, checkpointBase, checkpointTrainType, // eslint-disable-line react-hooks/exhaustive-deps
+      checkpointVariant, ds.currentId, baseInfo, caps.training_visible]);
 
   // Recharge dès que le filtre de résultats change. On
   // attend baseInfo pour charger directement la BONNE base persistée (pas de flash
@@ -2198,11 +2226,30 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
               ↻ Refresh checkpoints
             </button>
-            <button type="button" onClick={openDatasetGraph}
-              title="See this dataset's runs and their checkpoints as a graph — continuations shown, download or continue from any checkpoint"
-              className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
-              ◉ Graph
-            </button>
+            {/* Graph ↔ List. The graph is the flagship surface, so ◉ Graph wears
+                the accent style when active (not a bare grey button) to signal
+                it's THE view; ☰ List stays available for the flat step list. */}
+            <div role="group" aria-label="Checkpoints view"
+              className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-app p-0.5">
+              <button type="button" onClick={() => setCkView('graph')}
+                aria-pressed={checkpointsView === 'graph'}
+                title="See this dataset's runs and their checkpoints as a graph — continuations shown, import / generate / download / continue from any checkpoint"
+                className={'px-3 py-1 rounded-md text-xs font-semibold transition-colors '
+                  + (checkpointsView === 'graph'
+                    ? 'bg-indigo-500 text-white shadow-sm '
+                    : 'text-content-muted hover:text-content ')}>
+                ◉ Graph
+              </button>
+              <button type="button" onClick={() => setCkView('list')}
+                aria-pressed={checkpointsView === 'list'}
+                title="Flat list of this run's steps"
+                className={'px-3 py-1 rounded-md text-xs font-semibold transition-colors '
+                  + (checkpointsView === 'list'
+                    ? 'bg-surface-raised text-content shadow-sm '
+                    : 'text-content-muted hover:text-content ')}>
+                ☰ List
+              </button>
+            </div>
             {/* Ouvre les dossiers dans l'explorateur du poste (app locale) :
                 loras = imports ComfyUI de la famille ; run = checkpoints bruts. */}
             <button type="button"
@@ -2223,6 +2270,38 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               import the checkpoint you like into ComfyUI to use (and test) the LoRA
             </span>
           </div>
+
+          {/* ◉ Graph — the DEFAULT view: the dataset's runs + their checkpoints as
+              one genealogy, where each pill can be imported / generated / downloaded
+              on the spot. Same component the Runs hub draws (no copy). */}
+          {checkpointsView === 'graph' && (
+            <div className="flex flex-col gap-2">
+              {datasetGraph?.loading && (
+                <div className="flex items-center gap-2 text-content-subtle text-[0.75rem]">
+                  <span aria-hidden className="h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-indigo-400" />
+                  Building the graph…
+                </div>
+              )}
+              {datasetGraph?.error && <p className="m-0 text-rose-300/80 text-[0.75rem]">{datasetGraph.error}</p>}
+              {datasetGraph?.tree && (
+                Array.isArray(datasetGraph.tree.nodes) && datasetGraph.tree.nodes.length
+                  ? <RunLineageGraph tree={datasetGraph.tree}
+                      refetchTree={async () => {
+                        const tree = await fetchDatasetLineage();
+                        setDatasetGraph({ tree });
+                        // Mirror deploy state into the flat list too, so switching
+                        // to ☰ List after an inline import shows it right away.
+                        loadCheckpoints(checkpointBase, checkpointTrainType, checkpointVariant);
+                        return tree;
+                      }} />
+                  : <p className="m-0 text-content-subtle text-[0.75rem]">
+                      No training runs recorded for this family yet — train once and its runs will appear here.
+                    </p>
+              )}
+            </div>
+          )}
+
+          {checkpointsView === 'list' && (<>
 
           {checkpoints.length > 0 && (
             <div className="flex flex-col gap-1">
@@ -2473,6 +2552,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               ))}
             </div>
           )}
+
+          </>)}
         </div>
       </details>
       </CheckpointPortal>
@@ -2538,57 +2619,6 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           onResolve={runContinue} />
       )}
 
-      {/* ◉ Graph of the dataset's runs + checkpoints — the same view the Runs
-          hub opens, in a modal. Read-first: each checkpoint pill offers ⬇
-          download (self-contained links); continue stays on the Runs hub where
-          the cloud-continue flow lives.
-          Portaled to <body>: the button opens from the Checkpoints & LoRAs
-          manager, which portals into its OWN sidebar section — so when that
-          section is active, TrainingPanel's home container carries `hidden`
-          (display:none, DatasetWorkspace.sectionCls). A modal rendered inline
-          here would inherit that display:none (fixed positioning does NOT escape
-          an ancestor's display:none) and never appear — the button would look
-          dead. document.body keeps it visible whichever section opened it.
-          TODO(lineage): a fuller Test-Studio-embedded graph will land here too. */}
-      {datasetGraph && createPortal((
-        <div role="dialog" aria-modal="true" aria-label="Dataset run graph"
-          className="fixed inset-0 z-[9990] bg-black/80 flex items-center justify-center p-3"
-          onClick={(e) => { if (e.target === e.currentTarget) setDatasetGraph(null); }}>
-          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border border-indigo-400/40 bg-app p-4 flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-content font-semibold"><span aria-hidden>◉</span> Runs &amp; checkpoints graph</span>
-              <span className="text-content-subtle text-[0.75rem] truncate">{checkpointBaseLabel} · {checkpointVariantDisplay}</span>
-              <button type="button" onClick={() => setDatasetGraph(null)}
-                className="ml-auto text-content-subtle hover:text-content" aria-label="Close">✕</button>
-            </div>
-            {datasetGraph.loading && (
-              <div className="flex items-center gap-2 text-content-subtle text-[0.75rem]">
-                <span aria-hidden className="h-3 w-3 animate-spin rounded-full border-2 border-border-strong border-t-indigo-400" />
-                Building the graph…
-              </div>
-            )}
-            {datasetGraph.error && <p className="m-0 text-rose-300/80 text-[0.75rem]">{datasetGraph.error}</p>}
-            {datasetGraph.tree && (
-              Array.isArray(datasetGraph.tree.nodes) && datasetGraph.tree.nodes.length
-                ? <RunLineageGraph tree={datasetGraph.tree}
-                    refetchTree={async () => {
-                      const qs = new URLSearchParams();
-                      if (checkpointTrainType) qs.set('train_type', checkpointTrainType);
-                      if (checkpointVariant) qs.set('variant', checkpointVariant);
-                      const r = await fetch(`/api/dataset/${ds.currentId}/train/lineage?${qs.toString()}`,
-                        { credentials: 'include' });
-                      if (!r.ok) throw new Error('unavailable');
-                      const tree = await r.json();
-                      setDatasetGraph({ tree });
-                      return tree;
-                    }} />
-                : <p className="m-0 text-content-subtle text-[0.75rem]">
-                    No training runs recorded for this family yet — train once and its runs will appear here.
-                  </p>
-            )}
-          </div>
-        </div>
-      ), document.body)}
     </div>
   );
 }

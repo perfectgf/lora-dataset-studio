@@ -228,6 +228,11 @@ const TOPICS = [
      'same prompt', 'same seed', 'epoch by epoch', 'compare checkpoints', 'strength 1.0',
      'test studio', 'experiment lab', 'lab', 'which epoch', 'best checkpoint'],
     '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  action('lineage-import-checkpoint', 'Import a checkpoint from the graph',
+    ['import checkpoint', 'deploy checkpoint', 'import from graph', 'loras folder',
+     'deploy lora', 'use this checkpoint', 'graph import', 'pill import', 'comfyui',
+     'view preview large', 'zoom preview', 'lightbox', 'graph view', 'default view'],
+    '/datasets?section=checkpoints', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
 
   // ---- Settings: per-field topics (kind 'setting') -----------------------
   // engines

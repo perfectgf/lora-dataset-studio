@@ -54,6 +54,35 @@ export function describePreviewSelection(selected, pillByKey) {
   return { count, testableCount, undeployedCount, enabled: testableCount > 0, hint };
 }
 
+/* A pill is already deployed (its LoRA sits in ComfyUI, ready to test/generate)
+   when the lineage marked it testable. The graph then shows "✓ Deployed" instead
+   of an Import button — nothing to deploy twice. */
+export function checkpointDeployed(pill) {
+  return !!(pill && pill.testable === true);
+}
+
+/* The POST /api/dataset/<id>/train/import body for deploying ONE checkpoint
+   straight from a graph pill — the EXACT shape the flat checkpoint list sends
+   (base_model / train_type / variant from the run, filename from the pill). A
+   cloud node additionally carries cloud_run_id, which makes the server replay the
+   family/variant/base stamped at cloud launch (and tag the deployed name ☁ #N so
+   the same step from two runs never overwrites). Returns null when there's no
+   file to deploy, or a cloud node with no resolved run (nothing importable). */
+export function lineageImportPayload(node, pill) {
+  if (!node || !pill || !pill.filename) return null;
+  const body = {
+    filename: pill.filename,
+    base_model: node.base_model ?? '',
+    train_type: node.train_type,
+    variant: node.variant,
+  };
+  if (node.source === 'cloud') {
+    if (node.run_id == null) return null;
+    body.cloud_run_id = node.run_id;
+  }
+  return body;
+}
+
 /* Parse the shared seed field: a blank/whitespace value means "let the engine
    pick one" (null); a valid non-negative integer is used as-is; anything else is
    rejected (returns { error }) so a typo never silently reseeds the comparison. */

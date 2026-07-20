@@ -7,9 +7,12 @@ import LineageDiffPanel from './LineageDiffPanel';
 import { noteBadge, toggleDiffSelection } from './lineageDetail.js';
 import { removeRunFromTree } from '../../utils/runDeletable.js';
 import { postJson } from '../../api/fetchClient';
+import { loraFolderLabel } from '../../utils/checkpointBrowser';
+import { useToast } from '../common/Toast';
 import {
   checkpointKey, toggleCheckpointSelection, selectedCheckpointRefs,
   describePreviewSelection, parseSeedInput,
+  checkpointDeployed, lineageImportPayload,
 } from './lineagePreview.js';
 
 /* ◉ Graph view of a run's lineage — the showcase rendering. A tidy left-to-right
@@ -104,7 +107,7 @@ function GraphCard({ node, lit, annotated, compareRole, onSelect }) {
  *  (thumbnail when done, a ◌ while it renders, a ⚠ if it failed). Clicking the
  *  body opens the pill's actions; the checkbox toggles it into the shared-prompt
  *  generation batch. Absolutely positioned at the exact box the layout computed. */
-function CheckpointPill({ pill, offX, offY, active, selected, preview, onOpen, onToggleSelect }) {
+function CheckpointPill({ pill, offX, offY, active, selected, preview, onOpen, onToggleSelect, onZoomPreview }) {
   const gone = pill.present === false;
   const st = preview?.status || null;
   const label = pill.step >= 1000 && pill.step % 1000 === 0 ? `${pill.step / 1000}k` : pill.step;
@@ -126,8 +129,15 @@ function CheckpointPill({ pill, offX, offY, active, selected, preview, onOpen, o
         {pill.final && <span aria-hidden className="text-emerald-300">✓</span>}
         <span>{label}</span>
         {preview?.url ? (
-          <img src={preview.url} alt="" width={14} height={14}
-            className="ml-0.5 h-3.5 w-3.5 shrink-0 rounded-sm object-cover ring-1 ring-black/30" />
+          // The thumbnail is tiny by necessity (the pill is 60×20). Clicking it
+          // opens the preview LARGE in a lightbox — a DISTINCT action from the
+          // pill's popover, so stopPropagation keeps the two from colliding.
+          <img src={preview.url} alt={`Preview at step ${pill.step}`} width={14} height={14}
+            role="button" tabIndex={0}
+            title="Click to view this preview large"
+            onClick={(e) => { e.stopPropagation(); onZoomPreview?.(preview.url, pill.step); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onZoomPreview?.(preview.url, pill.step); } }}
+            className="ml-0.5 h-3.5 w-3.5 shrink-0 cursor-zoom-in rounded-sm object-cover ring-1 ring-black/30 hover:ring-indigo-400/80" />
         ) : st === 'pending' ? (
           <span aria-hidden title="Generating preview…" className="ml-0.5 animate-pulse text-indigo-300">◌</span>
         ) : st === 'failed' ? (
@@ -155,6 +165,7 @@ function CheckpointPill({ pill, offX, offY, active, selected, preview, onOpen, o
 }
 
 export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, refetchTree }) {
+  const toast = useToast();
   // Runs removed in-session (a gone run deleted from the detail panel) drop from
   // the graph without a full refetch; children re-root via removeRunFromTree.
   const [deletedIds, setDeletedIds] = useState([]);
@@ -168,6 +179,11 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
   // The open checkpoint popover: { node, pill } | null.
   const [openCk, setOpenCk] = useState(null);
   const closePopover = useCallback(() => setOpenCk(null), []);
+  // 📦 Deploying a checkpoint straight from its pill popover (Import → loras/…).
+  const [importing, setImporting] = useState(false);
+  // A preview thumbnail opened LARGE in a lightbox: { url, step } | null.
+  const [bigPreview, setBigPreview] = useState(null);
+  const zoomPreview = useCallback((url, step) => setBigPreview({ url, step }), []);
   // The Lab detail panel's open node (click a run card to inspect its config).
   const [openNode, setOpenNode] = useState(null);
   // Bounded-to-2 "compare" selection (record ids) — a DISTINCT interaction from
@@ -253,6 +269,31 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
     return stillPending;
   }, []);
 
+  // 📦 Import → loras/<family>: deploy THIS checkpoint into ComfyUI straight from
+  // its pill, closing the see-it → use-it loop without leaving the graph. Uses
+  // postJson (CSRF header + one-shot refresh) — a bare fetch is rejected 400 by
+  // Flask-WTF, the same trap that broke browser Generate. The payload mirrors the
+  // flat checkpoint list EXACTLY (a cloud pill rides its cloud_run_id). On success
+  // we refetch the lineage so the freshly-deployed pill flips to `testable` (✓
+  // Deployed + eligible for inline Generate).
+  const handleImport = useCallback(async (node, pill) => {
+    const body = lineageImportPayload(node, pill);
+    if (datasetId == null || !body) return;
+    setImporting(true);
+    try {
+      const d = await postJson(`/api/dataset/${datasetId}/train/import`, body);
+      toast.success(d?.note || `LoRA imported: ${d?.dest || pill.filename}`);
+      setOpenCk(null);
+      if (typeof refetchTree === 'function') {
+        try { const t = await refetchTree(); if (t) mergeFromTree(t); } catch { /* the list still updated server-side */ }
+      }
+    } catch (e) {
+      toast.error(e?.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  }, [datasetId, refetchTree, mergeFromTree, toast]);
+
   const handleGenerate = useCallback(async () => {
     const refs = selectedCheckpointRefs(selectedCk, pillByKey);
     if (!refs.length || datasetId == null) return;
@@ -300,6 +341,15 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
   }, [selectedCk, pillByKey, datasetId, genSeed, genPrompt, g.nodes, refetchTree, mergeFromTree]);
 
   useLayoutEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  // Esc closes the preview lightbox from anywhere (a window listener, not div
+  // focus — the backdrop div isn't reliably focused when the image is clicked).
+  useLayoutEffect(() => {
+    if (!bigPreview) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setBigPreview(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [bigPreview]);
 
   // Fit horizontally to the panel, shrinking no further than MIN_SCALE (then the
   // panel pans). Re-measured on resize so it always poses well in a screenshot.
@@ -516,7 +566,8 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
                     selected={selectedCk.has(checkpointKey(n.node.record_id, p.step))}
                     preview={previewOf(n.node.record_id, p)}
                     onOpen={(pill) => setOpenCk({ node: n.node, pill })}
-                    onToggleSelect={(pill) => toggleCk(n.node.record_id, pill)} />
+                    onToggleSelect={(pill) => toggleCk(n.node.record_id, pill)}
+                    onZoomPreview={zoomPreview} />
                 ))}
               </div>
             </foreignObject>
@@ -528,7 +579,7 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
             Flips ABOVE the pill when there's no room below (bottom rows), and is
             clamped horizontally, so the scroll panel never clips it. */}
         {openCk && (() => {
-          const POP_W = 210, POP_H = 112;
+          const POP_W = 210, POP_H = 152;
           const below = openCk.pill.y + PILL_H + 4;
           const py = below + POP_H > g.height ? Math.max(0, openCk.pill.y - POP_H - 4) : below;
           const px = Math.max(0, Math.min(openCk.pill.x, g.width - POP_W));
@@ -566,6 +617,21 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
                     <span aria-hidden>▶</span> Continue from here
                   </button>
                 )}
+                {/* 📦 Import → loras/<family>: deploy on the spot. Already-deployed
+                    pills show "✓ Deployed" instead (nothing to do twice). Only
+                    importable pills (a file + a resolvable run) offer the button. */}
+                {checkpointDeployed(openCk.pill) ? (
+                  <span className="flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-600/10 px-2 py-1 text-emerald-200 text-[0.6875rem] font-medium">
+                    <span aria-hidden>✓</span> Deployed
+                  </span>
+                ) : lineageImportPayload(openCk.node, openCk.pill) ? (
+                  <button type="button" disabled={importing}
+                    onClick={() => handleImport(openCk.node, openCk.pill)}
+                    title={`Deploy this checkpoint into ComfyUI's ${loraFolderLabel(openCk.node.train_type)} folder so you can test and generate with it`}
+                    className="flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/20 px-2 py-1 text-white text-[0.6875rem] font-medium hover:bg-primary/30 disabled:cursor-not-allowed disabled:opacity-50">
+                    <span aria-hidden>📦</span> {importing ? 'Importing…' : `Import → ${loraFolderLabel(openCk.node.train_type)}`}
+                  </button>
+                ) : null}
               </div>
             </div>
           </foreignObject>
@@ -584,6 +650,22 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
     ) : (
       <LineageDetailPanel node={openNode} onClose={() => setOpenNode(null)}
         onNodeChanged={handleNodeChanged} onNodeDeleted={handleNodeDeleted} />
+    )}
+    {/* 🔍 Preview lightbox — a checkpoint's generated image LARGE, so epochs read
+        in ComfyUI spirit (the pill thumbnails are only 14px). Esc / backdrop /
+        image click closes. Fixed + high z-index so it floats over everything. */}
+    {bigPreview && (
+      <div role="dialog" aria-modal="true" aria-label={`Preview at step ${bigPreview.step}`}
+        className="fixed inset-0 z-[9997] flex flex-col items-center justify-center bg-black/90 p-4"
+        onClick={() => setBigPreview(null)}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); setBigPreview(null); }}
+          title="Close (Esc)" aria-label="Close preview"
+          className="absolute top-3 right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg leading-none text-white hover:bg-white/20">✕</button>
+        <img src={bigPreview.url} alt={`Generated preview at step ${bigPreview.step}`}
+          onClick={(e) => e.stopPropagation()}
+          className="max-h-[88vh] max-w-full select-none rounded-lg object-contain shadow-2xl" />
+        <span className="mt-2 text-white/70 text-[0.75rem] tabular-nums">Step {bigPreview.step.toLocaleString?.() ?? bigPreview.step} · click outside or Esc to close</span>
+      </div>
     )}
     </>
   );

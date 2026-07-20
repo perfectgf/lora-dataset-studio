@@ -619,8 +619,11 @@ export default function CloudRunsPage() {
                 aria-expanded={!!lineageOpen[run.record_id]}
                 title={run.lineage
                   ? "Show this run's lineage — the runs it continued from or that branched off it"
-                  : "Show this run's checkpoints as a graph — download or continue from any of them"}
-                className="rounded-lg border border-transparent px-2 py-1 text-content-muted hover:border-border hover:text-content text-xs font-medium">
+                  : "Show this run's checkpoints as a graph — import / generate / download / continue from any of them"}
+                className={'rounded-lg border px-2 py-1 text-xs font-semibold transition-colors '
+                  + (lineageOpen[run.record_id]
+                    ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100 '
+                    : 'border-indigo-400/40 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20 ')}>
                 {lineageOpen[run.record_id]
                   ? (run.lineage ? '🌳 Hide lineage' : '◉ Hide graph')
                   : (run.lineage ? '🌳 Lineage' : '◉ Graph')}
