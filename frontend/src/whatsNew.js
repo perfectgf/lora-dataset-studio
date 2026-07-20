@@ -50,11 +50,19 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-20-bank-curation-diverse-similar',
+    date: '2026-07-20',
+    title: '🎨 Curate a big Bank down to the images that actually train well',
+    blurb:
+      "Curation is 90% of a good LoRA, so the 🗃️ Bank gets two selectors that turn a huge dump into the right subset — both reuse the ✨ Score embeddings, so they cost no extra GPU time. 🎨 Pick diverse selects the N images that best COVER the variety (angles, outfits, scenes) instead of N near-identical shots — the antidote to '4000 photos of the same pose'. 🎯 Similar to selected ranks the bank by how much it looks like ONE image you pick and selects the closest, to pull one person or look out of a mixed export. Both compose with your filters and search ('60 most diverse of this subfolder'), and land as a normal selection you review before ✓ Keep or ⬆ Promote — nothing is auto-kept or deleted. Run ✨ Score once to unlock them.",
+    to: '/bank',
+  },
+  {
     id: '2026-07-20-bank-workspace-tidy',
     date: '2026-07-20',
     title: '🗃️ A calmer, clearer Bank workspace',
     blurb:
-      "The 🗃️ Bank toolbar is reorganized around what you actually do: Launch all and Promote stand out as the two outcomes, the individual analysis passes (Scan, Score, Watermarks, Person, Crops, Caption) sit together below them, and the flag filters are now grouped by Status, Quality, Score and Groups with a live \"N shown of total\" count. Same tools, nothing removed — just far easier to read on a wide screen or a phone.",
+      "The 🗃️ Bank toolbar is reorganized around what you actually do: Launch all and Promote stand out as the two outcomes, the individual analysis passes (Scan, Score, Watermarks, Person, Crops, Caption) sit together below them, and the flag filters are now grouped by Status, Quality, Score, Groups and 📐 Resolution with a live \"N shown of total\" count. Same tools, nothing removed — just far easier to read on a wide screen or a phone.",
     to: '/bank',
   },
   {

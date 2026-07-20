@@ -265,6 +265,75 @@ def bank_apply_flags(bank_id):
     return jsonify({'ok': True, 'rejected': out})
 
 
+def _curation_filters(data):
+    """The shared candidate-pool filters for the curation selectors — the same
+    facets as the grid (status ∩ flag ∩ cluster ∩ style ∩ subfolder ∩ search),
+    read out of a JSON body. Unknown keys (e.g. the grid's ``sort``) are ignored."""
+    def _int(name):
+        v = data.get(name)
+        try:
+            return int(v) if v not in (None, '') else None
+        except (TypeError, ValueError):
+            return None
+
+    subfolder = data.get('subfolder')
+    return {
+        'status': data.get('status') or None,
+        'flag': data.get('flag') or None,
+        'cluster': _int('cluster'),
+        'style': _int('style'),
+        # '' is a meaningful subfolder (bank root); '__all__'/None mean "no scope".
+        'subfolder': subfolder if subfolder not in (None, '__all__') else None,
+        'search': data.get('search') or None,
+    }
+
+
+@bp.post('/bank/<int:bank_id>/select-diverse')
+def bank_select_diverse(bank_id):
+    """Farthest-point selection of the N most VARIED images in the current filter,
+    reusing the ✨ Score embeddings (no GPU). Returns the chosen ids for the UI to
+    check — never mutates. 400 with a "run Score first" hint when unscored."""
+    data = request.get_json(silent=True) or {}
+    try:
+        n = int(data.get('n') or 60)
+    except (TypeError, ValueError):
+        n = 60
+    try:
+        out = banks.select_diverse(LOCAL_USER, bank_id, n=n,
+                                   filters=_curation_filters(data))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, **out})
+
+
+@bp.post('/bank/<int:bank_id>/select-similar')
+def bank_select_similar(bank_id):
+    """Rank the current filter by CLIP similarity to a reference bank image
+    ({ref_id}); returns the top-N ids (or everything ≥ {min_score}) for the UI to
+    check. Reuses the ✨ Score embeddings (no GPU). 400 when unscored / bad ref."""
+    data = request.get_json(silent=True) or {}
+    try:
+        ref_id = int(data.get('ref_id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'ref_id is required'}), 400
+    try:
+        n = int(data.get('n') or 60)
+    except (TypeError, ValueError):
+        n = 60
+    min_score = data.get('min_score')
+    try:
+        min_score = float(min_score) if min_score not in (None, '') else None
+    except (TypeError, ValueError):
+        min_score = None
+    try:
+        out = banks.select_similar(LOCAL_USER, bank_id, ref_id, n=n,
+                                   min_score=min_score,
+                                   filters=_curation_filters(data))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, **out})
+
+
 def _row_or_404(bank_id, image_id):
     bank = banks.get_bank(LOCAL_USER, bank_id)
     if not bank:

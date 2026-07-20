@@ -181,6 +181,24 @@ Work the funnel in that order: quality first (cheap, catches the trash), then
 subject, then selection. A promoted image keeps its ⬆ badge in the bank so you
 always know what's been used where.
 
+**🎨 Curate down to the right subset.** Culling removes the bad shots; curation
+picks the *good* subset — and it's most of what makes a LoRA good. Once **✨
+Score** has run (it caches a CLIP embedding per image), the **Curate** row under
+the selection bar offers two selectors that cost no extra GPU time:
+
+- **🎨 Pick diverse** — enter a number and it selects the images that best
+  *cover the variety* of what you're looking at (varied angles, outfits, scenes),
+  instead of that many near-identical frames. It's the antidote to a dump of
+  4 000 shots of the same pose: ask for 60 and you get 60 that actually differ.
+- **🎯 Similar to selected** — select **one** image as a reference, and it ranks
+  everything by how much it looks like that image and selects the closest N — the
+  fast way to pull one person or one look out of a mixed export.
+
+Both honour whatever filter and 🔍 search are active ("the 60 most diverse of
+*this* subfolder"), and both just **select** — the images light up and you review
+them with the same ✓ Keep / ✕ Reject / ⬆ Promote bar. Nothing is auto-kept or
+deleted, so a selection you don't like costs one click to clear.
+
 **🚀 Launch all** does the whole funnel for you in one go. Tick which passes
 run and how auto-reject behaves, hit Go, and walk away — it chains *scan →
 auto-reject → score → find watermarks → group by person → (optional) caption*

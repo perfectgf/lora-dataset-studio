@@ -211,6 +211,10 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const [dismissedReportAt, setDismissedReportAt] = useState(null)
   const [rejectFlags, setRejectFlags] = useState(() => new Set(['blur', 'uniform']))
   const [showAutoReject, setShowAutoReject] = useState(false)
+  // Curation popovers ('diverse' | 'similar' | null) and their target counts.
+  const [curateOpen, setCurateOpen] = useState(null)
+  const [diverseN, setDiverseN] = useState(60)
+  const [similarN, setSimilarN] = useState(60)
   const [tileSize, setTileSize] = useState('M')
   const activityWasLive = useRef(false)
 
@@ -357,6 +361,36 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       toast.info(`${ids.length} image(s) selected (whole filter, all pages).`)
     } catch (e) {
       toast.error(e?.message || 'Selection failed.')
+    }
+  }
+
+  // --- Curation selectors (reuse the ✨ Score embeddings — no GPU) ------------
+  // Both build a SELECTION the user then reviews with the existing ✓/✕/Promote
+  // bar — nothing is auto-kept or deleted. The candidate pool is the current
+  // filter (composable), so "60 most diverse of this subfolder" just works.
+  const pickDiverse = async () => {
+    setCurateOpen(null)
+    try {
+      const d = await postJson(`/api/bank/${bankId}/select-diverse`,
+        { n: diverseN, ...filterParams(filter) })
+      setSelected(new Set(d.image_ids))
+      toast.info(`Selected the ${d.image_ids.length} most diverse of ${d.pool}. Review, then ✓ Keep or ⬆ Promote.`)
+    } catch (e) {
+      toast.error(e?.message || 'Diversity sampling failed.')
+    }
+  }
+
+  const findSimilar = async () => {
+    setCurateOpen(null)
+    const ref = [...selected][0]
+    if (ref == null) return
+    try {
+      const d = await postJson(`/api/bank/${bankId}/select-similar`,
+        { ref_id: ref, n: similarN, ...filterParams(filter) })
+      setSelected(new Set(d.image_ids))
+      toast.info(`Selected the ${d.image_ids.length} most similar to the reference (of ${d.pool}). Review, then ✓ Keep or ⬆ Promote.`)
+    } catch (e) {
+      toast.error(e?.message || 'Similarity search failed.')
     }
   }
 
@@ -719,6 +753,84 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             <button type="button" onClick={() => batchStatus([...selected], 'pending')}
               className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">↺ Undecided</button>
           </>
+        )}
+      </div>
+
+      {/* Curation — build a good LoRA subset out of a big dump (reuses ✨ Score
+          embeddings, no GPU). Diversity coverage + reference similarity, both
+          producing a SELECTION the user reviews above. */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-xs font-semibold uppercase tracking-wide text-content-subtle">Curate</span>
+        <div className="relative">
+          <button type="button" disabled={live || scored === 0}
+            onClick={() => setCurateOpen((v) => (v === 'diverse' ? null : 'diverse'))}
+            aria-expanded={curateOpen === 'diverse'}
+            title={scored > 0
+              ? 'Pick the N images that best COVER the visual variety of the current filter (varied angles/outfits/scenes) — the fix for a dump of near-identical shots. Reuses the ✨ Score embeddings, no GPU.'
+              : 'Run ✨ Score first — diversity sampling reuses its embeddings'}
+            className="rounded-md border border-border bg-surface-raised px-2.5 py-0.5 text-xs text-content disabled:opacity-50 hover:bg-surface">
+            🎨 Pick diverse…{scored === 0 && ' (needs Score)'}
+          </button>
+          {curateOpen === 'diverse' && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setCurateOpen(null)} aria-hidden />
+              <div className="absolute z-50 mt-1 w-72 rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2">
+                <p className="text-xs text-content-muted">
+                  Selects the most <strong>varied</strong> images of the current filter — the best
+                  coverage of the visual space, not N look-alikes. Reviews as a normal selection
+                  (nothing is kept or deleted yet).
+                </p>
+                <label className="flex items-center gap-2 text-sm text-content">
+                  How many
+                  <input type="number" min={1} max={2000} value={diverseN}
+                    onChange={(e) => setDiverseN(Math.max(1, Math.min(2000, Number(e.target.value) || 1)))}
+                    className="w-20 rounded-md border border-border bg-surface px-2 py-0.5 text-sm text-content" />
+                </label>
+                <button type="button" onClick={pickDiverse}
+                  className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white">
+                  Select {diverseN} most diverse
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="relative">
+          <button type="button" disabled={live || scored === 0 || selected.size !== 1}
+            onClick={() => setCurateOpen((v) => (v === 'similar' ? null : 'similar'))}
+            aria-expanded={curateOpen === 'similar'}
+            title={scored === 0
+              ? 'Run ✨ Score first — reference similarity reuses its embeddings'
+              : selected.size === 1
+                ? 'Rank the current filter by how much it looks like the ONE selected image, and select the closest N — pull a person/look out of a mixed dump. Reuses the ✨ Score embeddings, no GPU.'
+                : 'Select exactly one image to use as the reference'}
+            className="rounded-md border border-border bg-surface-raised px-2.5 py-0.5 text-xs text-content disabled:opacity-50 hover:bg-surface">
+            🎯 Similar to selected…
+          </button>
+          {curateOpen === 'similar' && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setCurateOpen(null)} aria-hidden />
+              <div className="absolute z-50 mt-1 w-72 rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2">
+                <p className="text-xs text-content-muted">
+                  Ranks the current filter by CLIP similarity to your one selected image and selects
+                  the closest — a fast way to extract one person or look. The reference is kept in
+                  the selection.
+                </p>
+                <label className="flex items-center gap-2 text-sm text-content">
+                  How many
+                  <input type="number" min={1} max={2000} value={similarN}
+                    onChange={(e) => setSimilarN(Math.max(1, Math.min(2000, Number(e.target.value) || 1)))}
+                    className="w-20 rounded-md border border-border bg-surface px-2 py-0.5 text-sm text-content" />
+                </label>
+                <button type="button" onClick={findSimilar}
+                  className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white">
+                  Select {similarN} most similar
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+        {scored === 0 && (
+          <span className="text-xs text-content-subtle">Run ✨ Score to unlock curation.</span>
         )}
       </div>
 

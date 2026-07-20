@@ -1026,6 +1026,170 @@ def apply_flags(user_id, bank_id, flags) -> dict:
     return out
 
 
+# --- curation selectors (diversity · reference similarity) ------------------
+# Both reuse the CLIP embeddings the ✨ Score pass already cached — no GPU, no
+# re-scan (same contract as the semantic-dedup stage). They only ever build a
+# SELECTION (a set of image ids the UI checks); the user reviews it before any
+# Keep / Reject / Promote — nothing is mutated or deleted here.
+_CURATION_MAX_N = 2000       # a curated LoRA set is 20–200 images; this is generous
+
+
+def _pool_query(bank_id, th, *, status=None, flag=None, cluster=None,
+                style=None, subfolder=None, search=None):
+    """The candidate-pool query for the curation selectors — the SAME filter
+    composition as list_images (status ∩ flag ∩ cluster ∩ style ∩ subfolder ∩
+    search), minus the ordering/pagination, so "give me 60 diverse images" is
+    composable with whatever the grid is currently showing.
+
+    Kept as its own function (a small, deliberate mirror of the list_images WHERE
+    clauses) rather than a shared refactor: three curation-related branches touch
+    this file in parallel, so an additive helper rebases clean where an edit to
+    the list_images hot path would collide. When NO status is chosen the reject
+    pile is excluded — you curate from what you might keep, never from the bin."""
+    q = BankImage.query.filter_by(bank_id=bank_id)
+    if status in ('pending', 'keep', 'reject'):
+        q = q.filter(BankImage.status == status)
+    else:
+        q = q.filter(BankImage.status != 'reject')
+    if flag == 'flagged':
+        crits = [c for c in (_flag_filter(f, th) for f in _QUALITY_FLAGS)
+                 if c is not None]
+        q = q.filter(or_(*crits))
+    elif flag == 'clean':
+        q = q.filter(BankImage.quality_state == 'ok')
+        for f in ('blur', 'noise', 'uniform', 'small'):
+            q = q.filter(~_flag_filter(f, th))
+    elif flag == 'dups':
+        q = q.filter(BankImage.dup_group.isnot(None))
+    elif flag == 'semantic_dups':
+        q = q.filter(BankImage.semantic_dup_group.isnot(None))
+    elif flag == 'no_face':
+        q = q.filter(BankImage.face_state == 'no_face')
+    elif flag in _QUALITY_FLAGS + _SCORE_FLAGS:
+        crit = _flag_filter(flag, th)
+        if crit is not None:
+            q = q.filter(crit)
+    if cluster is not None:
+        q = q.filter(BankImage.face_cluster == int(cluster))
+    if style is not None:
+        q = q.filter(BankImage.style_cluster == int(style))
+    if subfolder is not None:
+        if subfolder == '':
+            q = q.filter(~BankImage.relpath.contains(os.sep))
+        else:
+            q = q.filter(BankImage.relpath.startswith(subfolder + os.sep))
+    term = (search or '').strip()
+    if term:
+        esc = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        like = f'%{esc}%'
+        q = q.filter(or_(BankImage.caption.ilike(like, escape='\\'),
+                         BankImage.relpath.ilike(like, escape='\\')))
+    return q
+
+
+def _pool_embeddings(bank, emb_by_path, filters):
+    """(ids, E) for the filtered pool rows that HAVE a cached embedding: ids is a
+    list ordered by image id (so every tie-break below is deterministic), E is the
+    matching (m×d) float32 matrix, L2-normalised. Empty ids ⇒ E is None."""
+    import numpy as np
+    rows = (_pool_query(bank.id, thresholds(), **filters)
+            .order_by(BankImage.id.asc()).all())
+    ids, vecs = [], []
+    for r in rows:
+        p = abs_image_path(bank, r)
+        emb = emb_by_path.get(p) if p else None
+        if emb is not None:
+            ids.append(r.id)
+            vecs.append(emb)
+    if not ids:
+        return ids, None
+    E = np.stack(vecs).astype('float32')
+    E /= (np.linalg.norm(E, axis=1, keepdims=True) + 1e-8)
+    return ids, E
+
+
+def select_diverse(user_id, bank_id, n=60, *, filters=None):
+    """Farthest-point sampling over the ✨ Score CLIP embeddings: the ``n`` images
+    of the (filtered) pool that best COVER the visual space — the antidote to a
+    dump of 4 000 near-identical shots. Greedy FPS: seed with the lowest-id row
+    (deterministic), then repeatedly add the point whose nearest already-chosen
+    neighbour is FARTHEST (max-min cosine distance). O(n·m·d) — one (m×d)·(d,)
+    product per pick, ~sub-second even at m=24 000 / n=2 000.
+
+    Returns {'image_ids': [...] (sorted), 'pool': m, 'requested': n}. Raises
+    ValueError (→400, "run ✨ Score first") when no embedding exists yet, so the UI
+    shows the clear hint instead of an empty, unexplained selection."""
+    import numpy as np
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    emb_by_path = _load_score_embeddings(bank)
+    if not emb_by_path:
+        raise ValueError('run ✨ Score first — diversity sampling reuses its '
+                         'embeddings')
+    n = max(1, min(int(n), _CURATION_MAX_N))
+    ids, E = _pool_embeddings(bank, emb_by_path, filters or {})
+    m = len(ids)
+    if m <= n:                                   # whole pool already fits
+        return {'image_ids': sorted(ids), 'pool': m, 'requested': n}
+    # min_dist[i] = cosine distance from row i to the NEAREST chosen row so far.
+    chosen = [0]                                 # seed = lowest id (E[0])
+    min_dist = 1.0 - E @ E[0]
+    min_dist[0] = -1.0                           # never re-pick a chosen row
+    for _ in range(n - 1):
+        nxt = int(np.argmax(min_dist))           # ties → lowest index = lowest id
+        if min_dist[nxt] <= -1.0:                # pool exhausted (all chosen)
+            break
+        chosen.append(nxt)
+        min_dist = np.minimum(min_dist, 1.0 - E @ E[nxt])
+        min_dist[nxt] = -1.0
+    return {'image_ids': sorted(ids[i] for i in chosen),
+            'pool': m, 'requested': n}
+
+
+def select_similar(user_id, bank_id, ref_id, n=60, min_score=None, *, filters=None):
+    """Rank the (filtered) pool by CLIP cosine similarity to a REFERENCE bank image
+    (its own cached ✨ Score embedding) — "keep what looks like THIS", to pull one
+    person / look out of a mixed dump. Returns the top-``n`` most similar ids, OR
+    everything with cosine ≥ ``min_score`` when that is given; the reference itself
+    (cosine 1.0) is always included. Reuses the cached embeddings — no GPU.
+
+    Returns {'results': [{id, score}], 'image_ids': [...], 'pool': m, 'ref_id'}.
+    Raises ValueError (→400) when Score hasn't run or the reference has no cached
+    embedding (e.g. it was rejected before Score, or edited since)."""
+    import numpy as np
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    emb_by_path = _load_score_embeddings(bank)
+    if not emb_by_path:
+        raise ValueError('run ✨ Score first — reference similarity reuses its '
+                         'embeddings')
+    ref = db.session.get(BankImage, int(ref_id))
+    if ref is None or ref.bank_id != bank_id:
+        raise ValueError('reference image not found in this bank')
+    ref_path = abs_image_path(bank, ref)
+    ref_emb = emb_by_path.get(ref_path) if ref_path else None
+    if ref_emb is None:
+        raise ValueError('the reference image has no ✨ Score embedding — score '
+                         'it first (it may have been rejected before Score ran)')
+    ids, E = _pool_embeddings(bank, emb_by_path, filters or {})
+    if not ids:
+        return {'results': [], 'image_ids': [], 'pool': 0, 'ref_id': int(ref_id)}
+    rv = np.asarray(ref_emb, dtype='float32')
+    rv /= (np.linalg.norm(rv) + 1e-8)
+    sims = E @ rv                                 # cosine similarity, (m,)
+    order = np.argsort(-sims, kind='stable')     # desc; stable ⇒ id tie-break
+    if min_score is not None:
+        keep = [int(k) for k in order if sims[k] >= float(min_score)]
+    else:
+        n = max(1, min(int(n), _CURATION_MAX_N))
+        keep = [int(k) for k in order[:n]]
+    results = [{'id': ids[k], 'score': round(float(sims[k]), 4)} for k in keep]
+    return {'results': results, 'image_ids': [ids[k] for k in keep],
+            'pool': len(ids), 'ref_id': int(ref_id)}
+
+
 # --- cooperative-cancel subprocess driver (shared by the face + score passes) --
 # A bank inference pass runs for minutes over thousands of images. Its embeddings
 # are cached incrementally, but a brutal proc.kill on Stop still throws away the
