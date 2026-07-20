@@ -686,6 +686,41 @@ def test_stall_watchdog_kills_frozen_run(ct, app, client, monkeypatch):
         assert run.checkpoint_local_path.endswith('.safetensors')
 
 
+class NeverStartsRemote(FakeRemote):
+    """Pod that boots and accepts the job but never produces a training step:
+    the job status stays 'running' with step 0 forever (base-model download
+    collapsed to a crawl — the run #75 failure mode, 2026-07-19)."""
+
+    def get_job(self, job_id):
+        self.polls += 1
+        if self.stopped:
+            return {'status': 'stopped', 'step': 0, 'total_steps': 2100}
+        return {'status': 'running', 'step': 0, 'total_steps': 2100,
+                'info': 'fetching transformer weights', 'speed_string': ''}
+
+
+def test_first_step_watchdog_kills_run_stuck_before_step_one(ct, app, client, monkeypatch):
+    """A pod that never reaches step 1 (wedged base-model download) must be
+    killed by the first-step watchdog — NOT left to burn the whole runtime cap.
+    Without the watchdog this run runs until max_runtime (run #75: 10h45 / 7 €
+    for zero saves). Coarse 600 s/_now() clock blows the 45-min first-step
+    budget within a few polls, long before the 480-min runtime cap."""
+    destroyed = []
+    remote = NeverStartsRemote(polls_to_complete=10_000)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    clock = {'t': 0.0}
+    monkeypatch.setattr(ct, '_now',
+                        lambda: clock.__setitem__('t', clock['t'] + 600.0) or clock['t'])
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'error'
+        assert 'first-step' in ((run.error or '') + (run.phase_detail or '')).lower()
+        assert destroyed == ['777']            # pod terminated, not leaked
+        assert not run.checkpoint_local_path   # nothing was ever produced to rescue
+        assert remote.stopped                  # job stop was requested
+
+
 def test_progressing_run_never_trips_stall_watchdog(ct, app, client, monkeypatch):
     """Guiding principle: NEVER kill a run that makes progress. Same coarse
     fake clock as the stall test — a run whose step advances at every poll

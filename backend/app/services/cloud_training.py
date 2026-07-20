@@ -1467,11 +1467,19 @@ def _monitor(app, run_id):
                 _set(run, phase_detail='Resuming — reattaching to running job')
 
             # -- poll until terminal ------------------------------------------
-            # Stall watchdog state: armed only once training has produced its
-            # first step (before that — base download, quantization, latent
-            # caching — the watchdog stays INACTIVE; those phases are covered
-            # by ready_timeout + max_runtime).
+            # Two watchdogs share one progress clock (last_progress_ts):
+            #  * stall — once training has produced a step, kill if the step
+            #    counter freezes past stall_timeout_minutes.
+            #  * first-step — BEFORE the first step (base download, quantize,
+            #    latent caching) kill if step 1 is never reached in time. Only
+            #    the runtime cap used to bound this phase, so a pod whose base
+            #    download collapsed to a crawl burned the WHOLE cap for zero
+            #    steps (run #75: 26.3 GB base at ~12 kB/s, 10h45 / 7 € / 0 saves
+            #    — 2026-07-19). A healthy Krea-2-Raw run reaches step 1 in a few
+            #    minutes (its full 2000-step run was ~84 min), so the default is
+            #    generous enough to survive an honestly slow download.
             stall_seconds = int(c.get('stall_timeout_minutes') or 30) * 60
+            first_step_seconds = int(c.get('first_step_timeout_minutes') or 45) * 60
             last_step = -1
             last_progress_ts = _now()
             last_ok = _now()
@@ -1559,6 +1567,20 @@ def _monitor(app, run_id):
                             detail='Stalled — no step progress for '
                                    f'{stall_seconds // 60} min; pod terminated',
                             error='stall watchdog')
+                    return
+                elif last_step <= 0 and (_now() - last_progress_ts) > first_step_seconds:
+                    # No training step in first_step_timeout_minutes — the pod is
+                    # wedged before step 1 (typically the base-model download
+                    # crawling; nothing to rescue since no checkpoint exists).
+                    try:
+                        remote.stop_job(job_id)
+                    except Exception:
+                        pass
+                    _finish(run, 'error',
+                            detail='No training step reached in '
+                                   f'{first_step_seconds // 60} min — pod likely '
+                                   'stuck downloading the base model; terminated',
+                            error='first-step watchdog')
                     return
                 _sleep(POLL_SECONDS)
         except Exception as e:
