@@ -463,6 +463,13 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           where the images are made — Klein runs free on your GPU · APIs bill per image (or use your ChatGPT subscription)
         </span>
       </div>
+      {/* Discoverability: the generation prompt (identity/style directives) is
+          editable, but users don't know where. Point them at it right where the
+          "why is this coming out realistic?" question arises. */}
+      <p className="text-content-subtle text-[0.625rem] -mt-1">
+        Not the look you wanted (a stylized reference coming out realistic)? Edit the generation prompt in{' '}
+        <a href="#/settings/engines" className="text-amber-300 underline decoration-amber-300/50">Settings › Image engines →</a>
+      </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <button type="button" onClick={() => setGenerator('klein')} aria-pressed={isKlein}
           disabled={!klAvailable || !!generating}
