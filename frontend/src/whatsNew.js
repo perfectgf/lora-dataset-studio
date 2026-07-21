@@ -47,6 +47,13 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-21-tidier-top-bar',
+    date: '2026-07-21',
+    title: '🧭 A tidier top bar',
+    blurb:
+      "Your workspaces (Datasets, Bank, Runs, Test Studio) now sit together on the left, while Guide and Help tuck into a ? menu and Setup and Settings into a ⚙ menu on the right. Less clutter, same one-click reach.",
+  },
+  {
     id: '2026-07-21-toggle-thumb-alignment',
     date: '2026-07-21',
     title: '🎚️ Toggle switches sit flush again',

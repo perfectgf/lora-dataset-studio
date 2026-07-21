@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { apiFetch, postJson } from './api/fetchClient'
 import { JobsProvider } from './context/JobsContext'
 import { ToastProvider, useToast } from './components/common/Toast'
@@ -16,11 +16,20 @@ import GuidePage from './pages/GuidePage'
 import CloudRunsPage from './pages/CloudRunsPage'
 import { recommendedMet } from './hooks/useSetupSteps'
 import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
+import HeaderMenu from './components/common/HeaderMenu'
 
 const NAV_ITEM_BASE =
   'px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors'
 const navItemClass = ({ isActive }) =>
   `${NAV_ITEM_BASE} ${
+    isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:text-content hover:bg-surface-raised'
+  }`
+
+// Full-width variant for links that live inside a HeaderMenu dropdown.
+const MENU_ITEM_BASE =
+  'block w-full text-left px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors'
+const menuItemClass = ({ isActive }) =>
+  `${MENU_ITEM_BASE} ${
     isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:text-content hover:bg-surface-raised'
   }`
 
@@ -127,7 +136,16 @@ function NavBar() {
     window.dispatchEvent(new CustomEvent('lds:home'))
     setOpen(false)
   }
-  const navLinks = (
+  // Which grouped menu owns the current route — so the ? / ⚙ triggers can
+  // reflect the active-nav style when you're on one of their screens.
+  const path = useLocation().pathname
+  const helpMenuActive = path === '/guide' || path === '/help'
+  const settingsMenuActive = path === '/setup' || path.startsWith('/settings')
+  const setupNeedsAttention = !recommendedMet(caps)
+
+  // The four workspaces, left-aligned on desktop AND reused (flat) in the
+  // mobile panel. Same caps gates in both places.
+  const workspaceLinks = (
     <>
       <NavLink to="/datasets" className={navItemClass} onClick={() => setOpen(false)}>Datasets</NavLink>
       {/* Bank sits right after Datasets: it FEEDS them (triage a big unsorted
@@ -147,11 +165,19 @@ function NavBar() {
       {caps.studio_visible && (
         <NavLink to="/studio" className={navItemClass} onClick={() => setOpen(false)}>Test Studio</NavLink>
       )}
+    </>
+  )
+
+  // Mobile keeps every destination reachable as a flat stack — no nested
+  // dropdowns on touch. Order mirrors the old top bar.
+  const mobileLinks = (
+    <>
+      {workspaceLinks}
       <NavLink to="/guide" className={navItemClass} onClick={() => setOpen(false)}>Guide</NavLink>
       <NavLink to="/setup" className={navItemClass} onClick={() => setOpen(false)}>
         <span className="inline-flex items-center gap-1">
           Setup
-          {!recommendedMet(caps) && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-primary" />}
+          {setupNeedsAttention && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-primary" />}
         </span>
       </NavLink>
       <NavLink to="/settings" className={navItemClass} onClick={() => setOpen(false)}>Settings</NavLink>
@@ -166,11 +192,38 @@ function NavBar() {
           className="shrink-0 whitespace-nowrap bg-gradient-primary bg-clip-text text-base font-bold text-transparent no-underline">
           LoRA Dataset Studio
         </NavLink>
-        {/* Workflow first (make → train in cloud → test), docs/config last. */}
-        <nav className="hidden md:flex gap-1" aria-label="Main navigation">
-          {navLinks}
-          <WhatsNewButton />
-          <CheckUpdatesButton />
+        {/* Desktop: workspaces on the left, utilities grouped into icon menus
+            on the right (Guide/Help under ?, Setup/Settings under ⚙). */}
+        <nav className="hidden md:flex flex-1 items-center gap-1" aria-label="Main navigation">
+          {workspaceLinks}
+          <div className="ml-auto flex items-center gap-1">
+            <HeaderMenu triggerLabel={<span aria-hidden>?</span>}
+              triggerTitle="Help & guide" active={helpMenuActive}>
+              {(close) => (
+                <>
+                  <NavLink to="/guide" role="menuitem" className={menuItemClass} onClick={close}>Guide</NavLink>
+                  <NavLink to="/help" role="menuitem" className={menuItemClass} onClick={close}>Help</NavLink>
+                  <HelpModeToggle onToggle={close} />
+                </>
+              )}
+            </HeaderMenu>
+            <HeaderMenu triggerLabel={<span aria-hidden>⚙</span>}
+              triggerTitle="Setup & settings" active={settingsMenuActive} dot={setupNeedsAttention}>
+              {(close) => (
+                <>
+                  <NavLink to="/setup" role="menuitem" className={menuItemClass} onClick={close}>
+                    <span className="inline-flex items-center gap-1">
+                      Setup
+                      {setupNeedsAttention && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                    </span>
+                  </NavLink>
+                  <NavLink to="/settings" role="menuitem" className={menuItemClass} onClick={close}>Settings</NavLink>
+                </>
+              )}
+            </HeaderMenu>
+            <WhatsNewButton />
+            <CheckUpdatesButton />
+          </div>
         </nav>
         <div className="ml-auto flex items-center gap-1 md:hidden">
           <WhatsNewButton />
@@ -185,7 +238,7 @@ function NavBar() {
       {open && (
         <nav aria-label="Main navigation (mobile)"
           className="flex flex-col gap-1 border-t border-border px-4 py-2 md:hidden">
-          {navLinks}
+          {mobileLinks}
         </nav>
       )}
     </header>
