@@ -49,20 +49,33 @@ def _official_config() -> str | None:
 def _resolve_merge(z_model: str) -> str | None:
     """Chemin absolu du .safetensors ComfyUI depuis une valeur z_model
     (ex. 'z image\\bigLove_zt3.safetensors'). Anti path-traversal : refuse '..'
-    et les chemins absolus, et CONFINE le résultat sous models/ (realpath +
-    commonpath) - un z_model forgé ne peut pas sortir du dossier des modèles."""
+    et les chemins absolus, et CONFINE la CIBLE sous models/ - un z_model forgé
+    ne peut pas sortir du dossier des modèles.
+
+    Le confinement est vérifié LEXICALEMENT sur `cand` (construit sous root_real
+    à partir d'une valeur sans '..' ni chemin absolu) : il reste sur le même
+    disque, donc commonpath ne crashe jamais. On NE fait PAS commonpath sur le
+    realpath : celui-ci peut légitimement traverser un disque via une jonction
+    Windows (models/ symlinké vers un 2e DD, cas courant pour les gros modèles),
+    ce qui levait `ValueError: Paths don't have the same drive` et cassait la
+    conversion. realpath ne sert donc qu'à tester l'existence et à retourner le
+    chemin réel dont le sous-process a besoin."""
     if not z_model or os.path.isabs(z_model) or '..' in z_model.replace('\\', '/'):
         return None
     root = cfg.comfyui_dir('models')
     if not root:
         return None
     root_real = os.path.realpath(str(root))
+    root_key = os.path.normcase(os.path.normpath(root_real))
     rel = z_model.replace('/', '\\')
     base = os.path.basename(rel)
     for sub in ('unet', 'diffusion_models'):
         for cand in (os.path.join(root_real, sub, rel), os.path.join(root_real, sub, 'z image', base)):
+            cand_key = os.path.normcase(os.path.normpath(cand))
+            if os.path.commonpath([root_key, cand_key]) != root_key:
+                continue
             real = os.path.realpath(cand)
-            if os.path.isfile(real) and os.path.commonpath([root_real, real]) == root_real:
+            if os.path.isfile(real):
                 return real
     return None
 

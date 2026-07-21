@@ -47,6 +47,13 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-21-zimage-convert-cross-drive',
+    date: '2026-07-21',
+    title: '🗜️ Convert a custom Z-Image base even when your models live on another drive',
+    blurb:
+      "Clicking \"Convert the base\" no longer fails with a red \"Paths don't have the same drive\" toast when your ComfyUI models folder is a junction to a second drive (a common setup — big weights rarely fit the system disk). The conversion now follows the junction across drives while still refusing any base path that tries to escape your models folder.",
+  },
+  {
     id: '2026-07-21-cloud-unreachable-grace',
     date: '2026-07-21',
     title: '☁️ Fewer cloud runs lost to a passing network blip',

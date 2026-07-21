@@ -19,6 +19,7 @@ Contract under test (hf_base_push + cloud_training seams):
 
 HfApi is always faked — no network, ever."""
 import json
+import os
 import struct
 import types
 
@@ -631,3 +632,55 @@ def test_cloud_train_route_forwards_unverified_flag(client, monkeypatch):
                       'allow_unverified_weights': True})
     assert seen['base_model'] == 'C:\\m\\k.safetensors'
     assert seen['allow_unverified_weights'] is True
+
+
+# --- _resolve_merge: cross-drive junction (regression) --------------------------
+#
+# ComfyUI's models/ often lives on a second drive via a Windows junction (big
+# weights don't fit the system disk). realpath() follows that junction, so the
+# resolved target legitimately lands on another drive than models/'s own path.
+# The old confinement check ran commonpath() on that resolved path, which raises
+# `ValueError: Paths don't have the same drive` -> red toast, conversion dead.
+
+def _patch_models_root(monkeypatch, root):
+    """cfg.comfyui_dir('models') -> `root`, without touching real config."""
+    monkeypatch.setattr('app.config.comfyui_dir',
+                        lambda kind: root if kind == 'models' else None)
+
+
+def test_resolve_merge_follows_cross_drive_junction(monkeypatch):
+    from app.services import zimage_convert as zc
+    _patch_models_root(monkeypatch, r'C:\models')
+    # models/ is on C:, but the file resolves onto D: (junction to a 2nd drive).
+    real_target = r'D:\weights\unet\z image\merge.safetensors'
+
+    def fake_realpath(p):
+        p = os.path.normpath(p)
+        return real_target if p.lower().endswith('merge.safetensors') else p
+
+    monkeypatch.setattr(os.path, 'realpath', fake_realpath)
+    monkeypatch.setattr(os.path, 'isfile', lambda p: p == real_target)
+
+    # Old code raised ValueError here; the fix returns the real cross-drive path.
+    assert zc._resolve_merge(r'z image\merge.safetensors') == real_target
+
+
+def test_resolve_merge_same_drive_still_works(monkeypatch):
+    from app.services import zimage_convert as zc
+    _patch_models_root(monkeypatch, r'C:\models')
+    target = r'C:\models\unet\z image\merge.safetensors'
+    monkeypatch.setattr(os.path, 'realpath', lambda p: os.path.normpath(p))
+    monkeypatch.setattr(os.path, 'isfile', lambda p: os.path.normpath(p) == target)
+    assert zc._resolve_merge(r'z image\merge.safetensors') == target
+
+
+def test_resolve_merge_confinement_rejects_traversal(monkeypatch):
+    from app.services import zimage_convert as zc
+    _patch_models_root(monkeypatch, r'C:\models')
+    # A forged z_model must never escape models/ — every isfile() is True to
+    # prove the guard, not the filesystem, is what rejects these.
+    monkeypatch.setattr(os.path, 'realpath', lambda p: os.path.normpath(p))
+    monkeypatch.setattr(os.path, 'isfile', lambda p: True)
+    assert zc._resolve_merge(r'..\..\Windows\evil.safetensors') is None
+    assert zc._resolve_merge(r'D:\weights\evil.safetensors') is None
+    assert zc._resolve_merge('') is None
