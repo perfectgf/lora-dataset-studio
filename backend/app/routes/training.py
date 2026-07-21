@@ -618,14 +618,19 @@ _STYLE_BUILTIN_PRESETS = [
     # style included"); weighted = the zimage arch default in options.ts and
     # the community's non-character recommendation.
     {
+        # id kept ('...-base') for saved references, but the recipe is the
+        # Z-Image ARCH DEFAULT (weighted timesteps), not a Base-only choice — so
+        # it now applies to every Z-Image variant (Turbo / Base / De-Turbo), like
+        # the FLUX.1 and SDXL style presets. Previously gated to ['base'], which
+        # left a Turbo Z-Image style dataset with no built-in style preset.
         'id': 'builtin-style-zimage-base',
-        'name': 'Z-Image · Style (Base)',
+        'name': 'Z-Image · Style',
         'train_type': 'zimage',
         'dataset_kind': 'style',
-        'variants': ['base'],
+        'variants': [],
         'builtin': True,
-        'description': 'Rank 32/32 with weighted timesteps (arch default) on '
-                       'the Base recipe; content-only probes so no hidden '
+        'description': 'Rank 32/32 with weighted timesteps (the Z-Image arch '
+                       'default, all variants); content-only probes so no hidden '
                        'trigger leaks into an always-on style.',
         'settings': _style_preset_settings(32, 32, timestep_type='weighted'),
     },
