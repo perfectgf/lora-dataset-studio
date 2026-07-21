@@ -219,6 +219,85 @@ def test_create_run_with_resolution_tier_resolves_dims_via_lifted_resolution_mod
         assert (captured['width'], captured['height']) == expected
 
 
+# Literal transcription of the FRONTEND `tierDims` (react-frontend/src/components/
+# shared/ResolutionSelector.jsx) for the Z-Image/Krea path (maxLongSide undefined).
+# It MUST stay byte-for-byte equivalent to compute_tier_dims — this is the invariant
+# the studio relies on (px shown == px generated). Keep both in sync; this mirror
+# exists so a one-sided edit (a changed cap, snap rounding or multiplier clamp) fails
+# the test loudly instead of drifting silently.
+def _front_tier_dims(aspect, mp, multiplier=1.0):
+    import math
+    _R = {'square': (1, 1), 'landscape': (4, 3), 'portrait': (3, 4), 'widescreen': (16, 9),
+          'tall': (9, 16), 'photo': (3, 2), 'phototall': (2, 3), 'ultrawide': (21, 9)}
+    CAP, ABS_CAP, FLOOR, M = 1536, 3072, 512, 16
+    snap = lambda v: max(FLOOR, int(math.floor(v / M + 0.5)) * M)  # JS Math.round (positives)
+    m = max(1.0, min(1.9, multiplier))
+    rw, rh = _R.get(aspect, _R['square'])
+    r = rw / rh
+    h = math.sqrt(mp * 1e6 / r); w = r * h
+    longest = max(w, h)
+    if longest > CAP:
+        s = CAP / longest; w *= s; h *= s
+    w *= m; h *= m
+    longest = max(w, h)
+    if longest > ABS_CAP:
+        s = ABS_CAP / longest; w *= s; h *= s
+    return snap(w), snap(h)
+
+
+def test_compute_tier_dims_mirrors_frontend_over_full_grid():
+    """INVARIANT: compute_tier_dims (backend source of truth) and the frontend
+    tierDims produce the SAME (w, h) for every (aspect, tier, multiplier) — so the
+    Test Studio's live W×H readout matches the pixels actually generated. Swept over
+    all 8 ratios × 4 tiers × 10 multiplier steps (1.0…1.9)."""
+    from app.utils.resolution import compute_tier_dims, _RATIOS, _TIERS
+    for aspect in _RATIOS:
+        for tier, mp in _TIERS.items():
+            for mi in range(10, 20):
+                mult = mi / 10
+                assert compute_tier_dims(aspect, tier, mult) == _front_tier_dims(aspect, mp, mult), \
+                    f'front/back divergence at {aspect}/{tier}/x{mult}'
+
+
+def test_compute_tier_dims_multiplier_semantics():
+    """Multiplier: default 1.0 = preset unchanged; linear enlarge on both sides;
+    clamped to [1.0, 1.9] (None/garbage/too-small → 1.0, never shrinks)."""
+    from app.utils.resolution import compute_tier_dims, clamp_multiplier
+    base = compute_tier_dims('square', 'standard')            # default multiplier
+    assert base == (1008, 1008)                                # matches the frontend preset
+    assert compute_tier_dims('square', 'standard', 1.0) == base
+    # ×1.9 enlarges both sides (pre-snap base 1000 × 1.9 = 1900 → snap 1904).
+    assert compute_tier_dims('square', 'standard', 1.9) == (1904, 1904)
+    # Clamp: below 1.0 floors to preset, above 1.9 caps, junk → 1.0.
+    assert compute_tier_dims('square', 'standard', 0.5) == base
+    assert compute_tier_dims('square', 'standard', 5.0) == compute_tier_dims('square', 'standard', 1.9)
+    assert clamp_multiplier(None) == 1.0 and clamp_multiplier('x') == 1.0
+    assert clamp_multiplier(2.5) == 1.9 and clamp_multiplier(0.2) == 1.0
+
+
+def test_aspect_dims_applies_multiplier():
+    """_aspect_dims threads the multiplier into compute_tier_dims (tier path) and,
+    for SDXL, scales the 1024 safe-band ceiling by the multiplier so it isn't
+    silently clobbered. Legacy fixed-table path (no tier) ignores the multiplier."""
+    from app.services.lora_test_studio import _aspect_dims
+    from app.utils.resolution import compute_tier_dims
+    # Z-Image/Krea: exactly compute_tier_dims with the multiplier.
+    assert _aspect_dims('1:1', 'zimage', 'standard', 1.9) == compute_tier_dims('square', 'standard', 1.9)
+    # A bigger multiplier yields a strictly larger square (monotonic).
+    w1, _ = _aspect_dims('1:1', 'zimage', 'standard', 1.0)
+    w2, _ = _aspect_dims('1:1', 'zimage', 'standard', 1.9)
+    assert w2 > w1
+    # SDXL widescreen: base long side exceeds 1024, so it rides the SDXL safe-band
+    # ceiling (scaled by the multiplier) and snaps to ÷64. At ×1.0 the historical
+    # 1024 cap holds; ×1.9 raises it instead of clobbering the multiplier.
+    sw0, sh0 = _aspect_dims('16:9', 'sdxl', 'standard', 1.0)
+    sw, sh = _aspect_dims('16:9', 'sdxl', 'standard', 1.9)
+    assert sw0 <= 1024
+    assert sw % 64 == 0 and sh % 64 == 0 and sw > sw0
+    # No tier → legacy fixed table, multiplier is inert.
+    assert _aspect_dims('1:1', 'zimage', None, 1.9) == _aspect_dims('1:1', 'zimage', None, 1.0)
+
+
 def test_create_comparison_run_commits_rows_before_enqueue(app, monkeypatch, tmp_path):
     """Same commit-before-enqueue anti-orphan guarantee as create_run, exercised
     on the multi-LoRA comparison path (its own row-commit + enqueue loop)."""

@@ -121,8 +121,9 @@ def studio_run():
             negative=d.get('negative'), sampler=d.get('sampler'), scheduler=d.get('scheduler'),
             weight_dtype=d.get('weight_dtype'), enhancer=d.get('enhancer'),
             enhancer_strength=d.get('enhancer_strength'), detail_amount=d.get('detail_amount'),
-            resolution_tier=d.get('resolution_tier'), init_image=d.get('init_image'),
-            denoise=d.get('denoise'))
+            resolution_tier=d.get('resolution_tier'),
+            resolution_multiplier=d.get('resolution_multiplier'),
+            init_image=d.get('init_image'), denoise=d.get('denoise'))
     except Exception as e:
         from ..services.lora_test_studio import StudioArchMismatch, StudioAssetsMissing
         if isinstance(e, StudioArchMismatch):   # wrong-arch checkpoint → actionable 409

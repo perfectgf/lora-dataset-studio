@@ -88,6 +88,7 @@ _SCHEMA_ADDITIONS = (
     ('training_preset', 'dataset_kind', 'VARCHAR(16)'),
     ('training_preset', 'variants', 'TEXT'),
     ('lora_test_image', 'error', 'TEXT'),
+    ('lora_test_image', 'resolution_multiplier', 'REAL'),
     # Bank V2 scoring pass — the image_bank/bank_image tables shipped in the Beta,
     # so these columns need the additive path (db.create_all never ALTERs an
     # existing table).

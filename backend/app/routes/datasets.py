@@ -1168,6 +1168,7 @@ def lora_test_run(dataset_id):
                              enhancer=d.get('enhancer'), enhancer_strength=d.get('enhancer_strength'),
                              detail_amount=d.get('detail_amount'),
                              resolution_tier=d.get('resolution_tier'),
+                             resolution_multiplier=d.get('resolution_multiplier'),
                              init_image=d.get('init_image'), denoise=d.get('denoise'))
     except Exception as e:
         from ..services.lora_test_studio import StudioArchMismatch, StudioAssetsMissing

@@ -117,22 +117,27 @@ _ASPECT_TO_TIER_RATIO = {
 }
 
 
-def _aspect_dims(aspect, train_type=None, resolution_tier=None):
+def _aspect_dims(aspect, train_type=None, resolution_tier=None, resolution_multiplier=1.0):
     """(width, height) d'un format. Si `resolution_tier` (fast|standard|hq|max) est fourni,
-    délègue à `compute_tier_dims` (ratio nommé + mégapixels du palier, comme Generate) ;
-    sinon table fixe par famille (SDXL côté long ≤1024, sinon table Z-Image historique).
-    Format inconnu → défaut. SDXL + palier : on re-borne le côté long à 1024 (bande
-    SDXL-safe, multiples de 64) car compute_tier_dims monte jusqu'à 1536 (safe Z-Image,
-    déforme les merges/DMD SDXL)."""
+    délègue à `compute_tier_dims` (ratio nommé + mégapixels du palier, comme Generate),
+    avec le multiplicateur de résolution (1.0–1.9, clampé, défaut 1.0 = palier inchangé) ;
+    sinon table fixe par famille (SDXL côté long ≤1024, sinon table Z-Image historique -
+    le multiplicateur n'agit QUE sur le chemin par palier, pas sur les tables legacy).
+    Format inconnu → défaut. SDXL + palier : on re-borne le côté long à 1024×multiplicateur
+    (la bande SDXL-safe monte aussi avec le multiplicateur, multiples de 64) car
+    compute_tier_dims monte jusqu'à 1536 (safe Z-Image, déforme les merges/DMD SDXL)."""
     if resolution_tier in RESOLUTION_TIERS:
         named = _ASPECT_TO_TIER_RATIO.get(aspect)
         if named:
-            from ..utils.resolution import compute_tier_dims
-            w, h = compute_tier_dims(named, resolution_tier)
+            from ..utils.resolution import clamp_multiplier, compute_tier_dims
+            w, h = compute_tier_dims(named, resolution_tier, resolution_multiplier)
             if (train_type or '').lower() == 'sdxl':
+                # Plafond SDXL mis à l'échelle du multiplicateur, sinon celui-ci serait
+                # silencieusement écrasé (le front affiche déjà 1024×mult pour SDXL).
+                ceiling = 1024.0 * clamp_multiplier(resolution_multiplier)
                 longest = max(w, h)
-                if longest > 1024:
-                    sc = 1024.0 / longest
+                if longest > ceiling:
+                    sc = ceiling / longest
                     w = max(64, int(round(w * sc / 64)) * 64)
                     h = max(64, int(round(h * sc / 64)) * 64)
             return w, h
@@ -963,8 +968,8 @@ def _enqueue_cell(user_id, dataset_id, workflow, prompt) -> str:
 
 def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=None,
                         weight_dtype=None, enhancer=None, enhancer_strength=None,
-                        detail_amount=None, resolution_tier=None, init_image=None,
-                        denoise=None) -> dict:
+                        detail_amount=None, resolution_tier=None, resolution_multiplier=None,
+                        init_image=None, denoise=None) -> dict:
     """Normalise + valide les réglages de génération GLOBAUX d'un run (parité Generate),
     filtrés PAR FAMILLE (un sampler Krea n'a aucun sens en Z-Image). Renvoie un dict prêt
     à la fois à persister sur LoraTestImage ET à passer à `_build_cell_workflow`. Chaque
@@ -991,6 +996,10 @@ def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=No
         except (TypeError, ValueError):
             dta = None
     tier = resolution_tier if resolution_tier in RESOLUTION_TIERS else None
+    # Multiplicateur de résolution clampé [1.0, 1.9] (défaut 1.0). Ne s'applique qu'au
+    # chemin par palier ; sans palier (table fixe) il reste 1.0 et n'a aucun effet.
+    from ..utils.resolution import clamp_multiplier
+    mult = clamp_multiplier(resolution_multiplier if resolution_multiplier is not None else 1.0)
     den = None
     if fam == 'krea' and denoise is not None:
         try:
@@ -1000,7 +1009,7 @@ def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=No
     ini = ((init_image or '').strip() or None) if fam == 'krea' else None
     return {'negative': neg, 'sampler': smp, 'scheduler': sch, 'weight_dtype': wdt,
             'enhancer_strength': enh, 'detail_amount': dta, 'resolution_tier': tier,
-            'init_image': ini, 'denoise': den}
+            'resolution_multiplier': mult, 'init_image': ini, 'denoise': den}
 
 
 # --- Studio preflight (model files on disk + custom nodes in ComfyUI) ---------
@@ -1378,7 +1387,7 @@ def _batch_lora_label(row):
     return None
 
 
-def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=None, z_model=None, z_models=None, aspects=None, cfgs=None, steps_list=None, steps2_list=None, count=1, family=None, permanent_loras=None, batch_loras=None, rebalance=None, rebalance_strength=None, negative=None, sampler=None, scheduler=None, weight_dtype=None, enhancer=None, enhancer_strength=None, detail_amount=None, resolution_tier=None, init_image=None, denoise=None) -> dict:
+def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=None, z_model=None, z_models=None, aspects=None, cfgs=None, steps_list=None, steps2_list=None, count=1, family=None, permanent_loras=None, batch_loras=None, rebalance=None, rebalance_strength=None, negative=None, sampler=None, scheduler=None, weight_dtype=None, enhancer=None, enhancer_strength=None, detail_amount=None, resolution_tier=None, resolution_multiplier=None, init_image=None, denoise=None) -> dict:
     """Validate + materialize the grid and enqueue every cell.
 
     Each row is committed BEFORE its enqueue (anti-orphan rule of the dataset
@@ -1453,6 +1462,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
         run_family, negative=negative, sampler=sampler, scheduler=scheduler,
         weight_dtype=weight_dtype, enhancer=enhancer, enhancer_strength=enhancer_strength,
         detail_amount=detail_amount, resolution_tier=resolution_tier,
+        resolution_multiplier=resolution_multiplier,
         init_image=init_image, denoise=denoise)
 
     cells = build_matrix(checkpoints, strengths, aspects, cfgs, steps_list, steps2_list)
@@ -1517,7 +1527,8 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     for zm in valid_models:                       # AXE modèle de base (multi-sélection)
         for checkpoint, strength, cell_aspect, cell_cfg, cell_steps, cell_steps2 in cells:
             # Format/CFG/steps (1 et 2) testés comme axes à part entière (multi-sélection).
-            width, height = _aspect_dims(cell_aspect, run_family, knobs['resolution_tier'])
+            width, height = _aspect_dims(cell_aspect, run_family, knobs['resolution_tier'],
+                                         knobs['resolution_multiplier'])
             for batch_lora in batch_axis:  # AXE ⚖ batch : sans, puis avec chaque LoRA coché
               row_extra = extra_loras + ([{**batch_lora, 'batch': True}] if batch_lora else [])
               wf_extra = extra_loras + ([batch_lora] if batch_lora else [])
@@ -1533,6 +1544,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
                                     enhancer_strength=knobs['enhancer_strength'],
                                     detail_amount=knobs['detail_amount'],
                                     resolution_tier=knobs['resolution_tier'],
+                                    resolution_multiplier=knobs['resolution_multiplier'],
                                     init_image=knobs['init_image'], denoise=knobs['denoise'])
                 db.session.add(img)
                 db.session.commit()
@@ -1569,7 +1581,8 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
                           count=1, permanent_loras=None, batch_loras=None, rebalance=None, rebalance_strength=None,
                           negative=None, sampler=None, scheduler=None, weight_dtype=None,
                           enhancer=None, enhancer_strength=None, detail_amount=None,
-                          resolution_tier=None, init_image=None, denoise=None) -> dict:
+                          resolution_tier=None, resolution_multiplier=None,
+                          init_image=None, denoise=None) -> dict:
     """Lance UN run de comparaison sur plusieurs LoRA. `selections` =
     [{dataset_id, checkpoint}]. Toutes les cellules partagent un run_id + le seed
     (équité). Le prompt : `prompt` commun si fourni, sinon l'identity_prompt du
@@ -1648,6 +1661,7 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         run_type, negative=negative, sampler=sampler, scheduler=scheduler,
         weight_dtype=weight_dtype, enhancer=enhancer, enhancer_strength=enhancer_strength,
         detail_amount=detail_amount, resolution_tier=resolution_tier,
+        resolution_multiplier=resolution_multiplier,
         init_image=init_image, denoise=denoise)
 
     # Arch guard (même contrat que create_run) : l'arch RÉELLE de chaque
@@ -1687,7 +1701,8 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         cell_prompt = common_prompt or identity_prompt(ds)
         cells = build_matrix([checkpoint], strengths, aspects, cfgs, steps_list, steps2_list)
         for cp, strength, cell_aspect, cell_cfg, cell_steps, cell_steps2 in cells:
-            width, height = _aspect_dims(cell_aspect, run_type, knobs['resolution_tier'])
+            width, height = _aspect_dims(cell_aspect, run_type, knobs['resolution_tier'],
+                                         knobs['resolution_multiplier'])
             for batch_lora in batch_axis:  # AXE ⚖ batch : sans, puis avec chaque LoRA coché
               row_extra = extra_loras + ([{**batch_lora, 'batch': True}] if batch_lora else [])
               wf_extra = extra_loras + ([batch_lora] if batch_lora else [])
@@ -1703,6 +1718,7 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
                                     enhancer_strength=knobs['enhancer_strength'],
                                     detail_amount=knobs['detail_amount'],
                                     resolution_tier=knobs['resolution_tier'],
+                                    resolution_multiplier=knobs['resolution_multiplier'],
                                     init_image=knobs['init_image'], denoise=knobs['denoise'])
                 db.session.add(img); db.session.commit()
                 try:
@@ -1856,8 +1872,10 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
         z_model = (img.z_model if (img.z_model and img.z_model in cell_models)
                    else (cell_models[0] if cell_models else None))
         aspect = img.aspect if img.aspect in TEST_ASPECTS else DEFAULT_ASPECT
-        # Palier de résolution persisté → mêmes dims qu'au 1er run (sinon table fixe).
-        width, height = _aspect_dims(aspect, cell_family, getattr(img, 'resolution_tier', None))
+        # Palier + multiplicateur de résolution persistés → mêmes dims qu'au 1er run
+        # (sinon table fixe / multiplicateur 1.0 sur les cellules legacy sans la colonne).
+        width, height = _aspect_dims(aspect, cell_family, getattr(img, 'resolution_tier', None),
+                                     getattr(img, 'resolution_multiplier', None) or 1.0)
         prompt = (img.prompt or '').strip() or identity_prompt(cell_ds)
         seed = img.seed or random.randint(1, 2**31 - 1)
         # LoRA always-on stockés sur la cellule → réappliqués à l'identique au resume.

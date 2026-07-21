@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-21-studio-resolution-multiplier',
+    date: '2026-07-21',
+    title: '🔍 Push Test Studio renders larger',
+    blurb:
+      "A new resolution multiplier slider (1.0×–1.9×) sits under the Fast/Standard/HQ/Max presets in the Test Studio: keep your preset's aspect and just scale it up, both sides at once (e.g. a 1008px Standard square becomes ~1915px at 1.9×). Each preset chip and the live readout show the final W×H as you slide. Default 1.0× leaves everything exactly as before. Past ~1.5× it warns that Krea/Z-Image can soften, duplicate or run out of GPU memory — it warns, never blocks.",
+    to: '/studio',
+  },
+  {
     id: '2026-07-21-tidier-top-bar',
     date: '2026-07-21',
     title: '🧭 A tidier top bar',

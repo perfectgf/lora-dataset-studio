@@ -66,6 +66,10 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
 
   // --- État (persisté, namespacé par storagePrefix) ---------------------------
   const [resolutionTier, setResolutionTierS] = useState(() => load('tier', 'standard'));
+  // Multiplicateur de résolution (1.0–1.9) appliqué au palier choisi. Défaut 1.0 =
+  // taille du palier inchangée (rétrocompatible). Clampé au chargement + à l'écriture.
+  const [resolutionMultiplier, setResolutionMultiplierS] = useState(
+    () => load('resmult', 1.0, parseFloat));
   // Format du run (mode comparaison uniquement — dans le studio riche, le ratio
   // est un AXE de la matrice via AxisPickers). Défaut = 9:16, le DEFAULT_ASPECT
   // que le backend appliquait déjà en silence quand rien n'était envoyé.
@@ -83,6 +87,10 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
 
   // Setters qui persistent en même temps (miroir du pattern RunSetupPanel/SettingsPanel).
   const setResolutionTier = (v) => { setResolutionTierS(v); save('tier', v); };
+  const setResolutionMultiplier = (v) => {
+    const m = Math.max(1.0, Math.min(1.9, Number(v) || 1.0));
+    setResolutionMultiplierS(m); save('resmult', m);
+  };
   const setAspect = (v) => { setAspectS(v); save('aspect', v); };
   const setNegative = (v) => { setNegativeS(v); save('negative', v); };
   const setDetailAmount = (v) => { setDetailAmountS(v); save('detail', v); };
@@ -129,7 +137,7 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
   // On OMET les vides (le backend garde ses défauts). `onChange` doit être stable
   // (setState du parent) — sinon boucle ; deps incluent onChange par prudence.
   useEffect(() => {
-    const s = { resolution_tier: resolutionTier };
+    const s = { resolution_tier: resolutionTier, resolution_multiplier: resolutionMultiplier };
     // Format global du run (comparaison) : axe à 1 seule valeur côté matrice.
     // JAMAIS émis en studio riche (aspectPicker=false) — là, le ratio est un axe
     // de test choisi via AxisPickers et l'écraser ici casserait la matrice.
@@ -159,7 +167,7 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
       if (batched.length) s.batch_loras = batched;
     }
     onChange?.(s);
-  }, [isZ, isSdxl, isKrea, resolutionTier, aspectPicker, aspect, negative, detailAmount, sampler, scheduler,
+  }, [isZ, isSdxl, isKrea, resolutionTier, resolutionMultiplier, aspectPicker, aspect, negative, detailAmount, sampler, scheduler,
       weightDtype, rebalanceOn, rebalanceStrength, enhancerOn, enhancerStrength, permStack, onChange]);
 
   return (
@@ -189,7 +197,8 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
           aspectRatio={aspectPicker
             ? (STUDIO_ASPECTS.find((a) => a.key === aspect)?.ratio || 'square')
             : 'square'}
-          maxLongSide={family === 'sdxl' ? 1024 : undefined} />
+          maxLongSide={family === 'sdxl' ? 1024 : undefined}
+          multiplier={resolutionMultiplier} onMultiplierChange={setResolutionMultiplier} />
         <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-0.5">
           {aspectPicker
             ? 'Output size — the ratio above sets the proportions. Standard ≈ 1 MP.'

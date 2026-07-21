@@ -315,6 +315,7 @@ class LoraTestImage(db.Model):
     enhancer_strength = db.Column(Float, nullable=True)   # Krea2T-Enhancer : NULL=OFF, sinon force ON
     detail_amount = db.Column(Float, nullable=True)       # SDXL : DetailDaemon detail_amount (NULL=défaut)
     resolution_tier = db.Column(String(12), nullable=True)  # fast|standard|hq|max (compute_tier_dims) ; NULL=table fixe
+    resolution_multiplier = db.Column(Float, nullable=True)  # multiplicateur linéaire du palier [1.0,1.9] ; NULL/1.0=palier inchangé (resume fidèle)
     init_image = db.Column(String(255), nullable=True)    # Krea img2img : fichier init copié dans COMFYUI_INPUT_DIR
     denoise = db.Column(Float, nullable=True)             # Krea img2img : node 26 denoise
     # Scoring facial objectif (« best epoch », méthode jandordoe) : similarité
