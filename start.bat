@@ -1,6 +1,12 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+REM Force UTF-8 so pip reads requirements*.txt as UTF-8 regardless of the system
+REM locale. On a GBK / other non-UTF-8 Windows locale, older pip decodes the file
+REM with the ANSI codepage and a non-ASCII comment byte crashes the install
+REM (UnicodeDecodeError). Reported by the community. Requirements comments are
+REM also kept ASCII-only as a second line of defence.
+set "PYTHONUTF8=1"
 
 REM --- Pick a Python the OPTIONAL ML extras have wheels for (CPython 3.10-3.12).
 REM     insightface / numpy<2 / onnxruntime publish NO wheels for 3.13+, so a venv

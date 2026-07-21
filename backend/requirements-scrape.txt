@@ -1,4 +1,4 @@
-# Optional: the scrape → concept-dataset bridge (scan a gallery, import chosen
+# Optional: the scrape -> concept-dataset bridge (scan a gallery, import chosen
 # images). The concept UPLOAD path needs none of this; only /api/scrape/scan,
 # /api/scrape/thumb and /dataset/<id>/scrape-import do. Install with:
 #   pip install -r backend/requirements-scrape.txt

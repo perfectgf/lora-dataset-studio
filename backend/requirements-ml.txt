@@ -2,9 +2,9 @@ insightface>=0.7.3
 onnxruntime>=1.17
 rembg>=2.0.50
 opencv-python-headless>=4.9
-# Watermark removal (V1): non-generative LaMa inpainting — only the masked pixels
+# Watermark removal (V1): non-generative LaMa inpainting - only the masked pixels
 # change. Pulls torch; run in the ML subprocess only (never in the Flask venv).
 simple-lama-inpainting>=0.1.2
-# insightface 0.7.3 uses numpy's removed np.int and links numpy<2 ABI — numpy 2.x
-# import-crashes it. Cap below 2 (1.26.4 is the last with wheels for Py 3.10–3.12).
+# insightface 0.7.3 uses numpy's removed np.int and links numpy<2 ABI - numpy 2.x
+# import-crashes it. Cap below 2 (1.26.4 is the last with wheels for Py 3.10-3.12).
 numpy>=1.26,<2

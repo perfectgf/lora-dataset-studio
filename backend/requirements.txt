@@ -9,5 +9,5 @@ Pillow==12.2.0
 psutil>=5.9.8
 huggingface-hub>=0.24     # Publish dataset to the HF Hub (pure-python, light): HfApi + upload_folder
 PyYAML>=6.0               # Parse ComfyUI's extra_model_paths.yaml (was only transitive via huggingface-hub); guarded import degrades gracefully if absent
-Send2Trash>=1.8           # Bank "Delete rejected from disk" → OS trash instead of a hard delete (pure-python, tiny); guarded import degrades to os.remove if absent
+Send2Trash>=1.8           # Bank "Delete rejected from disk" -> OS trash instead of a hard delete (pure-python, tiny); guarded import degrades to os.remove if absent
 pytest>=8.0
