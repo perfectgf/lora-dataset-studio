@@ -153,6 +153,24 @@ function CloudTrainingCard({ config, setField }) {
           />
         </div>
         <div>
+          <label htmlFor="cloud-unreachable-grace" className="block text-sm font-medium text-content">
+            Unreachable grace (minutes)
+          </label>
+          <input
+            id="cloud-unreachable-grace"
+            type="number"
+            min="1"
+            max="60"
+            step="1"
+            value={config.cloud?.unreachable_grace_minutes ?? 6}
+            onChange={(e) => setField('cloud', 'unreachable_grace_minutes', parseInt(e.target.value) || 6)}
+            className={INPUT_CLASS}
+          />
+          <p className="mt-1 text-[0.6875rem] text-content-subtle">
+            How long a mid-run pod may stay unreachable (a vast.ai network blip) before the run is given up and retried on a fresh host. Raise it if healthy runs die with "pod unreachable".
+          </p>
+        </div>
+        <div>
           <label htmlFor="cloud-min-reliability" className="block text-sm font-medium text-content">
             Min host reliability
           </label>

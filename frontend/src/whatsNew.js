@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-21-cloud-unreachable-grace',
+    date: '2026-07-21',
+    title: '☁️ Fewer cloud runs lost to a passing network blip',
+    blurb:
+      "A rented pod that briefly drops off the network (a vast.ai proxy hiccup mid-training) is no longer given up so quickly: the grace before a run is declared \"pod unreachable\" is now measured as real consecutive silence, not polluted by slow log/checkpoint mirroring — and it defaults to a more forgiving 6 minutes. Too twitchy or too patient for your hosts? Tune it under Settings ▸ Training ▸ Unreachable grace. Also: a transient rental refusal at pod creation now retries on a fresh offer instead of failing the launch outright.",
+    to: '/settings/training',
+  },
+  {
     id: '2026-07-20-bank-guided-zones',
     date: '2026-07-20',
     title: '🧭 The Bank top is now a guided path, not a wall of buttons',

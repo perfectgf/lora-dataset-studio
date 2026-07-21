@@ -299,6 +299,99 @@ def test_pod_unreachable_mid_run_blacklists_host(ct, app, client, monkeypatch):
         assert ct.CloudTrainingRun.query.count() == before
 
 
+def test_slow_mirror_between_polls_not_counted_as_unreachable(ct, app, client, monkeypatch):
+    """Root-cause fix for the ~54-min 'pod unreachable' deaths: the grace must
+    measure CONSECUTIVE get_job failure time, not time since the last success.
+    A per-poll log/sample mirror that blocks for minutes on a degrading proxy
+    used to push the last-success anchor far into the past, so the pod was
+    declared unreachable on its FIRST failed probe. Here get_job succeeds, a
+    slow mirror burns 500 s (> the 360 s default grace), then a SINGLE get_job
+    failure occurs before the pod recovers — the run must complete, not die."""
+    clock = {'t': 0.0}
+    monkeypatch.setattr(ct, '_now', lambda: clock['t'])   # advances only via the remote
+
+    class SlowMirrorRemote(FakeRemote):
+        def get_job(self, job_id):
+            self.polls += 1
+            if self.polls == 2:                           # one transient blip
+                raise RuntimeError('read timed out')
+            if self.polls >= 4:
+                return {'status': 'completed', 'step': 100, 'total_steps': 100}
+            return {'status': 'running', 'step': self.polls * 10,
+                    'total_steps': 100, 'info': 'Training'}
+
+        def get_log(self, job_id):
+            if self.polls == 1:                           # slow mirror after 1st success
+                clock['t'] += 500
+            return f'step {self.polls * 10}/100'
+
+    destroyed = []
+    remote = SlowMirrorRemote(polls_to_complete=4)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'done'                       # blip tolerated
+        assert destroyed == ['777']
+
+
+def test_default_grace_kills_prolonged_blackout(ct, app, client, monkeypatch):
+    """The default grace still ends a genuinely unreachable pod: a blackout that
+    stays down past the 360 s default is declared unreachable and the pod reaped."""
+    clock = {'t': 0.0}
+    monkeypatch.setattr(ct, '_now', lambda: clock['t'])
+
+    class BlipRemote(FakeRemote):
+        def get_job(self, job_id):
+            self.polls += 1
+            clock['t'] += 200                             # 200 s of wall time per poll
+            if 2 <= self.polls <= 4:                      # 3 consecutive failures (>360 s)
+                raise RuntimeError('connection reset')
+            if self.polls >= 6:
+                return {'status': 'completed', 'step': 100, 'total_steps': 100}
+            return {'status': 'running', 'step': self.polls * 10,
+                    'total_steps': 100, 'info': 'Training'}
+
+    destroyed = []
+    remote = BlipRemote(polls_to_complete=6)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'error'
+        assert 'unreachable' in (run.error or '')
+        assert destroyed == ['777']
+
+
+def test_unreachable_grace_minutes_config_extends_tolerance(ct, app, client, monkeypatch):
+    """cloud.unreachable_grace_minutes lengthens the tolerated blackout: the SAME
+    3-poll blackout that the default (360 s) kills is ridden out when the grace
+    is raised to 30 min, and the pod recovers to completion."""
+    ct.cfg.save_config({'cloud': {'unreachable_grace_minutes': 30}})
+    clock = {'t': 0.0}
+    monkeypatch.setattr(ct, '_now', lambda: clock['t'])
+
+    class BlipRemote(FakeRemote):
+        def get_job(self, job_id):
+            self.polls += 1
+            clock['t'] += 200
+            if 2 <= self.polls <= 4:
+                raise RuntimeError('connection reset')
+            if self.polls >= 6:
+                return {'status': 'completed', 'step': 100, 'total_steps': 100}
+            return {'status': 'running', 'step': self.polls * 10,
+                    'total_steps': 100, 'info': 'Training'}
+
+    destroyed = []
+    remote = BlipRemote(polls_to_complete=6)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'done'                       # blackout ridden out
+        assert destroyed == ['777']
+
+
 def test_auto_retry_classifier_only_accepts_transient_pod_failures(ct):
     assert ct._is_retryable_pod_failure(
         "('Connection aborted.', ConnectionResetError(10054, 'closed'))")
@@ -306,6 +399,98 @@ def test_auto_retry_classifier_only_accepts_transient_pod_failures(ct):
     assert ct._is_retryable_pod_failure('pod unreachable: connection refused')
     assert not ct._is_retryable_pod_failure('CUDA out of memory')
     assert not ct._is_retryable_pod_failure('stall watchdog')
+
+
+def test_transient_create_error_classifier(ct):
+    assert ct._is_transient_create_error('create_instance failed: HTTP 400 {}')
+    assert ct._is_transient_create_error('create_instance failed: HTTP 429 {}')
+    assert ct._is_transient_create_error('create_instance failed: HTTP 503 {}')
+    assert not ct._is_transient_create_error('create_instance failed: HTTP 403 {}')
+    assert not ct._is_transient_create_error('create_instance failed: HTTP 404 {}')
+    assert not ct._is_transient_create_error('boom')
+
+
+_TWO_OFFERS = [
+    {'offer_id': 9, 'gpu_name': 'RTX 4090', 'dph_total': 0.40,
+     'gpu_ram_gb': 24.0, 'machine_id': 43503, 'reliability': 0.99},
+    {'offer_id': 11, 'gpu_name': 'RTX 4090', 'dph_total': 0.42,
+     'gpu_ram_gb': 24.0, 'machine_id': 43600, 'reliability': 0.99},
+]
+
+
+def test_provision_retries_transient_create_refusal(ct, app, client, monkeypatch):
+    """A transient create refusal (offer just taken -> HTTP 400 {}, run #80) no
+    longer fails the run: _provision re-searches, excludes the tried offer, and
+    rents a FRESH one."""
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=3)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: list(_TWO_OFFERS))
+    tried = []
+
+    def flaky_create(offer_id, **kw):
+        tried.append(offer_id)
+        if len(tried) == 1:
+            raise ct.vast_client.VastError('create_instance failed: HTTP 400 {}')
+        return '777'
+
+    monkeypatch.setattr(ct.vast_client, 'create_instance', flaky_create)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'done'
+        assert len(tried) == 2                # first refused, second succeeded
+        assert tried[0] != tried[1]           # a fresh offer on retry
+        assert destroyed == ['777']
+
+
+def test_provision_does_not_retry_non_transient_create_error(ct, app, client, monkeypatch):
+    """An auth-class refusal (HTTP 403) is not worth retrying — fail fast, once."""
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=3)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: list(_TWO_OFFERS))
+    calls = {'n': 0}
+
+    def create(offer_id, **kw):
+        calls['n'] += 1
+        raise ct.vast_client.VastError('create_instance failed: HTTP 403 {}')
+
+    monkeypatch.setattr(ct.vast_client, 'create_instance', create)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'error'
+        assert '403' in (run.error or '')
+        assert calls['n'] == 1                # no retry on a non-transient refusal
+        assert destroyed == []                # no pod was ever created
+
+
+def test_provision_transient_create_gives_up_after_bounded_attempts(ct, app, client, monkeypatch):
+    """A persistently-refusing marketplace is bounded: exactly
+    _CREATE_INSTANCE_ATTEMPTS create tries, then the run errors (not an
+    unbounded rent loop)."""
+    destroyed = []
+    remote = FakeRemote(polls_to_complete=3)
+    ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
+    three_offers = _TWO_OFFERS + [
+        {'offer_id': 13, 'gpu_name': 'RTX 4090', 'dph_total': 0.44,
+         'gpu_ram_gb': 24.0, 'machine_id': 43700, 'reliability': 0.99}]
+    monkeypatch.setattr(ct.vast_client, 'search_offers', lambda **kw: list(three_offers))
+    calls = {'n': 0}
+
+    def create(offer_id, **kw):
+        calls['n'] += 1
+        raise ct.vast_client.VastError('create_instance failed: HTTP 429 {}')
+
+    monkeypatch.setattr(ct.vast_client, 'create_instance', create)
+    with app.app_context():
+        ct._monitor(app, run_id)
+        run = ct.CloudTrainingRun.query.get(run_id)
+        assert run.status == 'error'
+        assert '429' in (run.error or '')
+        assert calls['n'] == ct._CREATE_INSTANCE_ATTEMPTS
+        assert destroyed == []
 
 
 def test_auto_retry_preserves_resume_and_uses_effective_gpu(ct, app, client,

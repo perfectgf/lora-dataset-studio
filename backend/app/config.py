@@ -90,6 +90,7 @@ DEFAULTS = {
         'max_runtime_minutes': 480,    # safety net (stall watchdog is the first line): hard stop past this
         'stall_timeout_minutes': 30,   # no step progress past this -> rescue + kill
         'first_step_timeout_minutes': 45,  # no step 1 reached past this -> kill (base download wedged)
+        'unreachable_grace_minutes': 6,  # tolerated mid-run network blackout before giving up on the pod
         'monthly_budget_usd': 0,       # 0 = unlimited; launches blocked past this
         'disk_gb': 60,                 # instance disk (base model + dataset + checkpoints)
         # min_vram_gb est PAR FAMILLE (pas par variante) : pour flux2klein on prend

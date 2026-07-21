@@ -747,6 +747,18 @@ def _is_retryable_pod_failure(error) -> bool:
     return any(marker in text for marker in _AUTO_RETRY_MARKERS)
 
 
+_TRANSIENT_CREATE_CODES = ('400', '408', '409', '429', '500', '502', '503', '504')
+
+
+def _is_transient_create_error(err) -> bool:
+    """A vast create_instance refusal worth retrying with a FRESH offer: the
+    offer was just taken (vast answers 400/409 — run #80's 'HTTP 400 {}'), a
+    rate limit (429), or a vast-side hiccup (5xx). NOT an auth/quota rejection
+    (401/403) or a genuinely-missing offer (404) that a retry cannot fix."""
+    m = re.search(r'HTTP\s+(\d{3})', str(err or ''))
+    return bool(m and m.group(1) in _TRANSIENT_CREATE_CODES)
+
+
 def _auto_retry_child(parent_id):
     """Existing child, including the crash window before its id reached parent."""
     for child in CloudTrainingRun.query.order_by(CloudTrainingRun.id.desc()).all():
@@ -1035,49 +1047,72 @@ def _provision(run):
     params = json.loads(run.train_params or '{}')
     fam = params.get('train_type') or 'zimage'
     min_vram = (c.get('min_vram_gb') or {}).get(fam, 24)
-    offers = vast_client.search_offers(
-        min_vram_gb=min_vram, max_dph=c.get('max_price_per_hour', 0.80),
-        min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0),
-        min_reliability=float(c.get('min_reliability') or 0.98),
-        min_disk_bw_mbps=int(c.get('min_disk_bw_mbps') or 0),
-        verified_only=bool(c.get('verified_only', True)),
-        secure_cloud_only=bool(c.get('secure_cloud_only', False)))
-    if not offers:
-        raise RuntimeError(
-            f'no vast.ai offer matches (>= {min_vram} GB VRAM, '
-            f'<= ${c.get("max_price_per_hour", 0.80)}/h) — raise the price cap in Settings')
-    offer = _pick_offer(_filter_offers(offers), params.get('requested_gpu'),
-                        strict=bool(params.get('strict_gpu')))
-    # Stamp the host identity so a boot failure can blacklist THIS machine.
-    if offer.get('machine_id') is not None:
-        params['machine_id'] = offer['machine_id']
-        _set(run, train_params=json.dumps(params))
     disk_gb = _disk_gb_for(c, params)
     template_hash = (c.get('template_hash') or '').strip()
-    if template_hash:
-        # Preferred path (smoke-validated 2026-07-12): the official template
-        # publishes the UI behind the pod's Caddy proxy on ui_port and vast
-        # generates the per-instance auth token (picked up from the instance
-        # record during boot-wait). HF_TOKEN reaches the pod later via
-        # ensure_settings(), not env.
-        token = ''
-        instance_id = vast_client.create_instance(
-            offer['offer_id'], disk_gb=disk_gb,
-            label=run.vast_label, template_hash=template_hash,
-            image=(c.get('image') or None))
-    else:
-        # Raw-image fallback (config escape hatch): direct port publish +
-        # our own bearer token on the UI itself.
-        token = pysecrets.token_urlsafe(24)
-        port = int(c.get('ui_port') or 18675)
-        env = {'AI_TOOLKIT_AUTH': token, f'-p {port}:{port}': '1'}
-        hf = cfg.secret('HF_TOKEN')
-        if hf:
-            env['HF_TOKEN'] = hf
-        instance_id = vast_client.create_instance(
-            offer['offer_id'], disk_gb=disk_gb,
-            label=run.vast_label, image=c.get('image'), env=env,
-            onstart=(c.get('onstart') or None))
+    # A transient create refusal (offer just taken -> HTTP 400/409, rate limit,
+    # vast 5xx — run #80's 'HTTP 400 {}' died here with no retry) gets a bounded
+    # re-search: the failed offer is likely gone, so each attempt excludes the
+    # offers already tried and picks a fresh one. A non-transient refusal (auth,
+    # 404) or an exhausted budget raises immediately.
+    tried_offers = set()
+    offer = instance_id = None
+    token = ''
+    for attempt in range(1, _CREATE_INSTANCE_ATTEMPTS + 1):
+        offers = vast_client.search_offers(
+            min_vram_gb=min_vram, max_dph=c.get('max_price_per_hour', 0.80),
+            min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0),
+            min_reliability=float(c.get('min_reliability') or 0.98),
+            min_disk_bw_mbps=int(c.get('min_disk_bw_mbps') or 0),
+            verified_only=bool(c.get('verified_only', True)),
+            secure_cloud_only=bool(c.get('secure_cloud_only', False)))
+        pool = [o for o in offers if o.get('offer_id') not in tried_offers]
+        if not pool:
+            if tried_offers:
+                raise RuntimeError(
+                    'no fresh vast.ai offer left after a transient create refusal '
+                    f'(tried {len(tried_offers)})')
+            raise RuntimeError(
+                f'no vast.ai offer matches (>= {min_vram} GB VRAM, '
+                f'<= ${c.get("max_price_per_hour", 0.80)}/h) — raise the price cap in Settings')
+        offer = _pick_offer(_filter_offers(pool), params.get('requested_gpu'),
+                            strict=bool(params.get('strict_gpu')))
+        tried_offers.add(offer['offer_id'])
+        # Stamp the host identity so a boot failure can blacklist THIS machine.
+        if offer.get('machine_id') is not None:
+            params['machine_id'] = offer['machine_id']
+            _set(run, train_params=json.dumps(params))
+        try:
+            if template_hash:
+                # Preferred path (smoke-validated 2026-07-12): the official
+                # template publishes the UI behind the pod's Caddy proxy on
+                # ui_port and vast generates the per-instance auth token (picked
+                # up from the instance record during boot-wait). HF_TOKEN reaches
+                # the pod later via ensure_settings(), not env.
+                token = ''
+                instance_id = vast_client.create_instance(
+                    offer['offer_id'], disk_gb=disk_gb,
+                    label=run.vast_label, template_hash=template_hash,
+                    image=(c.get('image') or None))
+            else:
+                # Raw-image fallback (config escape hatch): direct port publish +
+                # our own bearer token on the UI itself.
+                token = pysecrets.token_urlsafe(24)
+                port = int(c.get('ui_port') or 18675)
+                env = {'AI_TOOLKIT_AUTH': token, f'-p {port}:{port}': '1'}
+                hf = cfg.secret('HF_TOKEN')
+                if hf:
+                    env['HF_TOKEN'] = hf
+                instance_id = vast_client.create_instance(
+                    offer['offer_id'], disk_gb=disk_gb,
+                    label=run.vast_label, image=c.get('image'), env=env,
+                    onstart=(c.get('onstart') or None))
+            break
+        except vast_client.VastError as e:
+            if attempt >= _CREATE_INSTANCE_ATTEMPTS or not _is_transient_create_error(e):
+                raise
+            logger.warning('create_instance attempt %s/%s failed (%s) — retrying '
+                           'with a fresh offer', attempt, _CREATE_INSTANCE_ATTEMPTS, e)
+            _sleep(_CREATE_INSTANCE_BACKOFF)
     try:
         _register_instance(run, instance_id, offer, token)
     except Exception:
@@ -1219,7 +1254,10 @@ def boot_recover(app):
 POLL_SECONDS = 10
 _CKPT_SYNC_EVERY_POLLS = 12          # mid-run checkpoint mirror every ~2 min
 READY_TIMEOUT_SECONDS = 900          # 15 min: boot + image pull
-UNREACHABLE_GRACE_SECONDS = 180      # tolerated mid-run network blackout
+UNREACHABLE_GRACE_SECONDS = 360      # default tolerated mid-run network blackout
+                                     # (overridable: cloud.unreachable_grace_minutes)
+_CREATE_INSTANCE_ATTEMPTS = 3        # bounded retry on a transient vast create refusal
+_CREATE_INSTANCE_BACKOFF = 5         # seconds between create attempts
 _sleep = time.sleep
 
 
@@ -1486,9 +1524,18 @@ def _monitor(app, run_id):
             #    generous enough to survive an honestly slow download.
             stall_seconds = int(c.get('stall_timeout_minutes') or 30) * 60
             first_step_seconds = int(c.get('first_step_timeout_minutes') or 45) * 60
+            grace_seconds = (int(c.get('unreachable_grace_minutes') or 0) * 60
+                             or UNREACHABLE_GRACE_SECONDS)
             last_step = -1
             last_progress_ts = _now()
-            last_ok = _now()
+            # Time of the FIRST failure of the current unreachable streak (None
+            # while the pod answers). The grace must measure CONSECUTIVE get_job
+            # failure time, not time-since-last-success: the per-poll log/sample
+            # mirror and checkpoint sync can each block for tens of seconds on a
+            # degrading vast proxy, and anchoring to the last success would let
+            # that non-probe time silently eat the grace and declare a still-live
+            # pod 'unreachable' on its very first failed probe.
+            unreachable_since = None
             polls = 0
             while True:
                 if _now() - cap_anchor > max_seconds:
@@ -1513,9 +1560,12 @@ def _monitor(app, run_id):
                     return
                 try:
                     job = remote.get_job(job_id)
-                    last_ok = _now()
+                    unreachable_since = None
                 except Exception as e:
-                    if _now() - last_ok > UNREACHABLE_GRACE_SECONDS:
+                    now = _now()
+                    if unreachable_since is None:
+                        unreachable_since = now
+                    if now - unreachable_since > grace_seconds:
                         raise RuntimeError(f'pod unreachable: {e}')
                     _sleep(POLL_SECONDS)
                     continue

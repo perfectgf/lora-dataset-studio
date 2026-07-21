@@ -332,6 +332,8 @@ const TOPICS = [
     ['cloud', 'budget', 'monthly', 'vast', 'cost', 'limit', 'spend']),
   setting('cloud.stall_timeout_minutes', 'training', 'cloud-stall-timeout', 'Stall timeout',
     ['cloud', 'stall', 'timeout', 'watchdog', 'vast', 'stuck']),
+  setting('cloud.unreachable_grace_minutes', 'training', 'cloud-unreachable-grace', 'Unreachable grace',
+    ['cloud', 'unreachable', 'grace', 'timeout', 'network', 'vast', 'blackout', 'reconnect']),
   setting('cloud.min_reliability', 'training', 'cloud-min-reliability', 'Min host reliability',
     ['cloud', 'reliability', 'host', 'vast', 'offer', 'cheap']),
   setting('cloud.verified_only', 'training', 'cloud-verified-only', 'Verified hosts only',
