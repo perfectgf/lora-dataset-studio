@@ -551,6 +551,87 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         </button>
       </div>
 
+      {/* Klein-only tuning, grouped: model file + consistency-LoRA strength.
+          A <details> so the defaults stay out of a newcomer's way — children
+          remain mounted, so the model picker still reports its choice. */}
+      {isKlein && klAvailable && (
+        <details className="rounded-lg border border-border bg-app/30 open:pb-2"
+          onToggle={(e) => { if (e.currentTarget.open) requestHelpTip('klein-tuning-open'); }}>
+          <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
+            🖥️ Klein tuning
+            <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
+              model file · consistency LoRA {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
+              {activeLoraPreset && activeLoraPreset.loras.length > 0
+                ? ` · LoRA preset: ${activeLoraPreset.name}` : ''}
+            </span>
+          </summary>
+          <div className="px-2.5 pt-1 flex flex-col gap-2">
+            <div className="max-w-sm"><Flux2KleinModelPicker onChange={setKlein} /></div>
+            <div className="flex flex-col gap-0.5">
+              <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
+                <span className="whitespace-nowrap">
+                  Consistency LoRA: {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
+                </span>
+                <input type="range" min={0} max={1.2} step={0.05} value={loraStrength}
+                  onChange={(e) => setLoraStrength(Number(e.target.value))}
+                  aria-label="Consistency LoRA strength"
+                  className="flex-1 min-w-[120px] accent-indigo-500" />
+              </label>
+              <p className="text-content-subtle text-[0.625rem]">
+                Anchors the COMPOSITION, not the face — high values suppress pose/framing changes.
+                ~0.5 balanced · 0.2–0.4 for big restagings · 0 = off. Face identity comes from the
+                reference photo(s); add extra references for a stronger identity lock.
+              </p>
+            </div>
+            {/* Optional generation-LoRA preset (Idea by @waltm) — pick one of
+                the named combinations from Settings; its chain (read-only
+                here) applies to every variation of the run. "None" on each
+                visit by default. */}
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
+                <span className="whitespace-nowrap">LoRA preset</span>
+                <select value={loraPresetName} aria-label="Generation LoRA preset"
+                  onChange={(e) => setLoraPresetName(e.target.value)}
+                  className="bg-app/60 border border-border rounded px-1 py-0.5 text-content text-[0.6875rem]">
+                  <option value="">None</option>
+                  {loraPresets.map((p) => (
+                    <option key={p.name} value={p.name}>{p.name} ({p.loras.length})</option>
+                  ))}
+                </select>
+                <span className="text-content-subtle text-[0.625rem]">
+                  your own LoRA combos — applies to every shot of this run
+                </span>
+              </label>
+              {loraPresets.length === 0 && (
+                <p className="text-content-subtle text-[0.625rem]">
+                  No presets yet — build combinations of your own LoRA files (texture, anatomy, style…) in{' '}
+                  <a href="#/settings/engines" className="text-amber-300 underline decoration-amber-300/50">
+                    Settings › Image engines
+                  </a>.
+                </p>
+              )}
+              {activeLoraPreset && (
+                activeLoraPreset.loras.length === 0 ? (
+                  <p className="text-content-subtle text-[0.625rem]">
+                    This preset is empty — add LoRA files to it in Settings.
+                  </p>
+                ) : (
+                  <ol className="flex flex-col gap-0.5 text-[0.625rem] text-content-subtle">
+                    {activeLoraPreset.loras.map((row, i) => (
+                      <li key={`${row.file}-${i}`} className="flex items-center gap-1.5" title={row.file}>
+                        <span className="text-content-muted">{i + 1}.</span>
+                        <span className="font-mono truncate max-w-[18rem]">{row.file.split(/[\\/]/).pop()}</span>
+                        <span>@ {row.strength.toFixed(2)}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )
+              )}
+            </div>
+          </div>
+        </details>
+      )}
+
       {/* Preset cards with their framing-mix bar. */}
       <div>
         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -887,87 +968,6 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           </p>
         </div>
       </details>
-
-      {/* Klein-only tuning, grouped: model file + consistency-LoRA strength.
-          A <details> so the defaults stay out of a newcomer's way — children
-          remain mounted, so the model picker still reports its choice. */}
-      {isKlein && klAvailable && (
-        <details className="rounded-lg border border-border bg-app/30 open:pb-2"
-          onToggle={(e) => { if (e.currentTarget.open) requestHelpTip('klein-tuning-open'); }}>
-          <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
-            🖥️ Klein tuning
-            <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
-              model file · consistency LoRA {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
-              {activeLoraPreset && activeLoraPreset.loras.length > 0
-                ? ` · LoRA preset: ${activeLoraPreset.name}` : ''}
-            </span>
-          </summary>
-          <div className="px-2.5 pt-1 flex flex-col gap-2">
-            <div className="max-w-sm"><Flux2KleinModelPicker onChange={setKlein} /></div>
-            <div className="flex flex-col gap-0.5">
-              <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
-                <span className="whitespace-nowrap">
-                  Consistency LoRA: {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
-                </span>
-                <input type="range" min={0} max={1.2} step={0.05} value={loraStrength}
-                  onChange={(e) => setLoraStrength(Number(e.target.value))}
-                  aria-label="Consistency LoRA strength"
-                  className="flex-1 min-w-[120px] accent-indigo-500" />
-              </label>
-              <p className="text-content-subtle text-[0.625rem]">
-                Anchors the COMPOSITION, not the face — high values suppress pose/framing changes.
-                ~0.5 balanced · 0.2–0.4 for big restagings · 0 = off. Face identity comes from the
-                reference photo(s); add extra references for a stronger identity lock.
-              </p>
-            </div>
-            {/* Optional generation-LoRA preset (Idea by @waltm) — pick one of
-                the named combinations from Settings; its chain (read-only
-                here) applies to every variation of the run. "None" on each
-                visit by default. */}
-            <div className="flex flex-col gap-1">
-              <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
-                <span className="whitespace-nowrap">LoRA preset</span>
-                <select value={loraPresetName} aria-label="Generation LoRA preset"
-                  onChange={(e) => setLoraPresetName(e.target.value)}
-                  className="bg-app/60 border border-border rounded px-1 py-0.5 text-content text-[0.6875rem]">
-                  <option value="">None</option>
-                  {loraPresets.map((p) => (
-                    <option key={p.name} value={p.name}>{p.name} ({p.loras.length})</option>
-                  ))}
-                </select>
-                <span className="text-content-subtle text-[0.625rem]">
-                  your own LoRA combos — applies to every shot of this run
-                </span>
-              </label>
-              {loraPresets.length === 0 && (
-                <p className="text-content-subtle text-[0.625rem]">
-                  No presets yet — build combinations of your own LoRA files (texture, anatomy, style…) in{' '}
-                  <a href="#/settings/engines" className="text-amber-300 underline decoration-amber-300/50">
-                    Settings › Image engines
-                  </a>.
-                </p>
-              )}
-              {activeLoraPreset && (
-                activeLoraPreset.loras.length === 0 ? (
-                  <p className="text-content-subtle text-[0.625rem]">
-                    This preset is empty — add LoRA files to it in Settings.
-                  </p>
-                ) : (
-                  <ol className="flex flex-col gap-0.5 text-[0.625rem] text-content-subtle">
-                    {activeLoraPreset.loras.map((row, i) => (
-                      <li key={`${row.file}-${i}`} className="flex items-center gap-1.5" title={row.file}>
-                        <span className="text-content-muted">{i + 1}.</span>
-                        <span className="font-mono truncate max-w-[18rem]">{row.file.split(/[\\/]/).pop()}</span>
-                        <span>@ {row.strength.toFixed(2)}</span>
-                      </li>
-                    ))}
-                  </ol>
-                )
-              )}
-            </div>
-          </div>
-        </details>
-      )}
       <div className="flex items-center gap-2 flex-wrap border-t border-border pt-2">
         <span className="text-content-muted text-[0.6875rem]">{selected.size} selected</span>
         {selected.size > 0 && (
