@@ -112,8 +112,8 @@ class SexcomSource(Source):
             page = max(0, getattr(match, 'page', 0) or 0)
             params = _search_params_for(match.url)
             if params == 'wrong-kind':
-                return None, ('Sex.com : seules les recherches PHOTOS sont importables '
-                              '(remplacez /gifs ou /videos par /pics dans l\'URL).')
+                return None, ('Sex.com: only PHOTO searches can be imported '
+                              '(replace /gifs or /videos with /pics in the URL).')
             if params is None:
                 # Pin / board / user → gallery-dl (1 requête par pin chez lui →
                 # fenêtre courte pour rester sous le timeout du scan).
@@ -141,7 +141,7 @@ class SexcomSource(Source):
             return items, None
         except Exception as e:   # garde-fou : scan() ne lève jamais
             logger.warning('sexcom scan failed: %s', e)
-            return None, f'Sex.com : échec du scan ({e}).'
+            return None, f'Sex.com: scan failed ({e}).'
 
     def download(self, url, dest_base):
         """Télécharge une image CDN en direct (fetch durci). NB : l'import concept
@@ -152,7 +152,7 @@ class SexcomSource(Source):
         ok, data, ctype, reason = fetch_hardened_bytes(
             url, allowed_types=_MEDIA_TYPES, max_bytes=MAX_DRIVER_BYTES)
         if not ok or not data:
-            return False, None, f'Sex.com : téléchargement échoué ({reason}).'
+            return False, None, f'Sex.com: download failed ({reason}).'
         ct = (ctype or '').split(';', 1)[0].strip().lower()
         ext = _CT_EXT.get(ct) or (os.path.splitext(urlparse(url).path)[1].lower() or '.jpg')
         dest_dir = os.path.dirname(dest_base)
@@ -162,7 +162,7 @@ class SexcomSource(Source):
             with open(os.path.join(dest_dir, filename), 'wb') as f:
                 f.write(data)
         except OSError as e:
-            return False, None, f"Sex.com : erreur d'écriture ({e})."
+            return False, None, f"Sex.com: write error ({e})."
         return True, filename, None
 
 

@@ -81,22 +81,22 @@ def _run_simulate(url, max_items, cookies, extra_opts, image_range=None):
         proc = subprocess.run(cmd, capture_output=True, text=True,
                               timeout=GDL_TIMEOUT, shell=False)
     except subprocess.TimeoutExpired:
-        return None, f"gallery-dl : délai dépassé ({GDL_TIMEOUT}s)."
+        return None, f"gallery-dl: timed out ({GDL_TIMEOUT}s)."
     except Exception as e:
         logger.warning("gallery-dl: échec %s: %s", url, e)
-        return None, f"gallery-dl : échec ({e})."
+        return None, f"gallery-dl: failed ({e})."
 
     stdout = (proc.stdout or '').strip()
     if not stdout:
         kind = classify_exit(proc.returncode)
-        last = ((proc.stderr or '').strip().splitlines() or ['aucune donnée'])[-1]
-        return None, f"gallery-dl : {kind or 'analyse vide'} ({last[:200]})."
+        last = ((proc.stderr or '').strip().splitlines() or ['no data'])[-1]
+        return None, f"gallery-dl: {kind or 'empty output'} ({last[:200]})."
     try:
         data = json.loads(stdout)
     except (ValueError, TypeError) as e:
-        return None, f"gallery-dl : réponse illisible ({e})."
+        return None, f"gallery-dl: unreadable response ({e})."
     if not isinstance(data, list):
-        return None, "gallery-dl : format inattendu."
+        return None, "gallery-dl: unexpected format."
     return data, None
 
 
@@ -106,7 +106,7 @@ def _error_sentinel(entries):
         if isinstance(entry, (list, tuple)) and entry and entry[0] == -1:
             meta = entry[1] if len(entry) > 1 and isinstance(entry[1], dict) else {}
             return (meta.get('message') or meta.get('error')
-                    or "gallery-dl : l'extracteur a échoué.")
+                    or "gallery-dl: the extractor failed.")
     return None
 
 
@@ -186,10 +186,10 @@ def enumerate(url, *, platform='generic', max_items=DEFAULT_MAX_ITEMS,
         # qu'un faux « aucun média » (cas d'une source derrière une protection DDoS-Guard).
         if album_errors:
             return None, album_errors[0]
-        return None, "gallery-dl : aucun média trouvé."
+        return None, "gallery-dl: no media found."
     except Exception as e:  # garde-fou ultime
         logger.exception("gdl.enumerate: erreur inattendue")
-        return None, f"gallery-dl : erreur inattendue ({e})."
+        return None, f"gallery-dl: unexpected error ({e})."
 
 
 def download(url, dest_dir, filename, *, cookies=None, extra_opts=None):
@@ -211,15 +211,15 @@ def download(url, dest_dir, filename, *, cookies=None, extra_opts=None):
                               timeout=DOWNLOAD_TIMEOUT, shell=False)
     except subprocess.TimeoutExpired:
         # NB : un éventuel fichier partiel n'est pas nettoyé ici (hors périmètre).
-        return False, None, "gallery-dl : téléchargement trop long (timeout)."
+        return False, None, "gallery-dl: download timed out."
     except Exception as e:
         logger.warning("gallery-dl download: échec %s: %s", url, e)
-        return False, None, f"gallery-dl : échec ({e})."
+        return False, None, f"gallery-dl: failed ({e})."
 
     if proc.returncode:
         kind = classify_exit(proc.returncode)
         last = ((proc.stderr or '').strip().splitlines() or [''])[-1]
-        return False, None, f"gallery-dl : {kind or 'échec'} ({last[:200]})."
+        return False, None, f"gallery-dl: {kind or 'failed'} ({last[:200]})."
 
     # Chemin produit : 1) parser le stdout (gallery-dl imprime les chemins écrits) ;
     # 2) repli = le fichier le plus récent apparu dans dest_dir.
@@ -231,4 +231,4 @@ def download(url, dest_dir, filename, *, cookies=None, extra_opts=None):
     if after:
         newest = max((os.path.join(dest_dir, f) for f in after), key=os.path.getmtime)
         return True, newest, None
-    return False, None, "gallery-dl : aucun fichier produit."
+    return False, None, "gallery-dl: no file produced."

@@ -166,7 +166,7 @@ def test_scan_pagination_past_end_returns_empty(monkeypatch):
 def test_scan_empty_keyword_is_error(monkeypatch):
     monkeypatch.setattr(reddit, '_get_token', lambda: 'tok')
     items, err = reddit.RedditSource().scan(Match(url='https://www.reddit.com/search/?q='))
-    assert items is None and 'mot-cl' in err
+    assert items is None and 'keyword' in err
 
 
 def test_scan_direct_image_needs_no_api():
@@ -176,13 +176,13 @@ def test_scan_direct_image_needs_no_api():
 
 def test_scan_unrecognized_url_is_error():
     items, err = reddit.RedditSource().scan(Match(url='https://www.reddit.com/settings'))
-    assert items is None and 'non reconnue' in err
+    assert items is None and 'unrecognized' in err
 
 
 def test_scan_token_failure_is_graceful(monkeypatch):
     monkeypatch.setattr(reddit, '_get_token', lambda: None)
     items, err = reddit.RedditSource().scan(Match(url='https://www.reddit.com/r/x/'))
-    assert items is None and 'authentification' in err
+    assert items is None and 'authentication' in err
 
 
 # --- 429 rate-limit handling ------------------------------------------------

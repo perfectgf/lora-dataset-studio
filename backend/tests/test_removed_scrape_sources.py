@@ -41,7 +41,7 @@ def test_removed_platform_url_is_refused_explicitly_and_never_generic(url, expec
     assert result.platform == expected_platform
     assert result.platform != Platform.GENERIC
     assert expected_platform.value in result.error
-    assert 'retiré' in result.error
+    assert 'removed' in result.error
 
 
 @pytest.mark.parametrize('url,_platform', _REMOVED_URLS)
@@ -63,7 +63,7 @@ def test_scan_route_gives_a_clean_unsupported_source_error(client):
     assert resp.status_code == 400
     body = resp.get_json()
     assert 'coomer' in body['error']
-    assert 'retiré' in body['error']
+    assert 'removed' in body['error']
 
 
 @pytest.mark.parametrize('url', [u for u, _ in _REMOVED_URLS])

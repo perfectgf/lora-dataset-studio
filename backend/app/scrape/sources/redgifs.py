@@ -161,7 +161,7 @@ def scan(validation):
     """
     try:
         if not client.get_token():
-            return None, "Impossible d'obtenir un token RedGifs (Cloudflare / rate-limit ?)."
+            return None, "RedGifs: could not obtain a token (Cloudflare / rate-limit?)."
 
         ut = validation.url_type
         value = validation.value
@@ -180,17 +180,17 @@ def scan(validation):
         elif ut == URLType.VIDEO:
             gif = client.get_single_video(value)
             if not gif:
-                return None, "Vidéo RedGifs introuvable (ou token expiré)."
+                return None, "RedGifs video not found (or token expired)."
             items.append(_item_from_gif(gif))
         else:
-            return None, "Type d'URL RedGifs non supporté."
+            return None, "Unsupported RedGifs URL type."
 
         if not items:
-            return None, "Aucun média trouvé pour cette URL RedGifs."
+            return None, "No media found for this RedGifs URL."
         return items, None
     except Exception as e:  # garde-fou : ne jamais propager
         logger.warning(f"[redgifs] erreur de scan: {e}")
-        return None, "Erreur lors du scan RedGifs."
+        return None, "RedGifs scan error."
 
 
 from .base import Source, Capabilities, Match

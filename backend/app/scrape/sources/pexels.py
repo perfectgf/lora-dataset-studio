@@ -98,19 +98,19 @@ def _request_json(endpoint, params, key, *, not_found=None):
             allow_redirects=False,
         )
     except requests.Timeout:
-        return None, 'Pexels : délai dépassé lors de l’appel à l’API officielle.'
+        return None, 'Pexels: timed out calling the official API.'
     except requests.RequestException:
-        return None, 'Pexels : erreur réseau lors de l’appel à l’API officielle.'
+        return None, 'Pexels: network error calling the official API.'
 
     status = response.status_code
     if 300 <= status < 400:
-        return None, 'Pexels : redirection inattendue refusée par sécurité.'
+        return None, 'Pexels: unexpected redirect blocked (SSRF guard).'
     if status in (401, 403):
-        return None, (f'Pexels : clé API refusée (HTTP {status}). '
-                      'Vérifiez PEXELS_API_KEY dans Settings → Scraping & sources.')
+        return None, (f'Pexels: API key rejected (HTTP {status}). '
+                      'Check PEXELS_API_KEY in Settings → Scraping & sources.')
     if status == 404:
         return None, (not_found or
-                      'Pexels : ressource introuvable ou non accessible avec cette clé API.')
+                      'Pexels: resource not found or not accessible with this API key.')
     if status == 429:
         headers = getattr(response, 'headers', {}) or {}
         reset = headers.get('X-Ratelimit-Reset') or headers.get('X-RateLimit-Reset')
@@ -118,31 +118,31 @@ def _request_json(endpoint, params, key, *, not_found=None):
         if reset is not None:
             safe_reset = str(reset).strip().replace('\r', '').replace('\n', '')[:80]
             if safe_reset:
-                reset_hint = f' Réinitialisation annoncée : {safe_reset}.'
-        return None, ('Pexels : quota de l’API atteint (HTTP 429).'
-                      f'{reset_hint} Réessayez plus tard.')
+                reset_hint = f' Reset announced: {safe_reset}.'
+        return None, ('Pexels: API quota reached (HTTP 429).'
+                      f'{reset_hint} Try again later.')
     if status >= 500:
-        return None, f'Pexels : API officielle temporairement indisponible (HTTP {status}).'
+        return None, f'Pexels: official API temporarily unavailable (HTTP {status}).'
     if status >= 400:
-        return None, (f'Pexels : requête refusée par l’API (HTTP {status}). '
-                      'Vérifiez l’URL Pexels.')
+        return None, (f'Pexels: request rejected by the API (HTTP {status}). '
+                      'Check the Pexels URL.')
 
     try:
         data = response.json()
     except (TypeError, ValueError):
-        return None, 'Pexels : réponse JSON illisible de l’API officielle.'
+        return None, 'Pexels: unreadable JSON response from the official API.'
     if not isinstance(data, dict):
-        return None, 'Pexels : schéma JSON inattendu de l’API officielle.'
+        return None, 'Pexels: unexpected JSON schema from the official API.'
     return data, None
 
 
 def _map_photo_list(data, key):
     raw = data.get(key)
     if not isinstance(raw, list):
-        return None, f'Pexels : schéma incomplet (champ {key} absent ou invalide).'
+        return None, f'Pexels: incomplete schema ({key} field missing or invalid).'
     items = [item for item in (_photo_item(photo) for photo in raw) if item]
     if raw and not items:
-        return None, 'Pexels : schéma photo incomplet dans la réponse API.'
+        return None, 'Pexels: incomplete photo schema in the API response.'
     return items, None
 
 
@@ -220,7 +220,7 @@ class PexelsSource(Source):
         page = max(0, getattr(match, 'page', 0) or 0)
         target = _target_for(match.url, page)
         if target is None:
-            return None, 'Pexels : format d’URL non pris en charge par l’API officielle.'
+            return None, 'Pexels: URL format not supported by the official API.'
         endpoint, params, kind = target
         match.paginated = kind != 'photo'
         if kind == 'photo' and page > 0:
@@ -228,15 +228,15 @@ class PexelsSource(Source):
 
         key = pexels_api_key()
         if not key:
-            return None, ('Pexels : clé API requise. Ajoutez PEXELS_API_KEY dans '
-                          'Settings → Scraping & sources (clé gratuite).')
+            return None, ('Pexels: API key required. Add PEXELS_API_KEY in '
+                          'Settings → Scraping & sources (free key).')
 
         not_found = None
         if kind == 'collection':
-            not_found = ('Pexels : collection introuvable ou non accessible avec cette clé API '
-                         '(les collections publiques arbitraires ne sont pas toutes exposées).')
+            not_found = ('Pexels: collection not found or not accessible with this API key '
+                         '(not all arbitrary public collections are exposed).')
         elif kind == 'photo':
-            not_found = 'Pexels : photo introuvable (HTTP 404).'
+            not_found = 'Pexels: photo not found (HTTP 404).'
         data, err = _request_json(endpoint, params, key, not_found=not_found)
         if err:
             return None, err
@@ -244,7 +244,7 @@ class PexelsSource(Source):
         if kind == 'photo':
             item = _photo_item(data)
             if not item:
-                return None, 'Pexels : schéma photo incomplet dans la réponse API.'
+                return None, 'Pexels: incomplete photo schema in the API response.'
             return [item], None
 
         next_page = data.get('next_page')

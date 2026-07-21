@@ -70,13 +70,13 @@ _CT_EXT = {
 }
 # fetch_hardened_bytes renvoie un code court (reason) → message FR exploitable.
 _FETCH_REASON_MSG = {
-    'redirect': 'Civitai : redirection refusée (sécurité anti-SSRF).',
-    'status': 'Civitai : ressource indisponible (HTTP non-200).',
-    'type': "Civitai : type de média inattendu (ni image ni vidéo).",
-    'toolarge': 'Civitai : média trop volumineux.',
-    'fetch': 'Civitai : échec de la requête CDN.',
-    'no_curl': 'curl_cffi non disponible (dépendance manquante).',
-    'noimage': "Civitai : le contenu n'est pas une image valide.",
+    'redirect': 'Civitai: redirect blocked (SSRF guard).',
+    'status': 'Civitai: resource unavailable (non-200 HTTP).',
+    'type': "Civitai: unexpected media type (neither image nor video).",
+    'toolarge': 'Civitai: media too large.',
+    'fetch': 'Civitai: CDN request failed.',
+    'no_curl': "Civitai needs the 'curl_cffi' package - install the scrape extras (Setup > Install everything).",
+    'noimage': "Civitai: content is not a valid image.",
 }
 
 
@@ -126,7 +126,7 @@ class CivitaiSource(GalleryDlSource):
         ok, data, ctype, reason = fetch_hardened_bytes(
             url, allowed_types=_CIVITAI_MEDIA_TYPES, max_bytes=MAX_DRIVER_BYTES)
         if not ok or not data:
-            return False, None, _FETCH_REASON_MSG.get(reason, f'Civitai : échec ({reason}).')
+            return False, None, _FETCH_REASON_MSG.get(reason, f'Civitai: failed ({reason}).')
         dest_dir = os.path.dirname(dest_base)
         filename = os.path.basename(dest_base) + _ext_for(ctype, url)
         try:
@@ -134,7 +134,7 @@ class CivitaiSource(GalleryDlSource):
             with open(os.path.join(dest_dir, filename), 'wb') as f:
                 f.write(data)
         except OSError as e:
-            return False, None, f"Civitai : erreur d'écriture ({e})."
+            return False, None, f"Civitai: write error ({e})."
         return True, filename, None
 
     def scan(self, match):

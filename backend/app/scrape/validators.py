@@ -294,8 +294,8 @@ class URLValidator:
                 return ValidationResult(
                     is_valid=False, platform=Platform.UNKNOWN, url_type=URLType.UNKNOWN,
                     value="", original_url=url,
-                    error="URL invalide : doit commencer par http:// ou https://",
-                    suggestions=["Ajoutez https:// au début de l'URL"],
+                    error="Invalid URL: must start with http:// or https://",
+                    suggestions=["Add https:// at the start of the URL"],
                 )
 
         try:
@@ -303,12 +303,12 @@ class URLValidator:
             if not parsed.scheme or not parsed.netloc:
                 return ValidationResult(
                     is_valid=False, platform=Platform.UNKNOWN, url_type=URLType.UNKNOWN,
-                    value="", original_url=url, error="Format d'URL invalide",
+                    value="", original_url=url, error="Invalid URL format",
                 )
         except Exception as e:
             return ValidationResult(
                 is_valid=False, platform=Platform.UNKNOWN, url_type=URLType.UNKNOWN,
-                value="", original_url=url, error=f"Erreur de parsing : {e}",
+                value="", original_url=url, error=f"Parsing error: {e}",
             )
 
         platform = cls.detect_platform(url)
@@ -321,8 +321,8 @@ class URLValidator:
             return ValidationResult(
                 is_valid=False, platform=platform, url_type=URLType.UNKNOWN,
                 value="", original_url=url,
-                error=f"Source « {platform.value} » non prise en charge : ce site a été "
-                      "retiré de ce scraper.",
+                error=f"Source '{platform.value}' not supported: this site was "
+                      "removed from this scraper.",
             )
 
         if platform == Platform.UNKNOWN:
@@ -334,10 +334,10 @@ class URLValidator:
                 )
             return ValidationResult(
                 is_valid=False, platform=Platform.UNKNOWN, url_type=URLType.UNKNOWN,
-                value="", original_url=url, error="URL non reconnue",
+                value="", original_url=url, error="Unrecognized URL",
                 suggestions=[
-                    "Plateformes spécialisées : RedGIFs, Instagram, Picazor",
-                    "Autres sites vidéo (TikTok, YouTube, ...) : collez l'URL complète de la page",
+                    "Specialized platforms: RedGIFs, Instagram, Picazor",
+                    "Other video sites (TikTok, YouTube, ...): paste the full page URL",
                 ],
             )
 
@@ -347,8 +347,8 @@ class URLValidator:
             return ValidationResult(
                 is_valid=False, platform=platform, url_type=URLType.UNKNOWN,
                 value="", original_url=url,
-                error=f"Domaine invalide pour {platform.value}",
-                suggestions=[f"Utilisez : {valid_domains}"],
+                error=f"Invalid domain for {platform.value}",
+                suggestions=[f"Use: {valid_domains}"],
             )
 
         if platform == Platform.REDGIFS:
@@ -370,7 +370,7 @@ class URLValidator:
         # Garde-fou défensif (ne devrait jamais s'exécuter).
         return ValidationResult(
             is_valid=False, platform=platform, url_type=URLType.UNKNOWN,
-            value="", original_url=url, error="Plateforme non prise en charge.")
+            value="", original_url=url, error="Unsupported platform.")
 
 
     @classmethod
@@ -394,12 +394,12 @@ class URLValidator:
 
         return ValidationResult(
             False, Platform.REDGIFS, URLType.UNKNOWN, "", url,
-            error="Format d'URL RedGIFs non reconnu",
+            error="Unrecognized RedGIFs URL format",
             suggestions=[
-                "Formats supportés :",
-                "  • Profil : redgifs.com/users/username",
-                "  • Vidéo : redgifs.com/watch/videoid",
-                "  • Niche : redgifs.com/niches/nichename",
+                "Supported formats:",
+                "  • Profile: redgifs.com/users/username",
+                "  • Video: redgifs.com/watch/videoid",
+                "  • Niche: redgifs.com/niches/nichename",
             ],
         )
 
@@ -426,12 +426,12 @@ class URLValidator:
 
         return ValidationResult(
             False, Platform.INSTAGRAM, URLType.UNKNOWN, "", url,
-            error="Format d'URL Instagram non reconnu",
+            error="Unrecognized Instagram URL format",
             suggestions=[
-                "Formats supportés :",
-                "  • Profil : instagram.com/username",
-                "  • Post : instagram.com/p/postid",
-                "  • Reel : instagram.com/reel/reelid",
+                "Supported formats:",
+                "  • Profile: instagram.com/username",
+                "  • Post: instagram.com/p/postid",
+                "  • Reel: instagram.com/reel/reelid",
             ],
         )
 
@@ -458,13 +458,13 @@ class URLValidator:
 
         return ValidationResult(
             False, Platform.PICAZOR, URLType.UNKNOWN, "", url,
-            error="Format d'URL Picazor non reconnu",
+            error="Unrecognized Picazor URL format",
             suggestions=[
-                "Formats supportés :",
-                "  • Profil : picazor.com/fr/creator",
-                "  • Page de listing : picazor.com/fr/creator/page/2",
-                "  • Média unique : picazor.com/fr/creator/123",
-                "  • Listing : picazor.com/fr/videos/week",
+                "Supported formats:",
+                "  • Profile: picazor.com/fr/creator",
+                "  • Listing page: picazor.com/fr/creator/page/2",
+                "  • Single media: picazor.com/fr/creator/123",
+                "  • Listing: picazor.com/fr/videos/week",
             ],
         )
 
@@ -488,12 +488,12 @@ class URLValidator:
 
         return ValidationResult(
             False, Platform.EROME, URLType.UNKNOWN, "", url,
-            error="Format d'URL Erome non reconnu",
+            error="Unrecognized Erome URL format",
             suggestions=[
-                "Formats supportés :",
-                "  • Album : erome.com/a/AbCdEfGh",
-                "  • Recherche : erome.com/search?q=motcle",
-                "  • Profil : erome.com/username",
+                "Supported formats:",
+                "  • Album: erome.com/a/AbCdEfGh",
+                "  • Search: erome.com/search?q=keyword",
+                "  • Profile: erome.com/username",
             ],
         )
 
@@ -507,19 +507,19 @@ class URLValidator:
         """
         parsed = urlparse(url)
         suggestions = [
-            "Formats Pexels pris en charge :",
-            "  • Recherche : pexels.com/search/portrait/",
-            "  • Recherche localisée : pexels.com/en-us/search/portrait/",
-            "    ou pexels.com/fr-fr/chercher/portrait/",
-            "  • Collection accessible à votre clé : pexels.com/collections/nom-identifiant/",
-            "  • Photo : pexels.com/photo/nom-123456/",
-            "Les préfixes /en-us/ et /fr-fr/ sont aussi acceptés pour les photos et collections.",
-            "L'API officielle Pexels n'expose pas les profils publics /@user.",
+            "Supported Pexels formats:",
+            "  • Search: pexels.com/search/portrait/",
+            "  • Localized search: pexels.com/en-us/search/portrait/",
+            "    or pexels.com/fr-fr/chercher/portrait/",
+            "  • Collection accessible with your key: pexels.com/collections/name-id/",
+            "  • Photo: pexels.com/photo/name-123456/",
+            "The /en-us/ and /fr-fr/ prefixes are also accepted for photos and collections.",
+            "The official Pexels API does not expose public /@user profiles.",
         ]
         if parsed.username is not None or parsed.password is not None:
             return ValidationResult(
                 False, Platform.PEXELS, URLType.UNKNOWN, "", url,
-                error="URL Pexels invalide : informations utilisateur non autorisées.",
+                error="Invalid Pexels URL: userinfo not allowed.",
                 suggestions=suggestions,
             )
 
@@ -531,7 +531,7 @@ class URLValidator:
 
         return ValidationResult(
             False, Platform.PEXELS, URLType.UNKNOWN, "", url,
-            error="Format d'URL Pexels non pris en charge par l'API officielle.",
+            error="Pexels URL format not supported by the official API.",
             suggestions=suggestions,
         )
 

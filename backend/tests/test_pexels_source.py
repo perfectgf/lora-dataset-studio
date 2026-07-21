@@ -102,10 +102,10 @@ def test_rejects_routes_not_supported_by_official_api(path):
     assert result.is_valid is False
     assert result.platform == Platform.PEXELS
     assert result.url_type == URLType.UNKNOWN
-    assert 'API officielle' in result.error
+    assert 'official API' in result.error
     assert any('/search/' in suggestion for suggestion in result.suggestions)
     if path.startswith('/@'):
-        assert any('profils publics' in suggestion for suggestion in result.suggestions)
+        assert any('public /@user profiles' in suggestion for suggestion in result.suggestions)
 
 
 @pytest.mark.parametrize('path', [
@@ -126,10 +126,10 @@ def test_domain_and_userinfo_guards_reject_lookalikes():
         'https://pexels.com@evil.example/search/x/') != Platform.PEXELS
 
     result = url_validator.validate_url('https://evil.pexels.com/search/x/')
-    assert result.is_valid is False and 'Domaine invalide' in result.error
+    assert result.is_valid is False and 'Invalid domain' in result.error
     result = url_validator.validate_url(
         'https://evil.example@www.pexels.com/search/x/')
-    assert result.is_valid is False and 'informations utilisateur' in result.error
+    assert result.is_valid is False and 'userinfo not allowed' in result.error
 
 
 def test_registry_exposes_authenticated_sfw_image_source():
@@ -315,14 +315,14 @@ def test_missing_key_is_actionable_and_never_calls_api(monkeypatch):
     monkeypatch.delenv('PEXELS_API_KEY')
     monkeypatch.setattr(pexels.requests, 'get', lambda *a, **k: pytest.fail('network'))
     _match, items, err = _scan('https://www.pexels.com/search/portrait/')
-    assert items is None and 'PEXELS_API_KEY' in err and 'requise' in err
+    assert items is None and 'PEXELS_API_KEY' in err and 'required' in err
 
 
 @pytest.mark.parametrize('status', [401, 403])
 def test_rejected_key_is_actionable_without_leaking_it(monkeypatch, status):
     _mock_get(monkeypatch, _Response(status=status))
     _match, items, err = _scan('https://www.pexels.com/search/portrait/')
-    assert items is None and f'HTTP {status}' in err and 'clé API refusée' in err
+    assert items is None and f'HTTP {status}' in err and 'API key rejected' in err
     assert _KEY not in err
 
 
@@ -331,8 +331,8 @@ def test_collection_404_explains_api_visibility_limit(monkeypatch):
     _match, items, err = _scan(
         'https://www.pexels.com/collections/public-looking-abc123/')
     assert items is None
-    assert 'collection introuvable ou non accessible' in err
-    assert 'publiques arbitraires' in err
+    assert 'collection not found or not accessible' in err
+    assert 'arbitrary public collections' in err
     assert _KEY not in err
 
 
@@ -348,12 +348,12 @@ def test_rate_limit_includes_reset_without_key(monkeypatch):
 def test_server_errors_are_actionable(monkeypatch, status):
     _mock_get(monkeypatch, _Response(status=status))
     _match, items, err = _scan('https://www.pexels.com/search/portrait/')
-    assert items is None and f'HTTP {status}' in err and 'indisponible' in err
+    assert items is None and f'HTTP {status}' in err and 'unavailable' in err
 
 
 @pytest.mark.parametrize(('exc', 'message'), [
-    (requests.Timeout(), 'délai dépassé'),
-    (requests.RequestException(), 'erreur réseau'),
+    (requests.Timeout(), 'timed out'),
+    (requests.RequestException(), 'network error'),
 ])
 def test_request_failures_never_raise_or_leak_key(monkeypatch, exc, message):
     def fail(*args, **kwargs):
@@ -368,7 +368,7 @@ def test_redirect_is_refused_without_second_request_or_key_leak(monkeypatch):
     calls = _mock_get(monkeypatch, _Response(
         status=302, headers={'Location': 'https://evil.example/steal'}))
     _match, items, err = _scan('https://www.pexels.com/search/portrait/')
-    assert items is None and 'redirection' in err and _KEY not in err
+    assert items is None and 'redirect' in err and _KEY not in err
     assert len(calls) == 1 and calls[0][1]['allow_redirects'] is False
 
 
@@ -379,7 +379,7 @@ def test_redirect_is_refused_without_second_request_or_key_leak(monkeypatch):
 def test_invalid_json_or_top_level_schema_is_actionable(monkeypatch, response):
     _mock_get(monkeypatch, response)
     _match, items, err = _scan('https://www.pexels.com/search/portrait/')
-    assert items is None and ('JSON' in err or 'schéma' in err)
+    assert items is None and ('JSON' in err or 'schema' in err)
 
 
 @pytest.mark.parametrize('payload', [
@@ -396,7 +396,7 @@ def test_invalid_json_or_top_level_schema_is_actionable(monkeypatch, response):
 def test_incomplete_or_unsafe_photo_schema_is_rejected(monkeypatch, payload):
     _mock_get(monkeypatch, _Response(payload=payload))
     _match, items, err = _scan('https://www.pexels.com/search/portrait/')
-    assert items is None and 'schéma' in err
+    assert items is None and 'schema' in err
 
 
 def test_scan_route_returns_api_metadata_and_attribution(client, monkeypatch):

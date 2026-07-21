@@ -47,6 +47,13 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-21-instagram-scrape-and-english-messages',
+    date: '2026-07-21',
+    title: '📸 Instagram scraping is back — and every scraper speaks English',
+    blurb:
+      "Instagram scraping works again: the missing 'instaloader' dependency now ships with the scrape extras (Setup › Install everything). Every scraper error message — Instagram, Civitai, Pexels, Reddit, RedGifs, Picazor, Erome and more — now reads in clear English, and the \"missing dependency\" ones tell you exactly which extra to install.",
+  },
+  {
     id: '2026-07-21-load-default-prompt-to-edit',
     date: '2026-07-21',
     title: '✎ Tweak a built-in prompt instead of retyping it',

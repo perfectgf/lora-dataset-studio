@@ -53,7 +53,7 @@ PROFILE_SCAN_TIMEOUT = 60     # secondes — plafond global d'un scan de profil
 SESSION_TIMEOUT = 10          # secondes — timeout HTTP de la session instaloader
 
 # Message d'erreur unique pour tout refus côté Instagram (auth / 403 / rate-limit).
-_AUTH_ERROR = "Instagram a refusé l'accès (auth requise / rate-limit)."
+_AUTH_ERROR = "Instagram blocked access (login required / rate-limit)."
 
 # Sous-chaînes signalant un blocage anti-bot dans un message d'exception.
 _BLOCK_HINTS = ("429", "403", "forbidden", "too many", "login", "rate", "checkpoint")
@@ -243,7 +243,7 @@ def _scan_profile(loader, username):
     try:
         profile = instaloader.Profile.from_username(loader.context, username)
     except instaloader.ProfileNotExistsException:
-        return None, f"Profil Instagram introuvable : {username}."
+        return None, f"Instagram profile not found: {username}."
     except Exception as e:
         # ConnectionException / LoginRequired / Forbidden / TooManyRequests / ...
         logger.warning("Chargement profil %s échoué : %s", username, e)
@@ -279,7 +279,7 @@ def _scan_profile(loader, username):
         return None, _AUTH_ERROR
 
     if not items:
-        return None, f"Aucun média trouvé pour le profil {username}."
+        return None, f"No media found for profile {username}."
     return items[:SCAN_LIMIT], None
 
 
@@ -288,7 +288,7 @@ def _scan_single(loader, shortcode, original_url=None):
     try:
         post = instaloader.Post.from_shortcode(loader.context, shortcode)
     except instaloader.QueryReturnedNotFoundException:
-        return None, f"Publication Instagram introuvable : {shortcode}."
+        return None, f"Instagram post not found: {shortcode}."
     except Exception as e:
         logger.warning("Chargement post %s échoué : %s", shortcode, e)
         return None, _AUTH_ERROR
@@ -300,7 +300,7 @@ def _scan_single(loader, shortcode, original_url=None):
         return None, _AUTH_ERROR
 
     if not items:
-        return None, f"Aucun média exploitable pour {shortcode}."
+        return None, f"No usable media for {shortcode}."
     return items[:SCAN_LIMIT], None
 
 
@@ -323,7 +323,7 @@ def scan(validation):
     from ..validators import URLType
 
     if not INSTALOADER_AVAILABLE:
-        return None, "Module instaloader indisponible (dépendance manquante)."
+        return None, "Instagram scraping needs the 'instaloader' package - install the scrape extras (Setup > Install everything)."
 
     try:
         url_type = getattr(validation, "url_type", None)
@@ -331,7 +331,7 @@ def scan(validation):
         original_url = getattr(validation, "original_url", None)
 
         if not value:
-            return None, "URL Instagram invalide (cible introuvable)."
+            return None, "Invalid Instagram URL (target not found)."
 
         try:
             loader = _build_loader()
@@ -344,14 +344,14 @@ def scan(validation):
         if url_type in (URLType.POST, URLType.REEL):
             return _scan_single(loader, value, original_url=original_url)
 
-        return None, f"Type d'URL Instagram non géré : {getattr(url_type, 'value', url_type)}."
+        return None, f"Unsupported Instagram URL type: {getattr(url_type, 'value', url_type)}."
 
     except Exception as e:
         # Filet de sécurité absolu — scan() ne doit jamais propager d'exception.
         logger.warning("Erreur inattendue scan Instagram : %s", e)
         if _looks_like_block(e):
             return None, _AUTH_ERROR
-        return None, "Erreur lors du scan Instagram."
+        return None, "Instagram scan error."
 
 
 from .base import Source, Capabilities, Match

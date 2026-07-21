@@ -100,9 +100,9 @@ def _resolve_public_ips(host, port):
     try:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
-        return None, "Hôte introuvable (DNS)."
+        return None, "Host not found (DNS)."
     except Exception:
-        return None, "Résolution de l'hôte impossible."
+        return None, "Could not resolve host."
 
     ips = set()
     for info in infos:
@@ -110,12 +110,12 @@ def _resolve_public_ips(host, port):
         try:
             ip = ipaddress.ip_address(ip_str)
         except ValueError:
-            return None, "Adresse IP invalide."
+            return None, "Invalid IP address."
         if _ip_is_blocked(ip):
-            return None, "Cette URL pointe vers une adresse réseau interne (refusé)."
+            return None, "This URL points to an internal network address (blocked)."
         ips.add(str(ip))
     if not ips:
-        return None, "Hôte introuvable (DNS)."
+        return None, "Host not found (DNS)."
     return frozenset(ips), None
 
 
@@ -139,19 +139,19 @@ def _validate_public_http_url(url):
     domaines ou un proxy de sortie validant.
     """
     if not url or not isinstance(url, str):
-        return False, "URL manquante."
+        return False, "Missing URL."
     url = url.strip()
     if len(url) > 2048:
-        return False, "URL trop longue."
+        return False, "URL too long."
     try:
         parsed = urlparse(url)
     except Exception:
-        return False, "URL invalide."
+        return False, "Invalid URL."
     if parsed.scheme not in ('http', 'https'):
-        return False, "Seules les URL http(s) sont autorisées."
+        return False, "Only http(s) URLs are allowed."
     host = parsed.hostname
     if not host:
-        return False, "URL sans hôte valide."
+        return False, "URL without a valid host."
 
     _ips, err = _resolve_public_ips(host, parsed.port or (443 if parsed.scheme == 'https' else 80))
     if err:
@@ -192,13 +192,13 @@ def _download_with_ytdlp(url, dest_template):
             cwd=quarantine,   # cwd isolé : un fichier planté (ffmpeg.exe…) n'atterrit pas dans COMFYUI_OUTPUT_DIR
         )
     except subprocess.TimeoutExpired:
-        return False, "Téléchargement trop long (timeout)."
+        return False, "Download timed out."
     except FileNotFoundError:
         current_app.logger.error("yt-dlp introuvable (python -m yt_dlp).")
-        return False, "yt-dlp non disponible côté serveur."
+        return False, "yt-dlp not available on the server."
     except Exception as e:
         current_app.logger.error(f"Erreur lancement yt-dlp: {e}")
-        return False, "Erreur interne du téléchargement."
+        return False, "Internal download error."
     finally:
         if quarantine:
             shutil.rmtree(quarantine, ignore_errors=True)
@@ -209,7 +209,7 @@ def _download_with_ytdlp(url, dest_template):
             f"yt-dlp échec (rc={result.returncode}) pour {url[:120]}: "
             f"{(result.stderr or '')[:500]}"
         )
-        return False, "Échec du téléchargement (URL non supportée ou indisponible)."
+        return False, "Download failed (unsupported or unavailable URL)."
     return True, None
 
 
@@ -263,7 +263,7 @@ def download_via_ytdlp(url, dest_base):
             try: _os.remove(p)
             except OSError: pass
     if final is None:
-        return False, None, "Le fichier téléchargé n'est pas une vidéo valide."
+        return False, None, "The downloaded file is not a valid video."
     return True, _os.path.basename(final), None
 
 

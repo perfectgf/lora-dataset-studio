@@ -3,6 +3,7 @@
 # /api/scrape/thumb and /dataset/<id>/scrape-import do. Install with:
 #   pip install -r backend/requirements-scrape.txt
 gallery-dl>=1.32.0        # gallery enumeration (civitai .red/.com, pornpics, fapello, reddit, sexcom, x, tiktok, erome)
+instaloader>=4.12         # Instagram profile/post scraping (pure-python; the Instagram source needs it)
 yt-dlp>=2024.07.01        # security floor (CVE-2024-38519); used by netfetch's video path
 curl_cffi>=0.7            # hardened fetch + thumb proxy (impersonate=chrome, anti-hotlink)
 brotli>=1.1              # Brotli decompression (curl_cffi / yt-dlp)

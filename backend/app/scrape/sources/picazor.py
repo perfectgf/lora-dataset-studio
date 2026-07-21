@@ -125,12 +125,12 @@ def _request_html(url: str):
     from ..netfetch import _validate_public_http_url
     ok_url, ssrf_err = _validate_public_http_url(url)
     if not ok_url:
-        return None, ssrf_err or "Picazor : URL refusée (SSRF)."
+        return None, ssrf_err or "Picazor: URL blocked (SSRF)."
 
     try:
         from curl_cffi import requests as cf_requests
     except ImportError:
-        return None, "curl_cffi non disponible (dépendance Picazor manquante)."
+        return None, "Picazor needs the 'curl_cffi' package - install the scrape extras (Setup > Install everything)."
 
     try:
         response = cf_requests.get(
@@ -138,15 +138,15 @@ def _request_html(url: str):
         )
     except Exception as e:  # réseau, TLS, timeout...
         logger.warning("Picazor: échec requête %s: %s", url, e)
-        return None, f"Picazor : échec de la requête ({e})."
+        return None, f"Picazor: request failed ({e})."
 
     status = getattr(response, "status_code", 0)
     html = getattr(response, "text", "") or ""
 
     if _looks_like_cloudflare(html, status):
-        return None, "Picazor (Cloudflare) a bloqué l'accès."
+        return None, "Picazor (Cloudflare) blocked access."
     if status >= 400:
-        return None, f"Picazor : réponse HTTP {status}."
+        return None, f"Picazor: HTTP {status} response."
 
     return html, None
 
@@ -251,7 +251,7 @@ def scan(validation):
       - items = list[dict] (≤ MAX_ITEMS) au schéma commun, ou None ;
       - error = str | None.
     Ne lève jamais : toute exception → (None, message). Dégradation gracieuse
-    si Cloudflare bloque → (None, "Picazor (Cloudflare) a bloqué l'accès.").
+    si Cloudflare bloque → (None, "Picazor (Cloudflare) blocked access.").
     """
     try:
         url = getattr(validation, "original_url", None) or getattr(validation, "value", "")
@@ -268,7 +268,7 @@ def scan(validation):
                 return None, err
             items = _parse_detail(html, creator)
             if not items:
-                return None, "Picazor : aucun média trouvé sur la page de détail."
+                return None, "Picazor: no media found on the detail page."
             return items[:MAX_ITEMS], None
 
         # --- Listing global (videos/week, models, ...) --------------------- #
@@ -278,7 +278,7 @@ def scan(validation):
                 return None, err
             items = _parse_listing(html, creator)
             if not items:
-                return None, "Picazor : aucun média trouvé sur ce listing."
+                return None, "Picazor: no media found in this listing."
             return items[:MAX_ITEMS], None
 
         # --- Profil paginé (cas par défaut : PROFILE) ---------------------- #
@@ -320,12 +320,12 @@ def scan(validation):
                 break
 
         if not all_items:
-            return None, "Picazor : aucun média trouvé pour ce profil."
+            return None, "Picazor: no media found for this profile."
         return all_items[:MAX_ITEMS], None
 
     except Exception as e:  # garde-fou ultime — ne jamais lever
         logger.exception("Picazor scan: erreur inattendue")
-        return None, f"Picazor : erreur inattendue ({e})."
+        return None, f"Picazor: unexpected error ({e})."
 
 
 def download(url, dest_path):
@@ -341,7 +341,7 @@ def download(url, dest_path):
     try:
         from curl_cffi import requests as cf_requests
     except ImportError:
-        return False, None, "curl_cffi non disponible (dépendance Picazor manquante)."
+        return False, None, "Picazor needs the 'curl_cffi' package - install the scrape extras (Setup > Install everything)."
 
     try:
         dest_path = Path(dest_path)
@@ -356,13 +356,13 @@ def download(url, dest_path):
                 return False, None, err
             detail = _parse_detail(html, creator)
             if not detail:
-                return False, None, "Picazor : média introuvable sur la page de détail."
+                return False, None, "Picazor: media not found on the detail page."
             resolved_url = detail[0]["url"]
 
         from ..netfetch import _validate_public_http_url
         ok_url, ssrf_err = _validate_public_http_url(resolved_url)
         if not ok_url:
-            return False, None, ssrf_err or "Picazor : URL refusée (SSRF)."
+            return False, None, ssrf_err or "Picazor: URL blocked (SSRF)."
 
         try:
             response = cf_requests.get(
@@ -371,7 +371,7 @@ def download(url, dest_path):
             )
         except Exception as e:
             logger.warning("Picazor download: échec requête %s: %s", resolved_url, e)
-            return False, None, f"Picazor : échec du téléchargement ({e})."
+            return False, None, f"Picazor: download failed ({e})."
 
         status = getattr(response, "status_code", 0)
         content_type = ""
@@ -381,15 +381,15 @@ def download(url, dest_path):
             content_type = ""
 
         if status in (401, 404, 410):
-            return False, None, f"Picazor : ressource indisponible (HTTP {status})."
+            return False, None, f"Picazor: resource unavailable (HTTP {status})."
         if status == 403 or status == 429 or status == 503:
-            return False, None, "Picazor (Cloudflare) a bloqué l'accès."
+            return False, None, "Picazor (Cloudflare) blocked access."
         if status >= 400:
-            return False, None, f"Picazor : réponse HTTP {status}."
+            return False, None, f"Picazor: HTTP {status} response."
 
         # Une réponse HTML n'est PAS un média (Cloudflare ou page d'erreur).
         if "text/html" in content_type.lower():
-            return False, None, "Picazor : réponse HTML au lieu d'un média (accès bloqué ?)."
+            return False, None, "Picazor: HTML response instead of media (access blocked?)."
 
         # Extension finale selon le content-type (fallback : URL).
         final_ext = _ext_from_content_type(content_type, resolved_url)
@@ -412,15 +412,15 @@ def download(url, dest_path):
                 tmp_path.unlink(missing_ok=True)
             except OSError:
                 pass
-            return False, None, f"Picazor : erreur d'écriture ({e})."
+            return False, None, f"Picazor: write error ({e})."
 
         # Fichier vide = échec.
         try:
             if not tmp_path.exists() or tmp_path.stat().st_size == 0:
                 tmp_path.unlink(missing_ok=True)
-                return False, None, "Picazor : fichier téléchargé vide."
+                return False, None, "Picazor: downloaded file is empty."
         except OSError:
-            return False, None, "Picazor : fichier téléchargé invalide."
+            return False, None, "Picazor: downloaded file is invalid."
 
         # Renommage atomique .tmp -> final.
         try:
@@ -430,13 +430,13 @@ def download(url, dest_path):
                 tmp_path.unlink(missing_ok=True)
             except OSError:
                 pass
-            return False, None, f"Picazor : erreur de finalisation ({e})."
+            return False, None, f"Picazor: finalization error ({e})."
 
         return True, final_path.name, None
 
     except Exception as e:  # garde-fou ultime — ne jamais lever
         logger.exception("Picazor download: erreur inattendue")
-        return False, None, f"Picazor : erreur inattendue ({e})."
+        return False, None, f"Picazor: unexpected error ({e})."
 
 
 from .base import Source, Capabilities, Match

@@ -65,10 +65,10 @@ class UniversalSource(Source):
         # 2) gallery-dl ne supporte pas → yt-dlp, mais seulement si l'hôte est vetté.
         if _gdl_unsupported(err):
             if not _host_vetted(url):
-                return False, None, "Site non supporté (gallery-dl) et hôte non vetté pour yt-dlp."
+                return False, None, "Site not supported (gallery-dl) and host not vetted for yt-dlp."
             return netfetch.download_via_ytdlp(url, dest_base)
         # 3) auth/réseau (pas 'unsupported') → on remonte l'erreur gallery-dl.
-        return False, None, err or "Échec du téléchargement générique."
+        return False, None, err or "Generic download failed."
 
 
 registry.register(UniversalSource())

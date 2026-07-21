@@ -385,17 +385,17 @@ class RedditSource(Source):
             url = _canonical_reddit_url(match.url)
             ep = _endpoint_for(url)
             if not ep:
-                return None, ('Reddit : URL non reconnue (subreddit, recherche, '
-                              'post ou lien de partage attendus).')
+                return None, ('Reddit: unrecognized URL (subreddit, search, '
+                              'post or share link expected).')
             if ep['kind'] == 'direct':
                 return [{'url': ep['url'], 'title': '', 'thumbnail': ep['url'],
                          'type': 'image', 'platform': 'reddit'}], None
             if ep['kind'] == 'listing' and 'q' in ep['params'] and not ep['params']['q'].strip():
-                return None, 'Reddit : mot-clé de recherche manquant.'
+                return None, 'Reddit: missing search keyword.'
 
             token = _get_token()
             if not token:
-                return None, 'Reddit : authentification API impossible (réessayez).'
+                return None, 'Reddit: API authentication failed (try again).'
 
             if ep['kind'] == 'post':
                 children = self._fetch_post(ep, token)
@@ -416,14 +416,14 @@ class RedditSource(Source):
                             return items, None
             return items, None
         except RedditRateLimited as e:
-            wait = f' Réessaie dans ~{e.reset_seconds}s.' if e.reset_seconds else ' Réessaie dans une minute.'
-            return None, ('Reddit limite temporairement les requêtes (quota partagé '
-                          '~1000 requêtes / 10 min).' + wait)
+            wait = f' Try again in ~{e.reset_seconds}s.' if e.reset_seconds else ' Try again in a minute.'
+            return None, ('Reddit is temporarily rate-limiting requests (shared quota '
+                          '~1000 requests / 10 min).' + wait)
         except requests.RequestException as e:
-            return None, f'Reddit : échec réseau ({e}).'
+            return None, f'Reddit: network error ({e}).'
         except Exception as e:   # garde-fou : scan() ne lève jamais
             logger.exception('reddit scan')
-            return None, f'Reddit : erreur inattendue ({e}).'
+            return None, f'Reddit: unexpected error ({e}).'
 
     def download(self, url, dest_base):
         """Télécharge une image reddit EN DIRECT (fetch durci). NB : le flux d'import
@@ -434,7 +434,7 @@ class RedditSource(Source):
         ok, data, ctype, reason = fetch_hardened_bytes(
             url, allowed_types=_MEDIA_TYPES, max_bytes=MAX_DRIVER_BYTES)
         if not ok or not data:
-            return False, None, f'Reddit : téléchargement échoué ({reason}).'
+            return False, None, f'Reddit: download failed ({reason}).'
         ct = (ctype or '').split(';', 1)[0].strip().lower()
         ext = _CT_EXT.get(ct) or (os.path.splitext(urlparse(url).path)[1].lower() or '.jpg')
         dest_dir = os.path.dirname(dest_base)
@@ -444,7 +444,7 @@ class RedditSource(Source):
             with open(os.path.join(dest_dir, filename), 'wb') as f:
                 f.write(data)
         except OSError as e:
-            return False, None, f"Reddit : erreur d'écriture ({e})."
+            return False, None, f"Reddit: write error ({e})."
         return True, filename, None
 
 

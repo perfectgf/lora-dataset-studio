@@ -51,5 +51,5 @@ class GalleryDlSource(Source):
         ok, abs_path, err = gdl.download(url, dest_dir, filename,
                                          cookies=self._cookies(), extra_opts=self.gdl_opts)
         if not ok or not abs_path:
-            return False, None, err or f'Échec du téléchargement {self.name}.'
+            return False, None, err or f'{self.name} download failed.'
         return True, os.path.basename(abs_path), None

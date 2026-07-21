@@ -74,15 +74,15 @@ def scan(validation):
         url = getattr(validation, 'original_url', None) or getattr(validation, 'value', '')
         url = _normalize(url)
         if not url:
-            return None, "Erome : URL manquante."
+            return None, "Erome: missing URL."
         items, err = gdl.enumerate(url, platform=PLATFORM,
                                    max_items=MAX_ITEMS, max_albums=MAX_ALBUMS)
         if err:
-            return None, f"Erome : {err}"
+            return None, f"Erome: {err}"
         return items, None
     except Exception as e:
         logger.exception("Erome scan: erreur inattendue")
-        return None, f"Erome : erreur inattendue ({e})."
+        return None, f"Erome: unexpected error ({e})."
 
 
 def download(url, dest_path):
@@ -98,7 +98,7 @@ def download(url, dest_path):
     try:
         from curl_cffi import requests as cf_requests
     except ImportError:
-        return False, None, "curl_cffi non disponible (dépendance Erome manquante)."
+        return False, None, "Erome needs the 'curl_cffi' package - install the scrape extras (Setup > Install everything)."
 
     try:
         dest_path = Path(dest_path)
@@ -106,7 +106,7 @@ def download(url, dest_path):
         from ..netfetch import _validate_public_http_url
         ok_url, ssrf_err = _validate_public_http_url(url)
         if not ok_url:
-            return False, None, ssrf_err or "Erome : URL refusée (SSRF)."
+            return False, None, ssrf_err or "Erome: URL blocked (SSRF)."
 
         try:
             response = cf_requests.get(
@@ -116,7 +116,7 @@ def download(url, dest_path):
             )
         except Exception as e:
             logger.warning("Erome download: échec requête %s: %s", url, e)
-            return False, None, f"Erome : échec du téléchargement ({e})."
+            return False, None, f"Erome: download failed ({e})."
 
         status = getattr(response, "status_code", 0)
         content_type = ""
@@ -126,15 +126,15 @@ def download(url, dest_path):
             content_type = ""
 
         if status in (401, 404, 410):
-            return False, None, f"Erome : ressource indisponible (HTTP {status})."
+            return False, None, f"Erome: resource unavailable (HTTP {status})."
         if status in (403, 429, 503):
-            return False, None, "Erome : accès bloqué."
+            return False, None, "Erome: access blocked."
         if status >= 400:
-            return False, None, f"Erome : réponse HTTP {status}."
+            return False, None, f"Erome: HTTP {status} response."
 
         # Une réponse HTML n'est PAS un média.
         if "text/html" in content_type.lower():
-            return False, None, "Erome : réponse HTML au lieu d'un média."
+            return False, None, "Erome: HTML response instead of media."
 
         final_ext = _ext_from_url(url)
         final_path = dest_path.with_name(dest_path.name + final_ext) \
@@ -156,15 +156,15 @@ def download(url, dest_path):
                 tmp_path.unlink(missing_ok=True)
             except OSError:
                 pass
-            return False, None, f"Erome : erreur d'écriture ({e})."
+            return False, None, f"Erome: write error ({e})."
 
         # Fichier vide = échec.
         try:
             if not tmp_path.exists() or tmp_path.stat().st_size == 0:
                 tmp_path.unlink(missing_ok=True)
-                return False, None, "Erome : fichier téléchargé vide."
+                return False, None, "Erome: downloaded file is empty."
         except OSError:
-            return False, None, "Erome : fichier téléchargé invalide."
+            return False, None, "Erome: downloaded file is invalid."
 
         # Renommage atomique .tmp -> final.
         try:
@@ -174,13 +174,13 @@ def download(url, dest_path):
                 tmp_path.unlink(missing_ok=True)
             except OSError:
                 pass
-            return False, None, f"Erome : erreur de finalisation ({e})."
+            return False, None, f"Erome: finalization error ({e})."
 
         return True, final_path.name, None
 
     except Exception as e:  # garde-fou ultime — ne jamais lever
         logger.exception("Erome download: erreur inattendue")
-        return False, None, f"Erome : erreur inattendue ({e})."
+        return False, None, f"Erome: unexpected error ({e})."
 
 
 from .base import Source, Capabilities, Match
