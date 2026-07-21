@@ -24,8 +24,10 @@ test('each identity field shows the real default as placeholder and a Load-defau
   // a preview block renders the default text with a copy-into-field button
   assert.match(engines, /function DefaultPromptPreview/);
   assert.match(engines, /Load default to edit/);
-  // "Load default to edit" copies the default INTO the field (real override)
-  assert.match(engines, /onLoad=\{\(\) => onChange\(defaultText\)\}/);
+  // "Load default to edit" copies the default INTO the field (real override) —
+  // now a visible button in the status row right under the textarea, not buried
+  // in the preview block below the fold.
+  assert.match(engines, /onClick=\{\(\) => onChange\(defaultText\)\}/);
   // shown only while the field is blank (blank still == use default)
   assert.match(engines, /\{blank && <DefaultPromptPreview text=\{defaultText\}/);
 });

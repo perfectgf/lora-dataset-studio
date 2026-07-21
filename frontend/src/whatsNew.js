@@ -47,6 +47,21 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-21-load-default-prompt-to-edit',
+    date: '2026-07-21',
+    title: '✎ Tweak a built-in prompt instead of retyping it',
+    blurb:
+      "The editable identity & Klein prompts in Settings › Image engines now put a \"Load default to edit\" button right under each field: one tap drops the shipped default into the box so you can adjust a word or two, instead of typing a whole new prompt from scratch.",
+    to: '/settings/engines',
+  },
+  {
+    id: '2026-07-21-zimage-style-preset-all-variants',
+    date: '2026-07-21',
+    title: '🎨 The Z-Image style preset now works on Turbo too',
+    blurb:
+      "The built-in \"Z-Image · Style\" preset used to be scoped to the Base variant only, so a Z-Image Turbo style dataset saw no style preset at all. Its recipe (rank 32/32, weighted timesteps) is the Z-Image architecture default, so it now applies to every Z-Image variant — Turbo, Base and De-Turbo.",
+  },
+  {
     id: '2026-07-21-studio-resolution-multiplier',
     date: '2026-07-21',
     title: '🔍 Push Test Studio renders larger',

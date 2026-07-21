@@ -181,16 +181,13 @@ const IDENTITY_PROMPTS = [
    placeholder). Loading it makes the field a real override on next save, which is
    the point: you start from the true prompt and change it. `disabled` mutes the
    whole block when the parent step is toggled off. */
-function DefaultPromptPreview({ text, onLoad, disabled }) {
+function DefaultPromptPreview({ text, disabled }) {
   if (!text) return null
   return (
     <div className={`mt-1 rounded-md border border-border bg-surface p-2 ${disabled ? 'opacity-50' : ''}`}>
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-content-subtle">Built-in default (currently in use)</span>
-        <button type="button" onClick={onLoad} disabled={disabled} className={TEXT_BTN}>
-          Load default to edit
-        </button>
-      </div>
+      <span className="mb-1 block text-xs font-medium text-content-subtle">
+        Built-in default (currently in use) — use “✎ Load default to edit” above to start from it and adjust
+      </span>
       <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-content-muted">{text}</p>
     </div>
   )
@@ -210,13 +207,21 @@ function IdentityPromptField({ field, value, onChange, onRestore, defaultText })
         placeholder={defaultText || 'Leave blank to use the built-in default.'}
         className={`${INPUT_CLASS} font-mono leading-relaxed`}
       />
-      <div className="mt-1 flex items-center justify-between">
+      <div className="mt-1 flex items-center justify-between gap-2">
         <span className="text-xs text-content-subtle">{blank ? 'Using the built-in default.' : 'Custom override active.'}</span>
-        <button type="button" onClick={onRestore} disabled={blank} className={TEXT_BTN}>
-          Restore default
-        </button>
+        {blank
+          ? (defaultText && (
+            <button type="button" onClick={() => onChange(defaultText)} className={TEXT_BTN}>
+              ✎ Load default to edit
+            </button>
+          ))
+          : (
+            <button type="button" onClick={onRestore} className={TEXT_BTN}>
+              Restore default
+            </button>
+          )}
       </div>
-      {blank && <DefaultPromptPreview text={defaultText} onLoad={() => onChange(defaultText)} />}
+      {blank && <DefaultPromptPreview text={defaultText} />}
     </div>
   )
 }
@@ -267,16 +272,24 @@ function IdentityPromptsCard({ config, setField, promptDefaults }) {
           placeholder={defaults.klein_improve || 'Leave blank to use the built-in default.'}
           className={`${INPUT_CLASS} font-mono leading-relaxed disabled:opacity-50`}
         />
-        <div className="mt-1 flex items-center justify-between">
+        <div className="mt-1 flex items-center justify-between gap-2">
           <span className="text-xs text-content-subtle">
             {!improveEnabled ? 'Disabled — no prompt is applied.' : improveBlank ? 'Using the built-in default.' : 'Custom override active.'}
           </span>
-          <button type="button" onClick={() => set('klein_improve', '')} disabled={improveBlank || !improveEnabled} className={TEXT_BTN}>
-            Restore default
-          </button>
+          {improveEnabled && (improveBlank
+            ? (defaults.klein_improve && (
+              <button type="button" onClick={() => set('klein_improve', defaults.klein_improve)} className={TEXT_BTN}>
+                ✎ Load default to edit
+              </button>
+            ))
+            : (
+              <button type="button" onClick={() => set('klein_improve', '')} className={TEXT_BTN}>
+                Restore default
+              </button>
+            ))}
         </div>
         {improveEnabled && improveBlank && (
-          <DefaultPromptPreview text={defaults.klein_improve} onLoad={() => set('klein_improve', defaults.klein_improve)} />
+          <DefaultPromptPreview text={defaults.klein_improve} />
         )}
         <p className="mt-3 text-xs text-content-subtle">
           Separate from the scraper rescue prompt for small images — see Settings ▸ Scraping ▸ “Klein rescue — small scraped images”.
