@@ -17,6 +17,22 @@ The useful part of LoRA training isn't only the training — it's building a cle
 
 ---
 
+## Everything it does
+
+The whole LoRA pipeline in one browser tab — every major capability, at a glance:
+
+- **🗃️ Image Bank** — turn a giant unsorted dump into a dataset: quality scan, near-duplicate keep-best, sort **by person with no reference photo**, aesthetic / NSFW / style scoring, watermark flags, in-bank captioning + full-text search, and a one-click **Launch all** that runs the whole pipeline overnight. Your source folder is never touched.
+- **🎨 Build any dataset** — **Character, Concept or Style**, from three sources: generate from a few reference photos (Nano Banana / ChatGPT / local Klein), import your own, or scrape the web — with identity-preserving generation and editable prompts.
+- **🏷️ Model-matched captioning** — prose or booru tags, machine-written, with a **Vocabulary** preset (Explicit / Clinical / Safe), a **Caption Lab** to bench configs on one image, dual long+short captions, and full find/replace.
+- **🧽 Watermark cleaning** — detect overlaid logos/URLs, then **crop or inpaint** them (fast LaMa or Klein quality) behind a per-image review step.
+- **🎓 Guided training** — five families (**Z-Image, SDXL, FLUX.1, Krea 2, FLUX.2 Klein**), **fifteen researched presets**, adaptive steps and guards, Slider LoRAs, and your own custom base weights — **locally on your GPU or in the cloud** (~$1–2 per run, no GPU needed).
+- **🧬 Experiment Lab** — every run and checkpoint drawn as a **lineage graph**: inspect configs, diff two runs, annotate, generate a preview per checkpoint, and continue or deploy straight from the graph.
+- **🧪 Test Studio** — sweep **checkpoint × strength** on a grid, vote and rank (Wilson + face similarity), Describe an image into a prompt, and export a shareable comparison grid.
+- **📦 Take it anywhere** — training ZIPs, portable backups (Trained state included), model merges, Hugging Face publishing, and one-click ComfyUI import.
+- **🖥️ Local & private or ☁️ cloud** — one-click flow either way; every feature **degrades gracefully**, staying hidden until its dependency (an API key, a reachable tool, an installed extra) is satisfied.
+
+---
+
 ## The pipeline, at a glance
 
 This README follows the app itself: the road you actually walk, from an empty dataset to a ranked, exported LoRA. Each stop below links to the section that details it — read top to bottom, or jump straight to the step you're on.
@@ -64,6 +80,7 @@ Directions, not dates. These are discussed openly on the project's Discord, and 
 
 ### Table of contents
 
+- [Everything it does](#everything-it-does)
 - [The pipeline, at a glance](#the-pipeline-at-a-glance)
   - [Recent improvements](#recent-improvements)
   - [Roadmap](#roadmap)
