@@ -767,7 +767,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
             </span>
             <span className={`ml-auto w-8 h-4 rounded-full relative transition-colors ${nsfwMode ? 'bg-rose-500/70' : 'bg-app/80 border border-border'}`}
               aria-hidden="true">
-              <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${nsfwMode ? 'left-4' : 'left-0.5'}`} />
+              <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${nsfwMode ? 'translate-x-4' : 'translate-x-0'}`} />
             </span>
           </button>
           {nsfwMode && (

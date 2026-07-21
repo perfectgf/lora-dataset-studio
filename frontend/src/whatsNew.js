@@ -47,6 +47,13 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-21-toggle-thumb-alignment',
+    date: '2026-07-21',
+    title: '🎚️ Toggle switches sit flush again',
+    blurb:
+      "The little sliding knob on on/off switches now rests with an even 1-2px gap on both ends instead of floating short of the right edge when on. Purely cosmetic, but it looks right now. Thanks to bbsorry for the pixel-perfect report.",
+  },
+  {
     id: '2026-07-21-zimage-convert-cross-drive',
     date: '2026-07-21',
     title: '🗜️ Convert a custom Z-Image base even when your models live on another drive',
