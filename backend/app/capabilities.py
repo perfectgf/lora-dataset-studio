@@ -323,7 +323,11 @@ def probe_aitoolkit() -> dict:
         return {'ok': False, 'detail': 'aitoolkit.dir not configured'}
     venv_python = cfg.aitoolkit_path('venv_python')
     has_run = (d / 'run.py').exists()
-    ok = has_run and bool(venv_python) and venv_python.exists()
+    # is_file(), NOT exists(): the training launch gate (lora_training.is_installed)
+    # checks is_file(), so a venv_python that resolves to a directory or a broken
+    # link would make the diagnostic report ai-toolkit=yes while training still
+    # says "not installed". Keep the two in lockstep so the diagnostic never lies.
+    ok = has_run and bool(venv_python) and venv_python.is_file()
     if ok:
         return {'ok': True, 'detail': str(d)}
     if has_run:

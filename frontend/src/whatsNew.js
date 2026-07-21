@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-aitoolkit-readiness-honest',
+    date: '2026-07-22',
+    title: '🎓 Clearer guidance when ai-toolkit isn\'t ready to train',
+    blurb:
+      "If training can't use ai-toolkit, the hint now points you at the real fix — set its venv Python (venv/Scripts/python.exe) in Settings › Local tools — instead of a setup script that doesn't exist. And the diagnostic no longer reports ai-toolkit as ready when its interpreter isn't actually a usable file, so \"ai-toolkit=yes\" and the training gate finally agree. Thanks to sylvie for the report.",
+    to: '/settings/local-tools',
+  },
+  {
     id: '2026-07-21-instagram-scrape-and-english-messages',
     date: '2026-07-21',
     title: '📸 Instagram scraping is back — and every scraper speaks English',

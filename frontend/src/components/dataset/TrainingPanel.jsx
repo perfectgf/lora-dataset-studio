@@ -1093,7 +1093,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-content font-semibold text-sm"><span aria-hidden>🎓</span> LoRA Training ({typeLabel})</span>
         {!status.installed && (
-          <span className="text-amber-300 text-[0.6875rem]">ai-toolkit not installed — run setup-aitoolkit.ps1</span>
+          <span className="text-amber-300 text-[0.6875rem]">ai-toolkit not ready — point to its Python (its venv/Scripts/python.exe) in Settings › Local tools</span>
         )}
         {status.in_progress
           ? <span className="ml-auto flex items-center gap-2">
