@@ -512,13 +512,20 @@ def _check_klein_precondition(action):
 # preconditions are already satisfiable. Firing order is grouped by capability area for
 # a coherent "X / N" progress display; the real scheduling still comes from start()
 # (pip serialized FIFO, model downloads parallel), so the order here is cosmetic.
-_INSTALL_ALL_ORDER = ('face_scoring', 'masks', 'watermark_inpaint', 'ollama_model',
+_INSTALL_ALL_ORDER = ('scrape_extras', 'face_scoring', 'masks', 'watermark_inpaint',
+                      'ollama_model',
                       'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora')
 
 
 def _action_needed(action, caps) -> bool:
     """Is `action` both MISSING and satisfiable right now, from live capabilities?
     Pure (caps in, bool out) — the single rule install_all_plan is built from."""
+    if action == 'scrape_extras':
+        # Pure-python wheels into THIS interpreter, so no ML-range gate: runnable on
+        # any Python the app itself starts on. scrape_deps is False as soon as ONE of
+        # the modules is absent, which is what makes a later-added package (instaloader)
+        # reachable from "Install everything" instead of only the per-tile Reinstall.
+        return not caps.get('scrape_deps')
     if action in ('face_scoring', 'masks'):
         # These install into the app's OWN interpreter, so they need it inside the ML
         # wheel range (3.10-3.12); on a newer Python they'd only source-build and fail,

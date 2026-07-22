@@ -1225,6 +1225,7 @@ def _caps(**over):
     just the pieces it needs MISSING, so the plan reflects exactly that gap."""
     caps = {
         'python': {'ml_supported': True},
+        'scrape_deps': True,
         'face_scoring': True, 'masks': True, 'watermark_inpaint': True,
         'ollama': {'reachable': True, 'vision_model_ready': True, 'vision_model': 'qwen3-vl:8b'},
         'comfyui': {'dir_valid': True, 'klein_missing': []},
@@ -1243,11 +1244,11 @@ def test_install_all_plan_empty_when_everything_installed():
 def test_install_all_plan_none_and_empty_caps_are_safe():
     """None (couldn't probe) folds to {} — never raises. With nothing detected, the ML
     tiles read missing (default present=falsey) and Ollama/ComfyUI are absent so their
-    gated actions are skipped; only the always-runnable ML extras remain."""
+    gated actions are skipped; only the always-runnable extras remain."""
     from app import setup_installer
-    ml_only = ['face_scoring', 'masks', 'watermark_inpaint']
-    assert setup_installer.install_all_plan(None) == ml_only
-    assert setup_installer.install_all_plan({}) == ml_only
+    ungated = ['scrape_extras', 'face_scoring', 'masks', 'watermark_inpaint']
+    assert setup_installer.install_all_plan(None) == ungated
+    assert setup_installer.install_all_plan({}) == ungated
 
 
 def test_install_all_plan_lists_missing_ml_extras():
@@ -1264,6 +1265,20 @@ def test_install_all_plan_skips_face_masks_on_unsupported_python():
     caps = _caps(python={'ml_supported': False},
                  face_scoring=False, masks=False, watermark_inpaint=False)
     assert setup_installer.install_all_plan(caps) == ['watermark_inpaint']
+    # scrape_extras is pure-python, so the SAME unsupported interpreter still gets it.
+    caps = _caps(python={'ml_supported': False}, scrape_deps=False,
+                 face_scoring=False, masks=False, watermark_inpaint=False)
+    assert setup_installer.install_all_plan(caps) == ['scrape_extras', 'watermark_inpaint']
+
+
+def test_install_all_plan_includes_missing_scrape_extras():
+    """Regression: scrape_extras had a worker, an action id and a UI button but no entry
+    in _INSTALL_ALL_ORDER, so 'Install everything' could never repair the scraper stack —
+    a user missing one package (instaloader) was told everything was already in place and
+    kept hitting the runtime error. Present deps => absent from the plan (idempotent)."""
+    from app import setup_installer
+    assert setup_installer.install_all_plan(_caps(scrape_deps=False)) == ['scrape_extras']
+    assert setup_installer.install_all_plan(_caps(scrape_deps=True)) == []
 
 
 def test_install_all_plan_ollama_model_only_when_reachable_and_named():
@@ -1297,12 +1312,13 @@ def test_install_all_plan_full_order():
     stable order (drives the 'X / N' progress list)."""
     from app import setup_installer
     caps = _caps(
+        scrape_deps=False,
         face_scoring=False, masks=False, watermark_inpaint=False,
         ollama={'reachable': True, 'vision_model_ready': False, 'vision_model': 'qwen3-vl:8b'},
         comfyui={'dir_valid': True,
                  'klein_missing': ['klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora']})
     assert setup_installer.install_all_plan(caps) == [
-        'face_scoring', 'masks', 'watermark_inpaint', 'ollama_model',
+        'scrape_extras', 'face_scoring', 'masks', 'watermark_inpaint', 'ollama_model',
         'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora']
 
 

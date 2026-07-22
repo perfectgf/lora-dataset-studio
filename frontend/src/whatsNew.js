@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-install-everything-covers-scraper',
+    date: '2026-07-22',
+    title: '⬇ "Install everything" now repairs the scraper too',
+    blurb:
+      "The scraper packages were the one component Install everything never touched: it reported everything was already in place while a source kept failing on a missing package. They are now part of the plan, and the check looks at every package the scraper imports — so a package added by an update (instaloader, for Instagram) is picked up instead of staying invisible until you found the per-tile Reinstall button.",
+    to: '/setup',
+  },
+  {
     id: '2026-07-22-continue-choose-local-or-cloud',
     date: '2026-07-22',
     title: '▶ Continue: choose where it runs — this GPU or a rented one',

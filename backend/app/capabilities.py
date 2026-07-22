@@ -469,9 +469,11 @@ def probe_scrape_deps() -> dict:
     only (no import cost): the scrape stack runs IN-PROCESS, so the app's own
     interpreter is the one that must see the packages. curl_cffi + gallery_dl
     are the two hard requirements (picazor/civitai fetch, gallery enumeration);
-    bs4/cloudscraper ride along in the same install."""
+    bs4/cloudscraper/instaloader ride along in the same install. Every module the
+    scrape stack imports belongs here: an omission reads as "installed" while the
+    source that needs it still raises at runtime (instaloader did, until 2026-07)."""
     import importlib.util
-    missing = [m for m in ('curl_cffi', 'gallery_dl', 'bs4', 'cloudscraper')
+    missing = [m for m in ('curl_cffi', 'gallery_dl', 'bs4', 'cloudscraper', 'instaloader')
                if importlib.util.find_spec(m) is None]
     return {'ok': not missing,
             'detail': 'scrape deps OK' if not missing else f"missing: {', '.join(missing)}"}
