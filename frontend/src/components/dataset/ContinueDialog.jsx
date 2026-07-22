@@ -6,14 +6,20 @@
  *
  * Purely presentational and props-driven so the local panel and the cloud Runs hub
  * share one dialog. onResolve(payload | null): payload =
- * { extraSteps, fromStep, overrides } (fromStep null = resume from the latest,
+ * { extraSteps, fromStep, overrides, lane } (fromStep null = resume from the latest,
  * in place), or null on cancel. overrides may carry save_every / sample_every /
  * sample_prompts / timestep_type / lr_factor — the safe subset a resume can change;
  * lr_factor (0.5/0.1) scales the run's current LR and is omitted for an adaptive
  * (Prodigy) run. `settings` supplies optimizer + learning_rate so the LR hint and
- * the Prodigy-disabled state are truthful. */
+ * the Prodigy-disabled state are truthful.
+ *
+ * `lane` ('local' | 'cloud') says WHERE the continuation runs. A mount that passes
+ * `lanes` lets the user choose it — a checkpoint is a file, so a run trained here
+ * can be finished on a rented GPU and vice-versa; a mount that doesn't gets its
+ * own `where` back and can ignore the field. */
 import { useEffect, useMemo, useState } from 'react';
 import { HelpBadge } from '../../help/HelpMode';
+import { initialResumeStep, resolveInitialLane } from './lineageContinue.js';
 
 const SAVE_CHOICES = [250, 500, 1000];
 const SAMPLE_EVERY_CHOICES = [100, 250, 500, 1000];
@@ -33,10 +39,15 @@ const fmtLR = (lr) => Number(lr).toExponential(1).replace('.0e', 'e');
 
 export default function ContinueDialog({
   context,                 // short run identity, e.g. "Lola — Z-Image · Turbo"
-  where = 'local',         // 'local' | 'cloud' — only tweaks the seeding note wording
+  where = 'local',         // 'local' | 'cloud' — the lane, and the seeding note wording
   checkpoints = [],        // [{ step, final?, best? }] — the run's saves
   bestStep = null,         // optional « Find best epoch » recommendation to flag
   initialFromStep = null,  // pre-select a specific checkpoint (◉ Graph "continue from here")
+  // OPT-IN lane picker: { local: {available, reason}, cloud: {available, reason} }.
+  // Absent (the Runs hub) → no picker at all and the dialog behaves exactly as
+  // before. Present (the dataset panel) → the user chooses where the continuation
+  // RUNS, independently of where the source run trained; `where` seeds the default.
+  lanes = null,
   settings = {},           // inherited effective settings shown as the starting point
   defaultExtra = 1000,
   busy = false,
@@ -49,11 +60,15 @@ export default function ContinueDialog({
   const latest = steps.length ? steps[steps.length - 1] : 0;
 
   // Open on the requested checkpoint when it's a real save of this run, else the
-  // newest (the historical default).
-  const [fromStep, setFromStep] = useState(
-    initialFromStep != null && steps.includes(initialFromStep) ? initialFromStep : latest);
+  // newest (the historical default) — the rule is unit-tested in lineageContinue.js.
+  const [fromStep, setFromStep] = useState(() => initialResumeStep(initialFromStep, steps));
   const [extra, setExtra] = useState(String(defaultExtra));
   const [showSettings, setShowSettings] = useState(false);
+  // WHERE the continuation runs. Without `lanes` this is just `where` and nothing
+  // is rendered — the historical single-lane dialog.
+  const [lane, setLane] = useState(() => resolveInitialLane(where, lanes));
+  const laneState = (id) => (lanes ? (lanes[id] || {}) : {});
+  const laneBlocked = !!lanes && laneState(lane).available === false;
 
   const inheritedSave = SAVE_CHOICES.includes(settings.save_every) ? settings.save_every : 250;
   const inheritedSampleEvery =
@@ -100,6 +115,9 @@ export default function ContinueDialog({
       // null when the newest checkpoint is chosen → the historical in-place resume.
       fromStep: isEarlier ? fromStep : null,
       overrides: Object.keys(overrides).length ? overrides : undefined,
+      // Where it runs. Always sent; a caller that offers no picker gets `where`
+      // back and can ignore it.
+      lane,
     });
   };
 
@@ -122,6 +140,43 @@ export default function ContinueDialog({
           <button type="button" onClick={() => onResolve(null)}
             className="ml-auto text-content-subtle hover:text-content" aria-label="Cancel">✕</button>
         </div>
+
+        {/* WHERE the continuation runs — offered only when the mount passes
+            `lanes`. A checkpoint is just a file: a run trained here can be
+            finished on a rented GPU, and a cloud run's epoch can be finished on
+            this machine. An unusable lane is disabled WITH its reason, never
+            hidden. */}
+        {lanes && (
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-content text-[0.75rem] w-28 shrink-0">Run it</span>
+              <div role="radiogroup" aria-label="Where to run the continuation"
+                className="flex items-center gap-1 rounded-lg border border-border bg-surface p-0.5">
+                {[['local', '💻 Local'], ['cloud', '☁ Cloud']].map(([id, label]) => {
+                  const st = laneState(id);
+                  const off = st.available === false;
+                  return (
+                    <button key={id} type="button" role="radio" aria-checked={lane === id}
+                      disabled={off} onClick={() => setLane(id)}
+                      title={off ? st.reason || undefined : `Continue on the ${id === 'cloud' ? 'rented cloud GPU' : 'local GPU'}`}
+                      className={'px-2.5 py-1 rounded-md text-[0.75rem] font-semibold '
+                        + (lane === id
+                          ? 'bg-indigo-500/25 text-indigo-100 border border-indigo-400/50 '
+                          : 'text-content-muted hover:text-content border border-transparent ')
+                        + (off ? 'opacity-40 cursor-not-allowed ' : '')}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {laneState(lane).reason && (
+              <span className="text-amber-300/90 text-[0.6875rem] leading-relaxed">
+                {laneState(lane).reason}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Resume FROM which checkpoint. */}
         <div className="flex flex-col gap-1">
@@ -156,9 +211,12 @@ export default function ContinueDialog({
           </div>
           {isEarlier && (
             <span className="text-amber-300/90 text-[0.6875rem] leading-relaxed">
-              Restarts from step {fromStep}: the run’s later checkpoints are set aside (kept
-              {where === 'cloud' ? ' in this run’s staging' : ' on disk'}, recoverable), and the
-              continuation writes its own saves.
+              {lane === 'cloud'
+                ? `Restarts from step ${fromStep} on a fresh pod: this checkpoint is uploaded and`
+                  + ' trained further — every save you have here stays exactly where it is.'
+                : `Restarts from step ${fromStep}: the run’s later checkpoints are set aside (kept`
+                  + (where === 'cloud' ? ' in this run’s staging' : ' on disk')
+                  + ', recoverable), and the continuation writes its own saves.'}
             </span>
           )}
         </div>
@@ -245,7 +303,8 @@ export default function ContinueDialog({
         <div className="flex items-center gap-2 pt-1">
           <button type="button" onClick={() => onResolve(null)}
             className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm">Cancel</button>
-          <button type="button" onClick={submit} disabled={busy || latest === 0}
+          <button type="button" onClick={submit} disabled={busy || latest === 0 || laneBlocked}
+            title={laneBlocked ? laneState(lane).reason || undefined : undefined}
             className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             {busy ? 'Starting…' : `Continue → ${target}`}
           </button>

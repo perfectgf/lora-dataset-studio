@@ -22,13 +22,43 @@ test('the graph opens for any run with a checkpoint, not only 2+ run lineages', 
   assert.match(cloud, /run\.lineage \? '🌳 Lineage' : '◉ Graph'/);
 });
 
-test('continue-from-checkpoint is cloud-only and allows terminal (done OR failed) runs', () => {
-  // still cloud-only with a run id
-  assert.match(graph, /node\.source === 'cloud' && node\.run_id != null/);
+test('continue-from-checkpoint is cloud-only by default and allows terminal (done OR failed) runs', () => {
+  // The rule lives in the JSX-free helper (behaviour covered by
+  // lineageContinue.test.js); the graph must USE it, not re-implement one.
+  const rule = fs.readFileSync(new URL('./lineageContinue.js', import.meta.url), 'utf8');
+  assert.match(graph, /import \{ canContinueFromCheckpoint \} from '\.\/lineageContinue\.js'/);
+  assert.match(graph, /canContinueFromCheckpoint\(node, pill, \{/);
+  // still cloud-only with a run id, unless the mount opted into 'any'
+  assert.match(graph, /continueSource = 'cloud'/);
+  assert.match(rule, /node\.source === 'cloud'/);
+  assert.match(rule, /node\.run_id != null/);
   // a 'done' run always; a failed/stopped run only when THIS pill is present
-  assert.match(graph, /node\.status === 'done'/);
-  assert.match(graph, /'error', 'error_pod_kept', 'stopped', 'failed'/);
-  assert.match(graph, /pill\?\.download_url/);
+  assert.match(rule, /node\.status === 'done'/);
+  assert.match(rule, /'error', 'error_pod_kept', 'stopped', 'failed'/);
+  assert.match(rule, /pill\?\.download_url/);
+});
+
+test('the Runs hub keeps the CLOUD gate — it passes no continueSource', () => {
+  // The invariant: the hub's popover must not change. It wires the handler and
+  // nothing else, so the graph falls back to its 'cloud' default.
+  assert.match(cloud, /onContinueCheckpoint=\{continueFromCheckpoint\}/);
+  assert.doesNotMatch(cloud, /continueSource/);
+});
+
+test('the dataset panel offers the SAME pill gesture through its local flow', () => {
+  // continueSource="any" + a handler that reuses the existing local dialog —
+  // no second continue path, no duplicated backend call.
+  assert.match(panel, /continueSource="any"/);
+  assert.match(panel, /onContinueCheckpoint=\{checkpointMatchesTraining/);
+  assert.match(panel, /const continueFromGraphCheckpoint = \(node, pill\) =>/);
+  assert.match(panel, /setContinueInitialStep\(step\);\s*setContinueOpen\(true\);/);
+  assert.match(panel, /initialFromStep=\{continueInitialStep\}/);
+  // the plain Continue button clears the pill pick, so it still opens on latest
+  assert.match(panel, /setContinueInitialStep\(null\); setContinueOpen\(true\)/);
+  // ONE continue call site (the guarded helper picks the lane's hook inside it),
+  // never a second continue request assembled somewhere else in the panel
+  assert.equal((panel.match(/payload\.extraSteps/g) || []).length, 1);
+  assert.equal((panel.match(/await runConfirmableTrainingRequest\(/g) || []).length, 1);
 });
 
 test('the LoRA manager opens the same graph component for the whole dataset', () => {

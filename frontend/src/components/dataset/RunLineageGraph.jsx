@@ -6,6 +6,7 @@ import LineageDetailPanel from './LineageDetailPanel';
 import LineageDiffPanel from './LineageDiffPanel';
 import { noteBadge, toggleDiffSelection } from './lineageDetail.js';
 import { removeRunFromTree } from '../../utils/runDeletable.js';
+import { canContinueFromCheckpoint } from './lineageContinue.js';
 import { postJson } from '../../api/fetchClient';
 import { loraFolderLabel } from '../../utils/checkpointBrowser';
 import { useToast } from '../common/Toast';
@@ -199,7 +200,8 @@ function CheckpointPill({ pill, offX, offY, active, selected, preview, big, onOp
   );
 }
 
-export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, refetchTree }) {
+export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint,
+  continueSource = 'cloud', refetchTree }) {
   const toast = useToast();
   // Runs removed in-session (a gone run deleted from the detail panel) drop from
   // the graph without a full refetch; children re-root via removeRunFromTree.
@@ -460,20 +462,13 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
 
   const vw = g.width * scale, vh = g.height * scale;
   const capped = Math.min(vh, MAX_H);
-  // Can this checkpoint be continued from? Only cloud runs carry a run_id and the
-  // Runs hub's Continue flow is cloud-only — mirror that here (a local run shows
-  // download only). TODO(lineage): once local resume is wired into this view and
-  // generations can be launched from a node (with their results shown, and a
-  // Test-Studio graph), extend this popover with those actions.
-  // Continue from a checkpoint of any STOPPED cloud run. A run that failed (e.g.
-  // 'pod did not become ready in time') can still hold a valid harvested save, so
-  // for a non-'done' run we additionally require THIS pill to be present
-  // (downloadable). An actively-running run is never offered Continue.
-  const canContinue = (node, pill) => typeof onContinueCheckpoint === 'function'
-    && node.source === 'cloud' && node.run_id != null
-    && (node.status === 'done'
-        || (['error', 'error_pod_kept', 'stopped', 'failed'].includes(node.status)
-            && !!pill?.download_url));
+  // Can this checkpoint be continued from? The rule lives in lineageContinue.js
+  // (JSX-free, unit-tested): cloud runs only by default — the Runs hub's gate,
+  // untouched — and, when the mount passes continueSource="any" (the dataset
+  // panel, which resumes locally), a local run's present save as well.
+  const canContinue = (node, pill) => canContinueFromCheckpoint(node, pill, {
+    continueSource, hasHandler: typeof onContinueCheckpoint === 'function',
+  });
 
   return (
     <>

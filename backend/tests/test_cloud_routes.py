@@ -419,3 +419,44 @@ def test_run_preview_unknown_or_sampleless_404(client, app, monkeypatch, tmp_pat
     body = client.get('/api/dataset/train/cloud/runs?limit=5').get_json()
     row = next(x for x in body['recent'] if x.get('run_id') == rid)
     assert 'preview_url' not in row and row['saves'] == 0
+
+
+# --- ▶ Continue a LOCAL checkpoint in the cloud (the dialog's Cloud lane) -------
+
+def test_continue_local_in_cloud_route_gated_when_unconfigured(client):
+    ds = _mkds(client)
+    r = client.post(f'/api/dataset/{ds}/train/cloud/continue-local', json={})
+    assert r.status_code == 409
+    assert r.get_json()['error'] == 'Cloud training is not configured'
+
+
+def test_continue_local_in_cloud_route_forwards_the_choice(client, monkeypatch):
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    ds = _mkds(client)
+    seen = {}
+
+    def fake_continue(user_id, dataset_id, **kw):
+        seen.update(dataset_id=dataset_id, **kw)
+        return {'run_id': 7, 'status': 'preparing', 'resumed_from': 500,
+                'target_steps': 1500}
+
+    monkeypatch.setattr('app.services.cloud_training.continue_local_run_in_cloud',
+                        fake_continue)
+    r = client.post(f'/api/dataset/{ds}/train/cloud/continue-local',
+                    json={'extra_steps': 1000, 'from_step': 500,
+                          'train_type': 'krea', 'variant': 'base',
+                          'base_model': '', 'gpu_name': 'RTX 5090',
+                          'overrides': {'sample_every': 250}, 'masked': False})
+    assert r.status_code == 200 and r.get_json()['ok'] is True
+    assert seen['dataset_id'] == ds
+    assert seen['from_step'] == 500 and seen['extra_steps'] == 1000
+    assert seen['train_type'] == 'krea' and seen['variant'] == 'base'
+    assert seen['base_model'] == '' and seen['gpu_name'] == 'RTX 5090'
+    assert seen['overrides'] == {'sample_every': 250}
+    assert seen['masked'] is False
+
+
+def test_continue_local_in_cloud_route_404_on_unknown_dataset(client, monkeypatch):
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    r = client.post('/api/dataset/999999/train/cloud/continue-local', json={})
+    assert r.status_code == 404

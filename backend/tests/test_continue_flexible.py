@@ -477,3 +477,112 @@ def test_cloud_continue_lr_factor_refused_on_prodigy(ct, app, seeded_dataset,
         with pytest.raises(ValueError, match='Prodigy'):
             ct.continue_cloud_run('local', src.id, overrides={'lr_factor': 0.5})
         assert launched == []
+
+
+# --- Lane choice: continue a LOCAL run's checkpoint IN THE CLOUD ---------------
+# The mirror of continue_cloud_run. Same pod-side seam (resume_ckpt_path on a
+# fresh pod); the file comes from the ai-toolkit run dir instead of a cloud run's
+# staging. launch_cloud_training is stubbed — no pod is ever rented in tests.
+
+def _local_run_for_cloud(app, tmp_path, monkeypatch, steps=(500, 1000)):
+    """A real local run dir with saves — the source a cloud continuation seeds from."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _configure_aitoolkit(tmp_path, monkeypatch, app)
+    return _seed_run(lt, svc, LOCAL_USER, 'CloudFromLocal', 'cloudfromlocal', steps)
+
+
+def test_local_checkpoint_can_be_continued_in_the_cloud(ct, app, monkeypatch, tmp_path):
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds, run_dir, trig = _local_run_for_cloud(app, tmp_path, monkeypatch)
+        captured = {}
+        monkeypatch.setattr(ct, 'launch_cloud_training',
+                            lambda user_id, dataset_id, **kw:
+                            (captured.update(dataset_id=dataset_id, **kw), {'ok': True})[1])
+        res = ct.continue_local_run_in_cloud(LOCAL_USER, ds.id, extra_steps=200,
+                                             from_step=500)
+    assert res['resumed_from'] == 500 and res['target_steps'] == 700
+    assert captured['steps'] == 700 and captured['resume_step'] == 500
+    # the LOCAL file is what gets seeded onto the fresh pod
+    assert captured['resume_ckpt_path'] == os.path.join(
+        run_dir, f'lora_{trig}_000000500.safetensors')
+    # and unlike the local lane, nothing on disk is archived or re-seeded
+    assert sorted(os.listdir(run_dir)) == [f'lora_{trig}_000000500.safetensors',
+                                           f'lora_{trig}_000001000.safetensors']
+
+
+def test_local_to_cloud_continue_defaults_to_the_latest_save(ct, app, monkeypatch,
+                                                             tmp_path):
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds, _run_dir, _trig = _local_run_for_cloud(app, tmp_path, monkeypatch)
+        captured = {}
+        monkeypatch.setattr(ct, 'launch_cloud_training',
+                            lambda user_id, dataset_id, **kw:
+                            (captured.update(**kw), {'ok': True})[1])
+        res = ct.continue_local_run_in_cloud(LOCAL_USER, ds.id, extra_steps=500)
+    assert res['resumed_from'] == 1000 and captured['resume_step'] == 1000
+
+
+def test_local_to_cloud_continue_rejects_a_step_that_is_not_a_save(ct, app,
+                                                                  monkeypatch, tmp_path):
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds, _run_dir, _trig = _local_run_for_cloud(app, tmp_path, monkeypatch)
+        launched = []
+        monkeypatch.setattr(ct, 'launch_cloud_training', lambda *a, **k: launched.append(k))
+        with pytest.raises(ValueError, match='no local checkpoint at step 777'):
+            ct.continue_local_run_in_cloud(LOCAL_USER, ds.id, from_step=777)
+        assert launched == []
+
+
+def test_local_to_cloud_continue_without_any_local_save_is_refused(ct, app,
+                                                                   monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Empty lane', 'emptylane')
+        launched = []
+        monkeypatch.setattr(ct, 'launch_cloud_training', lambda *a, **k: launched.append(k))
+        with pytest.raises(ValueError, match='no local checkpoint to continue from'):
+            ct.continue_local_run_in_cloud(LOCAL_USER, ds.id)
+        assert launched == []
+
+
+def test_local_to_cloud_continue_refuses_a_forbidden_override(ct, app, monkeypatch,
+                                                              tmp_path):
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds, _run_dir, _trig = _local_run_for_cloud(app, tmp_path, monkeypatch)
+        launched = []
+        monkeypatch.setattr(ct, 'launch_cloud_training', lambda *a, **k: launched.append(k))
+        with pytest.raises(ValueError, match='cannot change when continuing.*alpha'):
+            ct.continue_local_run_in_cloud(LOCAL_USER, ds.id, overrides={'alpha': 8})
+        assert launched == []
+
+
+def test_local_to_cloud_continue_keeps_overrides_out_of_the_dataset(ct, app,
+                                                                    monkeypatch, tmp_path):
+    """A cloud launch freezes its settings in a per-run snapshot — continuing a
+    local run in the cloud must NOT persist the tweak on the dataset (that is a
+    local-lane behaviour, and it would silently change the next local run)."""
+    from app.services import lora_training as lt
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds, _run_dir, _trig = _local_run_for_cloud(app, tmp_path, monkeypatch)
+        captured = {}
+        monkeypatch.setattr(ct, 'launch_cloud_training',
+                            lambda user_id, dataset_id, **kw:
+                            (captured.update(**kw), {'ok': True})[1])
+        ct.continue_local_run_in_cloud(LOCAL_USER, ds.id, extra_steps=500,
+                                       overrides={'sample_every': 250,
+                                                  'lr_factor': 0.5})
+        persisted = lt._train_settings(svc.get_dataset(LOCAL_USER, ds.id))
+    merged = json.loads(captured['train_settings_snapshot'])
+    assert merged['sample_every'] == 250
+    # a default (1e-4) run continues at 5e-5, carried in the run snapshot only
+    assert merged['learning_rate'] == pytest.approx(5e-5)
+    assert 'sample_every' not in persisted and 'learning_rate' not in persisted

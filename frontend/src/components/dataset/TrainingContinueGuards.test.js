@@ -7,7 +7,9 @@ const hook = fs.readFileSync(new URL('../../hooks/useDataset.js', import.meta.ur
 
 test('continue retry uses the accumulating guarded request helper', () => {
   assert.match(panel, /runConfirmableTrainingRequest/);
-  assert.match(panel, /\(continueOpts\) => ds\.continueTraining/);
+  // the lane picker swapped the direct call for a lane-selected hook — the
+  // guarded, accumulating retry wrapper is still the ONLY way either lane goes out
+  assert.match(panel, /\(continueOpts\) => \(inCloud \? ds\.continueTrainingInCloud : ds\.continueTraining\)\(/);
   assert.match(panel, /confirmableRetryFlag\(error, 'Continue anyway \(force\)'\)/);
 });
 

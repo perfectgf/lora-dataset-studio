@@ -47,6 +47,30 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-continue-choose-local-or-cloud',
+    date: '2026-07-22',
+    title: '▶ Continue: choose where it runs — this GPU or a rented one',
+    blurb:
+      "A checkpoint is just a file, so where it was trained no longer decides where it can be finished. The Continue dialog now has a Local / Cloud switch: send a run trained on your machine to a rented GPU (the checkpoint is uploaded and training picks up from it), or finish a cloud epoch here. A lane you can't use says why instead of vanishing — and a local training in progress no longer blocks the cloud one.",
+    to: '/datasets?section=checkpoints',
+  },
+  {
+    id: '2026-07-22-final-checkpoint-previewable',
+    date: '2026-07-22',
+    title: '☑ The final checkpoint can be previewed too',
+    blurb:
+      'Importing the last save of a run left its pill in the lineage graph without a tick-box, so the one checkpoint you most want to look at was the only one you could not preview. The final save is deployed without a step number in its name; it is now matched back to its own run, and ticking it generates a preview like any other epoch.',
+    to: '/datasets?section=checkpoints',
+  },
+  {
+    id: '2026-07-22-continue-from-any-graph-checkpoint',
+    date: '2026-07-22',
+    title: '▶ Continue from any checkpoint straight from the graph — in your dataset too',
+    blurb:
+      "Clicking a checkpoint in the lineage graph used to offer “Continue from here” only on the Runs page. In a dataset's Checkpoints & LoRAs graph the same click now opens the Continue dialog already set on THAT step — including for runs trained on this machine — so resuming from the epoch that held up best is one click, not a dropdown hunt.",
+    to: '/datasets?section=checkpoints',
+  },
+  {
     id: '2026-07-22-lineage-preview-checkbox-visible',
     date: '2026-07-22',
     title: '☑ The preview tick-box on checkpoints is finally visible',

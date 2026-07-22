@@ -926,6 +926,36 @@ export function useDataset() {
     return d;
   }, [currentId, toast]);
 
+  // ☁ The CLOUD lane of the same ▶ Continue gesture: the chosen LOCAL checkpoint is
+  // seeded onto a FRESH pod (the backend's resume_ckpt_path seam) instead of resuming
+  // on this machine. Same payload as continueTraining — one dialog, two lanes — and
+  // the same interactive-refusal contract, so TrainingPanel's confirm+retry helper
+  // drives either lane without a second code path.
+  const continueTrainingInCloud = useCallback(async (extraSteps = 1000, baseModel, variant, trainType, opts = {}) => {
+    const body = {
+      extra_steps: extraSteps,
+      ...trainingRunSelection(baseModel, trainType, variant),
+      masked: opts.masked !== false,
+      allow_caption_mismatch: !!opts.allowCaptionMismatch,
+      allow_uncaptioned: !!opts.allowUncaptioned,
+      allow_unverified_weights: !!opts.allowUnverifiedWeights,
+      allow_caption_quality: !!opts.allowCaptionQuality,
+      allow_not_ready: !!opts.allowNotReady,
+      ...(opts.fromStep != null ? { from_step: opts.fromStep } : {}),
+      ...(opts.overrides ? { overrides: opts.overrides } : {}),
+      ...(opts.gpuName ? { gpu_name: opts.gpuName } : {}),
+    };
+    const d = await postJson(`/api/dataset/${currentId}/train/cloud/continue-local`, body);
+    if (d.ok) toast.success(`Cloud run started from step ${d.resumed_from} → ${d.target_steps}`);
+    else if (!String(d.error || '').includes('CUSTOM_WEIGHTS_UNVERIFIED: ')
+             && !String(d.error || '').includes('CAPTION_QUALITY: ')
+             && !String(d.error || '').includes('MISMATCH_CAPTION: ')
+             && !String(d.error || '').includes('UNCAPTIONED: ')) {
+      toast.error(d.error || 'Unexpected error');
+    }
+    return d;
+  }, [currentId, toast]);
+
   // trainType = famille sélectionnée dans le menu LORA TYPE (Z-Image / SDXL / Krea).
   // Transmise à l'API pour que checkpoints + liste « IN COMFYUI » suivent le menu et
   // pas le train_type persisté du dataset (sinon LoRA Krea affichés sur la page Z-Image).
@@ -1106,7 +1136,7 @@ export function useDataset() {
            findWatermarks, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder,
            backupEverything, backupJob, downloadBackup, openBackupsFolder, dismissBackup, restoreJob, dismissRestore,
-           refresh, train, stopTraining, continueTraining,
+           refresh, train, stopTraining, continueTraining, continueTrainingInCloud,
            listCheckpoints, importCheckpoint, deleteCheckpoint,
            trainBaseInfo, setTrainSettings, prepareBase };
 }

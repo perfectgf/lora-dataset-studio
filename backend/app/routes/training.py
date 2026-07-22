@@ -1320,6 +1320,45 @@ def dataset_train_cloud_continue():
     return jsonify({'ok': True, **res})
 
 
+@bp.post('/dataset/<int:dataset_id>/train/cloud/continue-local')
+def dataset_train_cloud_continue_local(dataset_id):
+    """▶ Continue d'un checkpoint LOCAL dans le CLOUD (voie « Cloud » de la modale
+    Continue, côté dataset) : le fichier du run local est semé sur un pod frais
+    (resume_ckpt_path) et le job vise step_de_reprise + extra_steps. Mêmes
+    garde-fous que tout launch cloud (clé vast.ai, budget, limite de runs actifs,
+    unicité par famille) — c'est un launch_cloud_training normal."""
+    gate = _require_cloud()
+    if gate:
+        return gate
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    d = request.get_json(silent=True) or {}
+    kw = {'extra_steps': d.get('extra_steps', 1000)}
+    if 'base_model' in d:
+        kw['base_model'] = d.get('base_model')
+    if d.get('variant'):
+        kw['variant'] = d.get('variant')
+    if d.get('train_type'):
+        kw['train_type'] = d.get('train_type')
+    if d.get('from_step') is not None:
+        kw['from_step'] = d.get('from_step')
+    if d.get('overrides') is not None:
+        kw['overrides'] = d.get('overrides')
+    if d.get('gpu_name'):
+        kw['gpu_name'] = d.get('gpu_name')
+    kw['masked'] = d.get('masked', True)
+    kw['allow_unverified_weights'] = bool(d.get('allow_unverified_weights'))
+    kw['allow_caption_mismatch'] = bool(d.get('allow_caption_mismatch'))
+    kw['allow_uncaptioned'] = bool(d.get('allow_uncaptioned'))
+    kw['allow_caption_quality'] = bool(d.get('allow_caption_quality'))
+    kw['allow_not_ready'] = bool(d.get('allow_not_ready'))
+    try:
+        res = ct.continue_local_run_in_cloud(LOCAL_USER, dataset_id, **kw)
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
 @bp.get('/dataset/<int:dataset_id>/train/cloud/offers')
 def dataset_train_cloud_offers(dataset_id):
     """Live GPU speed tiers for the launch dialog (price/h + approx time+cost).
