@@ -172,7 +172,13 @@ DEFAULTS = {
               # improve_base_lora_strength to actually let that LoRA work.
               'improve_steps': 4,
               'improve_base_lora_strength': 0.0,
-              'improve_character_lora_strength': 0.0},
+              # Overrides klein.consistency_strength for THIS pass only. It is the
+              # dx8152 consistency LoRA (anchors composition/background), NOT an
+              # identity LoRA — clamped [0, 1.5] by enqueue_klein_edit.
+              'improve_consistency_strength': 0.0,
+              # Total pixel budget the source is rescaled to before sampling, so it
+              # is the output resolution. 2 = the value hardcoded in the workflow.
+              'improve_megapixels': 2.0},
     # Editable identity / quality prompts (feature request by @bbsorry / 雨田壹).
     # The identity "locks" that ride ahead of every generated variation used to be
     # hardcoded and invisible; these overrides expose them without touching the

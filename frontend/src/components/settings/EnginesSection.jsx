@@ -229,10 +229,18 @@ function IdentityPromptField({ field, value, onChange, onRestore, defaultText })
 // Bounds mirror the server-side clamps in face_dataset_service._improve_float /
 // _improve_int — the UI should not offer a value the backend will silently pull back.
 const IMPROVE_KNOBS = [
+  { key: 'improve_megapixels', label: 'Output size (MP)', fallback: 2,
+    min: 0.5, max: 8, step: 0.5,
+    hint: 'The result’s resolution. 2 = the shipped value.' },
   { key: 'improve_base_lora_strength', label: 'Enhancement LoRA', fallback: 0,
-    min: 0, max: 2, step: 0.05, hint: '0 = off (the shipped behaviour). Try 0.5–0.8.' },
-  { key: 'improve_character_lora_strength', label: 'Character LoRA', fallback: 0,
-    min: 0, max: 2, step: 0.05, hint: 'Keeps the trained identity through the pass.' },
+    min: 0, max: 2, step: 0.05,
+    hint: '0 = off (the shipped behaviour). Try 0.5–0.8. Needs klein/realistic.safetensors.' },
+  // Drives klein.consistency_strength, which enqueue_klein_edit clamps to 1.5 — the
+  // UI must not offer a value the engine pulls back. It anchors COMPOSITION, not
+  // identity: it was mislabelled "Character LoRA" when these knobs first shipped.
+  { key: 'improve_consistency_strength', label: 'Consistency LoRA', fallback: 0,
+    min: 0, max: 1.5, step: 0.05,
+    hint: 'Holds the composition and background. High values resist the edit.' },
   { key: 'improve_steps', label: 'Steps', fallback: 4,
     min: 1, max: 50, step: 1, hint: 'More steps = slower, usually cleaner.' },
 ]
@@ -314,12 +322,17 @@ function IdentityPromptsCard({ config, setField, promptDefaults }) {
       <div className="border-t border-border pt-4">
         <h4 className="text-sm font-medium text-content">Upscale &amp; improve — strength</h4>
         <p className="mt-1 mb-2 text-xs text-content-muted">
-          How much the pass is allowed to change the image. All three start at the values
-          the action used before they were exposed, so leaving them alone keeps today’s
-          result. The <strong>enhancement LoRA</strong> is the one baked into the workflow
-          (realistic detail): at 0 it does nothing — raise it to let it work.
+          Output resolution, and how much the pass is allowed to change the image. All four
+          start at the values the action used before they were exposed, so leaving them alone
+          keeps today’s result.
         </p>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <p className="mb-2 text-xs text-amber-200">
+          ⚠ The <strong>enhancement LoRA</strong> reads <code>klein/realistic.safetensors</code>,
+          which ships with neither the app nor the Klein install. When that file is missing its
+          node is skipped entirely, so this value changes nothing — check your ComfyUI
+          <code> models/loras/klein/</code> folder before concluding it has no effect.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
           {IMPROVE_KNOBS.map((k) => (
             <div key={k.key}>
               <label htmlFor={`klein-${k.key}`} className="block text-xs font-medium text-content">

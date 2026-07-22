@@ -18,7 +18,7 @@ def test_defaults_reproduce_the_previously_hardcoded_profile(app, svc):
     """An untouched install must behave byte-identically to before the setting."""
     with app.app_context():
         assert svc._improve_float('improve_base_lora_strength', 0.0) == 0.0
-        assert svc._improve_float('improve_character_lora_strength', 0.0) == 0.0
+        assert svc._improve_float('improve_consistency_strength', 0.0) == 0.0
         assert svc._improve_int('improve_steps', 4) == 4
 
 
@@ -26,10 +26,10 @@ def test_configured_values_are_honoured(app, svc):
     with app.app_context():
         from app import config as cfg
         cfg.save_config({'klein': {'improve_base_lora_strength': 0.8,
-                                   'improve_character_lora_strength': 0.35,
+                                   'improve_consistency_strength': 0.35,
                                    'improve_steps': 8}})
         assert svc._improve_float('improve_base_lora_strength', 0.0) == 0.8
-        assert svc._improve_float('improve_character_lora_strength', 0.0) == 0.35
+        assert svc._improve_float('improve_consistency_strength', 0.0) == 0.35
         assert svc._improve_int('improve_steps', 4) == 8
 
 
@@ -44,16 +44,26 @@ def test_a_malformed_value_falls_back_to_the_default(app, svc, bad):
         assert svc._improve_int('improve_steps', 4) == 4
 
 
+def test_a_value_saved_under_the_old_key_name_still_works(app, svc):
+    """improve_character_lora_strength shipped before the misnomer was caught (it
+    drives the CONSISTENCY LoRA, not identity). Config keys live in users' files, so
+    the rename needs an alias or their saved value would silently become 0."""
+    with app.app_context():
+        from app import config as cfg
+        cfg.save_config({'klein': {'improve_character_lora_strength': 0.9}})
+        assert svc._improve_float('improve_consistency_strength', 0.0, 1.5) == 0.9
+
+
 def test_out_of_range_values_are_clamped_not_rejected(app, svc):
     """Clamp rather than raise: an absurd strength should weaken to the ceiling,
     and a negative one to zero, instead of failing the user's click."""
     with app.app_context():
         from app import config as cfg
         cfg.save_config({'klein': {'improve_base_lora_strength': 99,
-                                   'improve_character_lora_strength': -5,
+                                   'improve_consistency_strength': -5,
                                    'improve_steps': 9999}})
         assert svc._improve_float('improve_base_lora_strength', 0.0) == 2.0
-        assert svc._improve_float('improve_character_lora_strength', 0.0) == 0.0
+        assert svc._improve_float('improve_consistency_strength', 0.0) == 0.0
         assert svc._improve_int('improve_steps', 4) == 50
         cfg.save_config({'klein': {'improve_steps': 0}})
         assert svc._improve_int('improve_steps', 4) == 1     # never a 0-step job

@@ -160,12 +160,34 @@ _IMPROVE_MAX_STRENGTH = 2.0
 _IMPROVE_MAX_STEPS = 50
 
 
-def _improve_float(key, default) -> float:
+# Config keys renamed after they shipped. improve_character_lora_strength was a
+# MISNOMER: the value drives klein.consistency_strength (composition anchoring),
+# never an identity LoRA. Renamed rather than left lying, but a value already saved
+# under the old name must keep working — config keys live in users' config.json.
+_IMPROVE_KEY_ALIASES = {
+    'improve_consistency_strength': ('improve_character_lora_strength',),
+}
+
+
+def _improve_float(key, default, ceiling=_IMPROVE_MAX_STRENGTH) -> float:
+    """Per-key ceiling: the consistency LoRA is itself clamped to 1.5 downstream, and
+    the megapixel budget is a resolution, not a strength — one shared ceiling would
+    either lie to the user or silently cap a value the UI had offered."""
+    raw = cfg.get(f'klein.{key}')
+    # cfg.get merges the shipped defaults, so the new key NEVER reads as absent —
+    # "still at its default" is what actually means "the user has not set this one",
+    # and only then may a value saved under the old name speak for it.
+    if raw is None or raw == default:
+        for legacy in _IMPROVE_KEY_ALIASES.get(key, ()):
+            legacy_value = cfg.get(f'klein.{legacy}')
+            if legacy_value is not None:
+                raw = legacy_value
+                break
     try:
-        v = float(cfg.get(f'klein.{key}'))
+        v = float(raw)
     except (TypeError, ValueError):
         return default
-    return max(0.0, min(_IMPROVE_MAX_STRENGTH, v))
+    return max(0.0, min(ceiling, v))
 
 
 def _improve_int(key, default) -> int:
@@ -4606,9 +4628,10 @@ def _improve_existing_image_locked(user_id, image_id):
             # (0 / 4 / 0) are the values that were hardcoded here, so an untouched
             # install behaves exactly as before. Clamped, because a bad config
             # value must degrade the pass, never crash the enqueue.
-            lora_strength=_improve_float('improve_character_lora_strength', 0.0),
+            lora_strength=_improve_float('improve_consistency_strength', 0.0, 1.5),
             sampler_steps=_improve_int('improve_steps', 4),
             base_lora_strength=_improve_float('improve_base_lora_strength', 0.0),
+            output_megapixels=_improve_float('improve_megapixels', 2.0, 8.0),
             extra_metadata={
                 'is_dataset': True,
                 'dataset_id': img.dataset_id,

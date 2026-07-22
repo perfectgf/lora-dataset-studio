@@ -83,7 +83,7 @@ export const WHATS_NEW = [
     date: '2026-07-22',
     title: '🔧 "Upscale & improve" is now adjustable, not a fixed profile',
     blurb:
-      'Its instruction was editable, but everything deciding how much the pass actually changes the image was hardcoded — including both LoRA strengths, pinned to 0, which meant the enhancement LoRA built into the workflow never applied at all. Settings ▸ Engines now exposes the enhancement LoRA strength, the character LoRA strength and the step count. All three start at exactly the values the action used before, so leaving them alone changes nothing; raise the enhancement LoRA to finally let it work.',
+      'Its instruction was editable, but everything deciding what the pass produces was hardcoded — the output size at 2 MP whatever your source was worth, and both LoRA strengths at 0, which meant the enhancement LoRA built into the workflow never applied at all. Settings ▸ Image engines now exposes the output size, the enhancement LoRA, the consistency LoRA (it anchors composition, not identity) and the step count. All four start at exactly the values the action used before, so leaving them alone changes nothing. One caveat worth knowing: the enhancement LoRA reads a file that ships with neither the app nor the Klein install, and when it is missing its node is skipped entirely — so that one slider does nothing until you have it.',
     to: '/settings/engines',
   },
   {
