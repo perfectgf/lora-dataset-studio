@@ -3464,6 +3464,101 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
     return removed
 
 
+def _rename_plan(root, old_prefix, new_prefix, *, want_dir=False, suffix=None) -> list:
+    """Entries of `root` on the EXACT boundary of old_prefix, paired with their
+    renamed path. `suffix` restricts to one extension and is stripped before the
+    boundary test (a job config's boundary lives in its stem, not in '.json')."""
+    out = []
+    if not os.path.isdir(root):
+        return out
+    for name in os.listdir(root):
+        if suffix and not name.endswith(suffix):
+            continue
+        src = os.path.join(root, name)
+        if os.path.isdir(src) != want_dir:
+            continue
+        stem = name[:-len(suffix)] if suffix else name
+        if not _trigger_boundary(stem, old_prefix):
+            continue
+        out.append((src, os.path.join(root, new_prefix + name[len(old_prefix):])))
+    return out
+
+
+def rename_training_artifacts(user_id, old_trigger_safe, new_trigger_safe) -> dict:
+    """Rename every training artefact of a (user, trigger) onto a NEW trigger —
+    the mirror of purge_training_artifacts, for an edit instead of a delete.
+
+    Without this, changing a dataset's trigger word orphaned everything it had
+    already produced: the deployed LoRA, the ai-toolkit run folder, the export and
+    the job config all keep the OLD trigger in their name, so they no longer match
+    the dataset that made them (and a later run under the new trigger starts from
+    an empty folder while the old one lingers as dead weight).
+
+    Covers the same four backends as the purge: deployed LoRAs (all five family
+    dirs), run output/, export datasets/, and config/generated/. Same safety
+    rules too — exact trigger-boundary matching (never a sibling: Lola vs Lola2),
+    bare os.listdir names (no path traversal), empty trigger is a no-op.
+
+    PLANNED IN FULL, THEN EXECUTED: a half-renamed set is worse than none at all
+    (artefacts split across two triggers with no record of the split), so any
+    destination that already exists aborts the whole rename and nothing is moved.
+    Returns {'renamed': [(src, dest)], 'conflicts': [dest], 'ok': bool}; ok is
+    False only when a conflict blocked it. Idempotent: a second call finds
+    nothing left under the old trigger and is a successful no-op.
+
+    Each backend is probed independently — an unconfigured one (no ComfyUI dir
+    yet) simply yields no roots to sweep instead of aborting the rename."""
+    old_trigger_safe = (old_trigger_safe or '').strip()
+    new_trigger_safe = (new_trigger_safe or '').strip()
+    if (not old_trigger_safe or not new_trigger_safe
+            or old_trigger_safe == new_trigger_safe or user_id in (None, '')):
+        return {'renamed': [], 'conflicts': [], 'ok': True}
+
+    old_run, new_run = f'u{user_id}_{old_trigger_safe}', f'u{user_id}_{new_trigger_safe}'
+    old_lora, new_lora = f'lora_{old_trigger_safe}', f'lora_{new_trigger_safe}'
+
+    def _roots(accessors):
+        roots = []
+        for accessor in accessors:
+            try:
+                roots.append(str(accessor()))
+            except RuntimeError:
+                pass                      # backend not configured yet -> nothing to sweep
+        return roots
+
+    plan = []
+    # 1) deployed LoRAs in ComfyUI (zimage + sdxl + krea + flux + flux2klein)
+    for root in _roots((_lora_dest_dir_zimage, _lora_dest_dir_sdxl, _lora_dest_dir_krea,
+                        _lora_dest_dir_flux, _lora_dest_dir_flux2klein)):
+        plan += _rename_plan(root, old_lora, new_lora, suffix='.safetensors')
+    # 2) run output + 3) export datasets (whole folders)
+    for root in _roots((_output_dir, _datasets_dir)):
+        plan += _rename_plan(root, old_run, new_run, want_dir=True)
+    # 4) job configs, keyed by run name (one trigger can have several families)
+    for root in _roots((_jobs_dir,)):
+        plan += _rename_plan(root, old_run, new_run, suffix='.json')
+
+    conflicts = [dest for _, dest in plan if os.path.exists(dest)]
+    if conflicts:
+        logger.warning('rename_training_artifacts u%s %s->%s : abandon, %d collision(s)',
+                       user_id, old_trigger_safe, new_trigger_safe, len(conflicts))
+        return {'renamed': [], 'conflicts': conflicts, 'ok': False}
+
+    renamed = []
+    for src, dest in plan:
+        try:
+            os.rename(src, dest)
+            renamed.append((src, dest))
+        except OSError as e:
+            # Best-effort like the purge: a locked file (an open LoRA, a folder held
+            # by a viewer) is logged and skipped rather than aborting mid-way, which
+            # would leave the set split with no way to tell which half moved.
+            logger.warning('rename: %s -> %s échoué : %s', src, dest, e)
+    logger.info('rename_training_artifacts u%s %s->%s : %d artefact(s) renommé(s)',
+                user_id, old_trigger_safe, new_trigger_safe, len(renamed))
+    return {'renamed': renamed, 'conflicts': [], 'ok': True}
+
+
 def write_job_config(ds, dataset_folder: str, steps: int = 3000) -> str:
     job_cfg = build_job_config(ds, dataset_folder, steps=steps)
     # Name by the base/family-aware run name, NOT the trigger alone: a zimage run

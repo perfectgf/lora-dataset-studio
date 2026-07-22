@@ -2415,6 +2415,23 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   ▶ Continue training…
                 </button>
               </div>
+              {/* A disabled button whose only explanation is a title= reads as a DEAD
+                  button: no hover, no reason, and the report is "it does nothing".
+                  State it in the panel, like the Find-best-epoch lines just below. */}
+              {!checkpointMatchesTraining && (
+                <p className="m-0 text-amber-300 text-[0.625rem]">
+                  ▶ Continue is off: these checkpoints come from a different LoRA family,
+                  base or variant than the one selected in Training above. Match them to
+                  continue this run.
+                </p>
+              )}
+              {checkpointMatchesTraining && status.in_progress
+                && !continueLanes.cloud.available && (
+                <p className="m-0 text-amber-300 text-[0.625rem]">
+                  ▶ Continue is off while a training runs on this machine.
+                  {' '}{continueLanes.cloud.reason}
+                </p>
+              )}
               {bestEpoch && !bestEpoch.available && (
                 <p className="m-0 text-amber-300 text-[0.625rem]">🏆 {bestEpoch.reason}</p>
               )}

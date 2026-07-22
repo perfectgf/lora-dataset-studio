@@ -123,7 +123,11 @@ def dataset_set_train_type(dataset_id):
 @bp.post('/dataset/<int:dataset_id>/settings')
 def dataset_update_settings(dataset_id):
     """Edit name / trigger word / (concept) description / KIND after creation. Changing
-    the trigger is safe (it's prepended at export — no re-caption). Changing a concept
+    the trigger needs no re-caption (it's prepended at export), but it IS the on-disk
+    naming key, so the artefacts it already produced — deployed LoRAs, run folder,
+    export, job config — are renamed with it and the rows naming them are repointed;
+    the response carries `trigger_rename` {ok, files, rows, conflicts} for the UI, and
+    the edit is refused (409) while a run is live. Changing a concept
     dataset's description resets the caption avoid-list cache; re-caption to apply it
     to existing captions (response flags concept_desc_changed for the UI hint).
     Changing the **kind** (character/concept/style) flips the caption strategy and the

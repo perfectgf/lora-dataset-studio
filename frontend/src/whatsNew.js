@@ -47,6 +47,22 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-continue-says-why-it-is-off',
+    date: '2026-07-22',
+    title: '▶ "Continue training" now tells you why it is greyed out',
+    blurb:
+      'When the button was disabled, the reason was only in its hover tooltip — so it read as a button that simply does nothing. The reason is now written in the panel itself, in the same amber line the epoch tools use: either the checkpoints come from a different LoRA family, base or variant than the one selected in Training, or a training is already running on this machine and no cloud lane is available.',
+    to: '/datasets?section=checkpoints',
+  },
+  {
+    id: '2026-07-22-trigger-rename-follows-on-disk',
+    date: '2026-07-22',
+    title: '✎ Renaming the trigger word now renames the LoRAs it already made',
+    blurb:
+      "The trigger word is what names everything a dataset produces — the deployed LoRA, the training run folder, the export. Changing it used to leave all of that behind under the old name, orphaned from the dataset that made it. Now the files follow: LoRAs, run folder, export and job config are renamed together, and the Test Studio history and cloud runs keep pointing at them. If the new name is already taken on disk nothing is moved at all (never half), and the edit is refused while a run is live, since that folder is what training resumes from. Style datasets have no visible trigger — they are always-on — so there it is the dataset NAME that renames them.",
+    to: '/datasets',
+  },
+  {
     id: '2026-07-22-install-everything-covers-scraper',
     date: '2026-07-22',
     title: '⬇ "Install everything" now repairs the scraper too',
