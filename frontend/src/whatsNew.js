@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-bulk-improve-is-a-server-job',
+    date: '2026-07-23',
+    title: '✨ Improve 250 images at once — and Stop really stops',
+    blurb:
+      'Selecting a big batch for "Improve via Klein" used to hit a wall: only the first 60 were accepted, the rest were refused one by one, and ⏹ Stop generation had no effect because the batch was a loop running in your browser tab — cancel the images in flight and the tab queued the next ones. The batch now runs on the server. It works through the whole selection a few at a time, waiting for a free slot instead of being refused, shows honest progress (how many queued out of how many), survives a page reload, and keeps going if you close the tab. And ⏹ Stop generation ends the batch itself, not just what happened to be generating at that instant.',
+    to: '/datasets?section=images',
+  },
+  {
     id: '2026-07-23-continue-lane-picker-on-runs',
     date: '2026-07-23',
     title: '▶ Continue a cloud run on your own GPU, straight from the Runs page',

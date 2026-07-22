@@ -569,7 +569,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
           // ComfyUI, and the Klein case is obvious from the tiles appearing).
           const cpu = act.kind === 'analyze_faces'
             || (act.kind === 'watermark_clean' && !String(act.detail || '').includes('GPU'))
-            || act.kind === 'generate';
+            || act.kind === 'generate'
+            // Same reasoning as 'generate': the improve batch feeds ComfyUI, and
+            // the candidates appearing in the grid say so better than a claim.
+            || act.kind === 'improve';
           const label = {
             watermark_detect: `Scanning for watermarks…${prog}`,
             watermark_clean: `Cleaning watermarks…${prog}`,
@@ -578,6 +581,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             analyze_faces: `Analyzing faces…${prog}`,
             classify: `Classifying framing…${prog}`,
             generate: `Generating variations…${prog}`,
+            improve: `Queuing improvements…${prog}`,
           }[act.kind];
           if (label) {
             const detailed = act.detail || label;
@@ -836,21 +840,29 @@ export default function DatasetWorkspace({ ds, onBack }) {
             </div>
           )}
 
-          {pending > 0 && (
+          {/* Stop is also the batch's Stop: a server-side ✨ improve run keeps feeding
+              the queue, so the banner must stay reachable even between two waves
+              (a moment when nothing is in flight). */}
+          {(pending > 0 || act?.kind === 'improve') && (
             <div className="flex items-center gap-3 rounded-lg border-2 border-indigo-400/60 bg-indigo-500/15 px-3 py-2.5">
               <span className="animate-pulse text-lg" aria-hidden>⏳</span>
               <div className="flex flex-col">
                 <span className="text-content text-sm font-semibold">
-                  {pending} generation(s) in progress…
+                  {act?.kind === 'improve' && act.total
+                    ? `${act.done}/${act.total} improvement(s) queued — ${pending} generating…`
+                    : `${pending} generation(s) in progress…`}
                 </span>
                 <span className="text-content-subtle text-[0.6875rem]">
-                  First results look wrong? Stop now — the remaining API calls are skipped (not billed).
+                  {act?.kind === 'improve'
+                    ? 'Runs on the server — you can close this tab. Stop ends the whole batch, not just what is in flight.'
+                    : 'First results look wrong? Stop now — the remaining API calls are skipped (not billed).'}
                 </span>
               </div>
-              <button type="button" onClick={ds.cancelPending} disabled={ds.busy}
-                title="Cancels every generation still in flight; finished images stay."
+              <button type="button" onClick={ds.cancelPending}
+                disabled={ds.busy && act?.kind !== 'improve'}
+                title="Cancels every generation still in flight (and stops a running improvement batch); finished images stay."
                 className="ml-auto shrink-0 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-bold disabled:opacity-40">
-                ⏹ Stop generation
+                {act?.cancelling && act?.kind === 'improve' ? 'Stopping…' : '⏹ Stop generation'}
               </button>
             </div>
           )}
@@ -888,7 +900,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   onMirror={ds.mirrorImage} mirroringIds={ds.mirroringIds}
                   onRegenerate={(id, loraStrength, prompt) => ds.regenerate(id, loraStrength, prompt)} onView={setViewImg}
                   onBatch={ds.batchImages} busy={ds.busy}
-                  onImprove={ds.improveImage} onRefresh={ds.refresh}
+                  onImproveBatch={ds.improveBatch} activity={act}
                   kleinAvailable={Boolean(caps.engines?.klein)}
                   eligibilityImages={images}
                   nonces={ds.nonces} faceThresholds={d.face_thresholds} datasetKind={d.kind || 'character'}

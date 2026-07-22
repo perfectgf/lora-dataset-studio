@@ -2,8 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  describeKleinImproveLaunch,
+  kleinImproveBatchLabel,
   partitionKleinImproveSelection,
-  runSequentialKleinImprove,
 } from './kleinBulkImprove.js'
 
 test('bulk Klein selection keeps only sources with no active improvement child', () => {
@@ -20,25 +21,20 @@ test('bulk Klein selection keeps only sources with no active improvement child',
   assert.match(excluded[0].reason, /pending review/)
 })
 
-test('bulk Klein orchestration is sequential and reports partial failures', async () => {
-  let active = 0
-  let maxActive = 0
-  const calls = []
-  const progress = []
-  const improve = async (id) => {
-    active += 1
-    maxActive = Math.max(maxActive, active)
-    calls.push(id)
-    await new Promise((resolve) => setImmediate(resolve))
-    active -= 1
-    return id === 2 ? { ok: false, error: 'full' } : { ok: true, candidate_id: id + 10 }
-  }
-  const result = await runSequentialKleinImprove(
-    [{ id: 1 }, { id: 2 }, { id: 3 }], improve, (state) => progress.push(state.done),
-  )
-  assert.deepEqual(calls, [1, 2, 3])
-  assert.equal(maxActive, 1)
-  assert.deepEqual(progress, [1, 2, 3])
-  assert.deepEqual(result.succeeded.map(({ image }) => image.id), [1, 3])
-  assert.deepEqual(result.failed.map(({ image }) => image.id), [2])
+test('the ✨ button reads its progress from the server activity, not a tab-local loop', () => {
+  assert.equal(kleinImproveBatchLabel(null), null)
+  assert.equal(kleinImproveBatchLabel({ kind: 'generate', done: 9, total: 60 }), null)
+  assert.equal(kleinImproveBatchLabel({ kind: 'improve', done: 61, total: 250 }),
+    '✨ Improving 61/250')
+  assert.equal(kleinImproveBatchLabel({ kind: 'improve', done: 0, total: 0 }), '✨ Improving…')
+  assert.equal(kleinImproveBatchLabel({ kind: 'improve', done: 3, total: 250, cancelling: true }),
+    '✨ Stopping…')
+})
+
+test('launch wording states the server-side contract', () => {
+  const message = describeKleinImproveLaunch({ queued: 250, skipped: 4 })
+  assert.match(message, /250 image\(s\) in the background/)
+  assert.match(message, /4 not eligible/)
+  assert.match(message, /close this tab/)
+  assert.doesNotMatch(describeKleinImproveLaunch({ queued: 3 }), /not eligible/)
 })

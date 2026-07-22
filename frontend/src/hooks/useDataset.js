@@ -470,6 +470,19 @@ export function useDataset() {
     return d;
   }, [refresh, toast]);
 
+  // Bulk ✨ Klein upscale & improve: ONE call that starts a SERVER job. The batch
+  // used to be a browser loop, so a selection bigger than the backend's fan-out cap
+  // was mostly refused, ⏹ Stop could not reach it, and closing the tab killed it.
+  // Progress now rides on `activity` (kind 'improve') and survives a reload.
+  const improveBatch = useCallback(async (imageIds) => {
+    const ids = (imageIds || []).map((v) => Number(v)).filter(Number.isInteger);
+    if (!ids.length) return { ok: false, error: 'nothing selected' };
+    const d = await postJson(`/api/dataset/${currentId}/improve/batch`, { image_ids: ids });
+    if (!d.ok) toast.error(d.error || 'Could not start the improvement batch');
+    await refresh();
+    return d;
+  }, [currentId, refresh, toast]);
+
   const classify = useCallback(() => wrap(async () => {
     const d = await postJson(`/api/dataset/${currentId}/classify`);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -1144,7 +1157,7 @@ export function useDataset() {
            analyzing: analyzingLive, watermarking: watermarkingLive, activity,
            nonces, mirroringIds, refNonce, recaptioningIds, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
-           generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, classify, caption, recaption, recaptionImages,
+           generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, improveBatch, classify, caption, recaption, recaptionImages,
            setStatus, setCaption, mirrorImage, crop, cropRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, cancelCaption, regenerate, analyzeFaces,
            findWatermarks, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder,

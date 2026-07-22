@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import DatasetGridItem from './DatasetGridItem';
 import TileSizeControl from '../shared/TileSizeControl';
 import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
 import {
+  describeKleinImproveLaunch,
+  kleinImproveBatchLabel,
   partitionKleinImproveSelection,
-  runSequentialKleinImprove,
 } from '../../utils/kleinBulkImprove';
 import { useToast } from '../common/Toast';
 
@@ -155,21 +156,19 @@ function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy }) {
 export default function DatasetGrid({ images, datasetId, onStatus, onCaption, onCrop, onDelete,
                                       onMirror, onRegenerate, onView, onBatch, busy, nonces,
                                       mirroringIds, faceThresholds, datasetKind = 'character',
-                                      onImprove, onRefresh, kleinAvailable = false,
-                                      eligibilityImages, dualCaptions = false }) {
+                                      onImproveBatch, kleinAvailable = false,
+                                      eligibilityImages, dualCaptions = false,
+                                      activity = null }) {
   const toast = useToast();
   const [selected, setSelected] = useState(() => new Set());
-  const [bulkImprove, setBulkImprove] = useState(null); // {running, done, total}
-  const datasetIdRef = useRef(datasetId);
-  const bulkImproveRunRef = useRef(0);
-  // Update during render (not one effect later) so a completion microtask for
-  // dataset A immediately sees navigation to B. The token also protects A→B→A.
-  datasetIdRef.current = datasetId;
-  const bulkBusy = busy || Boolean(bulkImprove?.running);
+  // Only the LAUNCH request is tracked locally; the batch's own progress comes
+  // from the server (`activity`), so it survives a reload and a closed tab.
+  const [launchingImprove, setLaunchingImprove] = useState(false);
+  const improveLabel = kleinImproveBatchLabel(activity);
+  const bulkBusy = busy || launchingImprove;
   useEffect(() => {
-    bulkImproveRunRef.current += 1;
     setSelected(new Set());
-    setBulkImprove(null);
+    setLaunchingImprove(false);
   }, [datasetId]);
   // Prune ids that vanished (deleted / poll refresh) so stale selections can't act.
   useEffect(() => {
@@ -224,50 +223,34 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
     await onBatch(ids, action);
     setSelected(new Set());
   };
+  // Hand the whole selection to the server in ONE call. The client keeps the
+  // eligibility partition (it already holds the rows, and the confirm must state
+  // what will be skipped); the server re-checks it and owns the pacing.
   const improveSelected = async () => {
     const { eligible, excluded } = partitionKleinImproveSelection(improveUniverse, ids);
-    if (!onImprove || !kleinAvailable || !eligible.length || bulkBusy) return;
+    if (!onImproveBatch || !kleinAvailable || !eligible.length || bulkBusy) return;
     const skipped = excluded.length
       ? `\n\n${excluded.length} selected image(s) will be skipped: ${exclusionSummary}.`
       : '';
     if (!window.confirm(
       `Create a separate 2 MP Klein improvement candidate for ${eligible.length} image(s)?`
-      + `${skipped}\n\nOriginal images stay unchanged until you review the candidates.`,
+      + `${skipped}\n\nThey are queued a few at a time in the background — you can close`
+      + ' this tab, and ⏹ Stop generation ends the batch.'
+      + '\n\nOriginal images stay unchanged until you review the candidates.',
     )) return;
-    const batchDatasetId = datasetId;
-    const runToken = ++bulkImproveRunRef.current;
-    const isCurrentBatch = () => (
-      datasetIdRef.current === batchDatasetId && bulkImproveRunRef.current === runToken
-    );
-    setBulkImprove({ running: true, done: 0, total: eligible.length });
-    let result = { succeeded: [], failed: [] };
-    let unexpectedError = null;
-    let refreshFailed = false;
+    setLaunchingImprove(true);
     try {
-      result = await runSequentialKleinImprove(
-        eligible,
-        (imageId) => onImprove(imageId, { silent: true, refreshAfter: false }),
-        ({ done, total }) => {
-          if (isCurrentBatch()) setBulkImprove({ running: true, done, total });
-        },
-      );
-    } catch (error) {
-      unexpectedError = error;
-    } finally {
-      // The requests may finish after navigation. Do not fetch A or mutate B's
-      // selection/progress/toasts from this stale batch.
-      if (!isCurrentBatch()) return;
-      try { await onRefresh?.(batchDatasetId); } catch { refreshFailed = true; }
-      if (!isCurrentBatch()) return;
-      setSelected(new Set());
-      setBulkImprove({ running: false, done: eligible.length, total: eligible.length });
-      if (unexpectedError) {
-        toast.error(`Bulk Klein improvement stopped unexpectedly: ${unexpectedError.message || 'unknown error'}`);
-      } else if (result.failed.length || refreshFailed) {
-        toast.warning(`Klein improvement queued for ${result.succeeded.length}/${eligible.length} image(s) · ${result.failed.length} failed or refused${refreshFailed ? ' · refresh failed' : ''}.`);
-      } else {
-        toast.success(`Klein improvement queued for ${result.succeeded.length} image(s) — originals stay intact.`);
+      const result = await onImproveBatch(eligible.map((image) => image.id));
+      if (result?.ok) {
+        setSelected(new Set());
+        toast.success(describeKleinImproveLaunch(result));
       }
+      // A failed launch already surfaced its own error toast (and the selection is
+      // kept so the user can retry once the reason is fixed).
+    } catch (error) {
+      toast.error(`Could not start the improvement batch: ${error?.message || 'unknown error'}`);
+    } finally {
+      setLaunchingImprove(false);
     }
   };
   const batchBtn = 'px-2.5 py-1 rounded-lg text-xs font-semibold disabled:opacity-40';
@@ -303,21 +286,20 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
               <button type="button" disabled={bulkBusy} onClick={() => act('clear_caption')}
                 title="Delete the selected images' captions (the Caption button then regenerates them)"
                 className={`${batchBtn} bg-surface text-content border border-border`}>🧹 Clear captions</button>
-              {onImprove && (
+              {onImproveBatch && (
                 <button type="button" onClick={improveSelected}
-                  disabled={bulkBusy || !kleinAvailable || !improveSelection.eligible.length}
+                  disabled={bulkBusy || !!improveLabel || !kleinAvailable
+                            || !improveSelection.eligible.length}
                   title={!kleinAvailable
                     ? 'Klein is not available in this setup'
                     : improveSelection.eligible.length
-                      ? `Creates separate 2 MP candidates sequentially.${exclusionSummary ? ` Excluded: ${exclusionSummary}.` : ''}`
+                      ? `Runs in the background, a few at a time — survives a page reload.${exclusionSummary ? ` Excluded: ${exclusionSummary}.` : ''}`
                       : `No selected image is eligible.${exclusionSummary ? ` ${exclusionSummary}.` : ''}`}
                   className={`${batchBtn} border border-indigo-400/50 bg-indigo-500/20 text-indigo-100`}>
-                  {bulkImprove?.running
-                    ? `✨ Improving ${bulkImprove.done}/${bulkImprove.total}`
-                    : `✨ Improve via Klein (${improveSelection.eligible.length})`}
+                  {improveLabel || `✨ Improve via Klein (${improveSelection.eligible.length})`}
                 </button>
               )}
-              {onImprove && improveSelection.excluded.length > 0 && (
+              {onImproveBatch && improveSelection.excluded.length > 0 && (
                 <span className="text-content-subtle" title={exclusionSummary}>
                   {improveSelection.excluded.length} not eligible
                 </span>

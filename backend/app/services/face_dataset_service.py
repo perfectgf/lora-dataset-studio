@@ -1509,10 +1509,16 @@ def delete_dataset(user_id, dataset_id):
 
 def cancel_pending(user_id, dataset_id):
     """Cancel all in-flight (pending) generations of a dataset and drop their
-    rows. Returns the number cancelled."""
+    rows. Returns the number cancelled.
+
+    ⏹ Stop generation also stops the server-side ✨ improve BATCH: cancelling the
+    rows alone used to be pointless, because whatever was feeding the queue simply
+    queued the next wave. The flag is armed FIRST so the worker can't slip another
+    image in between the arming and the row deletion."""
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return 0
+    dataset_activity.request_cancel(dataset_id, dataset_activity.IMPROVE_KINDS)
     # Only in-flight generations (pending AND no result file yet) - leave
     # completed-but-uncurated images alone.
     rows = (FaceDatasetImage.query
@@ -4663,6 +4669,185 @@ def _improve_existing_image_locked(user_id, image_id):
     db.session.commit()
     _sync_generate_activity(img.dataset_id)
     return {'candidate_id': candidate.id, 'job_id': job_id}
+
+
+# --- Bulk Klein upscale & improve: a SERVER job --------------------------------
+# The ✨ Improve button used to loop in the BROWSER, one request per image. On a
+# 250-image selection that produced two bugs with a single root cause — the batch
+# only existed in the tab:
+#   * everything past MAX_FANOUT was REFUSED. That cap is a CONCURRENCY limit
+#     ("how many generations may be in flight at once"), and a client loop that
+#     keeps pushing simply walks into it: 60 queued, 190 counted as failures.
+#   * ⏹ Stop was powerless. cancel_pending did its job (rows cancelled, ComfyUI
+#     prompts interrupted) and the tab immediately re-queued the next 60. Closing
+#     the tab killed whatever was left.
+# So the batch runs server-side now: one background thread per dataset, advertised
+# through dataset_activity (kind 'improve') so the progress SURVIVES a reload, and
+# draining the selection in WAVES — it waits for a slot to free instead of hitting
+# the wall — with a cooperative stop checked at every image boundary.
+IMPROVE_SLOT_POLL_SECONDS = 2.0
+# Give up (and say so) if no slot frees for this long. A ComfyUI that died mid-batch
+# would otherwise leave the thread polling a count that never drops, and the dataset
+# stuck behind an "in progress" indicator until the registry TTL expires.
+IMPROVE_SLOT_TIMEOUT_SECONDS = 15 * 60
+# Chunk the id lookup: a selection is user-sized and SQLite caps bound parameters.
+_IMPROVE_ID_CHUNK = 400
+
+
+def _improve_in_flight(dataset_id):
+    """Live count of generations in flight on ``dataset_id`` — the very number
+    improve_existing_image checks against MAX_FANOUT. Ends the worker thread's read
+    transaction first (a rollback on a clean session is a no-op) so each poll sees
+    the rows COMMITTED by the job-queue monitor thread rather than a stale snapshot;
+    without it the count would never drop and the batch would stall forever."""
+    db.session.rollback()
+    return (FaceDatasetImage.query
+            .filter_by(dataset_id=dataset_id, status='pending')
+            .filter(FaceDatasetImage.filename.is_(None)).count())
+
+
+def bulk_improve_eligible_ids(user_id, dataset_id, image_ids):
+    """The subset of ``image_ids`` this dataset can actually improve, in selection
+    order and de-duplicated. Mirrors the client-side partition
+    (frontend/src/utils/kleinBulkImprove.js) so the total the job advertises is the
+    number it will really work on — a batch that announced 250 and refused 40 of
+    them one by one is exactly the dishonesty this rewrite removes."""
+    wanted, seen = [], set()
+    for raw in image_ids or []:
+        try:
+            image_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if image_id not in seen:
+            seen.add(image_id)
+            wanted.append(image_id)
+    if not wanted:
+        return []
+    rows = {}
+    for start in range(0, len(wanted), _IMPROVE_ID_CHUNK):
+        chunk = wanted[start:start + _IMPROVE_ID_CHUNK]
+        for row in (FaceDatasetImage.query
+                    .filter(FaceDatasetImage.dataset_id == dataset_id,
+                            FaceDatasetImage.id.in_(chunk)).all()):
+            rows[row.id] = row
+    # Sources whose improvement is already pending review (or still generating):
+    # re-improving them would just make an indistinguishable duplicate.
+    busy_parents = {row.parent_image_id for row in (
+        FaceDatasetImage.query
+        .filter_by(dataset_id=dataset_id, derivation_kind=KLEIN_IMAGE_IMPROVE,
+                   status='pending').all())}
+    eligible = []
+    for image_id in wanted:
+        img = rows.get(image_id)
+        if not img or not img.filename:
+            continue
+        if img.derivation_kind in _SMALL_IMAGE_DERIVATIONS:
+            continue
+        if img.derivation_kind == KLEIN_IMAGE_IMPROVE:
+            continue
+        if image_id in busy_parents:
+            continue
+        eligible.append(image_id)
+    return eligible
+
+
+def start_bulk_improve(app, user_id, dataset_id, image_ids):
+    """Start the server-side ✨ Klein upscale & improve batch over ``image_ids``.
+
+    Returns ``{'queued', 'skipped'}`` — how many images the job will process and
+    how many of the selection were not eligible. Raises ValueError (-> 400) on an
+    unknown dataset / an empty eligible set, RuntimeError (-> 409) when a batch is
+    already running, and the Klein missing-assets exceptions (-> structured 409)
+    so a missing model surfaces ONCE instead of once per image."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    if dataset_activity.running(dataset_id, dataset_activity.IMPROVE_KINDS):
+        raise RuntimeError('an improvement batch is already running on this dataset')
+    from . import klein_edit_helper as keh
+    missing = keh.klein_missing_assets()
+    missing_nodes = keh.klein_missing_nodes()
+    if missing_nodes:
+        raise KleinNodesMissing(missing, missing_nodes)
+    if any(asset in missing for asset in keh.KLEIN_REQUIRED):
+        raise keh.KleinModelsMissing(missing)
+    eligible = bulk_improve_eligible_ids(user_id, dataset_id, image_ids)
+    if not eligible:
+        raise ValueError('no selected image is eligible for improvement')
+    skipped = max(0, len(set(image_ids or [])) - len(eligible))
+    total = len(eligible)
+    token = dataset_activity.begin(dataset_id, 'improve', total=total,
+                                   detail=f'Queuing improvements… 0/{total}',
+                                   engine='klein')
+
+    def _run():
+        try:
+            with app.app_context():
+                _drain_improve_queue(user_id, dataset_id, eligible, token)
+        except Exception:   # noqa: BLE001 — a background crash must not strand the indicator
+            logger.exception('bulk improve batch failed on dataset %s', dataset_id)
+        finally:
+            dataset_activity.end(token)
+            dataset_activity.clear_cancel(dataset_id, dataset_activity.IMPROVE_KINDS)
+
+    # Under TESTING the job runs INLINE (same rule as bank_jobs): the suite uses a
+    # per-connection in-memory sqlite, so a real worker thread would open a fresh,
+    # EMPTY database.
+    if app.config.get('TESTING'):
+        _run()
+    else:
+        threading.Thread(target=_run, daemon=True,
+                         name=f'ds-{dataset_id}-improve').start()
+    return {'queued': total, 'skipped': skipped}
+
+
+def _drain_improve_queue(user_id, dataset_id, image_ids, token, sleep=time.sleep):
+    """Queue one improvement per id, in WAVES that respect the MAX_FANOUT
+    concurrency cap: when the dataset already has that many generations in flight
+    the worker WAITS for a slot (the count drops as ComfyUI writes the files) rather
+    than firing a request doomed to be refused. Stops at the next image boundary
+    when ⏹ Stop arms the flag. Returns a summary dict (also used by the tests)."""
+    total = len(image_ids)
+    queued = failed = 0
+    waited = 0.0
+    stopped = stalled = False
+
+    def _stop_requested():
+        return dataset_activity.cancel_requested(dataset_id,
+                                                 dataset_activity.IMPROVE_KINDS)
+
+    for index, image_id in enumerate(image_ids):
+        while not stopped and not stalled and _improve_in_flight(dataset_id) + 1 > MAX_FANOUT:
+            if _stop_requested():
+                stopped = True
+            elif waited >= IMPROVE_SLOT_TIMEOUT_SECONDS:
+                stalled = True
+            else:
+                dataset_activity.progress(
+                    token,
+                    detail=f'Queuing improvements… {queued}/{total} — waiting for a '
+                           f'free generation slot ({total - index} left)')
+                sleep(IMPROVE_SLOT_POLL_SECONDS)
+                waited += IMPROVE_SLOT_POLL_SECONDS
+        if stalled:
+            break
+        if stopped or _stop_requested():
+            stopped = True
+            break
+        waited = 0.0
+        try:
+            improve_existing_image(user_id, image_id)
+            queued += 1
+        except Exception as exc:   # noqa: BLE001 — one refusal never sinks the batch
+            failed += 1
+            logger.warning('bulk improve: image %s could not be queued (%s)',
+                           image_id, exc)
+        dataset_activity.bump(token)
+        dataset_activity.progress(
+            token, detail=f'Queuing improvements… {queued}/{total}')
+    return {'total': total, 'queued': queued, 'failed': failed,
+            'stopped': stopped, 'stalled': stalled,
+            'remaining': total - queued - failed}
 
 
 def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=None,

@@ -36,7 +36,7 @@ import time
 # ChatGPT / Klein) — it keeps the Generate button (and every concurrent action)
 # disabled for the WHOLE batch, not just the launch request.
 KINDS = ('watermark_detect', 'watermark_clean', 'caption', 'recaption',
-         'analyze_faces', 'classify', 'generate')
+         'analyze_faces', 'classify', 'generate', 'improve')
 
 # Kinds a user can gracefully STOP mid-batch (the ▶ Stop button). Only the
 # per-image captioning passes qualify: the worker checks the cancel flag at each
@@ -44,6 +44,15 @@ KINDS = ('watermark_detect', 'watermark_clean', 'caption', 'recaption',
 # either near-instant (classify), one-shot subprocess passes with no cooperative
 # seam, or already Stop-able through their own path ('generate' → cancel_pending).
 CANCELLABLE_KINDS = ('caption', 'recaption')
+
+# The 'improve' kind is the server-side ✨ Klein upscale & improve batch. It is
+# ALSO cooperatively stoppable, but through the ⏹ Stop generation button
+# (cancel_pending) rather than the captioning Stop — so it gets its own arming
+# scope instead of joining CANCELLABLE_KINDS, whose default is what the caption
+# worker polls. Every kind here is disarmed by begin() so a leaked flag from a
+# previous run can never cancel a fresh one.
+IMPROVE_KINDS = ('improve',)
+STOPPABLE_KINDS = CANCELLABLE_KINDS + IMPROVE_KINDS
 
 # Safety TTL: an entry not touched for this long is purged on read even if end()
 # never ran (process alive but the batch thread died without unwinding). 30 min is
@@ -53,11 +62,13 @@ _TTL_SECONDS = 30 * 60
 _lock = threading.Lock()
 # dataset_id -> { token -> {kind, done, total, started_at, _touched} }
 _active: dict = {}
-# dataset_id -> True while a graceful stop has been REQUESTED for the currently
-# running cancellable batch. Armed by request_cancel (only if a batch is live),
-# read by the worker loop between images, and cleared on the next begin() of a
-# cancellable kind so a leaked/stale arm can never cancel a fresh run. Lives with
-# _active under _lock; in-memory only (dies with the process, like _active).
+# dataset_id -> set of KINDS for which a graceful stop has been REQUESTED. Armed by
+# request_cancel (only for kinds actually live), read by the worker loop between
+# items, and cleared on the next begin() of that kind so a leaked/stale arm can
+# never cancel a fresh run. Per-kind rather than a single boolean: two independent
+# Stop buttons feed it (captioning's ⏹ Stop and the generation ⏹ Stop, which also
+# stops the 'improve' batch), and stopping one must never silently stop the other.
+# Lives with _active under _lock; in-memory only (dies with the process).
 _cancel: dict = {}
 _counter = itertools.count(1)
 
@@ -68,11 +79,11 @@ def begin(dataset_id, kind, total=0, detail=None, engine=None):
     batch will process (0 when not enumerable up front)."""
     now = time.time()
     with _lock:
-        # Fresh cancellable batch → disarm any stale/leaked stop request so it can
-        # never cancel this new run before it starts (a prior run that armed the flag
-        # then crashed before it was consumed would otherwise poison this one).
-        if kind in CANCELLABLE_KINDS:
-            _cancel.pop(dataset_id, None)
+        # Fresh cancellable batch → disarm any stale/leaked stop request FOR THAT KIND
+        # so it can never cancel this new run before it starts (a prior run that armed
+        # the flag then crashed before it was consumed would otherwise poison this one).
+        if kind in STOPPABLE_KINDS:
+            _discard_cancel(dataset_id, (kind,))
         token = f'{dataset_id}:{kind}:{next(_counter)}'
         _active.setdefault(dataset_id, {})[token] = {
             'kind': kind, 'done': 0, 'total': int(total or 0),
@@ -175,7 +186,12 @@ def get(dataset_id):
     """Return the current activity on ``dataset_id`` as
     ``{kind, done, total, started_at}`` or ``None``. Purges TTL-expired entries
     first, so a leaked entry can never strand a phantom indicator. When several
-    batches overlap, the most recently STARTED one is returned (see module note)."""
+    batches overlap, a WORKER-OWNED entry (begin/end) wins over a ``sync_pending``
+    one, then the most recently STARTED one (see module note). Rationale: a synced
+    entry is a *reconstruction* from the live in-flight count — it knows nothing of
+    the batch that produced it. The ✨ improve batch owns a real handle AND drives
+    in-flight generations, so both entries exist at once; the handle carries the
+    honest done/total (250 images, not the 60 currently in flight)."""
     now = time.time()
     with _lock:
         bucket = _active.get(dataset_id)
@@ -187,50 +203,74 @@ def get(dataset_id):
         if not bucket:
             _active.pop(dataset_id, None)
             return None
-        entry = max(bucket.values(), key=lambda e: e['started_at'])
+        entry = max(bucket.values(),
+                    key=lambda e: (0 if e.get('_synced') else 1, e['started_at']))
         result = {'kind': entry['kind'], 'done': entry['done'],
                   'total': entry['total'], 'started_at': entry['started_at']}
         if entry.get('detail'):
             result['detail'] = entry['detail']
         if entry.get('engine'):
             result['engine'] = entry['engine']
-        # A stop was requested but the worker hasn't reached the next image boundary
-        # yet — the UI flips the Stop button to a disabled "Stopping…" state.
-        if _cancel.get(dataset_id):
+        # A stop was requested but the worker hasn't reached the next item boundary
+        # yet — the UI flips the Stop button to a disabled "Stopping…" state. Only
+        # when the REPORTED batch is the one being stopped.
+        if entry['kind'] in (_cancel.get(dataset_id) or ()):
             result['cancelling'] = True
         return result
 
 
-def request_cancel(dataset_id, kinds=CANCELLABLE_KINDS):
-    """Ask the running cancellable batch on ``dataset_id`` to stop at its next image
-    boundary. Arms the per-dataset flag ONLY if such a batch is actually live, so the
-    caller (route) can answer 409 when there is nothing to stop. Idempotent: a second
-    call while the same batch still runs simply re-arms (returns True again).
+def running(dataset_id, kinds):
+    """True when a batch of one of ``kinds`` is live on ``dataset_id``. Used to refuse
+    a second ✨ improve batch (-> 409) instead of racing two workers on one cap."""
+    with _lock:
+        return any(e['kind'] in kinds for e in (_active.get(dataset_id) or {}).values())
 
-    We never interrupt an in-flight inference — the worker finishes the current image,
+
+def request_cancel(dataset_id, kinds=CANCELLABLE_KINDS):
+    """Ask the running batch(es) of ``kinds`` on ``dataset_id`` to stop at their next
+    item boundary. Arms the flag ONLY for kinds actually live, so the caller (route)
+    can answer 409 when there is nothing to stop. Idempotent: a second call while the
+    same batch still runs simply re-arms (returns True again).
+
+    We never interrupt an in-flight inference — the worker finishes the current item,
     then sees the flag and unwinds through the SAME cleanup as a normal finish (model
     unload, indicator end). Returns True when a batch was live and is now flagged."""
     with _lock:
         bucket = _active.get(dataset_id) or {}
-        if not any(e['kind'] in kinds for e in bucket.values()):
+        live = {e['kind'] for e in bucket.values() if e['kind'] in kinds}
+        if not live:
             return False
-        _cancel[dataset_id] = True
+        _cancel.setdefault(dataset_id, set()).update(live)
         return True
 
 
-def cancel_requested(dataset_id):
-    """True when a graceful stop is pending for ``dataset_id``. Called by the caption
-    worker between images (and by the route to learn a pass ended because it was
-    stopped). Cheap and lock-guarded — safe to poll in a tight per-image loop."""
+def cancel_requested(dataset_id, kinds=CANCELLABLE_KINDS):
+    """True when a graceful stop is pending for one of ``kinds`` on ``dataset_id``.
+    Called by the caption worker between images (default scope — the caption family)
+    and by the improve worker with ``IMPROVE_KINDS``, plus by the routes to learn a
+    pass ended because it was stopped. Cheap and lock-guarded — safe to poll in a
+    tight per-item loop."""
     with _lock:
-        return bool(_cancel.get(dataset_id))
+        return bool((_cancel.get(dataset_id) or set()) & set(kinds))
 
 
-def clear_cancel(dataset_id):
-    """Consume the stop flag for ``dataset_id`` (idempotent). The route clears it once
-    the whole caption operation has unwound so it can never bleed into a later run —
-    begin() also clears defensively, this just makes the intent explicit at the seam."""
+def clear_cancel(dataset_id, kinds=CANCELLABLE_KINDS):
+    """Consume the stop flag of ``kinds`` for ``dataset_id`` (idempotent). The route
+    clears it once the whole caption operation has unwound so it can never bleed into
+    a later run — begin() also clears defensively, this just makes the intent explicit
+    at the seam. Scoped by kind so unwinding a caption pass never disarms a concurrent
+    improve batch that the user has just asked to stop."""
     with _lock:
+        _discard_cancel(dataset_id, kinds)
+
+
+def _discard_cancel(dataset_id, kinds):
+    """Drop ``kinds`` from the armed stop set of ``dataset_id``. Caller holds ``_lock``."""
+    armed = _cancel.get(dataset_id)
+    if not armed:
+        return
+    armed.difference_update(kinds)
+    if not armed:
         _cancel.pop(dataset_id, None)
 
 

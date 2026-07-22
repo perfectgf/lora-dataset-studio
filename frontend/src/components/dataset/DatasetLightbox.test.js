@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const lightbox = readFileSync(new URL('./DatasetLightbox.jsx', import.meta.url), 'utf8');
 const workspace = readFileSync(new URL('./DatasetWorkspace.jsx', import.meta.url), 'utf8');
 const hook = readFileSync(new URL('../../hooks/useDataset.js', import.meta.url), 'utf8');
+const grid = readFileSync(new URL('./DatasetGrid.jsx', import.meta.url), 'utf8');
 const settings = readFileSync(new URL('../settings/ScrapingSection.jsx', import.meta.url), 'utf8');
 const attribution = readFileSync(new URL('./PexelsAttribution.jsx', import.meta.url), 'utf8');
 
@@ -33,7 +34,20 @@ test('dataset hook starts improvement, reports the preserved original, then refr
   assert.match(hook, /`\/api\/dataset\/image\/\$\{imageId\}\/improve`, \{\}/);
   assert.match(hook, /original stays intact while a separate 2 MP candidate is generated for validation/);
   assert.match(hook, /Could not start image improvement/);
-  assert.match(hook, /resolveSmallImageRescue, improveImage, classify/);
+  assert.match(hook, /resolveSmallImageRescue, improveImage, improveBatch, classify/);
+});
+
+test('the bulk improvement is ONE call that starts a server job, not a per-image loop', () => {
+  assert.match(hook, /`\/api\/dataset\/\$\{currentId\}\/improve\/batch`, \{ image_ids: ids \}/);
+  assert.match(grid, /onImproveBatch\(eligible\.map\(\(image\) => image\.id\)\)/);
+  // No client-side sequential driver survives: that loop is what walked into the
+  // fan-out cap and made ⏹ Stop powerless.
+  assert.doesNotMatch(grid, /runSequentialKleinImprove/);
+  // Progress is read from the server activity, so it survives a reload.
+  assert.match(grid, /kleinImproveBatchLabel\(activity\)/);
+  // ⏹ Stop generation stays reachable (and enabled) for a running batch.
+  assert.match(workspace, /pending > 0 \|\| act\?\.kind === 'improve'/);
+  assert.match(workspace, /disabled=\{ds\.busy && act\?\.kind !== 'improve'\}/);
 });
 
 test('settings separates scraper rescue instructions from manual lightbox improvement', () => {

@@ -856,6 +856,30 @@ def dataset_image_improve(image_id):
     return jsonify({'ok': True, **result})
 
 
+@bp.post('/dataset/<int:dataset_id>/improve/batch')
+def dataset_improve_batch(dataset_id):
+    """Start the SERVER-side ✨ Klein upscale & improve batch over a selection.
+
+    Returns immediately with {queued, skipped}; progress rides on the dataset's
+    `activity` (kind 'improve'), so it survives a reload, and ⏹ Stop generation
+    stops it. The browser no longer loops one request per image."""
+    data = request.get_json(silent=True) or {}
+    ids = data.get('image_ids')
+    if not isinstance(ids, list):
+        return jsonify({'error': 'image_ids must be a list'}), 400
+    try:
+        result = svc.start_bulk_improve(
+            current_app._get_current_object(), LOCAL_USER, dataset_id, ids)
+    except Exception as e:
+        from ..services.klein_edit_helper import KleinModelsMissing
+        if isinstance(e, svc.KleinNodesMissing):
+            return _klein_missing_response(e.missing, e.missing_nodes)
+        if isinstance(e, KleinModelsMissing):
+            return _klein_missing_response(e.missing)
+        return _map_error(e)
+    return jsonify({'ok': True, **result})
+
+
 @bp.post('/dataset/image/<int:image_id>/regenerate')
 def dataset_image_regenerate(image_id):
     data = request.get_json(silent=True) or {}

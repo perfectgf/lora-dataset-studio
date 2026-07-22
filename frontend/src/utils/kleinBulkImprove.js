@@ -27,21 +27,26 @@ export function partitionKleinImproveSelection(images, selectedIds) {
   return { eligible, excluded }
 }
 
-/** Send one request at a time; the backend still owns its global fan-out cap. */
-export async function runSequentialKleinImprove(images, improve, onProgress = () => {}) {
-  const queue = Array.isArray(images) ? images : []
-  const succeeded = []
-  const failed = []
-  for (let index = 0; index < queue.length; index += 1) {
-    const image = queue[index]
-    try {
-      const result = await improve(image.id)
-      if (result?.ok === true) succeeded.push({ image, result })
-      else failed.push({ image, error: result?.error || 'request returned no success confirmation' })
-    } catch (error) {
-      failed.push({ image, error: error?.message || 'request failed' })
-    }
-    onProgress({ done: index + 1, total: queue.length, succeeded: succeeded.length, failed: failed.length })
-  }
-  return { succeeded, failed }
+/* The batch itself is a SERVER job now (POST /api/dataset/<id>/improve/batch).
+   The browser loop it replaces sent one request per image, which meant the run
+   only existed in the tab: a selection bigger than the backend's concurrency cap
+   was mostly refused, ⏹ Stop could not reach it, and closing the tab killed it.
+   What stays client-side is the eligibility partition above (the grid already
+   holds the rows) plus the wording below. */
+
+/** Live progress line for the ✨ button, from the dataset's server activity.
+    `null` when no improve batch is running on this dataset. */
+export function kleinImproveBatchLabel(activity) {
+  if (!activity || activity.kind !== 'improve') return null
+  const total = Number(activity.total) || 0
+  const done = Number(activity.done) || 0
+  if (activity.cancelling) return '✨ Stopping…'
+  return total ? `✨ Improving ${done}/${total}` : '✨ Improving…'
+}
+
+/** Toast wording for a launched batch: what the server took, what it dropped. */
+export function describeKleinImproveLaunch({ queued = 0, skipped = 0 } = {}) {
+  const tail = skipped ? ` · ${skipped} not eligible and skipped` : ''
+  return `Improving ${queued} image(s) in the background${tail} — originals stay intact.`
+    + ' You can close this tab; ⏹ Stop generation ends the batch.'
 }
