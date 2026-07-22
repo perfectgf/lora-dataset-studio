@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { postJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
+import { useCapabilities } from '../context/CapabilitiesContext';
 import TrainingProgress from '../components/dataset/TrainingProgress';
 import ContinueDialog from '../components/dataset/ContinueDialog';
 import RunLineageTree from '../components/dataset/RunLineageTree';
@@ -20,6 +21,8 @@ import {
   runRetryKey,
   trainingRunVariantLabel,
 } from '../utils/trainingRuns';
+import { confirmableRetryFlag } from '../utils/trainingRefusals';
+import { runsHubContinueLanes } from '../utils/runsHubContinueLanes';
 
 /* Dedicated hub for cloud training runs across ALL datasets: watch the ones in
    progress (live progress + samples), stop them, and download finished LoRAs —
@@ -197,6 +200,9 @@ function checkpointHref(run) {
 
 export default function CloudRunsPage() {
   const toast = useToast();
+  // ai-toolkit validity — the hub can now start a LOCAL continuation, so it needs
+  // the same capability truth the dataset panel uses to open/close that lane.
+  const { caps } = useCapabilities();
   const navigate = useNavigate();
   const location = useLocation();
   const [data, setData] = useState(null);
@@ -429,19 +435,64 @@ export default function CloudRunsPage() {
     setContinueInitialStep(null);
     setContinueRunTarget(run);
   };
+  // The LOCAL lane of the same gesture: the checkpoint the cloud run left behind
+  // was mirrored into this dataset's ai-toolkit run dir, so resuming it here is
+  // the ordinary /train/continue call the dataset panel makes — addressed by the
+  // run's OWN base/family/variant (never the dataset's persisted selection, which
+  // may point at another base entirely). A resume re-exports the CURRENT dataset,
+  // so it hits the same caption/quality guards as a fresh launch: loop on the
+  // confirmable refusals exactly like the panel does, accumulating the force flags.
+  const postLocalContinue = async (run, payload) => {
+    let body = {
+      extra_steps: payload.extraSteps,
+      ...(run.base_model != null ? { base_model: run.base_model } : {}),
+      ...(run.train_type ? { train_type: run.train_type } : {}),
+      ...(run.variant ? { variant: run.variant } : {}),
+      ...(payload.fromStep != null ? { from_step: payload.fromStep } : {}),
+      ...(payload.overrides ? { overrides: payload.overrides } : {}),
+      // The run's own masking, not a hub-wide default: the continuation must
+      // train like the checkpoint it resumes. Absent on a legacy row → the
+      // backend default (on), same as everywhere else.
+      masked: run.masked !== false,
+    };
+    for (;;) {
+      try {
+        return await postJson(`/api/dataset/${run.dataset_id}/train/continue`, body);
+      } catch (e) {
+        const flag = confirmableRetryFlag(e?.message, 'Continue anyway (force)');
+        if (flag === 'declined') return null;      // the confirm WAS the answer
+        if (!flag) throw e;
+        body = { ...body, [flag]: true };
+      }
+    }
+  };
   const submitContinue = async (payload) => {
     const run = continueRunTarget;
     setContinueRunTarget(null);
     setContinueInitialStep(null);
     if (!run || !payload) return;
+    const local = payload.lane === 'local';
     setContinuing((m) => ({ ...m, [run.run_id]: true }));
     try {
-      const d = await postJson('/api/dataset/train/cloud/continue',
-        { run_id: run.run_id, extra_steps: payload.extraSteps,
-          from_step: payload.fromStep, overrides: payload.overrides });
+      const d = local
+        ? await postLocalContinue(run, payload)
+        : await postJson('/api/dataset/train/cloud/continue',
+          { run_id: run.run_id, extra_steps: payload.extraSteps,
+            from_step: payload.fromStep, overrides: payload.overrides });
+      if (!d) return;                              // declined at a confirm prompt
       if (d.ok === false) toast.error(d.error || 'Continue failed');
-      else toast.success(`Continuing from step ${d.resumed_from} → ${d.target_steps} on a fresh pod…`);
+      else if (local) {
+        toast.success(`Continuing from step ${d.resumed_from} → ${d.target_steps} `
+          + 'on this machine — ComfyUI paused.');
+      } else {
+        toast.success(`Continuing from step ${d.resumed_from} → ${d.target_steps} on a fresh pod…`);
+      }
       poll();
+    } catch (e) {
+      // postJson THROWS on a refusal (400/409). Without this the local lane's
+      // real reason — "no checkpoint at step N", a busy GPU, a caption guard —
+      // was an unhandled rejection and the click looked like it did nothing.
+      toast.error(e?.message || 'Continue failed');
     } finally {
       setContinuing((m) => ({ ...m, [run.run_id]: false }));
     }
@@ -476,6 +527,18 @@ export default function CloudRunsPage() {
   const budget = data?.monthly_budget || 0;
   const spent = data?.month_spend || 0;
 
+  // ▶ Continue — WHERE it runs, for the run the dialog is open on. The rule lives
+  // in utils/runsHubContinueLanes.js (JSX-free, unit-tested): local is gated by
+  // ai-toolkit + the machine-wide single-flight training, cloud by the key, this
+  // DATASET's own active run and the concurrency limit.
+  const continueLanes = useMemo(
+    () => runsHubContinueLanes(continueRunTarget, {
+      aitoolkitValid: caps?.aitoolkit?.valid,
+      localActive: data?.local_active,
+      actives, configured, limit, familyLabel: famLabel,
+    }),
+    [continueRunTarget, caps, data, actives, configured, limit]);
+
   // ▶ Continue from a ◉ Graph checkpoint pill: open the Continue dialog on THAT
   // step. Cloud-only, mirroring the per-run Continue button (a local run has no
   // cloud-continue path). Prefer the live run row (full recipe/settings/steps);
@@ -486,6 +549,9 @@ export default function CloudRunsPage() {
     const target = row || {
       run_id: node.run_id, train_type: node.train_type, variant: node.variant,
       steps: node.steps,
+      // The local lane addresses the run dir by dataset + base: a node-derived
+      // target that dropped them could only ever be continued in the cloud.
+      dataset_id: node.dataset_id, base_model: node.base_model,
       resume_steps: (node.checkpoints || []).map((c) => c.step),
     };
     if (isTrainingRecipeReplayBlocked(target)) {
@@ -943,6 +1009,7 @@ export default function CloudRunsPage() {
             ? continueRunTarget.resume_steps
             : [continueRunTarget.steps]).filter(Boolean)).map((step) => ({ step }))}
           initialFromStep={continueInitialStep}
+          lanes={continueLanes}
           settings={{ optimizer: continueRunTarget.settings?.optimizer,
             learning_rate: continueRunTarget.settings?.lr }}
           busy={!!continuing[continueRunTarget.run_id]}

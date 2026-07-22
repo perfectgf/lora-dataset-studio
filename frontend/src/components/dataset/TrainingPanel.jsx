@@ -17,6 +17,7 @@ import {
   trainingRunSelection,
   trainFamilyLabel,
 } from '../../utils/checkpointBrowser';
+import { confirmableRetryFlag } from '../../utils/trainingRefusals';
 import {
   describeZImageRecipe,
   isLongZImageTurboRun,
@@ -642,27 +643,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     const msg = (d && d.error) || fallback;
     toast.error(d && d.hint ? `${msg} — ${d.hint}` : msg);
   };
-  // Confirmable launch refusals: the server prefixes the error with a marker;
-  // the window.confirm IS the user's answer, the retry carries the matching
-  // force flag. Both can fire in sequence (uncaptioned first, then mismatch) —
-  // call sites loop until launched, declined, or a non-confirmable error.
-  const CONFIRMABLE_REFUSALS = [
-    ['MISMATCH_CAPTION: ', 'allow_caption_mismatch'],
-    ['UNCAPTIONED: ', 'allow_uncaptioned'],
-    ['CAPTION_QUALITY: ', 'allow_caption_quality'],
-    // Custom-weights arch sniff couldn't positively verify the file → the
-    // window.confirm IS the answer, retry carries allow_unverified_weights.
-    ['CUSTOM_WEIGHTS_UNVERIFIED: ', 'allow_unverified_weights'],
-  ];
-  const confirmableRetryFlag = (error, actionLabel) => {
-    const s = String(error || '');
-    for (const [marker, flag] of CONFIRMABLE_REFUSALS) {
-      if (s.includes(marker)) {
-        return window.confirm(s.replace(marker, '') + `\n\n${actionLabel}?`) ? flag : 'declined';
-      }
-    }
-    return null;
-  };
+  // Confirmable launch refusals live in utils/trainingRefusals.js — the Runs hub
+  // needs the SAME markers now that its ▶ Continue can resume on this machine.
 
   // Pre-launch sanity gate (server preflight): blockers stop with a toast,
   // warnings open the interactive PreflightModal (lists WHICH captions leak /

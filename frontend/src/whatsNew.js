@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-continue-lane-picker-on-runs',
+    date: '2026-07-23',
+    title: '▶ Continue a cloud run on your own GPU, straight from the Runs page',
+    blurb:
+      'The Continue dialog already let you pick Local or Cloud — but only inside a dataset panel. Opened from the Runs page it silently relaunched a pod, even when your own GPU was free. It now offers the same choice: finish that epoch on this machine (its checkpoint was already mirrored here) or on a fresh pod. A lane you can’t use stays visible with the reason, and it is the RIGHT reason for that run — the cloud one counts the runs of that run’s own dataset, not the whole page. Refusals now speak up too: a busy GPU or a caption change is a toast, not a click that seems to do nothing.',
+    to: '/cloud',
+  },
+  {
     id: '2026-07-22-hf-gate-checked-before-renting',
     date: '2026-07-22',
     title: '☁ A locked model no longer costs you a rented GPU',

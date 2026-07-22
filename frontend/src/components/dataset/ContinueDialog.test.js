@@ -90,8 +90,13 @@ test('the dialog can offer the LANE (local vs cloud), opt-in and reasoned', () =
   assert.match(dialog, /disabled=\{busy \|\| latest === 0 \|\| laneBlocked\}/);
 });
 
-test('the Runs hub dialog is untouched — it passes no lanes', () => {
-  assert.doesNotMatch(cloud, /lanes=/);
+test('the Runs hub offers the picker too, with its own lane rule', () => {
+  // It used to pass no `lanes` (a deliberate scope choice) and silently
+  // relaunched a pod — Continue opened from the Runs page gave no choice at all.
+  assert.match(cloud, /lanes=\{continueLanes\}/);
+  // the hub's guards differ from the panel's (many datasets, machine-wide local
+  // single-flight), so they live in their own unit-tested rule
+  assert.match(cloud, /runsHubContinueLanes\(continueRunTarget/);
 });
 
 test('the dataset panel routes the chosen lane to the matching call', () => {
