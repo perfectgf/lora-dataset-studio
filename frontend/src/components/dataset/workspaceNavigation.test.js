@@ -71,7 +71,7 @@ test('data and capability predicates expose only destinations that currently exi
     ['small-image-rescue', 'face-analysis', 'watermarks']);
   assert.deepEqual(ids('captions', { hasKeptImages: false, hasCaptionedKept: false }), ['generate']);
   assert.deepEqual(ids('export', { hfPublish: true, hasKeptImages: true }),
-    ['import', 'training-zip', 'backup', 'hugging-face']);
+    ['import', 'training-zip', 'to-bank', 'backup', 'hugging-face']);
   assert.deepEqual(ids('training', { studioVisible: true }), ['launch', 'advanced']);
   assert.deepEqual(ids('checkpoints'), ['manager']);
   assert.deepEqual(ids('studio', { studioVisible: true }), ['launcher']);

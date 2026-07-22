@@ -45,7 +45,7 @@ from sqlalchemy import and_, case, func, or_
 from .. import config as cfg
 from ..extensions import db
 from ..models import BankImage, FaceDataset, ImageBank
-from . import bank_jobs
+from . import bank_jobs, trash
 from .face_dataset_service import _dhash, _hamming, import_images
 from .image_quality import ANALYSIS_MAX_SIDE, quality_metrics
 
@@ -144,18 +144,42 @@ def create_bank(user_id, name, folder):
     return bank, len(rels)
 
 
+def _is_imported_source(path) -> bool:
+    """True when the bank's folder is one WE made ("Import to bank"), i.e. it sits
+    under bank_sources_root — as opposed to a folder of the user's own that a bank
+    merely points at, which we must never touch."""
+    try:
+        root = os.path.realpath(cfg.bank_sources_root())
+        p = os.path.realpath(str(path or ''))
+    except (OSError, ValueError):
+        return False
+    return bool(p) and os.path.commonpath([root, p]) == root and p != root
+
+
 def delete_bank(user_id, bank_id) -> bool:
-    """Drop the bank's ROWS and working data (thumbs + face cache). The source
-    folder and its images are never touched."""
+    """Drop the bank's ROWS and working data (thumbs + face cache). A folder of the
+    user's OWN and its images are never touched.
+
+    The one exception is a bank built by "Import to bank": its folder is a copy WE
+    made under bank_sources_root, so deleting the bank must take it too — otherwise
+    a full duplicate of the dataset stays on disk forever with nothing in the UI
+    pointing at it. It goes to Trash, not unlink, so it stays recoverable."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         return False
     if bank_jobs.running(bank_id):
         bank_jobs.cancel(bank_id)
+    imported_source = bank.source_path if _is_imported_source(bank.source_path) else None
     BankImage.query.filter_by(bank_id=bank_id).delete(synchronize_session=False)
     db.session.delete(bank)
     db.session.commit()
     shutil.rmtree(_bank_dir(bank_id), ignore_errors=True)
+    if imported_source and os.path.isdir(imported_source):
+        try:
+            trash.send_to_trash(imported_source, context=f'bank-{bank_id}')
+        except OSError:
+            logger.warning('delete_bank: could not trash the imported copy %s',
+                           imported_source, exc_info=True)
     return True
 
 
@@ -2442,6 +2466,109 @@ def promotable_count(user_id, bank_id, dataset_id) -> int | None:
     if not FaceDataset.query.filter_by(id=dataset_id, user_id=user_id).first():
         return None
     return _promotable_query(bank_id, dataset_id).count()
+
+
+_IMPORT_FOLDER_SAFE = re.compile(r'[^A-Za-z0-9 _-]')
+
+
+def _import_folder_for(name: str) -> str:
+    """A fresh, unused folder under bank_sources_root for an imported bank.
+    Suffixes -2, -3… rather than reusing a folder: two imports of the same name
+    must never end up sharing (and silently merging) one set of files."""
+    stem = _IMPORT_FOLDER_SAFE.sub('_', name).strip() or 'bank'
+    root = cfg.bank_sources_root()
+    candidate = root / stem
+    i = 2
+    while candidate.exists():
+        candidate = root / f'{stem}-{i}'
+        i += 1
+    return str(candidate)
+
+
+def start_dataset_import(app, user_id, dataset_id, name):
+    """The REVERSE of promote: turn a dataset back into a bank. Copies the
+    dataset's KEPT images into a folder of their own and registers it as a bank
+    under `name`, so the dataset's material can be re-triaged with the bank tools
+    (perceptual + semantic dedup, framing, scores) without disturbing it.
+
+    COPIES rather than pointing the bank at the dataset's live folder: the two
+    would otherwise share files, and curating one would mutate the other. That
+    mirrors promote, which copies in the other direction — each side owns its
+    images. Kept images only, again mirroring promote (which only ever carries
+    kept ones across).
+
+    Background job: hundreds of files is a slow copy, and the bank page already
+    renders bank_jobs progress. The bank row is created FIRST (empty) so the job
+    has a bank_id to report against; a job that dies part-way leaves a bank
+    holding exactly the images it managed to copy, never a phantom row.
+    Raises ValueError (-> 400) on a missing dataset, a blank name, or nothing kept."""
+    from ..models import FaceDatasetImage
+    from .dataset_storage import dataset_path
+    name = (name or '').strip()
+    if not name:
+        raise ValueError('name is required')
+    ds = FaceDataset.query.filter_by(id=dataset_id, user_id=user_id).first()
+    if not ds:
+        raise ValueError('dataset not found')
+    rows = (FaceDatasetImage.query
+            .filter_by(dataset_id=dataset_id, status='keep')
+            .filter(FaceDatasetImage.filename.isnot(None))
+            .order_by(FaceDatasetImage.id.asc()).all())
+    if not rows:
+        raise ValueError('nothing to import — keep some images first')
+    if len(rows) > BANK_MAX_FILES:
+        raise ValueError(f'too many images (max {BANK_MAX_FILES})')
+    folder = _import_folder_for(name)
+    os.makedirs(folder, exist_ok=True)
+    bank = ImageBank(user_id=user_id, name=name, source_path=folder)
+    db.session.add(bank)
+    db.session.commit()
+    src_dir = str(dataset_path(dataset_id))
+    bank_jobs.start(
+        app, bank.id, 'dataset_import',
+        _dataset_import_job(bank.id, src_dir, [r.filename for r in rows]),
+        total=len(rows))
+    return bank.id
+
+
+def _dataset_import_job(bank_id, src_dir, filenames):
+    def run(job):
+        bank = db.session.get(ImageBank, bank_id)
+        if not bank:
+            return
+        copied = missing = failed = 0
+        for i, fn in enumerate(filenames, 1):
+            if bank_jobs.cancelled(job):
+                break
+            src = os.path.join(src_dir, fn)
+            if not os.path.isfile(src):
+                missing += 1
+                bank_jobs.bump(job)
+                continue
+            dest = os.path.join(bank.source_path, fn)
+            try:
+                shutil.copy2(src, dest)
+                size = os.path.getsize(dest)
+            except OSError:
+                # One unreadable/locked file never sinks the whole import — the
+                # bank just ends up with the rest, and the detail line says so.
+                logger.warning('dataset import: copy %s failed', fn, exc_info=True)
+                failed += 1
+                bank_jobs.bump(job)
+                continue
+            db.session.add(BankImage(bank_id=bank_id, relpath=fn, file_size=size))
+            copied += 1
+            if i % 200 == 0:
+                db.session.commit()
+            bank_jobs.bump(job)
+        db.session.commit()
+        detail = f'{copied} image(s) imported'
+        if missing:
+            detail += f', {missing} missing on disk'
+        if failed:
+            detail += f', {failed} failed'
+        bank_jobs.progress(job, detail=detail)
+    return run
 
 
 def start_promote(app, user_id, bank_id, ids, dataset_id):

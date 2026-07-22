@@ -382,6 +382,16 @@ def backups_dir() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d
 
+def bank_sources_root() -> Path:
+    """Image folders CREATED by "Import to bank" — a copy of a dataset's kept
+    images, so the new bank OWNS its files instead of pointing at the dataset's
+    live folder (curating one would otherwise mutate the other). Deliberately
+    NOT banks_root(): that one holds working data only and its contract is that
+    it never contains source images."""
+    root = _data_dir() / 'bank_sources'
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
 def banks_root() -> Path:
     """Working data of the 🗃️ image banks (thumbnails + face-embedding cache),
     one subfolder per bank — never the source images, which stay in the user's

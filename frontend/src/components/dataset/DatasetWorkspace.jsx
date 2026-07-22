@@ -33,7 +33,7 @@ import {
   isSmallImageRescueRow,
 } from '../../utils/smallImageRescue';
 import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET } from './workspaceSections';
-import { putJson } from '../../api/fetchClient';
+import { postJson, putJson } from '../../api/fetchClient';
 import { HelpBadge } from '../../help/HelpMode';
 import { requestHelpTip } from '../../help/helpTips';
 import {
@@ -494,6 +494,23 @@ export default function DatasetWorkspace({ ds, onBack }) {
     && !viewImgLive._rescueReviewPreview
     && !isSmallImageRescueRow(viewImgLive)
     && viewImgLive.derivation_kind !== 'klein_image_improve';
+
+  // Import to bank — the reverse of promoting bank images into a dataset. The kept
+  // images are COPIED into a folder of the bank's own, so re-triaging there can
+  // never disturb this dataset. Named by the user, then we jump to it: the copy
+  // runs as a background job and the bank page is where its progress shows.
+  const importToBank = async () => {
+    const name = window.prompt('Name for the new bank:', ds.data?.name || '');
+    if (name === null) return;
+    const d = await postJson('/api/bank/from-dataset',
+      { dataset_id: ds.data?.id, name });
+    if (!d.ok) { toast.error(d.error || 'Could not create the bank'); return; }
+    toast.success(`Importing ${kept} image(s) into the bank — copying in the background`);
+    // The bank page picks its open bank from localStorage (it has no :id route),
+    // so preselect the new one before navigating rather than landing on the list.
+    try { localStorage.setItem('bankCurrentId', String(d.id)); } catch { /* ignore */ }
+    navigate('/bank');
+  };
 
   // Export ZIP — shared by the header CTA and the Import & export row.
   // Guard-rails: untriaged images are silently EXCLUDED from the zip. Style
@@ -1412,6 +1429,18 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   </button>
                   <span className="text-content-subtle text-[0.6875rem]">
                     kept images + captions, training-ready (kohya layout)
+                  </span>
+                </div>
+                <div id="ds-export-to-bank" tabIndex={-1}
+                  className="flex items-center gap-2 flex-wrap scroll-mt-20">
+                  <button type="button" data-workspace-focus disabled={!kept}
+                    onClick={importToBank}
+                    title="Turn this dataset back into a bank: its kept images are COPIED into a bank of their own, so you can re-triage them with the bank tools (duplicate detection, framing, scores) without touching this dataset."
+                    className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
+                    ↑ Import to bank
+                  </button>
+                  <span className="text-content-subtle text-[0.6875rem]">
+                    kept images copied into a new bank — re-triage them without touching this dataset
                   </span>
                 </div>
                 <div id="ds-export-backup" tabIndex={-1}

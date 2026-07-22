@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-import-dataset-to-bank',
+    date: '2026-07-22',
+    title: '↑ Import to bank — send a dataset back the other way',
+    blurb:
+      "The bank could feed datasets, but nothing went the other way. Import & export now has ↑ Import to bank: the dataset's kept images are copied into a brand-new bank under a name you choose, so you can re-triage them with the bank tools — duplicate detection (perceptual and semantic), framing, quality and face scores — and promote a cleaner selection back out. They are COPIED, not shared, so nothing you do in the bank can disturb the dataset. Deleting such a bank takes its copy to Trash with it, so it never lingers on disk.",
+    to: '/datasets?section=export',
+  },
+  {
     id: '2026-07-22-continue-says-why-it-is-off',
     date: '2026-07-22',
     title: '▶ "Continue training" now tells you why it is greyed out',

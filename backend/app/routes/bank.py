@@ -39,6 +39,25 @@ def bank_create():
     return jsonify({'ok': True, 'id': bank.id, 'added': added})
 
 
+@bp.post('/bank/from-dataset')
+def bank_from_dataset():
+    """Reverse of promote: build a NEW bank from a dataset's kept images, under a
+    name the user chooses. Copies the files so the two never share (curating one
+    would otherwise mutate the other). 202 + background job, like the other passes."""
+    data = request.get_json(silent=True) or {}
+    try:
+        bank_id = banks.start_dataset_import(_app(), LOCAL_USER,
+                                             data.get('dataset_id'), data.get('name'))
+    except bank_jobs.BankJobBusy as e:
+        return jsonify({'error': str(e)}), 409
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 503
+    # the id rides back so the UI can jump straight to the bank being filled
+    return jsonify({'ok': True, 'id': bank_id}), 202
+
+
 @bp.get('/bank/<int:bank_id>')
 def bank_get(bank_id):
     payload = banks.bank_payload(LOCAL_USER, bank_id)

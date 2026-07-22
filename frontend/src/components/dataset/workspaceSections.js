@@ -47,10 +47,11 @@ export const WORKSPACE_SECTIONS = [
       { id: 'tools', title: 'Caption tools', targetId: 'ds-captions-tools', when: 'hasCaptionedKept', reveal: 'caption-tools' },
     ] },
   { id: 'export', title: 'Import & export', icon: '📦', eyebrow: 'data',
-    description: 'Merge an existing dataset in — or get this one out: training ZIP, portable backup, Hugging Face.',
+    description: 'Merge an existing dataset in — or get this one out: training ZIP, bank, portable backup, Hugging Face.',
     panels: [
       { id: 'import', title: 'Import dataset', targetId: 'ds-export-import', when: 'always' },
       { id: 'training-zip', title: 'Export training ZIP', targetId: 'ds-export-training-zip', when: 'always' },
+      { id: 'to-bank', title: 'Import to bank', targetId: 'ds-export-to-bank', when: 'always' },
       { id: 'backup', title: 'Portable backup', targetId: 'ds-export-backup', when: 'always' },
       { id: 'hugging-face', title: 'Publish to Hugging Face', targetId: 'ds-export-hugging-face', when: 'huggingFace' },
     ] },
