@@ -163,7 +163,14 @@ def test_apply_pull_failure_is_reported_not_raised(monkeypatch):
         return _R()
     _patch_git(monkeypatch, resp)
     r = updater.apply_update()
-    assert r['ok'] is False and 'failed' in r['reason'].lower() and 'log' in r
+    assert r['ok'] is False and 'log' in r
+    reason = r['reason'].lower()
+    assert 'fast-forward' in reason and 'local changes' in reason
+    # It must NEVER suggest re-cloning: by default the user's datasets, database
+    # and config.json (API keys) live inside this very folder, ignored by git, so
+    # "start over with a fresh clone" reads as "delete all your work".
+    assert 'clone' not in reason
+    assert 'git fetch origin' in reason        # the recovery that keeps them
 
 
 # --- Release-ZIP update path (packaged install, no .git) ----------------------

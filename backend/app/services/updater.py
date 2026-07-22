@@ -221,8 +221,19 @@ def apply_update(root=None) -> dict:
             after = rebuilt
             log = (log + '\n' + f'Upstream history was rewritten — resynced to origin/{branch}.').strip()
         else:
-            return {'ok': False, 'reason': 'git pull --ff-only failed — local edits or a diverged '
-                                           'branch. Resolve them, or re-clone.', 'log': log[-1500:]}
+            # Never tell anyone to "re-clone": by default their datasets, database
+            # and config.json (API keys) live INSIDE this folder, ignored by git —
+            # deleting it to start over destroys all of it. Point at the recovery
+            # that keeps them instead, and name what is actually in the way.
+            return {'ok': False,
+                    'reason': "Couldn't fast-forward: you have local changes, or this "
+                              'checkout has diverged from the project history. Your '
+                              'datasets, database and settings are NOT in git and are '
+                              'never touched by the fix below — but do NOT delete this '
+                              'folder, they live in it. Commit or discard your changes, '
+                              'then run in this folder: '
+                              f'git fetch origin && git reset --hard origin/{branch}',
+                    'log': log[-1500:]}
     else:
         after = None
     after = after or (_git(root, 'rev-parse', 'HEAD').stdout or '').strip()
