@@ -681,8 +681,10 @@ export default function CloudRunsPage() {
       {data && !configured && (
         <div className="rounded-lg border border-border bg-surface p-4 text-content-muted text-sm">
           Cloud training isn’t configured yet. Add your vast.ai API key in{' '}
-          <button type="button" onClick={() => navigate('/settings')}
-            className="text-sky-300 underline hover:text-sky-200">Settings</button>{' '}
+          {/* Land on the section that actually holds the key and the cloud
+              guard-rails, not the Settings landing page. */}
+          <button type="button" onClick={() => navigate('/settings/training')}
+            className="text-sky-300 underline hover:text-sky-200">Settings › Training</button>{' '}
           to rent GPUs on demand.
         </div>
       )}

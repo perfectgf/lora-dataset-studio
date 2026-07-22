@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { captionCategoryCopy, captionFrequencyEntries } from './captionCategory';
+import SettingsLink from '../common/SettingsLink';
 
 /* Bulk caption tools (collapsible): find/replace across the kept images'
    captions + a category-aware frequency panel. Booru counts exact comma tags;
@@ -72,6 +73,7 @@ export default function CaptionToolsBar({ images, kind = 'character', mode = 'bo
             {' '}<span className="text-content-muted font-medium">Text</span> mode swaps a phrase anywhere;
             {' '}<span className="text-content-muted font-medium">tag</span> mode treats captions as
             comma-separated tags and matches a whole tag (best for booru / SDXL).
+            {' '}<SettingsLink section="captioning">Which model writes them, and how</SettingsLink>
           </p>
           <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Find &amp; replace</span>
           <div className="flex items-center gap-2 flex-wrap">

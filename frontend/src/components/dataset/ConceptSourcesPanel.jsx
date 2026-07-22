@@ -19,6 +19,7 @@ import InstallRunner from '../setup/InstallRunner';
 import { clearScraperScanState, loadScraperScanState, saveScraperScanState } from './scraperState';
 import { HelpBadge } from '../../help/HelpMode';
 import PexelsAttribution from './PexelsAttribution';
+import SettingsLink from '../common/SettingsLink';
 import {
   buildPexelsSearchUrl,
   isPexelsUrl,
@@ -284,6 +285,12 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
+        {/* Several sources only return results once their credentials are filled in
+            (Reddit client id, Civitai token, Pexels key) — the picker is where that
+            becomes relevant, not the Settings page the user is not on. */}
+        <SettingsLink section="scraping" className="order-last ml-auto">
+          Source credentials
+        </SettingsLink>
         <div role="group" aria-label="Scraper source"
           className="inline-flex rounded-lg border border-border bg-surface-raised p-0.5">
           {SOURCE_MODES.map(([mode, label]) => (

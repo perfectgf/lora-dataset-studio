@@ -37,6 +37,7 @@ import ContinueDialog from './ContinueDialog';
 import RunLineageGraph from './RunLineageGraph';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
+import SettingsLink from '../common/SettingsLink';
 import { DatasetVersionChip, RunIdChip } from './RunIdentityBadges';
 import {
   cloudGroupsFrom, localRunIdentity, runRowDomId,
@@ -1275,6 +1276,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
            accessible en un clic. --- */}
       <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
         <span className="text-content-muted text-[0.625rem] uppercase">LoRA type</span>
+        {/* Which family is preselected, and the cloud GPU guard-rails (budget,
+            price ceiling, stall timeout), are settings — say so where the choice
+            is actually being made. */}
+        <SettingsLink section="training" className="order-last ml-auto">
+          Defaults &amp; cloud limits
+        </SettingsLink>
         <select value={trainType} onChange={(e) => onTypeChange(e.target.value)}
           disabled={trainTypeBusy || presetBusy}
           aria-label="Type of LoRA to train"

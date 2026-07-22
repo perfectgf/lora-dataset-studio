@@ -4,6 +4,7 @@
  * backdrop close it; a click on the image toggles the zoom mode.
  */
 import { useEffect, useRef, useState } from 'react';
+import SettingsLink from '../common/SettingsLink';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { displayLabel } from '../../utils/labels';
 import PexelsAttribution from './PexelsAttribution';
@@ -127,6 +128,14 @@ export default function DatasetLightbox({
               ? '✓ Review improvement first'
               : improvementActive ? '✨ Improving…' : '✨ Upscale & improve'}
           </button>
+        )}
+        {/* Its strength, step count and instruction are all editable, and nothing
+            here said so — the reported case for making settings discoverable from
+            where the action happens. */}
+        {onImprove && !improvementActive && (
+          <SettingsLink section="engines" className="self-center">
+            Adjust improve strength
+          </SettingsLink>
         )}
       </div>
     </div>

@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-settings-links-where-you-act',
+    date: '2026-07-22',
+    title: '⚙️ "This is adjustable" — said where you are, not where the setting lives',
+    blurb:
+      'Several things were configurable without anything saying so: the Upscale & improve strength, which model writes your captions, the credentials a scraper source needs, the default LoRA family and the cloud GPU limits. Each of those places now carries a small link straight to the right Settings section, so you never have to go hunting for a page you did not know existed. The cloud banner also lands on the section that actually holds the vast.ai key instead of the Settings landing page.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-07-22-checkpoints-refresh-when-a-run-ends',
     date: '2026-07-22',
     title: '🔄 Freshly trained LoRAs appear on their own',

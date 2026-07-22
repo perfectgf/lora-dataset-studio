@@ -95,7 +95,7 @@ export default function ScrapingSection(props) {
       </Card>
       <Card
         title="Klein rescue — small scraped images"
-        help="Optional instruction for automatic rescue of scraped images under 768 px. Manual Upscale & improve uses its dedicated metadata-derived quality profile. Klein creates a separate 2 MP version to validate and leaves the original intact."
+        help="Optional instruction for automatic rescue of scraped images under 768 px. The manual Upscale & improve is a different flow with its own instruction and strength, under Settings ▸ Image engines. Klein creates a separate 2 MP version to validate and leaves the original intact."
       >
         <div>
           <div className="flex items-center justify-between gap-3">

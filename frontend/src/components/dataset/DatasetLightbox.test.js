@@ -39,7 +39,12 @@ test('dataset hook starts improvement, reports the preserved original, then refr
 test('settings separates scraper rescue instructions from manual lightbox improvement', () => {
   assert.match(settings, /title="Klein rescue — small scraped images"/);
   assert.match(settings, /automatic rescue of scraped images under 768 px/);
-  assert.match(settings, /Manual Upscale & improve uses its dedicated metadata-derived quality profile/);
+  // The point is that the two flows are distinct and the manual one is elsewhere —
+  // asserted on that meaning, not on a fixed sentence. The old wording claimed the
+  // manual pass had a fixed profile, which stopped being true once its strength and
+  // step count became editable.
+  assert.match(settings, /manual Upscale & improve is a different flow/);
+  assert.match(settings, /Settings ▸ Image engines/);
   // the rescue card points at the separate manual "Identity & Klein prompts" card
   assert.match(settings, /separate from the manual .Klein upscale &amp; improve. prompt/i);
 });
