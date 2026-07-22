@@ -326,11 +326,11 @@ function IdentityPromptsCard({ config, setField, promptDefaults }) {
           start at the values the action used before they were exposed, so leaving them alone
           keeps today’s result.
         </p>
-        <p className="mb-2 text-xs text-amber-200">
-          ⚠ The <strong>enhancement LoRA</strong> reads <code>klein/realistic.safetensors</code>,
-          which ships with neither the app nor the Klein install. When that file is missing its
-          node is skipped entirely, so this value changes nothing — check your ComfyUI
-          <code> models/loras/klein/</code> folder before concluding it has no effect.
+        <p className="mb-2 text-xs text-content-muted">
+          The <strong>enhancement LoRA</strong> needs its weights file
+          (<code>klein/realistic.safetensors</code>): without it that node is skipped and the
+          strength changes nothing. Setup downloads it with the other Klein assets — if the
+          slider seems to do nothing, run <strong>Install everything</strong> there first.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {IMPROVE_KNOBS.map((k) => (

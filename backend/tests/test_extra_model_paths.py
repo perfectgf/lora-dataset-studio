@@ -335,6 +335,7 @@ def test_klein_resolves_entirely_from_extra_paths(app, tmp_path):
         _touch(str(ext), 'vae', 'flux2-vae.safetensors')
         _touch(str(ext), 'text_encoders', 'qwen_3_8b_fp8mixed.safetensors')
         _touch(str(ext), 'loras', 'klein', 'Flux2-Klein-9B-consistency-V2.safetensors')
+        _touch(str(ext), 'loras', 'klein', 'realistic.safetensors')
         _write_yaml(base, f"""
             comfyui:
               diffusion_models: {ext / 'unet'}
@@ -416,6 +417,7 @@ def test_regression_full_klein_resolution_without_yaml_unchanged(app, tmp_path):
         _touch(str(base), 'models', 'vae', 'flux2-vae.safetensors')
         _touch(str(base), 'models', 'text_encoders', 'qwen_3_8b_fp8mixed.safetensors')
         _touch(str(base), 'models', 'loras', 'klein', 'Flux2-Klein-9B-consistency-V2.safetensors')
+        _touch(str(base), 'models', 'loras', 'klein', 'realistic.safetensors')
         cfg.save_config({'klein': {'consistency_lora': 'klein/Flux2-Klein-9B-consistency-V2.safetensors'}})
         assert not (base / 'extra_model_paths.yaml').exists()
         assert keh.resolve_klein_unet() == os.path.join('klein', 'flux-2-klein-9b-fp8.safetensors')

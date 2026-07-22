@@ -80,6 +80,19 @@ _KLEIN_DOWNLOADS = {
         'dest': ('loras', 'klein', 'Flux2-Klein-9B-consistency-V2.safetensors'),
         'min_free_gb': 1, 'gated': False,
     },
+    # The detail LoRA node 139 of the improve workflow loads. It shipped as a
+    # hardcoded filename the graph expected to already exist, so on any machine
+    # without it the node was silently BYPASSED — the "Upscale & improve"
+    # enhancement strength then moved nothing, with no way to tell. Downloading it
+    # like every other Klein asset is what makes that setting mean something.
+    # Same author as the consistency LoRA above; Apache-2.0, so linking the
+    # original source is enough — the file is never re-hosted here.
+    'klein_enhancement_lora': {
+        'url': 'https://huggingface.co/dx8152/Flux2-Klein-9B-Enhanced-Details/resolve/main/realistic.safetensors',
+        'dest': ('loras', 'klein', 'realistic.safetensors'),
+        'min_free_gb': 1, 'gated': False,
+        'license_url': 'https://huggingface.co/dx8152/Flux2-Klein-9B-Enhanced-Details',
+    },
     'klein_text_encoder': {
         'url': 'https://huggingface.co/Comfy-Org/vae-text-encorder-for-flux-klein-9b/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors',
         'dest': ('text_encoders', 'qwen_3_8b_fp8mixed.safetensors'),
@@ -514,7 +527,8 @@ def _check_klein_precondition(action):
 # (pip serialized FIFO, model downloads parallel), so the order here is cosmetic.
 _INSTALL_ALL_ORDER = ('scrape_extras', 'face_scoring', 'masks', 'watermark_inpaint',
                       'ollama_model',
-                      'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora')
+                      'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora',
+                      'klein_enhancement_lora')
 
 
 def _action_needed(action, caps) -> bool:

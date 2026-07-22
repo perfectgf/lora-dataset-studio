@@ -48,6 +48,7 @@ def _comfy(tmp_path, cfg, unet=True, vae=True, te=True, lora=False):
         _install(base, 'models', 'text_encoders', 'qwen_3_8b_fp8mixed.safetensors')
     if lora:
         _install(base, 'models', 'loras', 'klein', 'Flux2-Klein-9B-consistency-V2.safetensors')
+        _install(base, 'models', 'loras', 'klein', 'realistic.safetensors')
     cfg.save_config({'comfyui': {'base_dir': str(base)}})
     return base
 
@@ -254,7 +255,9 @@ def test_generate_all_present_proceeds_and_bg_fetches_lora(app, client, tmp_path
     resp = client.post(f'/api/dataset/{ds_id}/generate', json=_KLEIN_BODY)
     assert resp.status_code == 200
     assert resp.get_json()['created'] == 1
-    assert started == ['klein_lora']   # optional consistency LoRA fetched in the background
+    # both optional LoRAs are fetched in the background: the consistency one, and the
+    # improve detail LoRA whose absence silently disables the enhancement strength
+    assert started == ['klein_lora', 'klein_enhancement_lora']
 
 
 def test_default_consistency_strength_is_half(app):
@@ -283,8 +286,12 @@ def test_lora_strength_zero_skips_consistency_lora(app, tmp_path, monkeypatch):
         wf = captured['workflow_data']
         assert not any((n.get('_meta') or {}).get('title') == 'Dataset consistency LoRA'
                        for n in wf.values())
-        # Base 'realistic' LoRA absent too -> node 139 bypassed -> 102 wired to the UNET.
-        assert wf['102']['inputs']['model'] == ['114', 0]
+        # The improve detail LoRA is part of a complete Klein install now, so node 139
+        # stays and keeps the workflow's own wiring — strength 0 disables the
+        # CONSISTENCY LoRA (asserted above), not the detail one, which is a separate
+        # setting. On a machine lacking realistic.safetensors, 139 is bypassed instead
+        # and this reads ['114', 0] — covered by test_improve_params_reach_workflow.
+        assert wf['102']['inputs']['model'] == ['139', 0]
 
 
 def test_extra_refs_chain_native_reference_latents(app, tmp_path, monkeypatch):

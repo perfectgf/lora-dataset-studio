@@ -50,7 +50,11 @@ _REQUIRED_NODES = ('52', '6', '77', '9', '114', '10', '90')
 # action that provides each. REQUIRED = the graph is invalid without it (block +
 # auto-download); RECOMMENDED = quality only (the consistency LoRA — degrade).
 KLEIN_REQUIRED = ('klein_model', 'klein_text_encoder', 'klein_vae')
-KLEIN_RECOMMENDED = ('klein_lora',)
+KLEIN_RECOMMENDED = ('klein_lora', 'klein_enhancement_lora')
+# The detail LoRA node 139 of the improve workflow loads. Kept as a constant
+# because the node is BYPASSED when the file is absent, so its presence is what
+# decides whether the "Upscale & improve" enhancement strength does anything.
+ENHANCEMENT_LORA_NAME = os.path.join('klein', 'realistic.safetensors')
 
 _MODEL_SUFFIXES = ('.safetensors', '.gguf', '.sft')
 
@@ -291,6 +295,8 @@ def klein_missing_assets():
     _, lora_path = _consistency_lora()
     if not (lora_path and os.path.exists(lora_path)):
         missing.append('klein_lora')
+    if not _lora_abs(ENHANCEMENT_LORA_NAME):
+        missing.append('klein_enhancement_lora')
     return missing
 
 
@@ -348,6 +354,9 @@ def _klein_asset_paths():
     _, lora_path = _consistency_lora()
     if lora_path and os.path.exists(lora_path):
         paths['klein_lora'] = lora_path
+    enhancement = _lora_abs(ENHANCEMENT_LORA_NAME)
+    if enhancement:
+        paths['klein_enhancement_lora'] = enhancement
     return paths
 
 

@@ -148,7 +148,7 @@ def test_klein_engine_lights_for_flat_root_layout_unet(app, monkeypatch, tmp_pat
     # Picker lists the bare root name, and the engine lights (all three resolvable).
     assert caps['comfyui']['models']['klein'] == ['flux-2-klein-9b-fp8.safetensors']
     assert caps['engines']['klein'] is True
-    assert caps['comfyui']['klein_missing'] == ['klein_lora']   # only the optional LoRA
+    assert caps['comfyui']['klein_missing'] == ['klein_lora', 'klein_enhancement_lora']
 
 
 def test_klein_engine_dark_when_unet_is_html_gate_page(app, monkeypatch, tmp_path):

@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-enhancement-lora-installed-automatically',
+    date: '2026-07-22',
+    title: '⬇ The improve detail LoRA installs itself now',
+    blurb:
+      'The "Upscale & improve" enhancement strength depends on a weights file the app never shipped or fetched — and when it is missing, that node is skipped entirely, so the slider moved nothing at all and said nothing about it. It is now downloaded with the other Klein assets by Setup ▸ Install everything, straight into the right ComfyUI folder. Fetched from its original public source (dx8152, Apache-2.0), never re-hosted.',
+    to: '/setup',
+  },
+  {
     id: '2026-07-22-settings-links-where-you-act',
     date: '2026-07-22',
     title: '⚙️ "This is adjustable" — said where you are, not where the setting lives',
