@@ -89,6 +89,15 @@ def git_update_status(root=None) -> dict | None:
             n = int(behind)
         except ValueError:
             n = 0
+        # After an upstream history rewrite every remote commit looks new, so the
+        # raw count would tell someone who is perfectly up to date that they are
+        # hundreds of commits behind. Re-measure in content terms when HEAD is no
+        # longer an ancestor of the remote branch; equal content then reads as 0.
+        if n and not _is_ancestor_of_remote(root, branch):
+            by_tree = _remote_position_by_tree(root, branch)
+            if by_tree is not None:
+                n = by_tree
+                base['history_rewritten'] = True
         base['behind'] = n
         base['update_available'] = n > 0
         # Links so the user can read WHAT the pending update contains before
@@ -106,6 +115,76 @@ def git_update_status(root=None) -> dict | None:
     except subprocess.SubprocessError:
         base['reason'] = 'git command timed out.'
     return base
+
+
+_RESYNC_SCAN_COMMITS = '800'
+
+
+def _remote_position_by_tree(root, branch):
+    """How far behind we are measured in CONTENT, not in commit identity: the index
+    of HEAD's tree object in the remote history (0 = our content is the remote tip).
+    None when our content isn't on the remote at all.
+
+    Needed because commit SHAs stop being comparable after an upstream history
+    rewrite — every remote commit then looks new, so `HEAD..origin/branch` reports
+    the whole history as pending even for someone who was perfectly up to date. The
+    tree object survives a rewrite untouched, so it still answers the real question:
+    which remote commit has exactly the files we have?"""
+    try:
+        head_tree = (_git(root, 'rev-parse', 'HEAD^{tree}').stdout or '').strip()
+        if not head_tree:
+            return None
+        out = _git(root, 'rev-list', f'origin/{branch}',
+                   '--format=%T', '--max-count', _RESYNC_SCAN_COMMITS)
+        # `--format=%T` emits "commit <sha>" / "<tree>" line pairs, newest first.
+        trees = [ln.strip() for ln in (out.stdout or '').splitlines()
+                 if ln and not ln.startswith('commit ')]
+        return trees.index(head_tree) if head_tree in trees else None
+    except (FileNotFoundError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _is_ancestor_of_remote(root, branch) -> bool:
+    """True in the ordinary case: our HEAD is reachable from the remote branch, so a
+    fast-forward is possible. False after an upstream rewrite, or on real divergence."""
+    try:
+        return _git(root, 'merge-base', '--is-ancestor', 'HEAD',
+                    f'origin/{branch}').returncode == 0
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return False
+
+
+def _resync_rewritten_history(root, branch):
+    """Recover from an upstream history REWRITE (a rebase or filter-branch on the
+    remote), which otherwise breaks in-app updates PERMANENTLY: the rewrite gave
+    every commit a new SHA, so no local commit is an ancestor of the remote branch
+    and `git pull --ff-only` can never fast-forward again. Nothing is wrong with
+    the user's checkout, but it can never update again without manual git surgery.
+
+    The hard part is telling that apart from "the user has local commits", because
+    counting commits cannot: after a rewrite the ENTIRE history looks local-only.
+    The TREE can. If HEAD's tree object appears anywhere in the remote history, the
+    user's exact content already exists upstream, so resetting onto the remote loses
+    nothing — it only relabels which commits produced that content.
+
+    Two refusals, both deliberate: any uncommitted change to a TRACKED file, or a
+    HEAD tree absent from the remote (genuine local work). We would rather leave the
+    update failing with an explanation than destroy something to make it succeed.
+    Untracked files are never touched by reset --hard, so they don't block it.
+
+    Returns the new HEAD sha on success, None when it isn't provably safe."""
+    try:
+        dirty = (_git(root, 'status', '--porcelain', '--untracked-files=no').stdout or '').strip()
+        if dirty:
+            return None
+        if _remote_position_by_tree(root, branch) is None:
+            return None
+        reset = _git(root, 'reset', '--hard', f'origin/{branch}')
+        if reset.returncode != 0:
+            return None
+        return (_git(root, 'rev-parse', 'HEAD').stdout or '').strip() or None
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
 
 
 def apply_update(root=None) -> dict:
@@ -133,9 +212,20 @@ def apply_update(root=None) -> dict:
         return {'ok': False, 'reason': 'git pull timed out.'}
     log = ((pull.stdout or '') + (pull.stderr or '')).strip()
     if pull.returncode != 0:
-        return {'ok': False, 'reason': 'git pull --ff-only failed — local edits or a diverged '
-                                       'branch. Resolve them, or re-clone.', 'log': log[-1500:]}
-    after = (_git(root, 'rev-parse', 'HEAD').stdout or '').strip()
+        # A fast-forward is impossible. The usual cause is local edits, but it is
+        # ALSO what an upstream history rewrite looks like, and then the update is
+        # stuck forever through no fault of the user. Recover when — and only when —
+        # we can prove nothing would be lost.
+        rebuilt = _resync_rewritten_history(root, branch)
+        if rebuilt:
+            after = rebuilt
+            log = (log + '\n' + f'Upstream history was rewritten — resynced to origin/{branch}.').strip()
+        else:
+            return {'ok': False, 'reason': 'git pull --ff-only failed — local edits or a diverged '
+                                           'branch. Resolve them, or re-clone.', 'log': log[-1500:]}
+    else:
+        after = None
+    after = after or (_git(root, 'rev-parse', 'HEAD').stdout or '').strip()
     changed = bool(before) and before != after
     deps_changed = False
     if changed:

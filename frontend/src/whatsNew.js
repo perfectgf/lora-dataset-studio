@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-update-survives-history-rewrite',
+    date: '2026-07-22',
+    title: '🔄 Updating no longer breaks if the project history is rewritten',
+    blurb:
+      'In-app updates used to depend on every commit keeping its identity forever. If the project history was ever rewritten, every commit got a new id, no fast-forward was possible, and “Update & restart” failed for good — on a checkout that was otherwise perfectly healthy. The updater now recognises that case and resyncs, but only after proving nothing would be lost: it refuses if you have uncommitted changes to tracked files, or local commits of your own. Untracked files are never touched. The “commits behind” count is measured by content too, so a rewrite no longer reads as hundreds of pending commits when you are already up to date.',
+    to: '/setup',
+  },
+  {
     id: '2026-07-22-improve-strength-settings',
     date: '2026-07-22',
     title: '🔧 "Upscale & improve" is now adjustable, not a fixed profile',
