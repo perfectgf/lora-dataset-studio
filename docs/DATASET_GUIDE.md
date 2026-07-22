@@ -228,14 +228,16 @@ dialog:
   The timestep knob enables a known **two-phase recipe**: train balanced first,
   then continue with a low-noise-leaning emphasis to polish fine texture.
 
-- **Run it** (dataset panel) — **💻 Local** or **☁ Cloud**. A checkpoint is just a
+- **Run it** — **💻 Local** or **☁ Cloud**. A checkpoint is just a
   file, so where a run trained doesn't decide where it can be finished: a run
   trained on your GPU can be continued on a rented one (the checkpoint is uploaded
   and training picks up from it, on a fresh pod, leaving every local save
   untouched), and a cloud epoch mirrored into your run folder can be finished
   locally. A lane you can't use right now — no vast.ai key, no ai-toolkit, a
   training already running here, a cloud limit reached — is disabled **with the
-  reason**, never hidden.
+  reason**, never hidden. The same choice is offered by the **Runs** page's
+  ▶ Continue, where the cloud reason is counted against *that run's* dataset —
+  the page lists runs from all of them.
 
 You can also click a checkpoint pill in the **◉ Graph** and pick *▶ Continue from
 here*: the dialog opens already set on that step.
