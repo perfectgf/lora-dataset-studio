@@ -487,6 +487,121 @@ def continue_cloud_run(user_id, run_id, extra_steps=1000, from_step=None,
     return res
 
 
+def continue_local_run_in_cloud(user_id, dataset_id, extra_steps=1000,
+                                from_step=None, overrides=None,
+                                base_model=_UNSET, variant=None, train_type=None,
+                                masked=True, allow_caption_mismatch=False,
+                                allow_uncaptioned=False, allow_caption_quality=False,
+                                allow_unverified_weights=False, allow_not_ready=False,
+                                gpu_name=None) -> dict:
+    """▶ Continue a LOCAL run's checkpoint IN THE CLOUD — the mirror of
+    continue_cloud_run, and the other half of "pick your lane" in the ▶ Continue
+    dialog. Nothing new is invented: the pod-side resume is the SAME seam
+    (`resume_ckpt_path`), which launch_cloud_training's monitor drops into the
+    job's save_root on a FRESH pod before start_job so ai-toolkit auto-resumes
+    from it. The only difference with the cloud→cloud continue is where the file
+    comes from: this one reads the ai-toolkit RUN DIR on disk instead of a cloud
+    run's harvested staging.
+
+    ``from_step`` absent → the newest local save. Provided → THAT step, including
+    an earlier epoch: unlike the local lane (which archives the run aside and
+    re-seeds it), seeding an arbitrary checkpoint onto a fresh pod touches
+    NOTHING on disk — the local run dir is read-only here.
+
+    Every guard of a normal cloud launch applies unchanged (vast.ai key, budget,
+    active-run limit, per-family uniqueness, dataset export/captions): this IS a
+    launch_cloud_training call, the resume is an execution detail. ``overrides``
+    = the same safe subset as everywhere (cadence / preview prompts / timestep /
+    lr_factor), merged into THIS run's settings snapshot — the dataset's own
+    persisted settings are never touched (the local lane's update_train_settings
+    is a local-lane behaviour, not something to replicate on a cloud launch)."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    fam = lt._train_type(ds, train_type)
+    var = variant or getattr(ds, 'train_variant', None) or lt._default_variant_for(fam)
+    # base_model _UNSET = the dataset's persisted base (the queue's behaviour);
+    # an explicit value (the UI's checkpoint selection) targets THAT lane.
+    lane = {} if base_model is _UNSET else {'base_model': base_model}
+    base = (getattr(ds, 'train_base_model', None) or '') if base_model is _UNSET \
+        else (base_model or '')
+    # Validate the safe-subset overrides BEFORE anything else — a forbidden key
+    # must fail with nothing launched (same contract as both other lanes).
+    override_patch = lt.validate_resume_overrides(overrides)
+    # The run dir lives under ai-toolkit's output: without it configured there is
+    # no local save to send anywhere. Say that, rather than leaking the raw
+    # 'ai-toolkit is not configured' from a lane the user asked to run in the CLOUD.
+    try:
+        cks = lt.list_checkpoints(user_id, dataset_id, family=fam, variant=var, **lane)
+    except RuntimeError:
+        raise ValueError('no local checkpoint to continue from — ai-toolkit is not '
+                         'configured, so this machine has no local run folder')
+    if not cks:
+        raise ValueError('no local checkpoint to continue from for this base — '
+                         'the run folder holds no save (a cloud run\'s epochs '
+                         'live in its own staging: continue THAT run instead)')
+    if from_step is None:
+        chosen = cks[-1]
+    else:
+        try:
+            want = int(from_step)
+        except (TypeError, ValueError):
+            raise ValueError('from_step must be an integer step')
+        matches = [c for c in cks if c['step'] == want]
+        if not matches:
+            avail = sorted({c['step'] for c in cks})
+            raise ValueError(
+                f'no local checkpoint at step {want} for this run (available: {avail})')
+        # Ties (a numbered save and the bare final at the same step): prefer the
+        # numbered file — same rule as the local lane.
+        chosen = min(matches, key=lambda c: bool(c.get('final')))
+    # Resolve through the whitelisting helper (never os.path.join on a name from
+    # the wire): it only returns a path that IS a save of this exact run.
+    path = lt.checkpoint_file_path(user_id, dataset_id, chosen['filename'],
+                                   family=fam, variant=var, **lane)
+    if not path:
+        raise ValueError(f"local checkpoint '{chosen['filename']}' is no longer on disk")
+    try:
+        extra = max(100, int(extra_steps))
+    except (TypeError, ValueError):
+        extra = 1000
+    # LR factor → an absolute rate, resolved against the DATASET's live settings
+    # (a local run trains from those, there is no per-run snapshot), and refused
+    # loudly on a Prodigy run before any launch.
+    lr_factor = override_patch.pop('lr_factor', None)
+    if lr_factor is not None:
+        override_patch['learning_rate'] = lt.resolve_resume_lr(lt._train_settings(ds), lr_factor)
+    snapshot = _UNSET      # _UNSET → launch stamps the dataset's live settings
+    if override_patch:
+        snapshot = _merge_resume_overrides(getattr(ds, 'train_settings', None),
+                                           override_patch)
+    # Lineage: the parent is the newest record of THIS local lane, exactly like
+    # lora_training.continue_training resolves it. Best-effort — a failure leaves
+    # the edge NULL and never blocks the launch.
+    from . import checkpoint_registry
+    try:
+        _parent = checkpoint_registry.newest_record_for(dataset_id, fam, base, var)
+    except Exception:
+        _parent = None
+    res = launch_cloud_training(
+        user_id, dataset_id,
+        steps=chosen['step'] + extra,
+        base_model=base, variant=var, train_type=fam, masked=masked,
+        allow_caption_mismatch=allow_caption_mismatch,
+        allow_uncaptioned=allow_uncaptioned,
+        allow_caption_quality=allow_caption_quality,
+        allow_unverified_weights=allow_unverified_weights,
+        allow_not_ready=allow_not_ready,
+        gpu_name=gpu_name,
+        resume_ckpt_path=path, resume_step=chosen['step'],
+        train_settings_snapshot=snapshot,
+        parent_record_id=(_parent.id if _parent else None),
+        resumed_from=chosen['step'])
+    res['resumed_from'] = chosen['step']
+    res['target_steps'] = chosen['step'] + extra
+    return res
+
+
 def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                           variant=None, train_type=None, masked=True,
                           allow_caption_mismatch=False, allow_uncaptioned=False,
@@ -2381,16 +2496,57 @@ def _step_of_testable(filename) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def _testable_by_step(dataset_id, family) -> dict:
+def _deployed_run_tag(rec):
+    """(source, run_id) as it appears in the DEPLOYED names of THIS record's
+    saves. Mirrors import_checkpoint's own rule: a cloud launch is tagged with
+    its pod-run id (`_rc<id>`, the ☁ #N chip), everything else with its
+    TrainingRunRecord id (`_rl<id>`). (None, None) when a cloud record lost its
+    pod-run id — no tag to match, so nothing is claimed."""
+    if rec.source == 'cloud':
+        return ('cloud', rec.cloud_run_id) if rec.cloud_run_id else (None, None)
+    return 'local', rec.id
+
+
+def _final_step_of(checkpoints) -> int | None:
+    """The step of a run's FINAL save among its listed pills: the one flagged
+    `final`, else the largest step (a run whose final save exists but isn't
+    flagged — cloud runs only flag it once the run is 'done'). None when the run
+    lists no save."""
+    for c in (checkpoints or []):
+        if c.get('final') and c.get('step') is not None:
+            return c['step']
+    return max((c['step'] for c in (checkpoints or [])
+                if c.get('step') is not None), default=None)
+
+
+def _deploy_version(filename) -> int:
+    """The `_v<N>` dataset-version suffix of a deployed name (0 when absent) —
+    used only to pick deterministically between several step-less deploys of the
+    SAME run (the newest version wins; a plain name sort would rank `_v10` under
+    `_v9`)."""
+    stem = os.path.basename(str(filename or '')).rsplit('.', 1)[0]
+    m = re.search(r'_v(\d+)$', stem)
+    return int(m.group(1)) if m else 0
+
+
+def _testable_by_step(dataset_id, family, run_tag=None, final_step=None) -> dict:
     """{step: deployed_lora_filename} for this dataset+family — the checkpoints
     the Lab can actually generate a preview for. Best-effort: no dataset / no
     deployed LoRA → {} (every pill reads as not-testable, the Generate button
-    stays disabled with the app's usual 'needs setup' hint)."""
+    stays disabled with the app's usual 'needs setup' hint).
+
+    `run_tag`/`final_step` (one run's identity + its last step) additionally join
+    that run's STEP-LESS deploy: ai-toolkit names the final save without a step
+    (`lora_nova_Krea-2-Raw_rc90_v2`), so it has no number to be matched by and the
+    final pill never gained a tick-box even once imported (user-reported on two
+    runs). The run tag baked into the deployed name (`_rc<id>`/`_rl<id>`, see
+    lt.parse_deployed_run) is what attaches it to its run. A legacy untagged file
+    stays unmatched — better no tick-box than one on another run's checkpoint."""
     ds = fds.get_dataset(cfg.LOCAL_USER, dataset_id)
     if not ds:
         return {}
     from . import lora_test_studio as studio
-    out = {}
+    out, stepless = {}, []
     try:
         cands = studio.list_test_checkpoints(ds, family)
     except Exception:
@@ -2399,7 +2555,35 @@ def _testable_by_step(dataset_id, family) -> dict:
         s = _step_of_testable(c.get('filename'))
         if s is not None:
             out[s] = c['filename']
+        else:
+            stepless.append(c['filename'])
+    # Deterministic on collision: a file that NAMES the step always wins over a
+    # step-less one claiming the same step, and among several step-less deploys
+    # of the same run the highest `_v<N>` wins.
+    if stepless and run_tag and run_tag[1] and final_step is not None \
+            and final_step not in out:
+        mine = [f for f in stepless if lt.parse_deployed_run(f) == tuple(run_tag)]
+        if mine:
+            out[final_step] = max(mine, key=lambda f: (_deploy_version(f), f))
     return out
+
+
+def _testable_for_record(dataset_id, family, record_id) -> dict:
+    """{step: deployed filename} as seen FROM one run — the dataset+family map
+    plus that run's own step-less final save (see _testable_by_step). Degrades to
+    the plain map when the record is unknown or its save list can't be read."""
+    from ..models import TrainingRunRecord
+    rec = db.session.get(TrainingRunRecord, record_id)
+    if rec is None:
+        return _testable_by_step(dataset_id, family)
+    crun = (db.session.get(CloudTrainingRun, rec.cloud_run_id)
+            if rec.cloud_run_id else None)
+    try:
+        cks = _node_checkpoints(rec, crun)
+    except Exception:
+        cks = []
+    return _testable_by_step(dataset_id, family, run_tag=_deployed_run_tag(rec),
+                             final_step=_final_step_of(cks))
 
 
 def checkpoint_previews_for(record_id) -> dict:
@@ -2447,14 +2631,19 @@ def generate_checkpoint_previews(user_id, dataset_id, checkpoints, prompt=None,
     if fam is None:
         ds = fds.get_dataset(cfg.LOCAL_USER, dataset_id)
         fam = (getattr(ds, 'train_type', None) or 'zimage').lower() if ds else 'zimage'
-    by_step = _testable_by_step(dataset_id, fam)
+    # Per RUN: the map is the same dataset+family one, plus that run's own
+    # step-less final deploy mapped onto its final step (cached per record so a
+    # multi-checkpoint selection scans its runs once).
+    by_run = {}
     resolved, skipped = [], []
     for c in (checkpoints or []):
         try:
             rid, step = int(c['record_id']), int(c['step'])
         except (KeyError, TypeError, ValueError):
             continue
-        fn = by_step.get(step)
+        if rid not in by_run:
+            by_run[rid] = _testable_for_record(dataset_id, fam, rid)
+        fn = by_run[rid].get(step)
         if not fn:
             skipped.append({'record_id': rid, 'step': step, 'reason': 'not_deployed'})
             continue
@@ -2609,7 +2798,11 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
     # can load — the front enables Generate only for testable selections and shows
     # the app's usual 'needs setup' hint otherwise. `preview_*` render the inline
     # thumbnail (or its pending/failed state) in the node card.
-    _testable = _testable_by_step(rec.dataset_id, rec.family)
+    # Scoped to THIS run so its step-less final deploy (`..._rc90_v2`, no step in
+    # the name) joins its own final pill instead of going unmatched.
+    _testable = _testable_by_step(rec.dataset_id, rec.family,
+                                  run_tag=_deployed_run_tag(rec),
+                                  final_step=_final_step_of(node.get('checkpoints')))
     for _ck in (node.get('checkpoints') or []):
         _step = _ck.get('step')
         _ck['note'] = _cnotes.get(_step, '')

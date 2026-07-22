@@ -51,6 +51,114 @@ def test_step_of_testable_parses_both_conventions(app):
     assert _step_of_testable('lora_x_000000750_SDXL_rc12_v2.safetensors') == 750
 
 
+def test_final_stepless_deploy_is_joined_to_its_own_run(client, monkeypatch, app):
+    """ai-toolkit deploys the FINAL save WITHOUT a step in its name, so it had no
+    number to be joined by and the final pill never gained a tick-box. It is
+    attached through the run tag (`_rl<id>`/`_rc<id>`) baked into the name."""
+    ds = _create(client)
+    from app.extensions import db
+    from app.models import TrainingRunRecord
+    from app.services import cloud_training as ct
+    with app.app_context():
+        rec = TrainingRunRecord(dataset_id=ds, family='zimage', source='local',
+                                version=2, fingerprint='fp', steps=3500)
+        other = TrainingRunRecord(dataset_id=ds, family='zimage', source='local',
+                                  version=2, fingerprint='fp2', steps=3500)
+        db.session.add_all([rec, other]); db.session.commit()
+        rid, oid = rec.id, other.id
+        _deployed(monkeypatch, [
+            f'z image\\lora_nova_000002000_Krea-2-Raw_rl{rid}_v2.safetensors',
+            f'z image\\lora_nova_Krea-2-Raw_rl{rid}_v2.safetensors'])  # final, no step
+        monkeypatch.setattr(ct, '_node_checkpoints',
+                            lambda rec, crun: [{'step': 2000, 'filename': 'a', 'present': True},
+                                               {'step': 3500, 'filename': 'b', 'present': True,
+                                                'final': True}])
+        node = ct._lineage_node(TrainingRunRecord.query.get(rid), None, rid, None)
+        by_step = {c['step']: c for c in node['checkpoints']}
+        assert by_step[2000]['testable'] is True
+        assert by_step[3500]['testable'] is True   # the bug: used to be False
+        # ...and the generator pins the RIGHT file for that final step.
+        calls = {}
+        _mock_engine(monkeypatch, calls)
+        out = ct.generate_checkpoint_previews(
+            'local', ds, [{'record_id': rid, 'step': 3500}], family='zimage')
+        assert out['queued'] == 1
+        assert calls['checkpoints'] == [
+            f'z image\\lora_nova_Krea-2-Raw_rl{rid}_v2.safetensors']
+        # ANOTHER run of the same dataset must NOT inherit it: the tag names rid.
+        other_node = ct._lineage_node(TrainingRunRecord.query.get(oid), None, oid, None)
+        assert {c['step']: c['testable']
+                for c in other_node['checkpoints']} == {2000: True, 3500: False}
+
+
+def test_untagged_stepless_deploy_marks_nothing(client, monkeypatch, app):
+    """A legacy deploy with no run tag can't be attributed — it must leave every
+    pill alone rather than tick the wrong run's final checkpoint."""
+    ds = _create(client)
+    from app.extensions import db
+    from app.models import TrainingRunRecord
+    from app.services import cloud_training as ct
+    _deployed(monkeypatch, ['z image\\lora_nova.safetensors'])   # no _rl/_rc tag
+    with app.app_context():
+        rec = TrainingRunRecord(dataset_id=ds, family='zimage', source='local',
+                                version=1, fingerprint='fp', steps=1000)
+        db.session.add(rec); db.session.commit(); rid = rec.id
+        monkeypatch.setattr(ct, '_node_checkpoints',
+                            lambda rec, crun: [{'step': 1000, 'filename': 'b',
+                                                'present': True, 'final': True}])
+        node = ct._lineage_node(TrainingRunRecord.query.get(rid), None, rid, None)
+    assert node['checkpoints'][0]['testable'] is False
+
+
+def test_numbered_deploy_wins_over_stepless_on_the_same_step(client, monkeypatch, app):
+    """Documented tie-break: a file that NAMES the step beats a step-less one
+    claiming that same step, so the numbered pairing never changes."""
+    ds = _create(client)
+    from app.extensions import db
+    from app.models import TrainingRunRecord
+    from app.services import cloud_training as ct
+    with app.app_context():
+        rec = TrainingRunRecord(dataset_id=ds, family='zimage', source='local',
+                                version=1, fingerprint='fp', steps=2000)
+        db.session.add(rec); db.session.commit(); rid = rec.id
+        _deployed(monkeypatch, [
+            f'z image\\lora_nova_000002000_rl{rid}_v1.safetensors',
+            f'z image\\lora_nova_rl{rid}_v1.safetensors'])
+        monkeypatch.setattr(ct, '_node_checkpoints',
+                            lambda rec, crun: [{'step': 2000, 'filename': 'b',
+                                                'present': True, 'final': True}])
+        calls = {}
+        _mock_engine(monkeypatch, calls)
+        ct.generate_checkpoint_previews('local', ds,
+                                        [{'record_id': rid, 'step': 2000}],
+                                        family='zimage')
+    assert calls['checkpoints'] == [f'z image\\lora_nova_000002000_rl{rid}_v1.safetensors']
+
+
+def test_cloud_stepless_deploy_joins_by_pod_run_id(client, monkeypatch, app):
+    """A cloud run's deploy is tagged with its POD-run id (`_rc<id>`), not its
+    record id — the join must use that identity."""
+    ds = _create(client)
+    from app.extensions import db
+    from app.models import TrainingRunRecord, CloudTrainingRun
+    from app.services import cloud_training as ct
+    with app.app_context():
+        crun = CloudTrainingRun(dataset_id=ds, status='done')
+        db.session.add(crun); db.session.commit()
+        rec = TrainingRunRecord(dataset_id=ds, family='zimage', source='cloud',
+                                version=2, fingerprint='fp', steps=3500,
+                                cloud_run_id=crun.id)
+        db.session.add(rec); db.session.commit()
+        rid, cid = rec.id, crun.id
+        _deployed(monkeypatch, [f'z image\\lora_nova_Krea-2-Raw_rc{cid}_v2.safetensors'])
+        monkeypatch.setattr(ct, '_node_checkpoints',
+                            lambda rec, crun: [{'step': 3500, 'filename': 'b',
+                                                'present': True, 'final': True}])
+        node = ct._lineage_node(TrainingRunRecord.query.get(rid),
+                                CloudTrainingRun.query.get(cid), rid, None)
+    assert node['checkpoints'][0]['testable'] is True
+
+
 # --- pinning + storage -------------------------------------------------------
 
 def test_generate_pins_engine_to_checkpoints_at_strength_1(client, monkeypatch, app):
