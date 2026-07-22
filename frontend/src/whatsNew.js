@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-hf-gate-checked-before-renting',
+    date: '2026-07-22',
+    title: '☁ A locked model no longer costs you a rented GPU',
+    blurb:
+      'Some base models are gated on Hugging Face: you must accept their licence once, and a repository can become gated overnight — three runs failed that way on a config that had worked the day before. The failure happened on the pod, after renting: you paid for a GPU that downloaded nothing. The launch now checks that access first and refuses before reserving anything, naming the model and the page to open. If Hugging Face is simply unreachable the launch still goes ahead — an outage must not ground a run that would have worked. And the run card no longer shows only "403 Client Error": these messages carry their explanation on the second line, which used to be visible only by hovering.',
+    to: '/cloud',
+  },
+  {
     id: '2026-07-22-style-rename-actually-renames',
     date: '2026-07-22',
     title: '✎ Renaming a Style dataset really renames its files now',

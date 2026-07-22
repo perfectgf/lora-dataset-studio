@@ -562,6 +562,39 @@ def _base_tag(ds) -> str:
     return _base_tag_for(getattr(ds, 'train_base_model', None))
 
 
+def official_base_repo(ds, family=None, variant=_PERSISTED):
+    """The Hugging Face repo a CLOUD pod will download for the OFFICIAL base of this
+    recipe, or None when the run uses custom local weights (nothing to fetch) or a
+    family whose base is not an HF repo.
+
+    Exists for one reason: a gated repo the account has not been granted access to
+    fails with a 403 **on the pod**, i.e. after a GPU has been rented and paid for.
+    Three runs were burned that way on krea/Krea-2-Raw. Resolving the repo here lets
+    the launch check the gate BEFORE reserving anything.
+
+    Mirrors the recipe decisions (`_krea_is_raw`, `_flux2klein_is_9b`, the Z-Image
+    variant matrix) rather than restating them, so a recipe change cannot silently
+    leave this behind."""
+    fam = _train_type(ds, family)
+    weights = getattr(ds, 'train_base_model', None)
+    if _is_custom_weights(weights) or (weights and os.path.isfile(str(weights))):
+        return None                       # local file: the pod never asks HF for it
+    if fam == 'krea':
+        return 'krea/Krea-2-Raw' if _krea_is_raw(ds, variant) else 'krea/Krea-2-Turbo'
+    if fam == 'flux':
+        return 'black-forest-labs/FLUX.1-dev'
+    if fam == 'flux2klein':
+        return ('black-forest-labs/FLUX.2-klein-base-9B' if _flux2klein_is_9b(ds, variant)
+                else 'black-forest-labs/FLUX.2-klein-base-4B')
+    if fam == 'zimage':
+        var = str((getattr(ds, 'train_variant', None) if variant is _PERSISTED else variant)
+                  or 'turbo').lower()
+        if var == 'deturbo':
+            return ZIMAGE_DETURBO_BASE
+        return ZIMAGE_BASE if var == 'base' else ZIMAGE_TURBO_BASE
+    return None
+
+
 KREA_BASE_LABEL = 'Krea-2-Turbo'   # mirrors name_or_path 'krea/Krea-2-Turbo'
 # Flux a une seule base officielle (FLUX.1-dev). Sans point dans le label (sinon
 # _base_tag_for le prendrait pour une extension et tronquerait à « FLUX ») → tag

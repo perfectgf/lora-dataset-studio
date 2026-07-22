@@ -568,8 +568,15 @@ export default function CloudRunsPage() {
               </span>
             )}
           </div>
+          {/* NOT truncate: these messages carry their explanation on the SECOND line
+              ("Cannot access gated repo … ask for access"), so collapsing them to one
+              line kept the useless "403 Client Error (Request ID…)" and hid the part
+              that names what to fix. The full text was only in title=, which never
+              shows on a phone — where this was reported. Newlines are real, hence
+              whitespace-pre-line; clamped so a stack trace cannot take over the page. */}
           {run.error && (run.status === 'error' || run.status === 'error_pod_kept') && (
-            <p className="m-0 truncate text-rose-300/90 text-[0.6875rem]" title={run.error}>
+            <p className="m-0 whitespace-pre-line line-clamp-5 text-rose-300/90 text-[0.6875rem]"
+              title={run.error}>
               {run.error}
             </p>
           )}

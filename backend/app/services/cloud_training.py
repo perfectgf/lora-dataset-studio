@@ -115,6 +115,39 @@ def active_runs_for(dataset_id):
             .order_by(CloudTrainingRun.id.asc()).all())
 
 
+def _assert_official_base_reachable(repo_id, token, timeout=8):
+    """Fail the launch when the account cannot actually download `repo_id`.
+
+    Hugging Face answers **200 on the model's metadata** for a gated repo you have
+    not been granted — only fetching a FILE returns 403. So this asks for the file
+    listing under auth, which is subject to the same gate, and reads the status.
+
+    FAIL-OPEN on anything that is not an outright refusal: a timeout, DNS failure or
+    HF outage must never block a launch that would have worked. The pod remains the
+    real authority; this only converts the ONE failure we can predict — a gate the
+    user has never accepted — into a message that arrives before the bill."""
+    if not repo_id:
+        return
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(
+        f'https://huggingface.co/api/models/{repo_id}/tree/main',
+        headers={'Authorization': f'Bearer {token}'} if token else {})
+    try:
+        urllib.request.urlopen(req, timeout=timeout).read(1)
+    except urllib.error.HTTPError as e:
+        if e.code not in (401, 403):
+            return                          # 404 / 5xx: not our call to make
+        raise ValueError(
+            f'Hugging Face refuses access to {repo_id}, which the rented GPU has to '
+            f'download. Open https://huggingface.co/{repo_id} while signed in with '
+            'the account your HF token belongs to, accept the licence ("Agree and '
+            'access repository"), then launch again. Approval is usually instant. '
+            'Nothing was rented, so this run cost nothing.') from None
+    except Exception:                        # noqa: BLE001 — offline/outage: fail open
+        return
+
+
 def _assert_launch_guardrails(dataset_id, fam):
     """Raise when a cloud launch cannot reserve an active slot.
 
@@ -710,6 +743,15 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                 allow_unverified_weights=allow_unverified_weights)
         base_repo = hf_base_push.require_base_repo(
             ds, fam, variant, base_model, cfg.secret('HF_TOKEN'))
+    else:
+        # OFFICIAL base: the pod downloads it from Hugging Face. Several are GATED
+        # (Krea, FLUX, FLUX.2 Klein) and a gate the account never accepted answers
+        # 403 — on the pod, after renting. Three runs were paid for and lost that
+        # way, and the card only showed "403 Client Error (Request ID…)", hiding the
+        # sentence that named the repo. One HEAD here costs nothing and turns that
+        # into a message before a GPU is reserved.
+        _assert_official_base_reachable(
+            lt.official_base_repo(ds, fam, variant), cfg.secret('HF_TOKEN'))
     # Cheap fast-fail before the image/caption preflight below. This read is
     # intentionally advisory: another Flask request can reserve a slot after
     # it, so the same checks are repeated atomically at reservation time.
