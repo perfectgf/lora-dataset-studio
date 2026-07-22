@@ -188,10 +188,10 @@ function CheckpointPill({ pill, offX, offY, active, selected, preview, big, onOp
           aria-label={`Select step ${pill.step} for preview`}
           title={selected ? 'Selected for preview' : 'Select for preview'}
           onClick={(e) => { e.stopPropagation(); onToggleSelect(pill); }}
-          style={{ position: 'absolute', left: -5, top: -5 }}
+          style={{ position: 'absolute', left: -6, top: -6 }}
           className={'lds-cksel flex items-center justify-center rounded-[3px] border leading-none shadow-sm '
-            + (big ? 'h-5 w-5 text-[0.6875rem] ' : 'h-3.5 w-3.5 text-[0.5rem] ')
-            + (selected ? 'border-indigo-400 bg-indigo-500 text-white ' : 'border-border bg-surface-overlay text-transparent hover:border-indigo-400/70 ')}>
+            + (big ? 'h-5 w-5 text-[0.6875rem] ' : 'h-4 w-4 text-[0.625rem] ')
+            + (selected ? 'border-indigo-400 bg-indigo-500 text-white ' : 'border-border-strong bg-surface-overlay text-transparent hover:border-indigo-400 ')}>
           ✓
         </button>
       )}
@@ -490,7 +490,7 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint, 
         🔍 Big previews
       </button>
       {selectedForDiff.length === 0 ? (
-        <span><span className="font-semibold">⇧ Shift-click</span> two runs to compare · check <span aria-hidden>☑</span> checkpoints to preview them</span>
+        <span><span className="font-semibold">⇧ Shift-click</span> two runs to compare · tick the <span aria-hidden>☑</span> corner box on an <span className="font-semibold">imported</span> checkpoint to preview it (import one with <span aria-hidden>📦</span> first)</span>
       ) : (
         <>
           <span className="text-amber-200">

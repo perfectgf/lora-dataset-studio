@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-lineage-preview-checkbox-visible',
+    date: '2026-07-22',
+    title: '☑ The preview tick-box on checkpoints is finally visible',
+    blurb:
+      "In the lineage graph, the little corner box that picks a checkpoint for an inline preview was a 14px near-invisible square — easy to miss and fiddly to tap on a phone. It's bigger now with a clear outline, and the hint spells out that only an imported (📦 deployed) checkpoint can be ticked.",
+    to: '/datasets?section=checkpoints',
+  },
+  {
     id: '2026-07-22-aitoolkit-readiness-honest',
     date: '2026-07-22',
     title: '🎓 Clearer guidance when ai-toolkit isn\'t ready to train',
