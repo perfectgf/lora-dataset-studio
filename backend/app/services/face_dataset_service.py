@@ -152,6 +152,28 @@ _ACTIVE_RUN_MESSAGE = _ACTIVE_RUN_TEMPLATE.format(action='deleting')
 SMALL_IMAGE_SOURCE = 'small_image_source'
 KLEIN_SMALL_IMAGE = 'klein_small_image'
 KLEIN_IMAGE_IMPROVE = 'klein_image_improve'
+
+# The three "Upscale & improve" knobs live in config (klein.improve_*). Read
+# through clamps: a hand-edited config with a string, a negative or a wild value
+# must degrade the pass to something sane, never raise inside the enqueue path.
+_IMPROVE_MAX_STRENGTH = 2.0
+_IMPROVE_MAX_STEPS = 50
+
+
+def _improve_float(key, default) -> float:
+    try:
+        v = float(cfg.get(f'klein.{key}'))
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(_IMPROVE_MAX_STRENGTH, v))
+
+
+def _improve_int(key, default) -> int:
+    try:
+        v = int(cfg.get(f'klein.{key}'))
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(_IMPROVE_MAX_STEPS, v))
 # KLEIN_IMAGE_IMPROVE_PROMPT is the shipped DEFAULT of the editable klein_improve
 # prompt (imported from face_variations, which owns the identity/quality prompt
 # registry). Re-exported here so `svc.KLEIN_IMAGE_IMPROVE_PROMPT` keeps resolving.
@@ -4580,7 +4602,13 @@ def _improve_existing_image_locked(user_id, image_id):
         job_id = keh.enqueue_klein_edit(
             user_id=str(user_id), source_filename=img.filename,
             source_path=source_path, edit_prompt=prompt,
-            lora_strength=0.0, sampler_steps=4, base_lora_strength=0.0,
+            # The "Upscale & improve" quality profile, now user-tunable. Defaults
+            # (0 / 4 / 0) are the values that were hardcoded here, so an untouched
+            # install behaves exactly as before. Clamped, because a bad config
+            # value must degrade the pass, never crash the enqueue.
+            lora_strength=_improve_float('improve_character_lora_strength', 0.0),
+            sampler_steps=_improve_int('improve_steps', 4),
+            base_lora_strength=_improve_float('improve_base_lora_strength', 0.0),
             extra_metadata={
                 'is_dataset': True,
                 'dataset_id': img.dataset_id,

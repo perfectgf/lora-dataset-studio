@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-improve-strength-settings',
+    date: '2026-07-22',
+    title: '🔧 "Upscale & improve" is now adjustable, not a fixed profile',
+    blurb:
+      'Its instruction was editable, but everything deciding how much the pass actually changes the image was hardcoded — including both LoRA strengths, pinned to 0, which meant the enhancement LoRA built into the workflow never applied at all. Settings ▸ Engines now exposes the enhancement LoRA strength, the character LoRA strength and the step count. All three start at exactly the values the action used before, so leaving them alone changes nothing; raise the enhancement LoRA to finally let it work.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-07-22-import-dataset-to-bank',
     date: '2026-07-22',
     title: '↑ Import to bank — send a dataset back the other way',

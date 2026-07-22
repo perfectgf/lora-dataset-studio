@@ -226,6 +226,17 @@ function IdentityPromptField({ field, value, onChange, onRestore, defaultText })
   )
 }
 
+// Bounds mirror the server-side clamps in face_dataset_service._improve_float /
+// _improve_int — the UI should not offer a value the backend will silently pull back.
+const IMPROVE_KNOBS = [
+  { key: 'improve_base_lora_strength', label: 'Enhancement LoRA', fallback: 0,
+    min: 0, max: 2, step: 0.05, hint: '0 = off (the shipped behaviour). Try 0.5–0.8.' },
+  { key: 'improve_character_lora_strength', label: 'Character LoRA', fallback: 0,
+    min: 0, max: 2, step: 0.05, hint: 'Keeps the trained identity through the pass.' },
+  { key: 'improve_steps', label: 'Steps', fallback: 4,
+    min: 1, max: 50, step: 1, hint: 'More steps = slower, usually cleaner.' },
+]
+
 function IdentityPromptsCard({ config, setField, promptDefaults }) {
   const ip = config.identity_prompts || {}
   const defaults = promptDefaults || {}
@@ -294,6 +305,41 @@ function IdentityPromptsCard({ config, setField, promptDefaults }) {
         <p className="mt-3 text-xs text-content-subtle">
           Separate from the scraper rescue prompt for small images — see Settings ▸ Scraping ▸ “Klein rescue — small scraped images”.
         </p>
+      </div>
+
+      {/* The instruction above was already editable, but the knobs deciding how
+          much the pass actually changes were hardcoded — including both LoRA
+          strengths at 0, which meant the workflow's own realistic LoRA never
+          applied. Defaults here are those historical values. */}
+      <div className="border-t border-border pt-4">
+        <h4 className="text-sm font-medium text-content">Upscale &amp; improve — strength</h4>
+        <p className="mt-1 mb-2 text-xs text-content-muted">
+          How much the pass is allowed to change the image. All three start at the values
+          the action used before they were exposed, so leaving them alone keeps today’s
+          result. The <strong>enhancement LoRA</strong> is the one baked into the workflow
+          (realistic detail): at 0 it does nothing — raise it to let it work.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {IMPROVE_KNOBS.map((k) => (
+            <div key={k.key}>
+              <label htmlFor={`klein-${k.key}`} className="block text-xs font-medium text-content">
+                {k.label}
+              </label>
+              <input
+                id={`klein-${k.key}`}
+                type="number"
+                min={k.min}
+                max={k.max}
+                step={k.step}
+                value={config.klein?.[k.key] ?? k.fallback}
+                onChange={(e) => setField('klein', k.key,
+                  e.target.value === '' ? k.fallback : Number(e.target.value))}
+                className={INPUT_CLASS}
+              />
+              <p className="mt-1 text-[0.6875rem] text-content-subtle">{k.hint}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </Card>
   )

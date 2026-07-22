@@ -160,9 +160,19 @@ DEFAULTS = {
               # then dropped.
               'generation_lora_presets': [],
               # Optional instruction for small scraped-image rescue only.
-              # Manual "Upscale & improve" uses its own fixed quality profile.
               # Empty is intentional: never invent a restoration prompt for the user.
-              'small_image_prompt': ''},
+              'small_image_prompt': '',
+              # Manual "Upscale & improve" quality profile. Its INSTRUCTION was
+              # already editable (identity_prompts.klein_improve) but the knobs
+              # deciding how much the pass actually changes were hardcoded at the
+              # call site — including BOTH LoRA strengths pinned to 0, which meant
+              # the workflow's own realistic LoRA (0.8 in improve skin.json) never
+              # applied at all. These defaults reproduce that exact historical
+              # behaviour, so an untouched install renders byte-identically; raise
+              # improve_base_lora_strength to actually let that LoRA work.
+              'improve_steps': 4,
+              'improve_base_lora_strength': 0.0,
+              'improve_character_lora_strength': 0.0},
     # Editable identity / quality prompts (feature request by @bbsorry / 雨田壹).
     # The identity "locks" that ride ahead of every generated variation used to be
     # hardcoded and invisible; these overrides expose them without touching the

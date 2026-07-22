@@ -92,6 +92,11 @@ How presets are used matters:
 - **API engine — identity lock (multiple references)** → `identity_prompts.face_multi`. The same, for variations built from **several** reference photos — it tells the model every reference is the same person and to use them together.
 - **Klein — restage & face-identity block** → `identity_prompts.klein_identity`. The instruction block the local **Klein** engine uses to restage the shot (pose, framing, outfit, expression) while keeping the face identical.
 - **Klein upscale & improve prompt** → `identity_prompts.klein_improve`, with an on/off toggle `identity_prompts.klein_improve_enabled` (default **on**). The fixed instruction the manual **Klein upscale & improve** action sends to add texture and detail. **Turn the toggle off** to run that action with **no prompt at all** — a pure upscale with no added styling.
+- **Upscale & improve — strength** → `klein.improve_base_lora_strength`, `klein.improve_character_lora_strength`, `klein.improve_steps`. How much that pass is allowed to change the image. Until these were exposed the whole profile was hardcoded, **both LoRA strengths pinned to 0** — which means the *enhancement* LoRA baked into the workflow (realistic detail) never applied at all. Defaults are those same historical values (**0 / 0 / 4 steps**), so leaving them alone keeps today's result exactly.
+  - **Enhancement LoRA** (0–2, default **0**) — the workflow's own detail LoRA. At 0 it does nothing; try **0.5–0.8** to let it work.
+  - **Character LoRA** (0–2, default **0**) — keeps a trained identity through the pass.
+  - **Steps** (1–50, default **4**) — more steps is slower and usually cleaner.
+  - Out-of-range or malformed values are **clamped**, never rejected: a bad config weakens the pass instead of failing your click.
 
 Each field is a plain textarea; there's no Test button — you see the effect on your next generation. If an override ever makes results worse, hit **Restore default**.
 
