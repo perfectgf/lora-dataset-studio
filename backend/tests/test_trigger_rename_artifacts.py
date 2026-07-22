@@ -267,3 +267,56 @@ def test_renaming_only_the_name_touches_nothing_on_disk(app, tmp_path):
         res = fds.update_dataset_settings('local', ds.id, name='Analog film')
         assert 'trigger_rename' not in res
         assert run.is_dir()
+
+
+def test_renaming_a_style_survives_the_modal_echoing_the_old_trigger(app, tmp_path):
+    """The reported bug. A style has no trigger FIELD, so the settings modal sends the
+    STORED token back verbatim. Honouring that echo overwrote the token the name had
+    just derived, and renaming a style changed its label and nothing else — on disk
+    everything kept the old name, so an imported checkpoint still carried it."""
+    with app.app_context():
+        from app import config as cfg
+        from app.extensions import db
+        from app.models import FaceDataset
+        from app.services import face_dataset_service as fds
+
+        aitk = tmp_path / 'aitoolkit'
+        (aitk / 'output').mkdir(parents=True)
+        cfg.save_config({'aitoolkit': {'dir': str(aitk)}})
+        ds = FaceDataset(user_id='local', name='Test', trigger_word='zsty_29', kind='style')
+        db.session.add(ds)
+        db.session.commit()
+        (aitk / 'output' / 'ulocal_zsty_29_Krea-2-Raw').mkdir()
+
+        # exactly what DatasetSettingsModal sends for a style: the OLD trigger echoed
+        res = fds.update_dataset_settings('local', ds.id, name='Telegram test',
+                                          trigger_word='zsty_29', kind='style')
+        assert ds.trigger_word == 'Telegram_test'      # the name won, not the echo
+        assert res['trigger_rename']['ok']
+        assert (aitk / 'output' / 'ulocal_Telegram_test_Krea-2-Raw').is_dir()
+
+
+def test_rename_reaches_the_files_inside_the_run_folder(app, tmp_path):
+    """ai-toolkit stamps the trigger at THREE levels. Renaming only the outer folder
+    fixed nothing visible: import_checkpoint deploys under the SOURCE FILE's stem, so
+    the LoRA still landed in ComfyUI under the old trigger."""
+    with app.app_context():
+        from app import config as cfg
+        from app.services import lora_training as lt
+
+        aitk = tmp_path / 'aitoolkit'
+        run = aitk / 'output' / 'ulocal_zsty_29_Krea-2-Raw' / 'lora_zsty_29'
+        run.mkdir(parents=True)
+        (run / 'lora_zsty_29.safetensors').write_text('w')
+        (run / 'lora_zsty_29_000000250.safetensors').write_text('w')
+        (run.parent / 'training.log').write_text('log')     # not trigger-named: untouched
+        cfg.save_config({'aitoolkit': {'dir': str(aitk)}})
+
+        out = lt.rename_training_artifacts('local', 'zsty_29', 'Telegram_test')
+        assert out['ok']
+        new_run = aitk / 'output' / 'ulocal_Telegram_test_Krea-2-Raw'
+        inner = new_run / 'lora_Telegram_test'
+        assert inner.is_dir(), 'the lora_<trigger> subfolder must follow'
+        assert (inner / 'lora_Telegram_test.safetensors').is_file()
+        assert (inner / 'lora_Telegram_test_000000250.safetensors').is_file()
+        assert (new_run / 'training.log').is_file()        # untouched, as it should be

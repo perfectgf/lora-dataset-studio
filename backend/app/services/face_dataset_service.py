@@ -823,6 +823,13 @@ def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None
                     ds.trigger_word = token
             ds.name = new_name
     trigger_rename = None        # (old_safe, new_safe) when the on-disk naming key moved
+    # A STYLE has no trigger FIELD — the settings modal sends back the stored token
+    # verbatim (`trigger_word: style ? d.trigger_word : ...`). Honouring that echo
+    # here overwrote the token the name block had just derived from the new name, so
+    # renaming a style changed its label and nothing else: the reported bug. For a
+    # style the name is the only lever, so an incoming trigger is never an edit.
+    if is_style(ds):
+        trigger_word = None
     if trigger_word is not None:
         t = (trigger_word or '').strip()
         if t:

@@ -3484,6 +3484,44 @@ def _rename_plan(root, old_prefix, new_prefix, *, want_dir=False, suffix=None) -
     return out
 
 
+def _rename_inside_run(run_dir, old_trigger_safe, new_trigger_safe) -> list:
+    """Rename the `lora_<trigger>` subfolder and every `lora_<trigger>*` weights file
+    INSIDE a run folder that was just renamed.
+
+    ai-toolkit stamps the trigger at three levels, not one:
+        ulocal_<trigger>_<base>/ lora_<trigger>/ lora_<trigger>_000000250.safetensors
+    Moving only the outer folder therefore fixed nothing the user could see: importing
+    a checkpoint deploys it under the SOURCE FILE's stem (`import_checkpoint`), so the
+    LoRA still landed in ComfyUI under the old trigger. Reported after renaming a
+    style dataset — the label changed, the deployed name did not.
+
+    Best-effort per entry: a locked file is skipped, not fatal. Depth 1 is deliberate
+    — that is the exact shape ai-toolkit writes, and walking deeper would risk
+    renaming unrelated payloads (samples, optimizer state) that merely share a prefix."""
+    moved = []
+    try:
+        entries = sorted(os.listdir(run_dir))
+    except OSError:
+        return moved
+    for name in entries:
+        if not _trigger_boundary(os.path.splitext(name)[0], f'lora_{old_trigger_safe}'):
+            continue
+        src = os.path.join(run_dir, name)
+        dest = os.path.join(run_dir, f'lora_{new_trigger_safe}'
+                            + name[len(f'lora_{old_trigger_safe}'):])
+        if os.path.exists(dest):
+            logger.warning('rename: %s already exists — left in place', dest)
+            continue
+        try:
+            os.rename(src, dest)
+            moved.append((src, dest))
+            if os.path.isdir(dest):        # the lora_<trigger>/ folder: its files too
+                moved += _rename_inside_run(dest, old_trigger_safe, new_trigger_safe)
+        except OSError as e:
+            logger.warning('rename: %s -> %s échoué : %s', src, dest, e)
+    return moved
+
+
 def rename_training_artifacts(user_id, old_trigger_safe, new_trigger_safe) -> dict:
     """Rename every training artefact of a (user, trigger) onto a NEW trigger —
     the mirror of purge_training_artifacts, for an edit instead of a delete.
@@ -3549,6 +3587,8 @@ def rename_training_artifacts(user_id, old_trigger_safe, new_trigger_safe) -> di
         try:
             os.rename(src, dest)
             renamed.append((src, dest))
+            if os.path.isdir(dest):
+                renamed += _rename_inside_run(dest, old_trigger_safe, new_trigger_safe)
         except OSError as e:
             # Best-effort like the purge: a locked file (an open LoRA, a folder held
             # by a viewer) is logged and skipped rather than aborting mid-way, which

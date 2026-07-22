@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-style-rename-actually-renames',
+    date: '2026-07-22',
+    title: '✎ Renaming a Style dataset really renames its files now',
+    blurb:
+      'Two bugs made it change the label and nothing else. A Style has no trigger field, so the settings dialog sends the stored token back unchanged — and that echo overwrote the token just derived from the new name, so nothing on disk ever moved. And the rename only touched the outer run folder, while training stamps the name at three levels: the run folder, a subfolder inside it, and every checkpoint file. Since importing a checkpoint deploys it under the file\'s own name, the LoRA kept arriving in ComfyUI under the old one. Both fixed. If you renamed a Style before this, rename it once more for its files to catch up.',
+    to: '/datasets',
+  },
+  {
     id: '2026-07-22-version-label-names-the-commit',
     date: '2026-07-22',
     title: '🔢 The version shown is the version you are running',
