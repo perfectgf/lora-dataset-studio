@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-export-links-open-the-disclosure',
+    date: '2026-07-22',
+    title: '🎯 "Import to bank", "Portable backup" and "Publish to Hugging Face" show up again',
+    blurb:
+      'Those three ways out of a dataset live behind the "More ways out" fold, and clicking their link in the Import & export menu highlighted the link while the button stayed hidden inside the closed fold. Jumping to a panel now opens whatever fold it sits in, so the button you asked for is the one you land on.',
+    to: '/datasets?section=export&panel=to-bank',
+  },
+  {
     id: '2026-07-22-improve-tuned-profile-and-loud-missing-lora',
     date: '2026-07-22',
     title: '✨ A better "Upscale & improve" out of the box — and it speaks up now',

@@ -36,6 +36,7 @@ import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET } from './workspaceSections';
 import { postJson, putJson } from '../../api/fetchClient';
 import { HelpBadge } from '../../help/HelpMode';
 import { requestHelpTip } from '../../help/helpTips';
+import { openCollapsedAncestors } from '../../help/revealTarget';
 import {
   PANEL_STATUS,
   getWorkspacePanel,
@@ -274,7 +275,16 @@ export default function DatasetWorkspace({ ds, onBack }) {
     const land = () => {
       if (finished) return true;
       const target = document.getElementById(destination.targetId);
-      if (!target || target.getClientRects().length === 0) return false;
+      if (!target) return false;
+      // A panel can live inside a collapsed disclosure (the "More ways out"
+      // <details> in Import & export). Chromium still reports a client rect for
+      // that subtree, so the landing below would happily scroll+ring something
+      // the user cannot see. Open the disclosures on the way up first, starting
+      // at the PARENT: a target that IS a <details> (Advanced options,
+      // Checkpoints) is React-controlled and stays driven by its own state,
+      // which the reveal guard right after this waits for.
+      openCollapsedAncestors(target.parentElement);
+      if (target.getClientRects().length === 0) return false;
       if ((destination.reveal === 'training-advanced'
           || destination.reveal === 'training-checkpoints') && !target.open) return false;
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1434,9 +1444,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 {/* One primary way out (the training ZIP) stays in the open; the
                     other three are occasional, so they live behind one disclosure
                     instead of four buttons competing for the same glance. A
-                    <details> and not a floating menu: workspace navigation opens
-                    collapsed ancestors on jump, so the sidebar links to Import to
-                    bank / Backup / Hugging Face keep working. */}
+                    <details> and not a floating menu: the workspace landing
+                    (openCollapsedAncestors in `land`) opens collapsed ancestors on
+                    jump, so the sidebar links to Import to bank / Backup /
+                    Hugging Face keep working. Do NOT make this a controlled
+                    <details> without teaching `land` about it. */}
                 <details className="rounded-lg border border-border bg-surface-raised">
                   <summary className="flex items-center gap-2 px-2.5 py-1.5 text-[0.6875rem] text-content-muted hover:text-content cursor-pointer select-none">
                     ⋯ More ways out
