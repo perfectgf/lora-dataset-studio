@@ -1431,43 +1431,59 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     kept images + captions, training-ready (kohya layout)
                   </span>
                 </div>
-                <div id="ds-export-to-bank" tabIndex={-1}
-                  className="flex items-center gap-2 flex-wrap scroll-mt-20">
-                  <button type="button" data-workspace-focus disabled={!kept}
-                    onClick={importToBank}
-                    title="Turn this dataset back into a bank: its kept images are COPIED into a bank of their own, so you can re-triage them with the bank tools (duplicate detection, framing, scores) without touching this dataset."
-                    className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
-                    ↑ Import to bank
-                  </button>
-                  <span className="text-content-subtle text-[0.6875rem]">
-                    kept images copied into a new bank — re-triage them without touching this dataset
-                  </span>
-                </div>
-                <div id="ds-export-backup" tabIndex={-1}
-                  className="flex items-center gap-2 flex-wrap scroll-mt-20">
-                  <button type="button" data-workspace-focus onClick={ds.exportBackup}
-                    title="Full portable backup: all images with statuses, captions, scores and settings — restore it on any machine from the Datasets page."
-                    className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
-                    💾 Backup
-                  </button>
-                  <span className="text-content-subtle text-[0.6875rem]">
-                    portable copy — restore it on any machine from the Datasets page
-                  </span>
-                </div>
-                {caps.hf_publish && kept > 0 && (
-                  <div id="ds-export-hugging-face" tabIndex={-1}
-                    className="flex items-center gap-2 flex-wrap scroll-mt-20">
-                    <button type="button" data-workspace-focus
-                      onClick={() => setPublishHfOpen(true)}
-                      title="Publish this dataset (kept images + captions) as a dataset repo on the Hugging Face Hub. Private by default; you choose the license and confirm you have the right to share."
-                      className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
-                      🤗 Publish to Hugging Face
-                    </button>
-                    <span className="text-content-subtle text-[0.6875rem]">
-                      dataset repo on the Hub — private by default
+                {/* One primary way out (the training ZIP) stays in the open; the
+                    other three are occasional, so they live behind one disclosure
+                    instead of four buttons competing for the same glance. A
+                    <details> and not a floating menu: workspace navigation opens
+                    collapsed ancestors on jump, so the sidebar links to Import to
+                    bank / Backup / Hugging Face keep working. */}
+                <details className="rounded-lg border border-border bg-surface-raised">
+                  <summary className="flex items-center gap-2 px-2.5 py-1.5 text-[0.6875rem] text-content-muted hover:text-content cursor-pointer select-none">
+                    ⋯ More ways out
+                    <span className="text-content-subtle">
+                      bank · portable backup{caps.hf_publish && kept > 0 ? ' · Hugging Face' : ''}
                     </span>
+                  </summary>
+                  <div className="flex flex-col gap-2 px-2.5 pb-2.5 pt-1">
+                    <div id="ds-export-to-bank" tabIndex={-1}
+                      className="flex items-center gap-2 flex-wrap scroll-mt-20">
+                      <button type="button" data-workspace-focus disabled={!kept}
+                        onClick={importToBank}
+                        title="Turn this dataset back into a bank: its kept images are COPIED into a bank of their own, so you can re-triage them with the bank tools (duplicate detection, framing, scores) without touching this dataset."
+                        className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm disabled:opacity-40">
+                        ↑ Import to bank
+                      </button>
+                      <span className="text-content-subtle text-[0.6875rem]">
+                        kept images copied into a new bank — re-triage them without touching this dataset
+                      </span>
+                    </div>
+                    <div id="ds-export-backup" tabIndex={-1}
+                      className="flex items-center gap-2 flex-wrap scroll-mt-20">
+                      <button type="button" data-workspace-focus onClick={ds.exportBackup}
+                        title="Full portable backup: all images with statuses, captions, scores and settings — restore it on any machine from the Datasets page."
+                        className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
+                        💾 Backup
+                      </button>
+                      <span className="text-content-subtle text-[0.6875rem]">
+                        portable copy — restore it on any machine from the Datasets page
+                      </span>
+                    </div>
+                    {caps.hf_publish && kept > 0 && (
+                      <div id="ds-export-hugging-face" tabIndex={-1}
+                        className="flex items-center gap-2 flex-wrap scroll-mt-20">
+                        <button type="button" data-workspace-focus
+                          onClick={() => setPublishHfOpen(true)}
+                          title="Publish this dataset (kept images + captions) as a dataset repo on the Hugging Face Hub. Private by default; you choose the license and confirm you have the right to share."
+                          className="px-3 py-1.5 rounded-lg bg-surface border border-border text-content text-sm">
+                          🤗 Publish to Hugging Face
+                        </button>
+                        <span className="text-content-subtle text-[0.6875rem]">
+                          dataset repo on the Hub — private by default
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
+                </details>
               </div>
             </div>
           </div>

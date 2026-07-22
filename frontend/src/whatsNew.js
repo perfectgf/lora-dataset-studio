@@ -47,6 +47,22 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-checkpoints-refresh-when-a-run-ends',
+    date: '2026-07-22',
+    title: '🔄 Freshly trained LoRAs appear on their own',
+    blurb:
+      'When a run finished, its checkpoints were on disk but the list never re-read them — so the LoRA you had just trained stayed invisible until you changed the browse filter or reloaded the page. The panel now watches the run that concerns this dataset end, local or cloud, and re-reads what it produced; the lineage graph refreshes with it so the two views cannot disagree.',
+    to: '/datasets?section=checkpoints',
+  },
+  {
+    id: '2026-07-22-export-more-ways-out',
+    date: '2026-07-22',
+    title: '📦 Import & export: one clear action, the rest tucked away',
+    blurb:
+      'Export ZIP is what you reach for; Import to bank, Backup and Publish to Hugging Face are occasional. They now sit behind a single “More ways out” disclosure instead of four buttons competing for the same glance. Sidebar links still jump straight to them — the panel opens itself.',
+    to: '/datasets?section=export',
+  },
+  {
     id: '2026-07-22-update-survives-history-rewrite',
     date: '2026-07-22',
     title: '🔄 Updating no longer breaks if the project history is rewritten',

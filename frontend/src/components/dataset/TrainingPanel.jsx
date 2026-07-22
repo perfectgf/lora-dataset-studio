@@ -1041,6 +1041,28 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // any family, preserving the previous behavior.
   const cloudActiveHere = actives.find((a) => a.dataset_id === ds.currentId
     && (!a.train_type || a.train_type === trainType));
+
+  // A finished run writes its checkpoints to disk, but nothing re-read the list:
+  // both polls only refreshed their own status, so a LoRA that had just finished
+  // training stayed invisible until the browse filter changed or the page was
+  // reloaded — reported as "sometimes I have to refresh the page to see the LoRAs".
+  // Watch the run concerning THIS dataset (local OR cloud) end, then re-read what
+  // it produced. Kept as a BOOLEAN dependency on purpose: the cloud poll returns a
+  // fresh object every 5s, so depending on it directly would re-run this constantly
+  // instead of only on the transition that actually means "new files exist".
+  const runActiveHere = Boolean(
+    (status.in_progress && status.current?.dataset_id === ds.currentId) || cloudActiveHere,
+  );
+  const runWasActiveHere = useRef(false);
+  useEffect(() => {
+    if (runWasActiveHere.current && !runActiveHere) {
+      loadCheckpoints();
+      // The graph shows the same checkpoints as pills; refresh it too when it is
+      // the visible view, otherwise the two views would disagree.
+      if (checkpointsView === 'graph' && checkpointManagerOpen) loadDatasetGraph();
+    }
+    runWasActiveHere.current = runActiveHere;
+  }, [runActiveHere]); // eslint-disable-line react-hooks/exhaustive-deps
   // Multi-family parallelism is safe again: each cloud run's monitor builds its
   // job config from its OWN stamped family/variant, not the shared dataset row
   // (backend _run_config_dataset — fix for the 2026-07-14 incident). So a Krea
