@@ -3,6 +3,7 @@ import { apiFetch, postJson } from '../../api/fetchClient'
 import DiagnosticReport from '../common/DiagnosticReport'
 import { Card, TextField } from './primitives'
 import { installMode, zipUpdateHeadline, progressLabel, progressPercent } from './updateStatus'
+import { versionLabel } from '../../utils/versionLabel'
 
 /* In-app updater: "Check for updates" hits the git-aware check (commits-behind for a
    clone, release tag for a packaged build). "Update & restart" pulls (git) or downloads
@@ -177,7 +178,12 @@ function UpdatesCard() {
               </a>{' '}and replace the folder.
             </p>
           ) : s.ok ? (
-            <p className="text-emerald-400"><span aria-hidden>✓</span> You’re up to date.</p>
+            <p className="text-emerald-400">
+              <span aria-hidden>✓</span> You’re up to date.{' '}
+              {/* Name the COMMIT on a git checkout: the release number alone would
+                  claim the last release while the tree may be well past it. */}
+              <span className="text-content-subtle">{versionLabel(s)}</span>
+            </p>
           ) : (
             <p className="text-content-muted"><span aria-hidden>⚠</span> {s.reason || 'Could not check for updates.'}</p>
           )}

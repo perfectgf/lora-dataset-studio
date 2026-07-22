@@ -17,6 +17,7 @@ import CloudRunsPage from './pages/CloudRunsPage'
 import { recommendedMet } from './hooks/useSetupSteps'
 import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
 import HeaderMenu from './components/common/HeaderMenu'
+import { versionLabel } from './utils/versionLabel'
 
 const NAV_ITEM_BASE =
   'px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors'
@@ -76,7 +77,8 @@ function CheckUpdatesButton() {
         window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
         toast.success(`Update available — v${d.latest || d.remote_sha || 'new'}`)
       } else if (d?.ok) {
-        toast.info(`You're up to date — v${d.current}`)
+        // On a git checkout the release number alone is misleading — see versionLabel.
+        toast.info(`You're up to date — ${versionLabel(d)}`)
       } else {
         toast.error(d?.reason || 'Could not check for updates.')
       }

@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-version-label-names-the-commit',
+    date: '2026-07-22',
+    title: '🔢 The version shown is the version you are running',
+    blurb:
+      "The version number only moves when a release is cut, so anyone following the project on a git checkout was told they were on the last release — even sitting twenty commits past it. Being told “you're up to date” under an older number than the code you are running reads as a contradiction, and made it impossible to tell what was actually live. The update check already knew the branch and the commit; it now says them. Packaged installs are unchanged: there the release number really is the truth.",
+    to: '/settings/maintenance',
+  },
+  {
     id: '2026-07-22-export-links-open-the-disclosure',
     date: '2026-07-22',
     title: '🎯 "Import to bank", "Portable backup" and "Publish to Hugging Face" show up again',
