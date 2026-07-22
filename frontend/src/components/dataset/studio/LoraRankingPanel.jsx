@@ -46,6 +46,43 @@ export default function LoraRankingPanel({ ranking }) {
           })}
         </ol>
       )}
+      {open && <HowVotingWorks />}
     </div>
+  );
+}
+
+/** The ranking is not "most likes wins", and that surprises people: a config with
+ *  6👍4👎 sits BELOW one with 2👍0👎. Explaining it where the numbers are shown is
+ *  the only place it lands — nobody goes looking for it in the docs. */
+export function HowVotingWorks() {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="mt-1 rounded border border-border bg-app"
+      open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="cursor-pointer select-none px-2 py-1 text-[0.625rem] text-content-subtle hover:text-content">
+        How does the ranking work?
+      </summary>
+      <div className="flex flex-col gap-1.5 px-2 pb-2 text-[0.6875rem] leading-relaxed text-content-muted">
+        <p className="m-0">
+          You rate each generated image 👍 or 👎. Ratings are grouped per
+          <strong> configuration</strong> — the LoRA and its strength, plus the base model,
+          aspect, CFG and steps — so what is being judged is a whole recipe, not one picture.
+          Images that failed to generate are left out entirely: a broken config cannot be
+          judged, and counting it would distort the result.
+        </p>
+        <p className="m-0">
+          The percentage is <strong>not</strong> the share of 👍. It is the low end of the
+          plausible range for that share, given how many votes you cast — so it rewards a
+          high approval rate <em>and</em> enough votes to believe it. That is why a config
+          with <strong>2👍/2</strong> (34%) outranks one with <strong>6👍4👎</strong> (31%),
+          and <strong>5👍/5</strong> (57%) outranks <strong>2👍/2</strong>.
+        </p>
+        <p className="m-0">
+          Ranking on raw 👍−👎 would just favour whatever you tested the most, and ranking on
+          the plain rate would put a single lucky vote on top. Below 3 votes a configuration is
+          flagged low-confidence: it is a hint, not a verdict — keep voting to settle it.
+        </p>
+      </div>
+    </details>
   );
 }
