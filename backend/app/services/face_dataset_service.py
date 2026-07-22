@@ -4628,7 +4628,10 @@ def _improve_existing_image_locked(user_id, image_id):
             # (0 / 4 / 0) are the values that were hardcoded here, so an untouched
             # install behaves exactly as before. Clamped, because a bad config
             # value must degrade the pass, never crash the enqueue.
-            lora_strength=_improve_float('improve_consistency_strength', 0.0, 1.5),
+            # The fallback MUST equal the shipped config default: _improve_float treats
+            # "still at its default" as "the user has not set this", which is what lets
+            # a value saved under the old key name speak for it.
+            lora_strength=_improve_float('improve_consistency_strength', 1.0, 1.5),
             sampler_steps=_improve_int('improve_steps', 4),
             base_lora_strength=_improve_float('improve_base_lora_strength', 0.0),
             output_megapixels=_improve_float('improve_megapixels', 2.0, 8.0),

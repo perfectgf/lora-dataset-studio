@@ -38,6 +38,7 @@ def captured(app, tmp_path):
         comfy = tmp_path / 'comfy'
         loras = comfy / 'models' / 'loras' / 'klein'
         loras.mkdir(parents=True, exist_ok=True)
+        (loras / 'Flux2-Klein-9B-consistency-V2.safetensors').write_bytes(b'0')
         target = loras / 'realistic.safetensors'
         if enhancement_lora_installed:
             target.write_bytes(b'0')
@@ -58,7 +59,7 @@ def captured(app, tmp_path):
             keh.enqueue_klein_edit(
                 user_id='local', source_filename='src.png', source_path=str(src),
                 edit_prompt='improve',
-                lora_strength=fds._improve_float('improve_consistency_strength', 0.0, 1.5),
+                lora_strength=fds._improve_float('improve_consistency_strength', 1.0, 1.5),
                 sampler_steps=fds._improve_int('improve_steps', 4),
                 base_lora_strength=fds._improve_float('improve_base_lora_strength', 0.0),
                 output_megapixels=fds._improve_float('improve_megapixels', 2.0, 8.0),
@@ -101,20 +102,7 @@ def test_the_consistency_lora_is_clamped_where_the_helper_clamps_it(captured):
     from app.services import face_dataset_service as fds
     from app import config as cfg
     cfg.save_config({'klein': {'improve_consistency_strength': 99}})
-    assert fds._improve_float('improve_consistency_strength', 0.0, 1.5) == 1.5
-
-
-def test_the_enhancement_strength_is_INERT_without_its_lora_file(captured):
-    """The trap this whole exercise uncovered: klein/realistic.safetensors ships with
-    neither the app nor the Klein install, and node 139 is BYPASSED when it is absent.
-    On such a machine the Enhancement LoRA setting does nothing at all, silently —
-    raising it changes no pixel. Asserted so the behaviour is documented rather than
-    discovered again, and so the UI can be held to warning about it."""
-    w = captured(enhancement_lora_installed=False, improve_base_lora_strength=0.8)
-    assert '139' not in w                       # node removed, strength irrelevant
-    # everything else still applies — only that one knob goes dead
-    assert w['77']['inputs']['steps'] == 4
-    assert w['174']['inputs']['megapixels'] == 2.0
+    assert fds._improve_float('improve_consistency_strength', 1.0, 1.5) == 1.5
 
 
 def test_a_broken_config_still_submits_a_valid_workflow(captured):
@@ -125,3 +113,23 @@ def test_a_broken_config_still_submits_a_valid_workflow(captured):
     assert w['174']['inputs']['megapixels'] == 2.0
     assert w['139']['inputs']['strength_model'] == 0.0
     json.dumps(w)          # still serialisable, i.e. still submittable
+
+
+def test_a_raised_strength_with_no_lora_file_is_an_ERROR_not_a_silent_skip(captured):
+    """The behaviour this whole investigation was about. Bypassing a missing LoRA is
+    right at strength 0 — the node would contribute nothing. But doing it while the
+    user deliberately raised the strength is what made the setting look broken: the
+    job ran, the result was unchanged, and nothing said why. It is now reported as a
+    missing ASSET, which is also what triggers the auto-download."""
+    from app.services.klein_edit_helper import KleinModelsMissing
+    with pytest.raises(KleinModelsMissing) as err:
+        captured(enhancement_lora_installed=False, improve_base_lora_strength=0.8)
+    assert 'klein_enhancement_lora' in err.value.missing
+
+
+def test_strength_zero_with_no_lora_file_stays_a_quiet_skip(captured):
+    """Nothing is lost by not loading a LoRA nobody asked to apply, so this must NOT
+    become an error — otherwise a stock install could no longer improve at all."""
+    w = captured(enhancement_lora_installed=False, improve_base_lora_strength=0)
+    assert '139' not in w
+    assert w['174']['inputs']['megapixels'] == 2.0     # the pass still runs

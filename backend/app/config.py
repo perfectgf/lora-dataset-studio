@@ -175,7 +175,11 @@ DEFAULTS = {
               # Overrides klein.consistency_strength for THIS pass only. It is the
               # dx8152 consistency LoRA (anchors composition/background), NOT an
               # identity LoRA — clamped [0, 1.5] by enqueue_klein_edit.
-              'improve_consistency_strength': 0.0,
+              # 1.0 where generation defaults to 0.5: dx8152 warns that 0.8-1.0 "can
+              # prevent edits from applying", which is a problem for a restaging and
+              # exactly the point here — an improve pass must add detail WITHOUT
+              # redrawing the composition. Tuned on real runs, not from the guide.
+              'improve_consistency_strength': 1.0,
               # Total pixel budget the source is rescaled to before sampling, so it
               # is the output resolution. 2 = the value hardcoded in the workflow.
               'improve_megapixels': 2.0},

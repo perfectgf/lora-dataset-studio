@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-22-improve-tuned-profile-and-loud-missing-lora',
+    date: '2026-07-22',
+    title: '✨ A better "Upscale & improve" out of the box — and it speaks up now',
+    blurb:
+      'The pass now ships with a high consistency strength by default. That setting resists redrawing the shot, which is a drawback when you are restaging an image and exactly the point when you are only adding detail — so an improve keeps your composition instead of quietly reinventing it. And a LoRA strength you raised is never silently ignored any more: if its weights file is missing, the pass says so (which is what fetches it) rather than running unchanged and leaving you guessing. At strength 0 nothing changes — a LoRA you did not ask for is still skipped quietly.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-07-22-enhancement-lora-installed-automatically',
     date: '2026-07-22',
     title: '⬇ The improve detail LoRA installs itself now',

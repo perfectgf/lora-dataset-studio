@@ -14,12 +14,16 @@ def svc(app):
         yield fds
 
 
-def test_defaults_reproduce_the_previously_hardcoded_profile(app, svc):
-    """An untouched install must behave byte-identically to before the setting."""
+def test_defaults_are_the_tuned_profile(app, svc):
+    """Three knobs keep the values that were hardcoded before they were exposed, so
+    an untouched install is unchanged on those. The CONSISTENCY strength is the one
+    deliberate change: an improve pass must add detail without redrawing the
+    composition, which is exactly what a high consistency does — tuned on real runs."""
     with app.app_context():
         assert svc._improve_float('improve_base_lora_strength', 0.0) == 0.0
-        assert svc._improve_float('improve_consistency_strength', 0.0) == 0.0
         assert svc._improve_int('improve_steps', 4) == 4
+        assert svc._improve_float('improve_megapixels', 2.0, 8.0) == 2.0
+        assert svc._improve_float('improve_consistency_strength', 1.0, 1.5) == 1.0
 
 
 def test_configured_values_are_honoured(app, svc):
@@ -29,7 +33,7 @@ def test_configured_values_are_honoured(app, svc):
                                    'improve_consistency_strength': 0.35,
                                    'improve_steps': 8}})
         assert svc._improve_float('improve_base_lora_strength', 0.0) == 0.8
-        assert svc._improve_float('improve_consistency_strength', 0.0) == 0.35
+        assert svc._improve_float('improve_consistency_strength', 1.0) == 0.35
         assert svc._improve_int('improve_steps', 4) == 8
 
 
@@ -51,7 +55,8 @@ def test_a_value_saved_under_the_old_key_name_still_works(app, svc):
     with app.app_context():
         from app import config as cfg
         cfg.save_config({'klein': {'improve_character_lora_strength': 0.9}})
-        assert svc._improve_float('improve_consistency_strength', 0.0, 1.5) == 0.9
+        # the fallback passed here mirrors the shipped default, as the call site does
+        assert svc._improve_float('improve_consistency_strength', 1.0, 1.5) == 0.9
 
 
 def test_out_of_range_values_are_clamped_not_rejected(app, svc):
@@ -63,7 +68,7 @@ def test_out_of_range_values_are_clamped_not_rejected(app, svc):
                                    'improve_consistency_strength': -5,
                                    'improve_steps': 9999}})
         assert svc._improve_float('improve_base_lora_strength', 0.0) == 2.0
-        assert svc._improve_float('improve_consistency_strength', 0.0) == 0.0
+        assert svc._improve_float('improve_consistency_strength', 1.0) == 0.0
         assert svc._improve_int('improve_steps', 4) == 50
         cfg.save_config({'klein': {'improve_steps': 0}})
         assert svc._improve_int('improve_steps', 4) == 1     # never a 0-step job

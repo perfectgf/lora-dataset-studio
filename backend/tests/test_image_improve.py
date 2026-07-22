@@ -95,9 +95,14 @@ def test_improve_existing_image_is_non_destructive_and_uses_metadata_profile(
         assert queued[0]['source_filename'] == source.filename
         assert queued[0]['source_path'] == svc._img_path(source)
         assert queued[0]['edit_prompt'] == svc.KLEIN_IMAGE_IMPROVE_PROMPT
-        assert queued[0]['lora_strength'] == 0.0
+        # The shipped improve profile, now settings-driven (klein.improve_*): a HIGH
+        # consistency because this pass must add detail without redrawing the
+        # composition, the enhancement LoRA off until the user raises it, 4 steps and
+        # the historical 2 MP output budget.
+        assert queued[0]['lora_strength'] == 1.0
         assert queued[0]['sampler_steps'] == 4
         assert queued[0]['base_lora_strength'] == 0.0
+        assert queued[0]['output_megapixels'] == 2.0
         assert queued[0]['extra_metadata']['source_image_id'] == source_id
         assert queued[0]['extra_metadata']['derivation_kind'] == svc.KLEIN_IMAGE_IMPROVE
         assert syncs == [ds.id]

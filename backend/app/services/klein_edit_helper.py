@@ -629,6 +629,15 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     if "139" not in workflow:
         logger.warning("workflow node 139 missing — consistency LoRA injection skipped")
     elif not lora_path or not os.path.exists(lora_path):
+        # A strength the CALLER deliberately passed must never be silently ignored:
+        # the job would run, look wrong, and give no clue why. Reported as a missing
+        # ASSET so the caller's existing auto-download handles it, not a bare failure.
+        # Gated on an EXPLICIT lora_strength: generation leaves it None and takes
+        # klein.consistency_strength from config, where the documented contract is to
+        # degrade and fetch the LoRA in the background — erroring there would stop
+        # people generating at all over an optional quality LoRA.
+        if lora_strength is not None and float(lora_strength) > 0:
+            raise KleinModelsMissing(['klein_lora'])
         logger.warning(f"consistency LoRA not found at {lora_path} — injection skipped")
     elif not strength or float(strength) <= 0:
         logger.info("consistency LoRA strength 0 — injection skipped (LoRA off)")
@@ -685,6 +694,12 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     base_lora = (workflow.get("139", {}).get("inputs", {}).get("lora_name") or '').replace('/', os.sep)
     base_lora_path = _lora_abs(base_lora)   # base + extra_model_paths loras roots
     if "139" in workflow and not base_lora_path:
+        # Same rule as the consistency LoRA: bypassing is fine at strength 0 (the node
+        # would contribute nothing anyway), but silently dropping it while the user
+        # asked for a real strength is what made this setting look broken — it moved
+        # no pixel and said nothing. Surface it as a missing asset so it gets fetched.
+        if base_lora_strength is not None and float(base_lora_strength) > 0:
+            raise KleinModelsMissing(['klein_enhancement_lora'])
         logger.info("base LoRA %r absent — bypassing node 139", base_lora)
         _bypass_node(workflow, "139", "model")
 
