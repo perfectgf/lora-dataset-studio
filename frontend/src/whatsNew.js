@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-grid-filter-by-decision',
+    date: '2026-07-23',
+    title: '🔎 Show only what still needs a ✓/✕',
+    blurb:
+      'The Images header already told you "254 awaiting ✓/✕" — but nothing could pull those 254 out of a 508-image grid, and "select all" always took all 508. A new Show row above the grid filters by decision: All, Undecided, Kept, Rejected, or Improve candidates, each with its live count. Everything downstream follows the visible list, so "select all" now grabs exactly the subset you are looking at — pick Improve candidates and one click reviews the whole batch. It stacks with the caption tag filter, it is remembered between visits, and whenever a filter is on, a banner above the grid says "showing 254 of 508" so a narrowed view can never be mistaken for lost images.',
+    to: '/datasets?section=images',
+  },
+  {
     id: '2026-07-23-bulk-improve-is-a-server-job',
     date: '2026-07-23',
     title: '✨ Improve 250 images at once — and Stop really stops',

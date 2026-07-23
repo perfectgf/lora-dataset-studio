@@ -28,6 +28,10 @@ import TrainingReadiness from './TrainingReadiness';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
 import { filterImages, normalizeTag } from '../../utils/tagFilter';
 import {
+  GRID_STATUS_FILTERS, DEFAULT_GRID_STATUS_FILTER,
+  filterImagesByStatus, gridStatusFilterCounts, normalizeGridStatusFilter,
+} from '../../utils/gridStatusFilter';
+import {
   buildSmallImageRescuePairs,
   filterSmallImageRescueGrid,
   isSmallImageRescueRow,
@@ -47,6 +51,14 @@ import {
 } from './workspaceNavigation';
 
 const EMPTY_IMAGES = Object.freeze([]);
+
+// Grid decision filter (All / Undecided / Kept / Rejected / Improve candidates):
+// a VIEW preference, not dataset data, so it is persisted globally — same lazy-init
+// + effect pattern as `datasetGridTileSize` (DatasetGrid.jsx) / `cloudRunsRecentCollapsed`.
+// Because it SURVIVES a reload, the filtered-view banner above the grid is not
+// cosmetic: it is the only thing that stops a persisted filter from reading as
+// "my images are gone" when the workspace is reopened.
+const GRID_STATUS_FILTER_KEY = 'datasetGridStatusFilter';
 
 // Style partagé des items du menu « ⋯ More » du header (actions secondaires).
 const MENU_ITEM = 'w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-md text-sm text-content hover:bg-surface-raised disabled:opacity-40';
@@ -80,12 +92,42 @@ function NavBadge({ badge }) {
   );
 }
 
+/* Decision filter above the grid — isolate what still needs a ✓/✕, what was kept
+   or rejected, or the Klein improvement candidates, without hunting through the
+   whole set. It narrows the list the grid receives, so auto-triage, "select all"
+   and every bulk action then operate on exactly what is on screen. Composes with
+   the caption tag filter (both apply). */
+function GridStatusFilter({ value, counts, onChange }) {
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap text-xs" role="group"
+      aria-label="Filter the grid by decision">
+      <span className="text-content-subtle shrink-0">Show</span>
+      {GRID_STATUS_FILTERS.map((f) => {
+        const on = f.id === value;
+        return (
+          <button key={f.id} type="button" onClick={() => onChange(f.id)}
+            aria-pressed={on} title={f.title}
+            className={`px-2 py-0.5 rounded-full border text-[0.6875rem] font-semibold tabular-nums ${
+              on ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100'
+                : 'border-border bg-surface text-content-muted hover:text-content'}`}>
+            {f.label} ({counts[f.id] ?? 0})
+          </button>
+        );
+      })}
+      <HelpBadge topic="action-grid-status-filter" />
+    </div>
+  );
+}
+
 /* Loud banner sitting directly above the grid whenever a tag filter is active,
    so the user can NEVER mistake a filtered view for "images disappeared". Shows
    every active exclusion (⊘) / inclusion (◉ only) as a removable chip, the live
    "showing N of M" count, and a one-click "clear all". Session-only state lives
    in the parent workspace (transient view, not persisted). */
-function GridFilterBar({ excludes, includes, shown, total, onRemoveExclude, onRemoveInclude, onClearAll }) {
+function GridFilterBar({
+  excludes, includes, statusLabel, shown, total,
+  onRemoveExclude, onRemoveInclude, onRemoveStatus, onClearAll,
+}) {
   return (
     <div role="status"
       className="flex items-center gap-2 flex-wrap rounded-lg border-2 border-amber-400/50 bg-amber-400/10 px-3 py-2">
@@ -94,6 +136,15 @@ function GridFilterBar({ excludes, includes, shown, total, onRemoveExclude, onRe
         showing {shown} of {total}
       </span>
       <div className="flex items-center gap-1.5 flex-wrap">
+        {statusLabel && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full border border-amber-400/50 bg-amber-500/15 pl-2 pr-1 py-0.5 text-[0.6875rem] text-amber-100">
+            <span aria-hidden>◧</span> {statusLabel} only
+            <button type="button" onClick={onRemoveStatus}
+              aria-label="Show images with any decision again"
+              className="w-4 h-4 grid place-items-center rounded-full hover:bg-amber-500/30">✕</button>
+          </span>
+        )}
         {excludes.map((t) => (
           <span key={`x-${t}`}
             className="inline-flex items-center gap-1 rounded-full border border-rose-400/50 bg-rose-500/15 pl-2 pr-1 py-0.5 text-[0.6875rem] text-rose-200">
@@ -153,6 +204,17 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // ONLY tags allowed through (include). Both are normalized (trim+lowercase).
   const [excludeTags, setExcludeTags] = useState([]);
   const [includeTags, setIncludeTags] = useState([]);
+  // Grid decision filter — PERSISTED (see GRID_STATUS_FILTER_KEY), unlike the
+  // session-only tag filter: isolating the undecided pile is a working mode you
+  // keep across reloads, not a one-off lookup.
+  const [statusFilter, setStatusFilter] = useState(() => {
+    try { return normalizeGridStatusFilter(localStorage.getItem(GRID_STATUS_FILTER_KEY)); }
+    catch { return DEFAULT_GRID_STATUS_FILTER; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(GRID_STATUS_FILTER_KEY, statusFilter); }
+    catch { /* ignore — private mode */ }
+  }, [statusFilter]);
   const [searchParams, setSearchParams] = useSearchParams();
   // "Allow auto-crop" is a persisted preference (Settings ▸ Watermark inpainting). The
   // batch Clean bar shows the SAME setting and writes it through here, so there's one
@@ -430,14 +492,23 @@ export default function DatasetWorkspace({ ds, onBack }) {
   };
   const toggleExclude = toggleTag(setExcludeTags, setIncludeTags);
   const toggleInclude = toggleTag(setIncludeTags, setExcludeTags);
-  const clearFilters = () => { setExcludeTags([]); setIncludeTags([]); };
-  const filtersActive = excludeTags.length > 0 || includeTags.length > 0;
+  const clearFilters = () => {
+    setExcludeTags([]); setIncludeTags([]); setStatusFilter(DEFAULT_GRID_STATUS_FILTER);
+  };
+  const tagFiltersActive = excludeTags.length > 0 || includeTags.length > 0;
+  const statusFilterActive = statusFilter !== DEFAULT_GRID_STATUS_FILTER;
+  const filtersActive = tagFiltersActive || statusFilterActive;
+  const statusFilterLabel = GRID_STATUS_FILTERS.find((f) => f.id === statusFilter)?.label || '';
+  const statusFilterOpts = { unresolvedRescueIds };
+  const statusCounts = gridStatusFilterCounts(rescueGridImages, statusFilterOpts);
   // The list actually rendered by the grid. Filtering here means select-all,
   // auto-triage and every bulk action operate ONLY on the visible images. The
   // Caption-tools counts keep using the full `images` list (global, never lies).
-  const gridImages = filterImages(rescueGridImages, {
-    excludes: excludeTags, includes: includeTags, mode: effCaptionMode,
-  });
+  // Decision filter first, tag filter on top — the two compose, order-independent.
+  const gridImages = filterImages(
+    filterImagesByStatus(rescueGridImages, statusFilter, statusFilterOpts),
+    { excludes: excludeTags, includes: includeTags, mode: effCaptionMode },
+  );
   const pending = images.filter((i) => i.status === 'pending' && !i.filename
     && !unresolvedRescueIds.has(i.id)).length;
   const triage = images.filter((i) => i.status === 'pending' && i.filename
@@ -880,19 +951,25 @@ export default function DatasetWorkspace({ ds, onBack }) {
               {watermarkDetected > 0 ? ` · ${watermarkDetected} watermark(s) flagged` : ''}
             </p>
             <div id="gf-images" className="scroll-mt-20 flex flex-col gap-2">
+              {rescueGridImages.length > 0 && (
+                <GridStatusFilter value={statusFilter} counts={statusCounts}
+                  onChange={setStatusFilter} />
+              )}
               {filtersActive && (
                 <GridFilterBar excludes={excludeTags} includes={includeTags}
+                  statusLabel={statusFilterActive ? statusFilterLabel : ''}
                   shown={gridImages.length} total={rescueGridImages.length}
                   onRemoveExclude={toggleExclude} onRemoveInclude={toggleInclude}
+                  onRemoveStatus={() => setStatusFilter(DEFAULT_GRID_STATUS_FILTER)}
                   onClearAll={clearFilters} />
               )}
               {filtersActive && gridImages.length === 0 ? (
                 // Filtered down to nothing: say so plainly (the grid's own "no images"
                 // empty-state would read as "everything's gone", which would be a lie).
                 <p className="rounded-lg border border-border bg-surface px-3 py-4 text-center text-content-subtle text-sm">
-                  No images match the active filter{excludeTags.length + includeTags.length > 1 ? 's' : ''} —{' '}
+                  No images match the active filters —{' '}
                   <button type="button" onClick={clearFilters} className="underline hover:text-content">clear all</button>{' '}
-                  to see all {images.length} again.
+                  to see all {rescueGridImages.length} again.
                 </p>
               ) : (
                 <DatasetGrid images={gridImages} datasetId={d.id} onStatus={ds.setStatus} onCaption={ds.setCaption}
@@ -1401,10 +1478,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
               </div>
               {filtersActive && (
                 <p className="m-0 text-content-subtle text-[0.6875rem]">
-                  🔎 A tag filter is active — the filtered grid lives in{' '}
+                  🔎 A grid filter is active — the filtered grid lives in{' '}
                   <button type="button" onClick={() => setSection('images')}
                     className="underline hover:text-content">Images</button>
-                  {' '}(showing {gridImages.length} of {images.length}).
+                  {' '}(showing {gridImages.length} of {rescueGridImages.length}).
                 </p>
               )}
             </div>
