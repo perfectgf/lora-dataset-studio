@@ -45,9 +45,12 @@ test('the bulk improvement is ONE call that starts a server job, not a per-image
   assert.doesNotMatch(grid, /runSequentialKleinImprove/);
   // Progress is read from the server activity, so it survives a reload.
   assert.match(grid, /kleinImproveBatchLabel\(activity\)/);
-  // ⏹ Stop generation stays reachable (and enabled) for a running batch.
+  // ⏹ Stop generation stays reachable (and enabled) for a running batch. The
+  // enabled-ness itself is decided by isStopGenerationBlocked (unit-tested in
+  // scraperState.test.js) — this earlier inline expression only exempted
+  // 'improve', which left the button dead for every plain generation batch.
   assert.match(workspace, /pending > 0 \|\| act\?\.kind === 'improve'/);
-  assert.match(workspace, /disabled=\{ds\.busy && act\?\.kind !== 'improve'\}/);
+  assert.match(workspace, /disabled=\{isStopGenerationBlocked\(\{[\s\S]{0,120}?busy: ds\.busy, activity: act/);
 });
 
 test('settings separates scraper rescue instructions from manual lightbox improvement', () => {

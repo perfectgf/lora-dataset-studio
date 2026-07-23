@@ -8,7 +8,7 @@ import { fmt } from '../../utils/studioFormat';
 import ImportDropzone from './ImportDropzone';
 import ConceptSourcesPanel from './ConceptSourcesPanel';
 import BankImportPanel from './BankImportPanel';
-import { isDatasetImportBlocked } from './scraperState';
+import { isDatasetImportBlocked, isStopGenerationBlocked } from './scraperState';
 import DatasetGrid from './DatasetGrid';
 import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
@@ -441,6 +441,19 @@ export default function DatasetWorkspace({ ds, onBack }) {
   useEffect(() => { if (d && section === 'add') requestHelpTip('add-images-visit'); }, [d, section]);
   useEffect(() => { if (leakingCount >= 1) requestHelpTip('leak-panel-visible'); }, [leakingCount]);
   useEffect(() => { if (settingsOpen) requestHelpTip('dataset-settings-open'); }, [settingsOpen]);
+
+  // ⏹ Stop generation: the cancel happens server-side WITHIN the request (the
+  // in-flight rows are dropped before it answers), so a local flag covering the
+  // round-trip is the honest feedback — without it the click looked like a no-op
+  // and users re-clicked, believing Stop was broken. The ✨ improve batch keeps
+  // its own longer-lived server `cancelling` (its worker unwinds asynchronously).
+  // Above the early return for the same hook-count reason as the tips above.
+  const [stoppingGeneration, setStoppingGeneration] = useState(false);
+  const stopGeneration = useCallback(async () => {
+    setStoppingGeneration(true);
+    // finally, not "on success": a failed cancel must give the button back.
+    try { await ds.cancelPending(); } finally { setStoppingGeneration(false); }
+  }, [ds]);
 
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
@@ -938,11 +951,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     : 'First results look wrong? Stop now — the remaining API calls are skipped (not billed).'}
                 </span>
               </div>
-              <button type="button" onClick={ds.cancelPending}
-                disabled={ds.busy && act?.kind !== 'improve'}
+              <button type="button" onClick={stopGeneration}
+                disabled={isStopGenerationBlocked({
+                  busy: ds.busy, activity: act, cancelling: stoppingGeneration })}
                 title="Cancels every generation still in flight (and stops a running improvement batch); finished images stay."
                 className="ml-auto shrink-0 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-bold disabled:opacity-40">
-                {act?.cancelling && act?.kind === 'improve' ? 'Stopping…' : '⏹ Stop generation'}
+                {stoppingGeneration || (act?.cancelling && act?.kind === 'improve')
+                  ? 'Stopping…' : '⏹ Stop generation'}
               </button>
             </div>
           )}

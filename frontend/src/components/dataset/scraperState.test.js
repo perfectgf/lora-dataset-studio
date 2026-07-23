@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clearScraperScanState, isDatasetImportBlocked, loadScraperScanState, saveScraperScanState } from './scraperState.js';
+import { clearScraperScanState, isDatasetImportBlocked, isStopGenerationBlocked, loadScraperScanState, saveScraperScanState } from './scraperState.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -22,6 +22,27 @@ test('dataset image imports still block local overlap and non-generation activit
   }), true);
   for (const activity of [{ kind: 'caption' }, { kind: 'classify' }, { kind: 'watermark_clean' }])
     assert.equal(isDatasetImportBlocked({ localBusy: false, activity }), true);
+});
+
+// Regression guard: a generation batch publishes a 'generate' activity, which makes
+// `busy` true for its whole duration. Disabling Stop on `busy` therefore killed the
+// only way to end a batch — on EVERY engine, not just the API ones.
+test('Stop generation stays clickable while a batch is running', () => {
+  for (const engine of ['klein', 'nanobanana', 'chatgpt', undefined])
+    assert.equal(isStopGenerationBlocked({
+      busy: true, activity: { kind: 'generate', engine },
+    }), false);
+  assert.equal(isStopGenerationBlocked({ busy: true, activity: { kind: 'improve' } }), false);
+});
+
+test('Stop generation still blocks on other activity and on a stop in flight', () => {
+  for (const activity of [{ kind: 'caption' }, { kind: 'recaption' },
+    { kind: 'watermark_clean' }, { kind: 'analyze_faces' }, { kind: 'classify' }])
+    assert.equal(isStopGenerationBlocked({ busy: true, activity }), true);
+  assert.equal(isStopGenerationBlocked({
+    busy: true, activity: { kind: 'generate' }, cancelling: true,
+  }), true);
+  assert.equal(isStopGenerationBlocked({ busy: false, activity: null }), false);
 });
 
 test('scan results and selection survive reload per dataset', () => {

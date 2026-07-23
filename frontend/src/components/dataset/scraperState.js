@@ -29,6 +29,18 @@ export function isDatasetImportBlocked({ localBusy, activity }) {
   return !!localBusy || (!!activity && activity.kind !== 'generate');
 }
 
+// Activities the ⏹ Stop generation button EXISTS to end. They must never disable
+// it: the activity registry publishes 'generate' for the whole batch (every
+// engine — Klein, Nano Banana, ChatGPT), which makes `busy` true for exactly as
+// long as the user needs Stop. Any OTHER activity (captioning, watermarks…) still
+// blocks, so this stays a targeted exemption and not a blanket unlock.
+const STOPPABLE_ACTIVITY_KINDS = ['generate', 'improve'];
+
+export function isStopGenerationBlocked({ busy, activity, cancelling }) {
+  if (cancelling) return true;   // a stop is already on its way — no double-click
+  return !!busy && !STOPPABLE_ACTIVITY_KINDS.includes(activity?.kind);
+}
+
 export function loadScraperScanState(datasetId, storage) {
   const target = storageFor(storage);
   if (!datasetId || !target) return emptyState();

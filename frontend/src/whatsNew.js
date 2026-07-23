@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-stop-generation-works-again',
+    date: '2026-07-23',
+    title: '⏹ Stop generation works again',
+    blurb:
+      'Since July 14th the ⏹ Stop generation button was greyed out for the whole time a batch was running — the one moment you actually need it. Clicking did nothing, on all three engines (Klein, Nano Banana and ChatGPT), so a batch you already regretted had to run to the very end. It is clickable again, it says "Stopping…" while it works, and it keeps the promise printed next to it: the generations that had not started yet are skipped and never sent to the API, so they cost you nothing.',
+    to: '/datasets',
+  },
+  {
     id: '2026-07-23-interface-fully-in-english',
     date: '2026-07-23',
     title: '🔤 The last French labels are gone',
