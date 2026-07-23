@@ -12,6 +12,7 @@ import { serializeWatermarkRegions } from '../utils/watermarkRegions';
 import { summarizeScrapeImport } from '../utils/smallImageRescue';
 import { trainingRunSelection } from '../utils/checkpointBrowser';
 import { refreshDatasetIfActive } from '../utils/datasetRefresh';
+import { ENGINE_LABELS } from '../components/dataset/engineSelection.js';
 
 function post(url, body, isForm) {
   // Routes through the shared fetchWithCsrfRetry: a token that aged out mid-session
@@ -370,15 +371,24 @@ export function useDataset() {
     await refresh();
   }, [currentId, refresh, toast]);
 
+  // `batches`: [{generator, variations}] — one entry per selected engine, the
+  // shots already shared between them by engineSelection.js (API engines first,
+  // the GPU-bound Klein one last). The server re-validates every entry and
+  // refuses the whole run rather than dispatching it half-way.
   // `extraLoras`: optional generation-LoRA preset for this run (Idea by
   // @waltm) — an already-gated `{ generation_lora_preset? }` fragment from
   // generationLoraPresetPayload(); an absent key means "no preset".
-  const generate = useCallback((variations, multiplier, kleinModel, loraStrength, generator, extraLoras) => wrap(async () => {
+  const generate = useCallback((batches, multiplier, kleinModel, loraStrength, extraLoras) => wrap(async () => {
     const d = await postJson(`/api/dataset/${currentId}/generate`,
-      { variations, multiplier, klein_model: kleinModel, lora_strength: loraStrength,
-        generator: generator || 'klein', ...(extraLoras || {}) });
+      { engine_batches: batches, multiplier, klein_model: kleinModel,
+        lora_strength: loraStrength, ...(extraLoras || {}) });
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
-    toast.success(`${d.created} variation(s) queued`);
+    // Name the engines on a multi-engine run: "36 queued" alone doesn't say
+    // which engine got what, and that is the whole point of running several.
+    const per = d.per_engine || {};
+    const detail = Object.keys(per).length > 1
+      ? ` · ${Object.entries(per).map(([e, n]) => `${ENGINE_LABELS[e] || e} ${n}`).join(' · ')}` : '';
+    toast.success(`${d.created} variation(s) queued${detail}`);
     await refresh();
   }), [wrap, currentId, refresh, toast]);
 

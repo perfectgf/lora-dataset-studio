@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizePromptOverride, isFollowingDefault, promptBoxText,
-  IDENTITY_PROMPT_FIELDS, EXTRA_REF_PROMPT_KEYS, activeExtraRefPromptKey,
+  IDENTITY_PROMPT_FIELDS, EXTRA_REF_PROMPT_KEYS, activeExtraRefPromptKey, activeExtraRefPromptKeys,
 } from './promptOverride.js';
 
 const DEF = 'Keep the exact same face as the reference photo.';
@@ -81,4 +81,21 @@ test('the "used by your current engine" badge follows the selected generator', (
   assert.equal(activeExtraRefPromptKey(undefined), 'face_multi');
   // ...and any other value is Klein (its isKlein = "neither API engine")
   assert.equal(activeExtraRefPromptKey('legacy-engine'), 'klein_identity');
+});
+
+test('a multi-engine run badges EVERY prompt it actually uses', () => {
+  // Klein + ChatGPT really consume both texts. Badging only the primary would
+  // tell the user the other box is irrelevant to their run — the very
+  // misunderstanding this badge exists to prevent.
+  assert.deepEqual(activeExtraRefPromptKeys(['klein', 'chatgpt']),
+    ['face_multi', 'klein_identity']);
+  assert.deepEqual(activeExtraRefPromptKeys(['nanobanana', 'chatgpt']), ['face_multi']);
+  assert.deepEqual(activeExtraRefPromptKeys(['klein']), ['klein_identity']);
+  // Order follows EXTRA_REF_PROMPT_KEYS, never the selection order.
+  assert.deepEqual(activeExtraRefPromptKeys(['klein', 'nanobanana']),
+    ['face_multi', 'klein_identity']);
+  // A bare string (legacy caller) and an empty selection both keep a badge.
+  assert.deepEqual(activeExtraRefPromptKeys('klein'), ['klein_identity']);
+  assert.deepEqual(activeExtraRefPromptKeys([]), ['face_multi']);
+  assert.deepEqual(activeExtraRefPromptKeys(null), ['face_multi']);
 });

@@ -8,8 +8,9 @@
    `klein_identity`, whatever the reference count. A modal editing only
    `face_multi` would let a Klein user carefully rewrite a text that has ZERO
    effect on their generations. So both are shown, each labelled with the engine
-   that consumes it, and the one matching the workspace's currently selected
-   engine carries a "used by your current engine" badge.
+   that consumes it, and every prompt at least one SELECTED engine consumes
+   carries a "used by your selected engine(s)" badge — a run on Klein + an API
+   engine really uses both texts, and badging only one would say otherwise.
 
    Same storage semantics as Settings (shared PromptOverrideField): the box holds
    the shipped default, editing it creates an override, and text equal to the
@@ -22,19 +23,13 @@ import { useToast } from '../common/Toast';
 import { HelpBadge } from '../../help/HelpMode';
 import PromptOverrideField from '../common/PromptOverrideField';
 import {
-  IDENTITY_PROMPT_FIELDS, EXTRA_REF_PROMPT_KEYS, activeExtraRefPromptKey,
+  IDENTITY_PROMPT_FIELDS, EXTRA_REF_PROMPT_KEYS, activeExtraRefPromptKeys,
 } from '../common/promptOverride.js';
+import { readEngines } from './engineSelection.js';
 
 const FIELDS = EXTRA_REF_PROMPT_KEYS
   .map((k) => IDENTITY_PROMPT_FIELDS.find((f) => f.key === k))
   .filter(Boolean);
-
-/** The engine the workspace is currently generating with — the SAME source
- *  VariationCatalog persists its card selection to. Unreadable storage (private
- *  mode) just means no badge, never a crash. */
-function currentGenerator() {
-  try { return localStorage.getItem('datasetGenerator') || ''; } catch { return ''; }
-}
 
 export default function IdentityPromptModal({ onClose }) {
   const toast = useToast();
@@ -42,7 +37,12 @@ export default function IdentityPromptModal({ onClose }) {
   const [defaults, setDefaults] = useState({});     // shipped defaults (read-only)
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const activeKey = activeExtraRefPromptKey(currentGenerator());
+  // Every prompt at least ONE selected engine consumes — a run on Klein + an API
+  // engine really uses both texts. readEngines reads the same storage
+  // VariationCatalog writes (and degrades to the legacy single-engine key), so
+  // private mode / an old profile still get a correct badge, never a crash.
+  const activeKeys = activeExtraRefPromptKeys(
+    readEngines(typeof localStorage === 'undefined' ? null : localStorage));
 
   useEffect(() => {
     let cancelled = false;
@@ -118,9 +118,9 @@ export default function IdentityPromptModal({ onClose }) {
             value={prompts[f.key]}
             defaultText={defaults[f.key]}
             onChange={(v) => setPrompts((p) => ({ ...p, [f.key]: v }))}
-            badge={f.key === activeKey ? (
+            badge={activeKeys.includes(f.key) ? (
               <span className="rounded-full border border-indigo-400/50 bg-indigo-500/15 px-2 py-0.5 text-[0.625rem] font-semibold text-indigo-200">
-                used by your current engine
+                used by your selected engine{activeKeys.length > 1 ? 's' : ''}
               </span>
             ) : null}
           />

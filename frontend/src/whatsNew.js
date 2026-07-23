@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-multi-engine-generation',
+    date: '2026-07-23',
+    title: '⚡ Generate with several engines at once',
+    blurb:
+      'The engine cards are now checkboxes: tick Klein, Nano Banana and ChatGPT together instead of picking one and re-running the batch to try another. Two modes decide what that means — "Split across engines" shares your shots between them, so you get a more varied dataset for exactly the same number of images and the same cost, while "All engines" sends every shot to every engine so you can compare the renders side by side and keep the best. The image count and the estimated price update live as you tick, the button carries the real total, and each generated tile is now labelled with the engine that made it. Every engine also has its own colour — green went back to meaning "kept".',
+    to: '/datasets?section=add',
+  },
+  {
     id: '2026-07-23-crop-extra-references',
     date: '2026-07-23',
     title: '✂ Crop your extra reference photos too',

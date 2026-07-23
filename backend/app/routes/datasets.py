@@ -407,55 +407,121 @@ def _autostart_optional_klein():
         _autostart_klein_downloads(optional)
 
 
+def _parse_engine_batches(data):
+    """Normalise the multi-engine payload into [(generator, variations)].
+
+    `engine_batches` (new, optional) is a list of {generator, variations}: the
+    workspace can run one batch per selected engine, either sharing the shots
+    between them or sending every shot to every engine. It is computed client
+    side (the UI has to display the resulting count and cost anyway, and a second
+    implementation here would be a second truth to keep in sync) — so this route
+    validates every entry rather than trusting the split.
+
+    Absent → the historic single `generator` + `variations` shape, unchanged, so
+    a tab that was never reloaded keeps working."""
+    # `in`, not truthiness: an EMPTY list means "the user has no engine selected"
+    # and must be refused, not silently reinterpreted as a legacy Klein request.
+    if 'engine_batches' not in data:
+        return [(data.get('generator') or 'klein', data.get('variations') or [])]
+    raw = data.get('engine_batches')
+    if raw is None:
+        raise ValueError('no engine selected')
+    if not isinstance(raw, list):
+        raise ValueError('engine_batches must be a list')
+    batches = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise ValueError('engine_batches must be a list of {generator, variations}')
+        generator = entry.get('generator') or 'klein'
+        variations = entry.get('variations') or []
+        # Every entry is checked — not just the first one — or an unknown engine
+        # could ride along behind a valid one.
+        if generator != 'klein' and generator not in svc.API_ENGINES:
+            raise ValueError(f'unknown engine: {generator}')
+        if not isinstance(variations, list):
+            raise ValueError('engine_batches variations must be a list')
+        if variations:
+            batches.append((generator, variations))
+    if not batches:
+        raise ValueError('no variations selected — pick at least one engine and one shot')
+    return batches
+
+
 @bp.post('/dataset/<int:dataset_id>/generate')
 def dataset_generate(dataset_id):
     data = request.get_json(silent=True) or {}
-    generator = data.get('generator') or 'klein'
-    variations = data.get('variations') or []
-    # Route-level fail-closed: NSFW variations never reach an API engine — they
-    # exist only on the local Klein path (the service re-checks, defense in depth).
-    if generator in svc.API_ENGINES and any(
-            v.get('nsfw') or is_nsfw_label(v.get('label')) for v in variations):
-        return jsonify({'ok': False,
-                        'error': 'NSFW variations run on the local Klein engine only — '
-                                 'switch the generator to Klein.'}), 400
     try:
-        if generator in svc.API_ENGINES:
-            # API path (Gemini Nano Banana Pro or OpenAI ChatGPT gpt-image-2):
-            # no GPU, rows filled by a background thread — the existing polling
-            # UI tracks them.
-            from flask import current_app
-            ids = svc.generate_variations_nanobanana(
-                current_app._get_current_object(), LOCAL_USER, dataset_id,
-                data.get('variations') or [], data.get('multiplier', 1),
-                engine=generator)
-        else:
-            # Klein node preflight (once per request — /object_info is large, so
-            # never per-tile): if the workflow needs a custom node this ComfyUI
-            # lacks, answer one actionable 409 instead of a grid of tiles each
-            # failing ComfyUI validation. Fail-open when /object_info is
-            # unreachable. Combined with the model scan so a fresh install gets
-            # ONE 409 covering both (and the model downloads start in parallel
-            # with the user's node-pack install).
-            from ..services import klein_edit_helper as keh
-            missing_nodes = keh.klein_missing_nodes()
-            if missing_nodes:
-                return _klein_missing_response(keh.klein_missing_assets(), missing_nodes)
-            ids = svc.generate_variations(LOCAL_USER, dataset_id,
-                                          data.get('variations') or [], data.get('multiplier', 1),
-                                          data.get('klein_model'),
-                                          lora_strength=data.get('lora_strength'),
-                                          # Optional generation-LoRA preset
-                                          # (Idea by @waltm): a NAME resolved
-                                          # from config — absent/'' = none.
-                                          generation_lora_preset=data.get('generation_lora_preset'))
-            _autostart_optional_klein()  # bg-fetch the consistency LoRA if it's absent
+        batches = _parse_engine_batches(data)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    multiplier = data.get('multiplier', 1)
+    # Route-level fail-closed, applied to EACH batch: NSFW variations never reach
+    # an API engine — they exist only on the local Klein path (the service
+    # re-checks, defense in depth). Refused before anything is created, so a bad
+    # entry in the middle of good ones cannot leave a half-dispatched run.
+    for generator, variations in batches:
+        if generator in svc.API_ENGINES and any(
+                v.get('nsfw') or is_nsfw_label(v.get('label')) for v in variations):
+            return jsonify({'ok': False,
+                            'error': 'NSFW variations run on the local Klein engine only — '
+                                     'switch the generator to Klein.'}), 400
+    # Klein node preflight (once per request — /object_info is large, so never
+    # per-tile): if the workflow needs a custom node this ComfyUI lacks, answer
+    # one actionable 409 instead of a grid of tiles each failing ComfyUI
+    # validation. Fail-open when /object_info is unreachable. Combined with the
+    # model scan so a fresh install gets ONE 409 covering both (and the model
+    # downloads start in parallel with the user's node-pack install).
+    # The dataset must be checked BEFORE the Klein preflight below: that preflight
+    # answers 409 "install the model", which would be a misleading reply to a
+    # request naming a dataset that doesn't exist (the service used to validate
+    # first, since it ran the preflight itself).
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'ok': False, 'error': 'dataset not found'}), 400
+    # Runs BEFORE any dispatch, and covers the MODEL FILES as well as the nodes:
+    # generate_variations checks the assets itself, but by then the API batches of
+    # a mixed run would already be in flight — the user would be told the batch
+    # failed while paying for half of it. Both gaps answer the same actionable
+    # 409 (with the downloads started), so they are checked together, up front.
+    if any(g == 'klein' for g, _ in batches):
+        from ..services import klein_edit_helper as keh
+        missing_nodes = keh.klein_missing_nodes()
+        missing_assets = keh.klein_missing_assets()
+        if missing_nodes or any(a in missing_assets for a in keh.KLEIN_REQUIRED):
+            return _klein_missing_response(missing_assets, missing_nodes)
+    created, per_engine = 0, {}
+    try:
+        # The per-engine calls each enforce MAX_FANOUT on their own share, which
+        # would let a 3-engine run create rows for two engines before the third
+        # is refused. Check the AGGREGATE first: all-or-nothing.
+        svc.check_fanout_budget(
+            dataset_id, sum(len(v) for _, v in batches) * max(1, int(multiplier or 1)))
+        for generator, variations in batches:
+            if generator in svc.API_ENGINES:
+                # API path (Gemini Nano Banana Pro or OpenAI ChatGPT gpt-image-2):
+                # no GPU, rows filled by a background thread — the existing polling
+                # UI tracks them.
+                from flask import current_app
+                ids = svc.generate_variations_nanobanana(
+                    current_app._get_current_object(), LOCAL_USER, dataset_id,
+                    variations, multiplier, engine=generator)
+            else:
+                ids = svc.generate_variations(LOCAL_USER, dataset_id,
+                                              variations, multiplier,
+                                              data.get('klein_model'),
+                                              lora_strength=data.get('lora_strength'),
+                                              # Optional generation-LoRA preset
+                                              # (Idea by @waltm): a NAME resolved
+                                              # from config — absent/'' = none.
+                                              generation_lora_preset=data.get('generation_lora_preset'))
+                _autostart_optional_klein()  # bg-fetch the consistency LoRA if it's absent
+            created += len(ids)
+            per_engine[generator] = per_engine.get(generator, 0) + len(ids)
     except Exception as e:
         from ..services.klein_edit_helper import KleinModelsMissing
         if isinstance(e, KleinModelsMissing):  # a required Klein model isn't installed
             return _klein_missing_response(e.missing)
         return _map_error(e)
-    return jsonify({'ok': True, 'created': len(ids)})
+    return jsonify({'ok': True, 'created': created, 'per_engine': per_engine})
 
 
 @bp.post('/dataset/<int:dataset_id>/import')

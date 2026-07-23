@@ -18,6 +18,15 @@ import {
   renameShotPreset,
   saveShotPreset,
 } from '../../utils/shotPresets';
+import {
+  ENGINE_ACCENTS, ENGINE_LABELS, billingEngines, canonicalEngines, engineBatches,
+  estimateCost, generateBlockedReason, kleinQueuesBehindApi, readEngines, readMode,
+  totalImages, writeEngines, writeMode,
+} from './engineSelection.js';
+
+/** localStorage, or null when it can't be touched (private mode / SSR) — the
+ *  engine helpers degrade to their defaults instead of throwing. */
+const storage = () => (typeof localStorage === 'undefined' ? null : localStorage);
 
 const FRAMING_LABEL = { face: 'Face', bust: 'Bust', body: 'Body', back: 'Back' };
 // The framings a prompt suffix can target (same buckets the backend wraps by).
@@ -87,6 +96,42 @@ function GpuIcon({ className }) {
   );
 }
 
+const MODE_CHOICES = [
+  { id: 'split', name: 'Split across engines',
+    desc: 'Each shot goes to ONE engine — same image count and cost as a single engine, but a more varied dataset.' },
+  { id: 'all', name: 'All engines',
+    desc: 'Every engine renders every shot — compare the results side by side, then keep the ones you like. Multiplies the cost.' },
+];
+
+/** One engine CHECKBOX card. A checkbox, not a radio: engines combine. Each
+ *  carries its own accent (see ENGINE_ACCENTS) so a mixed run is readable —
+ *  green is deliberately not one of them, it already means "kept / free". */
+function EngineCard({ id, checked, available, generating, onToggle, icon, title, tags, hint }) {
+  const accent = ENGINE_ACCENTS[id];
+  return (
+    <button type="button" role="checkbox" aria-checked={checked}
+      aria-label={ENGINE_LABELS[id]}
+      onClick={() => onToggle(id)}
+      disabled={!available || !!generating}
+      title={generating ? 'A generation batch is running — wait for it to finish before changing engines' : undefined}
+      className={`relative flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${checked
+        ? accent.card
+        : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
+      <span aria-hidden="true"
+        className={`absolute top-2 right-2 w-4 h-4 rounded border grid place-items-center text-[0.625rem] font-bold ${checked
+          ? `${accent.pill} border-transparent` : 'border-border text-transparent'}`}>✓</span>
+      {icon}
+      <span className="flex flex-col gap-1 min-w-0">
+        <span className={`text-[0.8125rem] font-semibold ${checked ? accent.title : 'text-content-muted'}`}>
+          {title}
+        </span>
+        <span className="flex flex-wrap gap-1">{tags}</span>
+        {hint}
+      </span>
+    </button>
+  );
+}
+
 export default function VariationCatalog({ onGenerate, busy, generating = null, hasRef, composition, images = [], bodyFidelity = false, promptSuffix = '', promptSuffixes = null, onSaveSuffixes = null }) {
   const toast = useToast();
   const { caps } = useCapabilities();
@@ -126,7 +171,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
   const addCustomShot = () => {
     const p = customPrompt.trim();
     if (!p) return;
-    const hot = nsfwMode && isKlein;
+    const hot = nsfwMode && kleinOnly;
     const shot = { id: `custom_${Date.now()}`, label: `${hot ? '🔞' : '✨'} ${p.slice(0, 40)}`,
                    prompt: p, framing: customFraming, nsfw: hot };
     setCustomShots((s) => [...s, shot]);
@@ -152,17 +197,44 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
   const [loraPresets, setLoraPresets] = useState([]);   // [{name, loras:[{file, strength}]}]
   const [loraPresetName, setLoraPresetName] = useState('');   // '' = None
   const activeLoraPreset = loraPresets.find((p) => p.name === loraPresetName) || null;
-  // Generator backend: Nano Banana Pro (Gemini API, ~0,15 $/image, zero GPU,
-  // best face fidelity — user-validated default) or local Klein (GPU, free).
-  const [generator, setGenerator] = useState(() => {
-    try { return localStorage.getItem('datasetGenerator') || 'nanobanana'; } catch { return 'nanobanana'; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('datasetGenerator', generator); } catch { /* ignore */ }
-  }, [generator]);
-  const isNB = generator === 'nanobanana';
-  const isGPT = generator === 'chatgpt';
-  const isKlein = !isNB && !isGPT;
+  // Generator backends — a SET, not one card: Nano Banana Pro (Gemini API,
+  // ~$0.15/image, zero GPU, best face fidelity — the historic default), ChatGPT
+  // (API or subscription) and local Klein (GPU, free). Several at once either
+  // SPLIT the shots between them (varied dataset, same cost) or run ALL of them
+  // on every shot (compare the engines, then triage). engineSelection.js owns
+  // the storage compatibility: the legacy single-string `datasetGenerator` key
+  // is still written, so regenerate and the ✎ modal keep working untouched.
+  const [engines, setEngines] = useState(() => readEngines(storage()));
+  useEffect(() => { writeEngines(storage(), engines); }, [engines]);
+  const [engineMode, setEngineMode] = useState(() => readMode(storage()));
+  useEffect(() => { writeMode(storage(), engineMode); }, [engineMode]);
+  const toggleEngine = (id) => setEngines((list) => (list.includes(id)
+    ? list.filter((e) => e !== id) : canonicalEngines([...list, id])));
+
+  const isNB = engines.includes('nanobanana');
+  const isGPT = engines.includes('chatgpt');
+  // Klein-only affordances (NSFW catalog, Klein tuning panel) light up as soon as
+  // Klein is part of the run — its shots really are rendered locally.
+  const isKlein = engines.includes('klein');
+  const multiEngine = engines.length > 1;
+  // 🔞 shots stay exactly as strict as before: they only exist when the run is
+  // LOCAL-ONLY. Klein alongside an API engine would either send them to that API
+  // (which the backend refuses, failing the whole run) or need a per-shot routing
+  // rule the cost/count display could not honestly show — so the uncensored
+  // catalog simply stays locked until Klein is the only engine checked.
+  const kleinOnly = isKlein && engines.length === 1;
+
+  /** Images THIS engine renders in the current run. For an engine that isn't
+   *  checked, what it would render if it were picked alone — so the card's price
+   *  answers "what would this cost me?" before the click, as it always did.
+   *  Reuses the batch split so the card, the mode selector and the payload can
+   *  never disagree on the share. */
+  const engineShare = (id) => {
+    const shots = Array.from({ length: selected.size }, (_, i) => i);
+    if (!engines.includes(id)) return shots.length * multiplier;
+    const batch = engineBatches(shots, engines, engineMode).find((b) => b.generator === id);
+    return (batch ? batch.variations.length : 0) * multiplier;
+  };
 
   // Which engines the user actually enabled in Settings (config.engines.enabled),
   // on top of the live reachability probe in `caps.engines`.
@@ -186,17 +258,20 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
   const nbAvailable = enabledEngines.includes('nanobanana') && caps.engines.nanobanana;
   const gptAvailable = enabledEngines.includes('chatgpt') && caps.engines.chatgpt;
   const klAvailable = enabledEngines.includes('klein') && caps.engines.klein;
-  const currentAvailable = isKlein ? klAvailable : isNB ? nbAvailable : gptAvailable;
+  const available = { klein: klAvailable, nanobanana: nbAvailable, chatgpt: gptAvailable };
 
-  // The persisted generator can point at an engine that has since been
-  // disabled in Settings (or lost its key/backend): auto-switch to the first
-  // usable card instead of staying stuck on a dead one. This also feeds
-  // regenerate, which follows the persisted selection.
+  // The persisted selection can name engines that have since been disabled in
+  // Settings (or lost their key/backend): drop those instead of trying to
+  // generate on a dead one, and fall back to the first usable card when that
+  // empties the selection. This also feeds regenerate, which follows the
+  // persisted primary engine.
   useEffect(() => {
-    if (currentAvailable) return;
+    const usable = engines.filter((e) => available[e]);
+    if (usable.length === engines.length) return;
     const first = nbAvailable ? 'nanobanana' : gptAvailable ? 'chatgpt' : klAvailable ? 'klein' : null;
-    if (first && first !== generator) setGenerator(first);
-  }, [currentAvailable, nbAvailable, gptAvailable, klAvailable, generator]);
+    setEngines(usable.length ? usable : (first ? [first] : []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engines, nbAvailable, gptAvailable, klAvailable]);
   // Effective ChatGPT lane: the subscription (ChatGPT Plus/Pro image quota) vs the
   // pay-per-use API key. Mirrors the backend "auto = subscription when connected".
   const gptSub = caps.chatgpt_subscription || {};
@@ -205,6 +280,15 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
   const gptPlanLabel = gptSub.plan && gptSub.plan !== 'free'
     ? gptSub.plan.charAt(0).toUpperCase() + gptSub.plan.slice(1)
     : 'Plus/Pro';
+  // What this run costs and, when it can't run, why. `caps.max_fanout` is the
+  // SERVER's per-batch cap, published by /api/capabilities — mirrored so the
+  // limit is explained before the click, never hardcoded here. A server that
+  // doesn't publish it (older build) simply keeps the check off.
+  const runCost = estimateCost(selected.size, engines, engineMode, { multiplier, gptViaSub });
+  const blockedReason = generateBlockedReason({
+    engines, shotCount: selected.size, mode: engineMode, multiplier,
+    maxFanout: Number(caps.max_fanout) || 0,
+  });
   // Klein unavailable has THREE distinct causes — the hint must name the right
   // one (a reachable ComfyUI with no Klein model used to show "Configure
   // ComfyUI", sending the user to re-check a step that was already green). When
@@ -252,13 +336,13 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
   // Switching to an API engine drops any selected NSFW shots (Klein-only) —
   // catalog nsfw_ entries AND 🔞 custom cards alike.
   useEffect(() => {
-    if (isKlein) return;
+    if (kleinOnly) return;
     const hotCustom = new Set(customShots.filter((c) => c.nsfw).map((c) => c.id));
     setSelected((s) => {
       const n = new Set([...s].filter((id) => !id.startsWith('nsfw_') && !hotCustom.has(id)));
       return n.size === s.size ? s : n;
     });
-  }, [isKlein, customShots]);
+  }, [kleinOnly, customShots]);
 
   // "Already in the dataset" per variation label: live images (kept, pending or
   // still generating — not failed/rejected) → the green ✓×N state on the cards.
@@ -393,14 +477,14 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
       .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing }));
     // NSFW shots: local Klein only (the toggle is gated on the Klein engine,
     // and the backend refuses them on API engines).
-    if (nsfwMode && isKlein) {
+    if (nsfwMode && kleinOnly) {
       variations.push(...nsfwCatalog.filter((e) => selected.has(e.id))
         .map((e) => ({ label: e.label, prompt: e.prompt, framing: e.framing, nsfw: true })));
     }
     // Custom cards: selectable like catalog shots; 🔞 ones only ride with Klein
     // (the label prefix is what regenerate uses to re-pick the uncensored wrapper).
     variations.push(...customShots
-      .filter((c) => selected.has(c.id) && (isKlein || !c.nsfw))
+      .filter((c) => selected.has(c.id) && (kleinOnly || !c.nsfw))
       .map((c) => ({ label: c.label, prompt: c.prompt, framing: c.framing,
                      ...(c.nsfw ? { nsfw: true } : {}) })));
     if (!variations.length) return;
@@ -425,12 +509,14 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     if (!toGen.length) return;
     // Guard-rail: pay-per-use API engines bill per image — above $5 estimated,
     // confirm with the amount (silent for the free local Klein AND for the
-    // ChatGPT subscription lane, which spends plan quota, not dollars).
-    const rate = isNB ? 0.15 : (isGPT && !gptViaSub) ? 0.17 : 0;
-    const cost = toGen.length * multiplier * rate;
+    // ChatGPT subscription lane, which spends plan quota, not dollars). On a
+    // multi-engine run the amount is the WHOLE run's, and only the lanes that
+    // really charge are named.
+    const cost = estimateCost(toGen.length, engines, engineMode, { multiplier, gptViaSub });
+    const billing = billingEngines(engines, { gptViaSub });
     if (cost > 5 && !window.confirm(
-      `This will launch ${toGen.length * multiplier} API generation(s) `
-      + `≈ $${cost.toFixed(2)} (${isNB ? 'Nano Banana' : 'ChatGPT'}).\n\nProceed?`)) return;
+      `This will launch ${totalImages(toGen.length, engines, engineMode, multiplier)} generation(s) `
+      + `≈ $${cost.toFixed(2)} (${billing.map((e) => ENGINE_LABELS[e]).join(' + ')}).\n\nProceed?`)) return;
     // Persist any per-batch suffix edit BEFORE enqueueing: the backend applies
     // the dataset's CURRENT suffix at wrap time, so the save must land first or
     // the batch would generate with the old creative direction (Idea by waltm).
@@ -440,7 +526,9 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
     }
     // Optional generation-LoRA preset (Klein only): only the NAME rides — the
     // backend resolves the chain from its own config (fail-closed).
-    onGenerate(toGen, multiplier, klein, loraStrength, generator,
+    // The shots are already shared between the engines here (API batches first,
+    // the GPU-bound Klein one last); the server re-checks every batch.
+    onGenerate(engineBatches(toGen, engines, engineMode), multiplier, klein, loraStrength,
       generationLoraPresetPayload({ isKlein, presetName: loraPresetName, presets: loraPresets }));
   };
 
@@ -454,14 +542,17 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         </span>
       </div>
 
-      {/* Engine cards — Klein (local GPU) vs Nano Banana Pro vs ChatGPT (APIs).
+      {/* Engine cards — Klein (local GPU), Nano Banana Pro and ChatGPT (APIs).
+          CHECKBOXES, not a radio group: several engines can run in one batch.
           Each card disables itself with an actionable hint when its engine
-          isn't configured/reachable or was turned off in Settings. */}
+          isn't configured/reachable or was turned off in Settings, and carries
+          its own accent colour so a mixed run stays readable at a glance. */}
       <div className="flex items-center gap-2">
-        <span className="text-content-muted text-[0.6875rem] uppercase">Engine</span>
+        <span className="text-content-muted text-[0.6875rem] uppercase">Engines</span>
         <span className="text-content-subtle text-[0.625rem]">
-          where the images are made — Klein runs free on your GPU · APIs bill per image (or use your ChatGPT subscription)
+          where the images are made — pick one or several · Klein runs free on your GPU · APIs bill per image (or use your ChatGPT subscription)
         </span>
+        <HelpBadge topic="dataset-engine-mode" />
       </div>
       {/* Discoverability: the generation prompt (identity/style directives) is
           editable, but users don't know where. Point them at it right where the
@@ -471,85 +562,98 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         <a href="#/settings/engines" className="text-amber-300 underline decoration-amber-300/50">Settings › Image engines →</a>
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <button type="button" onClick={() => setGenerator('klein')} aria-pressed={isKlein}
-          disabled={!klAvailable || !!generating}
-          title={generating ? 'A generation batch is running — wait for it to finish before switching engine' : undefined}
-          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isKlein
-            ? 'border-primary/60 bg-primary/15 ring-1 ring-primary/40'
-            : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
-          <GpuIcon className={`w-9 h-9 shrink-0 ${isKlein ? 'text-indigo-300' : 'text-content-subtle'}`} />
-          <span className="flex flex-col gap-1 min-w-0">
-            <span className={`text-[0.8125rem] font-semibold ${isKlein ? 'text-white' : 'text-content-muted'}`}>
-              Klein <span className="font-normal text-content-subtle">· local</span>
+        <EngineCard id="klein" checked={isKlein} available={klAvailable} generating={generating}
+          onToggle={toggleEngine} share={engineShare('klein')}
+          icon={<GpuIcon className={`w-9 h-9 shrink-0 ${isKlein ? ENGINE_ACCENTS.klein.icon : 'text-content-subtle'}`} />}
+          title={<>Klein <span className="font-normal text-content-subtle">· local</span></>}
+          tags={[
+            // Green stays a statement about the PRICE, never a selection state.
+            <span key="free" className="px-1.5 py-px rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[0.625rem]">Free</span>,
+            <span key="gpu" className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">Your GPU</span>,
+            <span key="nsfw" className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">NSFW OK</span>,
+          ]}
+          hint={klAvailable ? (
+            <span className="text-content-subtle text-[0.625rem]">
+              Runs on this machine — slower, tunable face fidelity.
+              {kleinQueuesBehindApi(engines) && (
+                <> <span className={ENGINE_ACCENTS.klein.text}>
+                  Its {engineShare('klein')} shot(s) queue on your GPU, one at a time, after the API ones.
+                </span></>
+              )}
             </span>
-            <span className="flex flex-wrap gap-1">
-              <span className="px-1.5 py-px rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[0.625rem]">Free</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">Your GPU</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">NSFW OK</span>
+          ) : (
+            <a href="#/setup" onClick={(e) => e.stopPropagation()}
+              className="text-amber-300 text-[0.625rem] underline decoration-amber-300/50">
+              {kleinHint}
+            </a>
+          )} />
+        <EngineCard id="nanobanana" checked={isNB} available={nbAvailable} generating={generating}
+          onToggle={toggleEngine} share={engineShare('nanobanana')}
+          icon={<span className="w-9 h-9 shrink-0 grid place-items-center text-2xl" aria-hidden="true">🍌</span>}
+          title={<>Nano Banana Pro <span className="font-normal text-content-subtle">· API</span></>}
+          tags={[
+            <span key="gpu" className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">No GPU</span>,
+            <span key="price" className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">~$0.15/image</span>,
+            <span key="sfw" className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">SFW</span>,
+          ]}
+          hint={nbAvailable ? (
+            <span className={`text-[0.625rem] ${isNB ? ENGINE_ACCENTS.nanobanana.text : 'text-content-subtle'}`}>
+              Best face fidelity · {engineShare('nanobanana')} image(s) ≈ ${(engineShare('nanobanana') * 0.15).toFixed(2)}
             </span>
-            {klAvailable ? (
-              <span className="text-content-subtle text-[0.625rem]">Runs on this machine — slower, tunable face fidelity.</span>
-            ) : (
-              <a href="#/setup" onClick={(e) => e.stopPropagation()}
-                className="text-amber-300 text-[0.625rem] underline decoration-amber-300/50">
-                {kleinHint}
-              </a>
-            )}
-          </span>
-        </button>
-        <button type="button" onClick={() => setGenerator('nanobanana')} aria-pressed={isNB}
-          disabled={!nbAvailable || !!generating}
-          title={generating ? 'A generation batch is running — wait for it to finish before switching engine' : undefined}
-          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isNB
-            ? 'border-amber-400/60 bg-amber-500/15 ring-1 ring-amber-400/40'
-            : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
-          <span className="w-9 h-9 shrink-0 grid place-items-center text-2xl" aria-hidden="true">🍌</span>
-          <span className="flex flex-col gap-1 min-w-0">
-            <span className={`text-[0.8125rem] font-semibold ${isNB ? 'text-amber-200' : 'text-content-muted'}`}>
-              Nano Banana Pro <span className="font-normal text-content-subtle">· API</span>
+          ) : (
+            <span className="text-amber-300 text-[0.625rem]">⚠ Add GEMINI_API_KEY in Settings</span>
+          )} />
+        <EngineCard id="chatgpt" checked={isGPT} available={gptAvailable} generating={generating}
+          onToggle={toggleEngine} share={engineShare('chatgpt')}
+          icon={<ChatGptIcon className={`w-9 h-9 shrink-0 ${isGPT ? ENGINE_ACCENTS.chatgpt.icon : 'text-content-subtle'}`} />}
+          title={<>ChatGPT <span className="font-normal text-content-subtle">{gptViaSub ? '· subscription' : '· API'}</span></>}
+          tags={[
+            <span key="gpu" className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">No GPU</span>,
+            <span key="price" className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{gptViaSub ? 'Plan quota' : '~$0.17/image'}</span>,
+            <span key="sfw" className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">SFW</span>,
+          ]}
+          hint={gptAvailable ? (
+            <span className={`text-[0.625rem] ${isGPT ? ENGINE_ACCENTS.chatgpt.text : 'text-content-subtle'}`}>
+              {gptViaSub
+                ? `gpt-image-2 · uses your ChatGPT ${gptPlanLabel} quota`
+                : `gpt-image-2 · ${engineShare('chatgpt')} image(s) ≈ $${(engineShare('chatgpt') * 0.17).toFixed(2)}`}
             </span>
-            <span className="flex flex-wrap gap-1">
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">No GPU</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">~$0.15/image</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">SFW</span>
-            </span>
-            {nbAvailable ? (
-              <span className={`text-[0.625rem] ${isNB ? 'text-amber-300' : 'text-content-subtle'}`}>
-                Best face fidelity · estimated cost ≈ ${(selected.size * multiplier * 0.15).toFixed(2)}
-              </span>
-            ) : (
-              <span className="text-amber-300 text-[0.625rem]">⚠ Add GEMINI_API_KEY in Settings</span>
-            )}
-          </span>
-        </button>
-        <button type="button" onClick={() => setGenerator('chatgpt')} aria-pressed={isGPT}
-          disabled={!gptAvailable || !!generating}
-          title={generating ? 'A generation batch is running — wait for it to finish before switching engine' : undefined}
-          className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isGPT
-            ? 'border-emerald-400/60 bg-emerald-500/15 ring-1 ring-emerald-400/40'
-            : 'border-border bg-app/40 hover:enabled:bg-surface-raised'}`}>
-          <ChatGptIcon className={`w-9 h-9 shrink-0 ${isGPT ? 'text-emerald-300' : 'text-content-subtle'}`} />
-          <span className="flex flex-col gap-1 min-w-0">
-            <span className={`text-[0.8125rem] font-semibold ${isGPT ? 'text-emerald-200' : 'text-content-muted'}`}>
-              ChatGPT <span className="font-normal text-content-subtle">{gptViaSub ? '· subscription' : '· API'}</span>
-            </span>
-            <span className="flex flex-wrap gap-1">
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">No GPU</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">{gptViaSub ? 'Plan quota' : '~$0.17/image'}</span>
-              <span className="px-1.5 py-px rounded-full bg-app/60 border border-border text-content-muted text-[0.625rem]">SFW</span>
-            </span>
-            {gptAvailable ? (
-              <span className={`text-[0.625rem] ${isGPT ? 'text-emerald-300' : 'text-content-subtle'}`}>
-                {gptViaSub
-                  ? `gpt-image-2 · uses your ChatGPT ${gptPlanLabel} quota`
-                  : `gpt-image-2 · estimated cost ≈ $${(selected.size * multiplier * 0.17).toFixed(2)}`}
-              </span>
-            ) : (
-              <span className="text-amber-300 text-[0.625rem]">⚠ Add an API key or connect a subscription in Settings</span>
-            )}
-          </span>
-        </button>
+          ) : (
+            <span className="text-amber-300 text-[0.625rem]">⚠ Add an API key or connect a subscription in Settings</span>
+          )} />
       </div>
+
+      {/* How several engines share the run. Only shown when it can change
+          anything (2+ engines): with a single one both modes are identical, and
+          an inert radio pair would just be noise. */}
+      {multiEngine && (
+        <fieldset className="rounded-lg border border-border bg-app/30 px-2.5 py-2 flex flex-col gap-1.5">
+          <legend className="px-1 text-content-muted text-[0.6875rem] uppercase">
+            {engines.length} engines selected
+          </legend>
+          {MODE_CHOICES.map(({ id, name, desc }) => {
+            const count = totalImages(selected.size, engines, id, multiplier);
+            const price = estimateCost(selected.size, engines, id, { multiplier, gptViaSub });
+            return (
+              <label key={id} className={`flex items-start gap-2 rounded-md px-2 py-1 cursor-pointer ${engineMode === id ? 'bg-surface-raised' : ''}`}>
+                <input type="radio" name="engine-mode" value={id} checked={engineMode === id}
+                  onChange={() => setEngineMode(id)} disabled={!!generating}
+                  className="mt-0.5 accent-indigo-500" />
+                <span className="flex flex-col min-w-0">
+                  <span className="text-content text-[0.75rem] font-semibold">
+                    {name}
+                    <span className="ml-2 font-normal text-content-muted">
+                      {count} image{count === 1 ? '' : 's'}
+                      {price > 0 ? ` · ≈ $${price.toFixed(2)}` : ' · free'}
+                    </span>
+                  </span>
+                  <span className="text-content-subtle text-[0.625rem]">{desc}</span>
+                </span>
+              </label>
+            );
+          })}
+        </fieldset>
+      )}
 
       {/* Klein-only tuning, grouped: model file + consistency-LoRA strength.
           A <details> so the defaults stay out of a newcomer's way — children
@@ -807,7 +911,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
               {customShots.map((c) => {
                 const on = selected.has(c.id);
                 const done = doneByLabel.get(c.label) || 0;
-                const blocked = c.nsfw && !isKlein;   // 🔞 card while an API engine is active
+                const blocked = c.nsfw && !kleinOnly;   // 🔞 card while an API engine is in the run
                 const cls = on
                   ? 'bg-primary/20 border-primary/50 text-white ring-1 ring-primary/30'
                   : done > 0
@@ -817,7 +921,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
                   <div key={c.id} className={`relative flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border transition-colors ${cls} ${blocked ? 'opacity-40' : ''}`}>
                     <button type="button" onClick={() => !blocked && toggle(c.id)} aria-pressed={on}
                       disabled={blocked}
-                      title={blocked ? '🔞 shot — switch the generator to Klein' : c.prompt}
+                      title={blocked ? '🔞 shot — check Klein alone to generate it' : c.prompt}
                       className="flex items-center gap-1.5 flex-1 min-w-0 text-left disabled:cursor-not-allowed">
                       <ShotIllustration framing={c.framing} label={c.label} className="w-7 h-7 shrink-0" />
                       <span className="min-w-0 leading-tight truncate">{c.label}</span>
@@ -841,7 +945,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
 
       {/* 🔞 NSFW — local Klein only. Uncensored body catalog + free prompt.
           Never offered on the API engines (and the backend refuses them there). */}
-      {isKlein && klAvailable && (
+      {kleinOnly && klAvailable && (
         <div className={`rounded-lg border p-2 flex flex-col gap-2 ${nsfwMode
           ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-app/30'}`}>
           <button type="button" onClick={() => setNsfwMode((v) => !v)} aria-pressed={nsfwMode}
@@ -901,7 +1005,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
           ✨ Custom shot
           <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
-            write your own prompt — it becomes a reusable card in the Custom group above{nsfwMode && isKlein ? ' — 🔞 register active' : ''}
+            write your own prompt — it becomes a reusable card in the Custom group above{nsfwMode && kleinOnly ? ' — 🔞 register active' : ''}
           </span>
         </summary>
         <div className="px-2.5 pt-1 flex flex-col gap-1">
@@ -988,18 +1092,34 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         {!hasRef && (
           <span className="text-amber-300 text-[0.6875rem]">Set a reference photo first</span>
         )}
+        {/* The run's real price, next to the button that spends it — switching to
+            "All engines" multiplies the bill, and that must be visible where the
+            decision is made, not only inside the mode selector. */}
+        {engines.length > 0 && selected.size > 0 && (
+          <span className="text-content-muted text-[0.6875rem]">
+            {engines.map((e) => ENGINE_LABELS[e]).join(' + ')}
+            {' · '}
+            {runCost > 0 ? `≈ $${runCost.toFixed(2)}` : 'free'}
+          </span>
+        )}
+        {/* Never a silently empty batch: an unchecked engine grid, an empty shot
+            selection or a run over the server's per-batch cap all SAY why the
+            button is dead instead of just greying it out. */}
+        {blockedReason && hasRef && (
+          <span className="text-amber-300 text-[0.6875rem]">{blockedReason}</span>
+        )}
         {/* Disabled for the WHOLE batch, not just the launch request: `busy` is the
             hook's busyLive (local flag OR any server-side activity, restored on
             reload), so a generation already in flight — Nano Banana / ChatGPT /
             Klein alike — keeps this locked with a visible reason. */}
-        <button type="button" onClick={go} disabled={busy || !selected.size || !hasRef || !currentAvailable}
-          title={generating ? 'A generation batch is already running' : undefined}
+        <button type="button" onClick={go} disabled={busy || !hasRef || !!blockedReason}
+          title={generating ? 'A generation batch is already running' : (blockedReason || undefined)}
           className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
           {busy
             ? (generating
                 ? `Generating…${generating.total ? ` ${generating.done}/${generating.total}` : ''}`
                 : '…')
-            : `⚡ Generate (${selected.size * multiplier})`}
+            : `⚡ Generate (${totalImages(selected.size, engines, engineMode, multiplier)})`}
         </button>
       </div>
     </div>

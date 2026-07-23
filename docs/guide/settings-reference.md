@@ -64,6 +64,27 @@ Good to know: in subscription mode you get up to **5 reference images** per gene
 - **Default engine** → `engines.default`. Which engine is preselected in the workspace. One of `nanobanana`, `chatgpt`, `klein`. Default **`chatgpt`**.
 - **Enabled engines** → `engines.enabled`. Checkboxes deciding which engines appear as options at all. Default: **all three** enabled. Untick an engine you never use to declutter the generator picker.
 
+#### Using several engines in one batch
+
+In the workspace the engine cards are **checkboxes**, not a one-of-three choice: tick as many as you want. Each engine has its own colour (Klein indigo, Nano Banana amber, ChatGPT sky) and every generated tile is labelled with the engine that made it, so a mixed batch stays readable.
+
+From **two** engines on, a mode appears deciding what "several engines" means:
+
+| Mode | What it does | Images produced |
+|---|---|---|
+| **Split across engines** *(default)* | Each selected shot goes to **one** engine, round-robin. | Same as one engine — 25 shots stay 25 images. |
+| **All engines** | **Every** engine renders **every** shot. | Multiplied — 25 shots on 3 engines = 75 images. |
+
+Split gives you a more varied dataset for the price you already pay; All engines is for **comparing** engines on identical shots before keeping the best. The image count and estimated cost update live as you tick, and the Generate button carries the real total.
+
+Good to know:
+
+- **The cost shown is the whole run's.** Klein contributes nothing (it's your GPU) and neither does ChatGPT on the subscription lane.
+- **Klein runs last and in series.** The API batches start immediately in the background; the local GPU handles its own shots one at a time behind them. The Klein card says so while a mixed run is being set up.
+- **There is a cap per batch** (60 images in flight on one dataset). A run over it is refused *before* it starts, with the number named — switch to Split, untick an engine, or select fewer shots.
+- **🔞 NSFW shots stay local-only.** The uncensored catalog unlocks only when Klein is the **sole** ticked engine, because those shots must never reach a third-party API.
+- **Regenerating one tile** (🔄) uses the **first** ticked engine, not all of them.
+
 ### Klein generation LoRA presets (optional)
 
 *Idea from @waltm on Discord.* Named combinations of generation LoRAs that stack on top of the local Klein edit graph. Stored in `klein.generation_lora_presets` (default: empty — no presets).
@@ -92,7 +113,7 @@ How presets are used matters:
 
 **Reproducibility guarantee:** with nothing overridden, generation is **byte-identical** to before this setting existed — you only change behaviour if you deliberately edit the text away from the default.
 
-**Shortcut from the workspace.** The multi-reference instructions are also reachable from **Add images ▸ Extra refs ▸ ✎**, without opening Settings. That modal shows **both** of them — `identity_prompts.face_multi` (Nano Banana / ChatGPT) and `identity_prompts.klein_identity` (Klein) — because the engines do not share one text, and badges the one your currently selected engine actually uses. Edits made there are the same **global** settings as here.
+**Shortcut from the workspace.** The multi-reference instructions are also reachable from **Add images ▸ Extra refs ▸ ✎**, without opening Settings. That modal shows **both** of them — `identity_prompts.face_multi` (Nano Banana / ChatGPT) and `identity_prompts.klein_identity` (Klein) — because the engines do not share one text, and badges **every** prompt your ticked engines actually use (a Klein + ChatGPT run really uses both). Edits made there are the same **global** settings as here.
 
 - **API engine — identity lock (single reference)** → `identity_prompts.face_single`. Prepended to Nano Banana / ChatGPT variations built from **one** reference photo.
 - **API engine — identity lock (multiple references)** → `identity_prompts.face_multi`. The same, for variations built from **several** reference photos — it tells the model every reference is the same person and to use them together.

@@ -5,6 +5,7 @@ import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
 import CaptionEditorDialog from './CaptionEditorDialog';
 import PromptEditPopover from './PromptEditPopover';
 import PexelsAttribution from './PexelsAttribution';
+import { ENGINE_ACCENTS, ENGINE_LABELS } from './engineSelection.js';
 
 const STATUS_CLS = {
   keep: 'border-green-500',
@@ -147,6 +148,16 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               : isImageImproveCandidate
                 ? 'Klein improve'
               : img.source === 'import' ? 'real' : 'generated'}{img.framing ? ` · ${img.framing}` : ''}
+          {/* Which engine made it — the only way a multi-engine batch is
+              comparable ("this one came out of ChatGPT, that one out of
+              Klein"). The server sends `engine` ONLY when it can tell for sure,
+              so older rows show no pill rather than a made-up one. */}
+          {ENGINE_ACCENTS[img.engine] && (
+            <span className={`ml-1 px-1 rounded ${ENGINE_ACCENTS[img.engine].pill}`}
+              title={`Generated with ${ENGINE_LABELS[img.engine]}`}>
+              {ENGINE_LABELS[img.engine]}
+            </span>
+          )}
         </span>
         {fb && (
           <span className={`absolute top-6 left-1 px-1.5 py-0.5 rounded text-[10px] bg-black/70 ${fb.cls} pointer-events-none flex items-center gap-0.5`}

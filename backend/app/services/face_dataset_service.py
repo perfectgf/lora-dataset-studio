@@ -133,6 +133,31 @@ def _ref_path(ds) -> str:
 
 _VALID_STATUS = ('pending', 'keep', 'reject', 'failed')
 MAX_FANOUT = 60
+
+
+def fanout_in_flight(dataset_id) -> int:
+    """Generations already queued on this dataset (pending row, no file yet)."""
+    return (FaceDatasetImage.query
+            .filter_by(dataset_id=dataset_id, status='pending')
+            .filter(FaceDatasetImage.filename.is_(None)).count())
+
+
+def check_fanout_budget(dataset_id, total):
+    """Refuse a WHOLE multi-engine batch up front when it would blow MAX_FANOUT.
+
+    generate_variations / generate_variations_nanobanana each enforce the cap on
+    their own call, which is enough for a single engine but NOT for a run split
+    across several: three 25-image calls each pass individually while the run
+    totals 75, and the third one would be refused only after the first two had
+    already created rows — a half-dispatched batch. The multi-engine route calls
+    this with the aggregate BEFORE dispatching anything, so the run is all-or-
+    nothing. The per-call checks stay as defense in depth."""
+    total = int(total)
+    if total > MAX_FANOUT:
+        raise ValueError(f'fan-out too large ({total} > {MAX_FANOUT})')
+    in_flight = fanout_in_flight(dataset_id)
+    if in_flight + total > MAX_FANOUT:
+        raise ValueError(f'too many generations in flight ({in_flight}), wait or cancel')
 # Shown when a delete can't move a file to Trash because it's still open in
 # another process (typically an antivirus scan of a just-cleaned image, or an
 # open preview). Raised as a RuntimeError so the route maps it to a clean 409
@@ -2234,6 +2259,25 @@ def _watermark_route_payload(img):
     return {'watermark_route': route, 'watermark_route_nocrop': route_nc}
 
 
+def _image_engine(img):
+    """Which engine produced this image — 'klein' | 'nanobanana' | 'chatgpt' — or
+    None when it CANNOT be told.
+
+    `klein_model` carries two different kinds of value: an engine id for the API
+    rows (set by generate_variations_nanobanana) and a local .safetensors file
+    name for the Klein rows. That is enough to answer honestly for both, but not
+    for every legacy row: images generated before the column was populated, and
+    imported photos, hold nothing. Those get None → the UI shows NO badge, which
+    is the right answer. Guessing 'klein' for an empty value would label old
+    Nano Banana images as local, and a wrong badge is worse than none."""
+    value = (img.klein_model or '').strip()
+    if not value:
+        return None
+    if value in API_ENGINES:
+        return value
+    return 'klein'   # a local model file name — the row was rendered on the GPU
+
+
 def dataset_payload(user_id, dataset_id):
     ds = get_dataset(user_id, dataset_id)
     if not ds:
@@ -2307,6 +2351,10 @@ def dataset_payload(user_id, dataset_id):
         'best_settings': _safe_json(ds.best_settings),
         'face_thresholds': {'green': cfg.get('face_scoring.green'), 'orange': cfg.get('face_scoring.orange')},
         'images': [{'id': i.id, 'filename': i.filename, 'source': i.source,
+                    # Which engine made this image, when it can be told HONESTLY
+                    # (see _image_engine) — the tile badge that makes a
+                    # multi-engine run comparable. None = no badge.
+                    'engine': _image_engine(i),
                     'framing': i.framing, 'variation_label': i.variation_label,
                     'status': i.status, 'caption': i.caption,
                     'caption_short': i.caption_short,

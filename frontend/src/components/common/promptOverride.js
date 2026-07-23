@@ -97,3 +97,16 @@ export function activeExtraRefPromptKey(generator) {
   const g = String(generator || 'nanobanana').toLowerCase();
   return g === 'nanobanana' || g === 'chatgpt' ? 'face_multi' : 'klein_identity';
 }
+
+/** Same question for a MULTI-engine selection: every key at least one selected
+ *  engine consumes. A run on Klein + ChatGPT really does use BOTH texts, so
+ *  badging only the primary engine's box would tell the user the other one
+ *  doesn't matter — the exact misunderstanding this badge exists to prevent.
+ *  An empty/unknown selection falls back to the single-engine answer, so the
+ *  badge never disappears on a legacy profile. */
+export function activeExtraRefPromptKeys(generators) {
+  const list = Array.isArray(generators) ? generators : [generators];
+  const keys = new Set(list.filter(Boolean).map(activeExtraRefPromptKey));
+  if (!keys.size) keys.add(activeExtraRefPromptKey(null));
+  return EXTRA_REF_PROMPT_KEYS.filter((k) => keys.has(k));
+}

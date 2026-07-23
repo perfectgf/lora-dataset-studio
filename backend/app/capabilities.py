@@ -808,8 +808,15 @@ def probe(force=False) -> dict:
     from .services import chatgpt_oauth
     sub_status = chatgpt_oauth.status()
 
+    from .services.face_dataset_service import MAX_FANOUT as _max_fanout
+
     caps = {
         'configured': cfg.is_configured(),
+        # Images one generation batch may queue at once. Published so the
+        # workspace can say "75 is over the limit" BEFORE the click instead of
+        # letting a multi-engine run be refused after the fact — the server
+        # stays the authority, the UI just mirrors the number it is told.
+        'max_fanout': _max_fanout,
         'engines': {
             'nanobanana': gemini['ok'],
             'chatgpt': openai_['ok'],

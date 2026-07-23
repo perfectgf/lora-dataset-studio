@@ -65,10 +65,13 @@ test('the Extra refs row opens the identity-prompt modal', () => {
 test('the modal shares the field and edits BOTH multi-reference prompts', () => {
   assert.match(modal, /import PromptOverrideField from '\.\.\/common\/PromptOverrideField'/);
   assert.match(modal, /EXTRA_REF_PROMPT_KEYS/);
-  assert.match(modal, /activeExtraRefPromptKey/);
+  assert.match(modal, /activeExtraRefPromptKeys/);
   // saves a PARTIAL config so a workspace save never rewrites other settings
   assert.match(modal, /putJson\('\/api\/settings', \{ config: \{ identity_prompts: patch \} \}\)/);
-  assert.match(modal, /used by your current engine/);
+  // The badge covers EVERY selected engine (a Klein + API run uses both texts),
+  // so it reads the multi-engine selection, not the single legacy key.
+  assert.match(modal, /used by your selected engine/);
+  assert.match(modal, /readEngines/);
 });
 
 test('the two Klein cards cross-reference each other to remove the ambiguity', () => {
