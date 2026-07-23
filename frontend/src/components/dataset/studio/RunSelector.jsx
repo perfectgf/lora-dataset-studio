@@ -56,7 +56,7 @@ export default function RunSelector({
             const pct = voted ? Math.round((r.likes / voted) * 100) : null;
             return (
               <option key={r.key} value={r.key}>
-                {i === 0 ? '● Current run' : `Run #${runs.length - i}`} — {r.modelLabel || '?'} · 👍{r.likes} 👎{r.dislikes}{pct !== null ? ` · ${pct}% 👍` : ''} · «{(r.prompt || '').slice(0, 22)}»
+                {i === 0 ? '● Current run' : `Run #${runs.length - i}`} — {r.modelLabel || '?'} · 👍{r.likes} 👎{r.dislikes}{pct !== null ? ` · ${pct}% 👍` : ''} · “{(r.prompt || '').slice(0, 22)}”
               </option>
             );
           })}

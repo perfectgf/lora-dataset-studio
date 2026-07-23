@@ -343,7 +343,7 @@ export default function CloudRunsPage() {
 
   const stop = async (run) => {
     const who = run.dataset_name || run.run_name || `run #${run.run_id}`;
-    if (!window.confirm(`Stop the cloud run for « ${who} »?\n\n`
+    if (!window.confirm(`Stop the cloud run for “${who}”?\n\n`
       + 'The pod is terminated. Any checkpoint reached so far is still downloaded '
       + 'and importable — you only lose the remaining steps.')) return;
     setStopping((m) => ({ ...m, [run.run_id]: true }));
@@ -361,7 +361,7 @@ export default function CloudRunsPage() {
     const local = data?.local_active;
     if (!canStopLocalRun(local) || stoppingLocalRef.current) return;
     const who = local.current.name || `dataset #${local.current.dataset_id}`;
-    if (!window.confirm(`Stop the local run for « ${who} »?\n\n`
+    if (!window.confirm(`Stop the local run for “${who}”?\n\n`
       + 'The training process is terminated and the pending local training queue is cleared. '
       + 'Checkpoints already saved remain available.')) return;
 

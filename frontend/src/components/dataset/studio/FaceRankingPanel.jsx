@@ -51,7 +51,7 @@ export default function FaceRankingPanel({ ranking = [], onScore, scoring, hasCe
         </ol>
       ) : (
         <p className="m-0 text-content-subtle text-[0.6875rem]">
-          No scores yet — run a test with several checkpoints (same seed), then hit « 🎯 Score faces »
+          No scores yet — run a test with several checkpoints (same seed), then hit “🎯 Score faces”
           to rank the epochs objectively.
         </p>
       )}

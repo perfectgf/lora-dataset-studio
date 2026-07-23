@@ -1095,7 +1095,7 @@ export function useDataset() {
     const d = await postJson('/api/backup/full/restore', fd, true);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
     if (d.kind === 'single') {
-      toast.success(`Dataset « ${d.name} » restored`);
+      toast.success(`Dataset “${d.name}” restored`);
       await fetchList();
       await open(d.id);
       return;

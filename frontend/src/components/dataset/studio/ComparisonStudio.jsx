@@ -222,7 +222,7 @@ export default function ComparisonStudio({ selection, baseModels = [], runType =
 
         {!runId ? (
           <p className="text-content-subtle text-sm rounded-lg border border-border bg-surface px-3 py-6 text-center">
-            Set up the run on the left then « 🚀 Launch the test » to compare the {selection.length} LoRAs side by side.
+            Set up the run on the left then “🚀 Launch the test” to compare the {selection.length} LoRAs side by side.
           </p>
         ) : (
           <div className="flex flex-col gap-2">

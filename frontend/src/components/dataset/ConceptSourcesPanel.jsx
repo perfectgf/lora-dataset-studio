@@ -378,7 +378,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy }) {
             <select value={pexelsLocale} onChange={(e) => setPexelsLocale(e.target.value)}
               aria-label="Pexels search language"
               className="px-2.5 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-sm focus:border-indigo-500 outline-none">
-              <option value="fr-FR">Français (fr-FR)</option>
+              <option value="fr-FR">French (fr-FR)</option>
               <option value="en-US">English (en-US)</option>
             </select>
             <select value={pexelsOrientation} onChange={(e) => setPexelsOrientation(e.target.value)}

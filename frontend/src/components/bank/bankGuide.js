@@ -1,13 +1,15 @@
 /* Pure helpers for the Bank's guided top (BankWorkspace.jsx). JSX-free so
    node --test exercises the "what's next" logic directly. The Bank top is 4
    ordered zones; the accent marks the ONE recommended next step from the Bank's
-   counters. ③ Curer is an optional refinement — never the accented step. */
+   counters. ③ Curate is an optional refinement — never the accented step.
+   `id` is the lookup key everywhere (zones, tests, next-step logic); `label`
+   is display-only, so it can be reworded without touching any caller. */
 
 export const BANK_ZONES = [
-  { id: 'analyze', order: 1, emoji: '①', label: 'Analyser' },
-  { id: 'triage', order: 2, emoji: '②', label: 'Trier' },
-  { id: 'curate', order: 3, emoji: '③', label: 'Curer' },
-  { id: 'promote', order: 4, emoji: '④', label: 'Promouvoir' },
+  { id: 'analyze', order: 1, emoji: '①', label: 'Analyze' },
+  { id: 'triage', order: 2, emoji: '②', label: 'Triage' },
+  { id: 'curate', order: 3, emoji: '③', label: 'Curate' },
+  { id: 'promote', order: 4, emoji: '④', label: 'Promote' },
 ];
 
 /* First match wins. `scoringAvailable` false = the Score pass can't run (no

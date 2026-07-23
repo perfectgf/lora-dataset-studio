@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-interface-fully-in-english',
+    date: '2026-07-23',
+    title: '🔤 The last French labels are gone',
+    blurb:
+      'A few corners of the app were still speaking French. The 🗃 Bank\'s four zones read ① Analyze, ② Triage, ③ Curate, ④ Promote instead of their French names, the Pexels language picker offers "French" rather than "Français", and the quotes wrapping model and checkpoint names in dialogs and banners are no longer French guillemets. Nothing moved and nothing was renamed under the hood — same zones, same buttons, same saved settings, just read in one language.',
+    to: '/bank',
+  },
+  {
     id: '2026-07-23-bank-cards-show-their-first-images',
     date: '2026-07-23',
     title: '🗃 Tell your banks apart at a glance',
@@ -342,7 +350,7 @@ export const WHATS_NEW = [
     date: '2026-07-20',
     title: '🧭 The Bank top is now a guided path, not a wall of buttons',
     blurb:
-      "The 🗃️ Bank's controls are now grouped into four ordered, labeled zones — ① Analyser, ② Trier, ③ Curer, ④ Promouvoir — that follow the natural workflow, and a subtle amber marker points at the recommended next step based on where your bank is (nothing scanned → Analyse; scored with images kept → Promote). Nothing is hidden — every control stays where you can reach it — it just finally reads as a path instead of a pile.",
+      "The 🗃️ Bank's controls are now grouped into four ordered, labeled zones — ① Analyze, ② Triage, ③ Curate, ④ Promote — that follow the natural workflow, and a subtle amber marker points at the recommended next step based on where your bank is (nothing scanned → Analyse; scored with images kept → Promote). Nothing is hidden — every control stays where you can reach it — it just finally reads as a path instead of a pile.",
     to: '/bank',
   },
   {

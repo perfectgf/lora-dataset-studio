@@ -196,11 +196,11 @@ export function describeCheckpointDelete(node, pill, { bestSettingsLora = null }
       : '⚠ This save is the one pinned as this dataset\'s ★ BEST SETTINGS in the Test Studio.', '');
   }
   if (target.kind === 'deployed') {
-    lines.push(`REMOVE FROM COMFYUI — « ${target.filename} »${step}?`, '',
+    lines.push(`REMOVE FROM COMFYUI — “${target.filename}”${step}?`, '',
       'Only the copy imported into ComfyUI goes to the trash (recoverable until you empty it in Settings).',
       'The training save in the run folder is KEPT — this frees no space there. Once removed, this checkpoint offers to delete that save instead.');
   } else {
-    lines.push(`DELETE THE TRAINING SAVE — « ${target.filename} »${step}?`, '',
+    lines.push(`DELETE THE TRAINING SAVE — “${target.filename}”${step}?`, '',
       'This is the run\'s own checkpoint file, not a ComfyUI copy (this checkpoint isn\'t imported).',
       'It goes to the trash — recoverable until you empty it in Settings.');
   }

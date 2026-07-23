@@ -600,7 +600,7 @@ export default function SetupPage() {
         { action: 'face_scoring', cap: 'face_scoring', icon: '🎭', title: 'Face-similarity scoring',
           body: 'Powers the "Analyze faces" pass: scores how closely each generated image resembles your reference photo, so you keep the ones that truly look like the person. It only ranks — it never deletes anything.' },
         { action: 'masks', cap: 'masks', icon: '🧍', title: 'Person masks',
-          body: 'Isolates the subject from the background for masked training: the décor is weighted down so the LoRA binds the identity to the person, not the room. A training without masks is still valid.' },
+          body: 'Isolates the subject from the background for masked training: the surroundings are weighted down so the LoRA binds the identity to the person, not the room. A training without masks is still valid.' },
         { action: 'watermark_inpaint', cap: 'watermark_inpaint', icon: '🧽', title: 'Watermark inpainting',
           body: 'Repaints small off-center watermarks (LaMa) during 🧽 Clean instead of only cropping border marks. It can use CUDA or CPU from Settings. Without it, off-center marks are skipped.' },
         { action: 'bank_scoring', cap: 'bank_scoring', icon: '✨', title: 'Bank scoring (aesthetic · NSFW · style)',

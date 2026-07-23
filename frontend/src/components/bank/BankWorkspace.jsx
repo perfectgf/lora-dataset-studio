@@ -170,7 +170,7 @@ function PassButton({ onClick, disabled, title, children }) {
 }
 
 // One numbered workflow zone: a labelled, collapsible section grouping the
-// controls of one step (① Analyser … ④ Promouvoir). `accented` draws a discreet
+// controls of one step (① Analyze … ④ Promote). `accented` draws a discreet
 // amber ring + "Next step" pill on the ONE zone nextBankStep recommends — purely
 // advisory: every zone stays open and clickable. Default expanded (nothing hidden).
 function ZoneSection({ zone, accented, children }) {
@@ -658,7 +658,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           onDismiss={() => setDismissedReportAt(payload.pipeline_report.finished_at)} />
       )}
 
-      {/* ① Analyser — run the analysis passes (or 🚀 Launch all) on the dump.
+      {/* ① Analyze — run the analysis passes (or 🚀 Launch all) on the dump.
           Grouping + accent only; every pass keeps its own endpoint/behaviour. */}
       <ZoneSection zone={analyzeZone} accented={activeStep === 'analyze'}>
       <div className="flex flex-wrap items-center gap-2">
@@ -742,7 +742,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       </div>
       </ZoneSection>
 
-      {/* ② Trier — browse by facet/cluster and Keep/Reject to decide what stays.
+      {/* ② Triage — browse by facet/cluster and Keep/Reject to decide what stays.
           Stays fully visible; density was never the complaint. */}
       <ZoneSection zone={triageZone} accented={activeStep === 'triage'}>
 
@@ -1013,7 +1013,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       </div>
       </ZoneSection>
 
-      {/* ③ Curer — optional refinement (diverse/similar/coverage). Always
+      {/* ③ Curate — optional refinement (diverse/similar/coverage). Always
           accessible, but never the accented "next step". */}
       <ZoneSection zone={curateZone} accented={false}>
 
@@ -1106,7 +1106,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       )}
       </ZoneSection>
 
-      {/* ④ Promouvoir — ship the kept set into a dataset, or clear rejects off
+      {/* ④ Promote — ship the kept set into a dataset, or clear rejects off
           disk. Same actions/handlers as before — just grouped as the last step. */}
       <ZoneSection zone={promoteZone} accented={activeStep === 'promote'}>
       <div className="flex flex-wrap items-center gap-2">

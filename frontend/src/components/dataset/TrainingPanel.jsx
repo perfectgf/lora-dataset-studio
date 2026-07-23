@@ -905,8 +905,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     const isBest = best?.lora_filename
       && String(best.lora_filename).split(/[\\/]/).pop() === String(filename).split(/[\\/]/).pop();
     const msg = isBest
-      ? `⚠ « ${label} » is the LoRA saved as this dataset's ★ BEST SETTINGS in the Test Studio.\n\nDelete it anyway? The saved combo will stop working.`
-      : `Permanently delete « ${label} » from ComfyUI's ${checkpointLorasLabel} folder?`;
+      ? `⚠ “${label}” is the LoRA saved as this dataset's ★ BEST SETTINGS in the Test Studio.\n\nDelete it anyway? The saved combo will stop working.`
+      : `Permanently delete “${label}” from ComfyUI's ${checkpointLorasLabel} folder?`;
     if (!window.confirm(msg)) return;
     await ds.deleteCheckpoint(filename, checkpointTrainType, checkpointVariant);
     loadCheckpoints();
@@ -1157,7 +1157,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         {status.in_progress
           ? <span className="ml-auto flex items-center gap-2">
               <span aria-live="polite" className="text-indigo-300 text-[0.6875rem]">
-                <span aria-hidden>⏳</span> {status.current?.name ? `« ${status.current.name} » running` : 'running'} — ComfyUI paused
+                <span aria-hidden>⏳</span> {status.current?.name ? `“${status.current.name}” running` : 'running'} — ComfyUI paused
               </span>
               {/* Full progress bar, loss curve and samples live on the Runs hub —
                   this panel's own TrainingProgress only covers THIS dataset. */}
@@ -1332,7 +1332,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <button type="button" disabled={queued || baseBlocksTrain} onClick={enqueue}
             title={baseBlocksTrain
               ? 'Convert the selected custom base first'
-              : `Train THIS dataset on « ${baseLabel} » once the current training finishes`}
+              : `Train THIS dataset on “${baseLabel}” once the current training finishes`}
             className="px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 text-sm font-semibold disabled:opacity-40">
             {queued ? '✓ Queued' : `➕ Add to queue (${baseLabel})`}
           </button>
@@ -1341,7 +1341,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             réglages eux-mêmes vivent dans « Advanced options ». */}
         <span className="ml-auto text-content-subtle text-[0.625rem]"
           title="The configuration the next run will use — change it in Advanced options below">
-          {sliderOn ? '🎚 slider (Beta) · ' : ''}base « {zimageRecipe?.baseLabel || baseLabel} »{zimageRecipe ? ` · ${zimageRecipe.adapterActive ? 'Turbo adapter v2 ON' : 'no training adapter'}` : ''} · {sliderOn ? 'unmasked (slider)' : maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {advResLabel} · {stepsOverride.trim() ? `${stepsN} steps` : sliderOn ? `${stepsInfo?.steps ?? 1000} steps (slider policy)` : 'adaptive steps'}{advNetworkType === 'lokr' ? ' · LoKr' : ''}{advEma ? ` · EMA ${advEma}` : ''}
+          {sliderOn ? '🎚 slider (Beta) · ' : ''}base “{zimageRecipe?.baseLabel || baseLabel}”{zimageRecipe ? ` · ${zimageRecipe.adapterActive ? 'Turbo adapter v2 ON' : 'no training adapter'}` : ''} · {sliderOn ? 'unmasked (slider)' : maskedRembgMissing ? 'unmasked (rembg missing)' : masked ? 'masked' : 'unmasked'} · {advResLabel} · {stepsOverride.trim() ? `${stepsN} steps` : sliderOn ? `${stepsInfo?.steps ?? 1000} steps (slider policy)` : 'adaptive steps'}{advNetworkType === 'lokr' ? ' · LoKr' : ''}{advEma ? ` · EMA ${advEma}` : ''}
         </span>
       </div>
 
@@ -2147,7 +2147,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   className="rounded border border-border bg-app/60 px-2 py-1 text-content text-[0.8125rem]" />
               </label>
               <span className="text-content-subtle text-[0.625rem]">
-                Base « {baseLabel} » — if another training is running at that time, it waits in the queue.
+                Base “{baseLabel}” — if another training is running at that time, it waits in the queue.
               </span>
               <button type="button" onClick={schedule} disabled={!schedAt}
                 className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
@@ -2406,7 +2406,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               })()}
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-content-muted text-[0.625rem] uppercase">
-                  {checkpointTypeLabel} checkpoints — base « {checkpointBaseLabel} » · {checkpointVariantDisplay} (pick the earliest one that holds the identity)
+                  {checkpointTypeLabel} checkpoints — base “{checkpointBaseLabel}” · {checkpointVariantDisplay} (pick the earliest one that holds the identity)
                 </span>
                 <button type="button" disabled={bestEpochBusy}
                   onClick={findBestEpoch}
@@ -2488,7 +2488,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   </button>
                   <button type="button"
                     onClick={async () => {
-                      if (!window.confirm(`Move « ${c.filename} » to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
+                      if (!window.confirm(`Move “${c.filename}” to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
                       const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
                         { filename: c.filename, ...trainingRunSelection(checkpointBase, checkpointTrainType, checkpointVariant) });
                       if (d.ok === false) toastTrainError(d, 'Delete failed');
@@ -2596,7 +2596,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                       {!c.active && (
                         <button type="button"
                           onClick={async () => {
-                            if (!window.confirm(`Move « ${c.filename} » to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
+                            if (!window.confirm(`Move “${c.filename}” to the trash?\n\nRecoverable until you empty the trash in Settings.`)) return;
                             const d = await postTrain(`/api/dataset/${ds.currentId}/train/run-checkpoint/delete`,
                               { filename: c.filename, cloud_run_id: c.run_id,
                                 ...trainingRunSelection(checkpointBase, checkpointTrainType, c.variant || checkpointVariant) });
@@ -2617,7 +2617,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
 
           {ckLoaded && checkpoints.length === 0 && cloudCkpts.length === 0 && !status.in_progress && (
             <p className="m-0 text-content-subtle text-[0.625rem]">
-              No {checkpointTypeLabel} checkpoint for base « {checkpointBaseLabel} » · {checkpointVariantDisplay} — run this exact recipe first.
+              No {checkpointTypeLabel} checkpoint for base “{checkpointBaseLabel}” · {checkpointVariantDisplay} — run this exact recipe first.
             </p>
           )}
 
