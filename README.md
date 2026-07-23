@@ -202,6 +202,20 @@ Same one-click flow either way, and every feature **degrades gracefully** — it
 
 ---
 
+### ❤️ All of that is free, and stays free
+
+No paid tier, no account, no tracker, nothing gated behind a donation — and that
+won't change. It's one person's personal time, and the paid engines and cloud
+training lanes above only get tested because someone pays for the API credits and
+the rented GPUs.
+
+If this saves you an afternoon, [**buy a coffee on Ko-fi**](https://ko-fi.com/perfectgf)
+or [**sponsor on GitHub**](https://github.com/sponsors/perfectgf). Can't chip in?
+A ⭐ on the repo, a precise bug report, or an idea on [Discord](https://discord.gg/j6hnJBFtXE)
+helps just as much — [more on that below](#support-the-project).
+
+---
+
 ## The pipeline, at a glance
 
 This README follows the app itself: the road you actually walk, from an empty dataset to a ranked, exported LoRA. Each stop below links to the section that details it — read top to bottom, or jump straight to the step you're on.
