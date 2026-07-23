@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   bankImportOption, bankImportOptions, promotableUrl, promoteUrl, promoteAllBody,
-  isBankJobLive, bankActivity, promoteOutcome,
+  banksUrl, promotableCounts, isBankJobLive, bankActivity, promoteOutcome,
 } from './bankImport.js';
 
 // A bank that was scanned but never triaged: everything is still undecided.
@@ -98,14 +98,41 @@ test('the end-of-job message repeats the server, it never invents a number', () 
   assert.equal(promoteOutcome({}).text, 'Import finished.');
 });
 
+test('the bank list carries the target so the counts come back with it', () => {
+  assert.equal(banksUrl(42), '/api/banks?dataset_id=42');
+  assert.equal(banksUrl('42'), '/api/banks?dataset_id=42', 'ids are coerced');
+});
+
+test('counts are read off the list, and a bank without one stays unknown', () => {
+  const banks = [
+    { id: 3, promotable: 12 },
+    { id: 4, promotable: 0 },
+    { id: 5 },                  // server omitted it — we do NOT invent a 0
+  ];
+  assert.deepEqual(promotableCounts(banks), { 3: 12, 4: 0 });
+  assert.deepEqual(promotableCounts([]), {});
+  assert.deepEqual(promotableCounts(undefined), {});
+  // …and the unknown one renders as "Counting…", not as an empty bank.
+  const [, , unknown] = bankImportOptions(banks, promotableCounts(banks));
+  assert.equal(unknown.reason, 'loading');
+  assert.equal(unknown.ready, false);
+});
+
 // ---- wiring guards on the panel (JSX can't be imported by node --test) ------
 
 const panel = readFileSync(new URL('./BankImportPanel.jsx', import.meta.url), 'utf8');
 
 test('the panel goes through the shared route helpers, not hand-built URLs', () => {
-  assert.match(panel, /promotableUrl\(/);
+  assert.match(panel, /banksUrl\(/);
   assert.match(panel, /promoteUrl\(/);
   assert.doesNotMatch(panel, /`\/api\/bank\/\$\{[^}]+\}\/promote/);
+});
+
+test('the chooser reads its counts off the bank list, one request for all banks', () => {
+  // Opening the panel on a library of N banks must not cost N /promotable calls.
+  assert.doesNotMatch(panel, /promotableUrl/);
+  assert.doesNotMatch(panel, /apiFetch\('\/api\/banks'\)/);
+  assert.match(panel, /promotableCounts\(/);
 });
 
 test('the promote POST is caught — postJson throws on 400/409', () => {

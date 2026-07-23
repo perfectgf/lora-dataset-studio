@@ -14,10 +14,31 @@
    A bare "nothing to promote" conflates the two and has cost real time before,
    hence the explicit reason codes below. */
 
-/** GET route for the honest per-target count. dataset_id is REQUIRED: the count
- *  is per dataset (an image promoted to ANOTHER dataset still counts here). */
+/** GET route for the honest per-target count of ONE bank. dataset_id is
+ *  REQUIRED: the count is per dataset (an image promoted to ANOTHER dataset
+ *  still counts here). Used by the bank page's own promote dialog, which only
+ *  ever asks about the bank it has open. */
 export const promotableUrl = (bankId, datasetId) =>
   `/api/bank/${Number(bankId)}/promotable?dataset_id=${Number(datasetId)}`;
+
+/** The chooser's ONE request: the bank list, with every bank's promotable count
+ *  for this dataset embedded. Asking /promotable per bank instead would cost
+ *  1 + N requests to open a panel — the counts are all read from the same table
+ *  in one grouped query server-side, so they come back together or not at all. */
+export const banksUrl = (datasetId) =>
+  `/api/banks?dataset_id=${Number(datasetId)}`;
+
+/** bank id → promotable count, read off a /api/banks?dataset_id= payload.
+ *  A row WITHOUT the field is left out (not defaulted to 0): "we don't know" and
+ *  "nothing to import" say different things to the user, and bankImportOption
+ *  renders the first as "Counting…" rather than a wrong "no kept images". */
+export function promotableCounts(banks) {
+  const out = {};
+  for (const b of banks || []) {
+    if (b && b.promotable != null) out[b.id] = Number(b.promotable);
+  }
+  return out;
+}
 
 /** POST route that starts the background promote job. */
 export const promoteUrl = (bankId) => `/api/bank/${Number(bankId)}/promote`;

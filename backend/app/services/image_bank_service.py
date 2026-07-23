@@ -456,12 +456,20 @@ def _load_pipeline_report(bank: ImageBank):
         return None
 
 
-def list_banks(user_id) -> list:
+def list_banks(user_id, dataset_id=None) -> list:
+    """Every bank of the user, newest first, with its triage counters, the ids
+    of its card preview images — and, when ``dataset_id`` is given, how many
+    kept images each bank would promote into THAT dataset (``promotable``).
+
+    The promotable counts ride along on purpose: the dataset-side bank chooser
+    used to ask /bank/<id>/promotable once per bank, so a library of 12 banks
+    cost 13 requests to open one panel. One grouped query answers them all."""
+    promotable = _promotable_counts(user_id, dataset_id) if dataset_id is not None else None
     out = []
     for bank in (ImageBank.query.filter_by(user_id=user_id)
                  .order_by(ImageBank.created_at.desc()).all()):
         base = BankImage.query.filter_by(bank_id=bank.id)
-        out.append({
+        row = {
             'id': bank.id, 'name': bank.name, 'source_path': bank.source_path,
             'created_at': bank.created_at.isoformat() if bank.created_at else None,
             'total': base.count(),
@@ -470,8 +478,33 @@ def list_banks(user_id) -> list:
             'scanned': base.filter(BankImage.quality_state.isnot(None)).count(),
             'preview_ids': _preview_ids(bank.id),
             'activity': bank_jobs.get(bank.id),
-        })
+        }
+        if promotable is not None:
+            row['promotable'] = promotable.get(bank.id, 0)
+        out.append(row)
     return out
+
+
+def _promotable_counts(user_id, dataset_id) -> dict | None:
+    """{bank_id: promotable count} for EVERY bank at once — the batched form of
+    promotable_count(), same eligibility rule (see _promotable_query). None when
+    the dataset is gone or the id is junk, so the caller omits the field rather
+    than publishing zeros it can't stand behind. Banks with nothing eligible are
+    absent from the mapping; list_banks reads them as 0."""
+    try:
+        dataset_id = int(dataset_id)
+    except (TypeError, ValueError):
+        return None
+    if not FaceDataset.query.filter_by(id=dataset_id, user_id=user_id).first():
+        return None
+    rows = (db.session.query(BankImage.bank_id, func.count(BankImage.id))
+            .join(ImageBank, ImageBank.id == BankImage.bank_id)
+            .filter(ImageBank.user_id == user_id,
+                    BankImage.status == 'keep',
+                    or_(BankImage.promoted_dataset_id.is_(None),
+                        BankImage.promoted_dataset_id != dataset_id))
+            .group_by(BankImage.bank_id).all())
+    return {bank_id: n for bank_id, n in rows}
 
 
 PREVIEW_COUNT = 5

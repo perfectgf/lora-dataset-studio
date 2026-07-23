@@ -165,6 +165,36 @@ def test_banks_list_preview_empty_for_imageless_bank(client, tmp_path):
     assert client.get('/api/banks').get_json()['banks'][0]['preview_ids'] == []
 
 
+def test_banks_list_batches_the_promotable_counts(client, tmp_path, app):
+    """?dataset_id= embeds every bank's per-target promotable count in the LIST,
+    so the dataset-side bank chooser opens on one request instead of one per
+    bank. Same numbers as /bank/<id>/promotable, which stays for single asks."""
+    b1, _ = _mkbank(client, tmp_path / 'one', {'a.jpg': flat(), 'b.jpg': flat(80)}, name='B1')
+    b2, _ = _mkbank(client, tmp_path / 'two', {'c.jpg': flat(160)}, name='B2')
+    with app.app_context():
+        from app.services import face_dataset_service as svc
+        ds = svc.create_dataset('local', 'Target', 'dstgt').id
+    ids1 = [i['id'] for i in client.get(f'/api/bank/{b1}/images').get_json()['images']]
+    client.post(f'/api/bank/{b1}/images/status', json={'ids': ids1, 'status': 'keep'})
+
+    rows = {b['id']: b for b in
+            client.get(f'/api/banks?dataset_id={ds}').get_json()['banks']}
+    assert rows[b1]['promotable'] == 2
+    assert rows[b2]['promotable'] == 0          # nothing kept -> explicit zero
+    for bank_id in (b1, b2):
+        single = client.get(
+            f'/api/bank/{bank_id}/promotable?dataset_id={ds}').get_json()
+        assert single['count'] == rows[bank_id]['promotable']
+
+    # No dataset_id, or one that doesn't exist: the field is OMITTED rather than
+    # zeroed — "unknown" and "nothing to import" must not look the same.
+    plain = client.get('/api/banks').get_json()['banks']
+    assert all('promotable' not in b for b in plain)
+    for bad in (f'{ds + 999}', 'abc', ''):
+        got = client.get(f'/api/banks?dataset_id={bad}').get_json()['banks']
+        assert all('promotable' not in b for b in got), bad
+
+
 # --- quality scan ------------------------------------------------------------
 def test_scan_scores_flags_and_unreadable(client, tmp_path):
     bank_id, src = _mkbank(client, tmp_path, {

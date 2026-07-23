@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiFetch, postJson } from '../../api/fetchClient';
 import { useToast } from '../common/Toast';
 import {
-  bankImportOptions, promotableUrl, promoteUrl, promoteAllBody,
+  bankImportOptions, banksUrl, promotableCounts, promoteUrl, promoteAllBody,
   isBankJobLive, bankActivity, promoteOutcome,
 } from './bankImport.js';
 
@@ -30,40 +30,28 @@ export default function BankImportPanel({ datasetId, onImported, disabled = fals
   const [watching, setWatching] = useState(null);
   const wasLive = useRef(false);
 
+  // ONE request for the whole chooser: the counts are per-target, so they ride
+  // along on /api/banks?dataset_id= instead of costing a /promotable per bank.
+  // Refetched whenever the panel reopens (a triage pass changes them).
   const loadBanks = useCallback(async () => {
     try {
-      const d = await apiFetch('/api/banks');
-      setBanks(d.banks || []);
-      return d.banks || [];
+      const d = await apiFetch(banksUrl(datasetId));
+      const rows = d.banks || [];
+      setBanks(rows);
+      setCounts(promotableCounts(rows));
+      return rows;
     } catch (e) {
       toast.error(e?.message || 'Could not load the banks.');
       setBanks([]);
       return [];
     }
-  }, [toast]);
-
-  // Counts are per-target, so they are fetched for THIS dataset and refetched
-  // whenever the panel reopens (a triage pass on the bank changes them).
-  const loadCounts = useCallback(async (rows) => {
-    if (!datasetId) return;
-    const pairs = await Promise.all((rows || []).map(async (b) => {
-      try {
-        const d = await apiFetch(promotableUrl(b.id, datasetId));
-        return [b.id, Number(d.count || 0)];
-      } catch {
-        return null;   // a bank that vanished mid-load simply stays "Counting…"
-      }
-    }));
-    setCounts(Object.fromEntries(pairs.filter(Boolean)));
-  }, [datasetId]);
+  }, [toast, datasetId]);
 
   useEffect(() => {
     if (!open) return;
-    let live = true;
-    setCounts({});
-    loadBanks().then((rows) => { if (live) loadCounts(rows); });
-    return () => { live = false; };
-  }, [open, loadBanks, loadCounts]);
+    setCounts({});      // back to "Counting…" rather than the previous target's numbers
+    loadBanks();
+  }, [open, loadBanks]);
 
   // ---- follow the background job (same snapshot the bank page polls) --------
   useEffect(() => {
@@ -72,13 +60,16 @@ export default function BankImportPanel({ datasetId, onImported, disabled = fals
     const tick = async () => {
       let rows;
       try {
-        const d = await apiFetch('/api/banks');
+        // Same URL as the initial load: the poll refreshes the counts for free,
+        // so the chooser is already right the moment the job reports done.
+        const d = await apiFetch(banksUrl(datasetId));
         rows = d.banks || [];
       } catch {
         return;   // transient — the next tick retries
       }
       if (!live) return;
       setBanks(rows);
+      setCounts(promotableCounts(rows));
       const act = bankActivity(rows, watching);
       if (isBankJobLive(act)) { wasLive.current = true; return; }
       // Gone or finished: the job is over. Report it with the SERVER's own words.
@@ -87,14 +78,13 @@ export default function BankImportPanel({ datasetId, onImported, disabled = fals
         const outcome = promoteOutcome(act);
         if (outcome) toast[outcome.kind]?.(outcome.text);
         onImported?.();
-        loadCounts(rows);
       }
       setWatching(null);
     };
     const t = setInterval(tick, 2000);
     tick();
     return () => { live = false; clearInterval(t); };
-  }, [watching, toast, onImported, loadCounts]);
+  }, [watching, toast, onImported, datasetId]);
 
   const rows = bankImportOptions(banks, counts);
   const current = rows.find((r) => String(r.id) === String(chosen)) || null;

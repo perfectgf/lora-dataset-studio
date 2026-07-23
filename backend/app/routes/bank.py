@@ -25,7 +25,12 @@ def _app():
 
 @bp.get('/banks')
 def banks_list():
-    return jsonify({'banks': banks.list_banks(LOCAL_USER)})
+    """Every bank + its card previews. ?dataset_id=<id> additionally embeds each
+    bank's promotable count for that dataset, so the dataset-side bank chooser
+    opens on ONE request instead of one per bank. An unknown/junk dataset_id
+    simply omits the field (never a 400: the list itself is still valid)."""
+    return jsonify({'banks': banks.list_banks(
+        LOCAL_USER, dataset_id=request.args.get('dataset_id') or None)})
 
 
 @bp.post('/bank/create')
