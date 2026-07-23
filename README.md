@@ -10,9 +10,9 @@
 
 ### ▶️ Watch the whole thing, start to finish
 
-A real Character LoRA built end to end, unedited and in one take: reference photo
+A real Character LoRA built end to end (show case), unedited and in one take: reference photo
 in, shot list generated, grid curated, captions written, Krea 2 training launched
-in the cloud, checkpoints ranked in the Test Studio. Seven minutes, no narration —
+in the cloud. Seven minutes, no narration —
 just the actual clicks.
 
 https://github.com/user-attachments/assets/d51ff89c-34e9-41a9-b47d-08939a8c867b
