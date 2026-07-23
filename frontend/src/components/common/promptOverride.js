@@ -88,9 +88,12 @@ export const EXTRA_REF_PROMPT_KEYS = ['face_multi', 'klein_identity'];
 
 /** Which of the two the currently selected engine actually uses.
  *  `generator` is the workspace's persisted engine id (localStorage
- *  `datasetGenerator`, same source VariationCatalog reads); anything that is
- *  not one of the two API engines is Klein, exactly like VariationCatalog. */
+ *  `datasetGenerator`, the same source VariationCatalog reads). The mapping
+ *  MIRRORS VariationCatalog exactly, or the badge would point at the wrong box:
+ *  nothing stored yet falls back to 'nanobanana' (its useState default), and any
+ *  other value — including a legacy/unknown one — is Klein (its `isKlein` is
+ *  "neither API engine"). */
 export function activeExtraRefPromptKey(generator) {
-  const g = String(generator || '').toLowerCase();
+  const g = String(generator || 'nanobanana').toLowerCase();
   return g === 'nanobanana' || g === 'chatgpt' ? 'face_multi' : 'klein_identity';
 }

@@ -75,8 +75,10 @@ test('the "used by your current engine" badge follows the selected generator', (
   assert.equal(activeExtraRefPromptKey('nanobanana'), 'face_multi');
   assert.equal(activeExtraRefPromptKey('chatgpt'), 'face_multi');
   assert.equal(activeExtraRefPromptKey('klein'), 'klein_identity');
-  // unknown / legacy / empty fails over to Klein — same rule as VariationCatalog
-  assert.equal(activeExtraRefPromptKey(''), 'klein_identity');
-  assert.equal(activeExtraRefPromptKey(null), 'klein_identity');
+  // MIRRORS VariationCatalog: nothing stored yet = its 'nanobanana' default...
+  assert.equal(activeExtraRefPromptKey(''), 'face_multi');
+  assert.equal(activeExtraRefPromptKey(null), 'face_multi');
+  assert.equal(activeExtraRefPromptKey(undefined), 'face_multi');
+  // ...and any other value is Klein (its isKlein = "neither API engine")
   assert.equal(activeExtraRefPromptKey('legacy-engine'), 'klein_identity');
 });
