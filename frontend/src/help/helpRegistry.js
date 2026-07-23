@@ -235,6 +235,11 @@ const TOPICS = [
      'deploy lora', 'use this checkpoint', 'graph import', 'pill import', 'comfyui',
      'view preview large', 'zoom preview', 'lightbox', 'graph view', 'default view'],
     '/datasets?section=checkpoints', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  action('lineage-delete-checkpoint', 'Delete a checkpoint from the graph',
+    ['delete checkpoint', 'delete save', 'remove checkpoint', 'trash checkpoint',
+     'free disk space', 'too many epochs', 'graph delete', 'pill delete',
+     'does it delete my lora', 'imported lora kept', 'best settings warning'],
+    '/datasets?section=checkpoints', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
 
   // ---- Settings: per-field topics (kind 'setting') -----------------------
   // engines

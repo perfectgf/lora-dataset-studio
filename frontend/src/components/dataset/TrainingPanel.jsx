@@ -2351,6 +2351,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               {datasetGraph?.tree && (
                 Array.isArray(datasetGraph.tree.nodes) && datasetGraph.tree.nodes.length
                   ? <RunLineageGraph tree={datasetGraph.tree}
+                      // Same ★ best-settings guard-rail as the flat list's 🗑:
+                      // the pill's delete warns loudly when it would unpin the
+                      // Studio's saved winning combo.
+                      bestSettingsLora={ds.data?.best_settings?.lora_filename || null}
                       // Same pill gesture as the Runs hub, served by this panel's
                       // Continue dialog: 'any' lets a local run's save offer it too.
                       // Gated on the checkpoint selection matching Training (the

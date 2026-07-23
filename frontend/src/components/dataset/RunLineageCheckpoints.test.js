@@ -122,3 +122,28 @@ test('the ◉ Graph button is the prominent (accent) view control', () => {
   // On the Runs hub the graph toggle wears the indigo accent, not a bare grey.
   assert.match(cloud, /border-indigo-400\/40 bg-indigo-500\/10 text-indigo-200/);
 });
+
+test('the pill popover can trash THIS run save — right route, cloud id, ★ warning', () => {
+  // The RUN checkpoint route, never the deployed-LoRA one (train/checkpoint/delete
+  // removes the ComfyUI copy — a different file, a different intent).
+  assert.match(graph, /train\/run-checkpoint\/delete/);
+  assert.doesNotMatch(graph, /train\/checkpoint\/delete/);
+  // Body + gate come from the JSX-free helpers (unit-tested in lineagePreview.test.js),
+  // so a cloud pill always rides its cloud_run_id instead of a re-invented body.
+  assert.match(graph, /lineageDeletePayload, describeCheckpointDelete, checkpointDeletable,/);
+  assert.match(graph, /const body = lineageDeletePayload\(node, pill\);/);
+  assert.match(graph, /checkpointDeletable\(openCk\.node, openCk\.pill\)/);
+  // Confirmed, and the ★ best-settings pin reaches the confirmation text.
+  assert.match(graph, /describeCheckpointDelete\(node, pill, \{ bestSettingsLora \}\)/);
+  assert.match(graph, /if \(!window\.confirm\(message\)\) return;/);
+  // postJson THROWS on 400/409 — the server's own message must be shown, not eaten.
+  assert.match(graph, /catch \(e\) \{\s*toast\.error\(e\?\.message \|\| 'Delete failed'\);/);
+  // The pill must disappear: same refetch path the import success uses.
+  assert.match(graph, /toast\.success\(`Moved to the trash[^]*?refetchTree\(\)/);
+});
+
+test('the dataset panel feeds the graph the ★ best-settings pin', () => {
+  assert.match(panel, /bestSettingsLora=\{ds\.data\?\.best_settings\?\.lora_filename \|\| null\}/);
+  const tree = fs.readFileSync(new URL('./RunLineageTree.jsx', import.meta.url), 'utf8');
+  assert.match(tree, /bestSettingsLora=\{bestSettingsLora\}/);
+});

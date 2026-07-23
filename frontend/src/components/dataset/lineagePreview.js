@@ -83,6 +83,80 @@ export function lineageImportPayload(node, pill) {
   return body;
 }
 
+/* The POST /api/dataset/<id>/train/run-checkpoint/delete body for trashing ONE
+   save straight from a graph pill. Deliberately the SAME shape as the import
+   payload (that's what the flat checkpoint list sends), because the server
+   resolves the file the same way: a cloud pill by cloud_run_id + filename, a
+   local pill by base_model/train_type/variant + filename. Returns null when
+   there's no file to delete, or a cloud node whose run isn't resolved — sending
+   it without cloud_run_id would make the server look for a LOCAL file of that
+   name, i.e. delete the wrong thing (or nothing).
+
+   ⚠ This route trashes the RUN's save. The LoRA already imported into ComfyUI is
+   a separate file removed by a separate route (train/checkpoint/delete). */
+export function lineageDeletePayload(node, pill) {
+  if (!node || !pill || !pill.filename) return null;
+  const body = {
+    filename: pill.filename,
+    base_model: node.base_model ?? '',
+    train_type: node.train_type,
+    variant: node.variant,
+  };
+  if (node.source === 'cloud') {
+    if (node.run_id == null) return null;
+    body.cloud_run_id = node.run_id;
+  }
+  return body;
+}
+
+/* A cloud run still going: its pod keeps syncing epochs down, so trashing one of
+   its saves would be undone (or race the sync). The flat checkpoint list hides
+   its 🗑 for exactly these runs — mirrored here so both views agree. */
+const CLOUD_ACTIVE_STATES = ['preparing', 'provisioning', 'uploading', 'training',
+  'downloading', 'terminating'];
+
+/* Can this pill offer "Delete this save"? Only when there IS a file (a `gone`
+   pill has nothing left to trash), the delete body resolves, and the run isn't
+   a cloud run still in flight. The server keeps the authoritative guards (it
+   refuses while THIS dataset trains locally, and only accepts filenames it
+   listed itself) — this is the honest front gate, not a substitute. */
+export function checkpointDeletable(node, pill) {
+  if (!node || !pill || pill.present === false) return false;
+  if (!lineageDeletePayload(node, pill)) return false;
+  if (node.source === 'cloud' && CLOUD_ACTIVE_STATES.includes(node.status)) return false;
+  return true;
+}
+
+/* Is this checkpoint the one pinned as the dataset's ★ best settings in the Test
+   Studio? Compared on the BASENAME, exactly like the flat list's guard-rail: the
+   pin stores the deployed LoRA's path, the pill stores the run-dir filename, and
+   the import keeps the name. Unknown pin (not loaded on this mount) → false. */
+export function checkpointIsBestSettings(pill, bestSettingsLora) {
+  if (!pill || !pill.filename || !bestSettingsLora) return false;
+  const tail = (s) => String(s).split(/[\\/]/).pop();
+  return tail(bestSettingsLora) === tail(pill.filename);
+}
+
+/* The confirmation text for trashing a checkpoint from the graph. Says the three
+   things that change how risky this feels:
+     1. it goes to the TRASH (recoverable until emptied in Settings);
+     2. a LoRA already imported into ComfyUI is NOT removed by this;
+     3. a ⚠ header when the checkpoint is the pinned ★ best settings.
+   Pure, so the wording is unit-tested rather than eyeballed in a popover. */
+export function describeCheckpointDelete(node, pill, { bestSettingsLora = null } = {}) {
+  const isBest = checkpointIsBestSettings(pill, bestSettingsLora);
+  const what = `« ${pill?.filename || 'this save'} »${pill?.step != null ? ` (step ${pill.step})` : ''}`;
+  const lines = [];
+  if (isBest) {
+    lines.push('⚠ This save is the one pinned as this dataset\'s ★ BEST SETTINGS in the Test Studio.',
+      '');
+  }
+  lines.push(`Move ${what} to the trash?`, '',
+    'Recoverable until you empty the trash in Settings.',
+    'This removes the RUN\'s save only — a copy already imported into ComfyUI stays where it is.');
+  return { isBest, message: lines.join('\n') };
+}
+
 /* Parse the shared seed field: a blank/whitespace value means "let the engine
    pick one" (null); a valid non-negative integer is used as-is; anything else is
    rejected (returns { error }) so a typo never silently reseeds the comparison. */

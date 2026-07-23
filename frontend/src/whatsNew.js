@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-delete-a-save-from-the-graph',
+    date: '2026-07-23',
+    title: '🗑 Drop a checkpoint straight from the lineage graph',
+    blurb:
+      'A run that saved every epoch fills the disk fast, and until now the only way to get rid of one was to leave the graph, switch to the flat list and hunt the filename down. Click any checkpoint pill in the graph and its actions now end with a quiet "Delete this save" — deliberately understated, always confirmed, and it tells you exactly what happens: the save goes to the trash (recoverable until you empty it in Settings) and a copy you already imported into ComfyUI is left untouched. If the checkpoint is the one pinned as the dataset\'s ★ best settings in the Test Studio, the confirmation says so first. Cloud saves are deleted on the right run, and a run still training keeps its saves.',
+    to: '/datasets?section=training',
+  },
+  {
     id: '2026-07-23-grid-filter-by-decision',
     date: '2026-07-23',
     title: '🔎 Show only what still needs a ✓/✕',

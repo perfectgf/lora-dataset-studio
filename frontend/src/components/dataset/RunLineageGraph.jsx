@@ -14,6 +14,7 @@ import {
   checkpointKey, toggleCheckpointSelection, selectedCheckpointRefs,
   describePreviewSelection, parseSeedInput,
   checkpointDeployed, lineageImportPayload,
+  lineageDeletePayload, describeCheckpointDelete, checkpointDeletable,
 } from './lineagePreview.js';
 
 /* ◉ Graph view of a run's lineage — the showcase rendering. A tidy left-to-right
@@ -201,7 +202,7 @@ function CheckpointPill({ pill, offX, offY, active, selected, preview, big, onOp
 }
 
 export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint,
-  continueSource = 'cloud', refetchTree }) {
+  continueSource = 'cloud', refetchTree, bestSettingsLora = null }) {
   const toast = useToast();
   // Runs removed in-session (a gone run deleted from the detail panel) drop from
   // the graph without a full refetch; children re-root via removeRunFromTree.
@@ -230,6 +231,8 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint,
   const closePopover = useCallback(() => setOpenCk(null), []);
   // 📦 Deploying a checkpoint straight from its pill popover (Import → loras/…).
   const [importing, setImporting] = useState(false);
+  // 🗑 Trashing a checkpoint from that same popover (destructive → confirmed).
+  const [deleting, setDeleting] = useState(false);
   // A preview thumbnail opened LARGE in a lightbox: { url, step } | null.
   const [bigPreview, setBigPreview] = useState(null);
   const zoomPreview = useCallback((url, step) => setBigPreview({ url, step }), []);
@@ -342,6 +345,33 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint,
       setImporting(false);
     }
   }, [datasetId, refetchTree, mergeFromTree, toast]);
+
+  // 🗑 Trash THIS save from its pill — the run's checkpoint file, NOT the LoRA
+  // deployed in ComfyUI (a separate file behind a separate route; the confirm
+  // says so, otherwise "delete" reads as "lose everything"). Same route and body
+  // as the flat list's 🗑, so a cloud pill rides its cloud_run_id and a local one
+  // its base/family/variant. postJson THROWS on 400/409 (e.g. the server's "this
+  // dataset is training right now"), so the catch shows the server's own words.
+  // On success the lineage is refetched: the pill disappears from the graph.
+  const handleDeleteCheckpoint = useCallback(async (node, pill) => {
+    const body = lineageDeletePayload(node, pill);
+    if (datasetId == null || !body) return;
+    const { message } = describeCheckpointDelete(node, pill, { bestSettingsLora });
+    if (!window.confirm(message)) return;
+    setDeleting(true);
+    try {
+      await postJson(`/api/dataset/${datasetId}/train/run-checkpoint/delete`, body);
+      toast.success(`Moved to the trash: ${pill.filename}`);
+      setOpenCk(null);
+      if (typeof refetchTree === 'function') {
+        try { const t = await refetchTree(); if (t) mergeFromTree(t); } catch { /* it is deleted server-side */ }
+      }
+    } catch (e) {
+      toast.error(e?.message || 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  }, [datasetId, bestSettingsLora, refetchTree, mergeFromTree, toast]);
 
   const handleGenerate = useCallback(async () => {
     const refs = selectedCheckpointRefs(selectedCk, pillByKey);
@@ -633,7 +663,9 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint,
             Flips ABOVE the pill when there's no room below (bottom rows), and is
             clamped horizontally, so the scroll panel never clips it. */}
         {openCk && (() => {
-          const POP_W = 210, POP_H = 152;
+          // Height budget grew with the 🗑 row, so the flip-above / clamp
+          // geometry still keeps the whole popover inside the scroll panel.
+          const POP_W = 210, POP_H = 182;
           const below = openCk.pill.y + openCk.pill.h + 4;
           const py = below + POP_H > g.height ? Math.max(0, openCk.pill.y - POP_H - 4) : below;
           const px = Math.max(0, Math.min(openCk.pill.x, g.width - POP_W));
@@ -686,6 +718,18 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint,
                     <span aria-hidden>📦</span> {importing ? 'Importing…' : `Import → ${loraFolderLabel(openCk.node.train_type)}`}
                   </button>
                 ) : null}
+                {/* 🗑 Destructive, so VISUALLY IN RETREAT below a hairline: a
+                    quiet text row, not a fourth coloured button one clicks by
+                    reflex. It trashes the RUN's save; anything already imported
+                    into ComfyUI stays (the confirm spells both out). */}
+                {checkpointDeletable(openCk.node, openCk.pill) && (
+                  <button type="button" disabled={deleting}
+                    onClick={() => handleDeleteCheckpoint(openCk.node, openCk.pill)}
+                    title="Move this run's save to the trash (recoverable until you empty it in Settings). A copy already imported into ComfyUI is not touched."
+                    className="mt-1 flex items-center gap-1.5 border-t border-border px-2 pt-1.5 pb-0.5 text-left text-content-subtle text-[0.625rem] hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50">
+                    <span aria-hidden>🗑</span> {deleting ? 'Deleting…' : 'Delete this save'}
+                  </button>
+                )}
               </div>
             </div>
           </foreignObject>

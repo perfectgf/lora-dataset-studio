@@ -4,6 +4,8 @@ import {
   checkpointKey, toggleCheckpointSelection, selectedCheckpointRefs,
   describePreviewSelection, parseSeedInput,
   checkpointDeployed, lineageImportPayload,
+  lineageDeletePayload, checkpointDeletable, checkpointIsBestSettings,
+  describeCheckpointDelete,
 } from './lineagePreview.js';
 
 const pills = new Map([
@@ -100,4 +102,65 @@ test('parseSeedInput: blank → null (engine picks), int → number, junk → er
   assert.ok(parseSeedInput('-1').error);
   assert.ok(parseSeedInput('1.5').error);
   assert.ok(parseSeedInput('abc').error);
+});
+
+// --- 🗑 Delete this save (graph popover) -----------------------------------
+
+test('lineageDeletePayload: a cloud pill carries its cloud_run_id', () => {
+  const node = { source: 'cloud', run_id: 42, train_type: 'zimage', variant: 'base', base_model: '' };
+  const body = lineageDeletePayload(node, { step: 2000, filename: 'e2000.safetensors' });
+  assert.equal(body.cloud_run_id, 42);
+  assert.equal(body.filename, 'e2000.safetensors');
+});
+
+test('lineageDeletePayload: a local pill carries base/family/variant, no run id', () => {
+  const node = { source: 'local', train_type: 'sdxl', variant: 'base', base_model: 'sd_xl_base.safetensors' };
+  const body = lineageDeletePayload(node, { step: 1000, filename: 'lora_001000.safetensors' });
+  assert.equal('cloud_run_id' in body, false);
+  assert.deepEqual(body, {
+    filename: 'lora_001000.safetensors',
+    base_model: 'sd_xl_base.safetensors', train_type: 'sdxl', variant: 'base',
+  });
+});
+
+test('lineageDeletePayload: null rather than a body that would hit the wrong file', () => {
+  assert.equal(lineageDeletePayload(null, { filename: 'x' }), null);
+  assert.equal(lineageDeletePayload({ source: 'local' }, { step: 1 }), null);   // no filename
+  // a cloud node with no resolved run would be deleted as a LOCAL file — refuse
+  assert.equal(lineageDeletePayload({ source: 'cloud', run_id: null }, { filename: 'x' }), null);
+});
+
+test('checkpointDeletable: gone pills and in-flight cloud runs offer nothing', () => {
+  const local = { source: 'local', train_type: 'sdxl', variant: 'base', base_model: 'b' };
+  assert.equal(checkpointDeletable(local, { step: 1, filename: 'a.safetensors' }), true);
+  assert.equal(checkpointDeletable(local, { step: 1, filename: 'a.safetensors', present: false }), false);
+  const training = { source: 'cloud', run_id: 7, status: 'training', train_type: 'zimage' };
+  assert.equal(checkpointDeletable(training, { step: 1, filename: 'a.safetensors' }), false);
+  const done = { source: 'cloud', run_id: 7, status: 'done', train_type: 'zimage' };
+  assert.equal(checkpointDeletable(done, { step: 1, filename: 'a.safetensors' }), true);
+});
+
+test('checkpointIsBestSettings matches on the basename, both sides', () => {
+  const pill = { filename: 'lora_001000.safetensors' };
+  assert.equal(checkpointIsBestSettings(pill, 'loras/zimage/lora_001000.safetensors'), true);
+  const winPath = ['C:', 'loras', 'lora_001000.safetensors'].join(String.fromCharCode(92));
+  assert.equal(checkpointIsBestSettings(pill, winPath), true);
+  assert.equal(checkpointIsBestSettings(pill, 'lora_002000.safetensors'), false);
+  assert.equal(checkpointIsBestSettings(pill, null), false);   // pin unknown → no false alarm
+});
+
+test('describeCheckpointDelete says trash + ComfyUI copy kept, and warns on ★ best settings', () => {
+  const node = { source: 'local', train_type: 'sdxl' };
+  const pill = { step: 1000, filename: 'lora_001000.safetensors' };
+  const plain = describeCheckpointDelete(node, pill);
+  assert.equal(plain.isBest, false);
+  assert.match(plain.message, /trash/i);
+  assert.match(plain.message, /Settings/);
+  assert.match(plain.message, /imported into ComfyUI stays/);
+  assert.doesNotMatch(plain.message, /BEST SETTINGS/);
+
+  const best = describeCheckpointDelete(node, pill, { bestSettingsLora: 'loras/lora_001000.safetensors' });
+  assert.equal(best.isBest, true);
+  assert.match(best.message, /★ BEST SETTINGS/);
+  assert.match(best.message, /trash/i);   // the reassurance survives the warning
 });
