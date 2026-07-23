@@ -55,6 +55,22 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-07-23-one-box-per-editable-prompt',
+    date: '2026-07-23',
+    title: '✎ One box per editable prompt — the real text, ready to edit',
+    blurb:
+      'Each editable prompt in Settings › Image engines showed you two things: an empty field, and a grey read-only copy of the built-in text you had to click "Load default to edit" to use. Now there is a single box, already holding the exact prompt in use — put your cursor in it and change a word. Nothing is stored while the text still matches the built-in one, so you keep receiving improvements to that prompt instead of being frozen on today\'s wording, and "Reset to default" puts you back there in one click. The line under the box always says which of the two you are on.',
+    to: '/settings/engines',
+  },
+  {
+    id: '2026-07-23-edit-identity-instruction-from-extra-refs',
+    date: '2026-07-23',
+    title: '✎ Tune the identity instruction where you add the extra refs',
+    blurb:
+      'Adding "Extra refs" is how you ask for a stronger identity lock — but the instruction those photos actually ride on lived three clicks away in Settings. A small ✎ next to the + now opens it right there, with the shipped text ready to edit and a reset. It shows both instructions, because the engines do not share one: Nano Banana and ChatGPT read the multi-reference identity lock, Klein reads its own restage block whatever the number of references. The one your currently selected engine uses is badged, so you can no longer spend ten minutes rewriting a text your generations ignore.',
+    to: '/datasets?section=add',
+  },
+  {
     id: '2026-07-23-one-backup-menu-in-the-library',
     date: '2026-07-23',
     title: '💾 One Backup menu instead of three loose controls',

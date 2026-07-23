@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { apiFetch, postJson } from '../../api/fetchClient'
 import { INPUT_CLASS, Card, StatusBadge, SecretField } from './primitives'
 import KleinLoraCombobox, { useKleinGenerationLoras } from './KleinLoraCombobox'
+import PromptOverrideField from '../common/PromptOverrideField'
+import { IDENTITY_PROMPT_FIELDS } from '../common/promptOverride.js'
 
 const ENGINE_SECRETS = [
   { key: 'GEMINI_API_KEY', label: 'Gemini API key', testTarget: 'gemini', help: 'Powers the Nano Banana engine.' },
@@ -156,75 +158,21 @@ function KleinLorasCard({ config, setField }) {
 
 /* Editable identity / quality prompts (feature request by @bbsorry / 雨田壹).
    The identity "locks" that ride ahead of every generated variation used to be
-   hardcoded and invisible; here each is a GLOBAL override with a one-line
-   description (the discoverability the request asked for) and a Restore default.
-   Blank = the shipped default is used (the app stays byte-identical to before),
-   so Restore just clears the field. The Klein-improve prompt additionally has an
-   on/off toggle: off applies NO prompt to the manual "Klein upscale & improve".
-   Keys mirror config identity_prompts.* — never renamed (persisted globally). */
-const IDENTITY_PROMPTS = [
-  { key: 'face_single', id: 'identity-prompt-face-single',
-    label: 'API engine — identity lock (single reference)',
-    desc: 'Prepended to every Nano Banana / ChatGPT variation made from ONE reference photo. Tells the model to keep the exact face and take outfit + expression from the description, not the reference.' },
-  { key: 'face_multi', id: 'identity-prompt-face-multi',
-    label: 'API engine — identity lock (multiple references)',
-    desc: 'Same, but for variations generated from SEVERAL reference photos of the person — tells the model all references are the same person and to use them together.' },
-  { key: 'klein_identity', id: 'identity-prompt-klein-identity',
-    label: 'Klein — restage & face-identity block',
-    desc: 'The instruction block Klein (local) uses to restage the shot while keeping the face identical. Steers pose/framing/outfit changes without altering the person.' },
-]
+   hardcoded and invisible; here each is a GLOBAL override shown in ONE editable
+   box that already holds the shipped default text, with a Reset.
 
-/* The default is real code text shipped in face_variations.py, delivered
-   read-only in the settings payload (identity_prompt_defaults). When a field is
-   blank the app uses this exact text — so we SHOW it (grey mono block) and offer
-   "Load default to edit", which copies it into the textarea (you can't edit a
-   placeholder). Loading it makes the field a real override on next save, which is
-   the point: you start from the true prompt and change it. `disabled` mutes the
-   whole block when the parent step is toggled off. */
-function DefaultPromptPreview({ text, disabled }) {
-  if (!text) return null
-  return (
-    <div className={`mt-1 rounded-md border border-border bg-surface p-2 ${disabled ? 'opacity-50' : ''}`}>
-      <span className="mb-1 block text-xs font-medium text-content-subtle">
-        Built-in default (currently in use) — use “✎ Load default to edit” above to start from it and adjust
-      </span>
-      <p className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-content-muted">{text}</p>
-    </div>
-  )
-}
+   The two-box era is over: the field used to be an empty textarea next to a
+   read-only copy of the shipped text and a button that pasted it in. One box is
+   clearer, but it must not turn "I looked at the default" into a persisted COPY
+   of it — that would freeze the prompt for that user and hide every future
+   improvement. PromptOverrideField normalises the text back to '' whenever it
+   equals the shipped default, so blank-means-default (the backend contract in
+   face_variations.get_identity_prompt) still holds.
 
-function IdentityPromptField({ field, value, onChange, onRestore, defaultText }) {
-  const blank = !(value || '').trim()
-  return (
-    <div>
-      <label htmlFor={field.id} className="block text-sm font-medium text-content">{field.label}</label>
-      <p className="mb-1 text-xs text-content-muted">{field.desc}</p>
-      <textarea
-        id={field.id}
-        rows={4}
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={defaultText || 'Leave blank to use the built-in default.'}
-        className={`${INPUT_CLASS} font-mono leading-relaxed`}
-      />
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <span className="text-xs text-content-subtle">{blank ? 'Using the built-in default.' : 'Custom override active.'}</span>
-        {blank
-          ? (defaultText && (
-            <button type="button" onClick={() => onChange(defaultText)} className={TEXT_BTN}>
-              ✎ Load default to edit
-            </button>
-          ))
-          : (
-            <button type="button" onClick={onRestore} className={TEXT_BTN}>
-              Restore default
-            </button>
-          )}
-      </div>
-      {blank && <DefaultPromptPreview text={defaultText} />}
-    </div>
-  )
-}
+   The Klein-improve prompt additionally has an on/off toggle: off applies NO
+   prompt to the manual "Klein upscale & improve".
+   Field metadata (keys mirroring config identity_prompts.*, never renamed) lives
+   in common/promptOverride.js, shared with the workspace's Extra-refs modal. */
 
 // Bounds mirror the server-side clamps in face_dataset_service._improve_float /
 // _improve_int — the UI should not offer a value the backend will silently pull back.
@@ -250,21 +198,21 @@ function IdentityPromptsCard({ config, setField, promptDefaults }) {
   const defaults = promptDefaults || {}
   const set = (key, v) => setField('identity_prompts', key, v)
   const improveEnabled = ip.klein_improve_enabled !== false
-  const improveBlank = !(ip.klein_improve || '').trim()
   return (
     <Card
       id="identity-prompts"
       title="Identity & Klein prompts (advanced)"
-      help="The hidden prompts that lock a subject's facial identity across generated variations, now editable. Each applies globally to every dataset; leave a field blank to keep the shipped default. Reproducibility note: with everything blank, generation is byte-identical to before. Feature request by @bbsorry (雨田壹)."
+      help="The hidden prompts that lock a subject's facial identity across generated variations, now editable. Each box already holds the prompt in use: edit it to override, Reset to go back. Each applies globally to every dataset. Reproducibility note: as long as a box still matches the built-in text, nothing is stored and generation stays byte-identical to before — you also keep receiving improvements to that prompt. Feature request by @bbsorry (雨田壹)."
     >
-      {IDENTITY_PROMPTS.map((f) => (
-        <IdentityPromptField
+      {IDENTITY_PROMPT_FIELDS.map((f) => (
+        <PromptOverrideField
           key={f.key}
-          field={f}
+          id={f.id}
+          label={f.label}
+          desc={f.desc}
           value={ip[f.key]}
           defaultText={defaults[f.key]}
           onChange={(v) => set(f.key, v)}
-          onRestore={() => set(f.key, '')}
         />
       ))}
 
@@ -279,36 +227,19 @@ function IdentityPromptsCard({ config, setField, promptDefaults }) {
           />
           Apply an improvement prompt on “Klein upscale &amp; improve”
         </label>
-        <p className="mt-1 mb-1 text-xs text-content-muted">
-          The fixed instruction the manual “Klein upscale &amp; improve” action sends to add texture and detail. Turn this off to upscale with no prompt at all (pure enhancement).
-        </p>
-        <textarea
+        <PromptOverrideField
           id="identity-prompt-klein-improve"
+          label="Klein upscale & improve prompt"
+          desc="The fixed instruction the manual “Klein upscale & improve” action sends to add texture and detail. Turn the checkbox above off to upscale with no prompt at all (pure enhancement)."
           rows={3}
-          value={ip.klein_improve ?? ''}
-          onChange={(e) => set('klein_improve', e.target.value)}
+          value={ip.klein_improve}
+          defaultText={defaults.klein_improve}
+          onChange={(v) => set('klein_improve', v)}
           disabled={!improveEnabled}
-          placeholder={defaults.klein_improve || 'Leave blank to use the built-in default.'}
-          className={`${INPUT_CLASS} font-mono leading-relaxed disabled:opacity-50`}
+          className="mt-2"
         />
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <span className="text-xs text-content-subtle">
-            {!improveEnabled ? 'Disabled — no prompt is applied.' : improveBlank ? 'Using the built-in default.' : 'Custom override active.'}
-          </span>
-          {improveEnabled && (improveBlank
-            ? (defaults.klein_improve && (
-              <button type="button" onClick={() => set('klein_improve', defaults.klein_improve)} className={TEXT_BTN}>
-                ✎ Load default to edit
-              </button>
-            ))
-            : (
-              <button type="button" onClick={() => set('klein_improve', '')} className={TEXT_BTN}>
-                Restore default
-              </button>
-            ))}
-        </div>
-        {improveEnabled && improveBlank && (
-          <DefaultPromptPreview text={defaults.klein_improve} />
+        {!improveEnabled && (
+          <p className="mt-1 text-xs text-content-subtle">Disabled — no prompt is applied.</p>
         )}
         <p className="mt-3 text-xs text-content-subtle">
           Separate from the scraper rescue prompt for small images — see Settings ▸ Scraping ▸ “Klein rescue — small scraped images”.

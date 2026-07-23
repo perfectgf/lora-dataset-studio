@@ -86,7 +86,13 @@ How presets are used matters:
 
 *Feature request by @bbsorry (雨田壹).* Every generated variation is prefixed by a hidden **identity lock** — a block of text that tells the engine to keep the subject's exact face and take the outfit and expression from the description, not the reference photo. These used to be baked in and invisible; now you can read and edit them. All are **global** (they apply to every dataset) and stored under `identity_prompts.*`.
 
-**Reproducibility guarantee:** every field **defaults to blank**, and blank means *use the shipped default*. With nothing overridden, generation is **byte-identical** to before this setting existed — so you only change behaviour if you deliberately type an override. **Restore default** simply clears the field back to blank.
+**One box, already filled.** Each prompt is a **single editable box that already contains the exact text in use** — the built-in default when you have not overridden it. Put your cursor in it and change a word; there is no "load the default first" step, and no second read-only copy of the text below (the old two-box layout is gone).
+
+**Nothing is stored while you match the default.** As long as the box still holds the built-in text (surrounding whitespace ignored), the setting is saved as **blank**, which is what makes *blank = use the shipped default* work. This is not cosmetic: if merely opening a prompt persisted a **copy** of it, you would be pinned to that wording forever and every later improvement to the built-in prompt would stop reaching you, silently. The line under the box always tells you which state you are in — *Following the built-in default* or *Custom override*. **Reset to default** appears only in the second case and clears the value back to blank.
+
+**Reproducibility guarantee:** with nothing overridden, generation is **byte-identical** to before this setting existed — you only change behaviour if you deliberately edit the text away from the default.
+
+**Shortcut from the workspace.** The multi-reference instructions are also reachable from **Add images ▸ Extra refs ▸ ✎**, without opening Settings. That modal shows **both** of them — `identity_prompts.face_multi` (Nano Banana / ChatGPT) and `identity_prompts.klein_identity` (Klein) — because the engines do not share one text, and badges the one your currently selected engine actually uses. Edits made there are the same **global** settings as here.
 
 - **API engine — identity lock (single reference)** → `identity_prompts.face_single`. Prepended to Nano Banana / ChatGPT variations built from **one** reference photo.
 - **API engine — identity lock (multiple references)** → `identity_prompts.face_multi`. The same, for variations built from **several** reference photos — it tells the model every reference is the same person and to use them together.
@@ -116,7 +122,7 @@ None of these has a Test button; you find out they work on your next scan.
 
 ### Klein rescue — small scraped images
 
-- **Small-image rescue instruction** → `klein.small_image_prompt`. An optional free-text instruction for **one flow only**: the automatic Klein **rescue** of scraped images under 768 px. Default **empty** — and empty is intentional: with nothing here the app improves from the reference image alone rather than inventing a restoration prompt on your behalf. Add an instruction only if you want to steer that rescue (e.g. "sharpen skin texture, keep natural tones"). The manual **"Klein upscale & improve"** action in the lightbox does **not** use this field — it has its own editable prompt under Settings ▸ Engines ▸ **Identity & Klein prompts** (`identity_prompts.klein_improve`), which can also be turned off for a pure upscale.
+- **Small-image rescue instruction** → `klein.small_image_prompt`. An optional free-text instruction for **one flow only**: the automatic Klein **rescue** of scraped images under 768 px. Default **empty** — and empty is intentional: with nothing here the app improves from the reference image alone rather than inventing a restoration prompt on your behalf. Unlike the identity prompts above, this field has **no built-in text behind it**, so it stays a plain empty box: there is nothing to pre-fill or reset to. Add an instruction only if you want to steer that rescue (e.g. "sharpen skin texture, keep natural tones"). The manual **"Klein upscale & improve"** action in the lightbox does **not** use this field — it has its own editable prompt under Settings ▸ Engines ▸ **Identity & Klein prompts** (`identity_prompts.klein_improve`), which can also be turned off for a pure upscale.
 
 ## Local tools
 
