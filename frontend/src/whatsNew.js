@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-one-backup-menu-in-the-library',
+    date: '2026-07-23',
+    title: '💾 One Backup menu instead of three loose controls',
+    blurb:
+      'The Datasets header used to line up "Back up everything", a bare "Include trained LoRAs" checkbox and "Import backup" side by side — a checkbox floating next to a button it silently belonged to. They are now one 💾 Backup menu, with the LoRAs option sitting right under the action it changes, so it is obvious what it applies to. "+ New dataset" stays where it was. A backup in progress is still impossible to miss: the button itself reads "Backing up…" and the progress window keeps running whether the menu is open or closed.',
+    to: '/datasets',
+  },
+  {
     id: '2026-07-23-import-from-a-bank-in-add-images',
     date: '2026-07-23',
     title: '🗃 Pull images straight from a bank, without leaving the dataset',

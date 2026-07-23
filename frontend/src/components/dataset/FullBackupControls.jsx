@@ -1,15 +1,20 @@
 /**
- * 💾 Back up everything — the library-level control: one button that archives
- * EVERY dataset plus the app config (secrets excluded) into a single master
- * file, produced by a background job with visible progress, then a download +
- * "open folder". The restore overlay is the other half: when the library's
- * "Import backup" is handed a master archive, useDataset routes it to the same
- * background job and this component shows its progress + honest final report.
+ * 💾 Backup — the library-level menu: ONE header disclosure that holds both
+ * ways in and out of an archive. "Back up everything" archives EVERY dataset
+ * plus the app config (secrets excluded) into a single master file, produced by
+ * a background job with visible progress, then a download + "open folder";
+ * "Include trained LoRAs" is an OPTION of that action and therefore lives right
+ * under it, never orphaned in the toolbar. "Import backup" is the way back in:
+ * handed a master archive, useDataset routes it to the same background job and
+ * this component shows its progress + honest final report.
+ *
+ * The two overlays are rendered as SIBLINGS of the <details>, not inside it: a
+ * backup that is running must stay visible after the menu is closed.
  *
  * Presentational + props-driven (the `backup` bundle from useDataset); the
  * progress phrasing and summaries come from utils/fullBackup (pure, tested).
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { HelpBadge } from '../../help/HelpMode';
 import {
   describeProgress, progressPercent, summarizeBackupResult, summarizeRestoreReport,
@@ -134,31 +139,83 @@ function RestoreOverlay({ job, onDismiss }) {
   );
 }
 
-export default function FullBackupControls({ backup }) {
+const MENU_ITEM = 'w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-md text-sm text-content hover:bg-surface-raised disabled:opacity-40';
+
+export default function FullBackupControls({ backup, onRestore }) {
   const [includeLoras, setIncludeLoras] = useState(false);
-  if (!backup) return null;
-  const running = backup.job?.state === 'running';
+  const menuRef = useRef(null);
+  const restoreRef = useRef(null);
+  if (!backup && !onRestore) return null;
+  const running = backup?.job?.state === 'running';
+  // <details> is uncontrolled: closing it after an action is a direct DOM poke,
+  // the same shape the workspace header menu uses.
+  const closeMenu = () => { if (menuRef.current) menuRef.current.open = false; };
   return (
     <>
-      <span className="inline-flex items-center gap-1">
-        <button type="button" onClick={() => backup.start(includeLoras)} disabled={running}
-          title="Archive every dataset, its training history + your settings (API keys excluded) into one file"
-          aria-label="Back up everything"
-          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-content transition-colors hover:border-primary/40 hover:bg-surface-raised disabled:opacity-50">
-          💾<span className="hidden sm:inline"> Back up everything</span>
-        </button>
-        <label className="hidden items-center gap-1 text-xs text-content-muted sm:inline-flex"
-          title="Also bundle the trained LoRA files (larger backup). Training history is always included regardless.">
-          <input type="checkbox" checked={includeLoras} disabled={running}
-            onChange={(e) => setIncludeLoras(e.target.checked)}
-            className="accent-primary" />
-          Include trained LoRAs
-        </label>
-        <HelpBadge topic="library-backup" />
-      </span>
-      <BackupOverlay job={backup.job} onDownload={backup.download}
-        onOpenFolder={backup.openFolder} onDismiss={backup.dismiss} />
-      <RestoreOverlay job={backup.restoreJob} onDismiss={backup.dismissRestore} />
+      {/* summary en display:flex → pas de marqueur natif ; les items restent
+          montés en permanence (details ne fait que masquer l'affichage). */}
+      <details ref={menuRef} className="relative">
+        <summary
+          title="Back up the whole library, or import a backup archive"
+          className="flex items-center gap-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-content-muted hover:text-content hover:bg-surface-raised cursor-pointer select-none">
+          <span aria-hidden>{running ? '⏳' : '💾'}</span>
+          {/* The label itself carries the in-flight state, so a closed menu
+              still says a backup is running. */}
+          <span className="hidden sm:inline">{running ? 'Backing up…' : 'Backup'}</span>
+          <span aria-hidden className="text-content-subtle">⋯</span>
+        </summary>
+        <div className="absolute right-0 top-full mt-1 z-20 w-80 rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
+          {backup && (
+            <>
+              <button type="button" disabled={running}
+                onClick={() => { closeMenu(); backup.start(includeLoras); }}
+                title="Archive every dataset, its training history + your settings (API keys excluded) into one file"
+                className={MENU_ITEM}>
+                <span className="whitespace-nowrap">💾 Back up everything</span>
+                <span className="ml-auto shrink-0 text-content-subtle text-[0.625rem]">
+                  {running ? 'running…' : 'datasets · settings'}
+                </span>
+              </button>
+              {/* Option OF the action above — kept adjacent to it on purpose. */}
+              <label className={`${MENU_ITEM} cursor-pointer text-content-muted`}
+                title="Also bundle the trained LoRA files (larger backup). Training history is always included regardless.">
+                <input type="checkbox" checked={includeLoras} disabled={running}
+                  onChange={(e) => setIncludeLoras(e.target.checked)}
+                  className="accent-primary" />
+                Include trained LoRAs
+              </label>
+            </>
+          )}
+          {onRestore && (
+            <button type="button"
+              onClick={() => { closeMenu(); restoreRef.current?.click(); }}
+              title="Import a portable dataset backup — a new dataset will be created"
+              className={MENU_ITEM}>
+              <span className="whitespace-nowrap">📦 Import backup</span>
+              <span className="ml-auto shrink-0 text-content-subtle text-[0.625rem]">.zip archive</span>
+            </button>
+          )}
+        </div>
+      </details>
+      <HelpBadge topic="library-backup" />
+      {/* Outside the <details>: a file input inside a collapsed disclosure is
+          display:none, and .click() on it would be a no-op. */}
+      {onRestore && (
+        <input ref={restoreRef} type="file" accept=".zip,application/zip" className="hidden"
+          aria-label="Choose a dataset backup ZIP"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onRestore(file);
+            e.target.value = '';
+          }} />
+      )}
+      {backup && (
+        <>
+          <BackupOverlay job={backup.job} onDownload={backup.download}
+            onOpenFolder={backup.openFolder} onDismiss={backup.dismiss} />
+          <RestoreOverlay job={backup.restoreJob} onDismiss={backup.dismissRestore} />
+        </>
+      )}
     </>
   );
 }
