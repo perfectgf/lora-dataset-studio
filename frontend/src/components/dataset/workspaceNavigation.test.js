@@ -93,9 +93,18 @@ test('queue availability remains pending until the first truthful status respons
   assert.equal(getWorkspacePanelStatus('training', 'queue', { ...BASE, trainingQueueCount: 1 }), 'available');
 });
 
+test('a dataset with no section asked for opens on Add images', () => {
+  // You open a dataset to put something in it far more often than to review what
+  // is already there. An invalid section lands in the same place: a stale link
+  // degrades to the useful screen instead of a broken one.
+  assert.deepEqual(resolveWorkspaceLocation(new URLSearchParams(''), BASE), {
+    section: 'add', panel: null, pending: false, needsNormalization: true,
+  });
+});
+
 test('invalid sections and panels normalize to truthful parent state', () => {
   assert.deepEqual(resolveWorkspaceLocation(new URLSearchParams('section=nope&panel=scraper'), BASE), {
-    section: 'images', panel: null, pending: false, needsNormalization: true,
+    section: 'add', panel: null, pending: false, needsNormalization: true,
   });
   assert.deepEqual(resolveWorkspaceLocation(new URLSearchParams('section=add&panel=nope'), BASE), {
     section: 'add', panel: null, pending: false, needsNormalization: true,

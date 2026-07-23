@@ -49,6 +49,11 @@ export function getWorkspacePanels(sectionId, context) {
   );
 }
 
+/* Where a dataset opens when the URL asks for nothing. Named once, here, so the
+   landing screen is a decision with a home rather than a literal repeated in a
+   fallback branch. */
+export const DEFAULT_WORKSPACE_SECTION = 'add';
+
 export function resolveWorkspaceLocation(searchParams, context) {
   const requestedSection = searchParams.get('section');
   const requestedPanel = searchParams.get('panel');
@@ -59,7 +64,12 @@ export function resolveWorkspaceLocation(searchParams, context) {
     return { section: 'studio', panel: 'launcher', pending: false, needsNormalization: true };
   }
   if (!isWorkspaceSection(requestedSection)) {
-    return { section: 'images', panel: null, pending: false, needsNormalization: true };
+    // Opening a dataset with no section asked for lands on ADD IMAGES, not the
+    // review grid: you open a dataset to put something in it far more often than
+    // to look at what is already there, and the grid is one click away. Invalid
+    // sections normalize here too — same destination, so a stale link degrades
+    // to the useful screen rather than a broken one.
+    return { section: DEFAULT_WORKSPACE_SECTION, panel: null, pending: false, needsNormalization: true };
   }
   if (!requestedPanel) {
     return { section: requestedSection, panel: null, pending: false, needsNormalization: false };
