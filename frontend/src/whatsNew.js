@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-import-from-a-bank-in-add-images',
+    date: '2026-07-23',
+    title: '🗃 Pull images straight from a bank, without leaving the dataset',
+    blurb:
+      'Triaging a big folder in the 🗃 Bank and then feeding a dataset with it meant going back to the Bank page and promoting from there. "Add images" now offers "Import from a bank" right next to the photo dropzone and the scraper: choose which bank, see how many of its kept images would actually land in THIS dataset (near-duplicates and images already here are excluded from the count), and start. It copies in the background, so the grid fills in on its own. When a bank offers nothing, it says which kind of nothing: a bank you never triaged tells you how many images are still undecided and offers to open it, while a bank whose kept images are all already here simply says so.',
+    to: '/datasets?section=add',
+  },
+  {
     id: '2026-07-23-delete-a-save-from-the-graph',
     date: '2026-07-23',
     title: '🗑 Drop a checkpoint straight from the lineage graph',

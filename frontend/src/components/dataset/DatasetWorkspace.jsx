@@ -7,6 +7,7 @@ import TrainingPanel from './TrainingPanel';
 import { fmt } from '../../utils/studioFormat';
 import ImportDropzone from './ImportDropzone';
 import ConceptSourcesPanel from './ConceptSourcesPanel';
+import BankImportPanel from './BankImportPanel';
 import { isDatasetImportBlocked } from './scraperState';
 import DatasetGrid from './DatasetGrid';
 import SmallImageRescueReview from './SmallImageRescueReview';
@@ -768,6 +769,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
     </button>
   );
 
+  // Third source next to the dropzone and the scraper: an already-triaged bank.
+  // The server's promote path does the copying (normalize + dedup vs THIS
+  // dataset) in a background job — we only pick the bank and refresh at the end.
+  const bankImport = (
+    <BankImportPanel datasetId={d.id} disabled={importBusy}
+      onImported={() => ds.refresh()} />
+  );
+
   return (
     <div className="flex flex-col gap-3">
       {/* ---- Header : identité du dataset + UNE action primaire (Export ZIP).
@@ -999,6 +1008,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 <div id="ds-add-import" tabIndex={-1} className="scroll-mt-20">
                   <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={importBusy} visionBusy={visionImportBusy} />
                 </div>
+                {bankImport}
               </div>
             ) : (
               <>
@@ -1044,6 +1054,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       link here so the build flow still surfaces it without burying the
                       reference/generate flow under a long accordion. */}
                   {scrapeLink}
+                  {bankImport}
                 </div>
               </>
             )}
