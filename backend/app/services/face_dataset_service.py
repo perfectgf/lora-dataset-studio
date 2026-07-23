@@ -251,6 +251,34 @@ def _all_ref_bytes(ds) -> list:
     return out
 
 
+_EXTRA_REF_MARKER = '_datasetrefx_'
+_EXTRA_REF_ORIG_MARKER = '_datasetrefxorig_'
+
+
+def extra_ref_original_name(filename):
+    """Name of the full-frame ORIGINAL kept beside an extra reference
+    (`..._datasetrefx_<id>.webp` -> `..._datasetrefxorig_<id>.webp`), or None when
+    the name doesn't follow the convention. A NAMING convention rather than a new
+    column: extras live in `ref_extra_filenames`, a JSON list of names inside a
+    schema that user databases froze long ago — deriving the companion needs no
+    migration and restores from a backup as-is."""
+    if not isinstance(filename, str) or _EXTRA_REF_ORIG_MARKER in filename:
+        return None
+    if _EXTRA_REF_MARKER not in filename:
+        return None
+    return filename.replace(_EXTRA_REF_MARKER, _EXTRA_REF_ORIG_MARKER, 1)
+
+
+def extra_ref_crop_source(ds, filename) -> str:
+    """The file the ✂ editor must display for an extra reference: the kept
+    full-frame ORIGINAL when there is one, else the extra itself (still fully
+    croppable — see crop_extra_ref, which snapshots it on the first crop)."""
+    orig = extra_ref_original_name(filename)
+    if orig and os.path.isfile(os.path.join(_dataset_dir(ds.id), orig)):
+        return orig
+    return filename
+
+
 def add_extra_ref(user_id, dataset_id, image_bytes) -> str:
     """Ajoute une référence additionnelle. Normalisée WEBP ratio conservé, SANS
     head-crop GPU : un plan buste/corps est une bonne réf d'identité pour Nano
@@ -265,11 +293,50 @@ def add_extra_ref(user_id, dataset_id, image_bytes) -> str:
     if len(extras) >= MAX_EXTRA_REFS:
         raise ValueError(f'{MAX_EXTRA_REFS} extra references max')
     fn = f"{user_id}_datasetrefx_{uuid.uuid4().hex[:8]}.webp"
-    with open(os.path.join(_dataset_dir(dataset_id), fn), 'wb') as fh:
+    dsdir = _dataset_dir(dataset_id)
+    # Keep the full-frame ORIGINAL beside it (same deal as the primary reference):
+    # ✂ Crop reads the original, so a re-crop can widen back out instead of only
+    # eating further into the previous crop.
+    orig_fn = extra_ref_original_name(fn)
+    with open(os.path.join(dsdir, orig_fn), 'wb') as fh:
+        fh.write(normalize_to_webp(image_bytes, size=2048))
+    with open(os.path.join(dsdir, fn), 'wb') as fh:
         fh.write(normalize_to_webp(image_bytes))
     ds.ref_extra_filenames = json.dumps(extras + [fn])
     db.session.commit()
     return fn
+
+
+def crop_extra_ref(user_id, dataset_id, filename, x, y, w, h) -> bool:
+    """Manually crop ONE extra reference to (x,y,w,h), long side resized to 1024.
+    The box is in the crop SOURCE's pixel space (what extra_ref_crop_source names,
+    i.e. what the editor displayed) and the result overwrites the extra only — the
+    original stays untouched, so re-crops widen as freely as they tighten.
+
+    `filename` is client-supplied: membership in the dataset's stored extras is the
+    path guard (identical to remove_extra_ref) — nothing derived from it is opened
+    before that check passes."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return False
+    extras = extra_ref_filenames(ds)
+    if filename not in extras:
+        return False
+    dsdir = _dataset_dir(dataset_id)
+    dst = os.path.join(dsdir, filename)
+    if not os.path.isfile(dst):
+        return False
+    orig = extra_ref_original_name(filename)
+    src = os.path.join(dsdir, orig) if orig else None
+    if src and not os.path.isfile(src):
+        # Retrofit for extras imported before originals were kept: what's on disk
+        # IS still the uncropped full frame (cropping is the only thing that ever
+        # rewrites an extra), so snapshotting it now costs one copy and gives those
+        # datasets the same widen-back-out behaviour as a fresh import — instead of
+        # "works for future imports only".
+        shutil.copyfile(dst, src)
+    ok, _scale = _crop_resize_file(src or dst, x, y, w, h, dst=dst)
+    return ok
 
 
 def remove_extra_ref(user_id, dataset_id, filename) -> bool:
@@ -292,6 +359,15 @@ def remove_extra_ref(user_id, dataset_id, filename) -> bool:
         db.session.rollback()
         _restore_from_trash(trashed_path, original_path)
         raise
+    # The kept original follows its extra to the trash — never leave it orphaned in
+    # the dataset folder. Best effort: losing the extra itself is what matters.
+    orig = extra_ref_original_name(filename)
+    orig_path = os.path.join(_dataset_path(dataset_id), orig) if orig else None
+    if orig_path and os.path.exists(orig_path):
+        try:
+            trash.send_to_trash(orig_path, context=f'dataset-{dataset_id}-extra-ref')
+        except OSError:
+            logger.warning(f'dataset {dataset_id}: could not trash extra-ref original {orig}')
     return True
 
 
@@ -1663,7 +1739,19 @@ def write_backup_zip(user_id: int, dataset_id: int, output: BinaryIO) -> None:
         portable_extras.append(name)
         if len(portable_extras) >= MAX_EXTRA_REFS:
             break
-    ref_names = primary_ref_names + portable_extras
+    # Extra-ref ORIGINALS travel too (as plain ref/ files, not in the manifest list):
+    # restore keeps basenames, so the naming convention still ties them to their
+    # extra — a restored dataset can widen a crop back out just like the source one.
+    extra_originals = []
+    for name in portable_extras:
+        orig = extra_ref_original_name(name)
+        key = orig.casefold() if orig else None
+        if (not orig or key in ref_name_keys
+                or not os.path.isfile(os.path.join(dsdir, orig))):
+            continue
+        ref_name_keys.add(key)
+        extra_originals.append(orig)
+    ref_names = primary_ref_names + portable_extras + extra_originals
     image_file_names = {
         name.casefold(): name for img in rows
         if (name := _backup_basename(img.filename))
@@ -2206,7 +2294,12 @@ def dataset_payload(user_id, dataset_id):
         'prompt_suffixes': prompt_suffixes_dict(ds),
         'ref_filename': ds.ref_filename,
         'ref_original_filename': ds.ref_original_filename or '',
-        'ref_extra_filenames': extra_ref_filenames(ds), 'composition': comp,
+        'ref_extra_filenames': extra_ref_filenames(ds),
+        # Per extra ref, the file its ✂ editor must open (full-frame original when
+        # kept, else the extra itself) — aligned index-by-index with the list above.
+        'ref_extra_crop_sources': [extra_ref_crop_source(ds, fn)
+                                   for fn in extra_ref_filenames(ds)],
+        'composition': comp,
         'composition_upscaled': comp_upscaled,
         # Réglages gagnants du Studio (JSON → objet). Manquait du payload : le badge
         # ★ du workspace ne s'affichait jamais, et le garde-fou « suppression d'un

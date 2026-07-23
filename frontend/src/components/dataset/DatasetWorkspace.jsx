@@ -15,6 +15,7 @@ import CaptionToolsBar from './CaptionToolsBar';
 import CaptionOptionsPopover from './CaptionOptionsPopover';
 import { recaptionConfirmation } from './captionCategory';
 import CropModal from './CropModal';
+import { extraRefCropSource } from './extraRefs';
 import DatasetLightbox from './DatasetLightbox';
 import DatasetSettingsModal from './DatasetSettingsModal';
 import PublishHfModal from './PublishHfModal';
@@ -184,6 +185,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [reviewQueue, setReviewQueue] = useState(null);
   const zipInput = useRef(null);   // hidden input for "Import dataset (ZIP)"
   const [refCrop, setRefCrop] = useState(false);
+  // Filename of the extra reference being cropped (extras have no numeric id).
+  const [extraRefCrop, setExtraRefCrop] = useState(null);
   const [viewImg, setViewImg] = useState(null);
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
   const [showLeaks, setShowLeaks] = useState(false);       // liste dépliée des captions qui fuient
@@ -1035,7 +1038,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     <ReferencePanel refFilename={d.ref_filename} datasetId={d.id} onSetRef={ds.setRef}
                       onCropRef={() => setRefCrop(true)} busy={ds.busy} importBusy={importBusy} visionBusy={visionImportBusy} nonce={ds.refNonce}
                       extraRefs={d.ref_extra_filenames || []}
-                      onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef} />
+                      onAddExtraRef={ds.addExtraRef} onRemoveExtraRef={ds.removeExtraRef}
+                      onCropExtraRef={(fn) => setExtraRefCrop(fn)} />
                   </div>
                 </div>
 
@@ -1698,6 +1702,17 @@ export default function DatasetWorkspace({ ds, onBack }) {
           onReset={d.ref_original_filename
             ? async () => { await ds.recropRefAuto(); setRefCrop(false); }
             : undefined} />
+      )}
+      {extraRefCrop && extraRefCropSource(d.ref_extra_filenames, d.ref_extra_crop_sources, extraRefCrop) && (
+        // Same editor as the primary reference, fed the extra's full-frame ORIGINAL
+        // when one is kept. No ratio preset: extras are bust/body shots kept in their
+        // own aspect, and nothing downstream needs a square. No "Reset to auto" —
+        // extras are deliberately imported without the head-crop vision pass.
+        <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(
+          extraRefCropSource(d.ref_extra_filenames, d.ref_extra_crop_sources, extraRefCrop))}${
+          ds.refNonce ? `?v=${ds.refNonce}` : ''}`}
+          onCancel={() => setExtraRefCrop(null)}
+          onConfirm={async (box) => { await ds.cropExtraRef(extraRefCrop, box); setExtraRefCrop(null); }} />
       )}
       {viewImgLive && (
         <DatasetLightbox img={viewImgLive} datasetId={d.id}

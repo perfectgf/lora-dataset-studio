@@ -275,6 +275,20 @@ def dataset_remove_extra_ref(dataset_id):
     return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
 
 
+@bp.post('/dataset/<int:dataset_id>/ref/extra/crop')
+def dataset_crop_extra_ref(dataset_id):
+    """Crop ONE extra reference. Identified by filename like the delete route (extras
+    have no numeric id); the service rejects any name that isn't in this dataset's
+    stored extras, which is also the path-traversal guard."""
+    data = request.get_json(silent=True) or {}
+    try:
+        ok = svc.crop_extra_ref(LOCAL_USER, dataset_id, data.get('filename') or '',
+                                int(data['x']), int(data['y']), int(data['w']), int(data['h']))
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'error': 'invalid crop box'}), 400
+    return (jsonify({'ok': True}), 200) if ok else (jsonify({'error': 'not found'}), 404)
+
+
 @bp.post('/dataset/<int:dataset_id>/ref/crop')
 def dataset_ref_crop(dataset_id):
     data = request.get_json(silent=True) or {}

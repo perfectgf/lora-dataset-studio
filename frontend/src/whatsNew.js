@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-crop-extra-references',
+    date: '2026-07-23',
+    title: '✂ Crop your extra reference photos too',
+    blurb:
+      'Extra references could be added and removed, but never reframed: a great side-angle shot with half a living room in it stayed that way. Each extra-ref thumbnail now has its own ✂ button, opening the same crop editor as the main reference. The full frame is kept behind the scenes, so you can widen a crop back out later instead of only tightening it — and that also works on the extra refs you imported before today.',
+    to: '/datasets?section=add',
+  },
+  {
     id: '2026-07-23-stop-generation-works-again',
     date: '2026-07-23',
     title: '⏹ Stop generation works again',

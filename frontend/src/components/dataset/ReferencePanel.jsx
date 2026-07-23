@@ -6,7 +6,8 @@ const MAX_EXTRA_REFS = 3;
 
 export default function ReferencePanel({ refFilename, datasetId, onSetRef, onCropRef, busy,
                                          importBusy = busy, visionBusy = false, nonce = 0,
-                                         extraRefs = [], onAddExtraRef, onRemoveExtraRef }) {
+                                         extraRefs = [], onAddExtraRef, onRemoveExtraRef,
+                                         onCropExtraRef }) {
   const inp = useRef(null);
   const inpExtra = useRef(null);
   // Auto head-crop = OPT-IN (vision pass, pauses ComfyUI). Default OFF: upload is
@@ -51,8 +52,8 @@ export default function ReferencePanel({ refFilename, datasetId, onSetRef, onCro
 
       {/* Références additionnelles — identité multi-angles, consommées par TOUS
           les moteurs : Nano Banana & ChatGPT (jointes à l'appel API) et Klein
-          (chaînées en ReferenceLatent natifs). Crop/scoring restent sur la
-          principale. */}
+          (chaînées en ReferenceLatent natifs). Recadrables une par une (✂ sur la
+          vignette) ; le scoring reste sur la principale. */}
       {refFilename && (
         <div className="flex items-center gap-2 flex-wrap border-t border-border pt-2">
           <span className="text-content-subtle text-[0.6875rem]">
@@ -66,6 +67,14 @@ export default function ReferencePanel({ refFilename, datasetId, onSetRef, onCro
                 title="Remove this extra reference"
                 className="absolute top-0 right-0 w-4 h-4 flex items-center justify-center rounded-bl bg-black/70 text-white text-[0.625rem] leading-none disabled:opacity-40">
                 ✕
+              </button>
+              {/* ✂ in the OPPOSITE corner of ✕: the tile is 48 px, two 16 px targets
+                  diagonally apart never overlap and stay reachable. */}
+              <button type="button" onClick={() => onCropExtraRef?.(fn)} disabled={busy}
+                aria-label="Crop this extra reference"
+                title="Crop this extra reference — the full frame stays kept, so you can widen it back out later"
+                className="absolute bottom-0 left-0 w-4 h-4 flex items-center justify-center rounded-tr bg-black/70 text-white text-[0.625rem] leading-none disabled:opacity-40">
+                ✂
               </button>
             </div>
           ))}
