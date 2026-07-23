@@ -1,8 +1,6 @@
-https://ko-fi.com/perfectgf
-
 # LoRA Dataset Studio
 
-[![CI](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml) [![Join our Discord](https://img.shields.io/discord/1525908170331914411?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/j6hnJBFtXE) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/perfectgf)
+[![CI](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml) [![Join our Discord](https://img.shields.io/discord/1525908170331914411?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/j6hnJBFtXE) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/perfectgf) [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/perfectgf)
 
 **Your whole LoRA pipeline in one self-hosted browser tab — build Character, Concept and Style datasets (generate from a reference, scrape, or triage a giant unsorted folder in the Image Bank), curate, caption, clean watermarks, then train locally or in the cloud across five model families and rank the checkpoints in a built-in Test Studio.**
 
@@ -742,9 +740,32 @@ Still stuck? Open the app's **Guide → Getting help** for the one-click **diagn
 
 ## Support the project
 
-If LoRA Dataset Studio saves you time, you can support development on
-[**GitHub Sponsors**](https://github.com/sponsors/perfectgf) — one-time or monthly, and 100% goes to the project (GitHub charges no platform fees).
-Bug reports, ideas in [Discord](https://discord.gg/j6hnJBFtXE) and repo stars help just as much.
+LoRA Dataset Studio is free, open source, and has no paid tier, no telemetry and
+no upsell. It is built and maintained by one person, on personal time — every
+feature in the list above came out of somebody's evenings.
+
+If the app saves you an afternoon of sorting, captioning and re-running failed
+trainings, consider giving a little of that time back:
+
+- [**Ko-fi**](https://ko-fi.com/perfectgf) — one-off, no account needed, from the price of a coffee.
+- [**GitHub Sponsors**](https://github.com/sponsors/perfectgf) — one-off or monthly, and 100% reaches the project (GitHub takes no platform fee).
+
+**Where it goes.** Not into anyone's pocket: the API credits used to test the
+paid generation engines, the rented cloud GPUs used to verify the training lanes
+on hardware most people actually have, and the hours that turn a working script
+into something you can hand to a stranger — the docs, the guard-rails, the error
+messages that tell you what to do next.
+
+**Not able to chip in? These help just as much**, honestly:
+
+- ⭐ **Star the repo** — it is the single biggest driver of new users finding it.
+- 🐛 **Report a bug** with the app's built-in diagnostic report (Guide → Getting help). A precise report is worth more than a donation.
+- 💡 **Bring an idea** to [Discord](https://discord.gg/j6hnJBFtXE) — several features shipped this year started as somebody's message there, and contributors are credited in the commit and in the app.
+- 📣 **Tell someone** who is fighting with datasets by hand.
+
+Nothing here is gated, and nothing ever will be: paying changes nothing about
+what you can do with the app. It only decides how much time there is to keep
+making it better.
 
 ## Legal & responsible use
 
