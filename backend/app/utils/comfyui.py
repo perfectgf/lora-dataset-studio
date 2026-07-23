@@ -673,7 +673,7 @@ _RUN_TAG_TOKEN_RE = re.compile(r'^r[cl]\d+$')
 # son libellé d'affichage : source UNIQUE, réutilisée par le studio (sélecteur de
 # famille) et par le label de LoRA ci-dessous.
 FAMILY_LABELS = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2', 'flux': 'FLUX.1',
-                 'flux2klein': 'FLUX.2 Klein'}
+                 'flux2klein': 'FLUX.2 Klein', 'anima': 'Anima'}
 
 # Tags de base OFFICIELS qu'apposent lora_training._dest_base_tag aux LoRA déployés
 # sur une base de famille (pas de merge). Chacun est UN token (tirets, pas
@@ -687,6 +687,7 @@ _FAMILY_BASE_TAGS = frozenset({
     'Z-Image-Turbo', 'Z-Image-Base', 'Z-Image-De-Turbo',
     'Krea-2-Turbo', 'Krea-2-Raw',
     'FLUX-1-dev', 'FLUX2-Klein-4B', 'FLUX2-Klein-9B',
+    'Anima-Base',
 })
 
 
@@ -715,6 +716,8 @@ def family_of_lora(filename: str) -> str | None:
         return 'flux2klein'
     if low.startswith('flux\\'):
         return 'flux'
+    if low.startswith('anima\\'):
+        return 'anima'
     if low.startswith(('z image\\', 'zimage\\', 'z-image\\')):
         return 'zimage'
     return None

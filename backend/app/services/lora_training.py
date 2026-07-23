@@ -145,6 +145,13 @@ def _lora_dest_dir_flux2klein():
     return d / 'flux2klein'
 
 
+def _lora_dest_dir_anima():
+    d = cfg.comfyui_dir('loras')
+    if not d:
+        raise RuntimeError('ComfyUI is not configured')
+    return d / 'anima'
+
+
 def _sdxl_checkpoints_dir():
     d = cfg.comfyui_dir('models')
     if not d:
@@ -222,6 +229,39 @@ def _aitoolkit_supports_flux2klein() -> bool:
     return False
 
 
+def _aitoolkit_supports_anima() -> bool:
+    """L'ai-toolkit installé connaît-il Anima ? Même enjeu CRITIQUE que
+    _aitoolkit_supports_krea (lire son commentaire) : l'arch 'anima' est une
+    EXTENSION (extensions_built_in/diffusion_models/anima, PR ostris/ai-toolkit
+    #860 mergée le 2026-07-15), pas une arch cœur — un ai-toolkit antérieur ne la
+    connaît pas et get_model_class retomberait SILENCIEUSEMENT sur le loader SD
+    legacy → LoRA corrompu. On exige l'arch EXACTE `arch = "anima"` (la chaîne
+    émise par _build_job_config_anima). Lecture fraîche : un `git pull` du
+    mainteneur passe la détection à True sans restart. ⚠️ Cette garde vérifie la
+    PRÉSENCE de l'arch dans les sources, PAS la version de diffusers : Anima exige
+    aussi un diffusers récent (AnimaModularPipeline/CosmosTransformer3DModel) —
+    un checkout à jour mais un venv ancien lèvera un ImportError au chargement
+    (même angle mort que krea2/flux2_klein)."""
+    root = cfg.aitoolkit_path('dir')
+    if not root:
+        return False
+    ext_root = root / 'extensions_built_in'
+    if not ext_root.is_dir():
+        return False
+    pat = re.compile(r'arch\s*=\s*[\'"]anima[\'"]')
+    for dp, _dn, files in os.walk(str(ext_root)):
+        for fn in files:
+            if not fn.endswith('.py'):
+                continue
+            try:
+                with open(os.path.join(dp, fn), encoding='utf-8', errors='ignore') as fh:
+                    if pat.search(fh.read()):
+                        return True
+            except OSError:
+                continue
+    return False
+
+
 def _safe_trigger(ds) -> str:
     t = (ds.trigger_word or f'dataset{ds.id}').strip()
     return ''.join(c if (c.isalnum() or c in '_-') else '_' for c in t) or f'dataset{ds.id}'
@@ -250,6 +290,8 @@ def _lora_dest_dir(ds, family=None) -> str:
         return str(_lora_dest_dir_flux())
     if fam == 'flux2klein':
         return str(_lora_dest_dir_flux2klein())
+    if fam == 'anima':
+        return str(_lora_dest_dir_anima())
     return str(_lora_dest_dir_zimage())
 
 
@@ -386,18 +428,20 @@ _LORA_ARCH_LABEL = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2',
 # danger we block. FLUX.1 and FLUX.2 Klein share the double/single-stream layout,
 # so they're one group (a name-only sniff can't tell them apart anyway).
 _LORA_ARCH_NAMESPACE = {'zimage': 'zimage', 'sdxl': 'sdxl', 'krea': 'krea',
-                        'flux': 'flux', 'flux2klein': 'flux'}
+                        'flux': 'flux', 'flux2klein': 'flux', 'anima': 'anima'}
 
 
 def _family_from_base_model_version(value) -> str | None:
     """Map ai-toolkit's ss_base_model_version metadata to a FAMILY key. Real
     values observed on deployed LoRAs (C:\\ai-toolkit: toolkit/metadata.py stamps
     'sdxl_1.0'/'sd_1.5'/'sd_2.1'; each newer arch's get_base_model_version returns
-    'zimage' / 'krea2' / 'flux' / 'flux2_klein_4b' / 'flux2_klein_9b'). SD1.5/2.1
-    and any foreign value → None (not one of our trainable families)."""
+    'zimage' / 'krea2' / 'flux' / 'flux2_klein_4b' / 'flux2_klein_9b' / 'anima').
+    SD1.5/2.1 and any foreign value → None (not one of our trainable families)."""
     v = str(value or '').strip().lower()
     if not v:
         return None
+    if 'anima' in v:                     # AnimaModel.get_base_model_version() → 'anima'
+        return 'anima'
     if v.startswith(('flux2_klein', 'flux2klein')):
         return 'flux2klein'
     if v.startswith('flux'):
@@ -420,6 +464,13 @@ def _lora_arch_from_keys(keys) -> str | None:
       - Krea2 SingleStreamDiT: 'txtfusion' is unique to it (present even
         in a header-only stub); or diffusion_model.blocks.*.attn.{wk,wq,gate} → krea
       - Z-Image NextDiT: 'diffusion_model.layers.*' (adaLN / attention.to_*) → zimage
+      - Anima (Cosmos Predict2 DiT): the ComfyUI-converted keys use
+        'diffusion_model.llm_adapter.*' (text conditioner) and, inside
+        'diffusion_model.blocks.*', the Cosmos-specific 'self_attn.q_proj' /
+        'cross_attn.*' / 'adaln_modulation_self_attn' names (PR #860's
+        _convert_diffusers_lora_key_to_comfy) → anima. These are DISJOINT from
+        Krea's 'diffusion_model.blocks.*.attn.wk/wq/gate' + 'txtfusion', so the
+        two never cross-detect (regression guard test pins both directions).
     A name-only sniff can't separate FLUX.1 from FLUX.2 Klein → 'flux' for both."""
     def has(sub):
         return any(sub in k for k in keys)
@@ -432,6 +483,12 @@ def _lora_arch_from_keys(keys) -> str | None:
                             and (has('.attn.wk') or has('.attn.wq')
                                  or has('.attn.gate'))):
         return 'krea'
+    # Anima BEFORE the generic zimage 'layers.' check. Its signature keys off the
+    # Cosmos-specific tensor names so it can never match a Krea block (which uses
+    # .attn.wk/wq/gate and has no llm_adapter / self_attn.q_proj / adaln_modulation).
+    if has('diffusion_model.llm_adapter.') or has('adaln_modulation_self_attn') \
+            or (has('diffusion_model.blocks.') and has('self_attn.q_proj')):
+        return 'anima'
     if has('diffusion_model.layers.'):
         return 'zimage'
     return None
@@ -485,11 +542,11 @@ def lora_arch_conflicts(detected, family) -> bool:
 
 
 _FAMILY_EXPECTED_ARCH = {'sdxl': 'sdxl', 'krea': 'krea2',
-                         'flux': 'flux', 'flux2klein': 'flux'}
+                         'flux': 'flux', 'flux2klein': 'flux', 'anima': 'anima'}
 _ARCH_LABEL = {'sdxl': 'an SDXL', 'sd15': 'a Stable Diffusion 1.5',
-               'flux': 'a FLUX', 'krea2': 'a Krea 2'}
+               'flux': 'a FLUX', 'krea2': 'a Krea 2', 'anima': 'an Anima'}
 _FAMILY_LABEL = {'sdxl': 'SDXL', 'krea': 'Krea 2',
-                 'flux': 'FLUX.1', 'flux2klein': 'FLUX.2 Klein'}
+                 'flux': 'FLUX.1', 'flux2klein': 'FLUX.2 Klein', 'anima': 'Anima'}
 # Confirmable-refusal marker (mirrors UNCAPTIONED:/MISMATCH_CAPTION:): the UI
 # strips it, asks window.confirm, and retries with allow_unverified_weights.
 _UNVERIFIED_MARKER = 'CUSTOM_WEIGHTS_UNVERIFIED: '
@@ -592,6 +649,8 @@ def official_base_repo(ds, family=None, variant=_PERSISTED):
         if var == 'deturbo':
             return ZIMAGE_DETURBO_BASE
         return ZIMAGE_BASE if var == 'base' else ZIMAGE_TURBO_BASE
+    if fam == 'anima':
+        return ANIMA_BASE           # public, non-gated → the pre-rent HEAD returns 200
     return None
 
 
@@ -607,6 +666,19 @@ FLUX_BASE_LABEL = 'FLUX-1-dev'
 # corrompu) et le même nom de LoRA déployé. Sans point dans les labels (même piège
 # d'extension que FLUX_BASE_LABEL : _base_tag_for tronque après un '.').
 FLUX2KLEIN_BASE_LABELS = {'4b': 'FLUX2-Klein-4B', '9b': 'FLUX2-Klein-9B'}
+# Anima (circlestone-labs, Cosmos Predict2 DiT, 2B) has a single OFFICIAL base and
+# it is PUBLIC/non-gated (unlike Krea/FLUX/Klein) — the pre-rent HEAD in
+# cloud_training returns 200, never a 403. Base tag has no dot (same extension
+# trap as FLUX_BASE_LABEL: _base_tag_for truncates after a '.') so official Anima
+# runs stay isolated from Z-Image runs of the same trigger (both would otherwise
+# carry an empty tag → shared run folder → ai-toolkit cross-resume).
+ANIMA_BASE = 'circlestone-labs/Anima-Base-v1.0-Diffusers'
+ANIMA_BASE_LABEL = 'Anima-Base'
+# Default preview negative for Anima, verbatim from ai-toolkit options.ts (PR #860,
+# entry 'anima'). The score_1..3 / "artist name" tags are the anime-model convention
+# the upstream UI ships — kept as the default so previews match ai-toolkit's own.
+ANIMA_SAMPLE_NEG = ('worst quality, low quality, score_1, score_2, score_3, blurry, '
+                    'jpeg artifacts, sepia, signature, artist name')
 
 # Z-Image recipes are intentionally centralized here.  Before this guardrail,
 # ``train_variant='base'`` / ``'deturbo'`` only removed the Turbo training
@@ -786,7 +858,7 @@ def _valid_variants_for(family) -> tuple:
 #     `train_settings`). Absent/NULL → défaut family-aware issu de la recherche
 #     (cf. Research vault 2026-07-10). Toute valeur hors des listes autorisées
 #     retombe sur le défaut : on ne pousse JAMAIS une config invalide à ai-toolkit. ---
-_DEFAULT_RANK = {'zimage': 16, 'krea': 32, 'sdxl': 32, 'flux': 16, 'flux2klein': 16}   # Z-Image reste 16 (choix user) ; Krea/SDXL 32 ; Flux/FLUX.2 Klein 16 (défaut des exemples officiels)
+_DEFAULT_RANK = {'zimage': 16, 'krea': 32, 'sdxl': 32, 'flux': 16, 'flux2klein': 16, 'anima': 32}   # Z-Image reste 16 (choix user) ; Krea/SDXL 32 ; Flux/FLUX.2 Klein 16 (défaut des exemples officiels) ; Anima 32 (defaultLinearRank ai-toolkit options.ts, PR #860)
 # FLUX.2 Klein STYLE only : linear 128 (+ Conv2d 64) — la recette dominante du sweep
 # Calvin Herbst (64 runs, fév. 2026) ET l'exemple de training officiel BFL, tous deux
 # sur les dims 128/64/64/32 (ratio 4:2:2:1). Les AUTRES kinds Klein gardent 16.
@@ -802,7 +874,7 @@ _DROPOUT_CHOICES = (0.05, 0.1, 0.15, 0.2, 0.3)          # LoRA network dropout ;
 _ALPHA_CHOICES = (1, 2, 4, 8, 16, 24, 32, 48, 64)       # alpha découplé du rank ; absent = dérivé
 _TIMESTEP_TYPE_CHOICES = ('sigmoid', 'linear', 'weighted', 'shift')  # pondération flowmatch ; SDXL le désactive
 _DEFAULT_TIMESTEP = {'zimage': 'sigmoid', 'krea': 'linear', 'flux': 'sigmoid',
-                     'flux2klein': 'weighted'}   # ce que « Auto » résout (sdxl : aucun) ; flux subject → sigmoid (reco ai-toolkit) ; flux2klein → weighted (défaut canonique options.ts, PAS sigmoid)
+                     'flux2klein': 'weighted', 'anima': 'weighted'}   # ce que « Auto » résout (sdxl : aucun) ; flux subject → sigmoid (reco ai-toolkit) ; flux2klein → weighted (défaut canonique options.ts, PAS sigmoid) ; anima → weighted (défaut options.ts PR #860)
 # Batch 2 — optimiseur / planning du LR / batch effectif (valeurs VÉRIFIÉES dans
 # ai-toolkit : get_optimizer + toolkit/scheduler.py). CAME n'est PAS supporté.
 _OPTIMIZER_CHOICES = ('adamw8bit', 'adafactor', 'automagic', 'prodigy')
@@ -1894,6 +1966,22 @@ BUILTIN_TRAIN_PRESETS = [
                        'no Klein-specific study yet), 250-step probes.',
         'settings': _character_preset_settings(16, 16, timestep_type='sigmoid'),
     },
+    # No Anima-specific study exists yet (model shipped mid-2026): extrapolated
+    # from ai-toolkit's own defaults (options.ts entry 'anima', PR #860) — rank 32
+    # (defaultLinearRank) with weighted timesteps (the entry's canonical default,
+    # NOT subject-tuned sigmoid). Drop rank to 16 manually for small clean sets.
+    {
+        'id': 'builtin-character-anima',
+        'name': 'Anima · Character',
+        'train_type': 'anima',
+        'dataset_kind': 'character',
+        'variants': [],
+        'builtin': True,
+        'description': "ai-toolkit's Anima defaults: rank 32/32 with weighted "
+                       'timesteps — no Anima-specific study yet, extrapolated '
+                       'from options.ts; probe every 250 steps.',
+        'settings': _character_preset_settings(32, 32, timestep_type='weighted'),
+    },
     # --- Concept / composition (one per family) --------------------------
     # Historical ID kept stable. rank 16 / alpha 8: concept research (vault
     # 2026-06-22) — object/concept rank 16-32 with alpha dim/2. weighted
@@ -1975,6 +2063,22 @@ BUILTIN_TRAIN_PRESETS = [
         'description': 'No Klein-specific concept research yet — extrapolated '
                        'from Klein style: rank 32, half alpha 16, weighted '
                        'timesteps, 500-step probes.',
+        'settings': _concept_preset_settings(32, 16, timestep_type='weighted'),
+    },
+    # No Anima concept source exists: extrapolate the family canon (rank 32, the
+    # options.ts defaultLinearRank) with the generic concept alpha dim/2 rule and
+    # Anima's canonical weighted timesteps — same reasoning as the Krea/Klein
+    # concept presets, flagged as extrapolated.
+    {
+        'id': 'builtin-concept-anima',
+        'name': 'Anima · Concept',
+        'train_type': 'anima',
+        'dataset_kind': 'concept',
+        'variants': [],
+        'builtin': True,
+        'description': 'No Anima-specific concept research yet — extrapolated '
+                       "from ai-toolkit's rank-32 default with half alpha 16 "
+                       'and weighted timesteps, 500-step probes.',
         'settings': _concept_preset_settings(32, 16, timestep_type='weighted'),
     },
     # Legacy generic Style alias. The API hides it from GET and resolves its ID
@@ -2082,6 +2186,11 @@ def _dest_base_tag(ds, base_model=_PERSISTED, family=None,
         tag = _base_tag_for(
             FLUX2KLEIN_BASE_LABELS[
                 '9b' if _flux2klein_is_9b(ds, variant) else '4b'])
+    # Anima : même garde que Flux — sa base officielle unique donne un tag vide qui
+    # télescoperait un run Z-Image officiel du même trigger. Le tag `_Anima-Base`
+    # isole le run et le LoRA déployé.
+    if not tag and fam == 'anima':
+        tag = _base_tag_for(ANIMA_BASE_LABEL)
     return tag + _custom_combo_hash(ds, base_model, family)
 
 
@@ -2496,6 +2605,12 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
         _apply_slider_overrides(ds, cfg_['config']['process'][0], 'flux2klein')
         _apply_dual_captions(ds, cfg_['config']['process'][0], dataset_folder)
         return cfg_
+    if _train_type(ds) == 'anima':
+        cfg_ = _build_job_config_anima(ds, dataset_folder, steps, training_folder=training_folder)
+        _apply_style_overrides(ds, cfg_['config']['process'][0], 'anima')
+        _apply_slider_overrides(ds, cfg_['config']['process'][0], 'anima')
+        _apply_dual_captions(ds, cfg_['config']['process'][0], dataset_folder)
+        return cfg_
     trigger = _safe_trigger(ds)
     base_model = getattr(ds, 'train_base_model', None)
     recipe = zimage_training_recipe(getattr(ds, 'train_variant', None), base_model)
@@ -2820,6 +2935,96 @@ def _build_job_config_flux2klein(ds, dataset_folder: str, steps: int, training_f
                     'neg': '',
                     'sample_every': _sample_every(ds),
                     # Base non distillée → vrai CFG (cf. docstring) : 4 / 25 steps.
+                    'guidance_scale': 4,
+                    'sample_steps': 25,
+                    'prompts': _sample_prompts(ds, trigger),
+                },
+            }],
+        },
+    }
+
+
+def _build_job_config_anima(ds, dataset_folder: str, steps: int, training_folder=None) -> dict:
+    """Job-config ai-toolkit pour Anima (arch='anima'). Modèle circlestone-labs
+    Anima (Cosmos Predict2 DiT 2B + text encoder Qwen3 + conditionneur T5 + VAE
+    Qwen-Image). Valeurs VÉRIFIÉES contre la PR ostris/ai-toolkit #860 (mergée le
+    2026-07-15), entrée `anima` de `ui/.../options.ts` :
+    - name_or_path 'circlestone-labs/Anima-Base-v1.0-Diffusers' (PUBLIC, non gated) ;
+    - quantize / quantize_te False (defaults options.ts — le DiT ne fait que 2B,
+      contrairement aux 12B krea/flux qui forcent qfloat8) ;
+    - noise_scheduler / sampler 'flowmatch', timestep_type 'weighted' (défaut
+      canonique de l'entrée, PAS 'sigmoid') ;
+    - negative de preview = ANIMA_SAMPLE_NEG (tags anime score_1..3, défaut UI).
+
+    ⚠️ arch 'anima' = EXTENSION (extensions_built_in/diffusion_models/anima), PAS
+    une arch cœur → garde de version obligatoire (_aitoolkit_supports_anima) sinon
+    get_model_class retombe en silence sur le loader SD legacy (LoRA corrompu).
+    Anima exige aussi un diffusers récent (AnimaModularPipeline) — angle mort de la
+    garde, documenté dans _aitoolkit_supports_anima.
+
+    VRAM : 2B → modeste. On garde quand même cache_latents_to_disk +
+    cache_text_embeddings + unload_text_encoder (générique ai-toolkit, valide car
+    train_text_encoder=False → sorties du Qwen3 figées, cachables sans perte), ce
+    qui décharge le TE après caching et laisse de la marge sur les petites cartes.
+    guidance 4 / 25 steps pour les previews : base NON distillée (vrai CFG), même
+    duo que Krea Raw — extrapolé faute de chiffre publié spécifique à Anima."""
+    trigger = _safe_trigger(ds)
+    _arank = _lora_rank(ds, 'anima')   # défaut 32 (defaultLinearRank options.ts) ; éditable via train_settings
+    # Custom weights (local-only, same anima arch) override name_or_path; the TE
+    # (Qwen3) / conditioner (T5) / VAE stay official (ai-toolkit's anima loader
+    # resolves them from the official pipeline).
+    _abase = getattr(ds, 'train_base_model', None)
+    model = {
+        'arch': 'anima',
+        'name_or_path': (_abase if _is_custom_weights(_abase) else ANIMA_BASE),
+        'quantize': False, 'quantize_te': False,
+    }
+    return {
+        'job': 'extension',
+        'config': {
+            'name': f'lora_{trigger}',
+            'process': [{
+                'type': 'sd_trainer',
+                'training_folder': (training_folder if training_folder
+                                    else str(_output_dir() / _run_name(ds))),
+                'device': 'cuda:0',
+                'trigger_word': trigger,
+                'network': _network_block(ds, _arank, 'anima'),
+                'save': {'dtype': 'float16', 'save_every': _save_every(ds),
+                         'max_step_saves_to_keep': _max_step_saves(ds)},
+                'datasets': [{
+                    'folder_path': dataset_folder,
+                    'caption_ext': 'txt',
+                    'caption_dropout_rate': 0.05,
+                    'cache_latents_to_disk': True,
+                    # Pré-cache les embeddings du Qwen3 pour pouvoir le DÉCHARGER pendant
+                    # le training (unload_text_encoder) → libère de la VRAM. Valide car
+                    # train_text_encoder=False (sorties figées → cachables sans perte).
+                    'cache_text_embeddings': True,
+                    'resolution': _train_res(ds),
+                    **_mask_fields(dataset_folder),
+                }],
+                'train': {
+                    'batch_size': 1,
+                    'steps': steps,
+                    'gradient_accumulation': _grad_accum(ds),
+                    'train_unet': True,
+                    'train_text_encoder': False,
+                    'unload_text_encoder': True,
+                    'gradient_checkpointing': True,
+                    'noise_scheduler': 'flowmatch',
+                    'timestep_type': _timestep_type_eff(ds, 'weighted'),  # défaut canonique anima (options.ts)
+                    'optimizer': _optimizer_eff(ds),
+                    'lr': _lr_eff(ds),
+                    'dtype': 'bf16',
+                    **_lr_sched_fields(ds),
+                    **_ema_fields(ds),
+                },
+                'model': model,
+                'sample': {
+                    'sampler': 'flowmatch',
+                    'neg': ANIMA_SAMPLE_NEG,
+                    'sample_every': _sample_every(ds),
                     'guidance_scale': 4,
                     'sample_steps': 25,
                     'prompts': _sample_prompts(ds, trigger),
@@ -3436,10 +3641,10 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
     removed: list[str] = []
     run_prefix = f'u{user_id}_{trigger_safe}'    # ex. u1_Lola69382
     lora_prefix = f'lora_{trigger_safe}'         # ex. lora_Lola69382
-    # 1) LoRA déployés dans ComfyUI (z image + sdxl + krea + flux + flux2klein séparés)
+    # 1) LoRA déployés dans ComfyUI (z image + sdxl + krea + flux + flux2klein + anima séparés)
     lora_roots = []
     for accessor in (_lora_dest_dir_zimage, _lora_dest_dir_sdxl, _lora_dest_dir_krea,
-                     _lora_dest_dir_flux, _lora_dest_dir_flux2klein):
+                     _lora_dest_dir_flux, _lora_dest_dir_flux2klein, _lora_dest_dir_anima):
         try:
             lora_roots.append(str(accessor()))
         except RuntimeError:
@@ -3598,9 +3803,9 @@ def rename_training_artifacts(user_id, old_trigger_safe, new_trigger_safe) -> di
         return roots
 
     plan = []
-    # 1) deployed LoRAs in ComfyUI (zimage + sdxl + krea + flux + flux2klein)
+    # 1) deployed LoRAs in ComfyUI (zimage + sdxl + krea + flux + flux2klein + anima)
     for root in _roots((_lora_dest_dir_zimage, _lora_dest_dir_sdxl, _lora_dest_dir_krea,
-                        _lora_dest_dir_flux, _lora_dest_dir_flux2klein)):
+                        _lora_dest_dir_flux, _lora_dest_dir_flux2klein, _lora_dest_dir_anima)):
         plan += _rename_plan(root, old_lora, new_lora, suffix='.safetensors')
     # 2) run output + 3) export datasets (whole folders)
     for root in _roots((_output_dir, _datasets_dir)):
@@ -3808,7 +4013,7 @@ def style_caption_quality(dataset_id) -> dict:
 TRAIN_MIN_IMAGES = {'zimage': (12, 20), 'sdxl': (20, 30), 'krea': (15, 20), 'flux': (15, 20),
                     'flux2klein': (15, 20)}
 _FAMILY_LABEL = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2', 'flux': 'FLUX.1',
-                 'flux2klein': 'FLUX.2 Klein'}
+                 'flux2klein': 'FLUX.2 Klein', 'anima': 'Anima'}
 # VRAM mesurée : Krea 2 (12B) sature un 24 GB à 1024 (cf. KREA_TRAIN_RESOLUTION). Flux
 # est un DiT de même classe (12B) → même seuil recommandé.
 _KREA_MIN_VRAM_GB = 24
@@ -4302,6 +4507,12 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
         raise ValueError(
             "ai-toolkit doesn't support FLUX.2 Klein yet (flux2_klein arch missing) - "
             "update it (git pull) before training a FLUX.2 Klein LoRA.")
+    # Anima : même garde (arch d'EXTENSION, PR #860 mergée le 2026-07-15) — un
+    # ai-toolkit antérieur retombe en silence sur le loader SD legacy → LoRA corrompu.
+    if _train_type(ds) == 'anima' and not _aitoolkit_supports_anima():
+        raise ValueError(
+            "ai-toolkit doesn't support Anima yet (anima arch missing) - "
+            "update it (git pull) before training an Anima LoRA.")
     # Slider mode (Beta) : the modern `concept_slider` trainer is an ai-toolkit
     # EXTENSION — an older install would crash at job boot on the unknown process
     # type. Refuse early with the fix, like the krea2/flux2klein arch guards.
@@ -5194,6 +5405,11 @@ def enqueue_training(user_id, dataset_id, extra_steps=None,
         raise ValueError(
             "ai-toolkit doesn't support FLUX.2 Klein yet (flux2_klein arch missing) - "
             "update it (git pull) before queuing a FLUX.2 Klein LoRA.")
+    # Anima : même garde qu'au lancement (arch d'extension, PR #860).
+    if ttype == 'anima' and not _aitoolkit_supports_anima():
+        raise ValueError(
+            "ai-toolkit doesn't support Anima yet (anima arch missing) - "
+            "update it (git pull) before queuing an Anima LoRA.")
     # Même garde-fou de collision qu'au lancement : pas de mise en file d'un job
     # qui partagerait le dossier de run d'un autre dataset (même trigger + base + recette).
     clash = find_run_collision(user_id, dataset_id, base_model=base, variant=var)

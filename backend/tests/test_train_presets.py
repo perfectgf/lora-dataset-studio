@@ -163,13 +163,17 @@ _QUICK_PRESET_MATRIX = {
     ('krea', 'concept'): 'builtin-concept-krea',
     ('flux', 'concept'): 'builtin-concept-flux1',
     ('flux2klein', 'concept'): 'builtin-concept-klein',
+    # Anima ships Character + Concept only (Style is out of scope for this family;
+    # it trains and deploys, no per-family style recipe yet).
+    ('anima', 'character'): 'builtin-character-anima',
+    ('anima', 'concept'): 'builtin-concept-anima',
 }
 
 
 def test_quick_preset_catalogue_covers_every_family_and_kind(client):
     listed = client.get('/api/train/presets').get_json()['presets']
     builtins = [p for p in listed if p.get('builtin')]
-    assert len(builtins) == 15
+    assert len(builtins) == 17
     coverage = {(p['train_type'], p['dataset_kind']): p['id'] for p in builtins}
     assert coverage == _QUICK_PRESET_MATRIX
     for p in builtins:
@@ -182,7 +186,7 @@ def test_quick_preset_catalogue_covers_every_family_and_kind(client):
 
 
 def test_every_quick_preset_applies_by_id_with_announced_values(client, app):
-    """Apply each of the 15 by preset_id on a dataset of ITS family and kind:
+    """Apply each of the 17 by preset_id on a dataset of ITS family and kind:
     the scope check passes, nothing is ignored/rejected, and the STORED raw
     settings reproduce the announced settings dict exactly."""
     listed = client.get('/api/train/presets').get_json()['presets']

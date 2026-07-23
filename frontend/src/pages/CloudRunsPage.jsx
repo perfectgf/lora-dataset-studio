@@ -30,7 +30,7 @@ import { runsHubContinueLanes } from '../utils/runsHubContinueLanes';
    /train/cloud/runs endpoint (actives + recent history + budget summary). */
 
 const POLL_MS = 5000;
-const FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein' };
+const FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein', anima: 'Anima' };
 
 // "Recent" history collapse: a UI preference, not run data — persisted globally
 // (same lazy-init + effect pattern as `datasetGridTileSize` in DatasetGrid.jsx /
@@ -93,7 +93,7 @@ function timeAgo(iso) {
 function famLabel(f) { return FAMILY_LABEL[f] || f || 'LoRA'; }
 
 // Short family names that fit the 5rem fallback thumbnail tile.
-const FAMILY_SHORT = { zimage: 'Z-Image', krea: 'Krea', sdxl: 'SDXL', flux: 'FLUX', flux2klein: 'Klein' };
+const FAMILY_SHORT = { zimage: 'Z-Image', krea: 'Krea', sdxl: 'SDXL', flux: 'FLUX', flux2klein: 'Klein', anima: 'Anima' };
 
 /** Card thumbnail: the LAST sample the run generated (backend stamps
  * `preview_url` when one exists on disk). Fallback: a quiet family tile —

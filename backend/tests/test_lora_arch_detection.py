@@ -50,6 +50,14 @@ _SDXL_KEYS = ['lora_unet_down_blocks_1_attentions_0_proj_in.lora_down.weight',
               'lora_unet_down_blocks_1_attentions_0_proj_in.alpha']
 _FLUX_KEYS = ['diffusion_model.double_blocks.0.img_attn.proj.lora_A.weight',
               'diffusion_model.single_blocks.0.linear1.lora_A.weight']
+# Anima (Cosmos Predict2 DiT) — the ComfyUI-converted key namespace from
+# ai-toolkit PR #860's _convert_diffusers_lora_key_to_comfy: the text conditioner
+# maps to diffusion_model.llm_adapter.*, and each block uses the Cosmos-specific
+# self_attn.q_proj / adaln_modulation_self_attn names. DISJOINT from Krea's
+# diffusion_model.blocks.*.attn.wk/wq/gate + txtfusion (the collision guard below).
+_ANIMA_KEYS = ['diffusion_model.blocks.0.self_attn.q_proj.lora_A.weight',
+               'diffusion_model.blocks.0.adaln_modulation_self_attn.1.lora_A.weight',
+               'diffusion_model.llm_adapter.0.lora_A.weight']
 _UNKNOWN_KEYS = ['some.random.tensor.weight', 'foo.bar.baz.qux']
 
 
@@ -61,6 +69,7 @@ _UNKNOWN_KEYS = ['some.random.tensor.weight', 'foo.bar.baz.qux']
     ('flux', 'flux'),
     ('flux2_klein_9b', 'flux2klein'),
     ('flux2_klein_4b', 'flux2klein'),
+    ('anima', 'anima'),      # AnimaModel.get_base_model_version() → 'anima'
     ('sd_1.5', None),        # a family we don't train → no verdict (no false block)
     ('sd_2.1', None),
     ('totally-unknown', None),
@@ -78,12 +87,41 @@ def test_detect_by_metadata(app, tmp_path, version, expected):
     (_KREA_KEYS, 'krea'),
     (_SDXL_KEYS, 'sdxl'),
     (_FLUX_KEYS, 'flux'),            # names can't split FLUX.1 vs FLUX.2 → generic
+    (_ANIMA_KEYS, 'anima'),
     (_UNKNOWN_KEYS, None),
 ])
 def test_detect_by_tensor_names_when_metadata_absent(app, tmp_path, keys, expected):
     from app.services import lora_training as lt
     p = _write_st(tmp_path / 'nometa.safetensors', keys)   # NO __metadata__
     assert lt.detect_lora_arch(p) == expected
+
+
+def test_krea_and_anima_never_cross_detect(app, tmp_path):
+    """Regression guard for the Krea↔Anima collision: both deploy under
+    diffusion_model.blocks.*, so a sloppy sniff could tag a real Krea LoRA as
+    Anima (→ lora_arch_conflicts would then block a Krea deploy that worked). Pin
+    BOTH directions, by metadata AND by tensor names, with the real Krea fixture."""
+    from app.services import lora_training as lt
+    # Tensor-name sniff (no metadata): each keeps its own verdict.
+    krea = _write_st(tmp_path / 'krea_nometa.safetensors', _KREA_KEYS)
+    anima = _write_st(tmp_path / 'anima_nometa.safetensors', _ANIMA_KEYS)
+    assert lt.detect_lora_arch(krea) == 'krea'      # NEVER 'anima'
+    assert lt.detect_lora_arch(anima) == 'anima'    # NEVER 'krea'
+    # The name-only helper directly, on the exact fixtures.
+    assert lt._lora_arch_from_keys(_KREA_KEYS) == 'krea'
+    assert lt._lora_arch_from_keys(_ANIMA_KEYS) == 'anima'
+    # Metadata path: the stamped version wins and stays exact.
+    kr = _write_st(tmp_path / 'krea_meta.safetensors', _KREA_KEYS,
+                   {'ss_base_model_version': 'krea2'})
+    an = _write_st(tmp_path / 'anima_meta.safetensors', _ANIMA_KEYS,
+                   {'ss_base_model_version': 'anima'})
+    assert lt.detect_lora_arch(kr) == 'krea'
+    assert lt.detect_lora_arch(an) == 'anima'
+    # And the conflict semantics that the deploy/Studio guards rely on.
+    assert lt.lora_arch_conflicts('anima', 'krea') is True
+    assert lt.lora_arch_conflicts('krea', 'anima') is True
+    assert lt.lora_arch_conflicts('anima', 'anima') is False
+    assert lt.lora_arch_conflicts('anima', 'zimage') is True
 
 
 def test_metadata_wins_over_tensor_names(app, tmp_path):

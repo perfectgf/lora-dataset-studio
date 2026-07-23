@@ -707,6 +707,13 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
     if fam == 'flux':
         raise ValueError('FLUX.1 training is local-only for now — '
                          'cloud training supports Z-Image, Krea and FLUX.2 Klein')
+    # Anima is LOCAL-ONLY for this wave: a pod would need ai-toolkit with the
+    # 'anima' arch (PR #860, 2026-07-15) + a recent diffusers, which current pod
+    # images predate — renting one would burn a GPU on an unknown arch. Refuse
+    # BEFORE any reservation. Lift once the pod image is verified.
+    if fam == 'anima':
+        raise ValueError('Anima cloud training is coming once the pod image is '
+                         'verified — train it locally for now')
     variant = (variant or '').strip().lower()
     confirmations = {
         'allow_caption_mismatch': bool(allow_caption_mismatch),
@@ -3000,6 +3007,13 @@ def gpu_tiers(user_id, dataset_id, train_type=None, steps=None,
     if fam == 'flux':
         raise ValueError('FLUX.1 training is local-only for now — '
                          'cloud training supports Z-Image, Krea and FLUX.2 Klein')
+    # Anima is LOCAL-ONLY for this wave: a pod would need ai-toolkit with the
+    # 'anima' arch (PR #860, 2026-07-15) + a recent diffusers, which current pod
+    # images predate — renting one would burn a GPU on an unknown arch. Refuse
+    # BEFORE any reservation. Lift once the pod image is verified.
+    if fam == 'anima':
+        raise ValueError('Anima cloud training is coming once the pod image is '
+                         'verified — train it locally for now')
     selected_variant = str(
         variant or getattr(ds, 'train_variant', None)
         or lt._default_variant_for(fam)).strip().lower()

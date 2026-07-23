@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-24-anima-training-family',
+    date: '2026-07-24',
+    title: '🎨 Train Anima LoRAs (anime model)',
+    blurb:
+      'Anima — the open anime image model from circlestone-labs — is now a first-class training target, right next to Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein. Pick "Anima" as your dataset\'s target model and it trains on the official public base (no gated download, no Hugging Face licence to accept), with prose captions and researched defaults (rank 32, weighted timesteps, the anime-tuned preview negative) already dialled in — plus one-click Character and Concept presets. Training runs locally on an up-to-date ai-toolkit; cloud training for Anima is coming once the GPU image is verified.',
+    to: '/datasets?section=add',
+  },
+  {
     id: '2026-07-23-multi-engine-generation',
     date: '2026-07-23',
     title: '⚡ Generate with several engines at once',
