@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-23-bank-cards-show-their-first-images',
+    date: '2026-07-23',
+    title: '🗃 Tell your banks apart at a glance',
+    blurb:
+      'The 🗃 Bank list used to be a wall of names and folder paths — you had to open a bank to remember what was in it. Each card now shows a strip of its first five images, with a "+N" badge for the rest. It works on banks you never scanned too (the thumbnails are made on the spot), and clicking one opens the bank.',
+    to: '/bank',
+  },
+  {
     id: '2026-07-23-one-backup-menu-in-the-library',
     date: '2026-07-23',
     title: '💾 One Backup menu instead of three loose controls',

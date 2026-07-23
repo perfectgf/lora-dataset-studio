@@ -468,9 +468,27 @@ def list_banks(user_id) -> list:
             'keep': base.filter_by(status='keep').count(),
             'reject': base.filter_by(status='reject').count(),
             'scanned': base.filter(BankImage.quality_state.isnot(None)).count(),
+            'preview_ids': _preview_ids(bank.id),
             'activity': bank_jobs.get(bank.id),
         })
     return out
+
+
+PREVIEW_COUNT = 5
+
+
+def _preview_ids(bank_id, limit=PREVIEW_COUNT) -> list:
+    """The first few image ids of a bank, for the card's thumbnail strip.
+    Ordered by id (= inventory order), so the strip is STABLE across reloads —
+    and rejected shots are skipped so a triaged bank doesn't advertise its
+    discards. Kept images are deliberately NOT promoted to the front: most banks
+    sit at zero keeps for their whole life, and re-ordering the strip as the user
+    triages would make the card flicker under them. One query per bank, so the
+    whole page still costs a single HTTP request."""
+    rows = (BankImage.query.with_entities(BankImage.id)
+            .filter(BankImage.bank_id == bank_id, BankImage.status != 'reject')
+            .order_by(BankImage.id.asc()).limit(limit).all())
+    return [r[0] for r in rows]
 
 
 def list_images(user_id, bank_id, status=None, flag=None, cluster=None,

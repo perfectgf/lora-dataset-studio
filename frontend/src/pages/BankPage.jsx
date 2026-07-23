@@ -4,8 +4,41 @@ import { useToast } from '../components/common/Toast'
 import { HelpBadge } from '../help/HelpMode'
 import BankWorkspace from '../components/bank/BankWorkspace'
 import FolderPickerField from '../components/common/FolderPicker'
+import { hiddenCount, previewSlots } from '../components/bank/bankPreview'
 
 const CURRENT_KEY = 'bankCurrentId'
+
+/** The card's thumbnail strip: the bank's first few images, so a list of banks
+ * reads at a glance instead of as a wall of folder paths. Clicking a thumbnail
+ * opens the bank, like the title and the Open button. Thumbnails are served by
+ * the same route the workspace grid uses (generated on demand when the bank was
+ * never scanned) and load lazily, so an off-screen card costs nothing. */
+function BankPreviewStrip({ bank, onOpen }) {
+  if (!bank.preview_ids?.length) return null
+  const extra = hiddenCount(bank.total, bank.preview_ids)
+  return (
+    <div className="relative grid grid-cols-5 gap-1">
+      {previewSlots(bank.preview_ids).map((id, i) => (
+        <div key={id ?? `empty-${i}`}
+          className="aspect-square overflow-hidden rounded border border-border bg-surface-raised">
+          {id != null && (
+            <button type="button" onClick={onOpen} tabIndex={-1} aria-hidden="true"
+              className="block h-full w-full">
+              <img src={`/api/bank/${bank.id}/thumb/${id}`} alt="" loading="lazy"
+                onError={(e) => { e.currentTarget.style.visibility = 'hidden' }}
+                className="h-full w-full object-cover" />
+            </button>
+          )}
+        </div>
+      ))}
+      {extra > 0 && (
+        <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[0.625rem] font-semibold text-white">
+          +{extra}
+        </span>
+      )}
+    </div>
+  )
+}
 
 /** 🗃️ Image bank — triage a big unsorted folder BEFORE it becomes datasets.
  * List view (create/open/delete banks) + per-bank workspace. The bank
@@ -132,6 +165,7 @@ export default function BankPage() {
               <p className="truncate font-mono text-xs text-content-subtle" title={b.source_path}>
                 {b.source_path}
               </p>
+              <BankPreviewStrip bank={b} onOpen={() => open(b.id)} />
               <p className="text-xs text-content-muted">
                 {b.total} image(s) · {b.scanned} scanned · <span className="text-emerald-300">{b.keep} kept</span> · <span className="text-rose-300">{b.reject} rejected</span>
               </p>

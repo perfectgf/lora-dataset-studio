@@ -125,6 +125,46 @@ def test_banks_list(client, tmp_path):
     assert data['banks'][0]['total'] == 1
 
 
+def test_banks_list_previews_are_capped_stable_and_skip_rejects(client, tmp_path):
+    """The card's thumbnail strip: at most 5 ids, in inventory (id) order so the
+    strip doesn't reshuffle between reloads, rejected shots left out."""
+    files = {f'{i:02d}.jpg': flat(value=10 * i) for i in range(1, 8)}
+    bank_id, _src = _mkbank(client, tmp_path, files)
+
+    def previews():
+        banks = client.get('/api/banks').get_json()['banks']
+        return next(b for b in banks if b['id'] == bank_id)['preview_ids']
+
+    first = previews()
+    assert len(first) == 5
+    assert first == sorted(first)
+    assert previews() == first          # stable across reloads
+
+    # A rejected image drops out of the strip and the next one slides in.
+    r = client.post(f'/api/bank/{bank_id}/images/status',
+                    json={'ids': [first[0]], 'status': 'reject'})
+    assert r.status_code == 200
+    after = previews()
+    assert first[0] not in after
+    assert after[:4] == first[1:]
+
+
+def test_bank_preview_thumb_served_without_a_scan(client, tmp_path):
+    """A freshly created (never scanned) bank must still show thumbnails — the
+    thumb route generates them on demand."""
+    bank_id, _src = _mkbank(client, tmp_path, {'a.jpg': photo_like()})
+    b = client.get('/api/banks').get_json()['banks'][0]
+    assert b['scanned'] == 0 and len(b['preview_ids']) == 1
+    r = client.get(f"/api/bank/{bank_id}/thumb/{b['preview_ids'][0]}")
+    assert r.status_code == 200
+    assert r.mimetype == 'image/webp'
+
+
+def test_banks_list_preview_empty_for_imageless_bank(client, tmp_path):
+    _mkbank(client, tmp_path, {'notes.txt': b'not an image'})
+    assert client.get('/api/banks').get_json()['banks'][0]['preview_ids'] == []
+
+
 # --- quality scan ------------------------------------------------------------
 def test_scan_scores_flags_and_unreadable(client, tmp_path):
     bank_id, src = _mkbank(client, tmp_path, {
