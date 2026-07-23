@@ -2571,6 +2571,27 @@ def _deploy_version(filename) -> int:
     return int(m.group(1)) if m else 0
 
 
+def _deletable_deploy_names(dataset_id, family) -> dict:
+    """{lowercased basename: filename as delete_imported_checkpoint whitelists it}
+    for this dataset+family. The testable map names the deployed LoRA as the
+    ComfyUI POOL sees it, while the deployed-delete route whitelists the names
+    `list_imported_checkpoints` scans off disk — the same files, but the two
+    forms can differ (path separator, subfolder prefix). Joining on the basename
+    gives the UI a delete target the route will actually accept, instead of a
+    name that resolves to 'unknown checkpoint'. Best-effort: {} on any failure,
+    so a pill simply offers no deployed-delete rather than a doomed button."""
+    try:
+        rows = lt.list_imported_checkpoints(cfg.LOCAL_USER, dataset_id, family=family)
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        fn = str(r.get('filename') or '')
+        if fn:
+            out[os.path.basename(fn.replace('\\', '/')).lower()] = fn
+    return out
+
+
 def _testable_by_step(dataset_id, family, run_tag=None, final_step=None) -> dict:
     """{step: deployed_lora_filename} for this dataset+family — the checkpoints
     the Lab can actually generate a preview for. Best-effort: no dataset / no
@@ -2845,10 +2866,18 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
     _testable = _testable_by_step(rec.dataset_id, rec.family,
                                   run_tag=_deployed_run_tag(rec),
                                   final_step=_final_step_of(node.get('checkpoints')))
+    # The deployed copy's own name, from the SAME map that decides `testable` —
+    # so "is it deployed" and "which file would Remove-from-ComfyUI trash" can
+    # never drift apart. Resolved to the form the deployed-delete route accepts.
+    _deploy_names = _deletable_deploy_names(rec.dataset_id, rec.family) if _testable else {}
     for _ck in (node.get('checkpoints') or []):
         _step = _ck.get('step')
         _ck['note'] = _cnotes.get(_step, '')
         _ck['testable'] = _step in _testable
+        _dep = _testable.get(_step)
+        if _dep:
+            _ck['deployed_filename'] = _deploy_names.get(
+                os.path.basename(str(_dep).replace('\\', '/')).lower())
         _pv = _cprev.get(_step)
         if _pv:
             _ck['preview_url'] = _pv.get('url')

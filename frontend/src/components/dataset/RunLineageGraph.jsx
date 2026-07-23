@@ -14,7 +14,7 @@ import {
   checkpointKey, toggleCheckpointSelection, selectedCheckpointRefs,
   describePreviewSelection, parseSeedInput,
   checkpointDeployed, lineageImportPayload,
-  lineageDeletePayload, describeCheckpointDelete, checkpointDeletable,
+  checkpointDeleteTarget, describeCheckpointDelete,
 } from './lineagePreview.js';
 
 /* ◉ Graph view of a run's lineage — the showcase rendering. A tidy left-to-right
@@ -346,22 +346,28 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint,
     }
   }, [datasetId, refetchTree, mergeFromTree, toast]);
 
-  // 🗑 Trash THIS save from its pill — the run's checkpoint file, NOT the LoRA
-  // deployed in ComfyUI (a separate file behind a separate route; the confirm
-  // says so, otherwise "delete" reads as "lose everything"). Same route and body
-  // as the flat list's 🗑, so a cloud pill rides its cloud_run_id and a local one
-  // its base/family/variant. postJson THROWS on 400/409 (e.g. the server's "this
-  // dataset is training right now"), so the catch shows the server's own words.
-  // On success the lineage is refetched: the pill disappears from the graph.
+  // 🗑 ONE delete action per pill, aimed at WHAT THE PILL SHOWS: a deployed pill
+  // removes its ComfyUI copy (the run's save stays), a plain pill deletes the
+  // training save itself. Deletion is therefore progressive — undeploy first,
+  // then the same action reaches the raw save. The target (route + body + label)
+  // comes from checkpointDeleteTarget, which reads the SAME `testable` flag that
+  // decides "✓ Deployed" vs "Import → loras/…", so the button can't aim at one
+  // file while the popover claims the other. postJson THROWS on 400/409 (e.g.
+  // the server's "this dataset is training right now"), so the catch shows the
+  // server's own words. On success the lineage is refetched: the deployed pill
+  // flips to not-deployed (next click aims at the save), a deleted save's pill
+  // disappears — never a stale claim until the next reload.
   const handleDeleteCheckpoint = useCallback(async (node, pill) => {
-    const body = lineageDeletePayload(node, pill);
-    if (datasetId == null || !body) return;
+    const target = checkpointDeleteTarget(node, pill);
+    if (datasetId == null || !target) return;
     const { message } = describeCheckpointDelete(node, pill, { bestSettingsLora });
     if (!window.confirm(message)) return;
     setDeleting(true);
     try {
-      await postJson(`/api/dataset/${datasetId}/train/run-checkpoint/delete`, body);
-      toast.success(`Moved to the trash: ${pill.filename}`);
+      await postJson(`/api/dataset/${datasetId}/${target.path}`, target.body);
+      toast.success(target.kind === 'deployed'
+        ? `Removed from ComfyUI (training save kept): ${target.filename}`
+        : `Training save moved to the trash: ${target.filename}`);
       setOpenCk(null);
       if (typeof refetchTree === 'function') {
         try { const t = await refetchTree(); if (t) mergeFromTree(t); } catch { /* it is deleted server-side */ }
@@ -720,16 +726,21 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint,
                 ) : null}
                 {/* 🗑 Destructive, so VISUALLY IN RETREAT below a hairline: a
                     quiet text row, not a fourth coloured button one clicks by
-                    reflex. It trashes the RUN's save; anything already imported
-                    into ComfyUI stays (the confirm spells both out). */}
-                {checkpointDeletable(openCk.node, openCk.pill) && (
-                  <button type="button" disabled={deleting}
-                    onClick={() => handleDeleteCheckpoint(openCk.node, openCk.pill)}
-                    title="Move this run's save to the trash (recoverable until you empty it in Settings). A copy already imported into ComfyUI is not touched."
-                    className="mt-1 flex items-center gap-1.5 border-t border-border px-2 pt-1.5 pb-0.5 text-left text-content-subtle text-[0.625rem] hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50">
-                    <span aria-hidden>🗑</span> {deleting ? 'Deleting…' : 'Delete this save'}
-                  </button>
-                )}
+                    reflex. Its LABEL names the file it would delete right now —
+                    the ComfyUI copy while the pill is deployed, the training
+                    save once it isn't — so the two are never confused. */}
+                {(() => {
+                  const target = checkpointDeleteTarget(openCk.node, openCk.pill);
+                  if (!target) return null;
+                  return (
+                    <button type="button" disabled={deleting}
+                      onClick={() => handleDeleteCheckpoint(openCk.node, openCk.pill)}
+                      title={target.title}
+                      className="mt-1 flex items-center gap-1.5 border-t border-border px-2 pt-1.5 pb-0.5 text-left text-content-subtle text-[0.625rem] hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50">
+                      <span aria-hidden>🗑</span> {deleting ? 'Deleting…' : target.label}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           </foreignObject>

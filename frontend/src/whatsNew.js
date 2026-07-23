@@ -65,9 +65,9 @@ export const WHATS_NEW = [
   {
     id: '2026-07-23-delete-a-save-from-the-graph',
     date: '2026-07-23',
-    title: '🗑 Drop a checkpoint straight from the lineage graph',
+    title: '🗑 Undo a checkpoint step by step, straight from the lineage graph',
     blurb:
-      'A run that saved every epoch fills the disk fast, and until now the only way to get rid of one was to leave the graph, switch to the flat list and hunt the filename down. Click any checkpoint pill in the graph and its actions now end with a quiet "Delete this save" — deliberately understated, always confirmed, and it tells you exactly what happens: the save goes to the trash (recoverable until you empty it in Settings) and a copy you already imported into ComfyUI is left untouched. If the checkpoint is the one pinned as the dataset\'s ★ best settings in the Test Studio, the confirmation says so first. Cloud saves are deleted on the right run, and a run still training keeps its saves.',
+      'A run that saved every epoch fills the disk fast, and until now the only way to get rid of one was to leave the graph, switch to the flat list and hunt the filename down. Click any checkpoint pill and its actions now end with a quiet delete row that walks backwards through what you did: while the checkpoint is deployed it reads "Remove from ComfyUI" and takes out only the imported copy — the training save stays, so nothing is lost. Once it is no longer deployed the same row reads "Delete the training save" and clears the run file itself. The confirmation always names which of the two you are about to delete, says what survives, and reminds you it goes to the trash (recoverable until you empty it in Settings). If the checkpoint is the one pinned as the dataset\'s ★ best settings in the Test Studio, the warning comes first. Cloud saves are deleted on the right run, and a run still training keeps its saves.',
     to: '/datasets?section=training',
   },
   {
