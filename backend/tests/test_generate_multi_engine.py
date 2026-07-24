@@ -240,15 +240,18 @@ def test_image_engine_is_absent_rather_than_wrong(client, no_threads):
     ds_id = _dataset_with_ref(client)
     client.post(f'/api/dataset/{ds_id}/generate', json={
         'engine_batches': [{'generator': 'chatgpt', 'variations': _shots(1)}]})
-    img = svc.FaceDatasetImage.query.filter_by(dataset_id=ds_id).first()
-    assert svc._image_engine(img) == 'chatgpt'
+    # The DB query needs an app context of its own — relying on one leaking from
+    # a prior test made this pass locally but fail under CI's ordering.
+    with client.application.app_context():
+        img = svc.FaceDatasetImage.query.filter_by(dataset_id=ds_id).first()
+        assert svc._image_engine(img) == 'chatgpt'
 
-    img.klein_model = 'flux2_klein_fp8.safetensors'          # a local Klein row
-    assert svc._image_engine(img) == 'klein'
-    img.klein_model = None                                   # legacy / imported
-    assert svc._image_engine(img) is None
-    img.klein_model = '   '
-    assert svc._image_engine(img) is None
+        img.klein_model = 'flux2_klein_fp8.safetensors'      # a local Klein row
+        assert svc._image_engine(img) == 'klein'
+        img.klein_model = None                               # legacy / imported
+        assert svc._image_engine(img) is None
+        img.klein_model = '   '
+        assert svc._image_engine(img) is None
 
 
 def test_capabilities_publishes_the_fanout_cap(client):
