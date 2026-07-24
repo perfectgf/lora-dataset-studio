@@ -72,10 +72,139 @@ _IDENTITY_PROMPT_DEFAULTS = {
 }
 
 
-def identity_prompt_default(kind: str) -> str:
+# --- Subject type (Human / Animal / Creature / Object / Other) ----------------
+# The identity locks above are written for a HUMAN subject ("facial identity …
+# eye shape, jawline, lips, skin tone"). A dataset now declares WHAT its subject
+# is, so the generation prompts stop assuming a person. `subject_type` is a
+# per-dataset dimension ORTHOGONAL to `kind` (character/concept/style): a specific
+# dog is character+animal, "dogs in general" is concept+animal. 'human' is the
+# default and every human default/prompt below stays byte-identical to the
+# pre-feature behaviour (a legacy dataset stores the column as NULL -> 'human').
+SUBJECT_TYPES = ('human', 'animal', 'creature', 'object', 'other')
+
+
+def normalize_subject_type(value) -> str:
+    """Whitelist a stored/incoming subject type; anything unknown or blank -> the
+    'human' default, so a legacy dataset (column NULL) behaves exactly as before."""
+    v = (value or '').strip().lower()
+    return v if v in SUBJECT_TYPES else 'human'
+
+
+# Non-human identity locks — SAME STRUCTURE as the human guards (name the defining
+# traits, forbid restyling, reference locks identity ONLY, pose/setting come from
+# the description) but the traits that DEFINE the subject differ by type. First
+# honest drafts, to be refined — not an exact science. `klein_improve` is a
+# subject-agnostic quality instruction, so it is NOT redeclared per subject.
+IDENTITY_GUARD_ANIMAL = (
+    "This is the SAME animal as the reference image. Preserve its identity EXACTLY: "
+    "same species and breed, fur/coat colour, pattern and markings, eye colour, ear "
+    "and muzzle shape, and body build. Do NOT restyle, change the breed or alter its "
+    "markings. Use the reference ONLY to lock the animal's identity: take the pose, "
+    "setting and framing from the description below, and do NOT copy the pose or "
+    "background shown in the reference image. Realistic photograph.")
+IDENTITY_GUARD_ANIMAL_MULTI = (
+    "ALL the reference images show the SAME animal (different angles or poses). Use "
+    "EVERY reference image together to lock its identity. Preserve its identity EXACTLY: "
+    "same species and breed, fur/coat colour, pattern and markings, eye colour, ear and "
+    "muzzle shape, and body build. Do NOT restyle, change the breed or alter its markings. "
+    "Take the pose, setting and framing from the description below, and do NOT copy the "
+    "pose or background shown in the reference images. Realistic photograph.")
+IDENTITY_GUARD_ANIMAL_KLEIN = (
+    "Restage the shot to match this description — change the pose, camera angle, framing "
+    "and setting accordingly; do not copy the composition or background of the reference "
+    "image (use it only for the animal's identity). Keep the animal's identity exactly the "
+    "same: same species and breed, fur/coat colour, pattern and markings, eye colour, ear "
+    "and muzzle shape, and body build. Do not restyle or alter its markings. Sharp focus, "
+    "natural fur/skin texture, realistic lighting with soft shadows, high detail.")
+
+IDENTITY_GUARD_OBJECT = (
+    "This is the SAME object as the reference image. Preserve its identity EXACTLY: same "
+    "shape and silhouette, colour, material and finish, proportions, and any logos, text or "
+    "distinctive markings. Do NOT redesign, restyle or recolour it. Use the reference ONLY "
+    "to lock the object's identity: take the angle, setting and framing from the description "
+    "below, and do NOT copy the background shown in the reference image. Realistic "
+    "photograph.")
+IDENTITY_GUARD_OBJECT_MULTI = (
+    "ALL the reference images show the SAME object (different angles or lighting). Use EVERY "
+    "reference image together to lock its identity. Preserve its identity EXACTLY: same shape "
+    "and silhouette, colour, material and finish, proportions, and any logos, text or "
+    "distinctive markings. Do NOT redesign, restyle or recolour it. Take the angle, setting "
+    "and framing from the description below, and do NOT copy the background shown in the "
+    "reference images. Realistic photograph.")
+IDENTITY_GUARD_OBJECT_KLEIN = (
+    "Restage the shot to match this description — change the camera angle, framing and setting "
+    "accordingly; do not copy the composition or background of the reference image (use it only "
+    "for the object's identity). Keep the object's identity exactly the same: same shape and "
+    "silhouette, colour, material and finish, proportions, and any logos, text or distinctive "
+    "markings. Do not redesign or recolour it. Sharp focus, accurate materials and reflections, "
+    "realistic lighting, high detail.")
+
+IDENTITY_GUARD_CREATURE = (
+    "This is the SAME creature as the reference image. Preserve its identity EXACTLY: same body "
+    "form and silhouette, skin/scale/fur colour and texture, distinctive features (horns, wings, "
+    "tail, markings), and proportions. Do NOT beautify, redesign or alter its distinctive "
+    "features. Use the reference ONLY to lock the creature's identity: take the pose, setting and "
+    "framing from the description below, and do NOT copy the pose or background shown in the "
+    "reference image. Realistic, detailed render.")
+IDENTITY_GUARD_CREATURE_MULTI = (
+    "ALL the reference images show the SAME creature (different angles or poses). Use EVERY "
+    "reference image together to lock its identity. Preserve its identity EXACTLY: same body form "
+    "and silhouette, skin/scale/fur colour and texture, distinctive features (horns, wings, tail, "
+    "markings), and proportions. Do NOT beautify, redesign or alter its distinctive features. Take "
+    "the pose, setting and framing from the description below, and do NOT copy the pose or "
+    "background shown in the reference images. Realistic, detailed render.")
+IDENTITY_GUARD_CREATURE_KLEIN = (
+    "Restage the shot to match this description — change the pose, camera angle, framing and "
+    "setting accordingly; do not copy the composition or background of the reference image (use it "
+    "only for the creature's identity). Keep the creature's identity exactly the same: same body "
+    "form and silhouette, skin/scale/fur colour and texture, distinctive features (horns, wings, "
+    "tail, markings), and proportions. Do not redesign or alter its distinctive features. Sharp "
+    "focus, natural texture, realistic lighting with soft shadows, high detail.")
+
+IDENTITY_GUARD_OTHER = (
+    "This is the SAME subject as the reference image. Preserve its identity EXACTLY: same overall "
+    "shape, colours, textures, proportions and any distinctive markings or features. Do NOT "
+    "redesign, restyle or alter its defining details. Use the reference ONLY to lock the subject's "
+    "identity: take the angle/pose, setting and framing from the description below, and do NOT copy "
+    "the background shown in the reference image. Realistic photograph.")
+IDENTITY_GUARD_OTHER_MULTI = (
+    "ALL the reference images show the SAME subject (different angles or lighting). Use EVERY "
+    "reference image together to lock its identity. Preserve its identity EXACTLY: same overall "
+    "shape, colours, textures, proportions and any distinctive markings or features. Do NOT "
+    "redesign, restyle or alter its defining details. Take the angle/pose, setting and framing "
+    "from the description below, and do NOT copy the background shown in the reference images. "
+    "Realistic photograph.")
+IDENTITY_GUARD_OTHER_KLEIN = (
+    "Restage the shot to match this description — change the angle, framing and setting "
+    "accordingly; do not copy the composition or background of the reference image (use it only "
+    "for the subject's identity). Keep the subject's identity exactly the same: same overall "
+    "shape, colours, textures, proportions and any distinctive markings or features. Do not "
+    "redesign or alter its defining details. Sharp focus, realistic lighting, high detail.")
+
+# Per-subject default registry. 'human' points at the ORIGINAL dict so the human
+# path is byte-identical; the others compose their guards with the shared,
+# subject-agnostic klein_improve instruction.
+_IDENTITY_DEFAULTS_BY_SUBJECT = {
+    'human': _IDENTITY_PROMPT_DEFAULTS,
+    'animal': {'face_single': IDENTITY_GUARD_ANIMAL, 'face_multi': IDENTITY_GUARD_ANIMAL_MULTI,
+               'klein_identity': IDENTITY_GUARD_ANIMAL_KLEIN, 'klein_improve': KLEIN_IMAGE_IMPROVE_PROMPT},
+    'object': {'face_single': IDENTITY_GUARD_OBJECT, 'face_multi': IDENTITY_GUARD_OBJECT_MULTI,
+               'klein_identity': IDENTITY_GUARD_OBJECT_KLEIN, 'klein_improve': KLEIN_IMAGE_IMPROVE_PROMPT},
+    'creature': {'face_single': IDENTITY_GUARD_CREATURE, 'face_multi': IDENTITY_GUARD_CREATURE_MULTI,
+                 'klein_identity': IDENTITY_GUARD_CREATURE_KLEIN, 'klein_improve': KLEIN_IMAGE_IMPROVE_PROMPT},
+    'other': {'face_single': IDENTITY_GUARD_OTHER, 'face_multi': IDENTITY_GUARD_OTHER_MULTI,
+              'klein_identity': IDENTITY_GUARD_OTHER_KLEIN, 'klein_improve': KLEIN_IMAGE_IMPROVE_PROMPT},
+}
+
+
+def identity_prompt_default(kind: str, subject_type: str = 'human') -> str:
     """The shipped (hardcoded) default for an identity-prompt kind — what a
-    Settings "Restore default" returns to. Raises KeyError on an unknown kind."""
-    return _IDENTITY_PROMPT_DEFAULTS[kind]
+    Settings "Restore default" returns to. `subject_type` selects the human /
+    animal / object / creature / other lock; the human table is byte-identical to
+    the original. Raises KeyError on an unknown kind."""
+    table = _IDENTITY_DEFAULTS_BY_SUBJECT.get(normalize_subject_type(subject_type),
+                                              _IDENTITY_PROMPT_DEFAULTS)
+    return table[kind]
 
 
 def identity_prompt_defaults() -> dict:
@@ -87,12 +216,20 @@ def identity_prompt_defaults() -> dict:
     return dict(_IDENTITY_PROMPT_DEFAULTS)
 
 
-def get_identity_prompt(kind: str) -> str:
-    """Effective identity/quality prompt for `kind`: the user's Settings override
-    when it holds non-blank text, else the shipped default (byte-identical to the
-    hardcoded constant). Lazy, defensive config read so the no-override path a unit
-    test exercises returns the default unchanged even outside a Flask app."""
-    default = _IDENTITY_PROMPT_DEFAULTS[kind]
+def get_identity_prompt(kind: str, subject_type: str = 'human') -> str:
+    """Effective identity/quality prompt for `kind` and `subject_type`: the user's
+    Settings override when it holds non-blank text, else the subject-type default
+    (human = byte-identical to the hardcoded constant). Lazy, defensive config read
+    so the no-override path a unit test exercises returns the default unchanged even
+    outside a Flask app.
+
+    Deliberate corner: the Settings override (`identity_prompts.<kind>`) is GLOBAL —
+    when a user overrides it, it wins for EVERY subject type. That keeps the
+    editable-identity feature untouched (its config schema is a flat per-kind map);
+    subject_type only steers the DEFAULT (the blank-override fallback). A user who
+    overrode the human lock and then makes a non-human dataset inherits the human
+    override — an accepted edge case, not a regression of the default install."""
+    default = identity_prompt_default(kind, subject_type)
     try:
         from .. import config as cfg
         override = cfg.get(f'identity_prompts.{kind}')
@@ -147,11 +284,14 @@ def compose_prompt_suffix(global_suffix, framing_suffixes=None, framing=None) ->
     return ', '.join(parts)
 
 
-def wrap_variation(prompt: str, ref_count: int = 1, suffix: str = '') -> str:
+def wrap_variation(prompt: str, ref_count: int = 1, suffix: str = '',
+                   subject_type: str = 'human') -> str:
     """Guard-FIRST wrapper (API engines). The identity guard stays the very first
     thing the model reads; the dataset suffix extends the descriptive tail AFTER
-    it (appended to the creative prompt), so the lock is never diluted."""
-    guard = get_identity_prompt('face_multi' if ref_count > 1 else 'face_single')
+    it (appended to the creative prompt), so the lock is never diluted. `subject_type`
+    picks the human/animal/object/creature/other identity lock (default 'human' =
+    byte-identical to the historical output)."""
+    guard = get_identity_prompt('face_multi' if ref_count > 1 else 'face_single', subject_type)
     return f"{guard} {_append_suffix(prompt, suffix)}"
 
 
@@ -173,9 +313,48 @@ _KLEIN_FRAMING_DETAIL = {
              'three-quarter figure.'),
 }
 
+# Klein subject noun + per-subject framing detail. The human map above is reused
+# verbatim for 'human' so the human Klein prompt stays byte-identical; the others
+# are terse, subject-appropriate framing hints (Klein under-fills bare tags). The
+# face/bust/body/back keys stay the internal framing enum (composition/aspect are
+# shared) — only the WORDING adapts to the subject.
+_KLEIN_SUBJECT_NOUN = {'human': 'person', 'animal': 'animal', 'creature': 'creature',
+                       'object': 'object', 'other': 'subject'}
+_KLEIN_FRAMING_DETAIL_ANIMAL = {
+    'face': 'Close-up of the head filling the frame, both eyes in sharp focus, gentle background separation.',
+    'bust': 'Half-body framing: head, chest and front legs, natural pose.',
+    'body': 'Full body from head to tail including the feet/paws, the whole animal well proportioned in the frame.',
+    'back': 'Seen from behind: hindquarters and tail visible, head direction natural.',
+}
+_KLEIN_FRAMING_DETAIL_OBJECT = {
+    'face': 'Tight detail crop: texture, material and markings in sharp focus.',
+    'bust': 'Medium framing of the object from a slight angle, well lit.',
+    'body': 'The ENTIRE object in frame, front or three-quarter angle, well proportioned and evenly lit.',
+    'back': 'Rear view of the object, plain background.',
+}
+_KLEIN_FRAMING_DETAIL_CREATURE = {
+    'face': 'Close-up head-and-shoulders framing, face and distinctive features in sharp focus.',
+    'bust': 'Half-length framing from the waist up, distinctive features visible.',
+    'body': 'Full figure from head to feet, the whole creature well proportioned in the frame.',
+    'back': 'Seen from behind: back, silhouette and back-facing features visible.',
+}
+_KLEIN_FRAMING_DETAIL_OTHER = {
+    'face': 'Tight detail crop, texture and detail in sharp focus.',
+    'bust': 'Medium framing of the subject from a slight angle.',
+    'body': 'The ENTIRE subject in frame, well proportioned and evenly lit.',
+    'back': 'Seen from behind: rear view of the subject.',
+}
+_KLEIN_FRAMING_DETAIL_BY_SUBJECT = {
+    'human': _KLEIN_FRAMING_DETAIL,
+    'animal': _KLEIN_FRAMING_DETAIL_ANIMAL,
+    'object': _KLEIN_FRAMING_DETAIL_OBJECT,
+    'creature': _KLEIN_FRAMING_DETAIL_CREATURE,
+    'other': _KLEIN_FRAMING_DETAIL_OTHER,
+}
+
 
 def wrap_variation_klein(prompt: str, nsfw: bool = False, framing: str | None = None,
-                         suffix: str = '') -> str:
+                         suffix: str = '', subject_type: str = 'human') -> str:
     """Klein (FLUX.2, Kontext-lineage) is an INSTRUCTION-edit model: it follows
     imperative edit commands (the consistency LoRA's own usage example is "Turn
     this cat into a dog"). The API-engine wrapper above — preservation order
@@ -197,14 +376,16 @@ def wrap_variation_klein(prompt: str, nsfw: bool = False, framing: str | None = 
     the description IS the command, so the suffix steers the intended result and
     never touches the restage/identity constraints that follow. Empty suffix ->
     byte-identical output."""
-    detail = _KLEIN_FRAMING_DETAIL.get(framing or '', '')
+    st = normalize_subject_type(subject_type)
+    noun = _KLEIN_SUBJECT_NOUN.get(st, 'subject')
+    detail = _KLEIN_FRAMING_DETAIL_BY_SUBJECT.get(st, _KLEIN_FRAMING_DETAIL).get(framing or '', '')
     ending = ("Explicit nudity is allowed; render natural, anatomically correct forms. "
               "Professional realistic photograph.") if nsfw else \
              "Professional realistic photograph, SFW."
     return (
-        f"Create a new photograph of the same person as the reference image: {_append_suffix(prompt, suffix)}. "
+        f"Create a new photograph of the same {noun} as the reference image: {_append_suffix(prompt, suffix)}. "
         + (f"{detail} " if detail else "")
-        + f"{get_identity_prompt('klein_identity')} {ending}")
+        + f"{get_identity_prompt('klein_identity', st)} {ending}")
 
 
 # --- Anti-fuite tenue / expression (constat terrain 2026-07-14) ---------------
@@ -460,6 +641,149 @@ del _entry
 _NSFW_LABELS = {e['label'] for e in NSFW_VARIATION_CATALOG}
 
 
+# --- Non-human catalogs (subject_type) ---------------------------------------
+# These are authored COMPLETE: the outfit/expression augmentation above is a
+# HUMAN concern (an animal wears no outfit, an object has no expression), so it is
+# NEVER run on them. Every label is GLOBALLY UNIQUE across all catalogs so the
+# by-label resolvers (prompt_by_label / aspect_for_label / is_nsfw_label) keep
+# working on the union with no subject_type threading — enforced by
+# test_labels_globally_unique. The `framing` stays the internal enum
+# (face/bust/body/back) so composition, aspect and the stored column are shared;
+# only the LABEL/PROMPT wording adapts (the UI relabels the group headers per
+# type). First honest drafts, to be refined. No NSFW catalog for these types.
+ANIMAL_CATALOG = [
+    _e('animal_head_front', 'angle', 'face', 'Animal head, front',
+       'close-up photo of the animal, head and shoulders, front view, looking at the camera, '
+       'soft even light, plain neutral background', cb=True),
+    _e('animal_head_34', 'angle', 'face', 'Animal head, three-quarter',
+       'close-up photo of the animal, head, three-quarter view, soft daylight, blurred background', cb=True),
+    _e('animal_head_profile_l', 'angle', 'face', 'Animal head, profile left',
+       'close-up photo of the animal, head, left profile view, natural outdoor light', cb=True),
+    _e('animal_head_profile_r', 'angle', 'face', 'Animal head, profile right',
+       'close-up photo of the animal, head, right profile view, natural outdoor light', cb=True),
+    _e('animal_head_up', 'angle', 'face', 'Animal head, looking up',
+       'close-up photo of the animal, head, looking slightly upward, alert, outdoor blurred background', cb=True),
+    _e('animal_head_studio', 'lighting', 'face', 'Animal head, studio',
+       'close-up photo of the animal, head, studio lighting, plain seamless background', cb=True),
+    _e('animal_head_land', 'framing', 'face', 'Animal head, landscape framing',
+       'close-up photo of the animal, head, landscape framing, environment to one side, outdoor',
+       cb=True, aspect='4:3'),
+    _e('animal_half_front', 'framing', 'bust', 'Animal half-body, front',
+       'half-body photo of the animal, front view, sitting, natural indoor light', cb=True),
+    _e('animal_half_34', 'framing', 'bust', 'Animal half-body, three-quarter',
+       'half-body photo of the animal, three-quarter view, outdoor park background', cb=True),
+    _e('animal_body_stand_side', 'framing', 'body', 'Animal body, standing side',
+       'full body photo of the animal, standing, side profile, the whole body from head to tail visible, '
+       'natural setting', cb=True),
+    _e('animal_body_stand_front', 'framing', 'body', 'Animal body, standing front',
+       'full body photo of the animal, standing, front view, the entire body visible, plain background', cb=True),
+    _e('animal_body_lying', 'framing', 'body', 'Animal body, lying down',
+       'full body photo of the animal, lying down, relaxed, indoor floor, soft light', cb=True),
+    _e('animal_body_walk', 'framing', 'body', 'Animal body, walking',
+       'full body photo of the animal, walking, dynamic side view, outdoor natural ground',
+       cb=True, aspect='16:9'),
+    _e('animal_body_run', 'framing', 'body', 'Animal body, running',
+       'full body photo of the animal, running, dynamic action, side view, outdoor field',
+       cb=True, aspect='16:9'),
+    _e('animal_body_outdoor', 'framing', 'body', 'Animal body, outdoor landscape',
+       'full body photo of the animal, standing outdoors, wide natural landscape background, daylight',
+       cb=True, aspect='4:3'),
+    _e('animal_back', 'framing', 'back', 'Animal, from behind',
+       'full body photo of the animal seen from behind, hindquarters and tail visible, natural setting', cb=True),
+]
+CREATURE_CATALOG = [
+    _e('creature_face_front', 'expression', 'face', 'Creature face, front',
+       'close-up portrait of the creature, front view, neutral expression, soft light, plain background', cb=True),
+    _e('creature_face_34l', 'angle', 'face', 'Creature face, three-quarter left',
+       'close-up portrait of the creature, three-quarter left view, natural light'),
+    _e('creature_face_34r', 'angle', 'face', 'Creature face, three-quarter right',
+       'close-up portrait of the creature, three-quarter right view, natural light'),
+    _e('creature_face_profile', 'angle', 'face', 'Creature face, profile',
+       'close-up portrait of the creature, profile view, dramatic side light', cb=True),
+    _e('creature_face_wide', 'framing', 'face', 'Creature face, cinematic framing',
+       'close-up of the creature, wide cinematic framing, face off-center, blurred background',
+       cb=True, aspect='16:9'),
+    _e('creature_bust_front', 'framing', 'bust', 'Creature bust, front',
+       'upper body shot of the creature, front view, plain background', cb=True),
+    _e('creature_bust_34', 'framing', 'bust', 'Creature bust, three-quarter',
+       'upper body shot of the creature, three-quarter view, environment background', cb=True),
+    _e('creature_body_stand', 'framing', 'body', 'Creature body, standing front',
+       'full body shot of the creature, standing, front view, the entire body visible, neutral setting', cb=True),
+    _e('creature_body_34', 'framing', 'body', 'Creature body, standing three-quarter',
+       'full body shot of the creature, standing, three-quarter view, natural environment', cb=True),
+    _e('creature_body_action', 'framing', 'body', 'Creature body, action pose',
+       'full body shot of the creature, dynamic action pose, dramatic environment',
+       cb=True, aspect='16:9'),
+    _e('creature_body_outdoor', 'framing', 'body', 'Creature body, outdoor landscape',
+       'full body shot of the creature, standing outdoors, wide landscape background, daylight',
+       cb=True, aspect='4:3'),
+    _e('creature_back', 'framing', 'back', 'Creature, from behind',
+       'full body shot of the creature seen from behind, back silhouette and back-facing features visible', cb=True),
+]
+OBJECT_CATALOG = [
+    _e('object_full_front', 'framing', 'body', 'Object, full front',
+       'product photo of the object, front view, the entire object in frame, plain seamless background, '
+       'even studio light', cb=True),
+    _e('object_full_34', 'framing', 'body', 'Object, full three-quarter',
+       'product photo of the object, three-quarter angle, the full object visible, soft studio light, '
+       'plain background', cb=True),
+    _e('object_full_side', 'framing', 'body', 'Object, full side',
+       'product photo of the object, side view, full profile, plain background, even light', cb=True),
+    _e('object_context', 'framing', 'body', 'Object, in context',
+       'photo of the object in a natural setting, realistic environment, soft daylight', cb=True),
+    _e('object_outdoor', 'framing', 'body', 'Object, outdoor',
+       'photo of the object outdoors, natural daylight, simple background', cb=True, aspect='4:3'),
+    _e('object_hero', 'lighting', 'body', 'Object, studio hero',
+       'product hero photo of the object, three-quarter angle, gradient studio background, dramatic light',
+       cb=True, aspect='4:3'),
+    _e('object_detail', 'framing', 'face', 'Object, detail',
+       'close-up detail photo of the object, showing texture and material, sharp focus, soft light', cb=True),
+    _e('object_detail_marking', 'framing', 'face', 'Object, detail marking',
+       'close-up detail photo of the object focusing on its logo, text or distinctive marking, sharp focus', cb=True),
+    _e('object_top', 'angle', 'bust', 'Object, top-down',
+       'product photo of the object from a top-down angle, plain background, even light', cb=True),
+    _e('object_low', 'angle', 'bust', 'Object, low angle',
+       'product photo of the object from a low angle, plain background, studio light', cb=True),
+    _e('object_hand', 'framing', 'bust', 'Object, in hand',
+       'photo of the object held in a hand for scale, neutral background, soft light', cb=True),
+    _e('object_back', 'angle', 'back', 'Object, rear view',
+       'product photo of the object from behind, rear view, plain background, even light', cb=True),
+]
+OTHER_CATALOG = [
+    _e('other_full_front', 'framing', 'body', 'Subject, full front',
+       'photo of the subject, front view, the entire subject in frame, plain neutral background, even light', cb=True),
+    _e('other_full_34', 'framing', 'body', 'Subject, full three-quarter',
+       'photo of the subject, three-quarter angle, the full subject visible, soft light, plain background', cb=True),
+    _e('other_full_side', 'framing', 'body', 'Subject, full side',
+       'photo of the subject, side view, full profile, plain background', cb=True),
+    _e('other_context', 'framing', 'body', 'Subject, in context',
+       'photo of the subject in a natural setting, realistic environment, daylight', cb=True, aspect='4:3'),
+    _e('other_outdoor', 'framing', 'body', 'Subject, outdoor',
+       'photo of the subject outdoors, natural daylight, wide background', cb=True, aspect='16:9'),
+    _e('other_detail', 'framing', 'face', 'Subject, detail',
+       'close-up detail photo of the subject, showing texture and detail, sharp focus, soft light', cb=True),
+    _e('other_detail_2', 'framing', 'face', 'Subject, detail angle',
+       'close-up of the subject from a different angle, sharp focus, soft light', cb=True),
+    _e('other_medium', 'framing', 'bust', 'Subject, medium',
+       'medium shot of the subject, three-quarter angle, simple background, even light', cb=True),
+    _e('other_top', 'angle', 'bust', 'Subject, elevated angle',
+       'photo of the subject from an elevated angle, plain background', cb=True),
+    _e('other_back', 'angle', 'back', 'Subject, rear view',
+       'photo of the subject from behind, rear view, plain background', cb=True),
+]
+
+# subject_type -> catalog / nsfw / by-id. 'human' reuses the existing objects so
+# the human path is byte-identical. `_ALL_CATALOGS` is the union every by-label
+# resolver searches (labels are globally unique across it).
+_SUBJECT_CATALOGS = {
+    'human': VARIATION_CATALOG, 'animal': ANIMAL_CATALOG, 'creature': CREATURE_CATALOG,
+    'object': OBJECT_CATALOG, 'other': OTHER_CATALOG,
+}
+_SUBJECT_NSFW = {'human': NSFW_VARIATION_CATALOG}   # only human has an uncensored catalog
+_ALL_CATALOGS = (VARIATION_CATALOG + NSFW_VARIATION_CATALOG + ANIMAL_CATALOG
+                 + CREATURE_CATALOG + OBJECT_CATALOG + OTHER_CATALOG)
+
+
 # Legacy label aliases (old French persisted key -> current English catalog label).
 # The catalog labels used to be French and are stored verbatim on every generated
 # row (FaceDatasetImage.variation_label) AND inside dataset backups. Regeneration,
@@ -627,9 +951,62 @@ _PRESETS = {'balanced_25': _BALANCED_25, 'zimage_12': _ZIMAGE_12,
             'fullbody_focused': _FULLBODY_FOCUSED, 'body_emphasis': _BODY_EMPHASIS}
 _BY_ID = {e['id']: e for e in VARIATION_CATALOG}
 
+# Non-human presets (one balanced spread each — first draft). The frontend renders
+# these from `preset_meta_for` (returned by the /variations route) so it doesn't
+# need to know their keys ahead of time; the human path keeps its own hardcoded
+# PRESET_META untouched (so the human /variations response stays byte-identical).
+_ANIMAL_BALANCED = [e['id'] for e in ANIMAL_CATALOG]
+_CREATURE_BALANCED = [e['id'] for e in CREATURE_CATALOG]
+_OBJECT_BALANCED = [e['id'] for e in OBJECT_CATALOG]
+_OTHER_BALANCED = [e['id'] for e in OTHER_CATALOG]
+_SUBJECT_PRESETS = {
+    'human': _PRESETS,
+    'animal': {'animal_balanced': _ANIMAL_BALANCED},
+    'creature': {'creature_balanced': _CREATURE_BALANCED},
+    'object': {'object_balanced': _OBJECT_BALANCED},
+    'other': {'other_balanced': _OTHER_BALANCED},
+}
+# Preset display metadata surfaced ONLY for non-human types (human uses the
+# frontend's hardcoded PRESET_META, keeping the human payload byte-identical).
+_SUBJECT_PRESET_META = {
+    'animal': [{'key': 'animal_balanced', 'name': 'Balanced',
+                'hint': 'A balanced spread of head, half-body, full-body and rear shots for an animal.'}],
+    'creature': [{'key': 'creature_balanced', 'name': 'Balanced',
+                  'hint': 'Face, bust, full-body and rear shots for a creature or fictional character.'}],
+    'object': [{'key': 'object_balanced', 'name': 'Balanced',
+                'hint': 'Front, angle, detail and rear views for an object or product.'}],
+    'other': [{'key': 'other_balanced', 'name': 'Balanced',
+               'hint': 'Angles, framings and detail shots for any subject.'}],
+}
+_SUBJECT_BY_ID = {st: {e['id']: e for e in cat} for st, cat in _SUBJECT_CATALOGS.items()}
 
-def select_preset(name: str):
-    return [_BY_ID[i] for i in _PRESETS.get(name, []) if i in _BY_ID]
+
+def variation_catalog(subject_type: str = 'human'):
+    """The SFW variation catalog for a subject type ('human' = the historical one)."""
+    return _SUBJECT_CATALOGS.get(normalize_subject_type(subject_type), VARIATION_CATALOG)
+
+
+def nsfw_variation_catalog(subject_type: str = 'human'):
+    """The uncensored catalog for a subject type — only 'human' has one; every other
+    type returns [] (no NSFW body catalog)."""
+    return _SUBJECT_NSFW.get(normalize_subject_type(subject_type), [])
+
+
+def presets_for(subject_type: str = 'human') -> dict:
+    """The {preset_name: [ids]} map for a subject type."""
+    return _SUBJECT_PRESETS.get(normalize_subject_type(subject_type), {})
+
+
+def preset_meta_for(subject_type: str = 'human') -> list:
+    """Preset display metadata ({key,name,hint}) for a NON-human subject type; []
+    for 'human' (the frontend owns the human preset labels)."""
+    return _SUBJECT_PRESET_META.get(normalize_subject_type(subject_type), [])
+
+
+def select_preset(name: str, subject_type: str = 'human'):
+    st = normalize_subject_type(subject_type)
+    by_id = _SUBJECT_BY_ID.get(st, _BY_ID)
+    return [by_id[i] for i in presets_for(st).get(name, []) if i in by_id]
 
 
 def prompt_by_label(label):
@@ -637,8 +1014,7 @@ def prompt_by_label(label):
     Searches the SFW catalog then the NSFW one (regenerate needs both). The label is
     canonicalised first so a legacy French label still recovers its prompt."""
     label = canonical_label(label)
-    return next((e['prompt'] for e in VARIATION_CATALOG + NSFW_VARIATION_CATALOG
-                 if e['label'] == label), None)
+    return next((e['prompt'] for e in _ALL_CATALOGS if e['label'] == label), None)
 
 
 # Aspect ratio par cadrage (deep-research 2026-06-14) : forcer tout en carré
@@ -662,8 +1038,7 @@ def aspect_for_label(label, framing='face') -> str:
     par son label → son override ; label inconnu → fallback cadrage. Le label est
     d'abord canonicalisé pour qu'un ancien label français retrouve son override."""
     label = canonical_label(label)
-    e = next((x for x in VARIATION_CATALOG + NSFW_VARIATION_CATALOG
-              if x['label'] == label), None)
+    e = next((x for x in _ALL_CATALOGS if x['label'] == label), None)
     return aspect_for_entry(e) if e else aspect_for_framing(framing)
 
 

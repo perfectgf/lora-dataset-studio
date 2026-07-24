@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-24-subject-type-selector',
+    date: '2026-07-24',
+    title: '🐾 Build LoRAs of animals, objects and creatures — not just people',
+    blurb:
+      'The generation panel has a new Subject type selector: Human, Animal, Creature, Object or Other. Pick anything but Human and the shot list stops assuming a person — the prompts and the identity lock switch to that subject (a dog keeps its breed and markings, a product keeps its shape and logo), the shot cards become head/full-body/detail/rear instead of face/bust, and you get a preset tuned for it. Existing datasets stay exactly as they were (Human). Suggested by ashish.sinha on Discord.',
+    to: '/datasets?section=add',
+  },
+  {
     id: '2026-07-24-caption-replace-case-insensitive',
     date: '2026-07-24',
     title: '🏷️ Find & Replace in captions now ignores case',

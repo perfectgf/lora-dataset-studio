@@ -23,6 +23,10 @@ import {
   estimateCost, generateBlockedReason, kleinQueuesBehindApi, readEngines, readMode,
   totalImages, writeEngines, writeMode,
 } from './engineSelection.js';
+import {
+  SUBJECT_TYPES, SUBJECT_TYPE_LABELS, SUBJECT_TYPE_HINTS,
+  normalizeSubjectType, framingLabel, defaultPresetKey,
+} from './subjectTypes.js';
 
 /** localStorage, or null when it can't be touched (private mode / SSR) — the
  *  engine helpers degrade to their defaults instead of throwing. */
@@ -132,12 +136,28 @@ function EngineCard({ id, checked, available, generating, onToggle, icon, title,
   );
 }
 
-export default function VariationCatalog({ onGenerate, busy, generating = null, hasRef, composition, images = [], bodyFidelity = false, promptSuffix = '', promptSuffixes = null, onSaveSuffixes = null }) {
+export default function VariationCatalog({ onGenerate, busy, generating = null, hasRef, composition, images = [], bodyFidelity = false, promptSuffix = '', promptSuffixes = null, onSaveSuffixes = null, subjectType = 'human', onSaveSubjectType = null }) {
   const toast = useToast();
   const { caps } = useCapabilities();
   const [catalog, setCatalog] = useState([]);
   const [nsfwCatalog, setNsfwCatalog] = useState([]);
   const [presets, setPresets] = useState({});
+  // Preset display metadata: the backend sends it for NON-human types (their
+  // preset keys aren't known here); human returns none -> the hardcoded
+  // PRESET_META is used, so the human panel is unchanged.
+  const [presetMeta, setPresetMeta] = useState(null);
+  // WHAT the subject is — steers which catalog/presets are fetched and the
+  // identity lock the backend applies. Synced from the dataset; a change persists
+  // to the dataset and refetches the catalog.
+  const [subject, setSubject] = useState(() => normalizeSubjectType(subjectType));
+  useEffect(() => { setSubject(normalizeSubjectType(subjectType)); }, [subjectType]);
+  const changeSubject = (st) => {
+    const n = normalizeSubjectType(st);
+    if (n === subject) return;
+    setSubject(n);
+    if (onSaveSubjectType) onSaveSubjectType(n);
+  };
+  const frLabel = (fr) => framingLabel(subject, fr);
   const [selected, setSelected] = useState(new Set());
   const [multiplier, setMultiplier] = useState(1);
   const [klein, setKlein] = useState(null);
@@ -306,18 +326,20 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/dataset/variations', { credentials: 'include' })
+    fetch(`/api/dataset/variations?subject_type=${encodeURIComponent(subject)}`,
+      { credentials: 'include' })
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((d) => {
         if (cancelled) return;
+        const p = d.presets || {};
         setCatalog(d.catalog || []);
         setNsfwCatalog(d.nsfw_catalog || []);
-        setPresets(d.presets || {});
-        // Body-fidelity datasets start on the body-emphasis preset (figure-visible
-        // outfits); everyone else keeps the balanced default.
-        const def = bodyFidelity ? (d.presets?.body_emphasis || d.presets?.balanced_25)
-          : d.presets?.balanced_25;
-        setSelected(new Set(def || []));
+        setPresets(p);
+        setPresetMeta(d.preset_meta || null);
+        // Auto-select the type's default preset (human: balanced / body-emphasis;
+        // non-human: its single balanced spread). Re-runs on a subject switch.
+        const key = defaultPresetKey(p, subject, { bodyFidelity });
+        setSelected(new Set((key && p[key]) || []));
       })
       .catch(() => {
         // Loud failure (M6): an empty catalog otherwise looks like a UI bug.
@@ -325,7 +347,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
       });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast]);
+  }, [toast, subject]);
 
   const byFraming = useMemo(() => {
     const g = { face: [], bust: [], body: [], back: [] };
@@ -542,6 +564,30 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
         </span>
       </div>
 
+      {/* Subject type — WHAT the reference is. Anything but Human switches the
+          shot catalog AND the identity lock so the prompts stop assuming a person
+          (a dog keeps its breed/markings, a product its shape/logo). Persisted per
+          dataset; changing it reloads the shot list and its default preset. */}
+      <div className="flex flex-col gap-1 rounded-lg border border-border bg-app/30 px-2.5 py-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-content-muted text-[0.6875rem] uppercase">Subject type</span>
+          <div role="radiogroup" aria-label="Subject type" className="flex flex-wrap gap-1">
+            {SUBJECT_TYPES.map((st) => (
+              <button key={st} type="button" role="radio" aria-checked={subject === st}
+                onClick={() => changeSubject(st)} disabled={!!generating}
+                title={SUBJECT_TYPE_HINTS[st]}
+                className={`px-2 py-0.5 rounded-full text-[0.6875rem] border transition-colors disabled:opacity-50 ${subject === st
+                  ? 'border-primary/60 bg-primary/15 text-white ring-1 ring-primary/30'
+                  : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised'}`}>
+                {SUBJECT_TYPE_LABELS[st]}
+              </button>
+            ))}
+          </div>
+          <HelpBadge topic="subject-type" />
+        </div>
+        <span className="text-content-subtle text-[0.625rem]">{SUBJECT_TYPE_HINTS[subject]}</span>
+      </div>
+
       {/* Engine cards — Klein (local GPU), Nano Banana Pro and ChatGPT (APIs).
           CHECKBOXES, not a radio group: several engines can run in one batch.
           Each card disables itself with an actionable hint when its engine
@@ -748,13 +794,13 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           <span className="ml-auto flex items-center gap-2 flex-wrap text-[0.625rem] text-content-subtle" aria-hidden="true">
             {['face', 'bust', 'body', 'back'].map((fr) => (
               <span key={fr} className="flex items-center gap-1">
-                <span className={`w-2 h-2 rounded-full ${FRAMING_COLOR[fr]}`} />{FRAMING_LABEL[fr]}
+                <span className={`w-2 h-2 rounded-full ${FRAMING_COLOR[fr]}`} />{frLabel(fr)}
               </span>
             ))}
           </span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
-          {PRESET_META.map(({ key, name, hint }) => {
+          {(presetMeta && presetMeta.length ? presetMeta : PRESET_META).map(({ key, name, hint }) => {
             const st = presetStats[key];
             const active = activePreset === key;
             return (
@@ -838,11 +884,11 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
           return (
             <div key={fr}>
               <div className="flex items-center gap-2 mb-1"
-                title={`Your dataset contains ${have} "${FRAMING_LABEL[fr]}" image(s). Target for balanced training: ${TARGET[fr]} (this quota does NOT affect the generation selection).`}>
+                title={`Your dataset contains ${have} "${frLabel(fr)}" image(s). Target for balanced training: ${TARGET[fr]} (this quota does NOT affect the generation selection).`}>
                 <ShotIllustration framing={fr} label=""
                   className={`w-5 h-5 ${missing ? 'text-amber-300' : 'text-content-subtle'}`} />
                 <span className={`text-[0.6875rem] uppercase font-semibold ${missing ? 'text-amber-300' : 'text-content-muted'}`}>
-                  {FRAMING_LABEL[fr]}
+                  {frLabel(fr)}
                 </span>
                 <span className="w-24 h-1.5 rounded-full bg-app/60 overflow-hidden" aria-hidden="true">
                   <span className={`block h-full rounded-full ${missing ? 'bg-amber-400' : 'bg-emerald-400'}`}
@@ -945,7 +991,7 @@ export default function VariationCatalog({ onGenerate, busy, generating = null, 
 
       {/* 🔞 NSFW — local Klein only. Uncensored body catalog + free prompt.
           Never offered on the API engines (and the backend refuses them there). */}
-      {kleinOnly && klAvailable && (
+      {kleinOnly && klAvailable && nsfwCatalog.length > 0 && (
         <div className={`rounded-lg border p-2 flex flex-col gap-2 ${nsfwMode
           ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-app/30'}`}>
           <button type="button" onClick={() => setNsfwMode((v) => !v)} aria-pressed={nsfwMode}

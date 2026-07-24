@@ -118,6 +118,14 @@ const TOPICS = [
       'mix', 'multi-engine'],
     guide: { chapter: 'settings-reference', anchor: 'image-engines' },
     app: { route: '/datasets?section=add' } },
+  // Subject type: WHAT the dataset's subject is (human/animal/creature/object/
+  // other). Steers the generation catalog + the identity lock so the prompts stop
+  // assuming a person. Listed after prompt-suffixes so the modal keeps the anchor.
+  { id: 'subject-type', kind: 'setting', title: 'Subject type (human, animal, object…)',
+    keywords: ['subject', 'subject type', 'animal', 'creature', 'object', 'pet', 'dog',
+      'product', 'human', 'person', 'catalog', 'non-human', 'generation'],
+    guide: { chapter: 'settings-reference', anchor: 'per-dataset-settings' },
+    app: { route: '/datasets?section=add' } },
   { id: 'settings-config-file', kind: 'section', title: 'Config-file-only settings',
     keywords: ['config', 'config.json', 'advanced', 'file only', 'hidden', 'manual'],
     guide: { chapter: 'settings-reference', anchor: 'config-file-only-settings' },

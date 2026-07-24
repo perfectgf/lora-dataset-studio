@@ -290,11 +290,11 @@ export function useDataset() {
   // Refreshes both views. prompt_suffix / prompt_suffixes (creative direction) ride
   // along: applied at generation time only, '' / {} clears, absent leaves untouched.
   const updateSettings = useCallback(async ({
-    name, trigger_word, concept_desc, kind, prompt_suffix, prompt_suffixes,
+    name, trigger_word, concept_desc, kind, prompt_suffix, prompt_suffixes, subject_type,
   }, opts = {}) => {
     if (!currentId) return { ok: false };
     const d = await postJson(`/api/dataset/${currentId}/settings`,
-      { name, trigger_word, concept_desc, kind, prompt_suffix, prompt_suffixes });
+      { name, trigger_word, concept_desc, kind, prompt_suffix, prompt_suffixes, subject_type });
     if (!d.ok) { toast.error(d.error || 'Could not save settings'); return d; }
     // quiet: the generation panel persists suffix edits silently right before a
     // batch (the "Generating…" state is the feedback); the modal stays verbose.

@@ -1066,7 +1066,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       bodyFidelity={bodyFid}
                       promptSuffix={d.prompt_suffix || ''}
                       promptSuffixes={d.prompt_suffixes || null}
-                      onSaveSuffixes={(patch) => ds.updateSettings(patch, { quiet: true })} />
+                      onSaveSuffixes={(patch) => ds.updateSettings(patch, { quiet: true })}
+                      subjectType={d.subject_type || 'human'}
+                      onSaveSubjectType={(st) => ds.updateSettings({ subject_type: st }, { quiet: true })} />
                   </div>
                   {/* Head-crop optional: ON tags framing='face' at import (I2); OFF keeps
                       the original framing so bust/body photos import as-is. Body-fidelity

@@ -60,6 +60,7 @@ event.listen(Engine, 'connect', _configure_sqlite_connection)
 # hardcoded constants (no user input) → safe to interpolate into the ALTER.
 _SCHEMA_ADDITIONS = (
     ('face_dataset', 'kind', 'VARCHAR(16)'),
+    ('face_dataset', 'subject_type', 'VARCHAR(16)'),
     ('face_dataset', 'concept_desc', 'TEXT'),
     ('face_dataset', 'concept_terms', 'TEXT'),
     ('face_dataset', 'ref_original_filename', 'VARCHAR(255)'),

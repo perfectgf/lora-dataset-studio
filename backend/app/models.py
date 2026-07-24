@@ -51,6 +51,12 @@ class FaceDataset(db.Model):
     # import/caption (cf face_dataset_service : is_concept). Colonne ajoutée après coup
     # → migration additive idempotente dans create_app (db.create_all n'ALTER jamais).
     kind = db.Column(String(16), nullable=True)
+    # WHAT the subject is: NULL/'human' (historique) or animal/creature/object/other.
+    # ORTHOGONALE à `kind` (character/concept/style) — un chien précis = character+animal,
+    # « les chiens en général » = concept+animal. Steers the generation catalog + the
+    # identity lock so the prompts stop assuming a person; NULL behaves exactly as
+    # 'human' (byte-identical). Colonne additive (migration in create_app).
+    subject_type = db.Column(String(16), nullable=True)
     # Cible de fidélité (datasets personnage) : NULL/'face' (historique) ou 'body'.
     # 'body' = le LoRA doit reproduire AUSSI la morphologie/les marques corporelles →
     # captions bannissent en plus tatouages/cicatrices/grains de beauté (ils se lient

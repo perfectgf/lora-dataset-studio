@@ -48,6 +48,7 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU,
                               drop_identity_sentences, drop_identity_tags,
                               is_nsfw_label, prompt_by_label, wrap_variation,
                               wrap_variation_klein, get_identity_prompt,
+                              normalize_subject_type,
                               KLEIN_IMAGE_IMPROVE_PROMPT)
 
 logger = logging.getLogger(__name__)
@@ -773,8 +774,16 @@ def dataset_prompt_suffix(ds, framing=None) -> str:
                                  getattr(ds, 'prompt_suffixes', None), framing)
 
 
+def subject_type_of(ds) -> str:
+    """The dataset's subject type, normalised — NULL/legacy -> 'human'. The single
+    reader every wrap call site uses so a legacy dataset (column NULL) generates
+    exactly as before."""
+    return normalize_subject_type(getattr(ds, 'subject_type', None) if ds else None)
+
+
 def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, train_type=None,
-                   fidelity=None, prompt_suffix=None, prompt_suffixes=None, *, commit=True):
+                   fidelity=None, prompt_suffix=None, prompt_suffixes=None, subject_type=None,
+                   *, commit=True):
     """Create a dataset and return its row.
 
     ``commit=False`` is reserved for callers that need to coordinate the row with
@@ -794,6 +803,10 @@ def create_dataset(user_id, name, trigger_word, kind=None, concept_desc=None, tr
                      # à omettre nommément (les captions décrivent le contenu, jamais le
                      # rendu — c'est le prompt de caption qui porte cette règle).
                      kind=k, concept_desc=(desc[:500] if k == 'concept' else None),
+                     # subject_type steers the generation catalog + identity lock;
+                     # None left as NULL (== 'human') so a plain create is unchanged.
+                     subject_type=(normalize_subject_type(subject_type)
+                                   if subject_type is not None else None),
                      train_type=normalize_train_type(train_type),
                      # fidelity ne concerne que les personnages (concept : l'acte est
                      # omis ; style : les sujets varient, aucune identité à protéger).
@@ -844,7 +857,7 @@ def _guard_kind_switch(dataset_id):
 
 def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None,
                             concept_desc=None, kind=None, prompt_suffix=None,
-                            prompt_suffixes=None):
+                            prompt_suffixes=None, subject_type=None):
     """Edit a dataset's identity AFTER creation. Returns {'ok', 'concept_desc_changed'}
     (plus {'kind_changed', 'kind', 'previous_kind'} when the kind actually changed),
     or None if the dataset is absent; raises ValueError on invalid input and
@@ -961,6 +974,10 @@ def update_dataset_settings(user_id, dataset_id, *, name=None, trigger_word=None
         ds.prompt_suffix = _normalize_prompt_suffix(prompt_suffix)
     if prompt_suffixes is not None:
         ds.prompt_suffixes = _normalize_prompt_suffixes(prompt_suffixes)
+    # subject_type: None = untouched. Only steers FUTURE wraps (existing images keep
+    # their stored variation_prompt), so no in-flight guard is needed.
+    if subject_type is not None:
+        ds.subject_type = normalize_subject_type(subject_type)
     naming_after = _lt._safe_trigger(ds) if _lt else None
     if naming_before and naming_after and naming_before != naming_after:
         trigger_rename = (naming_before, naming_after)
@@ -2533,6 +2550,9 @@ def dataset_payload(user_id, dataset_id):
         'id': ds.id, 'name': ds.name, 'trigger_word': ds.trigger_word,
         'train_type': (ds.train_type or 'zimage'),
         'kind': (ds.kind or 'character'),
+        # WHAT the subject is (NULL/legacy -> 'human'); drives the generation
+        # catalog + identity lock. Orthogonal to `kind`.
+        'subject_type': subject_type_of(ds),
         # Dual long+short captioning toggle (Advanced options) → the caption editor shows
         # the short field only when this is on.
         'dual_captions': dual_captions_enabled(ds),
@@ -4880,7 +4900,8 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
                         # suffix exactly once (never a double application).
                         edit_prompt=wrap_variation_klein(
                             v['prompt'], nsfw=nsfw, framing=v.get('framing'),
-                            suffix=dataset_prompt_suffix(ds, v.get('framing'))),
+                            suffix=dataset_prompt_suffix(ds, v.get('framing')),
+                            subject_type=subject_type_of(ds)),
                         klein_model=klein_model,
                         lora_strength=lora_strength, extra_ref_paths=extra_paths,
                         generation_loras=run_loras,
@@ -5308,7 +5329,8 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                 framing=img.framing,
                 # CURRENT dataset suffix, applied at wrap: `prompt` is the raw
                 # stored/edited creative prompt, so this is the ONLY application.
-                suffix=dataset_prompt_suffix(ds, img.framing)),
+                suffix=dataset_prompt_suffix(ds, img.framing),
+                subject_type=subject_type_of(ds)),
             klein_model=model,
             lora_strength=lora_strength, extra_ref_paths=extra_paths,
             generation_loras=resolve_generation_lora_preset(generation_lora_preset),
@@ -5400,7 +5422,8 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                 out = api_generate(
                     ref_bytes,
                     wrap_variation(prompt, ref_count=len(ref_bytes),
-                                   suffix=dataset_prompt_suffix(ds, img.framing)),
+                                   suffix=dataset_prompt_suffix(ds, img.framing),
+                                   subject_type=subject_type_of(ds)),
                     **gen_kwargs)
             except SubscriptionQuotaExceeded:
                 out = None
@@ -5507,6 +5530,8 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana', dataset_id
         image_id, prompt = item[0], item[1]
         aspect = item[2] if len(item) > 2 else '1:1'
         suffix = item[3] if len(item) > 3 else ''
+        # subject_type optionnel (retro-compat -> 'human' = lock historique).
+        subject_type = item[4] if len(item) > 4 else 'human'
         # Stop AVANT l'appel API : cancel_pending supprime les lignes en vol — si
         # celle-ci a disparu, ne pas payer une génération qui sera jetée (le bouton
         # Stop doit économiser le RESTE du batch, pas seulement masquer les tuiles).
@@ -5535,7 +5560,8 @@ def _run_nanobanana_batch(app, items, ref_bytes, engine='nanobanana', dataset_id
             gen_kwargs['force_lane'] = force_lane
         try:
             out = api_generate(ref_bytes,
-                               wrap_variation(prompt, ref_count=n_refs, suffix=suffix),
+                               wrap_variation(prompt, ref_count=n_refs, suffix=suffix,
+                                              subject_type=subject_type),
                                **gen_kwargs)
             if not out:
                 # api_generate signale certains refus/vides par un retour falsy
@@ -5620,6 +5646,7 @@ def generate_variations_nanobanana(app, user_id, dataset_id, variations, multipl
     # Principale + refs additionnelles : Nano Banana s'appuie sur toutes les
     # images pour la cohérence d'identité (une seule = comportement historique).
     ref_bytes = _all_ref_bytes(ds)
+    subject_type = subject_type_of(ds)   # steers the identity lock at wrap time
 
     ids, items = [], []
     for v in variations:
@@ -5636,7 +5663,8 @@ def generate_variations_nanobanana(app, user_id, dataset_id, variations, multipl
             # row keeps the raw prompt, the batch worker applies it at wrap time.
             items.append((img.id, v['prompt'],
                           aspect_for_label(v.get('label'), v.get('framing')),
-                          dataset_prompt_suffix(ds, v.get('framing'))))
+                          dataset_prompt_suffix(ds, v.get('framing')),
+                          subject_type))
 
     threading.Thread(target=_run_nanobanana_batch,
                      args=(app, items, ref_bytes, engine, dataset_id),

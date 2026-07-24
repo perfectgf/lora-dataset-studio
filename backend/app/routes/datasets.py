@@ -22,7 +22,10 @@ from ..services.dataset_storage import dataset_path, ensure_dataset_dir
 from ..services import lora_test_studio as lts
 from ..services import studio_grid_export as sge
 from ..services.face_variations import (NSFW_VARIATION_CATALOG, VARIATION_CATALOG,
-                                        is_nsfw_label, select_preset)
+                                        is_nsfw_label, select_preset,
+                                        normalize_subject_type, variation_catalog,
+                                        nsfw_variation_catalog, presets_for,
+                                        preset_meta_for)
 from ..utils.comfyui import KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS, get_krea_loras
 from ._common import (_map_error, _require_comfyui, _studio_arch_mismatch_response,
                       _studio_missing_response)
@@ -94,7 +97,8 @@ def dataset_create():
                                 train_type=data.get('train_type'),
                                 fidelity=data.get('fidelity'),
                                 prompt_suffix=data.get('prompt_suffix'),
-                                prompt_suffixes=data.get('prompt_suffixes'))
+                                prompt_suffixes=data.get('prompt_suffixes'),
+                                subject_type=data.get('subject_type'))
     except ValueError as e:
         # concept dataset without a concept description -> 400 (not a 500)
         return jsonify({'error': str(e)}), 400
@@ -144,7 +148,8 @@ def dataset_update_settings(dataset_id):
             trigger_word=data.get('trigger_word'), concept_desc=data.get('concept_desc'),
             kind=data.get('kind'),
             prompt_suffix=data.get('prompt_suffix'),
-            prompt_suffixes=data.get('prompt_suffixes'))
+            prompt_suffixes=data.get('prompt_suffixes'),
+            subject_type=data.get('subject_type'))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except RuntimeError as e:
@@ -155,11 +160,22 @@ def dataset_update_settings(dataset_id):
 
 @bp.get('/dataset/variations')
 def dataset_variations():
-    return jsonify({'catalog': VARIATION_CATALOG,
-                    # NSFW entries ship separately: the UI only shows them behind
-                    # the 🔞 toggle, and ONLY for the local Klein engine.
-                    'nsfw_catalog': NSFW_VARIATION_CATALOG,
-                    'presets': {n: [e['id'] for e in select_preset(n)] for n in _PRESET_NAMES}})
+    # subject_type steers WHICH catalog/presets are served (?subject_type=animal…).
+    # The human response is byte-identical to the pre-feature payload (no extra
+    # keys); non-human types add `preset_meta` + `subject_type` so the UI can
+    # render their preset cards and relabel the framing headers.
+    st = normalize_subject_type(request.args.get('subject_type'))
+    if st == 'human':
+        return jsonify({'catalog': VARIATION_CATALOG,
+                        # NSFW entries ship separately: the UI only shows them behind
+                        # the 🔞 toggle, and ONLY for the local Klein engine.
+                        'nsfw_catalog': NSFW_VARIATION_CATALOG,
+                        'presets': {n: [e['id'] for e in select_preset(n)] for n in _PRESET_NAMES}})
+    return jsonify({'catalog': variation_catalog(st),
+                    'nsfw_catalog': nsfw_variation_catalog(st),
+                    'presets': {n: [e['id'] for e in select_preset(n, st)] for n in presets_for(st)},
+                    'preset_meta': preset_meta_for(st),
+                    'subject_type': st})
 
 
 @bp.get('/dataset/list')
