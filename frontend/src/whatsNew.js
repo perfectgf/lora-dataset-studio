@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-24-caption-replace-case-insensitive',
+    date: '2026-07-24',
+    title: '🏷️ Find & Replace in captions now ignores case',
+    blurb:
+      'Clicking a frequent word like "bulldog ×41" and stripping it used to update 0 captions — because the text replace was case-sensitive while your captions said "Bulldog". Text mode now matches whole words regardless of case, the same rule the filter and the word counts already used, so stripping a word actually removes all of them. Whole-word too, so "red" never eats the "red" inside "colored".',
+    to: '/datasets?section=captions',
+  },
+  {
     id: '2026-07-24-test-studio-all-recent-prompts',
     date: '2026-07-24',
     title: '🧪 The Test Studio keeps all your recent prompts, not just ten',

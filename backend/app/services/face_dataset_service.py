@@ -2096,7 +2096,13 @@ def _import_backup_zipfile(user_id: int, z: zipfile.ZipFile):
 def replace_in_captions(user_id, dataset_id, find, replace, mode='text'):
     """Bulk-edit the captions of KEPT images (the ones that train). Two modes:
 
-    - 'text': plain substring replace, case-sensitive.
+    - 'text': whole-word replace, CASE-INSENSITIVE — the same match rule as the
+      grid filter ("smile" hits "a warm smile" but not "smiling") and the most-
+      frequent-words counter, both case-insensitive. So clicking a "bulldog ×41"
+      chip and stripping it removes all 41 whatever their casing (the captions
+      hold "Bulldog"); a case-sensitive substring replace matched 0 and looked
+      broken. Whole-word so "red" never eats the "red" inside "colored". When
+      `replace` is empty the gaps a stripped word leaves in prose are tidied.
     - 'tag':  the caption is treated as a comma-separated tag list (booru); `find`
       must match a WHOLE tag (trimmed, case-insensitive) and is replaced by
       `replace` — or dropped when `replace` is empty. Avoids the ', ,' artifacts a
@@ -2119,7 +2125,13 @@ def replace_in_captions(user_id, dataset_id, find, replace, mode='text'):
     for img in rows:
         old = img.caption or ''
         if mode == 'text':
-            new = old.replace(find, replace or '')
+            pattern = re.compile(rf'\b{re.escape(find)}\b', re.IGNORECASE)
+            new = pattern.sub(replace or '', old)
+            if not (replace or '').strip():          # stripping: tidy prose gaps
+                new = re.sub(r'\s+([,.;:])', r'\1', new)   # space before punctuation
+                new = re.sub(r'(,\s*){2,}', ', ', new)     # collapsed repeated commas
+                new = re.sub(r'\s{2,}', ' ', new)          # collapsed double spaces
+                new = new.strip(' ,;')
         else:
             tags = [t.strip() for t in old.split(',')]
             out, seen = [], set()

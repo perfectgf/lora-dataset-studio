@@ -222,6 +222,29 @@ def test_replace_captions_text_mode(app):
         assert caps == ['a woman in a blue dress', 'a blue car', 'no match']
 
 
+def test_replace_captions_text_mode_is_case_insensitive_whole_word(app):
+    """Regression: stripping a word the frequency counter shows must actually
+    remove it. Text mode is case-insensitive (captions hold 'Bulldog', the user
+    types 'bulldog') and whole-word (never eats it inside another word), and a
+    strip tidies the prose gap it leaves."""
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Ci', 'ci')
+        ids = _seed_captioned(svc, ds.id, [
+            'a French Bulldog with perked ears',   # 'Bulldog' capitalised
+            'a BULLDOG close-up',                  # all caps
+            'a herd of bulldogs grazing',          # substring — must NOT match
+        ])
+        n = svc.replace_in_captions(LOCAL_USER, ds.id, 'bulldog', '', mode='text')
+        assert n == 2                              # the two whole-word hits, any case
+        caps = [svc.db.session.get(FaceDatasetImage, i).caption for i in ids]
+        assert caps[0] == 'a French with perked ears'   # word gone, no double space
+        assert caps[1] == 'a close-up'
+        assert caps[2] == 'a herd of bulldogs grazing'  # 'bulldogs' untouched
+
+
 def test_replace_captions_tag_mode_removes_cleanly(app):
     """Tag removal must not leave dangling commas, matches the WHOLE tag only
     (no substring bleed into 'blue eyeshadow'), and dedupes the result."""

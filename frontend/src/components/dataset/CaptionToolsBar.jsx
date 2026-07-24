@@ -70,7 +70,8 @@ export default function CaptionToolsBar({ images, kind = 'character', mode = 'bo
             Captions are the text the LoRA reads each image by. These tools edit{' '}
             <span className="text-content-muted font-medium">every kept caption at once</span> — use them to
             fix a word that slipped into all of them, or to strip/rename a tag that keeps repeating.
-            {' '}<span className="text-content-muted font-medium">Text</span> mode swaps a phrase anywhere;
+            {' '}<span className="text-content-muted font-medium">Text</span> mode matches a whole word, any
+            case (so “bulldog” also strips “Bulldog” — the same rule as the filter and the word counts below);
             {' '}<span className="text-content-muted font-medium">tag</span> mode treats captions as
             comma-separated tags and matches a whole tag (best for booru / SDXL).
             {' '}<SettingsLink section="captioning">Which model writes them, and how</SettingsLink>
