@@ -2611,11 +2611,14 @@ def studio_payload_run(user_id, run_id) -> dict | None:
     }
 
 
-def _recent_prompts(rows, limit=6) -> list[dict]:
+def _recent_prompts(rows, limit=None) -> list[dict]:
     """Prompts distincts utilisés (récent→ancien) AVEC une vignette : une image 👍
     générée avec ce prompt (à défaut, la plus récente terminée), + le nombre d'images.
     Permet de voir ce que fait chaque prompt dans le menu. `thumb_dataset_id` porte
     le dataset de la vignette (nécessaire quand les rows couvrent PLUSIEURS datasets).
+    `limit=None` (défaut) = tous les prompts distincts trouvés dans `rows` — le
+    plafond arbitraire (10) a été retiré à la demande de l'utilisateur ; la seule
+    borne restante est le scan des 1500 dernières cellules dans user_recent_prompts.
     Retour: [{prompt, thumbnail(filename|None), thumb_dataset_id, thumb_rating, count}]."""
     seen = {}  # prompt -> dict (ordre d'insertion = récent→ancien)
     for r in sorted(rows, key=lambda x: -x.id):  # plus récent d'abord
@@ -2623,7 +2626,7 @@ def _recent_prompts(rows, limit=6) -> list[dict]:
         if not p:
             continue
         if p not in seen:
-            if len(seen) >= limit:
+            if limit is not None and len(seen) >= limit:
                 continue
             seen[p] = {'prompt': p, 'thumbnail': None, 'thumb_dataset_id': None,
                        'thumb_rating': 0, 'count': 0}
@@ -2639,11 +2642,13 @@ def _recent_prompts(rows, limit=6) -> list[dict]:
     return list(seen.values())
 
 
-def user_recent_prompts(user_id, limit=10) -> list[dict]:
+def user_recent_prompts(user_id, limit=None) -> list[dict]:
     """Prompts de test récents de l'UTILISATEUR, TOUS datasets confondus (demande
     2026-07-03 : la mémoire des prompts/presets ne doit plus être cloisonnée par
-    dataset - un prompt réglé sur Emma doit se recharger sur Adele). Scan borné aux
-    1500 dernières cellules (perf) ; chaque entrée porte `thumb_dataset_id` pour que
+    dataset - un prompt réglé sur Emma doit se recharger sur Adele). `limit=None`
+    (défaut) = tous les prompts distincts trouvés (le plafond de 10 a été retiré à
+    la demande de l'utilisateur). La seule borne restante est le scan des 1500
+    dernières cellules (perf) ; chaque entrée porte `thumb_dataset_id` pour que
     le front construise l'URL de vignette du BON dataset."""
     ds_ids = [d.id for d in FaceDataset.query.filter_by(user_id=str(user_id)).all()]
     if not ds_ids:

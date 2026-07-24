@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-24-test-studio-all-recent-prompts',
+    date: '2026-07-24',
+    title: '🧪 The Test Studio keeps all your recent prompts, not just ten',
+    blurb:
+      'The "Recent prompts" strip in the Test Studio used to stop at the ten most recent — older ones you wanted to reload were simply gone. The cap is removed: every distinct prompt from your recent test history is there to click and reload, across all your datasets. (It still scans your latest activity for speed, so truly ancient prompts eventually roll off.)',
+    to: '/studio',
+  },
+  {
     id: '2026-07-24-edit-reference-photo',
     date: '2026-07-24',
     title: '✦ Edit the reference photo with a prompt',

@@ -175,6 +175,22 @@ def test_studio_checkpoints_and_recent_prompts_smoke(client):
     assert client.get('/api/studio/recent-prompts').get_json() == {'ok': True, 'prompts': []}
 
 
+def test_recent_prompts_has_no_ten_prompt_cap():
+    """The old 10-prompt ceiling is gone (user request): every DISTINCT prompt in
+    the scanned rows comes back, not just the ten most recent. The 1500-cell scan
+    bound in user_recent_prompts stays — that's a perf guard, not this cap."""
+    from types import SimpleNamespace
+    from app.services.lora_test_studio import _recent_prompts
+    # 12 distinct prompts, newest id first once sorted — all must survive.
+    rows = [SimpleNamespace(id=i, prompt=f'prompt {i}', filename=None,
+                            rating=0, dataset_id=1) for i in range(1, 13)]
+    out = _recent_prompts(rows)
+    assert len(out) == 12
+    assert [e['prompt'] for e in out] == [f'prompt {i}' for i in range(12, 0, -1)]
+    # An explicit limit still caps, so callers that want a cap keep it.
+    assert len(_recent_prompts(rows, limit=5)) == 5
+
+
 def test_studio_base_models_krea_type_returns_empty_list(client):
     # Aucun UNET Krea ALTERNATIF sur disque (env de test nu) → liste vide, le
     # front cache le sélecteur (le UNET câblé du workflow reste le seul choix).
