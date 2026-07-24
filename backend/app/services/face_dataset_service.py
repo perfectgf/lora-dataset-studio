@@ -2226,6 +2226,106 @@ def recrop_reference_auto(user_id, dataset_id):
     return True, detected
 
 
+def edit_reference(ds, prompt, engine, extra_edit_ref_bytes=None):
+    """Edit the dataset's PRIMARY reference with a free-form prompt via an API
+    engine (nanobanana | chatgpt) and RETURN the edited image bytes — writing
+    NOTHING to disk or the DB. The candidate exists only in the caller's
+    response; commit_edited_reference is the sole writer. This is what makes a
+    Discard leak-proof: an abandoned edit leaves zero server-side residue.
+
+    Ref list sent to the engine: the primary reference FIRST (ChatGPT's
+    /images/edits treats image[0] as the edit base), then the dataset's extra
+    refs and any transient edit-reference images the user added in the modal —
+    all ride along as identity anchors so the edit keeps the same face. Klein is
+    deliberately not an option here.
+
+    Raises ValueError for a bad engine or a missing reference. Returns None only
+    when the engine itself yielded no image (content-policy block / transient
+    provider error), which the route surfaces verbatim. Subscription-lane
+    RuntimeErrors (quota / lost connection) propagate for the route to report."""
+    if engine not in API_ENGINES:
+        raise ValueError(f'unknown edit engine: {engine}')
+    if not ds or not ds.ref_filename:
+        raise ValueError('reference image required')
+    if not (prompt or '').strip():
+        raise ValueError('describe the edit first')
+    ref_path = _ref_path(ds)
+    if not os.path.exists(ref_path):
+        raise ValueError('reference image file missing')
+    refs = _all_ref_bytes(ds)                       # primary + dataset extras
+    refs.extend(rb for rb in (extra_edit_ref_bytes or []) if rb)
+    generate = _api_generate_fn(engine)
+    # The reference is a face crop; keep its framing (1:1) so the edit is an
+    # in-place change, not a re-composition.
+    return generate(refs, prompt.strip(), aspect_ratio='1:1')
+
+
+def commit_edited_reference(user_id, dataset_id, image_bytes):
+    """Promote an edited candidate (bytes) to BE the dataset reference. The edited
+    image is the new source of truth, so it becomes BOTH ref_filename (working
+    crop) and ref_original_filename (the full frame ✂ Crop re-reads) — a later
+    crop widens back out INSIDE the edited frame; re-cropping the pre-edit
+    original would drop the edit (e.g. the glasses just added).
+
+    ATOMIC, fail-safe order: write the two NEW files and confirm they are on disk
+    BEFORE unlinking the old ones, and only repoint the DB after. A failed write
+    (unusable candidate bytes, full disk) leaves the dataset on its PREVIOUS
+    reference — a Keep must never strand it with no reference. Deleting the old
+    files is safe because every in-flight batch snapshotted the reference at
+    launch (API reads the bytes before the thread starts; Klein copies the file
+    into ComfyUI's input at enqueue), so nothing running depends on them.
+
+    Returns the new ref_filename. Raises ValueError if the dataset/reference is
+    gone; propagates the write error (old reference intact) on failure."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds or not ds.ref_filename:
+        raise ValueError('reference image required')
+    dsdir = _dataset_dir(dataset_id)
+    old_ref, old_orig = ds.ref_filename, ds.ref_original_filename
+    new_ref = f"{user_id}_datasetref_{uuid.uuid4().hex[:8]}.webp"
+    new_orig = f"{user_id}_datasetreforig_{uuid.uuid4().hex[:8]}.webp"
+    ref_path = os.path.join(dsdir, new_ref)
+    orig_path = os.path.join(dsdir, new_orig)
+    # 1) WRITE the new files (working ref ≤1024, full-frame original ≤2048).
+    #    normalize_to_webp raises on unusable bytes BEFORE any file is created, so
+    #    a corrupt candidate never touches the existing reference.
+    try:
+        webp = normalize_to_webp(image_bytes, size=1024)
+        orig_webp = normalize_to_webp(image_bytes, size=2048)
+        with open(ref_path, 'wb') as fh:
+            fh.write(webp)
+        with open(orig_path, 'wb') as fh:
+            fh.write(orig_webp)
+    except Exception:
+        # Roll back any partial write; the old reference is untouched.
+        for p in (ref_path, orig_path):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        raise
+    # 2) VERIFY both landed before touching anything the dataset still points at.
+    if not (os.path.exists(ref_path) and os.path.exists(orig_path)):
+        for p in (ref_path, orig_path):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        raise RuntimeError('failed to write edited reference')
+    # 3) REPOINT the dataset, then commit.
+    ds.ref_filename = new_ref
+    ds.ref_original_filename = new_orig
+    db.session.commit()
+    # 4) Only now delete the superseded files (nothing in flight depends on them).
+    for fn in (old_ref, old_orig):
+        if fn and fn not in (new_ref, new_orig):
+            try:
+                os.remove(os.path.join(dsdir, fn))
+            except OSError:
+                pass
+    return new_ref
+
+
 def _watermark_route_payload(img):
     """The routes Clean WOULD take for a 'detected' image, as a dict spread into the
     image payload:

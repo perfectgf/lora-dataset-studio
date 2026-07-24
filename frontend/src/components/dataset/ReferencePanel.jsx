@@ -4,7 +4,7 @@ import IdentityPromptModal from './IdentityPromptModal';
 // Cap identique à MAX_EXTRA_REFS côté backend (face_dataset_service).
 const MAX_EXTRA_REFS = 3;
 
-export default function ReferencePanel({ refFilename, datasetId, onSetRef, onCropRef, busy,
+export default function ReferencePanel({ refFilename, datasetId, onSetRef, onCropRef, onEditRef, busy,
                                          importBusy = busy, visionBusy = false, nonce = 0,
                                          extraRefs = [], onAddExtraRef, onRemoveExtraRef,
                                          onCropExtraRef }) {
@@ -37,6 +37,11 @@ export default function ReferencePanel({ refFilename, datasetId, onSetRef, onCro
             {refFilename && (
               <button type="button" onClick={onCropRef} disabled={busy}
                 className="px-2.5 py-1 rounded-lg bg-surface-raised text-content text-xs disabled:opacity-40">✂ Crop</button>
+            )}
+            {refFilename && onEditRef && (
+              <button type="button" onClick={onEditRef} disabled={busy}
+                title="Edit the reference with a prompt (ChatGPT or Nano Banana) — compare before/after, then Keep or Discard"
+                className="px-2.5 py-1 rounded-lg bg-surface-raised text-content text-xs disabled:opacity-40">✦ Edit</button>
             )}
             <label className="flex items-center gap-1 text-[0.625rem] text-content-muted cursor-pointer"
               title={visionBusy ? 'Auto head-crop is unavailable during local generation; the reference imports with a centered crop.' : 'ON: a vision pass finds the head and crops around it (slower, pauses ComfyUI). OFF (default): instant centered square — adjust with ✂ Crop, usually faster.'}>

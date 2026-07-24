@@ -384,6 +384,11 @@ const TOPICS = [
     ['data', 'storage', 'path', 'dataset', 'images', 'root', 'location', 'disk']),
 
   // ---- Action topics (kind 'action') -------------------------------------
+  action('action-edit-reference', 'Edit the reference photo',
+    ['edit', 'reference', 'prompt', 'chatgpt', 'nano banana', 'background', 'glasses',
+     'retouch', 'before', 'after', 'keep', 'discard'],
+    '/datasets?section=add', 'using-the-app',
+    'the-character-walkthrough-reference-photo-trained-lora'),
   action('action-watermark-clean', 'Find & clean watermarks',
     ['watermark', 'clean', 'find', 'lama', 'klein', 'crop', 'remove'],
     '/datasets?section=curation&panel=watermarks', 'settings-reference', 'captioning-quality',

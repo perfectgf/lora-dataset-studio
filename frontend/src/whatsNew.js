@@ -47,6 +47,14 @@ import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-07-24-edit-reference-photo',
+    date: '2026-07-24',
+    title: '✦ Edit the reference photo with a prompt',
+    blurb:
+      'The reference card has a new ✦ Edit button. Type what to change — "plain studio-grey background", "add glasses", "warmer lighting" — optionally drop in a few extra reference images, and ChatGPT or Nano Banana edits your reference. You get a Before/After side by side, then Keep it or Discard it. Editing replaces the reference and only affects future variations, never images you already generated. Each edit is a paid API call.',
+    to: '/datasets?section=add',
+  },
+  {
     id: '2026-07-24-anima-training-family',
     date: '2026-07-24',
     title: '🎨 Train Anima LoRAs (anime model)',

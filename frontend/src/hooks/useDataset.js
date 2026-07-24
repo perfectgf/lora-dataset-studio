@@ -789,6 +789,40 @@ export function useDataset() {
     setRefNonce((n) => n + 1);
   }, [currentId, refresh, toast]);
 
+  // ✦ Edit the reference. STATELESS on the server — this returns the edited
+  // CANDIDATE bytes (a Blob) held only in the caller's memory; nothing is written
+  // to the dataset until commitEditedReference. Throws with the provider's own
+  // error message so the modal can show it verbatim (never claims a failure was
+  // free). No refresh: the dataset reference is unchanged at this point.
+  const editReference = useCallback(async (prompt, engine, files = []) => {
+    const fd = new FormData();
+    fd.append('prompt', prompt);
+    fd.append('engine', engine);
+    files.forEach((f) => fd.append('ref', f));
+    const r = await fetchWithCsrfRetry(`/api/dataset/${currentId}/ref/edit`, {
+      method: 'POST', headers: { 'X-CSRFToken': getCsrfToken() }, body: fd,
+    });
+    if (!r.ok) {
+      let msg = `Edit failed (${r.status})`;
+      try { const d = await r.json(); if (d && d.error) msg = d.error; } catch { /* non-JSON */ }
+      throw new Error(msg);
+    }
+    return r.blob();
+  }, [currentId]);
+
+  // Keep an edited candidate: upload the kept Blob, the server atomically swaps
+  // the reference (old files removed only after the new ones are on disk).
+  const commitEditedReference = useCallback(async (blob) => {
+    const fd = new FormData();
+    fd.append('file', blob, 'edited-reference.webp');
+    const d = await postJson(`/api/dataset/${currentId}/ref/edit/commit`, fd, true);
+    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return false; }
+    toast.success('Reference updated');
+    await refresh();
+    setRefNonce((n) => n + 1);
+    return true;
+  }, [currentId, refresh, toast]);
+
   const deleteImage = useCallback(async (imageId) => {
     const d = await postJson(`/api/dataset/image/${imageId}/delete`);
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -1176,7 +1210,7 @@ export function useDataset() {
            nonces, mirroringIds, refNonce, recaptioningIds, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, improveBatch, classify, caption, recaption, recaptionImages,
-           setStatus, setCaption, mirrorImage, crop, cropRef, cropExtraRef, recropRefAuto, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, cancelCaption, regenerate, analyzeFaces,
+           setStatus, setCaption, mirrorImage, crop, cropRef, cropExtraRef, recropRefAuto, editReference, commitEditedReference, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, cancelCaption, regenerate, analyzeFaces,
            findWatermarks, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder,
            backupEverything, backupJob, downloadBackup, openBackupsFolder, dismissBackup, restoreJob, dismissRestore,
