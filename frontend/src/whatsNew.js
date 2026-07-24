@@ -51,7 +51,7 @@ export const WHATS_NEW = [
     date: '2026-07-24',
     title: '✦ Edit the reference photo with a prompt',
     blurb:
-      'The reference card has a new ✦ Edit button. Type what to change — "plain studio-grey background", "add glasses", "warmer lighting" — optionally drop in a few extra reference images, and ChatGPT or Nano Banana edits your reference. You get a Before/After side by side, then Keep it or Discard it. Editing replaces the reference and only affects future variations, never images you already generated. Each edit is a paid API call.',
+      'The reference card has a new ✦ Edit button. Type what to change — "plain studio-grey background", "add glasses", "warmer lighting" — optionally drop in a few extra reference images, and ChatGPT or Nano Banana edits your reference. You get a Before/After side by side, then Keep it or Discard it. The edit runs on the server, so you can close the tab (or lock your phone) and come back — the Before/After is waiting for you, and a slow render never gets lost. Editing replaces the reference and only affects future variations, never images you already generated. Each edit is a paid API call.',
     to: '/datasets?section=add',
   },
   {

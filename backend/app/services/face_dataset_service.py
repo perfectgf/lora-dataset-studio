@@ -29,7 +29,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from ..extensions import db
 from ..models import FaceDataset, FaceDatasetImage, LoraTestImage
 from .. import config as cfg
-from . import dataset_activity, trash
+from . import dataset_activity, reference_edit_jobs, trash
 from .dataset_storage import dataset_path, ensure_dataset_dir
 
 # Garde le modèle vision chaud entre les images d'un même batch caption/classify
@@ -2205,6 +2205,8 @@ def crop_reference(user_id, dataset_id, x, y, w, h):
     if not ds or not ds.ref_filename:
         return False
     ok, _scale = _crop_resize_file(_ref_crop_source_path(ds), x, y, w, h, dst=_ref_path(ds))
+    if ok:
+        invalidate_reference_edit(dataset_id)   # a pending Before/After is now stale
     return ok
 
 
@@ -2223,41 +2225,133 @@ def recrop_reference_auto(user_id, dataset_id):
     webp, detected = face_crop_to_square_webp(raw, pad=REF_CROP_PAD, return_detected=True)
     with open(_ref_path(ds), 'wb') as fh:
         fh.write(webp)
+    invalidate_reference_edit(dataset_id)        # a pending Before/After is now stale
     return True, detected
 
 
-def edit_reference(ds, prompt, engine, extra_edit_ref_bytes=None):
-    """Edit the dataset's PRIMARY reference with a free-form prompt via an API
-    engine (nanobanana | chatgpt) and RETURN the edited image bytes — writing
-    NOTHING to disk or the DB. The candidate exists only in the caller's
-    response; commit_edited_reference is the sole writer. This is what makes a
-    Discard leak-proof: an abandoned edit leaves zero server-side residue.
-
-    Ref list sent to the engine: the primary reference FIRST (ChatGPT's
-    /images/edits treats image[0] as the edit base), then the dataset's extra
-    refs and any transient edit-reference images the user added in the modal —
-    all ride along as identity anchors so the edit keeps the same face. Klein is
-    deliberately not an option here.
-
-    Raises ValueError for a bad engine or a missing reference. Returns None only
-    when the engine itself yielded no image (content-policy block / transient
-    provider error), which the route surfaces verbatim. Subscription-lane
-    RuntimeErrors (quota / lost connection) propagate for the route to report."""
+def _edit_engine_call(engine, refs, prompt):
+    """Dispatch an edit to an API engine: reference list + prompt -> edited bytes
+    (or None). PURE dispatch — no file reading (the caller snapshots the refs in
+    the REQUEST thread, never the worker). The reference is a face crop, so the
+    edit keeps its framing (1:1) — an in-place change, not a re-composition. The
+    ChatGPT auth lane is pinned once, like the batch, so it never silently
+    reroutes onto the paid API key mid-call."""
     if engine not in API_ENGINES:
         raise ValueError(f'unknown edit engine: {engine}')
+    generate = _api_generate_fn(engine)
+    gen_kwargs = {'aspect_ratio': '1:1'}
+    if engine == 'chatgpt':
+        from .chatgpt_image import _use_subscription
+        gen_kwargs['force_lane'] = 'subscription' if _use_subscription() else 'api'
+    return generate(refs, prompt, **gen_kwargs)
+
+
+def start_reference_edit(app, user_id, dataset_id, engine, prompt, extra_edit_ref_bytes=None):
+    """Start a background reference-edit job and RETURN AT ONCE (the request no
+    longer blocks 1-3 min, so a backgrounded mobile tab can't kill it). Snapshots
+    the reference + extras + modal images HERE, in the request thread (never
+    re-read in the worker), registers the candidate job and a 'edit_reference'
+    activity so the existing payload poll tracks it, then spawns the worker.
+
+    Ref list sent to the engine: the primary reference FIRST (ChatGPT's
+    /images/edits treats image[0] as the edit base), then the dataset's extra refs
+    and any transient edit-reference images the user added in the modal — all ride
+    along as identity anchors so the edit keeps the same face. Klein is not an
+    option here. Raises ValueError for a bad engine / empty prompt / missing
+    reference (the route maps it to 400/404)."""
+    if engine not in API_ENGINES:
+        raise ValueError('pick ChatGPT or Nano Banana')
+    prompt = (prompt or '').strip()
+    if not prompt:
+        raise ValueError('describe the edit first')
+    ds = get_dataset(user_id, dataset_id)
     if not ds or not ds.ref_filename:
         raise ValueError('reference image required')
-    if not (prompt or '').strip():
-        raise ValueError('describe the edit first')
-    ref_path = _ref_path(ds)
-    if not os.path.exists(ref_path):
+    if not os.path.exists(_ref_path(ds)):
         raise ValueError('reference image file missing')
-    refs = _all_ref_bytes(ds)                       # primary + dataset extras
+    refs = _all_ref_bytes(ds)                       # SNAPSHOT (primary + dataset extras)
     refs.extend(rb for rb in (extra_edit_ref_bytes or []) if rb)
-    generate = _api_generate_fn(engine)
-    # The reference is a face crop; keep its framing (1:1) so the edit is an
-    # in-place change, not a re-composition.
-    return generate(refs, prompt.strip(), aspect_ratio='1:1')
+    dsdir = _dataset_dir(dataset_id)
+    token = reference_edit_jobs.start(dataset_id, dsdir, engine, prompt)
+    act_token = dataset_activity.begin(dataset_id, 'edit_reference', total=1, engine=engine)
+    threading.Thread(
+        target=_run_reference_edit,
+        args=(app, user_id, dataset_id, token, act_token, engine, refs, prompt),
+        daemon=True).start()
+    return token
+
+
+def _run_reference_edit(app, user_id, dataset_id, token, act_token, engine, refs, prompt):
+    """Worker body: call the engine, write the candidate, mark the job ready — all
+    in a background thread (factored out so tests can call it synchronously).
+
+    ORDERING (load-bearing): set_ready() runs BEFORE dataset_activity.end(). The
+    payload poll stops the moment activity clears, with ONE final refresh — which
+    must already see the ready candidate, or the modal stays on the spinner. A
+    superseded worker (a newer edit started meanwhile) gets False from
+    set_ready/set_failed and deletes its own orphan candidate."""
+    with app.app_context():
+        try:
+            try:
+                out = _edit_engine_call(engine, refs, prompt)
+            except SubscriptionQuotaExceeded as e:
+                reference_edit_jobs.set_failed(dataset_id, token, str(e))
+                return
+            except SubscriptionUnavailable as e:
+                reference_edit_jobs.set_failed(dataset_id, token, f'chatgpt: {e}')
+                return
+            if out is None:
+                reference_edit_jobs.set_failed(
+                    dataset_id, token,
+                    f'{engine}: empty response (often a content-policy refusal or a '
+                    'transient API error - retry usually works)')
+                return
+            cand_fn = f'{user_id}{reference_edit_jobs.CANDIDATE_MARKER}{uuid.uuid4().hex[:8]}.webp'
+            cand_path = os.path.join(_dataset_dir(dataset_id), cand_fn)
+            with open(cand_path, 'wb') as fh:
+                fh.write(normalize_to_webp(out))
+            # set_ready BEFORE the finally end() — see ORDERING above.
+            if not reference_edit_jobs.set_ready(dataset_id, token, cand_fn):
+                reference_edit_jobs._unlink(cand_path)      # superseded: drop our orphan
+        except Exception as e:
+            logger.exception('reference edit worker failed (dataset %s)', dataset_id)
+            reference_edit_jobs.set_failed(dataset_id, token, f'{engine}: {e}')
+        finally:
+            dataset_activity.end(act_token)
+
+
+def keep_reference_edit(user_id, dataset_id):
+    """Promote the READY candidate to be the reference (reuses the atomic,
+    fail-safe commit_edited_reference), then delete the candidate file + clear the
+    job. Returns the new ref_filename, or None when there is no ready candidate
+    (route -> 409) — including a candidate file that vanished under us."""
+    entry = reference_edit_jobs.peek(dataset_id)
+    if not entry or entry['status'] != 'ready' or not entry['candidate_filename']:
+        return None
+    dsdir = _dataset_dir(dataset_id)
+    try:
+        with open(os.path.join(dsdir, entry['candidate_filename']), 'rb') as fh:
+            data = fh.read()
+    except OSError:
+        reference_edit_jobs.clear(dataset_id, dsdir)
+        return None
+    new_ref = commit_edited_reference(user_id, dataset_id, data)
+    reference_edit_jobs.clear(dataset_id, dsdir)
+    return new_ref
+
+
+def discard_reference_edit(dataset_id):
+    """Drop a pending edit (running=abandon OR ready) and delete its candidate
+    file. The engine call already sent is still billed — honesty preserved, no
+    'refund' implied."""
+    reference_edit_jobs.clear(dataset_id, _dataset_dir(dataset_id))
+
+
+def invalidate_reference_edit(dataset_id):
+    """Drop any pending edit candidate when the reference itself changes
+    (crop/recrop/change/keep): a Before/After computed from the OLD reference would
+    be a visual lie. Idempotent — a no-op when nothing is pending."""
+    reference_edit_jobs.clear(dataset_id, _dataset_dir(dataset_id))
 
 
 def commit_edited_reference(user_id, dataset_id, image_bytes):
@@ -2496,6 +2590,12 @@ def dataset_payload(user_id, dataset_id):
         # empty after a server restart, so a batch killed with the process leaves no
         # phantom indicator.
         'activity': dataset_activity.get(dataset_id),
+        # Pending reference EDIT (server background job) as {status, engine, prompt,
+        # candidate_filename, error, started_at} — or None. The modal RESTORES its
+        # Before/After from this after a tab sleep or reload; the 'edit_reference'
+        # activity above keeps this polled while it runs. get() lazily purges an
+        # abandoned candidate past its TTL, so this can't strand a stale file.
+        'reference_edit': reference_edit_jobs.get(dataset_id),
     }
 
 

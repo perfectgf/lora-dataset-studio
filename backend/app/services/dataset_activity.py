@@ -36,7 +36,7 @@ import time
 # ChatGPT / Klein) — it keeps the Generate button (and every concurrent action)
 # disabled for the WHOLE batch, not just the launch request.
 KINDS = ('watermark_detect', 'watermark_clean', 'caption', 'recaption',
-         'analyze_faces', 'classify', 'generate', 'improve')
+         'analyze_faces', 'classify', 'generate', 'improve', 'edit_reference')
 
 # Kinds a user can gracefully STOP mid-batch (the ▶ Stop button). Only the
 # per-image captioning passes qualify: the worker checks the cancel flag at each

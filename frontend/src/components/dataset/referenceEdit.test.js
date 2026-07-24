@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EDIT_ENGINES, defaultEditEngine, editBlockedReason, batchLiveNote,
+  EDIT_ENGINES, defaultEditEngine, editBlockedReason, batchLiveNote, editPhase,
 } from './referenceEdit.js';
 import { STORAGE_ENGINES, STORAGE_PRIMARY } from './engineSelection.js';
 
@@ -42,4 +42,13 @@ test('batchLiveNote informs only while a generate batch runs, never blocks', () 
   assert.equal(batchLiveNote(null), null);
   assert.equal(batchLiveNote({ kind: 'caption' }), null);
   assert.match(batchLiveNote({ kind: 'generate' }), /future batches/i);
+});
+
+test('editPhase derives the modal phase from the server reference_edit object', () => {
+  assert.equal(editPhase(null), 'idle');
+  assert.equal(editPhase(undefined), 'idle');
+  assert.equal(editPhase({ status: 'running' }), 'running');
+  assert.equal(editPhase({ status: 'ready', candidate_filename: 'x.webp' }), 'ready');
+  assert.equal(editPhase({ status: 'failed', error: 'boom' }), 'failed');
+  assert.equal(editPhase({ status: 'weird' }), 'idle');   // unknown → idle (form)
 });

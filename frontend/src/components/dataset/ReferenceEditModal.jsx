@@ -1,44 +1,54 @@
 /** ✦ Edit the reference photo with a prompt (+ optional extra reference images),
- * via ChatGPT or Nano Banana. The edit produces a CANDIDATE that lives only in
- * this component's memory (a Blob) — nothing is written to the dataset until
- * Keep. Discard / close drops the Blob, leaving zero server residue.
+ * via ChatGPT or Nano Banana.
  *
- * Flow: type a prompt → Generate edit (the billed call) → Before/After →
- * Keep (promote) | Discard | Try another prompt (another billed call). One call
- * per click, never a loop.
+ * The edit runs as a SERVER background job — slow (1-3 min) and PAID, so it must
+ * not ride the client's fetch (a backgrounded mobile tab would kill it and lose
+ * the paid result). This modal is DRIVEN BY SERVER STATE (`referenceEdit` from the
+ * dataset payload): running → spinner, ready → Before/After, failed → error. That
+ * makes it restore correctly after a tab sleep, a reload, or a reopen — there is
+ * no long client request to lose.
  *
- * Modal idiom mirrors CropModal: role=dialog, Escape closes, initial focus. */
+ * Keep promotes the candidate (atomic on the server); Discard deletes it; the ✕
+ * just closes and LEAVES the job running (rediscovered on reopen). Modal idiom
+ * mirrors CropModal: role=dialog, Escape closes, initial focus. */
 import { useEffect, useRef, useState } from 'react';
-import { EDIT_ENGINES, editBlockedReason, batchLiveNote } from './referenceEdit';
+import { EDIT_ENGINES, editBlockedReason, batchLiveNote, editPhase } from './referenceEdit';
 
 const ENGINE_LABEL = { chatgpt: 'ChatGPT', nanobanana: 'Nano Banana' };
 const MAX_EDIT_REFS = 3;
 
 export default function ReferenceEditModal({ datasetId, refFilename, nonce = 0,
                                              defaultEngine = 'chatgpt', liveActivity = null,
-                                             onEdit, onCommit, onClose }) {
+                                             referenceEdit = null,
+                                             onEdit, onKeep, onDiscard, onClose }) {
   const [prompt, setPrompt] = useState('');
   const [engine, setEngine] = useState(EDIT_ENGINES.includes(defaultEngine) ? defaultEngine : 'chatgpt');
   const [editRefs, setEditRefs] = useState([]);            // transient File[]
-  const [phase, setPhase] = useState('idle');              // idle | editing | result | keeping
-  const [candidate, setCandidate] = useState(null);        // { blob, url }
-  const [error, setError] = useState(null);
+  const [starting, setStarting] = useState(false);         // bridges POST -> server 'running'
+  const [busyAction, setBusyAction] = useState(false);     // keep/discard in flight
   const inpRef = useRef(null);
   const promptRef = useRef(null);
-  const closeRef = useRef(null);
 
-  const beforeUrl = `/api/dataset/${datasetId}/img/${encodeURIComponent(refFilename)}${nonce ? `?v=${nonce}` : ''}`;
+  const serverPhase = editPhase(referenceEdit);            // idle | running | ready | failed
+  const phase = (starting && serverPhase === 'idle') ? 'running' : serverPhase;
+  // Once the server reflects the job (running/ready/failed), drop the local bridge.
+  useEffect(() => { if (serverPhase !== 'idle') setStarting(false); }, [serverPhase]);
 
-  // Escape closes; initial focus on the prompt.
+  const imgUrl = (fn) => `/api/dataset/${datasetId}/img/${encodeURIComponent(fn)}${nonce ? `?v=${nonce}` : ''}`;
+  const beforeUrl = imgUrl(refFilename);
+  const afterUrl = referenceEdit?.candidate_filename
+    ? `/api/dataset/${datasetId}/img/${encodeURIComponent(referenceEdit.candidate_filename)}`
+    : null;
+
+  const busy = starting || busyAction;
+  // Escape / ✕ close the modal but NEVER discard — a running or ready job is left
+  // on the server and rediscovered on reopen.
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && phase !== 'editing' && phase !== 'keeping') onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape' && !busy) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, phase]);
-  useEffect(() => { promptRef.current?.focus(); }, []);
-  // Revoke the candidate object URL when it is replaced or the modal unmounts —
-  // the Blob itself is GC'd, so an abandoned edit leaves nothing behind.
-  useEffect(() => () => { if (candidate?.url) URL.revokeObjectURL(candidate.url); }, [candidate]);
+  }, [onClose, busy]);
+  useEffect(() => { if (phase === 'idle') promptRef.current?.focus(); }, [phase]);
 
   const blocked = editBlockedReason(prompt, engine);
   const liveNote = batchLiveNote(liveActivity);
@@ -50,47 +60,31 @@ export default function ReferenceEditModal({ datasetId, refFilename, nonce = 0,
 
   const runEdit = async () => {
     if (blocked) return;
-    setError(null); setPhase('editing');
-    try {
-      const blob = await onEdit(prompt, engine, editRefs);
-      // Replace any previous candidate (a "Try another" leaves no stale Blob).
-      setCandidate((prev) => {
-        if (prev?.url) URL.revokeObjectURL(prev.url);
-        return { blob, url: URL.createObjectURL(blob) };
-      });
-      setPhase('result');
-    } catch (e) {
-      setError(e?.message || 'Edit failed');
-      setPhase('idle');
-    }
+    setStarting(true);
+    const ok = await onEdit(prompt, engine, editRefs);
+    if (!ok) setStarting(false);          // start failed → stay on the form
   };
 
   const keep = async () => {
-    if (!candidate) return;
-    setPhase('keeping');
-    const ok = await onCommit(candidate.blob);
-    if (ok) onClose(); else setPhase('result');
+    setBusyAction(true);
+    const ok = await onKeep();
+    if (ok) onClose(); else setBusyAction(false);
   };
 
-  const discardCandidate = () => {
-    setCandidate((prev) => { if (prev?.url) URL.revokeObjectURL(prev.url); return null; });
-    setPhase('idle');
+  const discard = async (close) => {
+    setBusyAction(true);
+    await onDiscard();
+    setBusyAction(false);
+    if (close) onClose();
   };
-
-  const busy = phase === 'editing' || phase === 'keeping';
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Edit reference photo"
-      className="fixed inset-0 z-[9995] bg-black/80 backdrop-blur-sm flex flex-col p-3 sm:p-4 overflow-y-auto">
-      {/* Opaque card: the form has transparent gaps, so it needs a solid surface
-          of its own — sitting straight on the dim overlay let the page bleed
-          through. bg-surface is only 4% alpha (--surface-alpha) — the opaque
-          modal token is bg-surface-overlay, the one every other modal here uses. */}
-      <div className="w-full max-w-3xl mx-auto my-auto flex flex-col gap-3
-                      bg-surface-overlay border border-border rounded-2xl shadow-2xl p-4 sm:p-5">
+      className="fixed inset-0 z-[9995] bg-black/85 flex flex-col p-3 sm:p-4 overflow-y-auto">
+      <div className="w-full max-w-3xl mx-auto flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-content text-base font-semibold">✦ Edit reference</h2>
-          <button type="button" ref={closeRef} onClick={onClose} disabled={busy}
+          <button type="button" onClick={onClose} disabled={busy}
             aria-label="Close" className="px-2 py-1 rounded-lg bg-surface text-content text-sm disabled:opacity-40">✕</button>
         </div>
 
@@ -100,7 +94,19 @@ export default function ReferenceEditModal({ datasetId, refFilename, nonce = 0,
           </p>
         )}
 
-        {phase === 'result' && candidate ? (
+        {phase === 'running' ? (
+          <div className="flex flex-col items-center gap-3 py-8">
+            <span className="inline-block w-8 h-8 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />
+            <p className="text-content text-sm">Editing the reference… a “high” render can take 1–3 minutes.</p>
+            <p className="text-content-muted text-[0.6875rem] text-center">
+              This runs on the server — you can close this tab and come back; the Before/After will be here.
+            </p>
+            <button type="button" onClick={() => discard(true)} disabled={busy}
+              className="px-4 py-2 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
+              Cancel edit
+            </button>
+          </div>
+        ) : phase === 'ready' ? (
           <>
             {/* Before / After — side by side on desktop, stacked on mobile. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -111,8 +117,8 @@ export default function ReferenceEditModal({ datasetId, refFilename, nonce = 0,
               </figure>
               <figure className="flex flex-col gap-1">
                 <figcaption className="text-sky-300 text-xs">After (candidate)</figcaption>
-                <img src={candidate.url} alt="edited candidate"
-                  className="w-full rounded-lg bg-black object-contain max-h-[45vh]" />
+                {afterUrl && <img src={afterUrl} alt="edited candidate"
+                  className="w-full rounded-lg bg-black object-contain max-h-[45vh]" />}
               </figure>
             </div>
             <p className="text-[0.6875rem] text-content-muted">
@@ -120,17 +126,17 @@ export default function ReferenceEditModal({ datasetId, refFilename, nonce = 0,
               only future variations, not images already generated. Discard doesn’t refund the edit.
             </p>
             <div className="flex gap-2 justify-end flex-wrap">
-              <button type="button" onClick={discardCandidate} disabled={busy}
+              <button type="button" onClick={() => discard(false)} disabled={busy}
                 className="mr-auto px-4 py-2 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
                 Try another prompt
               </button>
-              <button type="button" onClick={discardCandidate} disabled={busy}
+              <button type="button" onClick={() => discard(true)} disabled={busy}
                 className="px-4 py-2 rounded-lg bg-surface text-content text-sm disabled:opacity-40">
                 Discard
               </button>
               <button type="button" onClick={keep} disabled={busy}
                 className="px-4 py-2 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-                {phase === 'keeping' ? 'Keeping…' : 'Keep'}
+                {busyAction ? 'Keeping…' : 'Keep'}
               </button>
             </div>
           </>
@@ -183,9 +189,9 @@ export default function ReferenceEditModal({ datasetId, refFilename, nonce = 0,
                 onChange={(e) => { addRefs(e.target.files); e.target.value = ''; }} />
             </div>
 
-            {error && (
+            {phase === 'failed' && referenceEdit?.error && (
               <p className="text-[0.6875rem] text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-2.5 py-1.5">
-                {error}
+                {referenceEdit.error}
               </p>
             )}
             <p className="text-[0.6875rem] text-content-muted">
@@ -198,7 +204,7 @@ export default function ReferenceEditModal({ datasetId, refFilename, nonce = 0,
               <button type="button" onClick={runEdit} disabled={busy || !!blocked}
                 title={blocked || undefined}
                 className="px-4 py-2 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
-                {phase === 'editing' ? 'Editing…' : 'Generate edit'}
+                {starting ? 'Starting…' : 'Generate edit'}
               </button>
             </div>
           </>

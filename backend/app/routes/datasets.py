@@ -5,7 +5,6 @@ No login — single local user (`cfg.LOCAL_USER`). Vision-dependent routes borro
 the GPU-exclusive window (`gpu_exclusive_vision_window`) so a vision pass never
 fights ComfyUI for the single GPU.
 """
-import io
 import logging
 import os
 import tempfile
@@ -235,6 +234,7 @@ def dataset_set_ref(dataset_id):
     ds.ref_original_filename = orig_fn
     ds.ref_filename = fn
     svc.db.session.commit()
+    svc.invalidate_reference_edit(dataset_id)   # any pending Before/After is now stale
     resp = {'ok': True, 'ref_filename': fn, 'head_crop': head_detected}
     if want_auto and not head_detected:
         # GUARD-RAIL: don't silently ship a body-centered crop when auto WAS asked.
@@ -332,17 +332,15 @@ _EDIT_ENGINES = ('chatgpt', 'nanobanana')       # Klein excluded from ref editin
 
 @bp.post('/dataset/<int:dataset_id>/ref/edit')
 def dataset_ref_edit(dataset_id):
-    """Edit the reference with a prompt (+ optional extra reference images) via an
-    API engine, and RETURN the edited candidate bytes. STATELESS by contract: it
-    writes NOTHING to the dataset — no temp file, no DB change. The candidate
-    lives only in the client's memory until a separate /commit promotes it, so an
-    abandoned or Discarded edit leaves zero server residue (leak-proof)."""
-    ds = svc.get_dataset(LOCAL_USER, dataset_id)
-    if not ds:
+    """START a background reference-edit job and return AT ONCE (202). The edit is
+    a slow (1-3 min) PAID call; running it in the client's fetch let a backgrounded
+    mobile tab kill it ('Failed to fetch') AND lose the paid result. Now the worker
+    fills a server-side CANDIDATE and the client rediscovers it through the dataset
+    payload's `reference_edit` (survives a tab sleep and a reload). The uploaded
+    images are read HERE (snapshot in the request thread), never in the worker."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
     prompt = (request.form.get('prompt') or '').strip()
-    if not prompt:
-        return jsonify({'error': 'describe the edit first'}), 400
     engine = (request.form.get('engine') or '').strip()
     if engine not in _EDIT_ENGINES:
         return jsonify({'error': 'pick ChatGPT or Nano Banana'}), 400
@@ -350,42 +348,39 @@ def dataset_ref_edit(dataset_id):
     # anchors for THIS call only, never persisted as dataset extra refs.
     extra_bytes = [f.read() for f in request.files.getlist('ref') if f and f.filename]
     try:
-        out = svc.edit_reference(ds, prompt, engine, extra_edit_ref_bytes=extra_bytes)
+        svc.start_reference_edit(current_app._get_current_object(), LOCAL_USER,
+                                 dataset_id, engine, prompt, extra_edit_ref_bytes=extra_bytes)
     except ValueError as e:
         return _map_error(e)
-    except (svc.SubscriptionQuotaExceeded, svc.SubscriptionUnavailable) as e:
-        # Surface the provider's own message verbatim — never claim it was free.
-        return jsonify({'error': str(e)}), 502
-    except Exception:
-        logger.exception('reference edit failed (dataset %s)', dataset_id)
-        return jsonify({'error': 'The image engine failed — try again in a moment.'}), 502
-    if out is None:
-        return jsonify({'error': 'The image engine returned no image (a content-policy '
-                                 'block or a transient error). Try a different prompt or engine.'}), 502
-    return send_file(io.BytesIO(out), mimetype='image/webp',
-                     download_name='edited-reference.webp')
+    return jsonify({'ok': True, 'status': 'running'}), 202
 
 
-@bp.post('/dataset/<int:dataset_id>/ref/edit/commit')
-def dataset_ref_edit_commit(dataset_id):
-    """Keep an edited candidate: promote the uploaded bytes to BE the reference.
-    Atomic and fail-safe — the service writes the new files and confirms them on
-    disk before unlinking the old ones, so a failed Keep leaves the previous
-    reference intact (never a dataset with no reference)."""
+@bp.post('/dataset/<int:dataset_id>/ref/edit/keep')
+def dataset_ref_edit_keep(dataset_id):
+    """Keep the ready candidate: promote it to BE the reference via the atomic,
+    fail-safe commit (writes+verifies the new files before unlinking the old ones),
+    then delete the candidate. 409 when there is no ready candidate to keep."""
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
-    f = request.files.get('file')
-    if not f or not f.filename:
-        return jsonify({'error': 'no file'}), 400
     try:
-        fn = svc.commit_edited_reference(LOCAL_USER, dataset_id, f.read())
-    except ValueError as e:
-        return _map_error(e)
+        fn = svc.keep_reference_edit(LOCAL_USER, dataset_id)
     except Exception:
-        logger.exception('reference edit commit failed (dataset %s)', dataset_id)
+        logger.exception('reference edit keep failed (dataset %s)', dataset_id)
         return jsonify({'error': "Couldn't save the edited reference — the previous "
                                  'reference is unchanged.'}), 500
+    if fn is None:
+        return jsonify({'error': 'no edited reference is ready to keep'}), 409
     return jsonify({'ok': True, 'ref_filename': fn})
+
+
+@bp.post('/dataset/<int:dataset_id>/ref/edit/discard')
+def dataset_ref_edit_discard(dataset_id):
+    """Discard a pending edit (running=abandon or ready) and delete its candidate.
+    The engine call already sent is still billed — no 'refund' is implied."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    svc.discard_reference_edit(dataset_id)
+    return jsonify({'ok': True})
 
 
 _KLEIN_ASSET_LABELS = {

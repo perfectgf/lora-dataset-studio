@@ -28,6 +28,14 @@ export function editBlockedReason(prompt, engine) {
   return null;
 }
 
+/** The modal's phase, DERIVED from the server's `reference_edit` payload object
+ *  (not local state) so it restores correctly after a tab sleep or reload:
+ *  'idle' (no pending edit / form), 'running', 'ready' (Before/After), 'failed'. */
+export function editPhase(referenceEdit) {
+  const s = referenceEdit?.status;
+  return (s === 'running' || s === 'ready' || s === 'failed') ? s : 'idle';
+}
+
 /** Advisory shown when a generation batch is live. A Keep is provably safe (the
  *  batch snapshotted the reference at launch), so this INFORMS, it does not block:
  *  the point is that editing changes only FUTURE batches. Returns null when no

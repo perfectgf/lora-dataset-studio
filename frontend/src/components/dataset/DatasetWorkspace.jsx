@@ -663,7 +663,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
             || act.kind === 'generate'
             // Same reasoning as 'generate': the improve batch feeds ComfyUI, and
             // the candidates appearing in the grid say so better than a claim.
-            || act.kind === 'improve';
+            || act.kind === 'improve'
+            // Editing the reference is an API call (ChatGPT / Nano Banana) — no GPU,
+            // ComfyUI is never touched, so never claim it is paused.
+            || act.kind === 'edit_reference';
           const label = {
             watermark_detect: `Scanning for watermarks…${prog}`,
             watermark_clean: `Cleaning watermarks…${prog}`,
@@ -673,6 +676,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             classify: `Classifying framing…${prog}`,
             generate: `Generating variations…${prog}`,
             improve: `Queuing improvements…${prog}`,
+            edit_reference: 'Editing reference…',
           }[act.kind];
           if (label) {
             const detailed = act.detail || label;
@@ -1709,8 +1713,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
       {refEdit && d.ref_filename && (
         <ReferenceEditModal datasetId={d.id} refFilename={d.ref_filename} nonce={ds.refNonce}
           defaultEngine={defaultEditEngine(window.localStorage)}
-          liveActivity={ds.activity}
-          onEdit={ds.editReference} onCommit={ds.commitEditedReference}
+          liveActivity={ds.activity} referenceEdit={d.reference_edit}
+          onEdit={ds.editReference} onKeep={ds.keepEditedReference} onDiscard={ds.discardEditedReference}
           onClose={() => setRefEdit(false)} />
       )}
       {extraRefCrop && extraRefCropSource(d.ref_extra_filenames, d.ref_extra_crop_sources, extraRefCrop) && (
