@@ -267,13 +267,22 @@ def test_unknown_arch_stays_unknown_for_every_family(app, tmp_path):
 
 def test_a_bogus_family_falls_back_to_the_default(app, tmp_path):
     """`family` arrives as an HTTP query parameter, so junk must never reach the
-    arch guard — it degrades to the Klein verdict."""
+    arch guard — it degrades to the Klein verdict.
+
+    'anima' is deliberately NOT a bogus string: it IS a real key in
+    lora_training._LORA_ARCH_NAMESPACE (its own namespace, distinct from
+    flux2klein's), it is just not one of the picker's KNOWN_FAMILIES. That
+    makes it the load-bearing probe — a family the picker doesn't know about
+    but lora_arch_conflicts does — so the assertion actually flips (to 'no')
+    if the KNOWN_FAMILIES guard is ever dropped, unlike a namespace-less string
+    such as '../etc/passwd', against which lora_arch_conflicts never blocks
+    regardless of the guard."""
     from app import config as cfg
     from app.services import klein_lora_picker as klp
     with app.app_context():
         base = _comfy_base(tmp_path, cfg)
         _write_st(_loras(base) / 'detail.safetensors', _UNKNOWN_KEYS, _FLUX2KLEIN_META)
-        assert klp.scan_generation_loras(family='../etc/passwd')[0]['compatible'] == 'yes'
+        assert klp.scan_generation_loras(family='anima')[0]['compatible'] == 'yes'
         assert klp.scan_generation_loras(family='')[0]['compatible'] == 'yes'
 
 
