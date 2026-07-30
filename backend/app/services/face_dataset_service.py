@@ -7302,16 +7302,22 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
     return ids
 
 
-def generate_variations_krea(user_id, dataset_id, variations, multiplier):
+def generate_variations_krea(user_id, dataset_id, variations, multiplier,
+                            generation_lora_preset=None):
     """Krea 2 Identity Edit fan-out — the second LOCAL engine, same contract as
     `generate_variations` (Klein): one pending row committed BEFORE its job is
     enqueued, the whole batch preflighted up front, the created ids returned.
 
-    Deliberately fewer knobs than the Klein path: Krea has no consistency LoRA
-    and no generation-LoRA presets (its identity LoRA IS the pipeline, and
-    stacking untested LoRAs on an edit model is how you get noise). The one dial
-    it does have — `grounding_px` — is a SETTING, not a per-run argument, because
-    it changes the meaning of every shot in the batch identically.
+    Fewer knobs than the Klein path, but no longer none: Krea has no consistency
+    LoRA, and its identity LoRA IS the pipeline. Stacking untested LoRAs on an
+    edit model still degrades it — that caution was this lane's reason for having
+    no LoRA input at all, and it is now the USER's call per run instead of ours:
+    Krea 2 cannot render some registers a dataset needs, and a LoRA is the only
+    lever that reaches them. `generation_lora_preset` NAMES a preset from config
+    (absent = none, which is still the default and still the byte-identical
+    graph). The other dial, `grounding_px`, remains a SETTING rather than a
+    per-run argument, because it changes the meaning of every shot in the batch
+    identically.
 
     The row stores the ENGINE ID in `klein_model`, like the API rows do, so the
     grid badge can say "Krea 2 Edit"; the base model itself is re-resolved
@@ -7325,6 +7331,10 @@ def generate_variations_krea(user_id, dataset_id, variations, multiplier):
     # Assets AND custom nodes, before any row exists: a missing piece then
     # surfaces as one actionable 409 instead of a grid of silently-failing tiles.
     keh.preflight()
+    # Resolved ONCE per run, not per variation: every cell of a run gets the same
+    # always-on stack (that is what "always-on" means), and one config read is
+    # enough. Unknown/blank name -> [] (fail-closed, see the resolver).
+    run_loras = keh.resolve_generation_lora_preset(generation_lora_preset)
     mult = max(1, int(multiplier))
     total = len(variations) * mult
     if total > MAX_FANOUT:
@@ -7363,6 +7373,7 @@ def generate_variations_krea(user_id, dataset_id, variations, multiplier):
                         # Krea v1.2 fit geometry accepts the catalog canvas even
                         # when it differs from the dataset reference.
                         aspect_ratio=aspect_for_label(v.get('label'), v.get('framing')),
+                        generation_loras=run_loras,
                         extra_metadata={'is_dataset': True, 'dataset_id': dataset_id,
                                         'variation_label': v.get('label')})
                 except Exception:
@@ -7980,6 +7991,7 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                 subject_type=subject_type_of(ds),
                 label=img.variation_label or ''),
             aspect_ratio=aspect_for_label(img.variation_label, img.framing),
+            generation_loras=_keh.resolve_generation_lora_preset(generation_lora_preset),
             extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
                             'variation_label': img.variation_label})
     else:

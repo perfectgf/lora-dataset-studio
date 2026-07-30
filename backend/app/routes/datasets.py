@@ -760,8 +760,11 @@ def dataset_generate(dataset_id):
                 # Second LOCAL path (Krea 2 Identity Edit): GPU-bound like Klein,
                 # free, NSFW-capable. Its one dial (grounding_px) is a setting,
                 # not a per-run argument — see krea_edit_helper.grounding_px.
-                ids = svc.generate_variations_krea(LOCAL_USER, dataset_id,
-                                                   variations, multiplier)
+                # Its own preset key, NOT Klein's: one request can dispatch to
+                # both engines, so a single key would be ambiguous.
+                ids = svc.generate_variations_krea(
+                    LOCAL_USER, dataset_id, variations, multiplier,
+                    generation_lora_preset=data.get('krea_generation_lora_preset'))
             else:
                 ids = svc.generate_variations(LOCAL_USER, dataset_id,
                                               variations, multiplier,

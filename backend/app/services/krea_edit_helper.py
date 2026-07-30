@@ -710,6 +710,40 @@ def resolve_generation_lora_preset(preset_name):
     return []
 
 
+def _existing_generation_lora_rows(rows):
+    """The subset of `rows` that can actually chain, in order, capped at
+    MAX_GENERATION_LORAS.
+
+    This is where the disk is touched — build_workflow stays pure. Degradation is
+    PER ROW and never raises: a preset whose third LoRA was moved still applies
+    its other two, because a dataset run must not die over an optional LoRA. Each
+    dropped row says why in the log, so a silent no-op is diagnosable."""
+    out = []
+    for entry in (rows or []):
+        if len(out) >= MAX_GENERATION_LORAS:
+            break
+        if not isinstance(entry, dict):
+            continue
+        name = (entry.get('file') or '')
+        name = name.replace('/', os.sep) if isinstance(name, str) else ''
+        if not name:
+            continue
+        try:
+            strength = max(0.0, min(LORA_STRENGTH_MAX, float(entry.get('strength'))))
+        except (TypeError, ValueError):
+            strength = 0.0
+        if strength <= 0:
+            logger.info('krea generation LoRA %r at strength 0 — skipped (row off)',
+                        name)
+            continue
+        if not _lora_abs(name):
+            logger.warning('krea generation LoRA %r not found under any loras root '
+                           '— skipped', name)
+            continue
+        out.append({'file': name, 'strength': strength})
+    return out
+
+
 # --- Graph -------------------------------------------------------------------
 
 def build_workflow(source_image, prompt, *, unet, clip, vae, lora_name,
@@ -803,7 +837,8 @@ def _comfy_input_dir() -> str:
 
 
 def enqueue_krea_edit(user_id, source_filename, edit_prompt, source_path=None,
-                      extra_metadata=None, krea_model=None, aspect_ratio=None):
+                      extra_metadata=None, krea_model=None, aspect_ratio=None,
+                      generation_loras=None):
     """Copy the reference into ComfyUI's input folder, build the Krea 2 Edit
     graph against what is ACTUALLY installed, and enqueue it. Returns the app
     job_id.
@@ -816,7 +851,12 @@ def enqueue_krea_edit(user_id, source_filename, edit_prompt, source_path=None,
     SECOND source (`source_latent_b` / `source_image_b`) and no more, and we have
     not measured what a second reference does to identity here. Shipping an
     unmeasured multi-ref path would be guessing — the dataset's extra refs are
-    simply ignored by this engine, and the UI says so."""
+    simply ignored by this engine, and the UI says so.
+
+    `generation_loras`: ordered [{file, strength}] rows of the run's always-on
+    LoRA preset (already resolved from config by the caller — a request only ever
+    names a preset). Rows whose file is absent, or whose strength is 0, are
+    dropped individually with a log line."""
     if source_path is None:
         out_dir = cfg.comfyui_dir('output')
         if not out_dir:
@@ -852,6 +892,7 @@ def enqueue_krea_edit(user_id, source_filename, edit_prompt, source_path=None,
         seed=random.randint(0, 2 ** 64 - 1), steps=_steps(),
         grounding=grounding_px(), ref_boost=_ref_boost(),
         lora_strength=_identity_strength(),
+        generation_loras=_existing_generation_lora_rows(generation_loras),
         # UNIQUE prefix per job: SaveImage numbers from what is currently in the
         # output folder and the app moves each result out right after completion,
         # so a shared prefix makes the counter re-issue the same name (the Klein
