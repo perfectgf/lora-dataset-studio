@@ -81,3 +81,15 @@ test('compatBadge maps verdicts to tone + text', () => {
   assert.equal(compatBadge('unknown', null).tone, 'unknown');
   assert.equal(compatBadge('unknown', null).text, 'Unknown arch');
 });
+
+test('compatBadge names the engine it was asked about', () => {
+  const yes = compatBadge('yes', 'Krea 2', 'Krea 2');
+  assert.equal(yes.text, 'Krea 2');
+  assert.match(yes.title, /compatible with the Krea 2 graph/);
+  const no = compatBadge('no', 'SDXL', 'Krea 2');
+  assert.match(no.title, /no-op in the Krea 2 graph/);
+  const unknown = compatBadge('unknown', null, 'Krea 2');
+  assert.match(unknown.title, /Krea 2-compatible/);
+  // Default stays Klein so every existing caller reads the same.
+  assert.match(compatBadge('yes', 'FLUX.2 Klein').title, /the Klein graph/);
+});

@@ -11,9 +11,13 @@ import { useEffect, useMemo, useState } from 'react';
 // Plage de strength par LoRA selon la famille :
 //  - Krea : 0..6, étendue à 20 pour les LoRA « utility » (ex. filter-bypass, sans
 //    effet marqué sous ~13) — alignée sur le clamp backend (inject_krea_loras ≤ 20).
+//    Le motif accepte les trois orthographes ('filterbypass', 'filter_bypass',
+//    'filter-bypass') : la version d'origine n'en acceptait qu'une, et un fichier
+//    renommé recevait un slider 0..6, donc une plage où ce LoRA ne fait RIEN.
+//    Même source que utils/kreaGenerationLoras.BYPASS_NAME (lane dataset).
 //  - Hors Krea (Z-Image / SDXL) : -2..2 (demande user — le négatif inverse le
 //    concept, au-delà de 2 ça dégrade) ; clamp backend élargi à [-2, 6].
-const EXTENDED_MAX_PATTERNS = [/filterbypass/i];
+const EXTENDED_MAX_PATTERNS = [/filter[-_]?bypass/i];
 const strengthRangeFor = (filename, krea) => {
   if (krea) {
     return EXTENDED_MAX_PATTERNS.some((re) => re.test(filename))

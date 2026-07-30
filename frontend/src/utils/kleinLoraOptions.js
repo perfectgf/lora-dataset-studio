@@ -96,16 +96,16 @@ export function buildVisibleOptions(loras, query, max = MAX_VISIBLE_OPTIONS) {
  * (e.g. "SDXL"), used in the incompatible/other wording. Pure presentation logic,
  * no arch DECISION here (the backend already decided via lora_arch_conflicts).
  */
-export function compatBadge(compatible, label) {
+export function compatBadge(compatible, label, engineLabel = 'Klein') {
   if (compatible === 'yes') {
-    return { tone: 'compatible', text: label || 'Klein',
-      title: `${label || 'Klein'} — compatible with the Klein graph` };
+    return { tone: 'compatible', text: label || engineLabel,
+      title: `${label || engineLabel} — compatible with the ${engineLabel} graph` };
   }
   if (compatible === 'no') {
     const arch = label || 'Other arch';
     return { tone: 'incompatible', text: arch,
-      title: `${arch} LoRA — a different architecture; ComfyUI would load it as a no-op in the Klein graph` };
+      title: `${arch} LoRA — a different architecture; ComfyUI would load it as a no-op in the ${engineLabel} graph` };
   }
   return { tone: 'unknown', text: label || 'Unknown arch',
-    title: "Architecture couldn't be read from the file header — use only if you know it's Klein-compatible" };
+    title: `Architecture couldn't be read from the file header — use only if you know it's ${engineLabel}-compatible` };
 }
