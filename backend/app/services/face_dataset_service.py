@@ -7905,7 +7905,10 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     row born on an API engine switches to Klein (its klein_model column holds
     an engine TAG, not a real model file).
     `generation_lora_preset` (optional): NAME of the generation-LoRA preset
-    picked in the workspace (Idea by @waltm), Klein path only — resolved from
+    picked in the workspace (Idea by @waltm). Both local engines resolve it —
+    Klein and Krea each from their OWN config list (`klein.generation_lora_presets`
+    / `krea.generation_lora_presets`), so the same name can mean two different
+    chains depending on which engine `target` resolves to below — resolved from
     the CONFIG only (fail-closed; unknown name degrades to no extra LoRAs)."""
     img = _owned_image(user_id, image_id)
     if not img or img.source != 'generated':

@@ -208,6 +208,20 @@ def _comfy_with_loras(tmp_path, present=('bypass',)):
     return base
 
 
+def _krea_ready_for_real_enqueue(monkeypatch, keh):
+    """Bypass exactly what a real model install would supply — preflight and the
+    four asset resolvers — so a call to `enqueue_krea_edit` runs its REAL body
+    all the way through `build_workflow` and into `queue_manager.add_job`. The
+    loras ROOT stays real (via `_comfy_with_loras`), so the existence filter
+    that is this wave's point runs for real too, not mocked away."""
+    monkeypatch.setattr(keh, 'preflight', lambda: None)
+    monkeypatch.setattr(keh, 'resolve_krea_unet', lambda *a, **k: 'unet.safetensors')
+    monkeypatch.setattr(keh, 'resolve_krea_text_encoder', lambda *a, **k: 'te.safetensors')
+    monkeypatch.setattr(keh, 'resolve_krea_vae', lambda *a, **k: 'vae.safetensors')
+    monkeypatch.setattr(keh, 'resolve_krea_identity_lora',
+                        lambda *a, **k: ('id.safetensors', 'x'))
+
+
 def test_missing_row_is_dropped_and_the_rest_still_chains(app, tmp_path):
     from app.services import krea_edit_helper as keh
     _comfy_with_loras(tmp_path, present=('bypass', 'detail'))
@@ -256,6 +270,10 @@ def test_fanout_applies_the_preset_to_every_variation(app, tmp_path, monkeypatch
              {'label': 'b', 'prompt': 'q', 'framing': 'bust'}],
             1, generation_lora_preset='Bypass')
     assert len(seen) == 2
+    # Resolved ONCE per run, not once per variation: a per-variation resolve
+    # would still equal-compare (same preset, same rows) and pass the assertion
+    # below on values alone, so this pins the SAME object riding every cell.
+    assert seen[0] is seen[1]
     assert all([r['file'] for r in rows] ==
                ['krea/krea2filterbypass3.safetensors', 'krea/detail_slider.safetensors']
                for rows in seen)
@@ -299,3 +317,66 @@ def test_generate_route_passes_the_krea_preset_name(app, client, tmp_path, monke
     })
     assert r.status_code == 200, r.get_json()
     assert seen['generation_lora_preset'] == 'Bypass'
+
+
+# --- The load-bearing seam: enqueue_krea_edit -> build_workflow, for real -----
+#
+# Everything above mocks `enqueue_krea_edit` itself (the fan-out/route tests) or
+# calls `build_workflow` directly (the graph tests in this file). Neither would
+# notice if the one line threading `generation_loras` through
+# `enqueue_krea_edit` were ever deleted — the feature would become a silent
+# production no-op while the whole suite stayed green. These two drive the REAL
+# function, mocking only what a real ComfyUI model install would supply.
+
+def test_enqueue_actually_chains_the_resolved_rows_into_the_queued_workflow(
+        app, tmp_path, monkeypatch):
+    from app.services import krea_edit_helper as keh
+    with app.app_context():
+        _comfy_with_loras(tmp_path, present=('bypass', 'detail'))
+        _krea_ready_for_real_enqueue(monkeypatch, keh)
+        src = tmp_path / 'src.png'
+        Image.new('RGB', (64, 64), (10, 20, 30)).save(src, 'PNG')
+        seen = {}
+        monkeypatch.setattr(keh.queue_manager, 'add_job',
+                            lambda **kw: (seen.update(kw), kw['job_id'])[1])
+        keh.enqueue_krea_edit(
+            user_id='local', source_filename='src.png', source_path=str(src),
+            edit_prompt='hi', generation_loras=[
+                {'file': 'krea/bypass.safetensors', 'strength': 13.0},
+                {'file': 'krea/gone.safetensors', 'strength': 1.0},   # not on disk
+                {'file': 'krea/detail.safetensors', 'strength': 0.6},
+            ])
+    wf = seen['workflow_data']
+    assert wf['gen_lora_1']['inputs']['lora_name'] == 'krea/bypass.safetensors'
+    assert wf['gen_lora_2']['inputs']['lora_name'] == 'krea/detail.safetensors'
+    assert wf['7']['inputs']['model'] == ['gen_lora_2', 0]
+    assert 'gen_lora_3' not in wf   # the missing row never got a node
+
+
+def test_regenerate_applies_the_krea_preset_by_name_not_by_rows(app, tmp_path, monkeypatch):
+    """Regenerate resolves the preset from its NAME through the real chain (name
+    -> config rows -> existence-filtered rows -> graph). A caller that instead
+    handed `_existing_generation_lora_rows` the raw preset STRING would iterate
+    its characters, drop every one as a bad row, and return [] with no error —
+    exactly the silent failure this test would catch."""
+    from app.services import face_dataset_service as svc
+    from app.services import krea_edit_helper as keh
+    _set_presets(PRESETS)
+    with app.app_context():
+        _comfy_with_loras(tmp_path, present=('krea2filterbypass3', 'detail_slider'))
+        _krea_ready_for_real_enqueue(monkeypatch, keh)
+        ds = _krea_dataset(app, svc)
+        img = svc.FaceDatasetImage(dataset_id=ds.id, source='generated',
+                                   status='finished', variation_label='a',
+                                   variation_prompt='p', framing='face',
+                                   klein_model=svc.KREA_ENGINE)
+        svc.db.session.add(img)
+        svc.db.session.commit()
+        seen = {}
+        monkeypatch.setattr(keh.queue_manager, 'add_job',
+                            lambda **kw: (seen.update(kw), kw['job_id'])[1])
+        svc.regenerate_image('local', img.id, generation_lora_preset='Bypass')
+    wf = seen['workflow_data']
+    assert wf['gen_lora_1']['inputs']['lora_name'] == 'krea/krea2filterbypass3.safetensors'
+    assert wf['gen_lora_2']['inputs']['lora_name'] == 'krea/detail_slider.safetensors'
+    assert wf['7']['inputs']['model'] == ['gen_lora_2', 0]
