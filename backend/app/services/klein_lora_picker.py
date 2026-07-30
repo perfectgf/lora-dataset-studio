@@ -49,9 +49,16 @@ from .lora_training import detect_lora_arch, lora_arch_conflicts
 
 logger = logging.getLogger(__name__)
 
-# The family the Klein generation graph runs. A LoRA is "Klein-compatible" when
-# its detected arch shares Klein's key namespace (see lora_arch_conflicts).
+# The family each generation graph runs. A LoRA is "compatible" when its detected
+# arch shares that family's key namespace (see lora_arch_conflicts). Klein was the
+# only consumer when this module was written — hence its name — and Krea's preset
+# card now reuses it, so the family is a PARAMETER with Klein as the default: every
+# existing caller keeps its answers.
 _KLEIN_FAMILY = 'flux2klein'
+
+# Families a caller may ask for. Validated because the family arrives as an HTTP
+# query parameter: junk must fall back to the default, not reach the arch guard.
+KNOWN_FAMILIES = ('flux2klein', 'flux', 'krea', 'sdxl', 'zimage')
 
 # Presentation labels for the badge — a superset-safe copy of the family keys
 # detect_lora_arch can return. Kept local (presentation, not logic): the
@@ -87,47 +94,49 @@ def _roots_signature() -> tuple:
     return tuple(sig)
 
 
-def _compatibility(arch) -> str:
-    """'yes' | 'no' | 'unknown' for the Klein graph. ``None`` (undetectable header)
-    is 'unknown' — never blocked, but not vouched for; a positively-detected arch in
-    a different key namespace is 'no' (a silent no-op in the Klein graph)."""
+def _compatibility(arch, family=_KLEIN_FAMILY) -> str:
+    """'yes' | 'no' | 'unknown' for `family`'s graph. ``None`` (undetectable
+    header) is 'unknown' — never blocked, but not vouched for; a positively
+    detected arch in a different key namespace is 'no' (a silent no-op)."""
     if arch is None:
         return 'unknown'
-    return 'no' if lora_arch_conflicts(arch, _KLEIN_FAMILY) else 'yes'
+    return 'no' if lora_arch_conflicts(arch, family) else 'yes'
 
 
-def scan_generation_loras(force: bool = False) -> list:
+def scan_generation_loras(force: bool = False, family: str = _KLEIN_FAMILY) -> list:
     """``[{name, arch, label, compatible}]`` for every LoRA on disk across the loras
     search roots (base ``models/loras`` + every ``extra_model_paths.yaml`` root),
-    recursively, sorted Klein-compatible first then case-insensitive by name.
+    recursively, sorted `family`-compatible first then case-insensitive by name.
 
       * ``name``       — the ComfyUI-relative loader string (what a preset row stores
                          and what resolves at generate time).
       * ``arch``       — detected family key ('flux2klein'|'flux'|'sdxl'|'krea'|
                          'zimage') or ``None`` when the header is undetectable.
       * ``label``      — human arch label for the badge, or ``None``.
-      * ``compatible`` — 'yes' | 'no' | 'unknown' (see _compatibility).
+      * ``compatible`` — 'yes' | 'no' | 'unknown' for `family` (see _compatibility).
 
     ``[]`` when no loras root exists (ComfyUI unconfigured) — the caller then keeps
-    the field as free text. Cached by the roots' mtime; ``force`` bypasses it."""
+    the field as free text. Cached by the roots' mtime; ``force`` bypasses it. Only
+    the SCAN is cached: ``compatible`` and the sort depend on `family`, so they are
+    computed per call and two engines' pickers share one cache slot."""
+    fam = family if family in KNOWN_FAMILIES else _KLEIN_FAMILY
     sig = _roots_signature()
+    scanned = None
     if not force:
         with _lock:
             if _cache['sig'] == sig and _cache['data'] is not None:
-                return _cache['data']
-    out = []
-    for rel, abs_path in comfy_model_paths.list_models('loras'):
-        arch = detect_lora_arch(abs_path)
-        out.append({
-            'name': rel,
-            'arch': arch,
-            'label': _ARCH_LABEL.get(arch),
-            'compatible': _compatibility(arch),
-        })
+                scanned = _cache['data']
+    if scanned is None:
+        scanned = []
+        for rel, abs_path in comfy_model_paths.list_models('loras'):
+            arch = detect_lora_arch(abs_path)
+            scanned.append({'name': rel, 'arch': arch,
+                            'label': _ARCH_LABEL.get(arch)})
+        with _lock:
+            _cache['sig'] = sig
+            _cache['data'] = scanned
+    out = [dict(e, compatible=_compatibility(e['arch'], fam)) for e in scanned]
     out.sort(key=lambda e: (_COMPAT_RANK[e['compatible']], e['name'].lower()))
-    with _lock:
-        _cache['sig'] = sig
-        _cache['data'] = out
     return out
 
 

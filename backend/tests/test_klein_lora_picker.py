@@ -41,6 +41,7 @@ def _write_st(path, keys, metadata=None):
 _FLUX2KLEIN_META = {'ss_base_model_version': 'flux2_klein_9b'}
 _FLUX_META = {'ss_base_model_version': 'flux'}
 _SDXL_META = {'ss_base_model_version': 'sdxl_1.0'}
+_KREA_META = {'ss_base_model_version': 'krea2'}
 _FLUX_KEYS = ['diffusion_model.double_blocks.0.img_attn.proj.lora_A.weight',
               'diffusion_model.single_blocks.0.linear1.lora_A.weight']
 _UNKNOWN_KEYS = ['some.random.tensor.weight', 'foo.bar.baz.qux']
@@ -215,3 +216,72 @@ def test_route_never_500s_on_scan_failure(app, client, monkeypatch):
                         lambda **k: (_ for _ in ()).throw(RuntimeError('boom')))
     r = client.get('/api/loras/list')
     assert r.status_code == 200 and r.get_json() == {'loras': []}
+
+
+# --- The family the badge is judged against ----------------------------------
+def test_family_flips_the_compatibility_verdict(app, tmp_path):
+    """The same two files get opposite verdicts depending on the asking engine —
+    one scan, two answers, which is what lets the Krea card reuse this picker."""
+    from app import config as cfg
+    from app.services import klein_lora_picker as klp
+    with app.app_context():
+        base = _comfy_base(tmp_path, cfg)
+        _write_st(_loras(base) / 'bypass.safetensors', _UNKNOWN_KEYS, _KREA_META)
+        _write_st(_loras(base) / 'detail.safetensors', _UNKNOWN_KEYS, _FLUX2KLEIN_META)
+
+        for_krea = {e['name']: e for e in klp.scan_generation_loras(family='krea')}
+        assert for_krea['bypass.safetensors']['compatible'] == 'yes'
+        assert for_krea['detail.safetensors']['compatible'] == 'no'
+
+        for_klein = {e['name']: e for e in klp.scan_generation_loras()}
+        assert for_klein['bypass.safetensors']['compatible'] == 'no'
+        assert for_klein['detail.safetensors']['compatible'] == 'yes'
+        # The arch itself is a property of the FILE, not of the asking engine.
+        assert for_krea['bypass.safetensors']['arch'] == 'krea'
+        assert for_klein['bypass.safetensors']['arch'] == 'krea'
+
+
+def test_compatible_first_sort_follows_the_family(app, tmp_path):
+    from app import config as cfg
+    from app.services import klein_lora_picker as klp
+    with app.app_context():
+        base = _comfy_base(tmp_path, cfg)
+        _write_st(_loras(base) / 'aaa_klein.safetensors', _UNKNOWN_KEYS, _FLUX2KLEIN_META)
+        _write_st(_loras(base) / 'zzz_krea.safetensors', _UNKNOWN_KEYS, _KREA_META)
+        # Alphabetically last, but compatible for Krea -> it must come first.
+        assert klp.scan_generation_loras(family='krea')[0]['name'] == 'zzz_krea.safetensors'
+        assert klp.scan_generation_loras()[0]['name'] == 'aaa_klein.safetensors'
+
+
+def test_unknown_arch_stays_unknown_for_every_family(app, tmp_path):
+    from app import config as cfg
+    from app.services import klein_lora_picker as klp
+    with app.app_context():
+        base = _comfy_base(tmp_path, cfg)
+        _write_st(_loras(base) / 'mystery.safetensors', _UNKNOWN_KEYS)  # no metadata
+        for fam in ('krea', 'flux2klein'):
+            entry = klp.scan_generation_loras(family=fam)[0]
+            assert entry['compatible'] == 'unknown', fam
+            assert entry['label'] is None
+
+
+def test_a_bogus_family_falls_back_to_the_default(app, tmp_path):
+    """`family` arrives as an HTTP query parameter, so junk must never reach the
+    arch guard — it degrades to the Klein verdict."""
+    from app import config as cfg
+    from app.services import klein_lora_picker as klp
+    with app.app_context():
+        base = _comfy_base(tmp_path, cfg)
+        _write_st(_loras(base) / 'detail.safetensors', _UNKNOWN_KEYS, _FLUX2KLEIN_META)
+        assert klp.scan_generation_loras(family='../etc/passwd')[0]['compatible'] == 'yes'
+        assert klp.scan_generation_loras(family='')[0]['compatible'] == 'yes'
+
+
+def test_route_passes_the_family_through(app, client, tmp_path, monkeypatch):
+    from app.services import klein_lora_picker as klp
+    seen = []
+    monkeypatch.setattr(klp, 'scan_generation_loras',
+                        lambda force=False, family='flux2klein': (seen.append(family), [])[1])
+    assert client.get('/api/loras/list?family=krea').status_code == 200
+    assert client.get('/api/loras/list').status_code == 200
+    assert seen == ['krea', 'flux2klein']

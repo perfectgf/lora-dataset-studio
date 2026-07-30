@@ -257,15 +257,19 @@ def loras_list():
     each badged with its architecture — ``{loras: [{name, arch, label, compatible}]}``,
     Klein-compatible first. ``name`` is the exact ComfyUI-relative value a preset row
     stores and the generate path resolves (``comfy_model_paths.list_models('loras')``).
-    ``compatible`` is judged against the Klein graph (its only consumer today).
+    ``compatible`` is judged against ``?family=`` (default the Klein graph); the
+    Krea preset card asks for ``family=krea``.
     ``?force=1`` bypasses the mtime cache (the ↻ rescan button). Degrades to
     ``{loras: []}`` — never an error — when no loras root exists (ComfyUI
     unconfigured) or the scan fails, so the picker falls back to a free-text field
     instead of a blocking empty dropdown."""
     from ..services import klein_lora_picker
     force = bool(request.args.get('force'))
+    # The picker of whichever engine is asking. Unknown values fall back to the
+    # default inside the scanner, so this stays a plain pass-through.
+    family = (request.args.get('family') or '').strip() or klein_lora_picker._KLEIN_FAMILY
     try:
-        loras = klein_lora_picker.scan_generation_loras(force=force)
+        loras = klein_lora_picker.scan_generation_loras(force=force, family=family)
     except Exception:
         current_app.logger.exception('loras list scan failed')
         loras = []
