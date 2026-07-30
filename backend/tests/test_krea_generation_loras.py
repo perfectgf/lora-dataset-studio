@@ -107,3 +107,66 @@ def test_resolved_rows_are_copies(app):
     rows = keh.resolve_generation_lora_preset('Bypass')
     rows[0]['strength'] = 0.0
     assert keh.resolve_generation_lora_preset('Bypass')[0]['strength'] == 13.0
+
+
+# --- Graph wiring ------------------------------------------------------------
+
+def _graph(**kw):
+    from app.services import krea_edit_helper as keh
+    return keh.build_workflow('ref.png', 'a prompt', unet='Krea/base.safetensors',
+                              clip='te.safetensors', vae='vae.safetensors',
+                              lora_name='krea/id.safetensors', width=1024,
+                              height=1024, seed=7, **kw)
+
+
+ROWS = [{'file': 'krea/bypass.safetensors', 'strength': 13.0},
+        {'file': 'krea/detail.safetensors', 'strength': 0.6}]
+
+
+def test_no_rows_leaves_the_graph_exactly_as_it_was():
+    """The regression guard for every existing Krea run: a user with no presets
+    must get byte-identical output to before this feature."""
+    assert _graph(generation_loras=None) == _graph()
+    assert _graph(generation_loras=[]) == _graph()
+    assert not any(k.startswith('gen_lora_') for k in _graph())
+
+
+def test_rows_chain_in_order_between_the_identity_lora_and_the_patch():
+    g = _graph(generation_loras=ROWS)
+    assert g['gen_lora_1']['inputs']['model'] == ['4', 0]
+    assert g['gen_lora_1']['inputs']['lora_name'] == 'krea/bypass.safetensors'
+    assert g['gen_lora_1']['inputs']['strength_model'] == 13.0
+    assert g['gen_lora_2']['inputs']['model'] == ['gen_lora_1', 0]
+    assert g['gen_lora_2']['inputs']['lora_name'] == 'krea/detail.safetensors'
+    # The patch — and through it the KSampler — sees the END of the chain.
+    assert g['7']['inputs']['model'] == ['gen_lora_2', 0]
+    assert g['11']['inputs']['model'] == ['7', 0]
+    assert all(g[k]['class_type'] == 'LoraLoaderModelOnly'
+               for k in ('4', 'gen_lora_1', 'gen_lora_2'))
+
+
+def test_the_identity_lora_still_hangs_off_the_unet_with_rows_present():
+    """The stack goes AFTER the identity LoRA — it never displaces it."""
+    g = _graph(generation_loras=ROWS)
+    assert g['4']['inputs']['model'] == ['1', 0]
+    assert g['4']['inputs']['lora_name'] == 'krea/id.safetensors'
+
+
+def test_graph_injection_caps_the_chain():
+    from app.services import krea_edit_helper as keh
+    rows = [{'file': f'krea/{i}.safetensors', 'strength': 1.0} for i in range(20)]
+    g = _graph(generation_loras=rows)
+    chained = [k for k in g if k.startswith('gen_lora_')]
+    assert len(chained) == keh.MAX_GENERATION_LORAS
+    assert g['7']['inputs']['model'] == [f'gen_lora_{keh.MAX_GENERATION_LORAS}', 0]
+
+
+def test_build_workflow_stays_pure(monkeypatch):
+    """Its docstring promises no config read and no disk access — the existence
+    checks live in enqueue_krea_edit. Guard it, because a future 'just check the
+    file here' is exactly what would break every graph test."""
+    from app import config as cfg
+    from app.services import krea_edit_helper as keh
+    monkeypatch.setattr(cfg, 'get', lambda *a, **k: pytest.fail('config read'))
+    monkeypatch.setattr(keh.os.path, 'exists', lambda *a: pytest.fail('disk access'))
+    assert _graph(generation_loras=ROWS)['7']['inputs']['model'] == ['gen_lora_2', 0]

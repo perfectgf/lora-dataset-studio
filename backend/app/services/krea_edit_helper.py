@@ -715,7 +715,7 @@ def resolve_generation_lora_preset(preset_name):
 def build_workflow(source_image, prompt, *, unet, clip, vae, lora_name,
                    width, height, seed, steps=None, grounding=None,
                    ref_boost=None, lora_strength=None, fit_mode='fit',
-                   filename_prefix='krea_edit'):
+                   filename_prefix='krea_edit', generation_loras=None):
     """The ComfyUI API-format graph. Pure function of its arguments — no config
     read, no disk access — so a test can assert the exact wiring without a
     ComfyUI, and every loader value is one a resolver produced.
@@ -723,7 +723,13 @@ def build_workflow(source_image, prompt, *, unet, clip, vae, lora_name,
     cfg is pinned to 1.0 and the sampler to euler/simple: the pack's reference
     workflow, and a guidance-distilled model ignores anything else. The NEGATIVE
     branch is a grounded encode of the EMPTY prompt, not a bare CLIPTextEncode —
-    that is what the reference workflow does and what the model expects."""
+    that is what the reference workflow does and what the model expects.
+
+    `generation_loras` (optional): ordered [{file, strength}] rows of the run's
+    always-on LoRA preset, chained between the identity LoRA (4) and the model
+    patch (7). Rows arrive ALREADY existence-checked and clamped from
+    enqueue_krea_edit — this function must stay pure, so it neither reads config
+    nor touches the disk. None/[] leaves the graph exactly as it was."""
     steps = 8 if steps is None else max(1, int(steps))
     grounding = 512 if grounding is None else int(grounding)
     ref_boost = 0.25 if ref_boost is None else float(ref_boost)
@@ -767,6 +773,25 @@ def build_workflow(source_image, prompt, *, unet, clip, vae, lora_name,
         '13': {'class_type': 'SaveImage',
                'inputs': {'filename_prefix': filename_prefix, 'images': ['12', 0]}},
     }
+    # Always-on generation LoRAs: chained AFTER the identity LoRA and BEFORE the
+    # model patch, in list order, so the patch (and through it the KSampler) sees
+    # the whole stack. Named node keys — this graph is ours, unlike Klein's
+    # foreign JSON, so they cannot collide with '1'..'13' and they read in a
+    # ComfyUI error message.
+    prev = '4'
+    for i, entry in enumerate((generation_loras or [])[:MAX_GENERATION_LORAS], start=1):
+        node_id = f'gen_lora_{i}'
+        g[node_id] = {
+            'class_type': 'LoraLoaderModelOnly',
+            'inputs': {'lora_name': entry['file'],
+                       'strength_model': float(entry['strength']),
+                       'model': [prev, 0]},
+            '_meta': {'title': f"Generation LoRA {i}: "
+                               f"{os.path.basename(entry['file'])}"},
+        }
+        prev = node_id
+    if prev != '4':
+        g['7']['inputs']['model'] = [prev, 0]
     return g
 
 
