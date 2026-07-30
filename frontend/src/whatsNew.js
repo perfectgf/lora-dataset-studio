@@ -72,6 +72,13 @@ export const WHATS_NEW = [
     to: '/datasets?section=add',
   },
   {
+    id: '2026-07-30-krea-generation-lora-presets',
+    date: '2026-07-30',
+    title: 'Your own LoRAs now apply when Krea builds a dataset',
+    blurb: 'Krea 2 Edit can chain your own LoRA files while it generates dataset images — not just in the Test Studio. Build named combinations in Settings › Image engines, then pick one per run in the workspace\'s 🧬 Krea 2 Edit tuning panel; "None" stays the default. The LoRA has to be trained for Krea 2, only the model side is patched, and a row whose file you have moved is skipped with the rest of the chain still applied. Preset mechanism by @waltm.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-07-30-krea-shot-card-adherence',
     date: '2026-07-30',
     title: 'Krea 2 now follows the dataset shots you selected',
