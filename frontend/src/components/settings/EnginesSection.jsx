@@ -6,6 +6,7 @@ import PromptOverrideField from '../common/PromptOverrideField'
 import PromptPreview from './PromptPreview'
 import ResetToDefault from './ResetToDefault'
 import { defaultValueAt } from './settingDefaults.js'
+import { kreaStrengthRange, KREA_LORA_STRENGTH_DEFAULT } from '../../utils/kreaGenerationLoras'
 import {
   identityPromptFields, PROMPT_SUBJECT_TYPES,
   readIdentityPrompt, writeIdentityPrompt, subjectHasOverride,
@@ -39,8 +40,8 @@ const ENGINE_OPTIONS = [
    reorderable, capped at 8). Per run the workspace's 🖥️ Klein tuning panel
    just PICKS a preset ("None" by default) — the choice carries the intent,
    there is no automatic gating. The app never ships or hardcodes a LoRA name. */
-const MAX_GENERATION_LORAS = 8        // mirrors backend klein_edit_helper caps
-const MAX_GENERATION_LORA_PRESETS = 12
+const MAX_GENERATION_LORAS = 8        // mirrors the klein_edit_helper AND
+const MAX_GENERATION_LORA_PRESETS = 12 // krea_edit_helper caps — both the same
 
 const SMALL_BTN = 'grid h-6 w-6 place-items-center rounded border border-border text-xs ' +
   'text-content-muted hover:bg-surface-raised disabled:opacity-30'
@@ -57,7 +58,11 @@ function freeName(presets, base) {
   }
 }
 
-function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
+/* One preset: its name, its ordered LoRA rows, and the row controls. Shared by
+   the Klein and the Krea cards — the shapes are identical, only the strength
+   range, its default and the engine the badge judges for differ. */
+function LoraPresetCard({ preset, index, presets, save, loraScan,
+                          engineLabel = 'Klein', strengthRange, defaultStrength }) {
   const rows = Array.isArray(preset?.loras) ? preset.loras : []
   const patchPreset = (p) => save(presets.map((x, j) => (j === index ? { ...x, ...p } : x)))
   const patchRow = (i, p) => patchPreset({ loras: rows.map((r, j) => (j === i ? { ...r, ...p } : r)) })
@@ -95,7 +100,8 @@ function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
         <p className="text-xs text-content-muted">Empty preset — add a LoRA below.</p>
       )}
       {rows.map((row, i) => {
-        const strength = Number.isFinite(Number(row?.strength)) ? Number(row.strength) : 0.6
+        const strength = Number.isFinite(Number(row?.strength)) ? Number(row.strength) : defaultStrength
+        const range = strengthRange(row?.file || '')
         return (
           <div key={i} className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-content-muted w-4 shrink-0" aria-hidden="true">{i + 1}.</span>
@@ -103,12 +109,13 @@ function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
               ariaLabel={`Preset ${index + 1} LoRA file ${i + 1}`}
               value={row?.file || ''}
               onChange={(next) => patchRow(i, { file: next })}
+              engineLabel={engineLabel}
               {...loraScan}
             />
             <label className="flex items-center gap-1.5 text-xs text-content-muted">
               <span className="whitespace-nowrap">{strength.toFixed(2)}</span>
               <input
-                type="range" min={0} max={1.5} step={0.05} value={strength}
+                type="range" min={range.min} max={range.max} step={0.05} value={strength}
                 aria-label={`Preset ${index + 1} LoRA ${i + 1} strength`}
                 onChange={(e) => patchRow(i, { strength: Number(e.target.value) })}
                 className="w-28 accent-indigo-500"
@@ -127,7 +134,7 @@ function KleinLoraPresetCard({ preset, index, presets, save, loraScan }) {
       <div className="flex items-center gap-3">
         <button
           type="button" className={TEXT_BTN}
-          onClick={() => patchPreset({ loras: [...rows, { file: '', strength: 0.6 }] })}
+          onClick={() => patchPreset({ loras: [...rows, { file: '', strength: defaultStrength }] })}
           disabled={rows.length >= MAX_GENERATION_LORAS}
         >
           ＋ Add LoRA
@@ -155,7 +162,10 @@ function KleinLorasCard({ config, setField }) {
         <p className="text-sm text-content-muted">No presets yet — create your first combination below.</p>
       )}
       {presets.map((preset, i) => (
-        <KleinLoraPresetCard key={i} preset={preset} index={i} presets={presets} save={save} loraScan={loraScan} />
+        <LoraPresetCard key={i} preset={preset} index={i} presets={presets} save={save}
+          loraScan={loraScan} engineLabel="Klein"
+          strengthRange={() => ({ min: 0, max: 1.5 })}
+          defaultStrength={0.6} />
       ))}
       <div className="flex items-center gap-3">
         <button
@@ -331,6 +341,45 @@ function KreaCard({ config, setField, configDefaults }) {
           renamed download still works.
         </p>
         <ResetToDefault label="Identity edit LoRA" section="krea" field="identity_lora" {...reset} />
+      </div>
+    </Card>
+  )
+}
+
+/* Krea's own always-on LoRA presets. Same shape as the Klein card — the two lanes
+   are deliberate copies — with two differences that matter: the strength ceiling
+   opens to 20 for utility LoRAs (the bypass ones do nothing below ~10), and the
+   picker judges compatibility against the KREA graph, so a Klein LoRA is badged
+   incompatible here instead of compatible. */
+function KreaLorasCard({ config, setField }) {
+  const presets = Array.isArray(config.krea?.generation_lora_presets)
+    ? config.krea.generation_lora_presets : []
+  const save = (next) => setField('krea', 'generation_lora_presets', next)
+  // ONE scan per card, judged for Krea. Degrades to free text — see the hook.
+  const loraScan = useKleinGenerationLoras('krea')
+  return (
+    <Card
+      id="krea-generation-lora-presets"
+      title="Krea 2 Edit generation LoRA presets (optional)"
+      help={`Named combinations of your own LoRA files, chained after the identity-edit LoRA when Krea 2 Edit generates dataset images — inside a preset the order is the chain order (max ${MAX_GENERATION_LORAS} LoRAs each, ${MAX_GENERATION_LORA_PRESETS} presets). Pick each row from the LoRAs found under ComfyUI's models/loras; Krea-compatible ones are listed first, and a LoRA of another architecture is badged because ComfyUI would load it as a silent no-op here. Strength goes to 6, or to 20 for utility LoRAs whose filename says filter-bypass — those have no effect below ~10. Per run, pick a preset in the workspace's 🧬 Krea 2 Edit tuning panel ("None" by default). Only the model side is patched, so a LoRA's text-encoder weights are ignored. Preset mechanism by @waltm (Discord).`}
+    >
+      {presets.length === 0 && (
+        <p className="text-sm text-content-muted">No presets yet — create your first combination below.</p>
+      )}
+      {presets.map((preset, i) => (
+        <LoraPresetCard key={i} preset={preset} index={i} presets={presets} save={save}
+          loraScan={loraScan} engineLabel="Krea 2"
+          strengthRange={kreaStrengthRange} defaultStrength={KREA_LORA_STRENGTH_DEFAULT} />
+      ))}
+      <div className="flex items-center gap-3">
+        <button
+          type="button" className={TEXT_BTN}
+          onClick={() => save([...presets, { name: freeName(presets, 'My preset'), loras: [] }])}
+          disabled={presets.length >= MAX_GENERATION_LORA_PRESETS}
+        >
+          ＋ New preset
+        </button>
+        <span className="text-xs text-content-muted">{presets.length}/{MAX_GENERATION_LORA_PRESETS}</span>
       </div>
     </Card>
   )
@@ -901,6 +950,8 @@ export default function EnginesSection(props) {
       <KleinLorasCard config={config} setField={setField} />
 
       <KreaCard config={config} setField={setField} configDefaults={configDefaults} />
+
+      <KreaLorasCard config={config} setField={setField} />
 
       <IdentityPromptsCard config={config} setField={setField} promptDefaults={props.promptDefaults}
         promptDefaultsBySubject={props.promptDefaultsBySubject}

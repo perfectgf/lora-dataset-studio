@@ -11,18 +11,19 @@ import {
  * network) it degrades to an empty list so the combobox falls back to a plain
  * free-text field, never a blocking empty dropdown.
  */
-export function useKleinGenerationLoras() {
+export function useKleinGenerationLoras(family = 'flux2klein') {
   const [state, setState] = useState({ loras: [], loading: true, error: false, rescanning: false })
   const load = useCallback(async (force = false) => {
     setState((s) => ({ ...s, loading: force ? s.loading : true, rescanning: force, error: false }))
     try {
-      const data = await apiFetch(`/api/loras/list${force ? '?force=1' : ''}`)
+      const qs = new URLSearchParams({ family, ...(force ? { force: '1' } : {}) })
+      const data = await apiFetch(`/api/loras/list?${qs}`)
       setState({ loras: Array.isArray(data?.loras) ? data.loras : [],
         loading: false, error: false, rescanning: false })
     } catch {
       setState((s) => ({ ...s, loras: force ? s.loras : [], loading: false, rescanning: false, error: true }))
     }
-  }, [])
+  }, [family])
   useEffect(() => { load(false) }, [load])
   return { ...state, rescan: () => load(true) }
 }
@@ -34,8 +35,8 @@ const BADGE_TONE = {
   unknown: 'border-border-strong bg-surface-raised text-content-muted',
 }
 
-function ArchBadge({ compatible, label }) {
-  const b = compatBadge(compatible, label)
+function ArchBadge({ compatible, label, engineLabel }) {
+  const b = compatBadge(compatible, label, engineLabel)
   return (
     <span title={b.title}
       className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${BADGE_TONE[b.tone]}`}>
@@ -44,14 +45,14 @@ function ArchBadge({ compatible, label }) {
   )
 }
 
-function OptionRow({ entry, active, onPick, refCb }) {
+function OptionRow({ entry, active, onPick, refCb, engineLabel }) {
   return (
     <li>
       <button type="button" role="option" aria-selected={active} ref={refCb}
         onMouseDown={(e) => { e.preventDefault(); onPick(entry.name) }}
         className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-content ${active ? 'bg-surface-raised' : 'hover:bg-surface-raised'}`}>
         <span className="flex-1 truncate font-mono" title={entry.name}>{entry.name}</span>
-        <ArchBadge compatible={entry.compatible} label={entry.label} />
+        <ArchBadge compatible={entry.compatible} label={entry.label} engineLabel={engineLabel} />
       </button>
     </li>
   )
@@ -71,6 +72,7 @@ function OptionRow({ entry, active, onPick, refCb }) {
  */
 export default function KleinLoraCombobox({
   value, onChange, ariaLabel, loras, loading, error, rescan, rescanning,
+  engineLabel = 'Klein',
 }) {
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
@@ -123,7 +125,7 @@ export default function KleinLoraCombobox({
     const i = flat
     return (
       <OptionRow key={e.name} entry={e} active={i === highlight}
-        refCb={i === highlight ? activeRef : null} onPick={pick} />
+        refCb={i === highlight ? activeRef : null} onPick={pick} engineLabel={engineLabel} />
     )
   }
 
@@ -142,7 +144,7 @@ export default function KleinLoraCombobox({
             className="mt-0 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 pr-16 text-sm text-content placeholder:text-content-subtle focus:border-primary focus:outline-none"
           />
           <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1">
-            {selected && <ArchBadge compatible={selected.compatible} label={selected.label} />}
+            {selected && <ArchBadge compatible={selected.compatible} label={selected.label} engineLabel={engineLabel} />}
             {notFound && (
               <span title="No file with this name was found under ComfyUI's models/loras — it may be renamed, not downloaded yet, or in a config the scan can't see. It's kept as typed."
                 className="shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
@@ -177,7 +179,7 @@ export default function KleinLoraCombobox({
               {compatible.length > 0 && (
                 <>
                   <li className="sticky top-0 bg-surface-overlay px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
-                    Klein-compatible
+                    {engineLabel}-compatible
                   </li>
                   {compatible.map(renderRow)}
                 </>
@@ -185,7 +187,7 @@ export default function KleinLoraCombobox({
               {other.length > 0 && (
                 <>
                   <li className="sticky top-0 bg-surface-overlay px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-content-muted">
-                    Other arch (loads as a no-op in the Klein graph)
+                    Other arch (loads as a no-op in the {engineLabel} graph)
                   </li>
                   {other.map(renderRow)}
                 </>

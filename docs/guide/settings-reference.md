@@ -165,6 +165,21 @@ Settings:
 - **Sampler steps** → `krea.steps`. Default **`10`**, the value the model's own reference workflow uses. More is slower and rarely better on this pipeline.
 - **Base model file** → `krea.base_model`. **This is the GENERATION setting only** — the checkpoint ComfyUI loads for Krea 2 Identity Edit. It has **nothing to do with LoRA training**, which never reads it: training pulls its base from Hugging Face and picks it from the **Krea 2 training base** dropdown in the training panel (**Raw**, the default and the official recommendation — you train on Raw and apply the LoRA on Turbo at inference). Nobody can accidentally train on Turbo by leaving this field alone. *(The naming confusion was raised by strouder, GitHub #19.)* Blank (default) = the app picks a Krea 2 **Turbo** then **Raw** build from your ComfyUI. Set it only if you own several. Checkpoints that merely carry "krea" in their name but are not Krea 2 bases are **skipped on purpose** — the identity LoRA renders pure noise on them, which looks like a broken app rather than a wrong file.
 - **Identity edit LoRA** → `krea.identity_lora`. Path relative to `models/loras`; if nothing is there under that name the app searches your LoRA folders for a `krea2_identity_edit` file, so a renamed download still works.
+- **Krea 2 Edit generation LoRA presets** → `krea.generation_lora_presets`. Named,
+  ordered combinations of **your own** LoRA files, chained after the identity-edit
+  LoRA when Krea 2 Edit generates dataset images. Max 8 LoRAs per preset, 12
+  presets; inside a preset the row order **is** the chain order. Per run you pick
+  one preset (or None, the default on every visit) in the workspace's 🧬 Krea 2
+  Edit tuning panel — the run sends only the preset's NAME and the app resolves
+  the files from this list, so renaming a preset can never make a run load
+  something you didn't configure. Strength runs to 6, and to **20** for utility
+  LoRAs whose filename says `filter-bypass`: those have no measurable effect below
+  about 10. Limits worth knowing: the LoRA must be trained for **Krea 2** (another
+  architecture loads as a silent no-op — the picker badges it), only the **model**
+  side is patched so a LoRA's text-encoder weights are ignored, a row whose file
+  has moved is **skipped** with the rest of the chain still applied, and the 🔄
+  single-image regenerate in the workspace does **not** carry a preset. Empty by
+  default. *(Preset mechanism by @waltm, Discord.)*
 
 The pipeline's reference boost is an internal Krea calibration, not a second user-facing likeness slider; use **Reference grounding** for that trade-off.
 
