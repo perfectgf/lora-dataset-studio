@@ -635,6 +635,81 @@ def _ref_boost():
     return _clamp(cfg.get('krea.ref_boost'), 0.0, 10.0, 0.25)
 
 
+# --- Optional always-on generation LoRAs -------------------------------------
+# Hard caps, mirroring klein_edit_helper.MAX_GENERATION_LORAS /
+# MAX_GENERATION_LORA_PRESETS. The two lanes are deliberate copies (like
+# comfyui.inject_krea_loras / inject_zimage_loras / inject_sdxl_loras are): the
+# shapes match, the clamps do not. Keep the numbers in step by hand if one moves.
+MAX_GENERATION_LORAS = 8          # LoRAs chained per preset
+MAX_GENERATION_LORA_PRESETS = 12  # named presets
+
+# Strength ceiling — comfyui.inject_krea_loras' clamp, deliberately NOT Klein's
+# 1.5. The utility LoRAs this feature exists for (filter-bypass) have no effect
+# below ~10, so a 1.5 ceiling would ship a knob that cannot reach. This is the
+# anti-absurd guard only; the 0-6 UX range lives on the front-end slider.
+LORA_STRENGTH_MAX = 20.0
+DEFAULT_ROW_STRENGTH = 1.0
+
+
+def configured_generation_lora_presets():
+    """Sanitized `krea.generation_lora_presets`: ordered
+    [{name, loras: [{file, strength}]}] with blank/duplicate names and
+    blank/malformed rows dropped, strengths clamped to [0, LORA_STRENGTH_MAX]
+    (junk -> DEFAULT_ROW_STRENGTH), rows capped at MAX_GENERATION_LORAS per
+    preset and presets at MAX_GENERATION_LORA_PRESETS.
+
+    THE single source of truth for which files may chain and in what order — a
+    /generate request can only NAME a preset from here, never define files or an
+    order."""
+    raw = cfg.get('krea.generation_lora_presets')
+    out, seen = [], set()
+    for p in (raw if isinstance(raw, list) else []):
+        if not isinstance(p, dict):
+            continue
+        name = p.get('name')
+        name = name.strip() if isinstance(name, str) else ''
+        if not name or name in seen:
+            continue
+        rows = []
+        loras = p.get('loras')
+        for e in (loras if isinstance(loras, list) else []):
+            if not isinstance(e, dict):
+                continue
+            f = e.get('file')
+            f = f.strip() if isinstance(f, str) else ''
+            if not f:
+                continue
+            s = e.get('strength')
+            s = float(s) if isinstance(s, (int, float)) else DEFAULT_ROW_STRENGTH
+            rows.append({'file': f, 'strength': max(0.0, min(LORA_STRENGTH_MAX, s))})
+            if len(rows) >= MAX_GENERATION_LORAS:
+                break
+        seen.add(name)
+        out.append({'name': name, 'loras': rows})
+        if len(out) >= MAX_GENERATION_LORA_PRESETS:
+            break
+    return out
+
+
+def resolve_generation_lora_preset(preset_name):
+    """Ordered [{file, strength}] rows of the CONFIG preset named `preset_name`.
+
+    Fail-closed by design: blank/None/non-string -> [] (no preset picked, the
+    default run); an unknown name -> [] with a warning, because a stale UI or a
+    preset renamed in Settings must degrade to 'no extra LoRAs' rather than block
+    a dataset run. Rows are copies — a caller mutating them cannot corrupt the
+    next resolution."""
+    name = preset_name.strip() if isinstance(preset_name, str) else ''
+    if not name:
+        return []
+    for p in configured_generation_lora_presets():
+        if p['name'] == name:
+            return [dict(e) for e in p['loras']]
+    logger.warning('krea generation-LoRA preset %r is not configured — '
+                   'running with no extra LoRAs', name)
+    return []
+
+
 # --- Graph -------------------------------------------------------------------
 
 def build_workflow(source_image, prompt, *, unet, clip, vae, lora_name,

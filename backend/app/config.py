@@ -344,6 +344,14 @@ DEFAULTS = {
         # the resolver scans the loras roots for a krea2_identity_edit* file, so a
         # renamed download still works.
         'identity_lora': 'krea/krea2_identity_edit_v1_2.safetensors',
+        # Optional always-on generation LoRAs, as NAMED presets (mirrors
+        # klein.generation_lora_presets — the mechanism is @waltm's idea). Pure
+        # user data: [{name, loras: [{file, strength}]}], empty by default, and
+        # the ONLY source of truth for which files may chain and in what order.
+        # Krea never had the legacy single-slot LoRA keys Klein carries, so there
+        # is no migration and no save carve-out — _deep_merge preserves a list
+        # the incoming partial doesn't mention.
+        'generation_lora_presets': [],
         # THE consistency <-> prompt-adherence dial, in pixels: the resolution the
         # reference is shown to the vision text-encoder at. LOW = follows the
         # PROMPT (more variety, weaker likeness); HIGH = RESEMBLES the reference

@@ -1,0 +1,109 @@
+"""Always-on generation LoRAs on the Krea 2 Identity Edit dataset lane.
+
+The mechanism mirrors the Klein one (Idea by @waltm) with a different clamp: the
+utility LoRAs this exists for have no effect below ~10, so the ceiling is 20 —
+comfyui.inject_krea_loras' clamp — not Klein's 1.5.
+
+Nothing here renders anything: no GPU second, no paid call.
+"""
+import json
+
+import pytest
+
+
+PRESETS = [
+    {'name': 'Bypass', 'loras': [
+        {'file': 'krea/krea2filterbypass3.safetensors', 'strength': 13.0},
+        {'file': 'krea/detail_slider.safetensors', 'strength': 0.6},
+    ]},
+    {'name': 'Just detail', 'loras': [
+        {'file': 'krea/detail_slider.safetensors', 'strength': 0.6},
+    ]},
+]
+
+
+def _set_presets(presets):
+    from app import config as cfg
+    cfg.save_config({'krea': {'generation_lora_presets': presets}})
+
+
+# --- Defaults ----------------------------------------------------------------
+
+def test_default_is_an_empty_preset_list(app):
+    from app import config as cfg
+    assert cfg.get('krea.generation_lora_presets') == []
+
+
+def test_presets_survive_a_save_of_an_unrelated_section(app):
+    """save_config deep-merges over the RAW file, so a list absent from the
+    partial is preserved. This is why the Krea lane needs no carve-out."""
+    from app import config as cfg
+    _set_presets(PRESETS)
+    cfg.save_config({'krea': {'steps': 12}})
+    stored = cfg.get('krea.generation_lora_presets')
+    assert [p['name'] for p in stored] == ['Bypass', 'Just detail']
+    assert cfg.get('krea.steps') == 12
+
+
+# --- Sanitizer ---------------------------------------------------------------
+
+def test_configured_presets_sanitized_ordered_capped(app):
+    from app.services import krea_edit_helper as keh
+    _set_presets([
+        {'name': '  Bypass  ', 'loras': [
+            {'file': ' krea/a.safetensors ', 'strength': 13},
+            {'file': '', 'strength': 1},                     # blank file -> dropped
+            {'file': 'krea/b.safetensors', 'strength': 'x'},  # junk -> default
+            {'file': 'krea/c.safetensors', 'strength': -4},   # negative -> 0
+            {'file': 'krea/d.safetensors', 'strength': 999},  # over -> 20
+        ]},
+        {'name': 'Bypass', 'loras': []},   # duplicate name -> dropped
+        {'name': '', 'loras': []},          # blank name -> dropped
+        'not a dict',
+    ])
+    presets = keh.configured_generation_lora_presets()
+    assert [p['name'] for p in presets] == ['Bypass']
+    assert presets[0]['loras'] == [
+        {'file': 'krea/a.safetensors', 'strength': 13.0},
+        {'file': 'krea/b.safetensors', 'strength': keh.DEFAULT_ROW_STRENGTH},
+        {'file': 'krea/c.safetensors', 'strength': 0.0},
+        {'file': 'krea/d.safetensors', 'strength': keh.LORA_STRENGTH_MAX},
+    ]
+
+
+def test_row_and_preset_caps(app):
+    from app.services import krea_edit_helper as keh
+    rows = [{'file': f'krea/{i}.safetensors', 'strength': 1.0} for i in range(20)]
+    _set_presets([{'name': f'P{i}', 'loras': rows} for i in range(20)])
+    presets = keh.configured_generation_lora_presets()
+    assert len(presets) == keh.MAX_GENERATION_LORA_PRESETS
+    assert len(presets[0]['loras']) == keh.MAX_GENERATION_LORAS
+
+
+# --- Resolution (fail-closed) ------------------------------------------------
+
+def test_resolve_by_name(app):
+    from app.services import krea_edit_helper as keh
+    _set_presets(PRESETS)
+    assert keh.resolve_generation_lora_preset('Bypass') == [
+        {'file': 'krea/krea2filterbypass3.safetensors', 'strength': 13.0},
+        {'file': 'krea/detail_slider.safetensors', 'strength': 0.6},
+    ]
+
+
+@pytest.mark.parametrize('name', ['', None, '   ', 'Renamed since', 42])
+def test_resolve_fail_closed(app, name):
+    """Blank, unknown and non-string names all mean 'no extra LoRAs' — never an
+    exception, so a stale UI can't stop someone generating."""
+    from app.services import krea_edit_helper as keh
+    _set_presets(PRESETS)
+    assert keh.resolve_generation_lora_preset(name) == []
+
+
+def test_resolved_rows_are_copies(app):
+    """A caller mutating its rows must not corrupt the next run's config view."""
+    from app.services import krea_edit_helper as keh
+    _set_presets(PRESETS)
+    rows = keh.resolve_generation_lora_preset('Bypass')
+    rows[0]['strength'] = 0.0
+    assert keh.resolve_generation_lora_preset('Bypass')[0]['strength'] == 13.0
