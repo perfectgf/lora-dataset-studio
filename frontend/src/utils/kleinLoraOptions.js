@@ -1,11 +1,13 @@
 /**
- * Pure helpers for the Klein generation-LoRA picker combobox.
+ * Pure helpers for the generation-LoRA picker combobox, shared by the Klein
+ * and the Krea cards.
  *
  * The backend (GET /api/loras/list) returns the LoRAs actually on
- * disk as [{ name, arch, label, compatible }], already sorted Klein-compatible
- * first. These helpers turn that list into what the combobox renders — grouped,
- * filtered, and reconciled against a preset row's stored value — with zero React
- * so they can be unit-tested under `node --test` (the repo's frontend test style).
+ * disk as [{ name, arch, label, compatible }], already sorted compatible-with-
+ * the-requesting-engine first. These helpers turn that list into what the
+ * combobox renders — grouped, filtered, and reconciled against a preset row's
+ * stored value — with zero React so they can be unit-tested under `node --test`
+ * (the repo's frontend test style).
  */
 
 /**

@@ -5,9 +5,11 @@ import {
 } from '../../utils/kleinLoraOptions'
 
 /**
- * Fetch the LoRAs on disk for the Klein generation-LoRA picker (GET
- * /api/loras/list). Fetched ONCE at the card level and shared across every preset
- * row's combobox — never per row. On any failure (ComfyUI unconfigured/unreachable,
+ * Fetch the LoRAs on disk for the generation-LoRA picker (GET
+ * /api/loras/list?family=...), shared by both the Klein and the Krea cards —
+ * `family` selects which one a scanned LoRA is judged compatible against.
+ * Fetched ONCE at the card level and shared across every preset row's
+ * combobox — never per row. On any failure (ComfyUI unconfigured/unreachable,
  * network) it degrades to an empty list so the combobox falls back to a plain
  * free-text field, never a blocking empty dropdown.
  */
@@ -60,19 +62,21 @@ function OptionRow({ entry, active, onPick, refCb, engineLabel }) {
 
 /**
  * Searchable combobox for one preset LoRA row, backed by the on-disk scan.
+ * Shared by the Klein and the Krea cards — `engineLabel` says which one the
+ * scan and its badges are judged against.
  *
  * The text input IS the row value, so free-text stays a first-class fallback:
  * exotic configs and files not yet present can always be typed, and typing
- * SUBSTRING-filters the dropdown of scanned LoRAs (grouped Klein-compatible / other
- * arch, each with an arch badge; ≤20 shown). Arrow keys move a highlight, Enter
- * picks it, Escape closes; a click picks too. A ↻ button rescans. When the current
- * value names no scanned file (a renamed/absent LoRA, or ComfyUI down) it is shown
- * with a "not on disk" badge but kept editable — an existing preset is never
- * silently dropped.
+ * SUBSTRING-filters the dropdown of scanned LoRAs (grouped compatible-with-the-
+ * current-engine / other arch, each with an arch badge; ≤20 shown). Arrow keys
+ * move a highlight, Enter picks it, Escape closes; a click picks too. A ↻
+ * button rescans. When the current value names no scanned file (a
+ * renamed/absent LoRA, or ComfyUI down) it is shown with a "not on disk" badge
+ * but kept editable — an existing preset is never silently dropped.
  */
 export default function KleinLoraCombobox({
   value, onChange, ariaLabel, loras, loading, error, rescan, rescanning,
-  engineLabel = 'Klein',
+  engineLabel = 'Klein', placeholder = 'klein/my-lora.safetensors',
 }) {
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
@@ -140,7 +144,7 @@ export default function KleinLoraCombobox({
             onChange={(e) => { onChange(e.target.value); setOpen(true); setHighlight(0) }}
             onFocus={() => setOpen(true)}
             onKeyDown={onKeyDown}
-            placeholder="klein/my-lora.safetensors"
+            placeholder={placeholder}
             className="mt-0 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 pr-16 text-sm text-content placeholder:text-content-subtle focus:border-primary focus:outline-none"
           />
           <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1">

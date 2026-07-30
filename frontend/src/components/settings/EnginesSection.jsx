@@ -33,11 +33,12 @@ const ENGINE_OPTIONS = [
   { id: 'krea', label: 'Krea 2 Edit (ComfyUI, local)' },
 ]
 
-/* Optional generation-LoRA PRESETS for the local Klein engine (Idea by
-   @waltm — Discord feature request): named combinations of user-pointed LoRA
-   files (any files, any purpose — texture, anatomy, style…). Inside a preset
-   the rows chain after the consistency LoRA in LIST ORDER (file + strength,
-   reorderable, capped at 8). Per run the workspace's 🖥️ Klein tuning panel
+/* Optional generation-LoRA PRESETS, originally for the local Klein engine
+   (Idea by @waltm — Discord feature request) and now shared with the local
+   Krea 2 Edit engine too: named combinations of user-pointed LoRA files (any
+   files, any purpose — texture, anatomy, style…). Inside a preset the rows
+   chain after the consistency/identity-edit LoRA in LIST ORDER (file +
+   strength, reorderable, capped at 8). Per run each engine's own tuning panel
    just PICKS a preset ("None" by default) — the choice carries the intent,
    there is no automatic gating. The app never ships or hardcodes a LoRA name. */
 const MAX_GENERATION_LORAS = 8        // mirrors the klein_edit_helper AND
@@ -62,7 +63,8 @@ function freeName(presets, base) {
    the Klein and the Krea cards — the shapes are identical, only the strength
    range, its default and the engine the badge judges for differ. */
 function LoraPresetCard({ preset, index, presets, save, loraScan,
-                          engineLabel = 'Klein', strengthRange, defaultStrength }) {
+                          engineLabel = 'Klein', strengthRange, defaultStrength,
+                          placeholder = 'klein/my-lora.safetensors' }) {
   const rows = Array.isArray(preset?.loras) ? preset.loras : []
   const patchPreset = (p) => save(presets.map((x, j) => (j === index ? { ...x, ...p } : x)))
   const patchRow = (i, p) => patchPreset({ loras: rows.map((r, j) => (j === i ? { ...r, ...p } : r)) })
@@ -110,6 +112,7 @@ function LoraPresetCard({ preset, index, presets, save, loraScan,
               value={row?.file || ''}
               onChange={(next) => patchRow(i, { file: next })}
               engineLabel={engineLabel}
+              placeholder={placeholder}
               {...loraScan}
             />
             <label className="flex items-center gap-1.5 text-xs text-content-muted">
@@ -369,7 +372,8 @@ function KreaLorasCard({ config, setField }) {
       {presets.map((preset, i) => (
         <LoraPresetCard key={i} preset={preset} index={i} presets={presets} save={save}
           loraScan={loraScan} engineLabel="Krea 2"
-          strengthRange={kreaStrengthRange} defaultStrength={KREA_LORA_STRENGTH_DEFAULT} />
+          strengthRange={kreaStrengthRange} defaultStrength={KREA_LORA_STRENGTH_DEFAULT}
+          placeholder="krea/my-lora.safetensors" />
       ))}
       <div className="flex items-center gap-3">
         <button

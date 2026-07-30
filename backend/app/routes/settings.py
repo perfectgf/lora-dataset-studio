@@ -252,8 +252,9 @@ def get_capabilities():
 
 @bp.get('/loras/list')
 def loras_list():
-    """LoRAs on disk for the Klein generation-LoRA preset picker: the whole loras
-    tree (base ``models/loras`` + every ``extra_model_paths.yaml`` root, recursive),
+    """LoRAs on disk for the generation-LoRA preset picker, shared by the
+    Klein and the Krea 2 Edit cards: the whole loras tree (base
+    ``models/loras`` + every ``extra_model_paths.yaml`` root, recursive),
     each badged with its architecture — ``{loras: [{name, arch, label, compatible}]}``,
     Klein-compatible first. ``name`` is the exact ComfyUI-relative value a preset row
     stores and the generate path resolves (``comfy_model_paths.list_models('loras')``).
