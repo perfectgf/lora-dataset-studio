@@ -402,9 +402,11 @@ export function useDataset() {
   // shots already shared between them by engineSelection.js (API engines first,
   // the GPU-bound Klein one last). The server re-validates every entry and
   // refuses the whole run rather than dispatching it half-way.
-  // `extraLoras`: optional generation-LoRA preset for this run (Idea by
-  // @waltm) — an already-gated `{ generation_lora_preset? }` fragment from
-  // generationLoraPresetPayload(); an absent key means "no preset".
+  // `extraLoras`: optional generation-LoRA preset fragment(s) for this run (Idea
+  // by @waltm) — an already-gated `{ generation_lora_preset?,
+  // krea_generation_lora_preset? }` object from the two payload builders. One run
+  // can carry both: each engine resolves its OWN key. An absent key means "no
+  // preset" for that engine.
   const generate = useCallback((batches, multiplier, kleinModel, loraStrength, extraLoras) => wrap(async () => {
     const d = await postJson(`/api/dataset/${currentId}/generate`,
       { engine_batches: batches, multiplier, klein_model: kleinModel,

@@ -8,6 +8,7 @@ import { apiFetch, putJson } from '../../api/fetchClient';
 import ShotIllustration, { contextEmoji } from './ShotIllustration';
 import { displayLabel } from '../../utils/labels';
 import { generationLoraPresetPayload, sanitizeGenerationLoraPresets } from '../../utils/generationLoras';
+import { kreaGenerationLoraPresetPayload, sanitizeKreaGenerationLoraPresets } from '../../utils/kreaGenerationLoras';
 import { requestHelpTip } from '../../help/helpTips';
 import { HelpBadge } from '../../help/HelpMode';
 import {
@@ -489,6 +490,12 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
   const [chatgptImageModel, setChatgptImageModel] = useState('');
   // Krea's consistency <-> prompt-adherence dial, mirrored from Settings.
   const [kreaGrounding, setKreaGrounding] = useState(512);
+  // Krea's own always-on presets (krea.generation_lora_presets) — a SEPARATE
+  // pick from Klein's, because one run can dispatch to both engines and each
+  // graph takes its own family of LoRAs. "None" on every visit, like Klein's.
+  const [kreaLoraPresets, setKreaLoraPresets] = useState([]);
+  const [kreaLoraPresetName, setKreaLoraPresetName] = useState('');
+  const activeKreaLoraPreset = kreaLoraPresets.find((p) => p.name === kreaLoraPresetName) || null;
   useEffect(() => {
     let cancelled = false;
     apiFetch('/api/settings')
@@ -500,6 +507,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
         setChatgptImageModel((d.config?.engines?.chatgpt_image_model || '').trim());
         // Optional generation-LoRA presets: names + chains for the picker.
         setLoraPresets(sanitizeGenerationLoraPresets(d.config?.klein?.generation_lora_presets));
+        setKreaLoraPresets(sanitizeKreaGenerationLoraPresets(d.config?.krea?.generation_lora_presets));
         // Krea's one dial. It lives in Settings (it changes the meaning of every
         // shot in the batch identically, so it is not a per-run argument), and is
         // MIRRORED here so the workspace can say what the run will actually do.
@@ -809,7 +817,8 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
     // The shots are already shared between the engines here (API batches first,
     // the GPU-bound Klein one last); the server re-checks every batch.
     onGenerate(engineBatches(toGen, engines, engineMode), multiplier, klein, loraStrength,
-      generationLoraPresetPayload({ isKlein, presetName: loraPresetName, presets: loraPresets }));
+      { ...generationLoraPresetPayload({ isKlein, presetName: loraPresetName, presets: loraPresets }),
+        ...kreaGenerationLoraPresetPayload({ isKrea, presetName: kreaLoraPresetName, presets: kreaLoraPresets }) });
   };
 
   return (
@@ -1130,6 +1139,8 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
             🧬 Krea 2 Edit tuning
             <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
               reference grounding {groundingDescription(kreaGrounding)}
+              {activeKreaLoraPreset && activeKreaLoraPreset.loras.length > 0
+                ? ` · LoRA preset: ${activeKreaLoraPreset.name}` : ''}
             </span>
           </summary>
           <div className="px-2.5 pt-1 flex flex-col gap-1.5">
@@ -1153,6 +1164,54 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
                 Settings › Image engines
               </SettingsLink>{' '}— it applies to every Krea run.
             </p>
+            {/* The one live control in this panel. It does not restate a value —
+                it NAMES a preset defined in Settings, which is why it belongs
+                here while the grounding number stays a read-out. */}
+            <div className="flex flex-col gap-1 pt-1 border-t border-white/10">
+              <label className="flex items-center gap-2 text-content-muted text-[0.6875rem]">
+                <span className="whitespace-nowrap">LoRA preset</span>
+                <select value={kreaLoraPresetName} aria-label="Krea generation LoRA preset"
+                  onChange={(e) => setKreaLoraPresetName(e.target.value)}
+                  className="bg-app/60 border border-border rounded px-1 py-0.5 text-content text-[0.6875rem]">
+                  <option value="">None</option>
+                  {kreaLoraPresets.map((p) => (
+                    <option key={p.name} value={p.name}>{p.name} ({p.loras.length})</option>
+                  ))}
+                </select>
+                <span className="text-content-subtle text-[0.625rem]">
+                  your own Krea LoRAs — applies to every shot of this run
+                </span>
+              </label>
+              {kreaLoraPresets.length === 0 && (
+                <p className="text-content-subtle text-[0.625rem]">
+                  No presets yet — build combinations of your own Krea 2 LoRA files in{' '}
+                  <a href="#/settings/engines" className="text-amber-300 underline decoration-amber-300/50">
+                    Settings › Image engines
+                  </a>.
+                </p>
+              )}
+              {activeKreaLoraPreset && (
+                activeKreaLoraPreset.loras.length === 0 ? (
+                  <p className="text-content-subtle text-[0.625rem]">
+                    This preset is empty — add LoRA files to it in Settings.
+                  </p>
+                ) : (
+                  <ol className="flex flex-col gap-0.5 text-[0.625rem] text-content-subtle">
+                    {activeKreaLoraPreset.loras.map((row, i) => (
+                      <li key={`${row.file}-${i}`} className="flex items-center gap-1.5" title={row.file}>
+                        <span className="text-content-muted">{i + 1}.</span>
+                        <span className="font-mono truncate max-w-[18rem]">{row.file.split(/[\\/]/).pop()}</span>
+                        <span>@ {row.strength.toFixed(2)}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )
+              )}
+              <p className="text-content-subtle text-[0.625rem]">
+                Not applied by the 🔄 single-image regenerate, and only the model side is
+                patched (a LoRA's text-encoder weights are ignored here).
+              </p>
+            </div>
           </div>
         </details>
       )}
