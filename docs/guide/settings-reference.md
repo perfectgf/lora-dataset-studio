@@ -178,8 +178,12 @@ Settings:
   architecture loads as a silent no-op — the picker badges it), only the **model**
   side is patched so a LoRA's text-encoder weights are ignored, a row whose file
   has moved is **skipped** with the rest of the chain still applied, and the 🔄
-  single-image regenerate in the workspace does **not** carry a preset. Empty by
-  default. *(Preset mechanism by @waltm, Discord.)*
+  single-image regenerate in the workspace does **not** carry a preset. A row
+  pointing at the **same file as Identity edit LoRA** is skipped too — it would
+  chain the identity LoRA a second time on top of itself, summing both strengths
+  into one delta well past what the file was trained for (visible as blocky,
+  posterized output, not a subtler quality loss). Empty by default. *(Preset
+  mechanism by @waltm, Discord.)*
 
 The pipeline's reference boost is an internal Krea calibration, not a second user-facing likeness slider; use **Reference grounding** for that trade-off.
 
@@ -207,6 +211,7 @@ How presets are used matters:
 - Resolution happens **by name** on the server, and it's **fail-closed**: if a run references a preset name that no longer exists, it runs **with no extra LoRAs** rather than erroring.
 - **Trap:** *renaming* a preset does **not** follow a run that referenced it by the old name — that run silently falls back to no extra LoRAs. Rename before you queue, or re-pick the preset on the run.
 - There is deliberately **no automatic NSFW gating** on individual LoRAs — the preset you pick carries the intent. If you want an "NSFW full" stack, make it a preset.
+- **Trap:** a row pointing at the **same file as the consistency LoRA** (`klein.consistency_lora`) is skipped — it would chain that LoRA a second time on top of itself, summing both strengths into one delta well past what the file was trained for (visible as blocky, posterized output).
 
 ### Klein generation quality
 

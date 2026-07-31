@@ -64,6 +64,13 @@ export const WHATS_NEW = [
     to: '/datasets?section=add&panel=generate',
   },
   {
+    id: '2026-07-31-generation-lora-double-stack-guard',
+    date: '2026-07-31',
+    title: 'A generation-LoRA preset can no longer double-apply your identity LoRA',
+    blurb: 'A preset row pointing at the same file already loaded as the identity/consistency LoRA used to chain it a second time — summing both strengths into one delta well past what the file was trained for, which showed up as blocky, posterized dataset images. Krea 2 Edit and Klein now skip that row (the rest of the chain still applies), with a log line saying why.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-07-30-retry-reference-edit-show-engine',
     date: '2026-07-30',
     title: 'Retry a reference edit exactly as it ran',

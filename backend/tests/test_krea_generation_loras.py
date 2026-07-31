@@ -241,6 +241,42 @@ def test_zero_strength_row_is_dropped(app, tmp_path):
         [{'file': 'krea/bypass.safetensors', 'strength': 0}]) == []
 
 
+def test_identity_lora_row_is_dropped_even_though_the_file_exists(app, tmp_path):
+    """A preset row naming the SAME file already loaded at the fixed identity
+    slot must not double-apply it — this is the actual bug report: an identity
+    row at 0.8 stacked on the identity slot's 1.0 rendered visibly macro-blocked
+    (waltm, Discord). The file legitimately exists on disk (it has to — the
+    identity slot needs it too), so the missing-file guard above cannot catch
+    this; the row is dropped because it MATCHES `identity_lora`, not because
+    it's absent."""
+    from app.services import krea_edit_helper as keh
+    _comfy_with_loras(tmp_path, present=('identity', 'detail'))
+    rows = keh._existing_generation_lora_rows(
+        [{'file': 'krea/identity.safetensors', 'strength': 0.8},
+         {'file': 'krea/detail.safetensors', 'strength': 0.6}],
+        identity_lora='krea/identity.safetensors')
+    assert [r['file'] for r in rows] == ['krea/detail.safetensors']
+
+
+def test_identity_lora_guard_ignores_separator_and_case(app, tmp_path):
+    from app.services import krea_edit_helper as keh
+    _comfy_with_loras(tmp_path, present=('identity',))
+    rows = keh._existing_generation_lora_rows(
+        [{'file': 'KREA/Identity.safetensors', 'strength': 0.8}],
+        identity_lora='krea/identity.safetensors')
+    assert rows == []
+
+
+def test_no_identity_lora_leaves_rows_untouched(app, tmp_path):
+    """`identity_lora=None` (the Krea engine isn't configured with one, or the
+    caller didn't resolve one) must not make every row look like a match."""
+    from app.services import krea_edit_helper as keh
+    _comfy_with_loras(tmp_path, present=('detail',))
+    rows = keh._existing_generation_lora_rows(
+        [{'file': 'krea/detail.safetensors', 'strength': 0.6}])
+    assert [r['file'] for r in rows] == ['krea/detail.safetensors']
+
+
 def test_rows_are_clamped_and_capped_at_enqueue_too(app, tmp_path):
     """The clamp is not only in the sanitizer: a caller could hand rows straight
     in, and 999 must never reach ComfyUI."""

@@ -833,6 +833,16 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
     # consistency block exactly: missing node 139 / missing file /
     # strength <= 0 -> skip that row with a log line (the rest of the chain
     # still links up), never a doomed ComfyUI validation error.
+    #
+    # A row naming the SAME file as `consistency_lora` above is an extra guard,
+    # not just a redundant one: it would chain the identical LoRA a second time,
+    # summing both strengths into one delta well past what the file was trained
+    # for — measured as visible macro-blocking on the Krea sibling of this
+    # feature (a preset row duplicating krea.identity_lora), reported by waltm on
+    # Discord. Path comparison is normcase+normpath so a '/' vs '\\' or case
+    # difference can't dodge the guard.
+    consistency_key = (os.path.normcase(os.path.normpath(consistency_lora))
+                       if consistency_lora else None)
     for i, entry in enumerate((generation_loras or [])[:MAX_GENERATION_LORAS], start=1):
         slot_lora = (entry.get('file') or '').replace('/', os.sep)
         slot_strength = entry.get('strength')
@@ -845,6 +855,10 @@ def enqueue_klein_edit(user_id, source_filename, edit_prompt, klein_model=None,
             logger.warning("generation LoRA %r not found under any loras root — skipped", slot_lora)
         elif slot_strength <= 0:
             logger.info("generation LoRA %r strength 0 — skipped (row off)", slot_lora)
+        elif consistency_key and os.path.normcase(os.path.normpath(slot_lora)) == consistency_key:
+            logger.warning("generation LoRA %r is the consistency LoRA — skipped "
+                           "(already applied at klein.consistency_strength, a second "
+                           "copy would double-stack it)", slot_lora)
         else:
             _next_node_id += 1
             node_id = str(_next_node_id)

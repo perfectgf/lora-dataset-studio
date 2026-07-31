@@ -353,6 +353,46 @@ def test_missing_middle_file_degrades_that_row_only(app, tmp_path, monkeypatch):
         assert wf['102']['inputs']['model'] == [gc_id, 0]
 
 
+def test_consistency_lora_row_is_dropped_even_though_the_file_exists(app, tmp_path, monkeypatch):
+    """A preset row naming the SAME file already loaded as the consistency LoRA
+    must not double-apply it: two LoraLoaderModelOnly copies of one file sum
+    their strengths into a single delta well past what the file was trained
+    for — this is the actual bug report (the Krea sibling of this feature,
+    an identity-LoRA row stacked on the identity slot, rendered visibly
+    macro-blocked; waltm, Discord). The file legitimately exists on disk (the
+    consistency slot needs it too), so the missing-file guard can't catch this
+    — the row is dropped because it MATCHES the consistency LoRA, not because
+    it's absent."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    from app.job_queue import queue_manager
+    with app.app_context():
+        _comfy(tmp_path, cfg)
+        wf = _enqueue(keh, queue_manager, monkeypatch, tmp_path,
+                      generation_loras=[
+                          {'file': 'klein/Flux2-Klein-9B-consistency-V2.safetensors', 'strength': 0.8},
+                          {'file': 'klein/gen-c.safetensors', 'strength': 0.5}])
+        cons_id, _ = _node_by_title(wf, 'Dataset consistency LoRA')
+        gens = _gen_nodes(wf)
+        assert [n['inputs']['lora_name'] for _, n in gens] == [
+            os.path.join('klein', 'gen-c.safetensors')]
+        (gc_id, gc), = gens
+        assert gc['inputs']['model'] == [cons_id, 0]           # hangs off consistency, not a duplicate
+        assert wf['102']['inputs']['model'] == [gc_id, 0]
+
+
+def test_consistency_lora_guard_ignores_separator_and_case(app, tmp_path, monkeypatch):
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    from app.job_queue import queue_manager
+    with app.app_context():
+        _comfy(tmp_path, cfg)
+        wf = _enqueue(keh, queue_manager, monkeypatch, tmp_path,
+                      generation_loras=[
+                          {'file': 'KLEIN/Flux2-Klein-9B-Consistency-V2.safetensors', 'strength': 0.8}])
+        assert _gen_nodes(wf) == []
+
+
 def test_zero_strength_row_is_skipped(app, tmp_path, monkeypatch):
     from app import config as cfg
     from app.services import klein_edit_helper as keh

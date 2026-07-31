@@ -710,14 +710,25 @@ def resolve_generation_lora_preset(preset_name):
     return []
 
 
-def _existing_generation_lora_rows(rows):
+def _existing_generation_lora_rows(rows, identity_lora=None):
     """The subset of `rows` that can actually chain, in order, capped at
     MAX_GENERATION_LORAS.
 
     This is where the disk is touched — build_workflow stays pure. Degradation is
     PER ROW and never raises: a preset whose third LoRA was moved still applies
     its other two, because a dataset run must not die over an optional LoRA. Each
-    dropped row says why in the log, so a silent no-op is diagnosable."""
+    dropped row says why in the log, so a silent no-op is diagnosable.
+
+    `identity_lora`: the resolved relative name already loaded at node 4 (fixed
+    identity slot, strength krea.identity_lora_strength). A row pointing at the
+    SAME file would chain the identical LoRA a second time — not a no-op like a
+    missing file, but the two strengths summing into one delta well past what
+    the file was trained for (an 0.8 row on top of the identity slot's default
+    1.0 measured as visible macro-blocking, reported by waltm on Discord). Path
+    comparison is normcase+normpath so a '/' vs '\\' or case difference can't
+    dodge the guard."""
+    identity_key = (os.path.normcase(os.path.normpath(identity_lora))
+                    if identity_lora else None)
     out = []
     for entry in (rows or []):
         if len(out) >= MAX_GENERATION_LORAS:
@@ -735,6 +746,11 @@ def _existing_generation_lora_rows(rows):
         if strength <= 0:
             logger.info('krea generation LoRA %r at strength 0 — skipped (row off)',
                         name)
+            continue
+        if identity_key and os.path.normcase(os.path.normpath(name)) == identity_key:
+            logger.warning('krea generation LoRA %r is the identity-edit LoRA — '
+                           'skipped (already applied at krea.identity_lora_strength, '
+                           'a second copy would double-stack it)', name)
             continue
         if not _lora_abs(name):
             logger.warning('krea generation LoRA %r not found under any loras root '
@@ -892,7 +908,7 @@ def enqueue_krea_edit(user_id, source_filename, edit_prompt, source_path=None,
         seed=random.randint(0, 2 ** 64 - 1), steps=_steps(),
         grounding=grounding_px(), ref_boost=_ref_boost(),
         lora_strength=_identity_strength(),
-        generation_loras=_existing_generation_lora_rows(generation_loras),
+        generation_loras=_existing_generation_lora_rows(generation_loras, identity_lora=lora_name),
         # UNIQUE prefix per job: SaveImage numbers from what is currently in the
         # output folder and the app moves each result out right after completion,
         # so a shared prefix makes the counter re-issue the same name (the Klein
