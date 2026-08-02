@@ -4,7 +4,7 @@
 
 Run the whole studio on a rented NVIDIA GPU and reach it from any browser, with your datasets on a network volume that survives pod restarts.
 
-> **Status: written from the design, not yet validated on a rented pod.** Everything below that is a *measurement* is marked as unverified where it appears. The configuration itself is derived from the image this repository already builds. Treat the timings as expectations, not promises, until the [open questions](#open-questions) are closed.
+> **Status: the configuration below is validated, the timings are not.** The first version of this page was written from the design and shipped three settings that could not work; the boot sequence has since been run end-to-end against the image this repository builds, on a GPU, with an empty root-owned volume standing in for a network volume — up to a studio that answers on its port behind the token gate. What is still unmeasured is *how long* things take on real RunPod hardware, and those numbers are marked where they appear. See the [open questions](#open-questions).
 
 ## What you get, and what you don't
 
@@ -54,7 +54,6 @@ Environment variables:
 LDS_PUBLIC=1
 LDS_DATA_DIR=/comfy/mnt/lds/data
 LDS_CONFIG=/comfy/mnt/lds/data/config.json
-BASE_DIRECTORY=/comfy/mnt/basedir
 LDS_HOST=0.0.0.0
 LDS_PORT=5050
 LDS_RUNTIME=docker-gpu
@@ -62,12 +61,19 @@ LDS_RESTART_MODE=supervisor
 LDS_BIND_MANAGED=1
 LDS_DOCKER_COMFY_MODE=bundled
 LDS_DOCKER_HAS_COMFYUI=1
+WANTED_UID=0
+WANTED_GID=0
 SECURITY_LEVEL=normal
 USE_UV=true
 USE_NEW_MANAGER=true
 ```
 
 API keys go in the same list — `GEMINI_API_KEY`, `OPENAI_API_KEY`, `VAST_API_KEY` and the rest. The app reads secrets straight from the process environment, so the `.env` file that `docker-compose.gpu.yml` bind-mounts is not needed and has no equivalent here.
+
+Two things there differ from `docker-compose.gpu.yml`, and each is the difference between a pod that serves and a pod that 404s:
+
+- **No `BASE_DIRECTORY`, deliberately.** The compose file sets `BASE_DIRECTORY=/basedir` and mounts a host folder there. Set it on a pod and the boot dies on the first screen of the log: the base image *validates* that path and refuses to create it — `ERROR: BASE_DIRECTORY requested but not found or not a directory` — while a fresh network volume is empty, so there is nothing to find and no shell in which to make it. Omitting it is not a compromise. ComfyUI then keeps `models`, `input` and `output` inside `/comfy/mnt/ComfyUI`, which is on the volume and so exactly as persistent, and that is the path the studio's own config seeder looks for — point it at a `basedir` instead and the studio would not find your models even if the boot survived.
+- **`WANTED_UID=0` / `WANTED_GID=0`.** A network volume arrives owned by root, and the base image refuses a run directory it does not own — `ERROR: Directory /comfy/mnt owned by unexpected user/group, expected 1024:1024, actual 0:0`, telling you to run a `chown` for which there is, again, no shell. `LDS_FORCE_CHOWN` cannot rescue this one either: it explicitly declines to chown a path mounted at container startup. Setting both to `0` makes root the expected owner, which on a single-tenant rented box is what you have anyway. If you would rather not run as root, the alternative is to attach the volume to a throwaway pod first and `chown -R 1024:1024` its mount path.
 
 ## Step 3 — open it
 
@@ -85,6 +91,19 @@ Open `https://<podid>-5050.proxy.runpod.net/?token=<token>` once. A signed sessi
 The token is persisted in `config.json` on the network volume, so it survives restarts instead of rotating. **Settings → Server & access** shows it, with copy and regenerate controls.
 
 `LDS_ALLOW_UNAUTHENTICATED=1` overrides all of this and serves the pod with no token at all. It exists for setups that supply their own authentication — a VPN, or a reverse proxy that authenticates — and is the wrong choice for a bare proxy URL.
+
+## The proxy URL returns 404
+
+A 404 from `*.proxy.runpod.net` is RunPod telling you **nothing is listening on that port** — it is not the app refusing you. A running studio that does not want to let you in answers **403**, because the token is missing or wrong. So a 404 means the studio did not start, and the pod log says why. Read it from the top:
+
+| Log line | Cause |
+|---|---|
+| `ERROR: BASE_DIRECTORY requested but not found or not a directory` | `BASE_DIRECTORY` is set. Remove it — see step 2. Nothing starts at all, and the pod restart-loops on this line. |
+| `ERROR: Directory /comfy/mnt owned by unexpected user/group` | The volume is root-owned. Set `WANTED_UID=0`/`WANTED_GID=0`. Nothing starts at all. |
+| `[studio] ERROR: … is not writable by uid` | The studio's data directory could not be created or written, so only the studio half is missing — ComfyUI comes up beside it. |
+| ComfyUI's `To see the GUI go to:` but no `[studio] starting on port 5050` | Same shape as the row above. The `[studio]` lines just before it name the reason; the launcher never aborts the container, so ComfyUI keeps running either way. |
+
+A pod that is merely still installing is not a 404 with an error in the log — it is a 404 with the log still moving. First boot downloads several GB of CUDA wheels; the image allows 1200 seconds for it.
 
 ## Why the volume mounts at `/comfy/mnt`
 
@@ -106,8 +125,9 @@ Every one of these is a real boundary, not a caveat:
 
 ## Open questions
 
-Unverified until someone runs this on a real pod. If you do, please report back.
+Still unverified on real RunPod hardware. If you run this, please report back.
 
-1. **Volume ownership.** The base image remaps to `WANTED_UID`/`WANTED_GID`, while a RunPod network volume arrives root-owned. Whether the remap copes, and which UID/GID values work, is unknown. `LDS_FORCE_CHOWN=true` is the existing escape hatch if `/comfy/mnt` cannot be made writable.
-2. **First-boot and restart durations.** The design's whole argument for mounting at `/comfy/mnt` is that a restart skips the dependency install. Not yet timed.
-3. **The 100-second export threshold**, as above.
+1. **First-boot and restart durations.** The design's whole argument for mounting at `/comfy/mnt` is that a restart skips the dependency install. Not yet timed on a pod.
+2. **The 100-second export threshold**, as above.
+
+**Closed:** *volume ownership*, which used to be the first entry here. The base image does not cope with a root-owned run directory and `LDS_FORCE_CHOWN` cannot help — it refuses to chown a path mounted at container startup. `WANTED_UID=0`/`WANTED_GID=0` in step 2 is the answer, and it is now part of the configuration rather than an open question.
