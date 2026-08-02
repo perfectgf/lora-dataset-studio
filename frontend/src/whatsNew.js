@@ -773,6 +773,13 @@ export const WHATS_NEW = [
     to: '/setup',
   },
   {
+    id: '2026-08-02-runpod-pod-actually-boots',
+    date: '2026-08-02',
+    title: 'A RunPod pod built from the guide now actually serves the studio',
+    blurb:
+      'The RunPod page shipped three settings that could not work, and following it got you a pod that restart-looped and answered 404 forever. Two were wrong instructions — a ComfyUI base directory the pod is told to use but nobody creates, and a network volume that arrives owned by root when the image expects to own it — and both are corrected with the log line each one produces. The third was a real bug here: the studio only ever checked whether its data folder was writable, never created it, so on a pod ComfyUI came up on 8188 while the studio never started at all. It creates the folder now, which also fixes any install whose data directory sits somewhere that does not exist yet. The whole boot has been run end-to-end on a GPU against an empty root-owned volume, and the guide has a section that turns a 404 into the log line that explains it.',
+  },
+  {
     id: '2026-08-02-runpod-pod',
     date: '2026-08-02',
     title: 'Run the whole studio on a rented RunPod GPU',
