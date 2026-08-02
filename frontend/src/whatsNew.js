@@ -773,6 +773,13 @@ export const WHATS_NEW = [
     to: '/setup',
   },
   {
+    id: '2026-08-02-runpod-pod',
+    date: '2026-08-02',
+    title: 'Run the whole studio on a rented RunPod GPU',
+    blurb:
+      'Point a RunPod pod at the GPU image and reach the studio, the Image Bank and ComfyUI generation from any browser, with your datasets on a network volume that survives restarts. Training still runs on vast.ai, and the guide is honest about what has not been measured on real hardware yet.',
+  },
+  {
     id: '2026-08-02-public-bind-token',
     date: '2026-08-02',
     title: 'Reaching the studio over the internet now always asks for a token',
