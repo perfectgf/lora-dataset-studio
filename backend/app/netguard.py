@@ -103,3 +103,37 @@ def install_network_guard(app):
             session[SESSION_FLAG] = True   # signed cookie → the SPA's fetches follow
             return None
         return jsonify({'error': 'invalid or missing access token'}), 403
+
+
+_LOOPBACK_HOSTS = {'127.0.0.1', 'localhost', '::1'}
+
+
+def ensure_access_token(host: str) -> str | None:
+    """Make sure netguard has a token to check, before the server starts.
+
+    Returns the token when the gate is engaged (and generates + persists one if
+    none existed), or None when no token is needed. Persisted in config.json
+    rather than only stamped into the environment so it survives a restart
+    instead of rotating every boot -- the Settings "Server" card reads it back
+    from there to show and copy.
+    """
+    if host in _LOOPBACK_HOSTS:
+        return None
+    if os.environ.get('LDS_ALLOW_UNAUTHENTICATED') == '1':
+        return None
+    from . import config as cfg
+    if not (public_bind() or cfg.get('server.require_token')):
+        return None
+    existing = os.environ.get('LDS_ACCESS_TOKEN')
+    if existing:
+        return existing
+    token = cfg.get('server.access_token') or ''
+    if not token:
+        token = secrets.token_urlsafe(24)
+        try:
+            from .config import save_config
+            save_config({'server': {'access_token': token}})
+        except ImportError:
+            pass          # config unavailable -> ephemeral for this run
+    os.environ['LDS_ACCESS_TOKEN'] = token
+    return token
