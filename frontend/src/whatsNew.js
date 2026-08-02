@@ -773,6 +773,14 @@ export const WHATS_NEW = [
     to: '/setup',
   },
   {
+    id: '2026-08-02-public-bind-token',
+    date: '2026-08-02',
+    title: 'Reaching the studio over the internet now always asks for a token',
+    blurb:
+      'Running the studio on a public address — a rented GPU box, a tunnel — used to be open to anyone who found the URL, because the token gate is off by default for trusted home networks. Set LDS_PUBLIC=1 and the gate is forced on, a token is generated for you, and Settings shows it instead of a switch that does nothing.',
+    to: '/settings/server',
+  },
+  {
     id: '2026-08-02-dataset-upload-is-visible',
     date: '2026-08-02',
     title: 'You can now watch the dataset go up to the rented machine — and it stops billing if it does not',
