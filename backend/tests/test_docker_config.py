@@ -137,6 +137,23 @@ def test_launcher_can_never_abort_the_upstream_boot():
     assert '/app/.venv' in script or '${STUDIO_DIR}/.venv' in script
 
 
+def test_launcher_creates_a_missing_data_dir_before_judging_it():
+    """A bind mount always exists; a path NESTED inside a fresh volume does not.
+    On a rented pod LDS_DATA_DIR points inside the network volume, nothing on the
+    host ever created it, and `[ ! -w ]` on a missing directory is true — so the
+    studio refused to start and only ComfyUI answered. Create it, then judge it."""
+    script = _read('packaging/docker/studio_launch.sh')
+
+    create = re.search(r'mkdir\s+-p\s+"\$\{DATA_DIR\}"', script)
+    assert create, 'the launcher must create DATA_DIR when it is missing'
+    # Ordering is the whole point: creating it after the check fixes nothing.
+    assert create.start() < script.index('if [ ! -w "${DATA_DIR}" ]')
+    # It must not be able to abort the boot — upstream runs this as `$script ||
+    # error_exit`, and the writability branch below already reports the failure.
+    line = script[create.start():script.index('\n', create.start())]
+    assert '||' in line, 'a failing mkdir must stay non-fatal'
+
+
 def test_launcher_preserves_backend_exit_status_and_restart_pacing():
     """The logging pipe must not turn every backend exit into sed's status 0.
     Code 75 is the intentional Settings restart and must be immediate; a crash is

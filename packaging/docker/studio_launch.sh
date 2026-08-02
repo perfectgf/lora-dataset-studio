@@ -35,6 +35,16 @@ if [ ! -w "${STUDIO_DIR}/.venv" ]; then
       || log "chown of ${STUDIO_DIR}/.venv failed — the in-app installer will not work" ) &
 fi
 
+# A bind mount is created by the host before the container starts, so /data always
+# exists. A path nested inside a mounted VOLUME does not: on a rented pod
+# LDS_DATA_DIR lives under the network volume, and nothing ever creates it — while
+# `[ ! -w ]` on a missing directory is true, so the check below would report a
+# permission problem for a directory that simply was not there. Before the chown
+# too, or the opt-in below reports a failure to adopt a directory that does not
+# exist yet. Non-fatal on purpose: if the parent cannot be written either, the
+# writability check says so, with the command to run.
+mkdir -p "${DATA_DIR}" 2>/dev/null || true
+
 # /data is the user's bind mount: the host owns it, so its ownership is not rewritten
 # behind their back. Only on request, and otherwise say exactly what to run. The
 # opt-in adopts the entire tree even when /data itself is writable: files below it
@@ -43,6 +53,7 @@ if [ "${LDS_FORCE_CHOWN:-false}" = "true" ]; then
   log "LDS_FORCE_CHOWN=true — taking ownership of ${DATA_DIR}"
   sudo chown -R "$(id -u):$(id -g)" "${DATA_DIR}" || log "chown of ${DATA_DIR} failed"
 fi
+
 if [ ! -w "${DATA_DIR}" ]; then
   log "ERROR: ${DATA_DIR} is not writable by uid $(id -u):$(id -g), so the studio"
   log "ERROR: cannot start. On the host, run:"
