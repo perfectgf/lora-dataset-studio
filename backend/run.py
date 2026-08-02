@@ -100,26 +100,16 @@ if __name__ == '__main__':
               flush=True)
     os.environ['LDS_PORT'] = str(port)
     is_lan = host not in ('127.0.0.1', 'localhost', '::1')
-    if is_lan and cfg_get('server.require_token') \
-            and not os.environ.get('LDS_ACCESS_TOKEN') \
-            and os.environ.get('LDS_ALLOW_UNAUTHENTICATED') != '1':
-        # Token gate is ON (opt-in in Settings): make sure netguard has a token to
-        # check. Persisted in config.json (not just this process's env) so it
-        # survives a restart instead of rotating every boot -- the Settings
-        # "Server" card reads it back from there to show/copy it.
-        token = cfg_get('server.access_token') or ''
-        if not token:
-            import secrets
-            token = secrets.token_urlsafe(24)
-            try:
-                from app.config import save_config
-                save_config({'server': {'access_token': token}})
-            except ImportError:
-                pass   # config module unavailable (see cfg_get fallback above) -> ephemeral this run
-        os.environ['LDS_ACCESS_TOKEN'] = token
-        print(f"\n[LDS] server.host={host} reachable from the network -> access token REQUIRED.")
-        print(f"[LDS] Open from another device:  http://<this-machine>:{port}/?token={os.environ['LDS_ACCESS_TOKEN']}")
-        print("[LDS] (turn the token off in Settings -> Server to open the LAN without one)\n")
+    from app import netguard
+    access_token = netguard.ensure_access_token(host)
+    if access_token:
+        why = ('LDS_PUBLIC=1 -> this bind is reachable from the internet'
+               if netguard.public_bind() else f'server.host={host} reachable from the network')
+        print(f"\n[LDS] {why} -> access token REQUIRED.")
+        print(f"[LDS] Open with:  /?token={access_token}")
+        if not netguard.public_bind():
+            print("[LDS] (turn the token off in Settings -> Server to open the LAN without one)")
+        print()
     elif is_lan:
         print(f"\n[LDS] server.host={host} reachable from the network (no token — trusted-LAN mode).")
         print(f"[LDS] Open from another device:  http://<this-machine>:{port}/\n")
