@@ -6,6 +6,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from .. import capabilities
 from .. import config as cfg
+from .. import netguard as _netguard
 # The path-redaction helper moved to a shared util so services (run_share) can
 # reuse it without a route<-service back-import. Kept under its historical
 # private name here for the diagnostic call site below.
@@ -153,6 +154,11 @@ def _settings_payload() -> dict:
                     # effect inside the managed container.
                     'bind_managed': os.environ.get('LDS_BIND_MANAGED', '').strip().lower()
                                     in {'1', 'true', 'yes', 'on'},
+                    # LDS_PUBLIC=1: the bind is reachable from the internet, so
+                    # netguard forces the token gate on whatever server.require_token
+                    # says. The card locks the toggle rather than letting the user
+                    # flip a switch that cannot take effect.
+                    'public': _netguard.public_bind(),
                     # LAN IPv4 so the Server card can show a real, copyable
                     # http://<ip>:port/ URL instead of a <this-computer> placeholder;
                     # None (offline / loopback-only) -> the UI keeps the placeholder.

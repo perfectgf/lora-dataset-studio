@@ -83,6 +83,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
   const lan = access.lan
   const showRemoteControls = shouldShowRemoteControls(bindManaged, lan)
   const requireToken = !!config.server.require_token
+  const publicBind = runtime.public === true
   // Real LAN IPv4 of this machine (backend socket probe), so the remote-access
   // URL is copyable as-is instead of a <this-computer> placeholder. null when the
   // backend couldn't determine it (offline / loopback-only) -> keep the placeholder.
@@ -96,7 +97,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
   // gate is on (a tokenless URL would 403); when it's on but no token exists yet,
   // reachUrls stays empty and the card asks the user to generate one first.
   const port = access.port
-  const token = requireToken ? (config.server.access_token || '') : ''
+  const token = (requireToken || publicBind) ? (config.server.access_token || '') : ''
   const tokenReady = !requireToken || !!token
   const tokenQS = token ? `?token=${token}` : ''
   const reachUrls = tokenReady ? (bindManaged ? [
@@ -237,18 +238,25 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
                     ? 'On: remote devices must open the URL WITH the token once (a session cookie takes over after). Extra safety on a shared or untrusted network.'
                     : 'Off (default): anyone on your Wi-Fi/LAN can open the app with no password. Fine for a home network; turn on if the network is shared or untrusted.')}
               </p>
+              {publicBind && (
+                <p className="text-content-subtle text-sm mt-1">
+                  Forced on: this app is reachable from the internet
+                  (<code>LDS_PUBLIC=1</code>), so the token gate can’t be turned off.
+                </p>
+              )}
             </div>
             <button id="server-require-token" type="button" role="switch" aria-checked={requireToken}
               data-focus-gate="server-token"
-              onClick={() => setField('server', 'require_token', !requireToken)}
+              disabled={publicBind}
+              onClick={() => { if (!publicBind) setField('server', 'require_token', !requireToken) }}
               aria-label="Require an access token"
-              className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors ${requireToken ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
+              className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${requireToken ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
               <span aria-hidden
                 className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${requireToken ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </div>
 
-          {requireToken && (
+          {(requireToken || publicBind) && (
             <div>
               <div className="flex items-center justify-between">
                 <label htmlFor="server-token" className="block text-sm font-medium text-content">Access token</label>

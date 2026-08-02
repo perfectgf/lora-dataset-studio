@@ -1212,3 +1212,15 @@ def test_config_defaults_carries_no_secret(client, monkeypatch):
     assert 'sk-secret' not in str(data['config_defaults'])
     # the generated access token lives in the user's config, never in the defaults
     assert data['config_defaults']['server']['access_token'] == ''
+
+
+def test_runtime_reports_public_bind(client, monkeypatch):
+    """The Server card needs to know the gate is forced, or a user toggles
+    require_token off, sees it off, and the gate stays on."""
+    monkeypatch.setenv('LDS_PUBLIC', '1')
+    assert client.get('/api/settings').get_json()['runtime']['public'] is True
+
+
+def test_runtime_public_defaults_false(client, monkeypatch):
+    monkeypatch.delenv('LDS_PUBLIC', raising=False)
+    assert client.get('/api/settings').get_json()['runtime']['public'] is False
