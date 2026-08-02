@@ -133,7 +133,8 @@ def ensure_access_token(host: str) -> str | None:
         try:
             from .config import save_config
             save_config({'server': {'access_token': token}})
-        except ImportError:
-            pass          # config unavailable -> ephemeral for this run
+        except Exception:
+            pass          # persistence failed (e.g. read-only/root-owned volume)
+                          # -> fall back to an ephemeral in-process token
     os.environ['LDS_ACCESS_TOKEN'] = token
     return token

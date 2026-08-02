@@ -98,7 +98,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
   // reachUrls stays empty and the card asks the user to generate one first.
   const port = access.port
   const token = (requireToken || publicBind) ? (config.server.access_token || '') : ''
-  const tokenReady = !requireToken || !!token
+  const tokenReady = !(requireToken || publicBind) || !!token
   const tokenQS = token ? `?token=${token}` : ''
   const reachUrls = tokenReady ? (bindManaged ? [
     lan && access.origin && {
@@ -315,7 +315,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
                     ))}
                   </div>
                 </div>
-              ) : requireToken && !token ? (
+              ) : (requireToken || publicBind) && !token ? (
                 <p className="mt-1 text-xs text-content-subtle">
                   Turn the token on, then <span className="text-content">Generate new token</span> (or
                   Save &amp; restart) — the scannable link appears once a token exists.

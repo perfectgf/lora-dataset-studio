@@ -27,6 +27,7 @@ For containerized or scripted setups, a handful of environment variables overrid
 | `LDS_ENV` | Path to the `.env` secrets file. |
 | `LDS_HOST` | Bind host — takes priority over `server.host`. |
 | `LDS_PUBLIC` | Set to `1` when the app is served on a URL the public internet can reach (a rented GPU box's proxy hostname, a tunnel). Forces the access-token gate on whatever `server.require_token` says, and makes the launcher generate a token if none exists. Only affects non-loopback binds. |
+| `LDS_ALLOW_UNAUTHENTICATED` | Set to `1` to deliberately opt out of the token gate — for setups that already authenticate the connection themselves (a VPN, a reverse proxy that requires its own login, a trusted Docker network). Overrides `LDS_PUBLIC`: with this set, a public bind is served with no token check at all. |
 | `FLASK_DEBUG` | `1` enables Flask debug mode. |
 
 ## Overview
@@ -1101,7 +1102,7 @@ How the app binds and who can reach it. **These are the settings that need a res
 - **Port** → `server.port`. The port the app listens on. Default **`5050`**. Change it if something else owns the port (on macOS, port 5000 is taken by AirPlay Receiver).
 - **Available on the local network** — a toggle that flips the bind host between `127.0.0.1` (this machine only, the default) and `0.0.0.0` (reachable from your LAN — phone, tablet, another PC). The token and phone controls below only appear once this is on.
 - **Require an access token** → `server.require_token`. Default **off** — a home LAN is treated as trusted, so LAN access is open and there's no token to type on a phone. Turn it **on** to demand a token from remote devices; requests from localhost never need one.
-  When `LDS_PUBLIC=1` this is **forced on and locked** — a public URL is never served without a token, and the switch is disabled with that reason shown.
+  When `LDS_PUBLIC=1` this is **forced on and locked** — the switch is disabled with that reason shown, and a public bind is served with the gate on unless `LDS_ALLOW_UNAUTHENTICATED=1` is set (see the environment variables above).
 - **Access token** → `server.access_token`. Shown only when the token gate is on: a read-only field with **Generate new token** and **Copy**. It's persisted, so it survives restarts. Open `http://<machine>:<port>/?token=<token>` once from the remote device and a signed session cookie takes over.
 - **Open it on your phone** — a card with a scannable **QR code** and copyable URLs built from this machine's real LAN IP (and Tailscale IP, if present). No guessing which address to type.
 

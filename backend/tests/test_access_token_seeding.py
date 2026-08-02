@@ -86,3 +86,22 @@ def test_escape_hatch_seeds_nothing(app, monkeypatch):
     monkeypatch.delenv('LDS_ACCESS_TOKEN', raising=False)
     with app.app_context():
         assert netguard.ensure_access_token('0.0.0.0') is None
+
+
+def test_persistence_failure_falls_back_to_ephemeral_token(app, monkeypatch):
+    """A root-owned network volume can make save_config() raise OSError while
+    writing config.json.tmp -- that must degrade to an ephemeral in-process
+    token, not kill boot (see netguard.ensure_access_token's docstring)."""
+    monkeypatch.setenv('LDS_PUBLIC', '1')
+    monkeypatch.delenv('LDS_ACCESS_TOKEN', raising=False)
+
+    from app import config as cfg
+
+    def _boom(*args, **kwargs):
+        raise OSError('read-only file system')
+
+    monkeypatch.setattr(cfg, 'save_config', _boom)
+    with app.app_context():
+        token = netguard.ensure_access_token('0.0.0.0')
+    assert token
+    assert os.environ['LDS_ACCESS_TOKEN'] == token
