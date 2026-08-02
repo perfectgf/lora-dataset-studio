@@ -6,11 +6,16 @@ but `server.host` is configurable, and binding 0.0.0.0 (e.g. to reach the app
 from a phone) would otherwise expose everything to the whole LAN.
 
 Rule: requests from loopback clients are always allowed (the normal local flow,
-untouched). A non-loopback (LAN) client is allowed straight through UNLESS the
-user opted into a token via Settings (`server.require_token`) — a home LAN is
-trusted by default, so no token has to be typed on a phone. When require_token
-is on, the LAN client must present the access token — `run.py` generates one
-automatically (and prints it) when none is set, so the gate can't be forgotten.
+untouched, and the path the container healthcheck uses). A non-loopback (LAN)
+client is allowed straight through UNLESS the user opted into a token via
+Settings (`server.require_token`) — a home LAN is trusted by default, so no token
+has to be typed on a phone.
+
+That default is wrong exactly once: when the bind is reachable from the public
+internet (a RunPod pod's proxy URL, a tunnel). `LDS_PUBLIC=1` says so, and forces
+the gate on regardless of `server.require_token`, so turning the setting off
+cannot open the app to everyone. `run.py` generates a token automatically (and
+prints it) when none is set, so the gate can't be forgotten.
 Token sources, in order:
   - `Authorization: Bearer <token>` header
   - `X-LDS-Token: <token>` header
@@ -29,6 +34,24 @@ import secrets
 from flask import jsonify, request, session
 
 SESSION_FLAG = 'lds_token_ok'
+
+
+_TRUTHY = {'1', 'true', 'yes', 'on'}
+
+
+def public_bind() -> bool:
+    """True when this process is served on a URL the public internet can reach.
+
+    Declared by the deployment (the RunPod template, a tunnel, a reverse proxy) —
+    never inferred from REMOTE_ADDR. Behind a proxy the peer address is the
+    proxy's, and _is_loopback() answers True for a MISSING REMOTE_ADDR; a security
+    property must not hang on either. Truthy set matches LDS_BIND_MANAGED's.
+
+    Only hardens NON-loopback binds: a loopback-bound app behind a local reverse
+    proxy still sees 127.0.0.1 and is allowed through, which is what
+    LDS_ALLOW_UNAUTHENTICATED and the proxy's own auth are for.
+    """
+    return os.environ.get('LDS_PUBLIC', '').strip().lower() in _TRUTHY
 
 
 def _is_loopback(addr: str | None) -> bool:
@@ -60,7 +83,7 @@ def install_network_guard(app):
         # only engages when the user turned it on in Settings. Read lazily so the
         # toggle takes effect on the next request without a restart.
         from . import config as cfg
-        if not cfg.get('server.require_token'):
+        if not (public_bind() or cfg.get('server.require_token')):
             return None
         # config.server.access_token is read here too (not only the boot-time env)
         # so turning the gate on with a saved token works LIVE — no restart, unlike
