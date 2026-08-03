@@ -986,15 +986,28 @@ export default function DatasetWorkspace({ ds, onBack }) {
           horizontal chip rail — same responsive pattern as the Settings page. */}
       <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-4 lg:items-start">
         <aside>
-          {/* Mobile: horizontal chip rail */}
-          <nav aria-label="Dataset sections" className="-mx-4 overflow-x-auto px-4 pb-2 lg:hidden">
+          {/* Mobile: horizontal chip rail.
+
+              `relative` is NOT decoration — without it the whole page renders
+              at ~73% on a phone. `overflow-x-auto` clips a descendant only when
+              the scroller is also its containing block, and a static box never
+              is. The NavBadge counts carry an `.sr-only` label, which Tailwind
+              implements as `position: absolute` with no offsets: it therefore
+              resolves against the document, keeps its static position out at
+              the far end of a rail 1123 px wide, and escapes the clip. The
+              document then measures ~598 px against a 440 px viewport, mobile
+              Safari shrinks the page to fit, and every bar on screen — header
+              included — draws at 73% of the screen with dead space beside it.
+              Nothing overflows visibly, because the escapee is a 1 px box no
+              one can see. */}
+          <nav aria-label="Dataset sections" className="relative -mx-4 overflow-x-auto px-4 pb-2 lg:hidden">
             <ul className="m-0 flex list-none gap-2 p-0">
               {WORKSPACE_SECTIONS.map((s) => <li key={s.id}>{navItem(s, true)}</li>)}
             </ul>
           </nav>
           {activePanels.length > 0 && (
             <nav aria-label={`${sectionMeta[section].title} destinations`}
-              className="-mx-4 -mt-1 overflow-x-auto px-4 pb-3 lg:hidden">
+              className="relative -mx-4 -mt-1 overflow-x-auto px-4 pb-3 lg:hidden">
               <ul id={`dataset-mobile-panels-${section}`} className="m-0 flex list-none gap-2 p-0">
                 {activePanels.map((destination) => (
                   <li key={destination.id}>{panelNavItem(section, destination, true)}</li>

@@ -422,8 +422,13 @@ export default function SettingsPage() {
     <div>
       <div className="lg:grid lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start lg:gap-8">
         <aside>
-          {/* Mobile: horizontal chip rail */}
-          <nav aria-label="Settings sections" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
+          {/* Mobile: horizontal chip rail. `relative` makes the scroller the
+              containing block for any absolutely positioned descendant — see
+              the long note on the same rail in DatasetWorkspace. This one is
+              1217 px wide and its chips carry no `.sr-only` label today, so
+              nothing escapes yet; adding the LED here (or any badge) without
+              `relative` would shrink the whole phone layout to ~73%. */}
+          <nav aria-label="Settings sections" className="relative -mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
             {visibleSections.map((s) => navItem(s, true))}
           </nav>
           {/* Desktop: sticky LED rail */}

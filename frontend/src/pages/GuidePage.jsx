@@ -109,8 +109,11 @@ export default function GuidePage({ helpOnly = false }) {
       ? 'mx-auto max-w-5xl xl:grid xl:grid-cols-[minmax(0,1fr)_190px] xl:items-start xl:gap-7'
       : 'lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:items-start lg:gap-7 xl:grid-cols-[210px_minmax(0,1fr)_190px]'}>
       {!helpOnly && <aside>
-        {/* Mobile: horizontal chapter chips */}
-        <nav aria-label="Guide chapters" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
+        {/* Mobile: horizontal chapter chips. `relative` for the same reason as
+            the Settings and Dataset rails — an absolutely positioned descendant
+            (an `.sr-only` label is one) escapes an unpositioned scroller and
+            widens the document past the viewport. */}
+        <nav aria-label="Guide chapters" className="relative -mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden">
           {CHAPTERS.map((c) => navItem(c, true))}
         </nav>
         {/* Desktop: sticky numbered chapter rail */}
