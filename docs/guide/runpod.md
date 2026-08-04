@@ -45,8 +45,11 @@ Budget for this. The built image is **32.1 GB uncompressed** (measured), so the 
 | **Container start command** | **leave empty** |
 | **Expose HTTP ports** | `5050` |
 | **Network volume mount path** | `/comfy/mnt` |
+| **Container disk** | at least **60 GB** — see below |
 
 The start command must stay empty. `Dockerfile.gpu` deliberately sets neither `ENTRYPOINT` nor `CMD` so that the base image's own `/comfyui-nvidia_init.bash` runs — it owns the UID/GID remap and the ComfyUI install cycle. Filling in a start command replaces it and nothing starts.
+
+The container disk is not the network volume, and the image does not land on the volume. RunPod unpacks the image onto the container disk, so that disk alone has to hold all **32.1 GB** of it before anything runs — the volume you attached at `/comfy/mnt` does not help. RunPod's default is well under that. The 60 GB above is the image plus room for the first-boot CUDA wheel install and a working temp directory; **the true minimum has not been measured**, so treat it as headroom rather than a threshold.
 
 Environment variables:
 
@@ -102,8 +105,25 @@ A 404 from `*.proxy.runpod.net` is RunPod telling you **nothing is listening on 
 | `ERROR: Directory /comfy/mnt owned by unexpected user/group` | The volume is root-owned. Set `WANTED_UID=0`/`WANTED_GID=0`. Nothing starts at all. |
 | `[studio] ERROR: … is not writable by uid` | The studio's data directory could not be created or written, so only the studio half is missing — ComfyUI comes up beside it. |
 | ComfyUI's `To see the GUI go to:` but no `[studio] starting on port 5050` | Same shape as the row above. The `[studio]` lines just before it name the reason; the launcher never aborts the container, so ComfyUI keeps running either way. |
+| `error starting sidecar: … runc create failed`, repeating | Read it as a symptom, not the fault — see below. |
 
 A pod that is merely still installing is not a 404 with an error in the log — it is a 404 with the log still moving. First boot downloads several GB of CUDA wheels; the image allows 1200 seconds for it.
+
+## `error starting sidecar` in a loop
+
+This one is worth its own section because it points away from the real cause. The sidecar is RunPod's container, not yours, and the failure is reported before any line of your image's log appears:
+
+```text
+error starting sidecar: … runc create failed: unable to create new parent process:
+  namespace path: lstat /proc/492823/ns/user: no such file or directory
+error starting sidecar: … runc create failed: unable to start container process:
+  can't get final child's PID from pipe: EOF
+start container for <your image>: begin
+```
+
+The sidecar attaches by joining your container's user namespace through its PID. When the container's init script exits within a second — which is exactly what the first two rows of the table above do — that PID is gone by the time the sidecar looks for it, and runc reports the missing namespace or a child that died without reporting back. The pod then restarts and does it again, so the sidecar error is all you see.
+
+So this message means **your container is exiting immediately**; it says nothing about which of the reasons above did it. Do not redeploy on another machine on the strength of it — observed on a pod whose only fault was `BASE_DIRECTORY` set to a path on an empty volume, and it went away the moment that variable was removed. Scroll the log to the first `=== Starting script` block and read the `!! ERROR:` line inside it; that is the fault. Only if there is no such block, and no output from your image at all, is the host or a container disk too small for the image worth suspecting.
 
 ## Why the volume mounts at `/comfy/mnt`
 
