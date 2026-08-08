@@ -456,6 +456,55 @@ export const WHATS_NEW = [
     title: 'Every Krea build on your disk is offered, warning and all',
     blurb:
       'A checkpoint measured to render noise under the identity-edit LoRA used to be removed from every Krea list, so a file sitting in your own Krea folder was simply absent, with nothing on screen saying it existed or why it had gone. Choosing is yours: those builds are listed again and you can select them. What the app still will not do is pick one FOR you when nothing is pinned, because a base chosen in silence has already sent a run onto the wrong model without anyone noticing until the output was wrong. It is only elected automatically when it is the only Krea build you have, which beats refusing to run at all.',
+    id: '2026-08-08-shot-threshold-recut',
+    date: '2026-08-08',
+    title: 'Cut a rush again at another sensitivity, in seconds instead of minutes',
+    blurb:
+      'Shot detection never found cuts — it scored every frame, and the shot list was '
+      + 'a threshold applied to that score. The threshold was 0.5, it comes from the '
+      + 'detector paper where it is never justified, and disagreeing with it cost a '
+      + 'full pass over the file. The scores are kept now, so the new 🎬 Find shots '
+      + 'panel previews how many shots each threshold would give you on YOUR footage, '
+      + 'and re-cuts a whole folder with no decoding and no GPU at all. Per bank, and '
+      + 'per file for the folder that holds both a single take and a tight edit.',
+    to: '/video-bank',
+  },
+  {
+    id: '2026-08-08-single-shot-file',
+    date: '2026-08-08',
+    title: 'Tell the app a video has no cuts, and it will stop inventing them',
+    blurb:
+      'On footage that is one continuous take, the failure was never a missed cut — '
+      + 'it was a file quietly chopped into six fragments that each trained on a third '
+      + 'of a gesture. ▣ Single shot, on any file card, replaces its shots with one '
+      + 'covering the whole file, and every bulk pass leaves that file alone '
+      + 'afterwards. ↻ Re-detect this file is the way back.',
+    to: '/video-bank',
+  },
+  {
+    id: '2026-08-08-dissolve-chip',
+    date: '2026-08-08',
+    title: 'A shot that opens on a cross-fade now says so',
+    blurb:
+      'The detector always produced a second reading describing how wide each '
+      + 'transition was, and the app computed it and threw it away. Shots sitting '
+      + 'against a slow dissolve now carry an amber “dissolve 18f” chip, so you can '
+      + 'see before training that a clip’s first frames are a fade of the previous '
+      + 'shot — a model trained on those learns to open on a fade.',
+    to: '/video-bank',
+  },
+  {
+    id: '2026-08-08-min-shot-seconds',
+    date: '2026-08-08',
+    title: 'The shortest-shot floor is a duration now, not a frame count',
+    blurb:
+      'The old floor was 5 frames, which is 0.2 s on a 25 fps rush and 0.08 s on a '
+      + '60 fps one — nobody chose that, and it meant something different on every '
+      + 'file in a mixed folder. It is 0.6 s by default now, converted through each '
+      + 'file’s own rate. A short shot can also be glued onto its neighbour instead '
+      + 'of dropped, which keeps the footage. If you had set the old key by hand, it '
+      + 'still wins.',
+    to: '/video-bank',
   },
   {
     id: '2026-08-08-phone-lightbox-image-first',

@@ -2517,6 +2517,75 @@ cut by hand; those stay, and may overlap the fresh ones. And editing a shot that
 is already in a built dataset is allowed: the dataset stored its own copy of the
 bounds when it was encoded, so nothing already on disk changes.
 
+## Change how often a rush gets cut
+
+Shot detection does not find cuts. It scores every frame — *how likely is a
+transition here* — and the shot list is a **threshold** applied to that score
+afterwards. The number that was applied for you is 0.5, which comes from the
+detector's own paper, where it is never justified. It is a convention.
+
+That mattered because disagreeing with it used to cost a full pass over the
+file. It no longer does: the scores are kept next to the bank, so changing the
+threshold and re-cutting an entire folder happens with no decoding and no GPU at
+all. Unfold **🎬 Find shots — cut sensitivity** above the gallery.
+
+- **👁 Preview** counts what each threshold would actually leave you — on *your*
+  files, floor included — and says how each one differs from the value in force.
+  "4 shots" means nothing on its own; "8 fewer than now" is a decision.
+- **Save** stores the number and cuts nothing. **Save & re-cut this bank** does
+  both, in seconds.
+- **Leave the field empty to inherit** the app default. Empty is not zero — zero
+  is a threshold that fires on every single frame and shatters a rush into
+  hundreds of fragments.
+
+**Which way to move it.** Higher cuts less often: fewer, longer shots, and far
+fewer cuts invented inside footage that never had any. Lower catches the
+boundaries a slow dissolve hides, and finds more of them everywhere else too. If
+your folder is mostly single takes, 0.6–0.7 is the direction; if it is edited
+material, stay at 0.5 or go under it. Nobody has measured the right answer for
+amateur footage — that is exactly why the preview exists.
+
+**One folder is rarely one kind of footage**, so a single file can carry its own
+threshold and be re-cut on its own: **↻ Re-detect this file**, on the file's card
+under **Files**.
+
+### This file is one single take
+
+Some rushes have no cuts at all, and the failure there is not a missed
+boundary — it is a file quietly chopped into six fragments that each train on a
+third of a gesture. **▣ Single shot**, on the file's card, replaces every shot of
+that file with one covering the whole thing.
+
+It sticks. The bank-wide re-cut and the detection pass both walk past a file
+marked this way, and the card says **Single shot** so you can see why it never
+changes. The way back is **↻ Re-detect this file** on that same card.
+
+**↻ on a single file replaces hand-made cuts, and the bank-wide re-cut never
+does.** That asymmetry is deliberate — it is what makes ↻ the way back from ▣ —
+and both gestures ask before they act. Shots already promoted into a dataset are
+kept in every case; the dataset stored its own copy of the bounds when it was
+built.
+
+### Cut, or dissolve
+
+The detector produces a second output describing how *wide* each transition is,
+which the app used to compute and discard. It is now read, and a shot whose
+first or last frames are a cross-fade of its neighbour carries an amber
+**dissolve 18f** chip on its tile — the frame count is the width of the fade.
+
+No other tool in this space shows this, and it is worth knowing before you train
+on a clip: a shot that opens on a cross-fade of another shot teaches a model to
+open on a cross-fade. The chip is advisory, exactly like the quality flags — it
+changes nothing about the cut, and the width-to-kind rule is a reading of how the
+network was trained, not something anyone has measured on amateur footage.
+
+**Two limits worth saying out loud.** A file detected before this shipped has no
+stored scores, so it cannot be re-cut instantly — the panel says so and offers
+🎬 Find shots, which fills them in on the way past. And a re-cut replaces shots,
+so the replaced ones lose their thumbnails and quality scores: those measured
+bounds that no longer exist. Run 🖼 Make thumbnails once when you are done
+cutting, not after every change.
+
 ## Find scenes in a video bank by typing a word
 
 A folder of rushes is a haystack whose needles have no names. The quality cuts
