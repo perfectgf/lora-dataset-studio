@@ -40,9 +40,15 @@ def _promote(clip):
     svc.db.session.commit()
 
 
-def _probe(_path):
+def _probe(path):
+    """The probe seam. It reports the file's REAL size on purpose: the cached
+    re-detection uses that size as its staleness tripwire, and a fake probe that
+    invented one would make every test here take the decode path while looking
+    like it took the cache."""
+    import os
     return {'duration_s': 4.0, 'fps_native': 25.0, 'width': 640, 'height': 360,
-            'codec': 'h264', 'probe_state': 'ok', 'file_size': 4096}
+            'codec': 'h264', 'probe_state': 'ok',
+            'file_size': os.path.getsize(path)}
 
 
 def _vector(peaks, n=100):
@@ -386,6 +392,77 @@ def test_the_detection_pass_itself_skips_a_declared_single_take(app, bank):
         svc.start_detect(app, LOCAL_USER, bank_id, redetect=True)
 
         assert len(_clips(bank_id)) == 1
+
+
+def test_find_shots_again_reuses_the_measurement_it_already_paid_for(app, bank,
+                                                                     monkeypatch):
+    """The expensive half of that pass is decoding, and it has already been paid
+    for. Re-running it over a bank that has been through it once must not decode
+    a single frame."""
+    with app.app_context():
+        bank_id, _source_id = bank
+
+        def forbidden(*_a, **_kw):
+            raise AssertionError('Find shots again must not re-decode a cached file')
+        monkeypatch.setattr(svc, '_detect_source', forbidden)
+
+        svc.start_detect(app, LOCAL_USER, bank_id, redetect=True)
+
+        assert len(_clips(bank_id)) == 3
+        # And it SAYS it reused them. A pass that silently finished in a second
+        # where it used to take minutes reads as a pass that did nothing.
+        assert 're-cut from cache' in (svc.activity(bank_id) or {}).get('detail', '')
+
+
+def test_a_source_file_that_changed_on_disk_is_decoded_again(app, bank,
+                                                             monkeypatch):
+    """A bank points at a LIVE folder, and people overwrite files in it. A cache
+    keyed on nothing but the source id would re-cut the NEW file at the OLD
+    file's boundaries and report a clean run."""
+    with app.app_context():
+        bank_id, source_id = bank
+        source = VideoSource.query.get(source_id)
+        source.file_size = (source.file_size or 32) + 1024   # as if re-exported
+        svc.db.session.commit()
+        seen = []
+
+        def spy(path, fps_native=None, **kwargs):
+            seen.append(path)
+            return _detect(_vector({40: 0.6, 70: 0.95}))(path, fps_native, **kwargs)
+        monkeypatch.setattr(svc, '_detect_source', spy)
+
+        svc.start_detect(app, LOCAL_USER, bank_id, redetect=True)
+
+        assert len(seen) == 1
+
+
+def test_a_file_with_no_cache_is_decoded_rather_than_skipped(app, bank,
+                                                             monkeypatch):
+    with app.app_context():
+        bank_id, source_id = bank
+        shot_probs.forget(bank_id, source_id)
+        seen = []
+
+        def spy(path, fps_native=None, **kwargs):
+            seen.append(path)
+            return _detect(_vector({40: 0.6, 70: 0.95}))(path, fps_native, **kwargs)
+        monkeypatch.setattr(svc, '_detect_source', spy)
+
+        svc.start_detect(app, LOCAL_USER, bank_id, redetect=True)
+
+        assert len(seen) == 1
+
+
+def test_a_cached_re_detection_still_spares_hand_made_cuts(app, bank):
+    with app.app_context():
+        bank_id, _source_id = bank
+        hand = _clips(bank_id)[0]
+        hand.detector = 'manual'
+        svc.db.session.commit()
+
+        svc.start_detect(app, LOCAL_USER, bank_id, redetect=True)
+
+        assert VideoClip.query.get(hand.id) is not None
 
 
 def test_an_explicit_re_detection_of_that_one_file_undoes_it(app, bank):

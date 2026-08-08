@@ -976,11 +976,25 @@ def _detect_job(bank_id, redetect):
         rows = q.order_by(VideoSource.id.asc()).all()
         bank = db.session.get(VideoBank, bank_id)
         bank_jobs.progress(job, done=0, total=len(rows), detail='detecting shots')
-        made = failed = 0
+        made = failed = cached = 0
         for src in rows:
             if bank_jobs.cancelled(job):
                 break
             path = _abs_source_path(bank, src.relpath) if bank else None
+            reuse = _reusable_probs(bank_id, src, path) if redetect else None
+            if reuse is not None:
+                # The expensive half of this pass is DECODING, and it has
+                # already been paid for this file. Re-cutting from the stored
+                # vector gives byte-identical bounds at the same threshold and
+                # takes milliseconds, so "Find shots again" over a bank that has
+                # already been through it once is now instant.
+                _drop_clips_of(bank_id, src.id, replace_manual=False)
+                made += _insert_clips(bank_id, src, reuse)
+                cached += 1
+                src.detect_state = 'ok'
+                db.session.commit()
+                bank_jobs.bump(job)
+                continue
             try:
                 if path is None:
                     raise OSError('source file is outside the bank folder')
@@ -1012,11 +1026,46 @@ def _detect_job(bank_id, redetect):
             db.session.commit()
             bank_jobs.bump(job)
         detail = f'done — {made} clips found'
+        if cached:
+            detail += f', {cached} re-cut from cache'
         if failed:
             detail += f', {failed} files failed detection'
         bank_jobs.progress(job, detail=detail)
-        return {'clips': made, 'failed': failed}
+        return {'clips': made, 'failed': failed, 'from_cache': cached}
     return run
+
+
+def _reusable_probs(bank_id, src: VideoSource, path):
+    """The clips a cached vector would give for this file — or None to decode it.
+
+    WHY THIS IS GUARDED BY THE FILE SIZE. A bank points at a LIVE folder: people
+    keep dropping files into it, and they also re-export and overwrite them. A
+    cache keyed on nothing but the source id would then re-cut the NEW file at
+    the OLD file's boundaries and report a clean run — bounds that describe
+    footage nobody has any more, which is the one failure this whole lane is
+    built to avoid. The size recorded by the probe is a cheap, honest tripwire:
+    it does not catch a same-size re-encode, and a genuinely changed file
+    virtually never keeps its byte count.
+
+    Anything unresolvable — no cache, no probed rate, no size on record, a size
+    that moved — falls through to a real pass, which re-decodes and refills the
+    cache. Being wrong in that direction costs time; being wrong in the other
+    costs correctness.
+    """
+    from . import shot_probs
+    if not src.fps_native or not src.file_size or not path:
+        return None
+    try:
+        if os.path.getsize(path) != src.file_size:
+            return None
+    except OSError:
+        return None
+    probs = shot_probs.load_probs(bank_id, src.id)
+    if not probs or not probs.get('single'):
+        return None
+    return _shot_config().clips_from_probs(
+        probs, fps_native=src.fps_native,
+        threshold=shot_threshold_for(bank_id, src))
 
 
 def _insert_clips(bank_id, src: VideoSource, shots) -> int:

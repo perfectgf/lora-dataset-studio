@@ -2579,6 +2579,13 @@ open on a cross-fade. The chip is advisory, exactly like the quality flags — i
 changes nothing about the cut, and the width-to-kind rule is a reading of how the
 network was trained, not something anyone has measured on amateur footage.
 
+**🎬 Find shots again is instant too, now.** Re-running the pass over a bank it
+has already been through re-cuts from the stored scores instead of decoding
+again, and the progress line says how many files it reused. It falls back to a
+real pass for any file whose size on disk no longer matches what the scan
+recorded — you re-exported it, so its old boundaries describe footage that is not
+there any more.
+
 **Two limits worth saying out loud.** A file detected before this shipped has no
 stored scores, so it cannot be re-cut instantly — the panel says so and offers
 🎬 Find shots, which fills them in on the way past. And a re-cut replaces shots,
