@@ -30,8 +30,6 @@ routinely variable-frame-rate, and the detector never saw a timestamp.
 """
 from __future__ import annotations
 
-import math
-
 DETECTOR_ID = 'transnetv2'
 
 DEFAULT_THRESHOLD = 0.5
@@ -335,25 +333,3 @@ def suggested_thresholds(current):
     if resolved is not None:
         values.add(round(resolved, 2))
     return sorted(values)
-
-
-def single_shot_confidence(single_probs):
-    """The highest transition probability anywhere in the file.
-
-    Low and flat means nothing in this file looks like a cut, which is the
-    signal a single-take corpus needs and no tool exposes. Advisory only, and
-    NOT used to decide anything automatically: the mapping from this number to
-    "this is one shot" has not been measured, only reasoned about.
-    """
-    values = [p for p in (single_probs or []) if p == p]
-    return float(max(values)) if values else 0.0
-
-
-def seconds_to_frame(seconds, fps):
-    """Whole frame index at `seconds`, floor'd — the inverse of the conversion
-    build_clips does, used where a hand-made span has to be described in the
-    detector's own units."""
-    try:
-        return max(0, int(math.floor(float(seconds) * float(fps))))
-    except (TypeError, ValueError, ZeroDivisionError):
-        return 0
