@@ -22,6 +22,8 @@ import json
 import pytest
 
 from app.services import video_bank_service as svc
+
+from _video_extra import detect_source_stub
 from app.services import video_metrics as vm
 
 
@@ -96,9 +98,9 @@ def seams(monkeypatch):
     monkeypatch.setattr(svc, '_probe_file', lambda _p: {
         'duration_s': 120.0, 'fps_native': 30.0, 'width': 1920, 'height': 1080,
         'codec': 'h264', 'probe_state': 'ok', 'file_size': 4096})
-    monkeypatch.setattr(svc, '_detect_shots', lambda _p, _f=None: [
+    monkeypatch.setattr(svc, '_detect_source', detect_source_stub([
         {'start_s': 0.0, 'end_s': 8.0, 'start_frame': 0, 'end_frame': 240},
-        {'start_s': 41.25, 'end_s': 41.75, 'start_frame': 1237, 'end_frame': 1252}])
+        {'start_s': 41.25, 'end_s': 41.75, 'start_frame': 1237, 'end_frame': 1252}]))
     monkeypatch.setattr(svc, '_write_thumbnail', lambda *a, **k: True)
 
 

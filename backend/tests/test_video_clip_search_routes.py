@@ -24,7 +24,7 @@ from app.services import video_clip_search as vcs
 # The video-extra gate answers for the MACHINE, so without this these route
 # tests pass where PyAV/ffmpeg are installed and 503 where they are not.
 # Imported for its autouse effect; see _video_extra.py for why not importorskip.
-from _video_extra import video_extra_ready  # noqa: F401
+from _video_extra import detect_source_stub, video_extra_ready  # noqa: F401
 
 
 @pytest.fixture()
@@ -32,9 +32,9 @@ def seams(monkeypatch):
     monkeypatch.setattr(svc, '_probe_file', lambda _p: {
         'duration_s': 120.0, 'fps_native': 30.0, 'width': 1920, 'height': 1080,
         'codec': 'h264', 'probe_state': 'ok', 'file_size': 4096})
-    monkeypatch.setattr(svc, '_detect_shots', lambda _p, _f=None: [
+    monkeypatch.setattr(svc, '_detect_source', detect_source_stub([
         {'start_s': 0.0, 'end_s': 8.0, 'start_frame': 0, 'end_frame': 240},
-        {'start_s': 41.25, 'end_s': 50.0, 'start_frame': 1237, 'end_frame': 1500}])
+        {'start_s': 41.25, 'end_s': 50.0, 'start_frame': 1237, 'end_frame': 1500}]))
     monkeypatch.setattr(svc, '_write_thumbnail', lambda *a, **k: True)
 
 

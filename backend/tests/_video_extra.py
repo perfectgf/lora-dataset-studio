@@ -25,6 +25,21 @@ sentence this fixture suppresses). Last patch wins, so nothing here weakens them
 import pytest
 
 
+def detect_source_stub(clips, probs=None, fps=30.0):
+    """A `video_bank_service._detect_source` stand-in for a test whose subject
+    is anything BUT the detector.
+
+    Built here rather than inline in each test file so the shape of that seam
+    lives in ONE place: it grew a probability vector once, and six copies of a
+    hand-written stub would have gone on agreeing with the old shape while
+    production had already moved past it."""
+    def run(_path, fps_native=None, **_options):
+        return {'clips': list(clips), 'probs': probs,
+                'fps_native': fps_native or fps,
+                'frame_count': len(probs['single']) if probs else None}
+    return run
+
+
 @pytest.fixture(autouse=True)
 def video_extra_ready(monkeypatch):
     """Report every video piece as installed, for this module only."""

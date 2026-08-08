@@ -396,6 +396,20 @@ _SCHEMA_ADDITIONS = (
     # NULL is the honest value for every file a user pointed a bank at by hand —
     # their origin was never recorded and must not be invented.
     ('video_source', 'source_metadata', 'TEXT'),
+    # 🎬 Find shots v2: the detector's threshold, overridable per bank and per
+    # file. NULL means "inherit", which is deliberately NOT the same as 0.0 —
+    # every bank that predates this simply keeps the global default it was cut
+    # with, and nothing is re-cut behind anyone's back.
+    ('video_bank', 'shot_threshold', 'REAL'),
+    ('video_source', 'shot_threshold', 'REAL'),
+    # Whether this file's per-frame probabilities are cached on disk. A source
+    # detected before the cache existed reads NULL, which is exactly right: it
+    # cannot be re-cut instantly and the UI offers it a real pass instead.
+    ('video_source', 'probs_state', 'VARCHAR(12)'),
+    # Cut or dissolve, and how wide, at each end of a shot. NULL on every clip
+    # cut before the detector's second head was kept — no label rather than a
+    # guessed one.
+    ('video_clip', 'transition_json', 'TEXT'),
 )
 
 # Indexes that only a FRESH database ever got. `index=True` on a model column is

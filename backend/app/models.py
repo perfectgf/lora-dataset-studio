@@ -1253,6 +1253,14 @@ class VideoBank(db.Model):
     # Persisted summary of the last pipeline run (JSON), same role as
     # ImageBank.pipeline_report: the outcome is still there tomorrow morning.
     pipeline_report = db.Column(Text, nullable=True)
+    # This bank's shot-detection threshold, or NULL to inherit the global one.
+    # NULL is "inherit" and 0.0 is a threshold that cuts everywhere — they are
+    # not the same value and the column is nullable so they never collapse into
+    # one. A bank of single takes and a bank of tight edits want different
+    # numbers, and no global default can be right for both; see
+    # services/shot_boundaries for why 0.5 was never measured in the first
+    # place. Additive — see _SCHEMA_ADDITIONS.
+    shot_threshold = db.Column(Float, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(DateTime, default=db.func.current_timestamp(),
                            onupdate=db.func.current_timestamp())
@@ -1295,6 +1303,24 @@ class VideoSource(db.Model):
     # recorded an origin for those and inventing one would be a claim. Additive
     # column (see _SCHEMA_ADDITIONS).
     source_metadata = db.Column(Text, nullable=True)
+    # NULL = no per-frame probabilities are cached for this file | 'ok'. Only
+    # the STATE lives here; the two vectors are an .npz next to the bank's
+    # thumbnails (services/shot_probs), for the same reason the search lane
+    # keeps its vectors out of SQLite — a hundred thousand floats per file is a
+    # blob store, not a column, and every reader wants the whole vector at once.
+    # The state is here because it is what the payload and the "instant re-cut"
+    # affordance read, and both must be answerable without touching numpy.
+    #
+    # The PATH is derived (shot_probs.probs_path), never stored: an absolute
+    # path in a row survives a move of the app's data folder as a lie, and this
+    # file is derived data whose home is already decided by the bank id.
+    # Additive — see _SCHEMA_ADDITIONS.
+    probs_state = db.Column(String(12), nullable=True)
+    # This FILE's shot-detection threshold, or NULL to inherit its bank's (which
+    # may itself inherit the global default). The per-file level exists because
+    # a mixed corpus is mixed inside one folder: the single take and the tightly
+    # edited scene sit side by side, and no bank-level number is right for both.
+    shot_threshold = db.Column(Float, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
 
     def __repr__(self):
@@ -1346,6 +1372,16 @@ class VideoClip(db.Model):
     # unit, and adding a metric to the scan must not need a migration.
     # NULL = the scan has not reached this clip. Additive — see _SCHEMA_ADDITIONS.
     metrics_json = db.Column(Text, nullable=True)
+    # What KIND of transition sits at each end of this shot, as JSON:
+    # {'start': {'kind': 'cut'|'dissolve', 'width': int}|null, 'end': ...}.
+    # Read from the detector's SECOND head (all_frame_pred), which the worker
+    # used to compute and throw away — its width is the only signal anywhere
+    # that tells a hard cut from a slow dissolve. NULL means nobody measured it:
+    # a hand-made cut, or a file detected before the head was persisted. One
+    # JSON column rather than four scalars, same argument as metrics_json — it
+    # is written and read as a unit and gaining a field must not need a
+    # migration. Advisory, like every other flag in this bank. Additive.
+    transition_json = db.Column(Text, nullable=True)
     # 🔎 Search pass: NULL = never embedded | 'ok' | 'unreadable'. Only the STATE
     # lives here; the vectors themselves are a .npz next to the bank's thumbnails
     # (services/video_clip_search), for the same reason the image lane keeps its

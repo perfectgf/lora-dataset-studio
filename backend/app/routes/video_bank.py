@@ -239,6 +239,89 @@ def video_bank_source_clip_create(bank_id, source_id):
                  data.get('start_s'), data.get('end_s'))
 
 
+# --- Find shots: the threshold, the preview, and the re-cut ---------------------
+#
+# Every route below rides the same `_edit` envelope as a trim, and for the same
+# reason: they change BOUNDS, which is what every later pass and the encoder
+# read. They are refused while a pass owns the bank.
+#
+# None of them is a 202. A re-cut reads a cached vector and does arithmetic —
+# there is no decode anywhere in it — so putting it behind the job queue would
+# make an instant operation look slow AND lock the bank against the next click.
+
+@bp.post('/video-bank/<int:bank_id>/shot-threshold')
+def video_bank_shot_threshold(bank_id):
+    """Body {threshold: 0..1 | null}. null CLEARS the override — the bank falls
+    back to the global default, which is not the same as setting 0.
+
+    Saves the number and cuts nothing. Re-cutting is a separate click on
+    purpose: changing a value must not silently rewrite hundreds of rows."""
+    data = request.get_json(silent=True) or {}
+    return _edit(bank_id, svc.set_bank_shot_threshold, LOCAL_USER, bank_id,
+                 data.get('threshold'))
+
+
+@bp.post('/video-bank/<int:bank_id>/source/<int:source_id>/shot-threshold')
+def video_bank_source_shot_threshold(bank_id, source_id):
+    """Body {threshold: 0..1 | null} for ONE file. A mixed corpus is mixed
+    inside one folder, and no bank-level number is right for every file in it."""
+    data = request.get_json(silent=True) or {}
+    return _edit(bank_id, svc.set_source_shot_threshold, LOCAL_USER, bank_id,
+                 source_id, data.get('threshold'))
+
+
+@bp.post('/video-bank/<int:bank_id>/shot-dry-run')
+def video_bank_shot_dry_run(bank_id):
+    """Body {source_id?, thresholds?} → "at X you would get N shots", per
+    threshold, from the cache. Writes nothing — the point of a preview is being
+    able to change your mind after seeing it."""
+    data = request.get_json(silent=True) or {}
+    return _edit(bank_id, svc.shot_dry_run, LOCAL_USER, bank_id,
+                 data.get('source_id'), data.get('thresholds'))
+
+
+@bp.post('/video-bank/<int:bank_id>/recut')
+def video_bank_recut(bank_id):
+    """Body {threshold?} — re-cut every file that has a cached vector.
+
+    Spares hand-made cuts, promoted clips, and any file declared a single take.
+    Answers with what it did, INCLUDING what it left alone: a bank where half
+    the sources predate the cache must say so rather than report a clean run."""
+    data = request.get_json(silent=True) or {}
+    return _edit(bank_id, svc.recut_bank, LOCAL_USER, bank_id,
+                 data.get('threshold'))
+
+
+@bp.post('/video-bank/<int:bank_id>/source/<int:source_id>/recut')
+def video_bank_source_recut(bank_id, source_id):
+    """Body {threshold?} — re-cut ONE file, replacing hand-made cuts on it too.
+
+    That is the difference from the bank-wide route, and it is deliberate: this
+    is a gesture on a file the user picked by name, and it is the only way back
+    from "this file is a single take". `replaced_manual` in the answer says how
+    many hand-made cuts went, so the UI can warn BEFORE rather than apologise
+    after.
+
+    503, not 400, when the file has no cached vector: it is a fact about when
+    the file was detected, and the fix is running Find shots on it once."""
+    data = request.get_json(silent=True) or {}
+    try:
+        return _edit(bank_id, svc.recut_source, LOCAL_USER, bank_id, source_id,
+                     data.get('threshold'))
+    except svc.ShotProbsMissing as e:
+        return jsonify({'error': str(e)}), 503
+
+
+@bp.post('/video-bank/<int:bank_id>/source/<int:source_id>/single-shot')
+def video_bank_source_single_shot(bank_id, source_id):
+    """This file is ONE take: replace its clips with a single full-length one.
+
+    Nothing else in this space offers it, and a single-take corpus needs it more
+    than any slider — there the failure is not a missed cut, it is a file
+    quietly chopped into six fragments that each train on a third of a gesture."""
+    return _edit(bank_id, svc.mark_single_shot, LOCAL_USER, bank_id, source_id)
+
+
 #: Container → MIME. `mimetypes.guess_type` is registry-driven on Windows and
 #: answers None for .mkv/.webm on plenty of installs; send_file RAISES on an
 #: unguessable name, which would turn "this player cannot decode Matroska" into
