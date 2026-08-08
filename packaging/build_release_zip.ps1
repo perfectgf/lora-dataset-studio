@@ -35,7 +35,7 @@ New-Item -ItemType Directory -Force $Stage, $Dist | Out-Null
 # the cache that sits beside it shipped ~478 KB of a developer's test run inside
 # a published release. An exclusion list is only as good as its blind spot.
 robocopy (Join-Path $Root 'backend') (Join-Path $Stage 'backend') /E `
-  /XD __pycache__ tests .venv venv .pytest_cache /XF *.pyc *.pyo | Out-Null
+  /XD __pycache__ tests .venv venv .pytest_cache extensions /XF *.pyc *.pyo | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy backend failed ($LASTEXITCODE)." }
 $global:LASTEXITCODE = 0
 
