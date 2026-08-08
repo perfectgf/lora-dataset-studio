@@ -329,6 +329,21 @@ def test_asked_about_that_file_by_name_the_preview_answers_anyway(app, bank):
         assert out['rows'] == [{'threshold': 0.5, 'shots': 3}]
 
 
+def test_a_bank_preview_marks_the_banks_own_value_not_one_files_override(app,
+                                                                         bank):
+    """Every other row's "8 fewer than now" is measured against the row marked
+    in force. Marking a per-file override there would measure the whole bank
+    against a value nothing bank-wide uses."""
+    with app.app_context():
+        bank_id, source_id = bank
+        svc.set_bank_shot_threshold(LOCAL_USER, bank_id, 0.6)
+        svc.set_source_shot_threshold(LOCAL_USER, bank_id, source_id, 0.3)
+
+        assert svc.shot_dry_run(LOCAL_USER, bank_id)['current'] == 0.6
+        assert svc.shot_dry_run(LOCAL_USER, bank_id,
+                                source_id=source_id)['current'] == 0.3
+
+
 def test_the_dry_run_offers_a_ladder_when_asked_for_no_thresholds(app, bank):
     with app.app_context():
         bank_id, source_id = bank

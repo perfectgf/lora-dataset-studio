@@ -1330,8 +1330,18 @@ def shot_dry_run(user_id, bank_id, source_id=None, thresholds=None) -> dict | No
     rows = query.order_by(VideoSource.id.asc()).all()
     if not rows:
         return None
-    current = (shot_threshold_for(bank_id, rows[0]) if source_id is not None
-               else shot_threshold_for(bank_id, rows[0]))
+    # Which value the ladder marks as "in force". For ONE file that is the
+    # file's own resolved threshold; for the whole bank it is the BANK's, with
+    # per-file overrides deliberately ignored — reading the first source's
+    # would mark a row nothing bank-wide actually uses, and that row is the one
+    # every other row's "8 fewer than now" is measured against.
+    if source_id is not None:
+        current = shot_threshold_for(bank_id, rows[0])
+    else:
+        bank = db.session.get(VideoBank, int(bank_id))
+        current = shot_boundaries.resolve_threshold(
+            None, getattr(bank, 'shot_threshold', None),
+            _shot_config().threshold_default())
     ladder = ([_validated_threshold(t) for t in thresholds] if thresholds
               else shot_boundaries.suggested_thresholds(current))
     ladder = [t for t in ladder if t is not None]

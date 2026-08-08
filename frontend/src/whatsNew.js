@@ -456,6 +456,8 @@ export const WHATS_NEW = [
     title: 'Every Krea build on your disk is offered, warning and all',
     blurb:
       'A checkpoint measured to render noise under the identity-edit LoRA used to be removed from every Krea list, so a file sitting in your own Krea folder was simply absent, with nothing on screen saying it existed or why it had gone. Choosing is yours: those builds are listed again and you can select them. What the app still will not do is pick one FOR you when nothing is pinned, because a base chosen in silence has already sent a run onto the wrong model without anyone noticing until the output was wrong. It is only elected automatically when it is the only Krea build you have, which beats refusing to run at all.',
+  },
+  {
     id: '2026-08-08-shot-threshold-recut',
     date: '2026-08-08',
     title: 'Cut a rush again at another sensitivity, in seconds instead of minutes',
