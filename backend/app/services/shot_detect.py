@@ -49,6 +49,7 @@ import sys
 import threading
 
 from .. import config as cfg
+from . import shot_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,15 @@ _SCRIPT = str(cfg.BACKEND_DIR / 'infer' / 'shot_detect_infer.py')
 # interpreters, and a single test asserts they never drift, the same
 # safeguard the watermark detector's model ids already carry.
 DETECTOR_ID = 'transnetv2'
+
+# The child's per-video row shape and the names of its two probability heads.
+# Duplicated from shot_detect_infer for the same reason DETECTOR_ID is — two
+# interpreters, one contract — and pinned by a test that also checks the
+# constant against what the child's `_detect_one` really returns, so a stub
+# cannot stay green against a shape production has already left behind.
+ROW_KEYS = ('path', 'state', 'shots', 'frame_count', 'fps_native', 'error',
+            'probs')
+PROBS_KEYS = ('single', 'all')
 
 DEFAULT_THRESHOLD = 0.5
 # Not a measured constant (unlike, say, the watermark detector's region-area
@@ -126,6 +136,59 @@ def min_shot_frames_default() -> int:
     except (TypeError, ValueError):
         return DEFAULT_MIN_SHOT_FRAMES
     return max(1, value)
+
+
+def legacy_min_shot_frames():
+    """The RAW `shot_detect.min_shot_frames`, or None when the user never set it.
+
+    Distinguishing "set to 5" from "unset" is the whole job of this function:
+    an unset legacy key must not beat the new seconds-based floor, and a key
+    somebody actually wrote must not silently change meaning under them. Never
+    renamed — it is sitting in config files right now."""
+    value = cfg.get('shot_detect.min_shot_frames', None)
+    if value in (None, ''):
+        return None
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def min_shot_seconds_default():
+    """The shortest shot worth offering, as a DURATION. See shot_boundaries for
+    why 0.6 s and why not a frame count."""
+    try:
+        value = float(cfg.get('shot_detect.min_shot_seconds',
+                              shot_boundaries.DEFAULT_MIN_SHOT_SECONDS))
+    except (TypeError, ValueError):
+        return shot_boundaries.DEFAULT_MIN_SHOT_SECONDS
+    return max(0.0, value)
+
+
+def short_shot_policy_default() -> str:
+    """'drop' (what shipped) or 'merge'. An unrecognised value reads as 'drop':
+    a typo in a config file must not invent a third behaviour."""
+    value = str(cfg.get('shot_detect.short_shot_policy',
+                        shot_boundaries.DEFAULT_SHORT_SHOT_POLICY) or '')
+    return value if value in shot_boundaries.SHORT_SHOT_POLICIES \
+        else shot_boundaries.DEFAULT_SHORT_SHOT_POLICY
+
+
+def dissolve_min_frames_default() -> int:
+    """Where 'cut' stops and 'dissolve' starts, in frames. Unmeasured on real
+    footage — a setting on purpose, so a calibration is a number and not a
+    patch (see shot_boundaries.label_transition)."""
+    try:
+        return max(1, int(cfg.get('shot_detect.dissolve_min_frames',
+                                  shot_boundaries.DEFAULT_DISSOLVE_MIN_FRAMES)))
+    except (TypeError, ValueError):
+        return shot_boundaries.DEFAULT_DISSOLVE_MIN_FRAMES
+
+
+def trim_dissolves_default() -> bool:
+    """OFF by default, and it stays off until someone measures the width rule.
+    Turning it on moves every dissolve boundary in the bank."""
+    return bool(cfg.get('shot_detect.trim_dissolves', False))
 
 
 def device_default() -> str:
@@ -212,7 +275,131 @@ def detect_shots(path, *, fps_native=None, threshold=None, min_shot_frames=None,
     return _shots_to_clips(raw.get('shots') or [], fps, min_frames)
 
 
-def _run_worker(paths, *, threshold, device, cancel_file, on_progress):
+def _cut_options(fps_native, *, threshold=None, min_shot_frames=None,
+                 min_shot_seconds=None, policy=None, dissolve_min_frames=None,
+                 trim_dissolves=None):
+    """Everything `shot_boundaries.build_clips` needs, resolved ONCE.
+
+    Explicit argument beats bank/file override beats config default beats the
+    module constant — the same ladder at every entry point, so a re-threshold
+    from cache and a fresh pass cannot end up cutting to different rules."""
+    legacy = legacy_min_shot_frames()
+    if min_shot_frames is not None:
+        min_frames = max(1, int(min_shot_frames))
+    else:
+        if min_shot_seconds is not None:
+            seconds = min_shot_seconds
+        elif cfg.get('shot_detect.min_shot_seconds', None) not in (None, ''):
+            seconds = min_shot_seconds_default()
+        elif legacy is not None:
+            # Only the legacy key is set — leaving `seconds` None is what lets
+            # `min_shot_frames_for` hand the user back the floor they wrote.
+            seconds = None
+        else:
+            seconds = shot_boundaries.DEFAULT_MIN_SHOT_SECONDS
+        min_frames = shot_boundaries.min_shot_frames_for(
+            fps_native, min_seconds=seconds, min_frames=legacy)
+    return {
+        'threshold': (threshold if threshold is not None else threshold_default()),
+        'min_frames': min_frames,
+        'policy': policy or short_shot_policy_default(),
+        'dissolve_min_frames': (dissolve_min_frames if dissolve_min_frames
+                                is not None else dissolve_min_frames_default()),
+        'trim_dissolves': (trim_dissolves if trim_dissolves is not None
+                           else trim_dissolves_default()),
+    }
+
+
+def clips_from_probs(probs, *, fps_native, threshold=None, min_shot_frames=None,
+                     min_shot_seconds=None, policy=None,
+                     dissolve_min_frames=None, trim_dissolves=None):
+    """Cut a CACHED probability vector into clips. No subprocess, no GPU, no
+    decode — this is what makes a threshold change instant.
+
+    `probs` is what services/shot_probs.load_probs returns. A vector with no
+    all-frames head still cuts; it just carries no transition labels."""
+    options = _cut_options(fps_native, threshold=threshold,
+                           min_shot_frames=min_shot_frames,
+                           min_shot_seconds=min_shot_seconds, policy=policy,
+                           dissolve_min_frames=dissolve_min_frames,
+                           trim_dissolves=trim_dissolves)
+    return shot_boundaries.build_clips(
+        (probs or {}).get('single') or [], (probs or {}).get('all'),
+        fps=fps_native, **options)
+
+
+def sweep_probs(probs, *, fps_native, thresholds, min_shot_frames=None,
+                min_shot_seconds=None, policy=None):
+    """"At threshold X you would get N shots" for several X, from the cache."""
+    options = _cut_options(fps_native, min_shot_frames=min_shot_frames,
+                           min_shot_seconds=min_shot_seconds, policy=policy)
+    return shot_boundaries.sweep((probs or {}).get('single') or [], thresholds,
+                                 fps=fps_native, min_frames=options['min_frames'],
+                                 policy=options['policy'])
+
+
+def detect_source(path, *, fps_native=None, threshold=None, min_shot_frames=None,
+                  min_shot_seconds=None, policy=None, dissolve_min_frames=None,
+                  trim_dissolves=None, device=None, on_progress=None,
+                  cancel_file=None, want_probs=True):
+    """Run the detector on ONE video and bring back everything it produced.
+
+    Returns {'clips': [...], 'probs': {...}|None, 'fps_native': float,
+             'frame_count': int|None}.
+
+    `detect_shots` is kept as the thin "just the clips" wrapper it always was;
+    this is where the probability cache and the transition labels come from.
+
+    WHEN THE WORKER RETURNS A VECTOR, THE CLIPS ARE REBUILT FROM IT — the
+    worker's own `shots` list is ignored. Two faithful ports of one rule exist
+    (one per interpreter) and a test compares them frame by frame, but letting
+    each feed a different half of the app would mean a re-threshold at the SAME
+    value could disagree with the pass that filled the cache. One producer of
+    clip bounds, always the same one.
+
+    Raises the same two exceptions `detect_shots` does, for the same reasons.
+    """
+    raw = None
+    thr = threshold if threshold is not None else threshold_default()
+    for item in _run_worker([path], threshold=thr, device=device or device_default(),
+                            cancel_file=cancel_file, on_progress=on_progress,
+                            emit_probs=bool(want_probs)):
+        raw = item
+        break
+
+    if raw is None:
+        raise ShotDetectUnavailable(
+            'the shot detector produced no result for this file')
+    if raw.get('state') != 'ok':
+        raise ShotDetectFileError(
+            raw.get('error') or 'shot detection failed for this file')
+
+    fps = fps_native or raw.get('fps_native')
+    if not fps:
+        raise ShotDetectFileError(
+            'no frame rate available to convert frame indices to seconds')
+
+    probs = raw.get('probs') or None
+    if probs and probs.get('single'):
+        clips = clips_from_probs(probs, fps_native=fps, threshold=thr,
+                                 min_shot_frames=min_shot_frames,
+                                 min_shot_seconds=min_shot_seconds,
+                                 policy=policy,
+                                 dissolve_min_frames=dissolve_min_frames,
+                                 trim_dissolves=trim_dissolves)
+    else:
+        # No vector: an older worker, or a caller that did not want one. The
+        # boundaries the child drew are all there is, and they are still right.
+        options = _cut_options(fps, threshold=thr, min_shot_frames=min_shot_frames,
+                               min_shot_seconds=min_shot_seconds, policy=policy)
+        clips = _shots_to_clips(raw.get('shots') or [], fps, options['min_frames'])
+        probs = None
+    return {'clips': clips, 'probs': probs, 'fps_native': float(fps),
+            'frame_count': raw.get('frame_count')}
+
+
+def _run_worker(paths, *, threshold, device, cancel_file, on_progress,
+                emit_probs=False):
     """Launch the child, stream back its per-video rows in input order.
 
     Raises ShotDetectUnavailable if the child never produced anything because
@@ -225,6 +412,7 @@ def _run_worker(paths, *, threshold, device, cancel_file, on_progress):
         'threshold': threshold,
         'device': device,
         'cancel_file': cancel_file or '',
+        'emit_probs': bool(emit_probs),
     }
     python = detector_python()
     env = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')

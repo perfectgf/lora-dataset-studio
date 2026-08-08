@@ -177,13 +177,14 @@ def test_detect_one_reports_shots_frame_count_and_fps(monkeypatch):
     monkeypatch.setattr(infer, '_read_frames',
                         lambda path: ('FAKE_FRAMES', 25.0, 10))
     monkeypatch.setattr(infer, '_run_model',
-                        lambda model, frames: [0.1] * 5 + [0.9] + [0.1] * 4)
+                        lambda model, frames: ([0.1] * 5 + [0.9] + [0.1] * 4,
+                                               [0.0] * 10))
 
     row = infer._detect_one('/src/a.mp4', model=object(), threshold=0.5)
 
     assert row == {'path': '/src/a.mp4', 'state': 'ok',
                    'shots': [[0, 5], [6, 9]], 'frame_count': 10,
-                   'fps_native': 25.0, 'error': None}
+                   'fps_native': 25.0, 'error': None, 'probs': None}
 
 
 # --- the child's stdin/stdout protocol ------------------------------------------
@@ -200,7 +201,8 @@ def _run_main(monkeypatch, capsys, job, *, load_ok=True, rows=None):
     if rows is not None:
         it = iter(rows)
         monkeypatch.setattr(infer, '_detect_one',
-                            lambda path, model, threshold: next(it))
+                            lambda path, model, threshold, emit_probs=False:
+                            next(it))
     rc = infer.main()
     return infer, rc
 
@@ -500,7 +502,7 @@ def test_detect_shots_sends_the_resolved_threshold_and_device(monkeypatch):
 
     job = json.loads(sink['raw'])
     assert job == {'videos': ['/src/a.mp4'], 'threshold': 0.7, 'device': 'cuda',
-                   'cancel_file': ''}
+                   'cancel_file': '', 'emit_probs': False}
 
 
 def test_detect_shots_falls_back_to_config_defaults(monkeypatch):
