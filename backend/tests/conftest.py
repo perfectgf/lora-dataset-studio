@@ -130,6 +130,9 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv('LDS_DATA_DIR', str(tmp_path / 'data'))
     monkeypatch.setenv('LDS_CONFIG', str(tmp_path / 'config.json'))
     monkeypatch.setenv('LDS_ENV', str(tmp_path / '.env'))
+    # A developer may have real extensions cloned into backend/extensions/;
+    # the suite must never load them. Point the loader at an empty dir.
+    monkeypatch.setenv('LDS_EXTENSIONS_DIR', str(tmp_path / 'no-extensions'))
     import app.config as _cfg
     monkeypatch.setattr(_cfg, 'ENV_PATH', tmp_path / '.env')   # never touch the real .env in tests
     # config.py caches load_config() in a module-level global keyed on nothing but
