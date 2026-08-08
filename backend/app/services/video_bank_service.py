@@ -1287,8 +1287,18 @@ def shot_dry_run(user_id, bank_id, source_id=None, thresholds=None) -> dict | No
               else shot_boundaries.suggested_thresholds(current))
     ladder = [t for t in ladder if t is not None]
     totals = {t: 0 for t in ladder}
-    answered = skipped = 0
+    answered = skipped = single = 0
     for src in rows:
+        if source_id is None and src.detect_state == SINGLE_SHOT_STATE:
+            # A bank-wide preview must count what the bank-wide RE-CUT would
+            # produce, and that pass walks past a declared single take. Counting
+            # it here promised two shots for a file that would keep its one —
+            # a preview that does not match the action it previews is worse than
+            # no preview. Asked about that file BY NAME the answer is different:
+            # the per-file re-cut does apply to it, and is the way back from the
+            # declaration.
+            single += 1
+            continue
         probs = shot_probs.load_probs(bank_id, src.id)
         if not probs or not probs.get('single') or not src.fps_native:
             skipped += 1
@@ -1298,7 +1308,8 @@ def shot_dry_run(user_id, bank_id, source_id=None, thresholds=None) -> dict | No
                                               thresholds=ladder):
             totals[row['threshold']] = totals.get(row['threshold'], 0) + row['shots']
     return {'rows': [{'threshold': t, 'shots': totals.get(t, 0)} for t in ladder],
-            'sources': answered, 'skipped': skipped, 'current': current}
+            'sources': answered, 'skipped': skipped, 'single_shot': single,
+            'current': current}
 
 
 def mark_single_shot(user_id, bank_id, source_id) -> dict | None:

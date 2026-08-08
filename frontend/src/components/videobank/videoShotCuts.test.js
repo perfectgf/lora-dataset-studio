@@ -102,6 +102,15 @@ test('a preview over an empty bank says so rather than showing nothing', () => {
   assert.match(dryRunSummary({ rows: [], sources: 0, skipped: 0 }), /no file/i)
 })
 
+test('files left out because they are single takes are named, not "skipped"', () => {
+  // They are not missing anything. The count leaves them out precisely because
+  // the re-cut will too — folding them into "could not be counted" would offer
+  // a fix for something that is working as asked.
+  const note = dryRunSummary({ rows: [], sources: 2, skipped: 0, single_shot: 1 })
+  assert.match(note, /single take/i)
+  assert.ok(!/could not be counted/i.test(note), note)
+})
+
 // --- what a re-cut did ---------------------------------------------------------
 
 test('the re-cut summary reports what it left alone, not only what it did', () => {

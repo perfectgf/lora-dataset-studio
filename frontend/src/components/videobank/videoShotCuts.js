@@ -80,11 +80,23 @@ export function sweepRows(result) {
 export function dryRunSummary(result) {
   const sources = result?.sources || 0
   const skipped = result?.skipped || 0
-  if (!sources && !skipped) return 'No file in this bank has been through Find shots yet.'
-  const head = `Counted over ${sources} ${sources === 1 ? 'file' : 'files'}.`
-  if (!skipped) return head
-  return `${head} ${skipped} ${skipped === 1 ? 'file' : 'files'} could not be `
-    + 'counted — run Find shots on them once and every later change is instant.'
+  const single = result?.single_shot || 0
+  if (!sources && !skipped && !single) {
+    return 'No file in this bank has been through Find shots yet.'
+  }
+  const parts = [`Counted over ${sources} ${sources === 1 ? 'file' : 'files'}.`]
+  if (skipped) {
+    parts.push(`${skipped} ${skipped === 1 ? 'file' : 'files'} could not be `
+      + 'counted — run Find shots on them once and every later change is instant.')
+  }
+  // Named, not folded into `skipped`: these files are not missing anything, and
+  // the count leaves them out precisely because the re-cut will too.
+  if (single) {
+    parts.push(`${single} not counted: you marked `
+      + `${single === 1 ? 'it' : 'them'} as a single take, and a bank re-cut `
+      + 'leaves those alone.')
+  }
+  return parts.join(' ')
 }
 
 /** What a re-cut actually did, INCLUDING what it deliberately left alone. A

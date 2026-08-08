@@ -296,6 +296,33 @@ def test_the_dry_run_reports_how_many_files_it_could_not_answer_for(app, bank):
         assert out['skipped'] == 1
 
 
+def test_a_bank_preview_does_not_count_a_file_the_recut_would_skip(app, bank):
+    """A preview that does not match the action it previews is worse than no
+    preview. The bank-wide re-cut walks past a declared single take, so the
+    bank-wide count must too — and must say it did."""
+    with app.app_context():
+        bank_id, source_id = bank
+        svc.mark_single_shot(LOCAL_USER, bank_id, source_id)
+
+        out = svc.shot_dry_run(LOCAL_USER, bank_id, thresholds=[0.5])
+
+        assert out['rows'] == [{'threshold': 0.5, 'shots': 0}]
+        assert out['single_shot'] == 1 and out['sources'] == 0
+
+
+def test_asked_about_that_file_by_name_the_preview_answers_anyway(app, bank):
+    """The per-file re-cut DOES apply to a declared single take — it is the way
+    back from the declaration — so a preview of that one file must answer."""
+    with app.app_context():
+        bank_id, source_id = bank
+        svc.mark_single_shot(LOCAL_USER, bank_id, source_id)
+
+        out = svc.shot_dry_run(LOCAL_USER, bank_id, source_id=source_id,
+                               thresholds=[0.5])
+
+        assert out['rows'] == [{'threshold': 0.5, 'shots': 3}]
+
+
 def test_the_dry_run_offers_a_ladder_when_asked_for_no_thresholds(app, bank):
     with app.app_context():
         bank_id, source_id = bank
