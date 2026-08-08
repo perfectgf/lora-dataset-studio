@@ -116,6 +116,13 @@ def check_artifact(path: Path) -> list[str]:
         for candidate in path.rglob("*"):
             if candidate.is_file() and candidate.suffix.casefold() == ".exe":
                 errors.append(f"Forbidden executable in release directory: {candidate}")
+            rel = candidate.relative_to(path).as_posix()
+            normalized = rel + "/" if candidate.is_dir() else rel
+            if any(d in normalized for d in FORBIDDEN_MEMBER_DIRS):
+                errors.append(
+                    f"Local-only directory in {path}: {rel} — "
+                    f"backend/extensions/ must never ship"
+                )
         return errors
 
     if path.is_file() and zipfile.is_zipfile(path):
