@@ -599,12 +599,17 @@ def test_caption_route_scopes_and_implies_force(client, app, monkeypatch):
     seen = {}
 
     # `report` is the per-engine writer out-dict the route now passes; a targeted pass
-    # fills it like any other, so the stand-in has to accept (and answer) it.
-    def _fake(user, dataset_id, force=False, mode=None, image_ids=None, report=None):
+    # fills it like any other, so the stand-in has to accept (and answer) it. `outcome`
+    # is the other half — what the pass HANDLED without writing (images the engine
+    # refused), which the route turns into the "N skipped" clause of its answer.
+    def _fake(user, dataset_id, force=False, mode=None, image_ids=None, report=None,
+              outcome=None):
         seen.update(force=force, mode=mode, image_ids=image_ids)
         n = len(image_ids or [])
         if report is not None:
             report['ollama'] = n
+        if outcome is not None:
+            outcome['skipped'] = 0
         return n
 
     ds_id = client.post('/api/dataset/create',

@@ -209,6 +209,8 @@ def public(job) -> dict | None:
     out = {k: job[k] for k in ('phase', 'done', 'total', 'error', 'finished')}
     out['stopping'] = bool(job.get('_stop')) and not job['finished']
     out['stopped'] = bool(job.get('stopped'))
+    out['interrupted'] = bool(job.get('interrupted'))
+    out['note'] = job.get('note')
     return out
 
 
@@ -238,6 +240,21 @@ def mark_stopped(job):
     and the panel would claim a complete preview over a partial run."""
     with _lock:
         job['stopped'] = True
+        job['_touched'] = time.time()
+
+
+def mark_interrupted(job, message):
+    """Record that this pass was cut short by something NOBODY asked for — the
+    watchdog budget elapsing, or the child dying halfway.
+
+    Its own state because both neighbours mislead here. `fail` reads as "this
+    cannot work" for what is really "this needed more time", and it used to
+    discard the pass with it; `stopped` would credit the user with a click they
+    never made. What the panel has to say is the third thing: it was cut short,
+    here is why, and here is what was kept."""
+    with _lock:
+        job['interrupted'] = True
+        job['note'] = str(message)
         job['_touched'] = time.time()
 
 

@@ -12,7 +12,7 @@
  * le curseur côte à côte écrasaient le nom en « l… ».
  */
 import {
-  BLEND_WEIGHT_CHIPS, COMBINE_MAX_WEIGHT, COMBINE_MIN_WEIGHT,
+  BLEND_WEIGHT_CHIPS, COMBINE_MAX_WEIGHT, COMBINE_MIN_WEIGHT, clampBlendWeight,
 } from './loraStack';
 
 export default function BlendWeightRow({
@@ -37,7 +37,24 @@ export default function BlendWeightRow({
           value={weight} onChange={(e) => onWeight(Number(e.target.value))}
           aria-label={`Weight for ${label}`}
           className="min-w-0 flex-1 accent-primary" />
-        <span className="w-9 shrink-0 text-right tabular-nums">{weight.toFixed(2)}</span>
+        {/* The number, TYPEABLE. The slider now spans 0–5, so a 0.05 step is
+            eighty drags from one end to the other and "1.35" is a target you
+            hunt for. The readout was already the exact place the eye lands, so
+            it becomes the field instead of gaining a second one beside it.
+            An unreadable entry (empty, "abc", 12) leaves the weight where it
+            was rather than inventing one — clampBlendWeight decides, once, and
+            is unit-tested. */}
+        <input type="number" inputMode="decimal"
+          min={COMBINE_MIN_WEIGHT} max={COMBINE_MAX_WEIGHT} step="0.05"
+          value={weight}
+          data-testid="blend-weight-number"
+          onChange={(e) => {
+            const next = clampBlendWeight(e.target.value);
+            if (next != null) onWeight(next);
+          }}
+          aria-label={`Weight value for ${label} (0 to ${COMBINE_MAX_WEIGHT})`}
+          title={`Type a weight between ${COMBINE_MIN_WEIGHT} and ${COMBINE_MAX_WEIGHT}`}
+          className="w-14 shrink-0 rounded border border-border bg-app/60 px-1 py-0.5 text-right text-content tabular-nums focus:border-primary focus:outline-none" />
       </label>
 
       {/* Les cases. Cocher = balayer cette valeur ; rien de coché = le curseur

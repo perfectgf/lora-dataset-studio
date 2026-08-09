@@ -58,7 +58,8 @@ def _reflect_stage(line: str, activity_token) -> None:
 
 def caption_images_joycaption(paths, prompt: str | None = None,
                               max_tokens: int = 300, timeout: int = 1800,
-                              activity_token=None, should_cancel=None) -> dict:
+                              activity_token=None, should_cancel=None,
+                              errors_out=None) -> dict:
     """Caption une LISTE d'images en un seul chargement de modèle.
     Retourne {chemin: caption}. Vide si indispo/échec (non-fatal).
 
@@ -74,7 +75,12 @@ def caption_images_joycaption(paths, prompt: str | None = None,
     trips, the subprocess is killed (no half-decoded image is interrupted) and the captions
     gathered so far are returned — the SAME "keep what's written, stop the rest" contract as
     the Ollama loop. Without it the whole batch was uninterruptible: Stop flipped the UI to
-    "Stopping…" while JoyCaption kept captioning every image to the end."""
+    "Stopping…" while JoyCaption kept captioning every image to the end.
+
+    ``errors_out`` (optional dict): filled with {path: reason} for every image the
+    worker REFUSED. A per-image failure never aborts the batch, so without this
+    channel those images left no trace anywhere the user could reach — the run
+    simply reported fewer captions than images and the reason stayed in the log."""
     paths = [p for p in (paths or []) if p and os.path.isfile(p)]
     if not paths or not is_available():
         return {}
@@ -82,7 +88,14 @@ def caption_images_joycaption(paths, prompt: str | None = None,
     venv_python = str(cfg.aitoolkit_path('venv_python'))
     script = str(_SCRIPT)
     # HF_HOME = même cache que l'entraînement (modèle déjà téléchargé là).
-    env = dict(os.environ, HF_HOME=str(cfg.aitoolkit_path('hf_home')), PYTHONIOENCODING='utf-8')
+    # The image INPUT budget rides down too: the worker's own guard runs in another
+    # interpreter and would otherwise enforce the old fixed 16 Mi-pixels / 8192 px,
+    # refusing every DSLR/phone master this install imported under the configured
+    # (default 64 Mi-pixels / 16384 px) budget. The worker downsizes to 384² for the
+    # vision tower anyway, so the accepted image is never held at full size for long.
+    from .input_budget import infer_worker_env
+    env = dict(os.environ, HF_HOME=str(cfg.aitoolkit_path('hf_home')), PYTHONIOENCODING='utf-8',
+               **infer_worker_env())
     started = time.monotonic()
     logger.info('joycaption: starting batch (%d image(s), timeout=%ss)', len(paths), timeout)
     try:
@@ -192,6 +205,8 @@ def caption_images_joycaption(paths, prompt: str | None = None,
     # `captions`/`errors` were filled by the stdout drain as each per-image line arrived, so
     # a graceful Stop (or a timeout) still returns everything produced so far.
     result = {k: v for k, v in captions.items() if v}
+    if errors_out is not None:
+        errors_out.update(errors)
     if errors:
         logger.info('joycaption: %d erreur(s) image : %s',
                     len(errors), list(errors.values())[:3])

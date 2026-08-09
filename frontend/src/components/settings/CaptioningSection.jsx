@@ -182,10 +182,10 @@ export default function CaptioningSection({ config, setField, configDefaults }) 
           </p>
         )}
         <p className="mt-3 text-xs text-content-muted">
-          Current budget: {inputLimit}. Image Bank inference workers (face, aesthetic and NSFW
-          scoring, watermark inpainting) run in a separate Python interpreter and keep their own
-          fixed 16 Mi-pixel / 8192 px guard: a larger image imports and displays, but those
-          workers skip it.
+          Current budget: {inputLimit}. JoyCaption captioning follows it. Image Bank inference
+          workers (face, aesthetic and NSFW scoring, watermark inpainting) run in a separate
+          Python interpreter and keep their own fixed 16 Mi-pixel / 8192 px guard: a larger
+          image imports, displays and captions, but those workers skip it.
         </p>
       </Card>
 

@@ -28,13 +28,46 @@
 import { runCost } from './runCost.js';
 
 export const COMBINE_MIN_WEIGHT = 0;
-export const COMBINE_MAX_WEIGHT = 2;
+/* Plafond d'un poids de blend.
+ *
+ * 2.0 pendant longtemps, et c'était un plafond de CONFORT déguisé en limite
+ * technique : rien côté ComfyUI n'interdit de charger un LoRA au-delà, et les
+ * usages où ça sert existent (un LoRA entraîné faible qu'on pousse, un style
+ * qu'on veut écrasant, un slider poussé à fond). Le curseur s'arrêtait donc
+ * avant la zone que les gens allaient chercher à la main dans un workflow.
+ *
+ * 5.0 est le nouveau plafond, et il reste un plafond : au-delà, ce n'est plus
+ * « fort », c'est du bruit — et une valeur illisible/aberrante doit encore être
+ * ramenée dans une plage que le backend accepte. ⚠️ Le MÊME nombre est écrit
+ * dans backend/app/services/lora_test_studio.COMBINE_MAX_WEIGHT : les deux
+ * clampent, et deux plafonds différents feraient mentir le curseur (l'UI
+ * annoncerait 4.5, le serveur rendrait 2.0 sans rien dire).
+ *
+ * La zone > 2 est délibérément atteignable au CURSEUR *et* au clavier : le
+ * champ à droite accepte la saisie libre au centième, comme les axes du Test
+ * Studio, parce qu'un pas de 0.05 pour aller de 1 à 5 est une invitation à
+ * abandonner. */
+export const COMBINE_MAX_WEIGHT = 5;
 export const COMBINE_DEFAULT_WEIGHT = 1;
+
+/** Une saisie CLAVIER de poids, ramenée dans la plage — ou `null` si elle ne
+ *  veut rien dire encore.
+ *
+ *  `null` n'est pas un échec : c'est « ne touche pas au poids ». Un champ vidé
+ *  pour être retapé, un `-` seul, un `1.` en cours de frappe passent tous par
+ *  ici, et remplacer ça par 0 (ou par 1) ferait sauter le curseur sous les
+ *  doigts à chaque caractère. Seule une valeur finie est clampée et rendue. */
+export function clampBlendWeight(raw) {
+  const n = Number(raw);
+  if (raw === '' || raw == null || !Number.isFinite(n)) return null;
+  return Math.round(Math.min(COMBINE_MAX_WEIGHT, Math.max(COMBINE_MIN_WEIGHT, n)) * 100) / 100;
+}
 
 /** Clé stable d'un LoRA sélectionné dans la map de poids. */
 export const stackKey = (sel) => `${sel?.dataset_id}:${sel?.checkpoint}`;
 
-/** Poids retenu pour une sélection : clampé 0..2, arrondi au centième, 1 par défaut. */
+/** Poids retenu pour une sélection : clampé 0..COMBINE_MAX_WEIGHT, arrondi au
+ *  centième, 1 par défaut. */
 export function stackWeight(weights, sel) {
   const raw = Number((weights || {})[stackKey(sel)]);
   if (!Number.isFinite(raw)) return COMBINE_DEFAULT_WEIGHT;

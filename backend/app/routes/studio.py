@@ -230,6 +230,7 @@ def studio_run():
             aspects=d.get('aspects'), cfgs=d.get('cfgs'), steps_list=d.get('steps'),
             steps2_list=d.get('steps2'), count=d.get('count'),
             permanent_loras=d.get('permanent_loras'), batch_loras=d.get('batch_loras'),
+            external_loras=d.get('external_loras'),
             rebalance=d.get('rebalance'),
             rebalance_strength=d.get('rebalance_strength'),
             # Parité Generate — réglages globaux du run.

@@ -35,6 +35,23 @@ test('continue accumulates caption overrides until success without repeating a r
   ])
 })
 
+test('the parallel-run confirm reaches the camelCase hook options', async () => {
+  // Without this mapping the ▶ Continue dialog's confirm loop answers the
+  // PARALLEL_RUN: refusal, then resends an UNCHANGED request and gives up —
+  // a dialog that asks a question and ignores the answer.
+  const calls = []
+  const request = async (options) => {
+    calls.push({ ...options })
+    if (!options.allowParallelRun) return { ok: false, error: 'PARALLEL_RUN: sibling #7' }
+    return { ok: true }
+  }
+  const result = await runConfirmableTrainingRequest(
+    request, {}, () => 'allow_parallel_run')
+  assert.equal(result.response.ok, true)
+  assert.equal(calls.length, 2)
+  assert.equal(calls[1].allowParallelRun, true)
+})
+
 test('unknown refusal cannot retry an unchanged request forever', async () => {
   let calls = 0
   const result = await runConfirmableTrainingRequest(

@@ -148,6 +148,52 @@ test('a mismatch refusal is recognised by its PREFIX, whatever family it names',
   }
 });
 
+// --- the resolving-client dialect -------------------------------------------
+/* hooks/useDataset's postJson NEVER throws: a refusal resolves as
+   {ok:false, error}. Fed to a loop that only listened for rejections, a 409
+   PARALLEL_RUN: refusal sailed through as a success — the dataset panel
+   toasted "Cloud run created — follow its launch on the Runs page" while the
+   server had refused and created nothing (reported with screenshots, one
+   POST → 409 in the log and no retry). The loop must speak both dialects. */
+
+test('a refusal RESOLVED as {ok:false} still asks and resubmits with the flag', async () => {
+  await withConfirm([true], async (asked) => {
+    const sent = [];
+    const post = async (body) => {
+      sent.push(body);
+      if (!body.allow_parallel_run) {
+        return { ok: false, error: 'PARALLEL_RUN: this dataset already has an active krea cloud run (#150) — launching another one rents a second pod, billed separately. Launch anyway?' };
+      }
+      return { ok: true, run_id: 151 };
+    };
+    const out = await postWithConfirmations(post, { steps: 3250 }, 'Train anyway (force)');
+    assert.deepEqual(out, { ok: true, run_id: 151 });
+    assert.deepEqual(sent, [
+      { steps: 3250 },
+      { steps: 3250, allow_parallel_run: true },
+    ]);
+    assert.equal(asked.length, 1);
+    assert.ok(!asked[0].includes('PARALLEL_RUN:'));
+  });
+});
+
+test('a NON-confirmable {ok:false} resolution is thrown, never returned as a success', async () => {
+  await withConfirm([], async (asked) => {
+    const post = async () => ({ ok: false, error: 'cloud run limit reached (4/4 active)' });
+    await assert.rejects(
+      () => postWithConfirmations(post, {}, 'Train anyway (force)'),
+      /limit reached/);
+    assert.deepEqual(asked, []);
+  });
+});
+
+test('declining a resolved-dialect confirm returns null too', async () => {
+  await withConfirm([false], async () => {
+    const post = async () => ({ ok: false, error: 'PARALLEL_RUN: sibling #150 …' });
+    assert.equal(await postWithConfirmations(post, {}, 'Train anyway (force)'), null);
+  });
+});
+
 // --- the guard family -------------------------------------------------------
 
 test('the retry lane can answer every pre-flight guard Start can answer', () => {

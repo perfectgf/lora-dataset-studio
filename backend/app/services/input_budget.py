@@ -70,6 +70,26 @@ def _align_pillow_bomb_threshold(max_pixels: int) -> None:
         Image.MAX_IMAGE_PIXELS = target
 
 
+def infer_worker_env() -> dict:
+    """The configured budget as ENVIRONMENT for a `backend/infer/*` subprocess.
+
+    The provider trick at the bottom of this module only works in-process:
+    `image_encoding` is loaded by path under the ML interpreter, but an infer
+    WORKER is a different process entirely, and its own guard
+    (`backend/infer/bank_image_guard.py`) cannot import the Flask app. Passing the
+    two numbers down as environment is the only channel that crosses that line —
+    without it the worker enforces its shipped 16 Mi-pixels / 8192 px while the
+    app enforces the configured budget, and an image the user can import, view and
+    train on is refused by the captioner alone.
+
+    Callers merge this into the subprocess env; a worker launched without it keeps
+    its own conservative defaults.
+    """
+    max_side, max_pixels = input_image_budget()
+    return {'LDS_INFER_MAX_SIDE': str(max_side),
+            'LDS_INFER_MAX_PIXELS': str(max_pixels)}
+
+
 def unlimited_warning(max_side: int, max_pixels: int) -> str:
     """What a 0 actually disarms, in one sentence, said where it is chosen."""
     if max_side and max_pixels:

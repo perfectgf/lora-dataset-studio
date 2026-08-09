@@ -98,8 +98,11 @@ def test_an_empty_or_unreadable_weights_list_falls_back_to_the_scalar(app):
     assert _combine_weights({'weight': 0.7, 'weights': 'nope'}) == [0.7]
     assert _combine_weights({'weight': 0.7, 'weights': ['x', None]}) == [0.7]
     assert _combine_weights({}) == [1.0]
-    # clamp 0..2, arrondi au centième, dédup en gardant l'ordre reçu
-    assert _combine_weights({'weights': [9, -3, 0.5555, 0.4, 0.4]}) == [2.0, 0.0, 0.56, 0.4]
+    # clamp 0..MAX_LORA_STRENGTH (5.0 depuis le 08/08/2026, 2.0 avant),
+    # arrondi au centième, dédup en gardant l'ordre reçu
+    assert _combine_weights({'weights': [9, -3, 0.5555, 0.4, 0.4]}) == [5.0, 0.0, 0.56, 0.4]
+    # …et la zone qui n'existait pas passe telle quelle.
+    assert _combine_weights({'weights': [3.4, 5.0]}) == [3.4, 5.0]
 
 
 # --- le produit ---------------------------------------------------------------

@@ -790,17 +790,23 @@ export default function CloudRunsPage() {
       // is a QUESTION the user can answer, not a refusal to render. Whatever
       // comes OUT of it — a decline, a real refusal, a success — is classified
       // once, the same way on all three hosts.
+      // The cloud lane loops on the confirmable refusals too: relaunching on a
+      // dataset with a live same-family sibling is the server's PARALLEL_RUN:
+      // question ("second pod, billed separately"), and posting it bare turned
+      // that question into a dead error inside the dialog.
       d = local
         ? await postLocalContinue(run, payload)
-        : await postJson('/api/dataset/train/cloud/continue',
+        : await postWithConfirmations(
+          (b) => postJson('/api/dataset/train/cloud/continue', b),
           { run_id: run.run_id, extra_steps: payload.extraSteps,
             from_step: payload.fromStep, overrides: payload.overrides,
             resume_mode: payload.resumeMode || 'weights_only',
             ...(payload.transport ? { transport: payload.transport } : {}),
             ...(payload.stateBundleId
-              ? { state_bundle_id: payload.stateBundleId } : {}) });
+              ? { state_bundle_id: payload.stateBundleId } : {}) },
+          'Continue anyway (force)');
       outcome = continueAttemptOutcome(
-        d === null && local ? { declined: true } : { response: d });
+        d === null ? { declined: true } : { response: d });
     } catch (e) {
       // postJson THROWS on a refusal (400/409). Without this the local lane's
       // real reason — "no checkpoint at step N", a busy GPU, a caption guard —
@@ -1287,13 +1293,15 @@ export default function CloudRunsPage() {
 
               <RecipeWarning run={run} />
               <SilenceWarning run={run} />
-              {/* THIS run's launch, read from its own payload. The progress poll
-                  below is addressed by dataset+family, so on a dataset that has
-                  several runs it answers for the newest one — fine for a step
-                  counter, wrong for a checklist that says "your launch is here". */}
+              {/* THIS run's launch, read from its own payload — and THIS run's
+                  progress, addressed by its own id. The unaddressed poll fell
+                  back to the dataset's NEWEST run, which was survivable when a
+                  dataset had one active run and wrong the day it had two: a
+                  sibling's launch phase (then its steps, loss and samples)
+                  rendered under this card's healthy status. */}
               <LaunchProgress launch={run.launch} />
               <TrainingProgress datasetId={run.dataset_id} trainType={run.train_type}
-                variant={run.variant} cloud showLaunch={false} />
+                variant={run.variant} cloud showLaunch={false} runId={run.run_id} />
               {isFullTransformerRun(run) && (
                 <FullArtifactStatus run={run} onRecheck={recheckFullDelivery}
                   rechecking={!!recheckingDelivery[run.run_id]}

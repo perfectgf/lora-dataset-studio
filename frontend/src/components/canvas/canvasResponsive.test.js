@@ -96,10 +96,39 @@ test('the Generate chip keeps showing the pick count with the panel closed', () 
   assert.match(canvas, /\{picks\.length > 0 && \([^]{0,200}\{picks\.length\}/);
 });
 
-/* Regression guard on a fix that was won once already: the dataset filter opens
-   FOLDED at every width. Unfolded it costs a row plus a wrapping checkbox per
-   dataset, which on a phone buries the board under the thing that filters it. */
-test('the dataset filter still opens folded', () => {
-  assert.match(filter, /useState\(\s*\(\) => readCanvasFilterOpen\(/);
+/* The fix that was won once by folding the panel is now won by DELETING it:
+   the filter is a wrapping row of chips, ~40 px tall, and the controls live in
+   popovers. Nothing about it can cost the board height any more, folded or not
+   — which is why the old "opens folded" guard has no subject left.
+
+   What is pinned instead is the property that replaced it: the bar wraps (a
+   400-px screen cannot hold this row on one line), every target is 40 px on a
+   phone and 36 from `lg`, and a popover is never wider than the viewport. */
+test('the filter bar wraps instead of occupying the board’s height', () => {
+  assert.match(filter, /className="lds-canvas-filter [^"]*flex flex-wrap items-center gap-1\.5"/);
+  // No fold-out body left to grow: no max-height panel, no unfold state.
+  assert.doesNotMatch(filter, /max-h-\[\d+vh\]/);
+  assert.doesNotMatch(filter, /readCanvasFilterOpen/);
   assert.doesNotMatch(filter, /innerWidth/);
+});
+
+test('every filter target is finger-sized on a phone and 36 px from lg', () => {
+  const menu = fs.readFileSync(new URL('./CanvasFilterMenu.jsx', import.meta.url), 'utf8');
+  // Both tokens, asserted SEPARATELY: these class strings are concatenated
+  // across source lines, and a regex spanning them would be testing where the
+  // author happened to wrap rather than what the browser receives.
+  assert.match(menu, /\bh-10\b/);
+  assert.match(menu, /\blg:h-9\b/);
+  // The controls the bar draws itself (Pinned, the search box, Reset).
+  assert.ok((filter.match(/\bh-10\b/g) || []).length >= 3, 'three 40-px targets in the bar');
+  assert.ok((filter.match(/\blg:h-9\b/g) || []).length >= 3, '…each falling back to 36 px');
+});
+
+/* 400 px: a fixed-width popover hangs off the screen, and a filter half off the
+   screen is a filter with no Clear button in reach. */
+test('a filter popover never grows past the viewport', () => {
+  const menu = fs.readFileSync(new URL('./CanvasFilterMenu.jsx', import.meta.url), 'utf8');
+  assert.match(menu, /w-\[min\(20rem,calc\(100vw-2rem\)\)\]/);
+  // …and its list scrolls rather than making the menu taller than the window.
+  assert.match(filter, /max-h-64[^"]*overflow-y-auto/);
 });

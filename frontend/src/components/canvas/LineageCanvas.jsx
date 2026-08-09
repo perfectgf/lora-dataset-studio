@@ -24,7 +24,7 @@ import {
   canvasCheckpointKey, describeCanvasLaunch, isCanvasCheckpointSelected,
   pruneCanvasSelection, refreshCanvasSelection, toggleCanvasCheckpoint,
 } from '../../utils/canvasGeneration';
-import { apiFetch, postJson } from '../../api/fetchClient';
+import { apiFetch, postJson, putJson } from '../../api/fetchClient';
 import LineageDetailPanel from '../dataset/LineageDetailPanel';
 import LineageDiffPanel from '../dataset/LineageDiffPanel';
 import CheckpointActionsPopover from '../dataset/CheckpointActionsPopover';
@@ -43,20 +43,28 @@ import { useCanvasImageImprove } from '../../hooks/useCanvasImageImprove';
 import { useCanvasRun } from '../../hooks/useCanvasRun';
 import { canvasRunDatasetIds, readyImageCount, runPinCandidates } from '../../utils/canvasRunResults';
 import { isNodeControlTarget, nodePointerIntent } from '../../utils/canvasNodeChrome';
+import { showsZoomLabels, zoomLabelScale, zoomLabelText } from '../../utils/canvasZoomLegibility';
 import {
   pinBatchAnnouncement, pinBatchPendingAcrossLanes, placeImageBatch,
   groupPinnedBatchBySource, groupPinnedBatchTogether,
 } from '../../utils/canvasPinBatch';
 import { cardClickAction, runGalleryTarget } from '../../utils/canvasCardClick';
+import { galleryDeleteSummary } from '../../utils/gallerySelection';
 import { canImproveCanvasImage } from '../../utils/canvasImprove';
 import { loraFolderLabel } from '../../utils/checkpointBrowser';
 import { runIdentityLabel } from '../../utils/runIdentity';
 import CanvasGenerationPanel from './CanvasGenerationPanel';
+import ExternalLoraNodes from './ExternalLoraNodes';
+import { externalLoraPayload, normalizeExternalLoras } from '../../utils/externalLoras';
 import CanvasRunTracker from './CanvasRunTracker';
 import CanvasImageNode from './CanvasImageNode';
 import CanvasImageGroup from './CanvasImageGroup';
 import CanvasGroupBar from './CanvasGroupBar';
+import CanvasLayoutPresets from './CanvasLayoutPresets';
 import { blendEdgesFor, blendSourcesNote } from '../../utils/canvasBlendEdges';
+import {
+  boardExportFilename, boardExportPlan, boardExportRefusal, drawBoardExport,
+} from '../../utils/canvasExportPng';
 import ExportGridModal from '../dataset/studio/ExportGridModal';
 import CheckpointGalleryPanel from '../shared/CheckpointGalleryPanel';
 import { useToast } from '../common/Toast';
@@ -211,6 +219,20 @@ function LaneGraph({ lane, isLit, onHover, onNodeClick, diffRole, noteOf, lifted
                 annotated={noteBadge(noteOf(n.node))}
                 compareRole={diffRole(n.node.record_id)}
                 onSelect={onNodeClick} />
+              {/* 🔎 Zoomed out, a card's own 11-px title renders at four pixels
+                  and the board shows everything while telling you nothing. One
+                  counter-scaled badge takes over below the threshold — the same
+                  trick the ✕ and the ✓ box already use. `pointer-events: none`:
+                  a legibility aid that eats clicks is a regression. */}
+              {showsZoomLabels(boardScale) && (
+                <span data-testid="canvas-zoom-label" aria-hidden
+                  style={{ position: 'absolute', left: 4, top: 4,
+                    transform: `scale(${zoomLabelScale(boardScale, CARD_W)})`,
+                    transformOrigin: 'top left' }}
+                  className="pointer-events-none max-w-[240px] truncate rounded border border-indigo-300/40 bg-black/70 px-1.5 py-0.5 text-[0.6875rem] font-semibold text-indigo-100 backdrop-blur-sm">
+                  {zoomLabelText(n.node, lane.name, boardScale)}
+                </span>
+              )}
               {n.checkpoints.map((p) => (
                 <CheckpointPill key={`${p.step}-${p.filename ?? p.x}`}
                   pill={p} offX={p.x - n.x} offY={p.y - n.y}
@@ -251,8 +273,8 @@ function LaneGraph({ lane, isLit, onHover, onNodeClick, diffRole, noteOf, lifted
  *
  *  Its own <svg>, sized 1x1 and overflow-visible, because a pinned image may sit
  *  well outside the tree's box and the tree's <svg> is sized to the tree. */
-function LaneImages({ lane, layout, onGeometry, onClose, onOpen, onCloseGroup, onExportGrid,
-  boardScale, hint, blendNotes }) {
+function LaneImages({ lane, layout, onGeometry, onClose, onOpen, onDelete, onCloseGroup,
+  onExportGrid, boardScale, hint, blendNotes }) {
   if (!layout.length) return null;
   /* Edges are drawn from where each picture actually IS — a member's slot in
      its strip, not the box it remembers while it waits to leave one.
@@ -271,13 +293,14 @@ function LaneImages({ lane, layout, onGeometry, onClose, onOpen, onCloseGroup, o
       </svg>
       {layout.map((r) => (r.kind === 'group' ? (
         <CanvasImageGroup key={r.key} group={r} datasetId={lane.datasetId}
-          laneName={lane.name} onClose={onClose} onOpen={onOpen} boardScale={boardScale}
+          laneName={lane.name} onClose={onClose} onOpen={onOpen} onDelete={onDelete}
+          boardScale={boardScale}
           blendNotes={blendNotes}
           dropHint={hint?.leaving && hint.groupId === r.groupId ? 'leaving' : null} />
       ) : (
         <CanvasImageNode key={r.key} node={r.node} datasetId={lane.datasetId}
           laneName={lane.name} onGeometry={onGeometry} onClose={onClose}
-          onOpen={onOpen} boardScale={boardScale}
+          onOpen={onOpen} onDelete={onDelete} boardScale={boardScale}
           blendNote={blendNotes?.get(r.node.imageId) || null} />
       )))}
       {/* 🖼🖼 The groups' title bars, drawn AFTER every picture and every strip.
@@ -316,7 +339,7 @@ function LaneImages({ lane, layout, onGeometry, onClose, onOpen, onCloseGroup, o
 }
 
 export default function LineageCanvas({ entries, positions, imageNodes, allImageNodes = imageNodes, onPinLane,
-  onSaveImageNodes, onTidyUp, onRefetchDataset,
+  onSaveImageNodes, onForgetImageNodes, onTidyUp, onRefetchDataset, onReloadLayout,
   // Rendered as the board's TOP overlay. A slot rather than an import: which
   // datasets are shown is the page's question, but the answer belongs on the
   // board it changes -- and the canvas should not have to know what a dataset
@@ -1040,6 +1063,57 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
   const [picks, setPicks] = useState([]);
   const [panelOpen, setPanelOpen] = useState(false);
 
+  /* 🔌 External LoRA plugin nodes: files pinned on the board (not produced by
+     any run here) that, when checked, stack on top of the next generation.
+     Deliberately SEPARATE state from `picks` — the liveKeys purge just below
+     only knows about checkpoints drawn from the lanes on the board, and would
+     silently drop these on every render since they belong to no lane. */
+  const [extNodes, setExtNodes] = useState([]);
+  const [extChecked, setExtChecked] = useState(new Set());
+  const [extPickerOpen, setExtPickerOpen] = useState(false);
+  const extLoadedOnce = useRef(false);
+  // Mirrors `extNodes` for the unmount flush below (a cleanup closure only
+  // ever sees the render it was created in, and the payload it must send is
+  // whatever is CURRENT at unmount time, not whatever it was when the pending
+  // timer was scheduled — those are usually the same list but need not be).
+  const extNodesRef = useRef(extNodes);
+  // Is there a debounced PUT still pending? Set when the timer is armed,
+  // cleared once it actually fires (normally OR via the unmount flush) — the
+  // one flag both paths share so neither can send the same write twice.
+  const extDirtyRef = useRef(false);
+  useEffect(() => { extNodesRef.current = extNodes; }, [extNodes]);
+  useEffect(() => {
+    apiFetch('/api/train/canvas/external-loras')
+      .then((d) => setExtNodes(normalizeExternalLoras(d?.loras)))
+      .catch(() => { /* the board just starts with none pinned */ });
+  }, []);
+  // Persist on change, debounced: a slider drag or a card drag fires many
+  // updates a second, and each is a full PUT of the list. Skips the very
+  // first render (the load above already reflects the server).
+  useEffect(() => {
+    if (!extLoadedOnce.current) { extLoadedOnce.current = true; return undefined; }
+    extDirtyRef.current = true;
+    const t = setTimeout(() => {
+      extDirtyRef.current = false;
+      putJson('/api/train/canvas/external-loras', { loras: extNodesRef.current }).catch(() => {
+        /* best effort — the board keeps the in-memory state either way */
+      });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [extNodes]);
+  // Leaving the Canvas view inside the 500 ms window above used to lose the
+  // last drag/check/strength edit silently: `clearTimeout` on unmount killed
+  // the pending PUT and nothing ever sent it. `keepalive` lets the request
+  // outlive the component even if the navigation that unmounts it also tears
+  // down the page (a plain unmount from an in-app route change does not abort
+  // an in-flight fetch on its own, but a real page unload would).
+  useEffect(() => () => {
+    if (!extDirtyRef.current) return;
+    extDirtyRef.current = false;
+    putJson('/api/train/canvas/external-loras', { loras: extNodesRef.current }, { keepalive: true })
+      .catch(() => { /* best effort on the way out — nothing left to update */ });
+  }, []);
+
   const isPicked = useCallback(
     (dsId, recId, step) => isCanvasCheckpointSelected(picks, dsId, recId, step), [picks]);
 
@@ -1460,6 +1534,34 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
     })));
   }, [onSaveImageNodes]);
 
+  /* 🗑 The picture is GONE — the row it pointed at no longer exists.
+     Three things follow, and skipping any one of them leaves the board lying:
+
+       • the node leaves the board immediately. It cannot be closed the
+         ordinary way (`visible: false`): that write goes through
+         save_canvas_image_nodes, which validates the image id against the
+         dataset and would now refuse it — the user would delete a picture and
+         be told, by a toast, that the board could not save the rectangle. It
+         is FORGOTTEN client-side instead, and the orphan row is pruned by the
+         server on the next read of the board (canvas_image_nodes does that
+         already, on purpose);
+       • the lane is re-read, because the pills carry a results COUNT and a
+         thumbnail — the same refresh the gallery's own delete triggers, for
+         the same reason;
+       • the result sentence comes from the SERVER, not from here: whether the
+         file was moved somewhere recoverable or removed for good is an install
+         setting, and the board must not guess which. */
+  const handleDeleteImage = useCallback((node, res) => {
+    const dsId = node?.image?.dataset_id;
+    if (dsId == null) return;
+    onForgetImageNodes?.(dsId, [node.imageId]);
+    toast.success?.(galleryDeleteSummary(res));
+    const lanes = (res?.dataset_ids || []).length ? res.dataset_ids : [dsId];
+    for (const id of lanes) {
+      Promise.resolve(onRefetchDataset?.(id)).catch(() => { /* the next load heals it */ });
+    }
+  }, [onForgetImageNodes, onRefetchDataset, toast]);
+
   // The keyboard path into the same write (arrows / +- on a focused node), so
   // moving and resizing are not mouse-only gestures.
   const handleImageGeometry = useCallback((node, box) => {
@@ -1472,6 +1574,51 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
 
   const pct = Math.round(clampScale(view.scale) * 100);
   const empty = !world.lanes.length;
+
+  /* 📷 The board, as a PNG file.
+     Re-drawn rather than screenshotted — see utils/canvasExportPng for why a
+     DOM screenshot is not available without a dependency, and what the file
+     therefore does and does not carry. The heavy part (loading every picture)
+     happens off-screen, so the board stays usable while it runs; the button
+     says "Exporting…" because a twelve-picture board takes a moment. */
+  const [exporting, setExporting] = useState(false);
+  const exportPng = useCallback(async () => {
+    if (exporting) return;
+    const refusal = boardExportRefusal(world);
+    if (refusal) { toast.error(refusal); return; }
+    setExporting(true);
+    try {
+      const plan = boardExportPlan(world);
+      const canvas = document.createElement('canvas');
+      const drawnByLane = {};
+      for (const lane of world.lanes) {
+        drawnByLane[lane.datasetId] = drawnNodes(layoutByLane[lane.datasetId] || []);
+      }
+      const res = await drawBoardExport(canvas, {
+        world, lanes: world.lanes, drawnByLane, cardW: CARD_W, laneHeaderH: LANE_HEADER_H, plan,
+      });
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('The browser could not build the image — try fewer lanes.');
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = boardExportFilename(new Date(), world.lanes.length);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 0);
+      // The count of what could NOT be drawn is part of the result, not a
+      // detail: a board that quietly exports eleven of its twelve pictures is
+      // worse than one that says which one is off the disk.
+      toast.success(res.missing
+        ? `Board exported (${plan.width}×${plan.height}) — ${res.missing} picture(s) are no longer on disk and came out as placeholders`
+        : `Board exported — ${plan.width}×${plan.height} px`, res.missing ? 8000 : undefined);
+    } catch (e) {
+      toast.error(e?.message || 'The board could not be exported');
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, world, layoutByLane, toast]);
   /* Has anything on the visible board been PLACED by hand? Drives ✦ Tidy up: a
      button that clears nothing should say so by being disabled, not by doing
      nothing.
@@ -1522,7 +1669,14 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
            little was on it. 60vh brings the WHOLE frame on screen, which is what
            makes Fit mean anything: a board you have to scroll the page to see
            the bottom of is a board whose pan gesture fights the page's. */
-        className="lds-canvas-frame relative h-[72vh] min-h-[380px] w-full select-none touch-none overflow-hidden rounded-xl border border-border bg-app/40 sm:h-[76vh]"
+        /* `isolate z-0`. The frame already clips (`overflow-hidden`), and the
+           controls are now SIBLINGS drawn over it — so "the board cannot cover
+           its own filter" was resting on one class name plus a sibling order.
+           A stacking context of its own means nothing drawn inside the frame,
+           at any z-index, can paint over a sibling overlay: two independent
+           guarantees instead of one, for the controls the user cannot afford to
+           lose. It sits at z-0 so every overlay above it (z-20) still wins. */
+        className="lds-canvas-frame relative isolate z-0 h-[72vh] min-h-[380px] w-full select-none touch-none overflow-hidden rounded-xl border border-border bg-app/40 sm:h-[76vh]"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endPointer}
@@ -1554,6 +1708,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
                 <LaneImages lane={lane} layout={layoutByLane[lane.datasetId] || []}
                   blendNotes={blendNotes}
                   onGeometry={handleImageGeometry} onClose={handleCloseImage}
+                  onDelete={handleDeleteImage}
                   onCloseGroup={handleCloseGroup}
                   onExportGrid={(group) => setExportGroup({
                     datasetId: lane.datasetId,
@@ -1571,15 +1726,33 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
                   onOpenGallery={(recordId, step) => setGallery({ recordId, step })} />
               </div>
             ))}
+            {/* 🔌 The external LoRA nodes live in this SAME transformed layer as
+                the lanes, so they pan and zoom with the board like any other
+                node — the add popover they share the file with is portalled
+                out of here instead (see ExternalLoraNodes.jsx). */}
+            <ExternalLoraNodes nodes={extNodes} onNodesChange={setExtNodes}
+              checked={extChecked} onCheckedChange={setExtChecked}
+              family={picks[0]?.family || 'zimage'}
+              boardScale={clampScale(view.scale)}
+              pickerOpen={extPickerOpen} onClosePicker={() => setExtPickerOpen(false)} />
           </div>
         )}
       </div>
 
         {/* TOP — what the board is SHOWING: which datasets, and what is being
-            generated right now. Scrolls inside the frame rather than growing it,
-            because the filter opens into a tall panel and a board that resizes
-            when you open a menu loses your place. */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex max-h-full flex-col gap-2 overflow-y-auto p-2 sm:p-3">
+            generated right now. Absolutely placed, so it can never grow the
+            board: opening a menu must not resize the surface you are reading.
+
+            ⚠️ `overflow-visible`, and it used to be `overflow-y-auto`. That was
+            right for as long as the filter WAS a tall fold-out panel — it kept
+            the panel scrolling inside the frame instead of running off it. The
+            filter is now a 36-px row of chips whose controls live in POPOVERS,
+            and a scroll container clips its children: the Datasets menu opened
+            354 px tall inside a 76-px box and the user saw a 20-px sliver of
+            it. The reason for the clip left with the panel; the clip had to go
+            with it. Nothing replaced it, because there is nothing left here
+            that can grow — chips wrap to at most three rows at 400 px. */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex max-h-full flex-col gap-2 overflow-visible p-2 sm:p-3">
           {filterSlot ? <div className="pointer-events-auto">{filterSlot}</div> : null}
           <div className="pointer-events-auto">
         {/* 🎨 The generation in flight, ON the board. Visible with the settings
@@ -1648,6 +1821,24 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
             <span aria-hidden>✦</span> Tidy up
           </button>
           <HelpBadge topic="canvas-arrange" />
+          {/* 💾 Keep this arrangement, and put a kept one back. Next to ✦ Tidy
+              up on purpose: they are the two ends of the same question — Tidy
+              up throws an arrangement away, and until now that was the ONLY
+              way out of one. */}
+          <CanvasLayoutPresets positions={positions} imageNodes={allImageNodes}
+            datasetIds={shown.map((e) => e.datasetId)}
+            onRestored={onReloadLayout} toast={toast} />
+          {/* 📷 The board as a file. What it exports is stated before the
+              click, not after: the pictures and the trees, not the buttons. */}
+          <button type="button" onClick={exportPng} disabled={exporting || empty}
+            data-testid="canvas-export-png"
+            title={empty
+              ? 'There is nothing on the board to export yet'
+              : 'Save the whole board as a PNG — every pinned picture and every run '
+                + 'card, at full size. Buttons and badges are not drawn.'}
+            className="flex h-10 items-center gap-1 rounded-md border border-border bg-app/60 px-3 text-content-muted text-[0.6875rem] font-semibold hover:text-content disabled:opacity-40 lg:h-9">
+            <span aria-hidden>📷</span> {exporting ? 'Exporting…' : 'PNG'}
+          </button>
           {/* 🎨 The board's own launch button. It carries the pick count so the
               settings panel can be closed without losing sight of what is queued
               up — at 400 px the panel covers the board, and closing it is normal. */}
@@ -1665,6 +1856,22 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
               <span className="rounded-full bg-indigo-500/40 px-1.5 tabular-nums">{picks.length}</span>
             )}
           </button>
+          {/* 🔌 A LoRA that never trained on this board — pinned as a node instead
+              of a pill, and stacked on top of the next run when checked. See
+              ExternalLoraNodes.jsx for the popover and the node cards. */}
+          <button type="button" onClick={() => setExtPickerOpen((v) => !v)}
+            aria-pressed={extPickerOpen}
+            title="Add an external LoRA to the board"
+            className={'flex h-10 items-center gap-1 rounded-md border px-3 text-[0.6875rem] font-semibold lg:h-9 '
+              + (extPickerOpen
+                ? 'border-cyan-400/60 bg-cyan-500/15 text-cyan-100 '
+                : 'border-border bg-app/60 text-content-muted hover:text-content ')}>
+            <span aria-hidden>🔌</span> + LoRA
+            {extNodes.length > 0 && (
+              <span className="rounded-full bg-cyan-500/40 px-1.5 tabular-nums">{extNodes.length}</span>
+            )}
+          </button>
+          <HelpBadge topic="canvas-external-loras" />
           {/* The colour key. A colour with no legend is a guess, and this one
               answers the question asked most often on this board: "which of these
               can I generate from RIGHT NOW?". Each state carries a shape as well
@@ -1812,6 +2019,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
           onClear={() => setPicks([])}
           onDeploy={handleDeploy}
           tracker={tracker}
+          externalLoras={externalLoraPayload(extNodes, extChecked)}
           onClose={() => setPanelOpen(false)} />
       )}
 

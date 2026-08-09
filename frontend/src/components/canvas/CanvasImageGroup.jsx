@@ -47,7 +47,7 @@ import CanvasImageNode from './CanvasImageNode';
    wide one. */
 
 export default function CanvasImageGroup({ group, datasetId, laneName, boardScale = 1,
-  onClose, onOpen, dropHint = null, blendNotes = null }) {
+  onClose, onOpen, onDelete, dropHint = null, blendNotes = null }) {
   const count = group.members.length;
   const anchorId = group.members[0]?.node.imageId;
   // The drag-out hint below is CHROME, not content: it must stay readable at
@@ -78,7 +78,7 @@ export default function CanvasImageGroup({ group, datasetId, laneName, boardScal
         <CanvasImageNode key={m.node.imageId} node={m.node} datasetId={datasetId}
           laneName={laneName} variant="member"
           box={{ x: m.x - group.x, y: m.y - group.y, w: m.w, h: m.h }}
-          onClose={onClose} onOpen={onOpen} boardScale={boardScale}
+          onClose={onClose} onOpen={onOpen} onDelete={onDelete} boardScale={boardScale}
           blendNote={blendNotes?.get(m.node.imageId) || null} />
       ))}
 

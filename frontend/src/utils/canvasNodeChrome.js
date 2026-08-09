@@ -26,55 +26,66 @@
    JSX-free, because `node --test` cannot parse JSX and this is the part worth
    testing: the component only applies the number. */
 
-const CHROME_BASE = 28;        // one control's own size, in board units
-// The cluster's WIDTH budget at scale 1 — two controls, their gap and their
-// padding. Exported because the component must lay itself out inside exactly
-// this number: the cap below is spent on it, so a row that grew to three
-// buttons would spend 50 % more and shrink every target by a third.
-export const CLUSTER_UNITS = 64;
-// …which is why a third control WRAPS instead of widening the row. ⬇ Download
-// joined 🔍 and ✕ and the honest choice was between a narrower button and a
-// second line; the second line costs nothing (the node has vertical room to
-// spare in its corner) and it keeps 🔍 and ✕ at the exact pixel they have
-// always been, which muscle memory has a right to.
-export const CLUSTER_COLUMNS = 2;
-// …and the share of the node it is never allowed to exceed. The cap is on the
-// CLUSTER, not on one button: capping each button separately let two of them
-// side by side cover almost the entire width of a small tile.
-const MAX_CLUSTER_FRACTION = 0.7;
+// One control's own size, in board units. Exported: the resize corner is drawn
+// at exactly this size too, and the control row has to keep out of it.
+export const CONTROL_UNITS = 28;
+const CHROME_GAP = 2;          // gap-0.5 between two controls
+const CHROME_PAD = 4;          // p-0.5 around the row, both sides
+
+/** The WIDTH budget of the control row, in board units, for a given number of
+ *  controls — one line, always.
+ *
+ *  ⚠️ This used to be a constant 64 with a two-column wrap, and the wrap is the
+ *  bug that replaced it. Four controls (🔍 ✕ ⬇ 🗑) in two columns is not a
+ *  cluster in a corner, it is a 2×2 BLOCK: capped at 70 % of the tile's width
+ *  and two rows tall, it landed mid-picture, covered the picture it decorates
+ *  and truncated the "step N · strength X" label beside it. A row costs each
+ *  target some size at extreme zoom-out (the honest number is in the test), and
+ *  it buys back three quarters of the picture at every zoom. */
+export function clusterUnits(buttonCount = 4) {
+  const n = Math.max(1, Math.floor(Number(buttonCount)) || 1);
+  return CONTROL_UNITS * n + CHROME_GAP * (n - 1) + CHROME_PAD;
+}
+
+/** The default row: 🔍 ✕ ⬇ 🗑. */
+export const CLUSTER_UNITS = clusterUnits(4);
+// The share of the node the row is never allowed to exceed. The cap is on the
+// ROW, not on one button: capping each button separately let a handful of them
+// side by side cover almost the entire width of a small tile. It can afford to
+// be near-total now that the row is ONE line drawn along an edge — what a
+// control must not do is sit in the middle of the picture, and 0.94 leaves the
+// hairline of margin that says "this ends here" without buying a second line.
+const MAX_CLUSTER_FRACTION = 0.94;
 
 /**
  * The counter-scale to apply to a pinned node's controls at a given board zoom.
  *
  * 1 means "leave it alone". 2 means "draw it twice as big in board units", which
  * at 50 % zoom is exactly its nominal size on screen.
+ *
+ * `units` is the row's own width budget (see clusterUnits) and `reserved` is
+ * board space on the same edge that is NOT the row's — the resize corner, which
+ * is counter-scaled by this very number and would otherwise be overlapped by
+ * the row exactly when the cap starts to bite.
  */
-export function chromeScale(boardScale, nodeW) {
+export function chromeScale(boardScale, nodeW, units = CLUSTER_UNITS, reserved = 0) {
   const s = Number(boardScale);
   const w = Number(nodeW);
   if (!Number.isFinite(s) || s <= 0) return 1;
   const wanted = 1 / s;                       // constant size on screen
-  const cap = Number.isFinite(w) && w > 0
-    ? Math.max(1, (w * MAX_CLUSTER_FRACTION) / CLUSTER_UNITS)
+  const budget = (Number(units) || CLUSTER_UNITS) + (Number(reserved) || 0);
+  const cap = Number.isFinite(w) && w > 0 && budget > 0
+    ? Math.max(1, (w * MAX_CLUSTER_FRACTION) / budget)
     : Infinity;
   return Math.min(Math.max(1, wanted), cap);
 }
 
-/** The cluster's own box, in the UNSCALED units the component lays out in.
- *  A hard max-width is what actually makes the third control wrap: without it
- *  flex would happily draw a 96-unit row inside a 64-unit budget and every
- *  target would silently lose a third of its size at low zoom. */
-export function clusterBox(buttonCount = 3) {
-  const rows = Math.max(1, Math.ceil(buttonCount / CLUSTER_COLUMNS));
-  return { maxWidth: CLUSTER_UNITS, rows };
-}
-
 /** What that control measures on screen, once counter-scaled — the number the
  *  proof is about ("is it big enough for a finger?"). */
-export function chromeScreenSize(boardScale, nodeW) {
+export function chromeScreenSize(boardScale, nodeW, units = CLUSTER_UNITS, reserved = 0) {
   const s = Number(boardScale);
-  if (!Number.isFinite(s) || s <= 0) return CHROME_BASE;
-  return CHROME_BASE * chromeScale(s, nodeW) * s;
+  if (!Number.isFinite(s) || s <= 0) return CONTROL_UNITS;
+  return CONTROL_UNITS * chromeScale(s, nodeW, units, reserved) * s;
 }
 
 // ✓ The PICK box on a checkpoint pill — same disease as the ✕ above, on the

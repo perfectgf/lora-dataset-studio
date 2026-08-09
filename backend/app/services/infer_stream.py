@@ -14,7 +14,10 @@ grammar (one regex each); this module owns the plumbing:
 * Popen, not run() — stdout is read here, stderr is drained by a thread (a full
   pipe would deadlock the child), both bounded: only the last few stderr lines
   are kept, for the error message.
-* A watchdog kills the child on timeout and says so, rather than hanging forever.
+* A watchdog bounds the run rather than letting it hang forever — and, when the
+  caller gave an `on_stop`, it ASKS the child to wind up first and only kills it
+  if that goes unanswered, so a budget that turned out too small costs the tail
+  of the pass instead of all of it.
 * A callback that raises must never take the pass down with it: progress is a
   display concern, the work is the work.
 * Optionally, a STOP that asks before it kills (see `should_stop`).
@@ -57,7 +60,10 @@ def run_infer_script(python, script, payload, timeout, on_line=None,
     """Run ``python script``, feed it ``payload`` on stdin, stream its stderr
     lines to ``on_line`` as they arrive.
 
-    Returns ``(stdout, stderr_lines, returncode, timed_out)``.
+    Returns ``(stdout, stderr_lines, returncode, timed_out)``. ``timed_out`` says
+    the BUDGET elapsed, not that nothing came back: the watchdog asks before it
+    kills, so a child that wound up in time still hands over its stdout. Callers
+    read the output first and use the flag to label it, not to discard it.
 
     STOPPING — ``should_stop()`` is polled while the child runs. On its first
     true, ``on_stop()`` is called ONCE (the caller's hook: these scripts are
@@ -94,22 +100,45 @@ def run_infer_script(python, script, payload, timeout, on_line=None,
     reader = threading.Thread(target=_drain, daemon=True)
     reader.start()
     state = {'timed_out': False}
+    # Set in the `finally` below, so both the stop poller and the watchdog can
+    # tell "the run is over" from "still waiting".
+    stop_done = threading.Event()
 
-    def _kill():
+    def _expire():
+        """The budget elapsed. ASK first, kill second — the same bargain as the
+        stop path, for the same reason: the child holds everything it computed in
+        memory until its final JSON line, so killing it outright is what turns
+        "this needed more time" into "the whole pass is lost". A child that
+        cannot answer is killed after the grace, and there it has nothing to lose
+        anyway (it is inside a model load or a several-hundred-megabyte
+        download). Runs on the Timer's own thread, so waiting here blocks
+        nothing."""
         state['timed_out'] = True
+        if on_stop:
+            try:
+                on_stop()
+            except Exception:
+                logger.debug('infer on_stop failed', exc_info=True)
+            deadline = time.monotonic() + max(0, stop_grace)
+            while time.monotonic() < deadline:
+                if proc.poll() is not None or stop_done.wait(poll_s):
+                    logger.warning('infer child wound up after its %ss budget elapsed',
+                                   int(timeout))
+                    return
+        logger.warning('infer child exceeded its %ss budget and could not wind up '
+                       '— killing', int(timeout))
         try:
             proc.kill()
         except OSError:
             pass
 
-    watchdog = threading.Timer(max(1, int(timeout)), _kill)
+    watchdog = threading.Timer(max(1, int(timeout)), _expire)
     watchdog.daemon = True
     watchdog.start()
 
     # Stop poller. Runs only when a caller asked for one, so every existing call
     # site keeps exactly the behaviour it had.
     stopper = None
-    stop_done = threading.Event()
     if should_stop:
         def _watch_stop():
             asked = False

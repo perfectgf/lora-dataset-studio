@@ -294,6 +294,90 @@ def test_frozen_generation_aborts_when_should_abort_fires(ct, app, seeded_datase
                 wait_seconds=60, should_abort=lambda: True)
 
 
+def test_continue_cloud_run_forwards_allow_parallel_run(ct, app, seeded_dataset, monkeypatch):
+    """The Runs hub's ▶ Continue relaunches through launch_cloud_training, so it
+    hits the same sibling guard — the dialog's confirm must be able to answer
+    it. A fresh allow_parallel_run=True widens the flags inherited from the
+    source run (which may have been launched alone, stamped False)."""
+    _fake_export(monkeypatch, ct)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
+    with app.app_context():
+        first = ct.launch_cloud_training('local', seeded_dataset)
+        run = ct.CloudTrainingRun.query.get(first['run_id'])
+        run.status = 'done'
+        ct.db.session.commit()
+        monkeypatch.setattr(ct, '_run_staging_checkpoints', lambda r: [
+            {'step': 500, 'filename': 'x_000000500.safetensors',
+             'path': 'x_000000500.safetensors', 'source': 'local'}])
+        seen = {}
+
+        def fake_launch(user_id, dataset_id, **kw):
+            seen.update(kw)
+            return {'run_id': 4242}
+
+        monkeypatch.setattr(ct, 'launch_cloud_training', fake_launch)
+        ct.continue_cloud_run('local', run.id, allow_parallel_run=True)
+        assert seen.get('allow_parallel_run') is True
+        # and WITHOUT the fresh confirm, the source run's own answer replays
+        seen.clear()
+        ct.continue_cloud_run('local', run.id)
+        assert seen.get('allow_parallel_run') is False
+
+
+def test_continue_local_run_in_cloud_forwards_allow_parallel_run(
+        ct, app, seeded_dataset, monkeypatch):
+    """The dataset panel's Continue→Cloud lane is a normal cloud launch too:
+    without the passthrough, the dialog's confirm loop resends a flag the
+    service drops on the floor and the refusal comes back forever."""
+    _fake_export(monkeypatch, ct)
+    ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
+    with app.app_context():
+        monkeypatch.setattr(ct.lt, 'list_checkpoints',
+                            lambda *a, **kw: [{'step': 500,
+                                               'filename': 'f_000000500.safetensors',
+                                               'final': False, 'record_id': None}])
+        monkeypatch.setattr(ct.lt, 'checkpoint_file_path',
+                            lambda *a, **kw: 'f_000000500.safetensors')
+        seen = {}
+
+        def fake_launch(user_id, dataset_id, **kw):
+            seen.update(kw)
+            return {'run_id': 4243}
+
+        monkeypatch.setattr(ct, 'launch_cloud_training', fake_launch)
+        ct.continue_local_run_in_cloud('local', seeded_dataset,
+                                       allow_parallel_run=True)
+        assert seen.get('allow_parallel_run') is True
+        seen.clear()
+        ct.continue_local_run_in_cloud('local', seeded_dataset)
+        assert seen.get('allow_parallel_run') is False
+
+
+def test_continue_routes_read_the_flag_from_the_request(
+        ct, app, client, seeded_dataset, monkeypatch):
+    """Both HTTP routes must hand the JSON flag to their service — the frontend
+    confirm loop retries through THEM, not through the services directly."""
+    from app.routes import training as troutes
+    seen = {}
+
+    def fake_continue_cloud(user_id, run_id, **kw):
+        seen['cloud'] = kw.get('allow_parallel_run')
+        return {}
+
+    def fake_continue_local(user_id, dataset_id, **kw):
+        seen['local'] = kw.get('allow_parallel_run')
+        return {}
+
+    monkeypatch.setattr(troutes.ct, 'continue_cloud_run', fake_continue_cloud)
+    monkeypatch.setattr(troutes.ct, 'continue_local_run_in_cloud', fake_continue_local)
+    client.post('/api/dataset/train/cloud/continue',
+                json={'run_id': 1, 'allow_parallel_run': True})
+    client.post(f'/api/dataset/{seeded_dataset}/train/cloud/continue-local',
+                json={'extra_steps': 500, 'allow_parallel_run': True})
+    assert seen.get('cloud') is True
+    assert seen.get('local') is True
+
+
 def test_auto_retry_of_a_run_with_a_live_confirmed_sibling_still_launches(
         ct, app, seeded_dataset, monkeypatch):
     """Run A launched alone (allow_parallel_run stamped False) and run B

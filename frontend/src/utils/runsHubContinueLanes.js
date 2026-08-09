@@ -12,9 +12,12 @@
    difference with the dataset panel:
      - local training is single-flight for the WHOLE machine, so `localActive`
        closes the lane whatever dataset that run belongs to;
-     - the cloud guard is per (dataset, family), and this hub lists runs of MANY
-       datasets — it must be evaluated against the TARGET run's dataset, never
-       page-wide. */
+     - the cloud lane closes only on the account-wide facts (no key, fleet
+       limit). A same-family run already active on the target dataset is NOT
+       a closed lane: the server refuses it with the confirmable PARALLEL_RUN:
+       question ("second pod, billed separately — launch anyway?"), which the
+       submit's confirm loop relays — closing the lane here made that question
+       unreachable. */
 
 export function runsHubContinueLanes(run, opts = {}) {
   if (!run) return null;
@@ -24,7 +27,6 @@ export function runsHubContinueLanes(run, opts = {}) {
     actives = [],
     configured = false,      // a vast.ai API key is set
     limit = 1,               // max concurrent cloud runs
-    familyLabel = (f) => f || 'LoRA',
   } = opts;
 
   const localReason =
@@ -38,15 +40,9 @@ export function runsHubContinueLanes(run, opts = {}) {
       ? 'A training is already running on this machine — continue in the cloud, or wait for it to finish.'
     : null;
 
-  // A run without train_type (older payload) matches any family, exactly like
-  // the dataset panel's own cloudActiveHere lookup.
-  const cloudActiveThere = actives.find((a) => a.dataset_id === run.dataset_id
-    && (!a.train_type || a.train_type === run.train_type));
   const cloudReason =
     !configured
       ? 'Cloud training needs a vast.ai API key — add it in Settings.'
-    : cloudActiveThere
-      ? `A ${familyLabel(run.train_type)} cloud run is already active on this dataset`
     : actives.length >= limit
       ? `Cloud run limit reached (${actives.length}/${limit}) — stop one or raise the limit in Settings`
     : null;

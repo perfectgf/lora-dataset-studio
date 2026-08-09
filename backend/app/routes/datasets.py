@@ -1032,10 +1032,14 @@ def dataset_caption(dataset_id):
     # never said which one produced what. Counted where each caption is stored, so it
     # describes the run that actually happened rather than the setting that was read.
     engines = {}
+    # What the pass HANDLED without writing: {skipped, skipped_reason}. Kept apart
+    # from `engines`, which is a writer-count map the UI renders name by name — a
+    # 'skipped' key in there would be shown as an engine that wrote captions.
+    outcome = {}
     try:
         with gpu_exclusive_vision_window(flag_ttl=1800):
             n = svc.caption_images(LOCAL_USER, dataset_id, force=force, mode=mode,
-                                   image_ids=image_ids, report=engines)
+                                   image_ids=image_ids, report=engines, outcome=outcome)
             # Did the long pass end because the user hit Stop? If so, skip the short
             # pass entirely — the point of stopping is to run NO more inference.
             stopped = dataset_activity.cancel_requested(dataset_id)
@@ -1058,7 +1062,9 @@ def dataset_caption(dataset_id):
         # Consume the flag once the whole operation has unwound so a stop can never
         # bleed into a later run (begin() also disarms defensively).
         dataset_activity.clear_cancel(dataset_id)
-    return jsonify({'ok': True, 'captioned': n, 'stopped': stopped, 'engines': engines})
+    return jsonify({'ok': True, 'captioned': n, 'stopped': stopped, 'engines': engines,
+                    'skipped': int(outcome.get('skipped') or 0),
+                    'skipped_reason': outcome.get('skipped_reason') or ''})
 
 
 @bp.post('/dataset/<int:dataset_id>/caption/cancel')

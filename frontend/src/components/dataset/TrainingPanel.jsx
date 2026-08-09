@@ -2132,12 +2132,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   }, [runActiveHere]); // eslint-disable-line react-hooks/exhaustive-deps
   // Multi-family parallelism is safe again: each cloud run's monitor builds its
   // job config from its OWN stamped family/variant, not the shared dataset row
-  // (backend _run_config_dataset — fix for the 2026-07-14 incident). So a Krea
-  // run and a Z-Image run may train the same dataset at once; the button is
-  // blocked only when a run of the SAME family is already active here.
+  // (backend _run_config_dataset — fix for the 2026-07-14 incident). A run of
+  // the SAME family no longer disables the button either: the server's
+  // PARALLEL_RUN: refusal is a confirmable question ("second pod, billed
+  // separately — launch anyway?") that postWithConfirmations relays, and a
+  // disable here made it unreachable — reported as "I still cannot run two
+  // trainings on the same dataset".
   // Single source of truth for WHY « ☁ Train in cloud » is disabled — most
   // fundamental cause first (family unsupported > custom weights > too few
-  // images > a run already active here > global limit). Drives BOTH the tooltip
+  // images > global limit). Drives BOTH the tooltip
   // AND the always-visible reason line below: a disabled button must state its
   // reason without a hover (the owner lost time guessing on a greyed SDXL button
   // whose only explanation lived in a title attribute).
@@ -2170,8 +2173,6 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       ? 'Convert the custom base first — the cloud lane pushes the converted copy to your Hugging Face account'
     : cloudTooFewImages
       ? `Only ${keptCount} image(s) kept — the cloud minimum for ${sliderOn ? 'a slider' : typeLabel} is ${trainMinFloor}`
-    : cloudActiveHere
-      ? `A ${typeLabel} cloud run is already active on this dataset`
     : cloudLimitReached
       ? `Cloud run limit reached (${actives.length}/${cloudStatus.limit || 1}) — stop one or raise the limit in Settings`
     : null;

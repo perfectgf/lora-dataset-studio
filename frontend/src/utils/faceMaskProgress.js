@@ -26,6 +26,10 @@ const PHASE_LABELS = {
  *  stage, a count, or a failure. */
 export function previewStatusLabel(job) {
   if (!job) return '';
+  // Before `error`, because a pass cut short by its own time budget is not a
+  // failure and must not be worded as one: it was working, it ran out of the
+  // time it was given, and everything it analysed is kept.
+  if (job.interrupted) return 'Interrupted before the end.';
   if (job.error) return job.error;
   if (job.stopped) return 'Stopped.';
   if (job.finished) return 'Done.';
@@ -107,10 +111,22 @@ export function previewStartLabel(resume, hasPreview) {
   return hasPreview ? 'Refresh preview' : '👁 Preview the mask';
 }
 
-/** The line shown after a stop, or ''. It exists to make the bargain visible
- *  AFTER the fact too: a user who stopped and sees nothing has no reason to
- *  believe the work survived. */
+/** The line shown after a pass ended early, or ''. It exists to make the bargain
+ *  visible AFTER the fact too: a user who stopped and sees nothing has no reason
+ *  to believe the work survived.
+ *
+ *  Two ways to end early, and they need different sentences. A STOP was asked
+ *  for, so the notice only has to account for what was kept. An INTERRUPTION was
+ *  not: the pass ran out of the time budget (or the child died), so the notice
+ *  also has to say what happened and that starting again is the way forward —
+ *  otherwise the panel just goes quiet on a run the user was watching. */
 export function previewStoppedNotice(job, resume) {
+  if (job && job.interrupted) {
+    const kept = resume && resume.done > 0
+      ? `${resume.done} of ${resume.total} images are kept — starting again continues from there.`
+      : 'Nothing had been analyzed yet, so there was nothing to keep.';
+    return `${job.note || 'The pass was interrupted before the end.'} ${kept}`;
+  }
   if (!job || !job.stopped) return '';
   if (resume && resume.done > 0 && resume.total > resume.done) {
     return `Stopped. ${resume.done} of ${resume.total} images are kept — `

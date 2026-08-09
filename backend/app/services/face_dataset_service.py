@@ -58,6 +58,7 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU,
                               caption_has_identity_leak, caption_has_concept_leak,
                               compose_prompt_suffix, concept_lexical_field,
                               drop_identity_sentences, drop_identity_tags,
+                              drop_style_lead_in,
                               is_nsfw_label, prompt_by_label, wrap_variation,
                               wrap_variation_klein, wrap_variation_krea,
                               get_identity_prompt,
@@ -1194,6 +1195,41 @@ def _writer(report, key, n=1):
     and counting it as one would make the numbers stop matching what people see."""
     if report is not None:
         report[key] = report.get(key, 0) + n
+
+
+# How much of an engine's own refusal is worth quoting back. Long enough for the
+# guard sentence that names the limit AND the offending size, short enough that a
+# toast stays a toast.
+_SKIP_REASON_CHARS = 200
+
+
+def _first_caption_skip_reason(pending, errors) -> str:
+    """One human reason for a batch that left images uncaptioned, quoted VERBATIM
+    from the engine.
+
+    Verbatim on purpose: classifying the message here ("too large", "unreadable")
+    would mean this module deciding what another process meant, and the day the
+    engine adds a reason nobody thought of, the user would be told a confident
+    wrong category instead of the true sentence. '' when the engine said nothing —
+    an empty string is how the caller knows to add no clause at all.
+    """
+    for entry in (pending or []):
+        path = entry[1] if isinstance(entry, tuple) else entry
+        reason = (errors or {}).get(path)
+        if reason:
+            return str(reason).strip()[:_SKIP_REASON_CHARS]
+    return ''
+
+
+def _record_caption_skips(outcome, pending, errors) -> None:
+    """Report the images a caption pass HANDLED without captioning. ``outcome`` is
+    the caller's optional out-dict — None means nobody asked."""
+    if outcome is None or not pending:
+        return
+    outcome['skipped'] = outcome.get('skipped', 0) + len(pending)
+    reason = _first_caption_skip_reason(pending, errors)
+    if reason and not outcome.get('skipped_reason'):
+        outcome['skipped_reason'] = reason
 
 
 def _resolve_caption_backend(ds) -> str:
@@ -7425,7 +7461,8 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
     return n
 
 
-def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, report=None):
+def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, report=None,
+                   outcome=None):
     """Caption les images gardees. Defaut: seulement celles SANS caption ; force=True
     re-capte TOUTES les gardees (ecrase) - pour rejouer apres un changement de prompt.
     Chaque caption passe par drop_identity_sentences (retire une eventuelle phrase
@@ -7447,7 +7484,13 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
     ({'joycaption': n, 'ollama': n, 'joycaption_refined': n} — clés absentes quand le
     moteur n'a rien écrit). C'est la seule façon, après coup, de savoir QUI a rédigé :
     'auto' enchaîne les deux moteurs sans le dire, et leurs styles diffèrent. La
-    valeur de retour reste le NOMBRE total de captions (contrat inchangé)."""
+    valeur de retour reste le NOMBRE total de captions (contrat inchangé).
+
+    `outcome` (optionnel) : dict rempli avec ce que la passe a TRAITÉ SANS écrire —
+    {'skipped': n, 'skipped_reason': "…"} quand le moteur a refusé des images. Un
+    refus par image n'interrompt pas le lot, donc sans ce canal la seule trace était
+    l'écart entre le nombre d'images et le nombre de captions ; la raison, elle,
+    restait dans le log du serveur."""
     _guard_not_bank_export(dataset_id)
     ds = get_dataset(user_id, dataset_id)
     if not ds:
@@ -7507,12 +7550,14 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
     mode = (mode or ('booru' if ttype == 'sdxl' else 'prose')).lower()
     style = is_style(ds)
     if style:
-        # Dataset STYLE : captions de CONTENU pur — le rendu n'est jamais décrit (le
-        # prompt porte la règle) pour qu'il soit absorbé par le LoRA. AUCUN nettoyage
-        # d'identité : les sujets varient, leur description EST le contenu contrôlable.
+        # Dataset STYLE : captions de CONTENU pur — le rendu n'est jamais décrit pour
+        # qu'il soit absorbé par le LoRA. AUCUN nettoyage d'identité : les sujets varient,
+        # leur description EST le contenu contrôlable. Le prompt porte la règle, mais elle
+        # est NÉGATIVE et JoyCaption ne la suit pas — d'où le post-filtre d'amorce, exact
+        # pendant de drop_identity_sentences sur la voie character.
         cap_prompt = caption_prompt_for_style(mode)
         def cleaner(text):
-            return text
+            return drop_style_lead_in(text)
     else:
         # Fidélité corps : le prompt bannit EN PLUS les marques corporelles permanentes
         # (tatouages/cicatrices/piercings…) et le post-filtre les retire — elles doivent
@@ -7559,6 +7604,11 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
         # sauté entièrement quand le backend force 'ollama'.
         if backend in ('auto', 'joycaption'):
             jc = {}
+            # Why an image came back WITHOUT a caption, keyed by path. In 'auto' the
+            # Ollama phase covers those images and the reason is noise; with
+            # 'joycaption' forced there IS no second phase, so this is the only
+            # material available to tell the user what happened to them.
+            jc_errors: dict = {}
             try:
                 from .joycaption import availability, caption_images_joycaption, is_available
                 if is_available():
@@ -7569,7 +7619,8 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
                     # pas aux mots de la caption (deep-research 2026-06-14).
                     jc = caption_images_joycaption(
                         [p for _, p in todo], prompt=cap_prompt, activity_token=token,
-                        should_cancel=lambda: dataset_activity.cancel_requested(dataset_id))
+                        should_cancel=lambda: dataset_activity.cancel_requested(dataset_id),
+                        errors_out=jc_errors)
                 elif backend == 'joycaption':
                     # Explicit choice, explicit failure: a user who forced 'joycaption' in
                     # Settings must be told WHY (the exact missing deps + pip command),
@@ -7606,9 +7657,21 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
             dataset_activity.progress(
                 token, detail=f'JoyCaption finished; {len(remaining)} image(s) remaining…')
             if backend == 'joycaption':  # backend forcé JoyCaption -> pas de repli Ollama
+                # These images are HANDLED — refused, but handled: nothing else will
+                # look at them in this run. Leaving them uncounted is what made a
+                # finished pass look STUCK: the indicator froze at "37/89" forever
+                # because 52 refusals never advanced it, and the toast said "37
+                # captioned" with no hint that 52 images had been turned away.
+                if remaining:
+                    dataset_activity.bump(token, len(remaining))
+                    _record_caption_skips(outcome, remaining, jc_errors)
+                    logger.info('captioning: %d image(s) refused by JoyCaption, first '
+                                'reason: %s', len(remaining),
+                                _first_caption_skip_reason(remaining, jc_errors))
                 logger.info('captioning finished: dataset=%s backend=%s captioned=%s '
-                            'deleted_mid_pass=%s elapsed=%.1fs',
-                            dataset_id, backend, n, vanished, time.monotonic() - started)
+                            'skipped=%s deleted_mid_pass=%s elapsed=%.1fs',
+                            dataset_id, backend, n, len(remaining), vanished,
+                            time.monotonic() - started)
                 return n
         # 2) Ollama (Qwen3-VL) pour les images non couvertes par JoyCaption ('auto'),
         # ou pour TOUT le lot si le backend force 'ollama'.
@@ -7974,7 +8037,9 @@ def _scrub_short_like_long(ds, text, mode) -> str:
     if not t:
         return ''
     if is_style(ds):
-        return style_content_caption(ds, t)
+        # Same net as the long pass: the shortening LLM is told not to name the medium,
+        # and like the captioner it sometimes opens with one anyway.
+        return style_content_caption(ds, drop_style_lead_in(t))
     if is_concept(ds):
         leak_re = _concept_terms_re(_get_concept_terms(ds, describe=None))
         return _enforce_concept_omission(t, leak_re, b'', (ds.concept_desc or '').strip(),

@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { captionEngineBreakdown, captionEnginesSummary, captionResultSuffix,
-  CAPTION_WRITERS, CAPTION_ENGINE_WHY } from './captionEngines.js';
+  captionSkippedSuffix, CAPTION_WRITERS, CAPTION_ENGINE_WHY } from './captionEngines.js';
 
 test('one engine wrote everything -> a sentence naming it', () => {
   assert.equal(captionEnginesSummary({ joycaption: 12 }), 'Written by JoyCaption.');
@@ -63,4 +63,22 @@ test('the writer keys are the backend contract, and the copy is complete', () =>
   assert.match(CAPTION_ENGINE_WHY, /JoyCaption/);
   assert.match(CAPTION_ENGINE_WHY, /Ollama/);
   assert.match(CAPTION_ENGINE_WHY, /Options/);
+});
+
+/* A pass can FINISH having refused images — the engine says so per image and the
+   batch keeps going. The result line has to carry that, or the only visible trace
+   is a count smaller than the dataset. */
+test('refused images are named with the reason the engine gave', () => {
+  const reason = 'bank image rejects images above 8192 px per side or 16777216 pixels (got 3840x5760)';
+  assert.equal(`37 captioned${captionSkippedSuffix({ skipped: 52, skipped_reason: reason })}`,
+    `37 captioned — 52 skipped: ${reason}`);
+});
+
+test('a skip with no reason still gets counted, and a clean pass adds nothing', () => {
+  assert.equal(captionSkippedSuffix({ skipped: 2, skipped_reason: '' }), ' — 2 skipped');
+  assert.equal(captionSkippedSuffix({ skipped: 0, skipped_reason: 'ignored' }), '');
+  assert.equal(captionSkippedSuffix({}), '');
+  // An older backend that sends no counts at all must not print "NaN skipped".
+  assert.equal(captionSkippedSuffix(undefined), '');
+  assert.equal(captionSkippedSuffix({ skipped: 'lots' }), '');
 });

@@ -25,14 +25,18 @@ def test_build_matrix_shape_and_validation(app):
     assert ok
 
 
-def test_build_matrix_accepts_extended_strengths_up_to_4(app):
+def test_build_matrix_accepts_extended_strengths_up_to_the_ceiling(app):
     """Progressive-disclosure « + » exposes strengths above 2.0 (over-cook range);
-    the sweep validation now accepts up to 4.0 and rejects anything beyond."""
-    from app.services.lora_test_studio import build_matrix
-    m = build_matrix(['a.safetensors'], [2.5, 3.5, 4.0], aspects=['9:16'])
-    assert sorted({t[1] for t in m}) == [2.5, 3.5, 4.0]     # carried, not clamped to 2.0
-    for bad in (4.01, 4.5, 10.0):
-        with pytest.raises(ValueError, match=r'out of range \[-2.0, 4.0\]'):
+    the sweep validation accepts up to MAX_LORA_STRENGTH and rejects beyond.
+
+    The ceiling moved 4.0 → 5.0 on 2026-08-08 with the 🧬 Blend weight, which
+    lands in the same column through the same validation."""
+    from app.services.lora_test_studio import build_matrix, MAX_LORA_STRENGTH
+    assert MAX_LORA_STRENGTH == 5.0
+    m = build_matrix(['a.safetensors'], [2.5, 3.5, 4.0, 5.0], aspects=['9:16'])
+    assert sorted({t[1] for t in m}) == [2.5, 3.5, 4.0, 5.0]  # carried, not clamped
+    for bad in (5.01, 6.0, 10.0):
+        with pytest.raises(ValueError, match=r'out of range \[-2.0, 5.0\]'):
             build_matrix(['a.safetensors'], [bad])
 
 
@@ -44,7 +48,7 @@ def test_build_matrix_accepts_negative_strengths_down_to_minus_2(app):
     m = build_matrix(['a.safetensors'], [-2.0, -1.0, -0.5, 0, 1.0], aspects=['9:16'])
     assert sorted({t[1] for t in m}) == [-2.0, -1.0, -0.5, 0.0, 1.0]   # carried as-is
     for bad in (-2.01, -3.0, -10.0):
-        with pytest.raises(ValueError, match=r'out of range \[-2.0, 4.0\]'):
+        with pytest.raises(ValueError, match=r'out of range \[-2.0, 5.0\]'):
             build_matrix(['a.safetensors'], [bad])
 
 
@@ -1748,12 +1752,42 @@ def test_combine_run_refuses_to_mix_families_and_names_them(app, monkeypatch):
 
 
 def test_combine_weight_is_clamped_and_defaults_to_one(app):
-    from app.services.lora_test_studio import _combine_weight
+    from app.services.lora_test_studio import (
+        _combine_weight, COMBINE_MAX_WEIGHT, MAX_LORA_STRENGTH)
+    # ⚠️ The blend ceiling IS the sweep ceiling, not a second number: the head
+    # weight of a combination is validated by build_matrix, so a blend clamp
+    # above it would refuse the run instead of clamping it.
+    assert COMBINE_MAX_WEIGHT == MAX_LORA_STRENGTH == 5.0
     assert _combine_weight({'weight': 0.5555}) == 0.56
-    assert _combine_weight({'weight': 9}) == 2.0
+    assert _combine_weight({'weight': 3.4}) == 3.4      # 2.0 was the old wall
+    assert _combine_weight({'weight': 9}) == 5.0
     assert _combine_weight({'weight': -3}) == 0.0
     assert _combine_weight({'weight': 'oops'}) == 1.0
     assert _combine_weight({}) == 1.0 and _combine_weight(None) == 1.0
+
+
+def test_a_blend_weight_above_two_survives_the_whole_launch_path(app, monkeypatch, tmp_path):
+    """The regression this pairing exists for: raising the browser ceiling alone
+    does not weaken the image, it kills the RUN — the head weight goes through
+    build_matrix, which used to reject anything above 4.0."""
+    from app.services import lora_test_studio as lts
+    from app.config import LOCAL_USER
+    from app.models import LoraTestImage
+    with app.app_context():
+        ds_a, cks_a = _studio_fixture(tmp_path, monkeypatch, 'Ada', 'aaa')
+        ds_b, cks_b = _studio_fixture(tmp_path, monkeypatch, 'Bea', 'bbb')
+        monkeypatch.setattr(lts, 'gpu_busy_reason', lambda: None)
+        monkeypatch.setattr(lts, '_preflight_run', lambda *a, **k: None)
+        monkeypatch.setattr(lts, '_build_cell_workflow', lambda *a, **k: {'1': {}})
+        monkeypatch.setattr(lts, '_enqueue_cell', lambda *a, job_id=None, **k: job_id)
+        out = lts.create_comparison_run(
+            LOCAL_USER,
+            [{'dataset_id': ds_a.id, 'checkpoint': cks_a[0], 'weight': 4.5},
+             {'dataset_id': ds_b.id, 'checkpoint': cks_b[0], 'weight': 5.0}],
+            [1.0], prompt='p', count=1, combine=True)
+        assert out['created'] == 1
+        cell = LoraTestImage.query.get(out['ids'][0])
+        assert cell.strength == 4.5, 'the head weight reaches the cell unclamped'
 
 
 def test_combine_of_a_single_selection_stays_a_normal_run(app, monkeypatch, tmp_path):

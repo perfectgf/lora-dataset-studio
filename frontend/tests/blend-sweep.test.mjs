@@ -62,8 +62,9 @@ test('a mixed panel sweeps the ticked LoRA and pins the other to its slider', ()
 
 test('ticked weights are clamped, rounded, de-duplicated and sorted', () => {
   const sets = { [kA]: [1.0, 0.4, 9, -3, 0.4, 0.5555, 'x', null] }
-  // 9 → 2, -3 → 0, 0.5555 → 0.56, the duplicate 0.4 collapses, junk is dropped.
-  assert.deepEqual(stackWeightSet(sets, A), [0, 0.4, 0.56, 1, 2])
+  // 9 → 5 (the ceiling, 2 until 2026-08-08), -3 → 0, 0.5555 → 0.56, the
+  // duplicate 0.4 collapses, junk is dropped.
+  assert.deepEqual(stackWeightSet(sets, A), [0, 0.4, 0.56, 1, 5])
   assert.deepEqual(stackWeightSet({}, A), [])
   assert.deepEqual(stackWeightSet({ [kA]: 'nope' }, A), [])
 })

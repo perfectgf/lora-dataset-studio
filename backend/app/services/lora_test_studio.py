@@ -134,6 +134,28 @@ def _cells():
 # Plafond dur d'images par run (~4-6 min de GPU max en Z-Image Turbo).
 MAX_TEST_IMAGES = 24
 
+# 🔆 LA plage de force d'un LoRA dans cette app — UN seul couple de bornes.
+#
+# Elle borne DEUX choses qui ne se ressemblent pas mais atterrissent dans la
+# même colonne (`LoraTestImage.strength`) : l'axe de balayage « Strengths » du
+# Test Studio, et le poids de TÊTE d'une pile 🧬 Blend (create_comparison_run
+# fait passer `combo[0]` par build_matrix). Deux bornes séparées ont donc un
+# mode de panne précis et silencieux : un blend réglé au-dessus de la borne de
+# l'axe n'est pas rendu plus faible, il est REFUSÉ, run entier compris.
+#
+# Le plafond est passé de 4.0 à 5.0 le 08/08/2026. C'était un plafond de
+# confort : rien côté ComfyUI n'interdit d'aller plus haut, et pousser un LoRA
+# sous-entraîné ou un style qu'on veut écrasant sont des usages réels qui
+# obligeaient à sortir de l'app. Ça reste un plafond — au-delà ce n'est plus
+# « fort », c'est du bruit — et le plancher négatif ne bouge pas : -2.0 est le
+# pôle inverse d'un slider LoRA, pas une force.
+#
+# ⚠️ Miroirs côté navigateur, à bouger dans le MÊME commit :
+#   frontend/src/components/dataset/studio/loraStack.js  (COMBINE_MAX_WEIGHT)
+#   frontend/src/components/dataset/studio/constants.js  (STRENGTH_CHOICES_EXTENDED)
+MIN_LORA_STRENGTH = -2.0
+MAX_LORA_STRENGTH = 5.0
+
 # Prompt preset d'identité (le trigger word du dataset est substitué).
 IDENTITY_PROMPT_TEMPLATE = "{trigger}, close-up portrait, neutral expression, looking at camera"
 
@@ -733,14 +755,22 @@ def _unknown_submit_recovery(rows, activity):
 
 def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=None, steps2_list=None) -> list[tuple]:
     """Materialize the (checkpoint, strength, aspect) grid cells, validated:
-    non-empty checkpoint/strength axes, strengths in [-2.0, 4.0] (0 = base model /
+    non-empty checkpoint/strength axes, strengths in [MIN_LORA_STRENGTH,
+    MAX_LORA_STRENGTH] (0 = base model /
     LoRA off, a valid control column; above 2.0 = over-cook / breaking-point range,
     behind the « + » disclosure in the UI; NEGATIVE = the LoRA pulled the other
     way — the whole point of a slider LoRA, and a legit probe for any LoRA —
     behind a symmetric « − » disclosure) (deduped, order
     kept), aspects within the whitelist (deduped, défaut 9:16). PAS de plafond sur
     le nombre de cellules : la file est sérielle et l'utilisateur voit le compte +
-    l'estimation de durée avant de lancer (choix assumé sur sa propre machine)."""
+    l'estimation de durée avant de lancer (choix assumé sur sa propre machine).
+
+    ⚠️ Ce plafond n'est PAS seulement celui de l'axe de balayage. En mode 🧬 Blend,
+    le poids de TÊTE de chaque combinaison passe par ici (cf. create_comparison_run :
+    `combo_strengths = [combo[0]]`) et atterrit dans la même colonne
+    `LoraTestImage.strength`. Un plafond de blend plus haut que celui-ci ne
+    donnerait donc pas un rendu clampé mais un run REFUSÉ — c'est pour ça qu'il
+    n'y a qu'un nombre, ici, et que COMBINE_MAX_WEIGHT le réutilise."""
     cps = [c for c in (checkpoints or []) if isinstance(c, str) and c.strip()]
     sts = []
     for s in (strengths or []):
@@ -748,8 +778,9 @@ def build_matrix(checkpoints, strengths, aspects=None, cfgs=None, steps_list=Non
             v = round(float(s), 2)
         except (TypeError, ValueError):
             raise ValueError(f'invalid strength: {s!r}')
-        if not -2.0 <= v <= 4.0:
-            raise ValueError(f'strength out of range [-2.0, 4.0]: {v}')
+        if not MIN_LORA_STRENGTH <= v <= MAX_LORA_STRENGTH:
+            raise ValueError(
+                f'strength out of range [{MIN_LORA_STRENGTH}, {MAX_LORA_STRENGTH}]: {v}')
         if v not in sts:
             sts.append(v)
     asp = []
@@ -1267,6 +1298,16 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
             st = 1.0
         requested.append({"filename": fn, "strength": st})
     allowed = set(allowed_loras) if allowed_loras is not None else {r["filename"] for r in requested}
+    if allowed_loras is not None:
+        # `allowed_loras` is a FAMILY-POOL scan (krea/ subfolder only): always-on
+        # AND external (Canvas plugin node) entries in `extra_loras` were already
+        # validated (path-injection / fail-closed) before reaching here, so this
+        # whitelist must not re-filter them out — the same silent-drop bug the
+        # Z-Image path guards against at `allowed_loras=(set(...) | {...})` above.
+        # Without this union, `inject_krea_loras` below drops every extra whose
+        # filename lives outside krea/ with NO error: persisted on the cell's
+        # JSON, never mounted in the graph.
+        allowed |= {r["filename"] for r in requested[1:]}
     inject_krea_loras(workflow, requested, allowed=allowed)
     # Krea2T-Enhancer (patcher texte-adhérence) injecté APRÈS les LoRA (wire-aware :
     # se branche sur ce qui alimente KSampler.model). enhancer_strength None = OFF ;
@@ -1621,6 +1662,20 @@ class StudioArchMismatch(Exception):
         self.detected = detected
         self.checkpoint = checkpoint
         super().__init__(f'{checkpoint} is a {detected} LoRA, not {family}')
+
+
+def _is_unsafe_external_lora_name(fn) -> bool:
+    """True if `fn` could resolve OUTSIDE a loras root once handed to
+    `_ci_resolve` (path traversal / drive-letter / rooted path). `os.path.isabs`
+    alone is not enough: on Windows it is False for a POSIX-style rooted path
+    like '/abs/x.safetensors' (no drive letter), yet `_ci_resolve` still walks
+    it as a normal — if odd — first component, and `_resolve_lora_abs_path`
+    would otherwise `lstrip(os.sep)` it into something that LOOKS validated.
+    So every rooted form is rejected explicitly, not inferred from `isabs`."""
+    s = str(fn or '')
+    if not s or os.path.isabs(s) or s.startswith(('/', '\\')) or ':' in s:
+        return True
+    return any(part == '..' for part in s.replace('\\', '/').split('/'))
 
 
 def _resolve_lora_abs_path(checkpoint) -> str | None:
@@ -2440,11 +2495,20 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
             'run_id': run_id, 'ids': ids}
 
 
+# 🧬 Plafond d'un poids de blend (pile combinée) — la borne haute de la plage
+# commune ci-dessus, pas un second nombre. Le poids de tête d'une combinaison
+# traverse build_matrix : un plafond de blend au-dessus du sien ferait échouer
+# le run au lieu de le clamper. Miroir navigateur : `COMBINE_MAX_WEIGHT` dans
+# frontend/src/components/dataset/studio/loraStack.js.
+COMBINE_MAX_WEIGHT = MAX_LORA_STRENGTH
+
+
 def _combine_weight(sel) -> float:
-    """Poids d'un LoRA dans une pile combinée : 0..2, arrondi au centième,
-    1.0 par défaut/valeur illisible (même clamp que les LoRA always-on)."""
+    """Poids d'un LoRA dans une pile combinée : 0..COMBINE_MAX_WEIGHT, arrondi au
+    centième, 1.0 par défaut/valeur illisible."""
     try:
-        return max(0.0, min(2.0, round(float((sel or {}).get('weight', 1.0)), 2)))
+        return max(0.0, min(COMBINE_MAX_WEIGHT,
+                            round(float((sel or {}).get('weight', 1.0)), 2)))
     except (TypeError, ValueError):
         return 1.0
 
@@ -2453,7 +2517,7 @@ def _combine_weights(sel) -> list:
     """Les poids que CE LoRA balaye dans la pile : la liste `weights` si elle est
     fournie (cases de poids du panneau 🧬 Blend), sinon le scalaire `weight`.
 
-    Toujours non vide, clampée 0..2, arrondie au centième, dédupliquée en gardant
+    Toujours non vide, clampée 0..COMBINE_MAX_WEIGHT, arrondie au centième, dédupliquée en gardant
     l'ordre reçu. Une sélection qui ne parle que de `weight` (client d'avant le
     balayage, ou repli d'un frontend neuf sur un backend ancien) rend donc
     exactement une valeur — le balayage est ADDITIF, il ne réinterprète rien."""
@@ -2463,7 +2527,7 @@ def _combine_weights(sel) -> list:
     out = []
     for v in raw:
         try:
-            w = max(0.0, min(2.0, round(float(v), 2)))
+            w = max(0.0, min(COMBINE_MAX_WEIGHT, round(float(v), 2)))
         except (TypeError, ValueError):
             continue
         if w not in out:
@@ -2479,7 +2543,7 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
                           enhancer=None, enhancer_strength=None, detail_amount=None,
                           resolution_tier=None, resolution_multiplier=None,
                           init_image=None, denoise=None, combine=None,
-                          prompts=None) -> dict:
+                          prompts=None, external_loras=None) -> dict:
     """Lance UN run de comparaison sur plusieurs LoRA. `selections` =
     [{dataset_id, checkpoint}] — chaque entrée peut aussi porter `record_id`/`step`
     (le LoRA Canvas les connaît : ce sont l'identité de la pastille cliquée), ce qui
@@ -2499,7 +2563,13 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
     n'a alors plus de sens (chaque LoRA a son poids) : il est remplacé par le poids
     du 1er LoRA de la pile. La règle « un run = une seule famille » vaut aussi ici —
     combiner un LoRA Krea et un LoRA SDXL est impossible (bases et workflows
-    différents), et c'est refusé avec un message nommant les familles."""
+    différents), et c'est refusé avec un message nommant les familles.
+
+    `external_loras` (Canvas plugin nodes) : `[{filename, strength}]` de N'IMPORTE
+    QUEL fichier models/loras, stacké sur CHAQUE cellule via le même canal
+    `extra_loras` que les always-on — mais sans restriction au pool de la famille :
+    un nom introuvable est une erreur dure (jamais un skip silencieux), et l'arch
+    preflight le couvre comme un checkpoint normal."""
     if not selections:
         raise ValueError('no LoRA selected')
     reason = gpu_busy_reason()
@@ -2566,6 +2636,35 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         except (TypeError, ValueError):
             st = 1.0
         extra_loras.append({'filename': fn, 'strength': st})
+    # 🔌 External LoRAs (Canvas plugin nodes): ANY models/loras file, stacked on
+    # top of every cell via the same extra_loras channel. Unlike always-on LoRA
+    # they are NOT restricted to the family pool, so validation is fail-closed:
+    # a name that does not resolve under a loras root is a hard error, never a
+    # silent skip.
+    externals = []
+    for e in (external_loras or []):
+        fn = str((e or {}).get('filename') or '').strip()
+        if not fn or any(x['filename'] == fn for x in externals):
+            continue
+        # Path-traversal guard: `external_loras` is the FIRST free-text channel
+        # to reach `_resolve_lora_abs_path` → `_ci_resolve` (every other caller —
+        # permanent/batch/checkpoint — is gated by a disk-scan allowlist first).
+        # `_ci_resolve` walks each component checking `os.path.exists` and treats
+        # '..' as an ordinary component, so it happily climbs OUT of the loras
+        # root. Checked BEFORE the resolve call, not after: a name that escapes
+        # must never even get a "not found" vs "found" answer.
+        if _is_unsafe_external_lora_name(fn):
+            raise ValueError(f'invalid external LoRA name: {fn}')
+        if not _resolve_lora_abs_path(fn):
+            raise ValueError(f'external LoRA not found: {fn}')
+        try:
+            st = max(0.0, min(2.0, round(float(e.get('strength', 1.0)), 2)))
+        except (TypeError, ValueError):
+            st = 1.0
+        externals.append({'filename': fn, 'strength': st, 'external': True})
+        if len(externals) >= 16:   # same cap as the PUT route + the board's UI
+            break
+    extra_loras.extend(externals)
     # Axe « ⚖ batch » : chaque config tourne une fois SANS puis une fois AVEC
     # chaque LoRA coché batch (même mécanique que create_run).
     batch_axis = _batch_lora_axis(batch_loras, run_type)
@@ -2591,8 +2690,10 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
     # checkpoint sélectionné, lue dans son en-tête, doit correspondre à la famille
     # du run — sinon ComfyUI le droppe en silence (grille no-op). Vérifié AVANT
     # toute ligne → 409 actionnable.
-    _preflight_checkpoint_arch(run_type,
-                               [s.get('checkpoint') for s in selections if s.get('checkpoint')])
+    _preflight_checkpoint_arch(
+        run_type,
+        [s.get('checkpoint') for s in selections if s.get('checkpoint')]
+        + [x['filename'] for x in externals])
     # Un dataset = UN scan de LoRA. `list_test_checkpoints` walks the family's whole
     # LoRA folder (and stats every match): its result only depends on (dataset, family),
     # so a 24-cell grid over 8 checkpoints of the same dataset re-scanned that folder 9

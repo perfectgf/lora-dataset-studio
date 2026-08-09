@@ -125,7 +125,8 @@ const readSets = () => {
   catch { return {}; }
 };
 
-export default function CanvasGenerationPanel({ selection, onToggle, onClear, onDeploy, onClose, tracker }) {
+export default function CanvasGenerationPanel({ selection, onToggle, onClear, onDeploy, onClose,
+  tracker, externalLoras = [] }) {
   const family = canvasFamily(selection);
   const verdict = describeCanvasLaunch(selection);
   const [mode, setMode] = useState(readMode);
@@ -162,8 +163,20 @@ export default function CanvasGenerationPanel({ selection, onToggle, onClear, on
     : verdict;
 
   const configCount = blend ? canvasBlendConfigCount(selection, { weights, sets }) : 1;
-  const studio = useCanvasStudio(selection, family, {
+  const rawStudio = useCanvasStudio(selection, family, {
     onDeploy, tracker, blend, weights, sets });
+  // 🔌 The board's own nodes never touch `genSettings` inside RunSetupPanel —
+  // that state is owned by StudioGenerationSettings, which knows nothing about
+  // the board. `launch` is the one call site both screens share (see the
+  // comment on it in RunSetupPanel), so external LoRAs ride into the same
+  // genSettings object here instead, right where `studio.launch` is invoked.
+  const studio = {
+    ...rawStudio,
+    launch: (checkpoints, strengths, seed, prompt, zModels, aspects, cfgs,
+      stepsList, steps2List, count, genSettings = {}) => rawStudio.launch(
+      checkpoints, strengths, seed, prompt, zModels, aspects, cfgs, stepsList, steps2List, count,
+      externalLoras.length ? { ...genSettings, external_loras: externalLoras } : genSettings),
+  };
   const pinned = useMemo(
     () => (studio.data?.checkpoints || []).map((c) => c.filename), [studio.data]);
   // Namespaced per FAMILY, never per dataset: a canvas run is cross-dataset by
@@ -173,6 +186,13 @@ export default function CanvasGenerationPanel({ selection, onToggle, onClear, on
   const recap = (
     <>
       <CanvasCheckpointRecap selection={selection} onToggle={onToggle} onClear={onClear} />
+      {/* 🔌 Checked board nodes that are not a checkpoint at all — pinned LoRA
+          files stacked on top of whichever checkpoints are picked above. */}
+      {externalLoras.length > 0 && (
+        <p className="m-0 text-cyan-200 text-[0.6875rem]">
+          <span aria-hidden>🔌</span> {externalLoras.length} external LoRA{externalLoras.length > 1 ? 's' : ''} will be stacked on this run.
+        </p>
+      )}
       {selection.length > 1 && (
         <CanvasBlendPanel selection={selection} mode={mode} onMode={setMode}
           weights={weights}

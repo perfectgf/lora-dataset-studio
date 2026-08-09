@@ -37,7 +37,7 @@ test('local is single-flight for the WHOLE machine — a run on another dataset 
   assert.equal(lanes.cloud.available, true);
 });
 
-test('the cloud guard is per dataset and family, not page-wide', () => {
+test('an active run on the dataset no longer closes the cloud lane — the server confirm asks instead', () => {
   const otherDataset = runsHubContinueLanes(RUN, {
     ...OK, actives: [{ dataset_id: 42, train_type: 'zimage' }],
   });
@@ -48,12 +48,18 @@ test('the cloud guard is per dataset and family, not page-wide', () => {
   });
   assert.equal(otherFamily.cloud.available, true, 'another family on the same dataset is allowed');
 
+  // A same-family sibling used to hard-close the lane here, which made the
+  // server's PARALLEL_RUN: confirm unreachable — the guard lives server-side
+  // now, as a question ("second pod, billed separately — launch anyway?").
   const sameBoth = runsHubContinueLanes(RUN, {
     ...OK, actives: [{ dataset_id: 3, train_type: 'zimage' }],
     familyLabel: () => 'Z-Image',
   });
-  assert.equal(sameBoth.cloud.available, false);
-  assert.match(sameBoth.cloud.reason, /Z-Image cloud run is already active on this dataset/);
+  assert.equal(sameBoth.cloud.available, true);
+});
+
+test('the hub cloud lane goes through the confirm loop, so PARALLEL_RUN: can be answered', () => {
+  assert.match(page, /postWithConfirmations\(\s*\n?\s*\(b\) => postJson\('\/api\/dataset\/train\/cloud\/continue'/);
 });
 
 test('the concurrency limit closes the cloud lane and names the count', () => {

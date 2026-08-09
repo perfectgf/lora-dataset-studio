@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CLUSTER_UNITS, chromeScale, chromeScreenSize, clusterBox, groupBarHeight,
-  isNodeControlTarget, nodePointerIntent, pillSelectScale, pillSelectScreenSize,
+  CLUSTER_UNITS, CONTROL_UNITS, chromeScale, chromeScreenSize, clusterUnits,
+  groupBarHeight, isNodeControlTarget, nodePointerIntent, pillSelectScale,
+  pillSelectScreenSize,
 } from './canvasNodeChrome.js';
 
 /* The ✕ that "did not work" on a phone.
@@ -30,10 +31,11 @@ test('the ✕ is a real touch target at the zoom the board is actually read at',
   assert.ok(chromeScreenSize(0.65, 320) >= 24,
     `got ${chromeScreenSize(0.65, 320)} px at 65 %`);
   // And at the far end of the range — a board fitted to twenty runs. Here the
-  // cluster cap bites before the ideal does (a 320-unit pin is only 77 px on
-  // screen at that zoom, and two 28-px buttons would cover most of it), so the
-  // honest claim is "about four times bigger than the bug", not "28 px".
-  assert.ok(chromeScreenSize(0.24, 320) >= 20,
+  // row's cap bites before the ideal does (a 320-unit pin is only 77 px on
+  // screen at that zoom, and four 28-px buttons would be twice as wide as the
+  // whole tile), so the honest claim is "about three times bigger than the
+  // bug", not "28 px".
+  assert.ok(chromeScreenSize(0.24, 320) >= 16,
     `got ${chromeScreenSize(0.24, 320)} px at 24 %`);
   assert.ok(chromeScreenSize(0.24, 320) > 3 * (14 * 0.24),
     'and far bigger than the glyph it replaces');
@@ -51,29 +53,48 @@ test('the control CLUSTER never eats the picture it decorates', () => {
   // being 45 px wide — there is no honest way around that, and it is stated
   // here rather than hidden. Zooming in is the answer, and it works.
   const tiny = chromeScale(0.28, 160);
-  assert.ok(tiny * CLUSTER_UNITS <= 160 * 0.7 + 1e-9,
-    'the 🔍+⬇+✕ cluster stays under 70 % of the tile');
+  assert.ok(tiny * CLUSTER_UNITS <= 160 * 0.94 + 1e-9,
+    'the 🔍 ✕ ⬇ 🗑 row stays inside the tile');
   assert.ok(tiny < 1 / 0.28, 'the cap, not the ideal, is what applies');
   // A full-size pin at the same zoom has room for more, and gets it.
   assert.ok(chromeScreenSize(0.28, 320) > chromeScreenSize(0.28, 160));
 });
 
-test('⬇ Download joined the cluster WITHOUT shrinking ✕ and 🔍', () => {
-  // The regression this pins: the cap is spent on the cluster's WIDTH, so a row
-  // that grew from two buttons to three would have spent 50 % more of it and
-  // taken every target down with it — at 24 % zoom, from 20 px to 15.7 px,
-  // which is the old unhittable-✕ bug creeping back in. So the third control
-  // wraps onto a second line and the width budget is untouched.
-  assert.equal(CLUSTER_UNITS, 64, 'two columns wide, whatever is in it');
-  assert.equal(clusterBox(3).maxWidth, CLUSTER_UNITS);
-  assert.equal(clusterBox(3).rows, 2, 'the third control goes UNDER, not beside');
-  assert.equal(clusterBox(2).rows, 1);
-  // …so the guarantees at every zoom the board is read at are the ones the
-  // two-button cluster already made.
+test('the controls are ONE line, and each one is paid for in width', () => {
+  // The bug this pins is the WRAP, not the size. Four controls (🔍 ✕ ⬇ 🗑) laid
+  // out in two columns is a 2×2 block, and a block capped at a share of the
+  // tile's width is a block sitting mid-picture: reported on a group of five,
+  // it covered the picture AND the "step N · strength X" label beside it.
+  // A row's budget therefore GROWS with the number of controls — that is the
+  // honest cost, and it is a number rather than a wrap.
+  assert.equal(CLUSTER_UNITS, clusterUnits(4));
+  assert.equal(clusterUnits(4), 4 * CONTROL_UNITS + 3 * 2 + 4,
+    'four targets, three gaps, one padding — one line');
+  assert.ok(clusterUnits(4) > clusterUnits(3), 'a fourth control widens the row');
+  assert.ok(clusterUnits(3) > clusterUnits(2));
+  // What the row still guarantees at the zooms the board is actually read at.
   assert.ok(chromeScreenSize(0.45, 320) >= 24,
     `got ${chromeScreenSize(0.45, 320)} px at 45 %`);
-  assert.ok(chromeScreenSize(0.24, 320) >= 20,
-    `got ${chromeScreenSize(0.24, 320)} px at 24 %`);
+  // …and what it costs at the far end, stated instead of hidden: a four-button
+  // row on a 77-px-wide tile cannot give 20 px per target — 4 × 20 is twice the
+  // tile. It gives ~16, against ~20 for the block that covered the picture.
+  const far = chromeScreenSize(0.24, 320);
+  assert.ok(far >= 16 && far < 20, `got ${far} px at 24 %`);
+});
+
+test('the row leaves the resize corner alone', () => {
+  // The corner is drawn on the same edge, at the same counter-scale. Reserved,
+  // row + corner still fit the tile; unreserved, the row would grow into it
+  // exactly when the cap starts to bite (i.e. on the smallest tiles).
+  const w = 260;
+  const k = chromeScale(0.3, w, clusterUnits(4), CONTROL_UNITS);
+  assert.ok(k * (clusterUnits(4) + CONTROL_UNITS) <= w * 0.94 + 1e-9,
+    'the row stops where the resize handle starts');
+  assert.ok(k < chromeScale(0.3, w, clusterUnits(4)),
+    'reserving the corner is what costs that width — a member pays nothing');
+  // A member has no corner to reserve, and asking for fewer controls (no 🗑
+  // wired) must not make the remaining ones smaller.
+  assert.ok(chromeScale(0.3, w, clusterUnits(3)) >= chromeScale(0.3, w, clusterUnits(4)));
 });
 
 test('a nonsense zoom is not allowed to produce a nonsense control', () => {

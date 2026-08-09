@@ -65,20 +65,16 @@ export default function CanvasPage() {
   // for the whole board — the lanes need their overrides before the first paint,
   // and these rows are tiny next to the genealogies they precede.
   const [positions, setPositions] = useState({});
-  useEffect(() => {
-    let alive = true;
-    apiFetch('/api/train/canvas/positions')
-      .then((d) => {
-        if (!alive) return;
-        const next = {};
-        for (const [dsId, rows] of Object.entries(d?.positions || {})) next[dsId] = toOverrideMap(rows);
-        setPositions(next);
-      })
-      // A board that opens in its automatic layout is a far better failure than
-      // a board that does not open: nothing about the canvas may block it.
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
+  const loadPositions = useCallback(() => apiFetch('/api/train/canvas/positions')
+    .then((d) => {
+      const next = {};
+      for (const [dsId, rows] of Object.entries(d?.positions || {})) next[dsId] = toOverrideMap(rows);
+      setPositions(next);
+    })
+    // A board that opens in its automatic layout is a far better failure than
+    // a board that does not open: nothing about the canvas may block it.
+    .catch(() => {}), []);
+  useEffect(() => { loadPositions(); }, [loadPositions]);
 
   /* Remember a lane's arrangement. Applied to the screen FIRST and sent
      afterwards, deliberately: a card must follow the finger at the speed of the
@@ -101,22 +97,29 @@ export default function CanvasPage() {
      changes shape -- a user updating into this version finds their cards
      exactly where they left them. */
   const [imageNodes, setImageNodes] = useState({});
-  useEffect(() => {
-    let alive = true;
-    apiFetch('/api/train/canvas/images')
-      .then((d) => {
-        if (!alive) return;
-        const next = {};
-        for (const [dsId, rows] of Object.entries(d?.nodes || {})) {
-          next[dsId] = toImageNodeMap(rows);
-        }
-        setImageNodes(next);
-      })
-      // Same rule as the positions: nothing about the canvas may stop the canvas
-      // from opening.
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
+  const loadImageNodes = useCallback(() => apiFetch('/api/train/canvas/images')
+    .then((d) => {
+      const next = {};
+      for (const [dsId, rows] of Object.entries(d?.nodes || {})) {
+        next[dsId] = toImageNodeMap(rows);
+      }
+      setImageNodes(next);
+    })
+    // Same rule as the positions: nothing about the canvas may stop the canvas
+    // from opening.
+    .catch(() => {}), []);
+  useEffect(() => { loadImageNodes(); }, [loadImageNodes]);
+
+  /* 💾 Re-read the whole arrangement from the server.
+     Used after a layout preset is restored: the preset is applied SERVER-side
+     through the live writers, so the browser's copy of where everything sits is
+     now the stale one. Re-reading both maps is cheaper and far safer than
+     replaying the preset locally — a local replay would be a second
+     implementation of the restore, free to disagree with the one that actually
+     wrote the rows. */
+  const onReloadLayout = useCallback(
+    () => Promise.all([loadPositions(), loadImageNodes()]),
+    [loadPositions, loadImageNodes]);
 
   /* Pin, move, resize or CLOSE one or more images of a lane. Applied to the
      screen first and sent afterwards, exactly like a card position -- and for
@@ -163,6 +166,26 @@ export default function CanvasPage() {
       })
       .catch(() => {});
   }, [toast]);
+
+  /* 🗑 Forget pinned nodes LOCALLY — no write at all, deliberately.
+     Used after the picture itself has been deleted: its canvas_image_node row
+     now points at nothing, and the ordinary close would try to save geometry
+     for an image the server can no longer validate (save_canvas_image_nodes
+     checks the id against the dataset), so the user would delete a render and
+     get a toast saying the board could not be saved. The orphan row is pruned
+     server-side on the next read of the board — canvas_image_nodes does that
+     already, for exactly this case. */
+  const onForgetImageNodes = useCallback((datasetId, imageIds) => {
+    const gone = new Set((imageIds || []).map(Number));
+    if (!gone.size) return;
+    setImageNodes((cur) => {
+      const lane = cur[datasetId];
+      if (!lane) return cur;
+      const next = Object.fromEntries(
+        Object.entries(lane).filter(([id]) => !gone.has(Number(id))));
+      return { ...cur, [datasetId]: next };
+    });
+  }, []);
 
   const availableIds = useMemo(() => index.datasets.map((d) => d.id), [index.datasets]);
   const selected = useMemo(() => resolveSelection(availableIds, stored), [availableIds, stored]);
@@ -450,6 +473,8 @@ export default function CanvasPage() {
             )}
             imageNodes={filteredImageNodes} allImageNodes={imageNodes}
             onSaveImageNodes={onSaveImageNodes}
+            onForgetImageNodes={onForgetImageNodes}
+            onReloadLayout={onReloadLayout}
             onPinLane={onPinLane} onTidyUp={onTidyUp}
             onRefetchDataset={onRefetchDataset} />
         )}

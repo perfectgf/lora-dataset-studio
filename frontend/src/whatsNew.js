@@ -50,11 +50,68 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-09-canvas-external-loras',
+    date: '2026-08-09',
+    title: 'Pin any LoRA onto the Canvas, even one you never trained here',
+    blurb:
+      'Pin any LoRA from your ComfyUI folder onto the LoRA Canvas as a 🔌 plugin node and stack it on your generations, with its own strength. It stacks on a run anchored by a checkpoint trained here — there is no solo generation from an external LoRA alone.',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-08-the-canvas-controls-live-on-the-board',
     date: '2026-08-08',
     title: 'The Canvas gives the screen back to the board',
     blurb:
       'Everything that steers the LoRA Canvas — the zoom row, Fit, Tidy up, Generate, the colour key, the gestures sheet, the dataset filter and the banner announcing finished images — used to be stacked above the board. On a phone that chrome cost most of the screen before a single card was drawn, which is why the board opened tiny and pinned under a wall of buttons. Those controls now float ON the board: what it is showing sits along the top, what you do to it sits along the bottom within thumb reach, and the board itself takes back the space they were using. Nothing was removed and nothing moved to another page — the same controls, on the surface they act on.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-08-08-canvas-filter-bar',
+    date: '2026-08-08',
+    title: 'The canvas filters stopped eating half the screen',
+    blurb:
+      'The Datasets panel was a fold-out card: unfolded on a library of fourteen datasets it stood 389 px tall on a 720-px screen — 54 % of the window, directly above the board, for anyone who had ever left it open. It is now a single row of chips about 40 px tall. Datasets, Models and Status each open a small menu with the same checkboxes (the dataset menu gained a search of its own, which the three-column list never had), Pinned images and Reset stay in the row, and the run search keeps its full-size box. Every chip shows its count and lights up while it is filtering, so nothing can narrow your board without saying so — and the menus now open above the board instead of under a pinned image.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-08-08-canvas-zoom-labels',
+    date: '2026-08-08',
+    title: 'Run cards stay readable when you zoom the board out',
+    blurb:
+      'A board holding a dozen datasets is read at 30-40 % zoom, and at that scale a run card\'s title renders at about four pixels: the canvas was showing you everything and telling you nothing, so finding a run meant zooming in on each one in turn. Below 55 % every card now carries its run number at a constant, readable size, and below 30 % it carries the dataset name too — because the lane headings have gone unreadable by then as well.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-08-08-canvas-layout-presets',
+    date: '2026-08-08',
+    title: 'Keep a board arrangement instead of losing it to ✦ Tidy up',
+    blurb:
+      'Laying two datasets\' renders out side by side to judge a likeness takes twenty minutes, and until now the board only ever held ONE arrangement: the moment you needed it for something else, your only options were to leave it there forever or throw it away. 💾 Layouts in the board toolbar saves where every run card and every pinned picture sits — closed pictures included — under a name, and puts it back whenever you want. A run deleted since is simply not restored, and the app says how many, rather than leaving you to hunt for the card that is missing.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-08-08-canvas-export-png',
+    date: '2026-08-08',
+    title: 'Save the whole board as a PNG',
+    blurb:
+      '📷 PNG in the board toolbar writes the entire canvas to one image file: every pinned picture at full size, every run card with its checkpoints, and the lines that join them. Useful for a comparison you want to keep, post, or look at next to something else. It is a redraw of the board, not a screenshot, so the buttons and badges are not in it — and a picture whose file has been cleaned off the disk comes out as a labelled placeholder instead of silently missing.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-08-08-canvas-delete-image',
+    date: '2026-08-08',
+    title: 'Bin a bad render from the board itself',
+    blurb:
+      'The board is where you actually decide a render is a failure — and deleting it meant closing the node, opening the run, finding the checkpoint, opening its gallery, entering Select mode and finding the same picture again. Pinned images now carry a 🗑 next to their ✕. Press it once to arm it, again to delete: ✕ still only takes the picture off the board and remembers where it was, 🗑 deletes the image itself, through the same route (and the same recoverable-or-not setting) the gallery uses.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-08-08-lora-strength-up-to-5',
+    date: '2026-08-08',
+    title: 'LoRA strength and blend weights now go up to 5',
+    blurb:
+      'The weight slider of a 🧬 Blend stopped at 2 and the strength sweep at 4 — both were comfort limits, not technical ones, and pushing an under-trained LoRA or an overwhelming style meant leaving the app for a hand-built workflow. The ceiling is 5 everywhere now: the blend slider, the strength chips behind « + », and the server that validates them. The weight next to each slider is also typeable, so getting to 3.35 no longer means eighty small drags.',
+    to: '/canvas',
   },
   {
     id: '2026-08-08-launch-anyway-actually-asks',

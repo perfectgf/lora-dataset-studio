@@ -19,7 +19,7 @@ import { refreshDatasetIfActive } from '../utils/datasetRefresh';
 import { ENGINE_LABELS } from '../components/dataset/engineSelection.js';
 import { retryRequestForReferenceEdit } from '../components/dataset/referenceEdit.js';
 import { classifyResultMessage } from '../components/dataset/classifyFramingGate.js';
-import { captionResultSuffix } from '../utils/captionEngines.js';
+import { captionResultSuffix, captionSkippedSuffix } from '../utils/captionEngines.js';
 
 function post(url, body, isForm) {
   // Routes through the shared fetchWithCsrfRetry: a token that aged out mid-session
@@ -650,7 +650,7 @@ export function useDataset() {
       }
       setLastCaptionRun({ datasetId: run.datasetId, captioned: d.captioned, engines: d.engines });
       if (d.stopped) toast.info(`Stopped — ${d.captioned} captioned before you stopped; the rest stays uncaptioned.`);
-      else toast.success(`${d.captioned} captioned${captionResultSuffix(d.engines)}`);
+      else toast.success(`${d.captioned} captioned${captionResultSuffix(d.engines)}${captionSkippedSuffix(d)}`);
       await refresh(run.datasetId);
     } finally {
       finishCaptioningRun(run);
@@ -671,7 +671,7 @@ export function useDataset() {
       }
       setLastCaptionRun({ datasetId: run.datasetId, captioned: d.captioned, engines: d.engines });
       if (d.stopped) toast.info(`Stopped — ${d.captioned} re-captioned before you stopped; the rest keeps its previous caption.`);
-      else toast.success(`${d.captioned} re-captioned${captionResultSuffix(d.engines)}`);
+      else toast.success(`${d.captioned} re-captioned${captionResultSuffix(d.engines)}${captionSkippedSuffix(d)}`);
       await refresh(run.datasetId);
     } finally {
       finishCaptioningRun(run);
@@ -717,7 +717,7 @@ export function useDataset() {
         return d;
       }
       setLastCaptionRun({ datasetId: currentId, captioned: d.captioned, engines: d.engines });
-      toast.success(`${d.captioned} re-captioned${captionResultSuffix(d.engines)}`);
+      toast.success(`${d.captioned} re-captioned${captionResultSuffix(d.engines)}${captionSkippedSuffix(d)}`);
       await refresh();  // re-pulls captions + the live leak flags (scan is server-side)
       return d;
     } finally {
@@ -1424,6 +1424,7 @@ export function useDataset() {
       allow_unverified_weights: !!opts.allowUnverifiedWeights,
       allow_caption_quality: !!opts.allowCaptionQuality,
       allow_not_ready: !!opts.allowNotReady,
+      allow_parallel_run: !!opts.allowParallelRun,
       ...(opts.fromStep != null ? { from_step: opts.fromStep } : {}),
       ...(opts.overrides ? { overrides: opts.overrides } : {}),
       resume_mode: opts.resumeMode || 'weights_only',

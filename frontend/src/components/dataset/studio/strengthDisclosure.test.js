@@ -7,14 +7,16 @@ import {
   STRENGTH_CHOICES, STRENGTH_CHOICES_EXTENDED, STRENGTH_CHOICES_NEGATIVE,
 } from './constants.js';
 
-test('extended strength choices reach 4.0, are all above the base range, sorted, no overlap', () => {
+test('extended strength choices reach the server ceiling, are all above the base range, sorted, no overlap', () => {
   assert.equal(BASE_STRENGTH_MAX, 2.0);
   // Base row tops out at exactly 2.0.
   assert.equal(Math.max(...STRENGTH_CHOICES), 2.0);
   assert.ok(STRENGTH_CHOICES.every((s) => s <= BASE_STRENGTH_MAX));
-  // Extended row is strictly above the base max and reaches the 4.0 server ceiling.
+  // Extended row is strictly above the base max and reaches the server ceiling,
+  // which moved 4.0 -> 5.0 on 2026-08-08 with the blend weight (they are the
+  // same number in the same column - see lora_test_studio.MAX_LORA_STRENGTH).
   assert.ok(STRENGTH_CHOICES_EXTENDED.every((s) => s > BASE_STRENGTH_MAX));
-  assert.equal(Math.max(...STRENGTH_CHOICES_EXTENDED), 4.0);
+  assert.equal(Math.max(...STRENGTH_CHOICES_EXTENDED), 5.0);
   // Ascending, no duplicate between the two rows.
   const sorted = [...STRENGTH_CHOICES_EXTENDED].sort((a, b) => a - b);
   assert.deepEqual(STRENGTH_CHOICES_EXTENDED, sorted);

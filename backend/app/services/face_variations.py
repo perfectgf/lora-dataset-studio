@@ -2577,6 +2577,104 @@ def drop_identity_sentences(caption, body=False) -> str:
     return ' '.join(kept).strip()
 
 
+# --- STYLE medium lead-in (kind=style) ----------------------------------------
+# Style twin of drop_identity_sentences. CAPTION_PROMPT_STYLE forbids naming the
+# medium, but that rule is NEGATIVE and JoyCaption is "not a general instruction
+# follower" (same reason CAPTION_PROMPT had to be rewritten positive, above), so
+# captions keep opening with "A digital illustration of …". The medium then binds
+# to those words instead of being absorbed by the LoRA — exactly what a style set
+# is trying to avoid — so the opener is cut here, in post.
+#
+# Only the LEAD-IN is touched. A medium named INSIDE the scene is content ("a
+# painting hangs on the wall"), and the whole filter is built to leave it alone:
+# it matches at position 0 only, and only when the medium noun is followed by
+# "of" or a depicting verb, which is what makes it an opener rather than a
+# subject. The residual false positive is "An oil painting of a stormy sea hangs
+# on the wall" — a lead-in shape describing an object — which _LEAD_IN_OBJECT
+# catches by looking for a hanging/mounting verb landing on a wall or an easel.
+#
+# The vocabulary below is the TEXT lexicon; the bank owns a separate medium
+# vocabulary (image_bank_service.MEDIUM_PROTOTYPES) that is a CLIP classifier
+# tuned against measured cosine margins and must not be edited to serve a text
+# filter. test_style_caption_lead_in.py ties the two so they cannot drift.
+STYLE_MEDIUM_HEADS = (
+    'illustration', 'illustrations', 'drawing', 'drawings', 'sketch', 'sketches',
+    'painting', 'paintings', 'render', 'renders', 'rendering', 'renderings',
+    'artwork', 'artworks', 'art', 'image', 'images', 'picture', 'pictures',
+    'photo', 'photos', 'photograph', 'photographs', 'snapshot', 'snapshots',
+    'comic', 'cartoon', 'manga', 'anime',
+)
+
+# Modifiers that may sit between the article and the head noun. A CLOSED list on
+# purpose: allowing "any adjective" would swallow real openers such as "A young
+# woman with red hair …", where the first words are the content itself.
+STYLE_MEDIUM_MODS = (
+    'digital', 'traditional', 'hand-drawn', 'hand', 'drawn', 'painted', 'rendered',
+    'illustrated', 'sketched', 'coloured', 'colored', 'colorful', 'colourful',
+    'monochrome', 'black-and-white', 'greyscale', 'grayscale', 'sepia',
+    'detailed', 'highly', 'stylized', 'stylised', 'simple', 'rough', 'quick',
+    'vintage', 'retro', 'classic', 'candid', 'group', 'studio', 'professional',
+    'anime', 'anime-style', 'manga', 'manga-style', 'cartoon', 'cartoonish',
+    'comic', 'comic-book', 'book', 'pencil', 'charcoal', 'ink', 'pen',
+    'watercolor', 'watercolour', 'oil', 'acrylic', 'gouache', 'pastel', 'chalk',
+    'crayon', 'airbrush', 'linocut', 'woodcut', 'collage',
+    '3d', 'cgi', 'computer-generated', 'photorealistic', 'realistic',
+    'semi-realistic', 'real-life', 'fantasy', 'concept', 'line', 'vector',
+    'pixel', 'low-poly', 'cel-shaded', 'painterly', 'sketchy', 'minimalist',
+    'abstract', 'surreal',
+)
+
+# "This is …", "The image shows …" — the wrapper a captioner puts in front of the
+# medium. Stripped only as part of a medium lead-in, never on its own.
+_LEAD_PREFIX = (r'(?:this|that|it)\s+is|here\s+is'
+                r'|(?:this|the)\s+(?:image|picture|artwork|illustration)\s+'
+                r'(?:is|shows|depicts|features|presents)')
+_LEAD_VERB = (r'shows?|showing|depicts?|depicting|features?|featuring'
+              r'|portrays?|portraying|captures?|capturing|presents?|presenting'
+              r'|illustrates?|illustrating|displays?|displaying')
+
+
+def _alt(words) -> str:
+    # longest-first so 'artwork' wins over 'art', 'anime-style' over 'anime'…
+    return '|'.join(re.escape(w) for w in sorted(words, key=len, reverse=True))
+
+
+# The article is INDEFINITE only. A lead-in announces the medium ("A digital
+# illustration of…", "Digital art of…"); a definite one points at something already
+# in the scene ("The artwork of the poster behind her reads FESTIVAL"), which is
+# content. "The image is a…" still works — that "the" belongs to the prefix.
+_LEAD_STEM = (rf'^\W*(?:(?:{_LEAD_PREFIX})\s+)?(?:an?\s+)?'
+              rf'(?:(?:{_alt(STYLE_MEDIUM_MODS)})[-\s]+){{0,4}}'
+              rf'(?:{_alt(STYLE_MEDIUM_HEADS)})\b')
+# "<medium> of <content>" / "<medium> shows <content>"
+_STYLE_LEAD_IN = re.compile(rf'{_LEAD_STEM}(?:\s+of\s+|\s+(?:{_LEAD_VERB})\s+)', re.I)
+# "<medium>." as a whole opening sentence, the rest of the caption following it
+_STYLE_LEAD_SENTENCE = re.compile(rf'{_LEAD_STEM}\s*[.!](?:\s+|$)', re.I)
+# the object-in-the-scene rescue described above
+_LEAD_IN_OBJECT = re.compile(
+    r'^[^.!?]{0,80}?\b(?:hangs?|hanging|hung|leans?|leaning|propped|mounted'
+    r'|framed|displayed)\b[^.!?]{0,30}?\b(?:wall|walls|easel|frame|mantel|mantelpiece'
+    r'|shelf|gallery)\b', re.I)
+
+
+def drop_style_lead_in(caption) -> str:
+    """Retire l'amorce de médium d'une caption de dataset STYLE, en réparant la
+    grammaire : « A digital illustration of a young woman… » -> « A young woman… ».
+    Ne touche QUE l'amorce ; un médium cité dans la scène est du contenu."""
+    text = (caption or '').strip()
+    if not text:
+        return ''
+    m = _STYLE_LEAD_IN.match(text) or _STYLE_LEAD_SENTENCE.match(text)
+    if not m:
+        return text
+    rest = text[m.end():].lstrip()
+    # Nothing but the medium statement, or the medium is the scene's own object:
+    # returning the caption untouched is always the safe side of this filter.
+    if not rest or _LEAD_IN_OBJECT.match(rest):
+        return text
+    return rest[0].upper() + rest[1:]
+
+
 # --- CONCEPT leak detection (kind=concept) ----------------------------------
 # A concept LoRA teaches a recurring element (a pose, an act, an effect) that must bind
 # to the TRIGGER word, never to caption words. A caption "leaks" when it NAMES that

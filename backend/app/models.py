@@ -1149,6 +1149,47 @@ class CanvasImageNode(db.Model):
                                           name='uq_canvas_image_node'),)
 
 
+class CanvasLayoutPreset(db.Model):
+    """💾 A NAMED snapshot of the whole board's arrangement.
+
+    ``CanvasNodePosition`` and ``CanvasImageNode`` hold ONE arrangement — the
+    live one. That is right for a board you tidy as you go and wrong the moment
+    the board is used for what it is good at: you spend twenty minutes laying
+    two datasets' renders out to judge a likeness, then you need the board for
+    something else, and the only two moves the app offered were "leave it there
+    forever" or ✦ Tidy up, which throws it away. A preset is the third: keep
+    this arrangement, use the board, put it back.
+
+    ── Why one blob and not a second pair of tables ─────────────────────────
+    ``payload`` is JSON: ``{"positions": {"<dataset id>": [{record_id,x,y}...]},
+    "images": {"<dataset id>": [{image_id,x,y,w,h,visible,group_id,group_pos}...]}}``.
+    Mirroring the two live tables would double every future change to them and
+    would need the same ownership checks in two more places. More importantly a
+    preset is a MEMORY, not state: a run deleted since the preset was saved
+    simply has no card to put back, and a row with a foreign key would instead
+    make that a database error or a cascade that quietly edits history. Restore
+    therefore goes through the very same validated save functions the live board
+    uses (``save_canvas_positions`` / ``save_canvas_image_nodes``), which drop
+    what no longer exists — so a preset can never smuggle in a card, a picture
+    or a dataset the user does not own, however it was written.
+
+    Scoped by ``user_id`` rather than by dataset, because the board spans
+    datasets — that is the whole point of it — and a preset that could only
+    remember one lane would not be a preset of the board.
+
+    New table -> created by db.create_all(), no migration."""
+    __tablename__ = 'canvas_layout_preset'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(String(36), nullable=False, index=True, default='local')
+    name = db.Column(db.String(80), nullable=False)
+    payload = db.Column(db.Text, nullable=False, default='{}')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('user_id', 'name',
+                                          name='uq_canvas_layout_preset'),)
+
+
 # ---------------------------------------------------------------------------
 # 🎬 Video lane — a SEPARATE set of tables, on purpose.
 #

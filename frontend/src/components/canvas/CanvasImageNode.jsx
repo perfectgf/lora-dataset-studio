@@ -1,7 +1,9 @@
 import { nudgeImageNode } from '../../utils/canvasImageNodes';
-import { CLUSTER_UNITS, chromeScale } from '../../utils/canvasNodeChrome';
+import { CONTROL_UNITS, chromeScale, clusterUnits } from '../../utils/canvasNodeChrome';
 import { imageFactsLine } from '../../utils/generatedImageFacts';
 import { useImageDownload } from '../../hooks/useImageDownload';
+import { useCanvasImageDelete } from '../../hooks/useCanvasImageDelete';
+import { canvasDeleteButtonState } from '../../utils/canvasImageDelete';
 
 /* 🖼 One generated image, pinned ON the board.
 
@@ -30,16 +32,29 @@ import { useImageDownload } from '../../hooks/useImageDownload';
    itself was ~16 board units on a board read at 65 %, so about ten pixels under
    a finger, with the 🔍 immediately beside it. The controls are therefore
    counter-scaled by the board zoom (utils/canvasNodeChrome.chromeScale) so they
-   keep a constant size on screen, and they are laid out as one cluster in the
-   corner rather than two glyphs crammed into a 12-px header row.
+   keep a constant size on screen, and they are laid out as one row along an
+   EDGE rather than two glyphs crammed into a 12-px header row.
 
-   ⬇ …and the cluster now has THREE controls, which is why it wraps. The cap
-   that keeps it off the picture is spent on the cluster's WIDTH, so a third
-   button drawn beside the others would have shrunk all of them by a third and
-   walked the same bug back in. It goes on a second line instead, last, so 🔍
-   and ✕ never move. What it downloads keeps its lineage in its NAME — dataset,
-   run, step, seed — because this board is the only place that knows all four
-   and a file called out_00042_.png in Downloads knows none of them.
+   ⚠️ …and that row is one LINE, in the bottom-right corner. It wrapped into two
+   columns for a while, on the reasoning that a wider row spends more of the cap
+   that keeps the controls off the picture, so every target shrinks. True — and
+   wrong about what a control must never do. Four controls in two columns is not
+   a cluster in a corner, it is a 2×2 block: 70 % of the tile wide and two rows
+   tall, it landed in the middle of the picture it decorates and covered the
+   "step N · strength X" label sitting beside it, so it hid both of the things
+   the board exists to compare. One line along the bottom edge costs each target
+   some size at extreme zoom-out (the number is pinned in canvasNodeChrome.test)
+   and gives the picture back at every zoom.
+
+   Bottom-right, not top-right, and the gallery already settled that: its 📌 sits
+   bottom-right precisely because the top corners belong to what LABELS a tile
+   (the 👍/👎 verdict there, the step/strength label here). Actions and labels do
+   not share a corner. The row keeps clear of the resize corner by reserving it,
+   which is why chromeScale is told about it.
+
+   What ⬇ downloads keeps its lineage in its NAME — dataset, run, step, seed —
+   because this board is the only place that knows all four and a file called
+   out_00042_.png in Downloads knows none of them.
 
    ⌨ Keyboard. The node itself is focusable: arrows move it, Shift+arrows move
    it faster, +/− resize it, Esc closes it. Moving and resizing by mouse alone
@@ -47,7 +62,8 @@ import { useImageDownload } from '../../hooks/useImageDownload';
    arithmetic is nudgeImageNode(), unit-tested; this file only routes keys. */
 
 export default function CanvasImageNode({ node, datasetId, laneName, onGeometry,
-  onClose, onOpen, boardScale = 1, variant = 'node', box = null, blendNote = null }) {
+  onClose, onOpen, onDelete, boardScale = 1, variant = 'node', box = null,
+  blendNote = null }) {
   const img = node.image || {};
   const stepLabel = img.step == null ? 'step unknown' : `step ${img.step}`;
   // The gallery payload publishes the value persisted on LoraTestImage as
@@ -81,15 +97,26 @@ export default function CanvasImageNode({ node, datasetId, laneName, onGeometry,
   // a finger finds them at 24 % exactly as it does at 100 %.
   // geom.w, not node.w: a member's drawn width is the strip's tile, not the
   // box it carries for the day it leaves.
-  const k = chromeScale(boardScale, geom.w);
-  // ⚠️ maxWidth, not a guess: the cap chromeScale applies is spent on the
-  // cluster's WIDTH, so a third control drawn BESIDE the other two would spend
-  // 50 % more of it and shrink every target by a third — 20 px down to 15.7 px
-  // at 24 % zoom, which is the unhittable-✕ bug walking back in. It wraps
-  // instead, and ⬇ is last so 🔍 and ✕ never move.
-  const chrome = { transform: `scale(${k})`, transformOrigin: 'top right',
-    maxWidth: CLUSTER_UNITS };
   const dl = useImageDownload();
+  // 🗑 One arm-then-confirm delete per node — never one shared by the board, or
+  // arming here and confirming there would be possible (see the hook).
+  const rm = useCanvasImageDelete(onDelete);
+  // The row's width budget is the row that is actually drawn: 🔍 ✕ ⬇, plus 🗑
+  // when a host wired it. Asking for four when three are rendered would shrink
+  // the three for nothing.
+  const controlCount = 3 + (onDelete ? 1 : 0);
+  const rowUnits = clusterUnits(controlCount);
+  // A member has no resize corner; a node of its own has one, on this very
+  // edge, so the row must be told to leave room for it (both are drawn at the
+  // same counter-scale, so the reservation is in the same unscaled units).
+  const corner = member ? 0 : CONTROL_UNITS;
+  const k = chromeScale(boardScale, geom.w, rowUnits, corner);
+  // ⚠️ maxWidth, not a guess: it is the number chromeScale capped k against.
+  // Without it flex would happily draw a wider row inside that budget and every
+  // target would silently lose size at low zoom.
+  const chrome = { transform: `scale(${k})`, transformOrigin: 'bottom right',
+    maxWidth: rowUnits, right: corner * k };
+  const rmState = canvasDeleteButtonState({ armed: rm.armed, busy: rm.busy, label: imageLabel });
   // Revealed on hover/focus for a member, always on for a node of its own.
   const reveal = member
     ? ' opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'
@@ -153,19 +180,21 @@ export default function CanvasImageNode({ node, datasetId, laneName, onGeometry,
           {imageLabel}
         </span>
       </header>
-      {/* The controls, as ONE cluster pinned to the node's corner and drawn at a
-          constant SCREEN size. Out of the header's flow on purpose: counter-
-          scaling something inside a 12-px row would either clip it or push the
-          label off. Each target is 28 units square with air between them — two
-          glyphs a pixel apart is how a miss on ✕ opened 🔍 instead. */}
+      {/* The controls, as ONE row along the bottom edge, drawn at a constant
+          SCREEN size. Out of the header's flow on purpose: counter-scaling
+          something inside a 12-px row would either clip it or push the label
+          off — and the label is at the OTHER end of the node precisely so that
+          neither ever hides the other. Each target is 28 units square with air
+          between them — two glyphs a pixel apart is how a miss on ✕ opened 🔍
+          instead. `flex-nowrap` is load-bearing: a wrap here is the 2×2 block
+          this layout exists to undo. */}
       <div style={chrome}
         data-testid="canvas-image-controls"
-        // p-0.5 et pas p-1 : le cluster est borné par CLUSTER_UNITS, et 2 px de
-        // marge en plus de chaque côté suffisaient à faire passer le rang de
-        // deux boutons à un — trois lignes de pastilles couvrent plus d'image
-        // que le bandeau qu'on vient d'enlever.
-        className={'absolute right-0 top-0 z-10 flex flex-wrap items-start justify-end'
-          + ' gap-1 p-0.5' + reveal}>
+        // gap-0.5/p-0.5 and not gap-1/p-1: every unit of padding is a unit the
+        // buttons do not get, because the cap chromeScale applies is spent on
+        // the row's total width.
+        className={'absolute bottom-0 z-10 flex flex-nowrap items-center justify-end'
+          + ' gap-0.5 p-0.5' + reveal}>
         {/* Opens the full record — every setting, the prompt, the copy buttons.
             The node is the picture; the facts stay one click away rather than
             being crammed onto a thumbnail. */}
@@ -180,8 +209,8 @@ export default function CanvasImageNode({ node, datasetId, laneName, onGeometry,
           title="Close this image — re-opening it from its gallery puts it back here, at this size"
           aria-label={`Close the pinned image at ${imageLabel}`}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/50 text-white backdrop-blur-sm transition-colors text-[0.875rem] leading-none hover:border-red-400/60 hover:bg-red-500/70">✕</button>
-        {/* ⬇ Keep this picture. LAST in the cluster, so it wraps onto its own
-            line and 🔍 and ✕ stay at the pixel a hand already knows.
+        {/* ⬇ Keep this picture. Third in the row, after the two controls a hand
+            already knows the position of.
             The file lands under a name that still says where it came from —
             dataset, run, step, seed (services/gallery_download.py). That name
             is the ONLY carrier of the lineage: there is no sidecar, and a
@@ -195,7 +224,42 @@ export default function CanvasImageNode({ node, datasetId, laneName, onGeometry,
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/15 bg-black/50 text-white backdrop-blur-sm transition-colors text-[0.75rem] leading-none hover:bg-black/70 disabled:opacity-50">
           {dl.busy ? '…' : '⬇'}
         </button>
+        {/* 🗑 Delete the PICTURE, not the node.
+            LAST in the row, furthest from ✕, and the two are told apart by
+            colour AND by an arming step rather than by position alone: ✕ and 🗑
+            one tap apart on a 28-px cluster is how a board gets cleaned up by
+            accident. First press arms (the glyph gains a !, the button turns
+            red), second press deletes, and it disarms itself after a few
+            seconds — a live delete must not sit under the cursor of a board
+            left open for an hour. Only rendered when a host wired it, so the
+            surfaces that have no way to refresh afterwards do not offer it. */}
+        {onDelete && (
+          <button type="button" disabled={rmState.disabled}
+            onClick={(e) => { e.stopPropagation(); rm.press(node); }}
+            onBlur={rm.disarm}
+            data-testid="canvas-image-delete"
+            data-armed={rm.armed ? 'true' : 'false'}
+            title={rmState.title}
+            aria-label={rmState.aria}
+            className={'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border '
+              + 'backdrop-blur-sm transition-colors text-[0.75rem] leading-none disabled:opacity-50 '
+              + (rm.armed
+                ? 'border-red-300 bg-red-600/90 text-white'
+                : 'border-white/15 bg-black/50 text-white hover:border-red-400/60 hover:bg-red-500/70')}>
+            {rmState.glyph}
+          </button>
+        )}
       </div>
+      {/* A refused delete says so on the node, in the same strip a refused
+          download uses — one place on a thumbnail for "that did not work". */}
+      {rm.error && (
+        <div role="alert" data-testid="canvas-image-delete-error"
+          onClick={(e) => { e.stopPropagation(); rm.clearError(); }}
+          style={{ transform: `scale(${k})`, transformOrigin: 'bottom left' }}
+          className="absolute bottom-0 left-0 z-20 max-w-full cursor-pointer rounded-tr-md bg-red-900/90 px-1 py-0.5 text-[0.5rem] leading-tight text-red-50">
+          {rm.error}
+        </div>
+      )}
       {/* A refusal has to be READABLE, and the node is small — so it is a strip
           across the bottom of the picture, counter-scaled like the buttons are,
           rather than a tooltip nobody hovers on a phone. It happens: the board
@@ -220,7 +284,10 @@ export default function CanvasImageNode({ node, datasetId, laneName, onGeometry,
             transformOrigin: 'bottom left' }}
           title={`🧬 Blended image — ${blendNote}. Only the sources still on the `
             + 'board can be linked to it.'}
-          className="pointer-events-none absolute bottom-0 left-0 z-10 max-w-full truncate rounded-tr-md border-r border-t border-purple-400/50 bg-black/60 px-1 py-px text-[0.5rem] font-semibold leading-tight text-purple-200 backdrop-blur-sm">
+          // max-w-[55%] and not max-w-full: this badge is permanent and it lives
+          // on the same edge as the control row, at the other end. Full width it
+          // would sit UNDER the buttons on every blended picture.
+          className="pointer-events-none absolute bottom-0 left-0 z-10 max-w-[55%] truncate rounded-tr-md border-r border-t border-purple-400/50 bg-black/60 px-1 py-px text-[0.5rem] font-semibold leading-tight text-purple-200 backdrop-blur-sm">
           <span aria-hidden>🧬</span> {blendNote}
         </span>
       )}

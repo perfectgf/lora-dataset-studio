@@ -747,6 +747,10 @@ DEFAULTS = {
     # label shadowing a built-in one would hijack prompt/aspect/NSFW resolution.
     'custom_shots': {},
     'updates': {'repo': 'perfectgf/lora-dataset-studio'},      # GitHub repo for the release feed
+    # ◉ LoRA Canvas: 🔌 external LoRA plugin nodes pinned on the board.
+    # Each: {filename (loras-relative), strength [0..2], x, y (board coords)}.
+    # Cap 16, deduped by filename — sanitized in the PUT route.
+    'canvas': {'external_loras': []},
 }
 
 _lock = threading.Lock()

@@ -41,6 +41,11 @@ PROGRESS PROTOCOL (stderr, read by app/services/face_mask.py):
   `downloading` (models absent -> insightface will fetch ~350 MB), `loading`
   (FaceAnalysis.prepare), `detecting` (the per-image loop).
 
+  A third shape carries the RESULT rather than the count: `[facemask] item {...}`,
+  one per image, holding that image's path/state/boxes. It exists so the parent
+  can bank detections WHILE the pass runs, instead of owning nothing until the
+  final JSON line — see _item().
+
 `out_dir` null = DETECT ONLY (no file written): the preview path asks for the raw
 boxes and grows them client-side, so moving the expand slider redraws instantly
 instead of paying for another InsightFace pass.
@@ -72,6 +77,24 @@ def _phase(name):
     """Announce a named stage of the run. Unbuffered: a phase line that arrives
     after the phase is over is worse than none."""
     _log(f'[facemask] phase={name}')
+
+
+def _item(path, record):
+    """Publish ONE image's result the moment it is known.
+
+    Everything else this script computes lives in `results` until the final JSON
+    line, so anything that ends the process before that line takes the whole pass
+    with it — a parent watchdog, a kill, a machine that reboots. The graceful
+    wind-up above only covers the case where someone ASKS; this covers the cases
+    nobody asked for, by letting the parent bank as the pass goes.
+
+    Deliberately a SEPARATE line from the `i/N` counter: those drive the progress
+    bar and their grammar is under test, so they are left exactly as they were."""
+    try:
+        payload = json.dumps({'path': path, **record})
+    except (TypeError, ValueError):
+        return      # a result that cannot be serialised must not kill the pass
+    _log(f'[facemask] item {payload}')
 
 
 def _models_present(models_root=None) -> bool:
@@ -183,6 +206,7 @@ def main() -> int:
             img = cv2.imread(p)
             if img is None:
                 results[p] = {"state": "unreadable", "boxes": []}
+                _item(p, results[p])
                 _log(f'[facemask] {i}/{len(images)} unreadable')
                 continue
             h, w = img.shape[:2]
@@ -206,6 +230,7 @@ def main() -> int:
                     name = os.path.splitext(os.path.basename(p))[0] + '.png'
                     Image.new('L', (w, h), 255).save(os.path.join(out_dir, name), 'PNG')
                     written += 1
+                _item(p, results[p])
                 _log(f'[facemask] {i}/{len(images)} no_face')
                 continue
 
@@ -231,9 +256,11 @@ def main() -> int:
                 name = os.path.splitext(os.path.basename(p))[0] + '.png'
                 mask.save(os.path.join(out_dir, name), 'PNG')
                 written += 1
+            _item(p, results[p])
             _log(f'[facemask] {i}/{len(images)} {state} faces={len(boxes)}')
         except Exception as e:  # noqa: BLE001 — one bad image must not kill the pass
             results[p] = {"state": "error", "error": str(e), "boxes": []}
+            _item(p, results[p])
             _log(f'[facemask] {i}/{len(images)} ERROR {e}')
     # `ok` stays TRUE on a stop: the pass did not fail, it was asked to end early
     # and it is handing back everything it managed to compute. Reporting it as an

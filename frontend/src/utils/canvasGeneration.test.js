@@ -153,7 +153,7 @@ test('a blend weight uses the Test Studio clamp, not a second one', () => {
   const e = pick(1, 10, 1000);
   const k = canvasStackKey(e);
   assert.equal(canvasStackWeight({}, e), 1);
-  assert.equal(canvasStackWeight({ [k]: 9 }, e), 2);
+  assert.equal(canvasStackWeight({ [k]: 9 }, e), 5);   // the ceiling, 2 until 2026-08-08
   assert.equal(canvasStackWeight({ [k]: -4 }, e), 0);
   assert.equal(canvasStackWeight({ [k]: 0.5555 }, e), 0.56);
   assert.equal(canvasStackWeight({ [k]: 'nope' }, e), 1);

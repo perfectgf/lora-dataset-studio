@@ -8,6 +8,7 @@ ai-toolkit isn't configured, so it degrades to `{'available': False}` instead.
 """
 import os
 import re
+import time
 from datetime import datetime
 from threading import Lock
 
@@ -647,6 +648,16 @@ def _face_preview_payload(results, by_path, limit):
             'expand': face_mask.expand_factor()}
 
 
+# How often the running pass writes its detections down. Whichever comes first:
+# ten images, or thirty seconds. Both bounds exist because either alone leaves a
+# hole — ten images is several minutes on this CPU-only detector, and a
+# time-only rule would rewrite the sidecar during a stretch where nothing new
+# arrived. What they buy is the size of the loss when the process dies without
+# being asked: at most ten images of re-detection, instead of the whole pass.
+_FACE_BANK_EVERY = 10
+_FACE_BANK_EVERY_S = 30
+
+
 def _face_preview_guard(dataset_id, require_tool=True):
     """Shared gate. Returns an error response, or None."""
     ds = svc.get_dataset(LOCAL_USER, dataset_id)
@@ -717,7 +728,40 @@ def dataset_face_mask_preview(dataset_id):
             fmp.clear_partial(dataset_id)
             return
 
+        # Detections banked WHILE the pass runs, from the child's per-image
+        # `item` lines. Before this, everything lived in the child's memory until
+        # its final JSON line, so a pass that ended any way other than "finished"
+        # or "stopped" — the watchdog budget elapsing, a crash, the server going
+        # down — lost all of it and the next start began at image 1.
+        live = {}
+        flush = {'at': time.monotonic(), 'n': 0}
+
+        def _bank():
+            """Persist what has arrived so far, DEBOUNCED.
+
+            The sidecar is rewritten whole (~60 KB for 138 entries), so one write
+            per image would be 138 rewrites of the same file. One per ten bounds
+            the loss to ten images; the time bound is there because ten images is
+            minutes on this CPU-only detector and a crash inside that window must
+            not cost them either.
+
+            Every path that ENDS the pass banks `merged` itself, so this one only
+            ever has to cover the case where nothing gets to run afterwards."""
+            if not live:
+                return
+            if flush['n'] < _FACE_BANK_EVERY \
+                    and time.monotonic() - flush['at'] < _FACE_BANK_EVERY_S:
+                return
+            flush['at'], flush['n'] = time.monotonic(), 0
+            fmp.remember_partial(dataset_id, {**banked, **live}, fp)
+
         def _on_progress(rec):
+            item = rec.get('item')
+            if item:
+                live[item['path']] = item['result']
+                flush['n'] += 1
+                _bank()
+                return
             # The child counts ITS OWN images, which on a resume are only the
             # remaining ones. The panel must keep counting the whole kept set, or
             # a resumed pass would restart its bar at "image 1 of 106" and read
@@ -732,12 +776,28 @@ def dataset_face_mask_preview(dataset_id):
         data = face_mask.detect_faces(
             todo, on_progress=_on_progress,
             should_stop=lambda: fmp.stop_requested(job))
+        # `live` first, the child's final answer last: the final line is the
+        # authoritative one, `live` is what survives when there is no final line.
+        merged = {**banked, **live, **(data.get('results') or {})}
+        if data.get('timed_out'):
+            # The budget elapsed. This is NOT a failure to throw away: the pass
+            # was working, it simply needed longer than it was given, and the
+            # images already analysed are exactly what makes the next attempt
+            # cheap. Banking them is the difference between "start over" and
+            # "carry on from 97 of 138".
+            fmp.remember_partial(dataset_id, merged, fp)
+            fmp.mark_interrupted(job, data.get('error')
+                                 or 'face detection ran out of time')
+            return
         if not data.get('ok'):
             # An operation that failed must LOOK failed. The reason travels all the
-            # way to the panel instead of dying in a log line.
+            # way to the panel instead of dying in a log line — but whatever the
+            # pass had already found is still kept, so a crash on image 100 does
+            # not make the retry re-detect the first 99.
+            if merged:
+                fmp.remember_partial(dataset_id, merged, fp)
             fmp.fail(job, data.get('error') or 'face detection failed')
             return
-        merged = {**banked, **(data.get('results') or {})}
         if data.get('cancelled'):
             # Stopped. The boxes computed before the stop are the whole point of
             # asking the child to wind up rather than killing it, so they are
@@ -2233,7 +2293,8 @@ def dataset_train_cloud_continue():
                                     overrides=d.get('overrides'),
                                     resume_mode=d.get('resume_mode', 'weights_only'),
                                     state_bundle_id=d.get('state_bundle_id'),
-                                    transport=d.get('transport'))
+                                    transport=d.get('transport'),
+                                    allow_parallel_run=bool(d.get('allow_parallel_run')))
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, **res})
@@ -2372,6 +2433,7 @@ def dataset_train_cloud_continue_local(dataset_id):
     kw['allow_uncaptioned'] = bool(d.get('allow_uncaptioned'))
     kw['allow_caption_quality'] = bool(d.get('allow_caption_quality'))
     kw['allow_not_ready'] = bool(d.get('allow_not_ready'))
+    kw['allow_parallel_run'] = bool(d.get('allow_parallel_run'))
     try:
         res = ct.continue_local_run_in_cloud(LOCAL_USER, dataset_id, **kw)
     except Exception as e:
@@ -2778,12 +2840,12 @@ def train_canvas_datasets():
 def train_canvas_generate():
     """◉ Generate from the LoRA Canvas — the same Test-Studio engine, driven by
     the checkpoints ticked on the board instead of by a picker. Body:
-    {selections:[{dataset_id, checkpoint, record_id, step}], …every Studio
-    setting}. Selections MAY span several datasets (that is the point of the
-    canvas); they may NOT span several families — the engine refuses, and the
-    reason travels back so the button can say it. Same gates as the other launch
-    routes: ComfyUI not set up → 409/503, missing models/nodes → the actionable
-    409 the Studio already returns.
+    {selections:[{dataset_id, checkpoint, record_id, step}], external_loras,
+    …every Studio setting}. Selections MAY span several datasets (that is the
+    point of the canvas); they may NOT span several families — the engine
+    refuses, and the reason travels back so the button can say it. Same gates
+    as the other launch routes: ComfyUI not set up → 409/503, missing
+    models/nodes → the actionable 409 the Studio already returns.
 
     🧬 `combine: true` (the board's Blend toggle) switches from one pass per
     ticked checkpoint to ONE generation loading them all, each at the `weight`
@@ -2808,6 +2870,7 @@ def train_canvas_generate():
             aspects=d.get('aspects'), cfgs=d.get('cfgs'), steps_list=d.get('steps'),
             steps2_list=d.get('steps2'), count=d.get('count'),
             permanent_loras=d.get('permanent_loras'), batch_loras=d.get('batch_loras'),
+            external_loras=d.get('external_loras'),
             rebalance=d.get('rebalance'),
             rebalance_strength=d.get('rebalance_strength'),
             negative=d.get('negative'), sampler=d.get('sampler'),
@@ -3112,6 +3175,48 @@ def dataset_canvas_positions_clear(dataset_id):
         return jsonify({'error': 'not found'}), 404
 
 
+@bp.get('/train/canvas/external-loras')
+def canvas_external_loras_get():
+    """🔌 The board's external LoRA plugin nodes, as persisted."""
+    return jsonify({'loras': cfg.get('canvas.external_loras', []) or []})
+
+
+@bp.put('/train/canvas/external-loras')
+def canvas_external_loras_put():
+    """Replace the board's external LoRA nodes. Sanitizes: dedupe by filename,
+    reject path-traversal/absolute/drive-letter names (dropped, not erred —
+    this is a save-what-survives sanitizer, same spirit as the sibling
+    `save_canvas_positions`), cap 16, strength clamped [0..2] (default 1.0),
+    x/y coerced to floats."""
+    from ..services.lora_test_studio import _is_unsafe_external_lora_name
+    data = request.get_json(silent=True) or {}
+    raw = data.get('loras')
+    cleaned, seen = [], set()
+    for e in (raw if isinstance(raw, list) else []):
+        if not isinstance(e, dict):
+            continue
+        fn = str(e.get('filename') or '').strip()
+        if not fn or fn in seen or _is_unsafe_external_lora_name(fn):
+            continue
+        seen.add(fn)
+        try:
+            st = max(0.0, min(2.0, round(float(e.get('strength', 1.0)), 2)))
+        except (TypeError, ValueError):
+            st = 1.0
+
+        def _f(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return 0.0
+        cleaned.append({'filename': fn, 'strength': st,
+                        'x': _f(e.get('x')), 'y': _f(e.get('y'))})
+        if len(cleaned) >= 16:
+            break
+    cfg.save_config({'canvas': {'external_loras': cleaned}})
+    return jsonify({'ok': True, 'loras': cleaned})
+
+
 @bp.get('/train/canvas/images')
 def train_canvas_images():
     """🖼 Every image pinned on the ◉ LoRA Canvas, grouped by dataset id, with
@@ -3143,6 +3248,46 @@ def dataset_canvas_images_clear(dataset_id):
     NOT what ✦ Tidy up calls — see clear_canvas_image_nodes."""
     try:
         return jsonify(ct.clear_canvas_image_nodes(LOCAL_USER, dataset_id))
+    except LookupError:
+        return jsonify({'error': 'not found'}), 404
+
+
+@bp.get('/train/canvas/layouts')
+def train_canvas_layouts():
+    """💾 The named board arrangements this install has kept."""
+    return jsonify(ct.canvas_layout_presets(LOCAL_USER))
+
+
+@bp.post('/train/canvas/layouts')
+def train_canvas_layouts_save():
+    """Keep the board's current arrangement under a name.
+    Body: {name, positions:{ds:[{record_id,x,y}]}, images:{ds:[{image_id,...}]}}.
+
+    Saving under an existing name overwrites it — "save" on a board you have
+    just adjusted means "this is the arrangement now"."""
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(ct.save_canvas_layout_preset(
+            LOCAL_USER, data.get('name'),
+            positions=data.get('positions'), images=data.get('images')))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@bp.post('/train/canvas/layouts/<int:preset_id>/apply')
+def train_canvas_layouts_apply(preset_id):
+    """Put a remembered arrangement back. Everything travels through the live
+    writers, so anything that no longer exists is simply not restored."""
+    try:
+        return jsonify(ct.apply_canvas_layout_preset(LOCAL_USER, preset_id))
+    except LookupError:
+        return jsonify({'error': 'not found'}), 404
+
+
+@bp.delete('/train/canvas/layouts/<int:preset_id>')
+def train_canvas_layouts_delete(preset_id):
+    try:
+        return jsonify(ct.delete_canvas_layout_preset(LOCAL_USER, preset_id))
     except LookupError:
         return jsonify({'error': 'not found'}), 404
 

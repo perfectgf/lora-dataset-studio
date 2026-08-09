@@ -177,8 +177,9 @@ export function postJson(url, body, opts = {}) {
   });
 }
 
-export function putJson(url, body) {
+export function putJson(url, body, opts = {}) {
   return apiFetch(url, {
+    ...opts,
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',

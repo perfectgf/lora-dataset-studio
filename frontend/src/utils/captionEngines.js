@@ -79,3 +79,20 @@ export function captionResultSuffix(engines) {
   const s = captionEnginesSummary(engines);
   return s ? ` · ${s}` : '';
 }
+
+/* The other half of "what the run actually did": the images the engine REFUSED.
+
+   A refusal never stops the batch, so a pass could hand back fewer captions than
+   images and say nothing about the difference — "37 captioned" on an 89-image
+   dataset, with the reason living only in the server log. The count comes back on
+   the caption response as {skipped, skipped_reason}; the reason is the engine's own
+   sentence, passed through verbatim rather than re-worded here.
+
+   '' when nothing was skipped (or an older backend sent no count), so a caller can
+   concatenate it unconditionally. */
+export function captionSkippedSuffix(result) {
+  const n = Number(result && result.skipped);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const reason = (result.skipped_reason || '').trim();
+  return reason ? ` — ${n} skipped: ${reason}` : ` — ${n} skipped`;
+}

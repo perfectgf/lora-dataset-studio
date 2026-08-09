@@ -534,11 +534,27 @@ Pillow's own decompression-bomb threshold, so the choice is real in both
 directions. It is offered because "let it through" is a legitimate answer for a
 panorama you produced yourself.
 
-**One consumer cannot follow it.** Image Bank *inference workers* (face,
-aesthetic and NSFW scoring, watermark inpainting) run in a separate Python
-interpreter that does not import the app or its config, and keep their own fixed
-16 Mi-pixel / 8192 px guard (`backend/infer/bank_image_guard.py`). An image above
-that imports, displays and trains normally; those workers skip it.
+**Inference workers get it handed down, one lane at a time.** Face, aesthetic and
+NSFW scoring, semantic indexing and watermark inpainting run in a separate Python
+interpreter that cannot import the app or its config, so their shared guard
+(`backend/infer/bank_image_guard.py`) enforces its own fixed 16 Mi-pixel /
+8192 px ceiling unless the lane that launched it passes this budget down as
+environment.
+
+**JoyCaption captioning does.** It was the lane where the split actually hurt: an
+image this budget accepts imports, displays and trains normally, but the
+captioner refused it one by one — a 89-image dataset of camera masters came back
+with 37 captions and 52 refusals reading *"bank image rejects images above 8192 px
+per side or 16777216 pixels"*. Captioning now enforces the budget above (the
+model sees a 384 px copy either way), and a pass that still has to refuse an image
+counts it and repeats the engine's own reason in its result line instead of just
+returning a smaller number.
+
+**The other lanes still keep the fixed ceiling.** Scoring, embedding and watermark
+work hold a model and a full decode at once, and nobody has measured what a 64
+Mi-pixel input costs them — so they keep the conservative number rather than
+inherit an unmeasured one. An image above it imports, displays and trains
+normally; those workers skip it.
 
 **Auto head-crop is deliberately different.** It changes the picture into a
 square head shot, so it creates a derived WebP even when `preserve` is selected.

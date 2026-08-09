@@ -5,6 +5,14 @@ import test from 'node:test';
 const panel = fs.readFileSync(new URL('./TrainingPanel.jsx', import.meta.url), 'utf8');
 const hook = fs.readFileSync(new URL('../../hooks/useDataset.js', import.meta.url), 'utf8');
 
+test('an active same-family run never disables the cloud launch — the server confirm asks', () => {
+  // The backend's PARALLEL_RUN: refusal is CONFIRMABLE by design ("second pod,
+  // billed separately — launch anyway?"), but a button greyed by this reason
+  // made the question unreachable: reported as "I still cannot run two
+  // trainings on the same dataset" on an install whose backend supported it.
+  assert.doesNotMatch(panel, /already active on this dataset/);
+});
+
 test('continue retry uses the accumulating guarded request helper', () => {
   assert.match(panel, /runConfirmableTrainingRequest/);
   // the lane picker swapped the direct call for a lane-selected hook — the
@@ -17,6 +25,9 @@ test('continue request sends caption override flags and leaves their toast to th
   assert.match(hook, /allow_caption_mismatch: !!opts\.allowCaptionMismatch/);
   assert.match(hook, /allow_uncaptioned: !!opts\.allowUncaptioned/);
   assert.match(hook, /allow_caption_quality: !!opts\.allowCaptionQuality/);
+  // The cloud lane also answers the sibling guard: without this the confirm
+  // loop resends an unchanged request and the PARALLEL_RUN: refusal loops.
+  assert.match(hook, /allow_parallel_run: !!opts\.allowParallelRun/);
   assert.match(hook, /includes\('MISMATCH_CAPTION: '\)/);
   assert.match(hook, /includes\('UNCAPTIONED: '\)/);
 });

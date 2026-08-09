@@ -87,18 +87,35 @@ export async function postWithConfirmations(post, body, actionLabel,
                                             refusals = CONFIRMABLE_REFUSALS) {
   let payload = { ...(body || {}) };
   for (;;) {
+    let res;
+    let thrown = null;
     try {
-      return await post(payload);
+      res = await post(payload);
     } catch (e) {
-      const hit = matchConfirmableRefusal(e?.message, refusals);
-      // Not confirmable, or we ALREADY carried this flag and the refusal came
-      // back anyway. Asked before any dialog opens: being asked a question that
-      // is about to be ignored is its own kind of dead button.
-      if (!hit || payload[hit[1]]) throw e;
-      const flag = confirmableRetryFlag(e?.message, actionLabel, refusals);
-      if (flag === 'declined') return null;
-      payload = { ...payload, [flag]: true };
+      thrown = e;
     }
+    // Two client dialects speak here. api/fetchClient's postJson REJECTS on a
+    // refusal; hooks/useDataset's postJson NEVER throws and resolves it as
+    // {ok:false, error} instead. Listening for rejections only let a resolved
+    // 409 sail through as a success: the dataset panel toasted "Cloud run
+    // created" while the server had refused and created nothing.
+    if (!thrown && !(res && res.ok === false)) return res;
+    const message = thrown ? thrown.message : String(res.error || '');
+    const hit = matchConfirmableRefusal(message, refusals);
+    // Not confirmable, or we ALREADY carried this flag and the refusal came
+    // back anyway. Asked before any dialog opens: being asked a question that
+    // is about to be ignored is its own kind of dead button. Either way it
+    // LEAVES AS A REJECTION, whatever dialect it arrived in — returning the
+    // ok:false envelope would hand the caller a refusal wearing a success.
+    if (!hit || payload[hit[1]]) {
+      if (thrown) throw thrown;
+      const err = new Error(message || 'Unexpected error');
+      err.body = res;
+      throw err;
+    }
+    const flag = confirmableRetryFlag(message, actionLabel, refusals);
+    if (flag === 'declined') return null;
+    payload = { ...payload, [flag]: true };
   }
 }
 

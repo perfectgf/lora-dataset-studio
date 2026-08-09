@@ -2476,13 +2476,55 @@ from an earlier one, the line between them starts at the *exact* checkpoint it
 resumed from — so "where did this LoRA come from" is a thing you read, not a
 thing you reconstruct.
 
-**Choosing what is on the board.** Everything is on it by default. The
-**Datasets** control above the board unticks what you do not want to see; the
-choice is remembered. It opens **folded**, at every screen width: its checkbox
-list is as tall as your library, and expanded on arrival it pushed the board —
-the thing you came to look at — below the fold on every load. Nothing is hidden
-by that, because the current state is written on the button ("3 of 7") so you
-always know what you are looking at. Unfold it and it stays unfolded next time.
+**Choosing what is on the board.** Everything is on it by default. Above the
+board sits a single row of filter chips, about 40 px tall — it used to be a
+fold-out panel, and unfolded on a library of fourteen datasets it stood 389 px
+on a 720-px screen, more than half the window, directly above the thing you came
+to look at.
+
+- **Datasets** opens a menu with a search box, **Select all** / **Clear**, and
+  one checkbox per dataset with its run count. The search matches the name *and*
+  the model family, so typing `krea` brings up every Krea lane.
+- **Models** and **Status** are the same idea for the model family and the run
+  state (Active, Completed, Errors, Unknown).
+- **Pinned** toggles the pinned images on and off. Turned off it goes amber:
+  pinned pictures missing from the board with no visible cause is a bug report
+  waiting to happen.
+- The **search box** stays at full size in the row — it filters the *runs* on the
+  board (dataset, run ID, model, variant), which is a different question from
+  "find me a lane to tick".
+- **Reset** puts everything back, and goes dim when there is nothing to reset.
+
+Every chip carries its own count and lights up while it is narrowing something,
+and the row ends with **N runs shown** — so a filter you set and forgot can never
+empty your board without saying why. Your choices are remembered between visits.
+
+**Saving an arrangement.** **💾 Layouts** in the board toolbar keeps where every
+run card and every pinned picture sits, under a name, and puts it back later —
+closed pictures included. Until this existed, the only way out of an arrangement
+was **✦ Tidy up**, which throws it away. A run deleted since the layout was saved
+simply is not restored, and the app tells you how many were missing rather than
+leaving you to hunt for the card that did not come back.
+
+**Exporting the board.** **📷 PNG** writes the whole canvas to one image file:
+every pinned picture at full size, every run card with its checkpoints, and the
+lines that join them. It is a redraw rather than a screenshot, so the buttons,
+badges and hover highlights are not in it — and a picture whose file has been
+cleaned off the disk comes out as a labelled placeholder rather than silently
+missing.
+
+**Deleting a picture from the board.** A pinned image carries **✕** and **🗑**,
+and they are not the same thing. **✕** takes it off the board and remembers where
+it was, so re-pinning it from its gallery puts it back at the same spot and size.
+**🗑** deletes the image itself, through the same route (and the same
+recoverable-or-not setting) the gallery's own delete uses; it arms on the first
+press and deletes on the second, because a delete one tap away from ✕ on a small
+control is a delete that happens by accident.
+
+**Zoomed out.** Below 55 % zoom each run card carries its run number at a
+constant, readable size, and below 30 % the dataset name comes with it. A board
+of a dozen lanes is read at 30-40 %, where a card's own title is about four
+pixels tall.
 
 **Moving around.** Drag the background to pan, use the wheel (or two fingers) to
 zoom, and **Fit** puts the whole board back in view. The board only fits itself

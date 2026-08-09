@@ -3,6 +3,10 @@ const OPTION_FOR_CONFIRM_FLAG = Object.freeze({
   allow_uncaptioned: 'allowUncaptioned',
   allow_caption_quality: 'allowCaptionQuality',
   allow_unverified_weights: 'allowUnverifiedWeights',
+  // The sibling guard ("second pod, billed separately") is confirmable too —
+  // absent from this map, the ▶ Continue loop answered it then resent an
+  // UNCHANGED request and stopped, a dialog ignoring its own answer.
+  allow_parallel_run: 'allowParallelRun',
 })
 
 export function withTrainingConfirmationFlag(options, flag) {

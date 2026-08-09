@@ -43,9 +43,10 @@ test('a combined payload carries one weight per LoRA, a comparison payload carri
   }
 })
 
-test('a per-LoRA weight is clamped to 0..2 and defaults to 1', () => {
+test('a per-LoRA weight is clamped to 0..5 and defaults to 1', () => {
   assert.equal(stackWeight({}, SEL[0]), 1)
-  assert.equal(stackWeight({ [stackKey(SEL[0])]: 5 }, SEL[0]), 2)
+  assert.equal(stackWeight({ [stackKey(SEL[0])]: 5 }, SEL[0]), 5)     // at the ceiling
+  assert.equal(stackWeight({ [stackKey(SEL[0])]: 50 }, SEL[0]), 5)    // above it
   assert.equal(stackWeight({ [stackKey(SEL[0])]: -1 }, SEL[0]), 0)
   assert.equal(stackWeight({ [stackKey(SEL[0])]: 0.5555 }, SEL[0]), 0.56)
   assert.equal(stackWeight({ [stackKey(SEL[0])]: 'x' }, SEL[0]), 1)

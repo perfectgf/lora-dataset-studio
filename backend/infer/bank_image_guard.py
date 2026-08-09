@@ -9,6 +9,7 @@ Flask app or its services.
 """
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import stat
@@ -22,9 +23,63 @@ MAX_SIDE = 8192
 MAX_PIXELS = 16 * 1024 * 1024
 STATIC_FORMATS = frozenset(("JPEG", "PNG", "WEBP", "BMP"))
 
+#: The parent app's configured image input budget (`image_input.max_side` /
+#: `image_input.max_pixels`), handed down as environment because this module runs
+#: in a SEPARATE interpreter: the provider-injection trick `input_budget` uses for
+#: `image_encoding` (same process, loaded by path) cannot reach across a
+#: subprocess boundary. Absent or unusable -> the constants above, which is the
+#: conservative side of the split.
+#:
+#: This existed as a real defect, not a tidiness gap: the app's budget was made
+#: configurable (shipped default 64 Mi-pixels / 16384 px) precisely so a 24 MP
+#: camera master could be imported and looked at, while these constants stayed at
+#: the OLD fixed 16 Mi-pixels / 8192 px. A dataset of DSLR photos therefore
+#: imported, displayed and trained fine but could not be CAPTIONED: JoyCaption
+#: refused 52 of 89 images with "rejects images above 8192 px per side or
+#: 16777216 pixels", one refusal per image, and the run ended reporting only the
+#: 37 it wrote.
+ENV_MAX_SIDE = "LDS_INFER_MAX_SIDE"
+ENV_MAX_PIXELS = "LDS_INFER_MAX_PIXELS"
+
 
 class BankImageGuardError(ValueError):
     """The supplied live Bank path cannot safely enter an infer worker."""
+
+
+def _budget_from_env(name: str, default: int) -> int:
+    """One non-negative budget number from the environment; 0 means NO limit.
+
+    Anything unusable falls back to the shipped constant rather than to "no
+    limit": a typo in an environment variable must never silently disarm a memory
+    guard.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
+def effective_limits() -> tuple[int, int]:
+    """The `(max_side, max_pixels)` this worker enforces right now; 0 = no limit."""
+    return (_budget_from_env(ENV_MAX_SIDE, MAX_SIDE),
+            _budget_from_env(ENV_MAX_PIXELS, MAX_PIXELS))
+
+
+def _too_large_message(width: int, height: int,
+                       max_side: int, max_pixels: int) -> str:
+    """Name only the limits that are actually armed — a disabled one (0) must not
+    appear in the sentence as "above 0 px"."""
+    limits = []
+    if max_side:
+        limits.append(f"{max_side} px per side")
+    if max_pixels:
+        limits.append(f"{max_pixels} pixels")
+    return (f"bank image rejects images above {' or '.join(limits)} "
+            f"(got {width}x{height})")
 
 
 def _read_bounded_regular_file(path: str) -> bytes:
@@ -58,15 +113,43 @@ def _read_bounded_regular_file(path: str) -> bytes:
     return payload
 
 
+@contextlib.contextmanager
+def _pillow_bomb_threshold(max_pixels: int):
+    """Raise (never lower) Pillow's bomb threshold for one header check.
+
+    ``max_pixels == 0`` is the app's "no limit" and removes the threshold for the
+    scope, which is exactly what the Settings card warns a 0 does.
+    """
+    previous = Image.MAX_IMAGE_PIXELS
+    # ``None`` already means "no threshold": that is the highest setting there is,
+    # so a finite budget must not replace it.
+    target = None if (max_pixels == 0 or previous is None) else max(previous, max_pixels)
+    changed = target != previous
+    if changed:
+        Image.MAX_IMAGE_PIXELS = target
+    try:
+        yield
+    finally:
+        if changed:
+            Image.MAX_IMAGE_PIXELS = previous
+
+
 def _validate_image_bytes(payload: bytes) -> None:
     """Validate a raster header/content without materialising its pixels."""
+    max_side, max_pixels = effective_limits()
     try:
         # Pillow's default decompression-bomb policy is process-global.  Infer
         # workers must not alter it for another task in the same interpreter, so
         # promote the warning only inside this short header-validation scope.
+        #
+        # Pillow's own threshold (~89 Mi-pixels) would otherwise overrule a larger
+        # configured budget with a DIFFERENT message ("bank image is invalid"),
+        # exactly the trap `input_budget._align_pillow_bomb_threshold` exists to
+        # avoid in the app process.  Raise it for this scope only, never lower it,
+        # and always put it back.
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(payload)) as image:
+            with _pillow_bomb_threshold(max_pixels), Image.open(io.BytesIO(payload)) as image:
                 fmt = (image.format or "").upper()
                 if fmt not in STATIC_FORMATS:
                     raise BankImageGuardError(
@@ -75,12 +158,12 @@ def _validate_image_bytes(payload: bytes) -> None:
                     raise BankImageGuardError("bank image must be a static image")
                 width, height = image.size
                 if (not isinstance(width, int) or not isinstance(height, int)
-                        or width <= 0 or height <= 0
-                        or width > MAX_SIDE or height > MAX_SIDE
-                        or width * height > MAX_PIXELS):
+                        or width <= 0 or height <= 0):
+                    raise BankImageGuardError("bank image is invalid")
+                if ((max_side and (width > max_side or height > max_side))
+                        or (max_pixels and width * height > max_pixels)):
                     raise BankImageGuardError(
-                        f"bank image rejects images above {MAX_SIDE} px per side or "
-                        f"{MAX_PIXELS} pixels (got {width}x{height})")
+                        _too_large_message(width, height, max_side, max_pixels))
                 # ``verify`` validates container integrity without asking a
                 # caller to decode a second, path-raced file.
                 image.verify()

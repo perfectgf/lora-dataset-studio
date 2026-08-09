@@ -1,14 +1,23 @@
 /**
- * Le panneau « Datasets » du ◉ LoRA Canvas s'ouvre REPLIÉ.
+ * Le panneau « Datasets » du ◉ LoRA Canvas n'existe plus : c'est une BARRE.
  *
- * Il s'ouvrait déplié sur écran large. Sa liste de cases (une par dataset, plus
- * les modèles, les statuts, la recherche) poussait alors le board — ce qu'on
- * vient regarder — sous la ligne de flottaison, à CHAQUE chargement, alors qu'un
- * filtre ne se consulte pas à l'arrivée.
+ * Historique, parce qu'il explique ce que ce fichier garde encore. Le panneau
+ * s'ouvrait déplié sur écran large ; sa liste de cases (une par dataset, plus
+ * les modèles, les statuts, la recherche) poussait le board — ce qu'on vient
+ * regarder — sous la ligne de flottaison. Le premier correctif l'a fait ouvrir
+ * REPLIÉ. Mesuré ensuite sur une vraie bibliothèque de quatorze datasets en
+ * 1280×720, déplié il faisait toujours 389 px, soit 54 % de l'écran, pour
+ * quiconque l'avait laissé ouvert une fois — un pli qu'il faut refaire avant de
+ * pouvoir travailler n'est pas une réponse. Il a donc été remplacé le
+ * 08/08/2026 par une rangée de pastilles d'environ 40 px dont les contrôles
+ * vivent dans des popovers.
  *
- * Ce qui est épinglé : l'état INITIAL (replié, sans localStorage), le respect du
- * choix mémorisé, et l'absence de la logique de largeur d'écran qui rouvrait le
- * panneau à tout redimensionnement — elle aurait annulé un pli délibéré.
+ * Ce qui est épinglé ici : les helpers `lds.canvasFilterOpen` restent EXPORTÉS
+ * et corrects. Ils ne sont plus lus par le composant (une barre n'a pas de pli),
+ * mais la clé est écrite dans de vrais navigateurs et la règle du repo est
+ * qu'on ne renomme ni ne supprime un identifiant stocké sans chemin d'alias.
+ * Le jour où quelque chose voudra à nouveau se souvenir d'un pli sur ce board,
+ * il trouvera la clé intacte plutôt que d'en inventer une seconde.
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -31,7 +40,8 @@ const store = (initial = {}) => {
   }
 }
 
-test('with nothing stored the filter is FOLDED', () => {
+test('the stored fold key keeps its name and its meaning', () => {
+  assert.equal(CANVAS_FILTER_OPEN_KEY, 'lds.canvasFilterOpen')
   assert.equal(readCanvasFilterOpen(store()), false)
 })
 
@@ -54,12 +64,16 @@ test('a junk or absent store never throws and reads as folded', () => {
   assert.equal(writeCanvasFilterOpen({ setItem() { throw new Error('quota') } }, true), false)
 })
 
-test('the component reads its initial state from the store, not from the viewport', () => {
-  assert.match(SOURCE, /useState\(\s*\(\)\s*=>\s*readCanvasFilterOpen\(/)
-  assert.match(SOURCE, /writeCanvasFilterOpen\(/)
-  // La largeur d'écran ne décide plus de l'état initial ni des suivants : un
-  // agrandissement de fenêtre rouvrait le panneau qu'on venait de replier.
+test('the filter is a bar: no fold, and no viewport-width logic either', () => {
+  // Le pli n'est plus consulté — il n'y a plus de corps dépliable à cacher.
+  assert.doesNotMatch(SOURCE, /readCanvasFilterOpen\(/)
+  assert.doesNotMatch(SOURCE, /writeCanvasFilterOpen\(/)
+  // La largeur d'écran n'a jamais eu le droit de décider de cet état, et ne
+  // l'a toujours pas : un agrandissement de fenêtre rouvrait le panneau.
   assert.doesNotMatch(SOURCE, /matchMedia/)
   assert.doesNotMatch(SOURCE, /min-width: 640px/)
-  assert.doesNotMatch(SOURCE, /useState\(wide\)/)
+  // Chaque contrôle vit dans une pastille à menu, pas dans un corps déplié.
+  assert.match(SOURCE, /<CanvasFilterMenu label="Datasets"/)
+  assert.match(SOURCE, /<CanvasFilterMenu label="Models"/)
+  assert.match(SOURCE, /<CanvasFilterMenu label="Status"/)
 })
