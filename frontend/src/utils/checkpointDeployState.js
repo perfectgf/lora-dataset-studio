@@ -88,9 +88,14 @@ export function deployTitleSuffix(pill) {
  * guess; this is one short line, in the same hint strip the other gestures are
  * explained in.
  */
+/* 📱 `short` is the SAME key with the explanation clipped off. The full line is
+   two sentences wide and, in a phone's board toolbar, it took a whole 40-px row
+   of its own — a row spent above the board on every load. The colour still has
+   a key at 400 px, which is the contract; what it loses is the half of the
+   sentence the ☝ Gestures sheet gives back in full, one tap away. */
 export const DEPLOY_LEGEND = [
-  { tone: 'deployed', glyph: '●', label: 'deployed — ready to generate' },
-  { tone: 'on-disk', glyph: '○', label: 'on disk only — Generate deploys it first' },
+  { tone: 'deployed', glyph: '●', short: 'deployed', label: 'deployed — ready to generate' },
+  { tone: 'on-disk', glyph: '○', short: 'on disk', label: 'on disk only — Generate deploys it first' },
 ];
 
 /**

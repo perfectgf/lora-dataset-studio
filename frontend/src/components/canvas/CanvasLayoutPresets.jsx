@@ -105,8 +105,12 @@ export default function CanvasLayoutPresets({ positions, imageNodes, datasetIds,
     <details data-testid="canvas-layout-presets" open={open}
       onToggle={(e) => setOpen(e.currentTarget.open)}
       className="relative">
-      <summary className="flex h-10 cursor-pointer list-none items-center gap-1 rounded-md border border-border bg-app/60 px-3 text-content-muted text-[0.6875rem] font-semibold hover:text-content lg:h-9">
-        <span aria-hidden>💾</span> Layouts
+      <summary title="Layouts — save this arrangement, or put a saved one back"
+        className="flex h-10 cursor-pointer list-none items-center gap-1 rounded-md border border-border bg-app/60 px-2 text-content-muted text-[0.6875rem] font-semibold hover:text-content sm:px-3 lg:h-9">
+        {/* 📱 Icon only below `sm`: at 400 px the board's toolbar wrapped into
+            five rows and ate a quarter of the screen. The word is back from
+            `sm` up, and the title carries it at every width. */}
+        <span aria-hidden>💾</span> <span className="hidden sm:inline">Layouts</span>
       </summary>
       {/* `top-full` and not just `mt-1`: an absolutely-positioned box with no
           `top` falls back to its STATIC position, which is wherever the
@@ -118,7 +122,14 @@ export default function CanvasLayoutPresets({ positions, imageNodes, datasetIds,
           for lifting a card off the page, and a popover painted with it is a
           sheet of glass — the toolbar behind it stays perfectly legible through
           the menu. Same panel token the app's modals use. */}
-      <div className="absolute left-0 top-full z-40 mt-1 w-[min(18rem,calc(100vw-2rem))] rounded-lg border border-border bg-surface-overlay p-2 shadow-xl">
+      {/* 📱 …and below `sm` it is not anchored to the button at all, because
+          there is nothing safe to anchor to: 💾 is one chip in a row that wraps,
+          so its left edge lands wherever the wrap put it. Measured at 400 px it
+          landed at x=243 and an 18-rem menu opened to x=531 — half the panel,
+          the Save button included, off the right of the screen. A phone gets a
+          sheet pinned above the toolbar instead, full width, whatever the row
+          did. From `sm` up it is the anchored menu it has always been. */}
+      <div className="fixed inset-x-2 bottom-28 z-40 w-auto rounded-lg border border-border bg-surface-overlay p-2 shadow-xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:top-full sm:mt-1 sm:w-[min(18rem,calc(100vw-2rem))]">
         <div className="mb-1.5 flex items-center gap-1">
           <span className="text-content text-[0.6875rem] font-semibold">Save this arrangement</span>
           <HelpBadge topic="canvas-layouts" />

@@ -894,7 +894,9 @@ const TOPICS = [
      'external lora strength', 'stack on a run', 'why can i not stack a solo run',
      'external lora greyed out', 'no checkpoint to stack on', 'anchored by a checkpoint',
      'remove an external lora', 'unpin an external lora', 'external lora list empty',
-     'comfyui lora folder', 'plugin icon', 'cyan node'],
+     'comfyui lora folder', 'plugin icon', 'cyan node',
+     'cyan line', 'line from the plugin node', 'which images used this lora',
+     'provenance', 'link to image'],
     '/canvas', 'using-the-app', 'the-lora-canvas-every-run-on-one-board'),
   action('canvas-generate', 'Generate from the board',
     ['generate from the canvas', 'generate on the board', 'test a checkpoint from the canvas',
@@ -1584,6 +1586,19 @@ const TOPICS = [
     app: { route: '/datasets?section=training' },
     tip: { trigger: 'dual-captions-advanced',
       text: 'New: train each image on a long AND a short caption (Advanced options → Dual captions) so the LoRA leans less on any single wording.' } },
+  // 🎲 Use dataset captions — an action on the Preview-prompts field, in both
+  // the LoRA and the full-model recipe. It writes an existing setting
+  // (sample_prompts), so it points at the same Training section of the
+  // settings reference where that field is documented.
+  { id: 'training.sample_prompts_from_dataset', kind: 'action',
+    title: 'Use dataset captions as preview prompts',
+    keywords: ['preview prompts', 'sample prompts', 'sample_prompts', 'captions',
+      'dataset captions', 'random', 'draw', 're-roll', 'reroll', 'dice', 'fill',
+      'defaults', 'generic', 'trigger', 'advanced', 'training'],
+    guide: { chapter: 'settings-reference', anchor: 'training' },
+    app: { route: '/datasets?section=training&panel=advanced' },
+    tip: { trigger: 'sample-prompts-from-dataset',
+      text: 'Preview images can show YOUR subject instead of generic defaults: 🎲 Use dataset captions, under Preview prompts, fills the prompts from your own captions.' } },
   // Expert controls, not global Settings: factor is meaningful only for a LoKr
   // network, and the Krea fields intentionally surface one reported community
   // starting point without claiming its result transfers to every dataset.

@@ -102,6 +102,28 @@ test('warmup is offered only on the schedule that accepts it', () => {
     'cosine must not offer warmup steps')
 })
 
+test('no control in the card can force the row wider than a 400 px screen', () => {
+  // A <select> sizes itself on its WIDEST option — "Sigmoid — favour…" is
+  // 303 px — and a flex item defaults to min-width:auto, so the Noise-schedule
+  // row could not shrink and spilled 13.9 px off the right edge at 400 px
+  // (measured in a headless browser at the real nesting). min-w-0 on the
+  // control AND on the label that wraps it is what lets the row wrap instead.
+  // Asserted on the rendered markup because node has no layout engine: this
+  // guards the mechanism, the browser measurement guards the outcome.
+  const html = render()
+  const selects = html.match(/<select[^>]*>/g) || []
+  assert.ok(selects.length >= 4, 'expected the card to render its selects')
+  for (const tag of selects) {
+    assert.ok(/class="[^"]*\bmin-w-0\b/.test(tag),
+      `a select that cannot shrink will overflow a narrow screen: ${tag.slice(0, 90)}`)
+  }
+  const labels = html.match(/<label class="[^"]*flex[^"]*"/g) || []
+  for (const tag of labels) {
+    assert.ok(/\bmin-w-0\b/.test(tag) || /\bflex-wrap\b/.test(tag) || /\bflex-col\b/.test(tag),
+      `a rigid flex label spills its control off-screen: ${tag.slice(0, 90)}`)
+  }
+})
+
 test('the card survives a server that sent no advanced payload at all', () => {
   // Older backend, failed request, dataset still loading: the card must fall
   // back to the shipped defaults rather than crash the training screen.

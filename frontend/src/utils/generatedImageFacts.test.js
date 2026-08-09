@@ -112,3 +112,30 @@ test('a run with no stack still shows only the always-on row', () => {
   assert.equal(by.combined_loras, undefined);
 });
 
+test('external entries have their own row and leave always-on', () => {
+  const RAW = JSON.stringify([
+    { filename: 'style.safetensors', strength: 0.5 },
+    { filename: 'k\\member.safetensors', strength: 1, combined: true },
+    { filename: 'detail.safetensors', strength: 0.7, external: true },
+  ]);
+  assert.match(extraLoraSummary(RAW, { only: 'external' }), /detail @ 0\.7/);
+  const always = extraLoraSummary(RAW, { only: 'always-on' });
+  assert.match(always, /style/);
+  assert.doesNotMatch(always, /detail/);
+  assert.doesNotMatch(always, /member/);
+});
+
+test('imageSettingFacts rows: external row present, keyed external_loras', () => {
+  const RAW = JSON.stringify([
+    { filename: 'style.safetensors', strength: 0.5 },
+    { filename: 'k\\member.safetensors', strength: 1, combined: true },
+    { filename: 'detail.safetensors', strength: 0.7, external: true },
+  ]);
+  const rows = imageSettingFacts({ extra_loras: RAW });
+  const ext = rows.find((r) => r.key === 'external_loras');
+  assert.ok(ext);
+  assert.equal(ext.label, 'External LoRAs');
+  const always = rows.find((r) => r.key === 'extra_loras');
+  assert.doesNotMatch(always.value, /detail/);
+});
+

@@ -48,6 +48,14 @@ export function LineageEdgeDefs() {
         <stop offset="0" stopColor="#a855f7" stopOpacity="0.45" />
         <stop offset="1" stopColor="#e9d5ff" stopOpacity="0.95" />
       </linearGradient>
+      {/* 🔌 EXTERNAL LoRA PLUGIN NODE — "this picture used a file pinned on the
+          board, not one made here". Its own cyan, matching the 🔌 accent used
+          elsewhere for plugin nodes, so it reads as a third source distinct from
+          both the indigo trunk and the violet blend provenance. */}
+      <linearGradient id="lds-edge-external" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stopColor="#22d3ee" stopOpacity="0.45" />
+        <stop offset="1" stopColor="#0891b2" stopOpacity="0.95" />
+      </linearGradient>
       <filter id="lds-edge-glow" x="-20%" y="-40%" width="140%" height="180%">
         <feGaussianBlur stdDeviation="2.2" result="b" />
         <feMerge>
@@ -92,15 +100,17 @@ export function LineageEdges({ edges, isLit }) {
           const spine = e.onSpine || both;
           // 🧬 A provenance edge keeps its violet whatever the hover is doing:
           // it is not part of the training spine, so lighting it like the trunk
-          // would claim a descent that did not happen.
-          const grad = e.blend ? 'lds-edge-blend'
+          // would claim a descent that did not happen. 🔌 An external-LoRA edge
+          // is checked first for the same reason, in its own cyan.
+          const grad = e.external ? 'lds-edge-external'
+            : e.blend ? 'lds-edge-blend'
             : e.superseded ? 'lds-edge-super' : spine ? 'lds-edge-spine' : 'lds-edge-normal';
           return (
             <path key={`${e.parentId}-${e.childId}`}
               className="lds-ledge"
               d={e.d}
               stroke={`url(#${grad})`}
-              strokeWidth={e.blend ? 2 : spine ? 2.6 : e.superseded ? 2.2 : 1.5}
+              strokeWidth={e.external ? 2 : e.blend ? 2 : spine ? 2.6 : e.superseded ? 2.2 : 1.5}
               /* ⚠️ `.lds-ledge` sets stroke-dasharray in CSS for the draw-in
                  animation, and a CSS declaration beats a presentation attribute:
                  this dash never actually renders. A superseded branch therefore

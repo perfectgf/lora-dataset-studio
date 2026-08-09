@@ -50,6 +50,30 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-09-canvas-external-lora-links',
+    date: '2026-08-09',
+    title: 'See which images an external LoRA actually touched',
+    blurb:
+      'A permanent cyan line now joins each 🔌 plugin node to every board image generated with it, and an image’s facts panel lists its External LoRAs on their own row instead of filing them under always-on.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-08-09-preview-prompts-from-captions',
+    date: '2026-08-09',
+    title: 'Preview images that finally show YOUR subject',
+    blurb:
+      'The preview prompts a run renders every few hundred steps used to be generic defaults that describe nobody — so the images you judge an expensive run by showed a stranger. A new 🎲 Use dataset captions button under Preview prompts fills the field with up to five real captions drawn at random from this dataset’s kept images. Click it again for a different draw.',
+    to: '/datasets?section=training&panel=advanced',
+  },
+  {
+    id: '2026-08-09-canvas-phone-toolbar',
+    date: '2026-08-09',
+    title: 'The LoRA Canvas gives the board back to your phone',
+    blurb:
+      'On a phone the board’s bottom controls took a quarter of the screen, and tapping ☝ Gestures buried the board under its own instructions with no way to put them away. The row is icons-only below a tablet — two rows instead of five, every button still thumb-sized — and the gesture help is now a sheet that floats over the board and closes with its ×. Nothing changes on a desktop.',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-09-canvas-external-loras',
     date: '2026-08-09',
     title: 'Pin any LoRA onto the Canvas, even one you never trained here',

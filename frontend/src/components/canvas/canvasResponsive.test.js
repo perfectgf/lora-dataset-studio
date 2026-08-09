@@ -48,16 +48,77 @@ test('the board gestures are reachable below lg, from a single source', () => {
   assert.match(canvas, /const BOARD_GESTURES = \(/);
   // Inline from lg up…
   assert.match(canvas, /ml-auto hidden [^"]*lg:inline[^]{0,80}\{BOARD_GESTURES\}/);
-  // …and behind a one-tap disclosure below it.
+  // …and behind a one-tap chip below it.
   // …one more chip in a row that already wraps, never a row of its own: every
   // pixel above the frame is a pixel of board pushed under the fold.
-  assert.match(canvas, /<details className="lg:hidden">/);
-  assert.match(canvas, /<summary[^>]*>[^]{0,200}Gestures/);
+  assert.match(canvas, /data-testid="canvas-gestures-toggle"/);
+  assert.match(canvas, /aria-expanded=\{gesturesOpen\}/);
   // Written ONCE: two copies would drift the first time a gesture is added.
   assert.equal((canvas.match(/\{BOARD_GESTURES\}/g) || []).length, 2);
   // Touch is named: a phone has no wheel and cannot shift-click.
   assert.match(canvas, /wheel or pinch to zoom/);
   assert.match(canvas, /on touch, hold it first/);
+});
+
+/* 📏 Measured at 400×800 on a headless Chrome, before and after: the bottom bar
+   was 213 px of the 800 this screen has, and tapping ☝ Gestures took it to 380
+   — the board vanished behind its own manual, with no way back but finding the
+   same chip again in a row that had moved. It was a `<details>`, and an open
+   `<details>` GROWS the box it is in; the box here is the floating toolbar. The
+   text is a sheet beside the pill now: 100 px closed, 100 px open. */
+test('asking for the gesture help never grows the board’s toolbar', () => {
+  // The sheet is a SIBLING of the pill — inside the bottom overlay, before it —
+  // not a child of the row. That is the whole fix: nothing it contains can add
+  // a row to the toolbar, however long the sentence gets.
+  const overlay = canvas.slice(canvas.indexOf('pointer-events-none absolute inset-x-0 bottom-0'));
+  const sheetAt = overlay.indexOf('data-testid="canvas-gestures-sheet"');
+  const pillAt = overlay.indexOf('pointer-events-auto inline-flex max-w-full flex-wrap');
+  assert.ok(sheetAt > 0 && sheetAt < pillAt, 'the sheet renders before the toolbar pill');
+  // Conditional, so it costs nothing at all while it is not asked for.
+  assert.match(canvas, /\{gesturesOpen && \(/);
+  // …and it can be PUT AWAY: a phone has no Escape key within reach, so the ×
+  // is the one that matters, but both are wired.
+  assert.match(canvas, /aria-label="Close the gesture help"/);
+  assert.match(canvas, /e\.key === 'Escape'\) setGesturesOpen\(false\)/);
+});
+
+/* The same 400 px that could not hold the row still cannot: the labels go, the
+   icons and the 40-px targets stay, and the row falls from five wraps to two.
+   Everything hidden keeps a `title`, so the word is one hover/long-press away
+   and the accessible name never becomes an emoji. */
+test('the toolbar drops its words, never its targets, on a phone', () => {
+  const presets = fs.readFileSync(new URL('./CanvasLayoutPresets.jsx', import.meta.url), 'utf8');
+  assert.ok(canvas.includes('<span className="hidden sm:inline">Tidy up</span>'));
+  assert.ok(canvas.includes('<span className="hidden sm:inline"> LoRA</span>'));
+  assert.ok(presets.includes('<span className="hidden sm:inline">Layouts</span>'));
+  // 📷 keeps its word only while it is SAYING something ("Exporting…"): a chip
+  // that goes blank mid-export would read as a chip that did nothing.
+  assert.match(canvas, /exporting \? '' : 'hidden sm:inline'/);
+  // …and a hidden word is never a lost one: the button that loses its label
+  // gains/keeps a title, so the accessible name is a sentence, not an emoji.
+  assert.match(presets, /<summary title="Layouts — /);
+  // The deploy key shortens instead of wrapping a whole row of its own.
+  assert.match(canvas, /className="sm:hidden">\{l\.short\}</);
+  assert.match(canvas, /className="hidden sm:inline">\{l\.label\}</);
+  // Padding shrinks, height does NOT: 40 px is what the finger needs, 12 px of
+  // side padding is not.
+  assert.ok((canvas.match(/px-2 sm:px-3/g) || []).length >= 5);
+  const bar = canvas.slice(canvas.indexOf('aria-label="Zoom out"'),
+    canvas.indexOf('data-testid="canvas-gestures-toggle"'));
+  assert.doesNotMatch(bar, /\sh-9\s/, 'no 36-px target left at phone width');
+});
+
+/* 💾 is one chip in a row that WRAPS, so its position is whatever the wrap left
+   it. Measured at 400 px: the chip landed at x=243 and its 18-rem menu opened
+   to x=531 — the Save button was off the right of the screen. A menu anchored
+   to a chip that moves is a menu that can open anywhere; below `sm` it stops
+   being anchored at all. */
+test('the Layouts menu opens on the screen, not off the side of it', () => {
+  const presets = fs.readFileSync(new URL('./CanvasLayoutPresets.jsx', import.meta.url), 'utf8');
+  assert.match(presets, /fixed inset-x-2 bottom-28/);
+  // …and from sm up it is the SAME anchored menu it has always been: under its
+  // own button, 18 rem wide. Desktop must not notice this pass at all.
+  assert.match(presets, /sm:absolute[^"]*sm:left-0 sm:top-full sm:mt-1 sm:w-\[min\(18rem,calc\(100vw-2rem\)\)\]/);
 });
 
 /* 400 px × 800: the page chrome above the board measured 304 px, the frame is

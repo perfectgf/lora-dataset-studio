@@ -833,6 +833,7 @@ its own, stays allowed and says what it costs.
 |---|---|---|---|
 | **Steps** | (per launch) | adaptive | ≥ 500 when set explicitly. |
 | **Preview prompts** | `sample_prompts` | generic per dataset kind | Up to 8 lines, `{trigger}` marks the subject. Shared with the LoRA lane on purpose — same dataset, same subject. The defaults describe nobody, and these images are the only way to judge a run while it is still costing money. |
+| **🎲 Use dataset captions** | (fills `sample_prompts`) | — | Replaces the field with up to 5 captions drawn at random from this dataset's **kept** images (the long caption, the one the run trains on). Click again for a new draw. Captions are pasted as they are: the trigger is added by the run when it is missing, and never for a style dataset. Disabled while the dataset has no captions yet. |
 | **Learning rate** | `dense_lr` | `1e-6` | 1e-7 – 5e-6. |
 | **Resolution** | `dense_resolution` | `1024` | `768` or `1024`. 768 trains faster and cheaper, at lower fidelity. |
 | **Checkpoint every / keep** | `dense_save_every` / `dense_max_step_saves` | `250` / `1` | ≥ 100 steps; keep 1–3. Each kept checkpoint is ~26 GB of **private** Hugging Face storage — the panel states the total before launch and the pre-check uses the same number, never the shipped default. |

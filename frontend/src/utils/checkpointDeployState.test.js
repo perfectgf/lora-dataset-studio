@@ -43,6 +43,11 @@ test('the legend covers exactly the states that get a badge', () => {
   assert.deepEqual(DEPLOY_LEGEND.map((l) => l.tone), ['deployed', 'on-disk']);
   for (const entry of DEPLOY_LEGEND) {
     assert.equal(entry.glyph, deployBadge(entry.tone).glyph);
+    // 📱 The phone-width key. It must be the SAME statement with the
+    // explanation clipped, not a second wording: the board shows one or the
+    // other depending on the screen, and two labels would drift.
+    assert.ok(entry.short && entry.short.length <= 12, `${entry.tone} has a short key`);
+    assert.ok(entry.label.startsWith(entry.short), `${entry.tone}: short is the head of label`);
   }
 });
 

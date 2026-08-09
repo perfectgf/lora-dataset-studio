@@ -148,7 +148,7 @@ test('(5) each Settings section and Workspace section has its topic', () => {
 
 test('(6) tips have unique triggers and non-empty text', () => {
   const tips = helpTips()
-  assert.equal(tips.length, 17, 'expected exactly 17 one-time tips')
+  assert.equal(tips.length, 18, 'expected exactly 18 one-time tips')
   const triggers = new Set()
   for (const tip of tips) {
     assert.ok(tip.trigger, 'tip missing trigger')

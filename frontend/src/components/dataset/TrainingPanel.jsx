@@ -55,6 +55,7 @@ import { useToast } from '../common/Toast';
 import ContinueDialog from './ContinueDialog';
 import { graphContinueRefusal } from './lineageContinue.js';
 import RunLineageGraph from './RunLineageGraph';
+import { UseDatasetCaptionsButton } from './UseDatasetCaptionsButton';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
 import { laneOfPayload, preflightUrl } from './preflightLane.js';
@@ -276,6 +277,9 @@ export function FullTransformerAdvancedRecipe({
   adv = null, saveAdv = null,
   samplePromptsText = '', setSamplePromptsText = null, saveSamplePrompts = null,
   samplePromptsDefault = [], maxSamplePrompts = 8,
+  // The dataset's own images (kept ones carry the captions the 🎲 button draws
+  // from) and the one callback that writes AND persists the textarea.
+  datasetImages = [], applySamplePrompts = null,
   quantizeTarget = null, suggestedQuantizePath = '',
   // The base the emitted config will actually carry. Computed, never a
   // literal: this card used to state "Official Krea 2 Raw" over a recipe that
@@ -341,7 +345,11 @@ export function FullTransformerAdvancedRecipe({
     }
     if (value !== warmup) patch({ dense_warmup: value });
   };
-  const controlClass = 'rounded border border-sky-300/40 bg-app/70 px-2 py-1 text-content tabular-nums disabled:opacity-50';
+  // min-w-0 on both the control and its label: a <select> sizes itself on its
+  // WIDEST option ("Sigmoid — favour…" is 303 px), and a flex item defaults to
+  // min-width:auto, so without this the row cannot shrink and spills off a
+  // 400 px screen instead of wrapping.
+  const controlClass = 'min-w-0 rounded border border-sky-300/40 bg-app/70 px-2 py-1 text-content tabular-nums disabled:opacity-50';
 
   return (
     <section aria-label="Krea 2 full-model recipe"
@@ -413,7 +421,7 @@ export function FullTransformerAdvancedRecipe({
         </label>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-sky-300/30 bg-sky-400/10 px-3 py-2 text-sky-50">
-          <label className="flex items-center gap-2">
+          <label className="flex min-w-0 items-center gap-2">
             <span className="font-semibold">Learning rate</span>
             <input type="number" step="1e-7" min={lrMin} max={lrMax} value={lrDraft}
               onChange={(event) => setLrDraft(event.target.value)}
@@ -421,7 +429,7 @@ export function FullTransformerAdvancedRecipe({
               aria-label="Full-model learning rate"
               className={`w-[7rem] ${controlClass}`} />
           </label>
-          <label className="flex items-center gap-2">
+          <label className="flex min-w-0 items-center gap-2">
             <span className="font-semibold">Resolution</span>
             <select value={String(resolution)} disabled={disabled}
               onChange={(event) => patch({ dense_resolution: Number(event.target.value) })}
@@ -439,7 +447,7 @@ export function FullTransformerAdvancedRecipe({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-sky-300/30 bg-sky-400/10 px-3 py-2 text-sky-50">
-          <label className="flex items-center gap-2">
+          <label className="flex min-w-0 items-center gap-2">
             <span className="font-semibold">Images per step</span>
             <select value={String(gradAccum)} disabled={disabled}
               onChange={(event) => patch({ dense_grad_accum: Number(event.target.value) })}
@@ -450,7 +458,7 @@ export function FullTransformerAdvancedRecipe({
               ))}
             </select>
           </label>
-          <label className="flex items-center gap-2">
+          <label className="flex min-w-0 items-center gap-2">
             <span className="font-semibold">Noise schedule</span>
             <select value={timestepType} disabled={disabled}
               onChange={(event) => patch({ dense_timestep_type: event.target.value })}
@@ -479,7 +487,7 @@ export function FullTransformerAdvancedRecipe({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-sky-300/30 bg-sky-400/10 px-3 py-2 text-sky-50">
-          <label className="flex items-center gap-2">
+          <label className="flex min-w-0 items-center gap-2">
             <span className="font-semibold">Learning-rate schedule</span>
             <select value={lrSchedule} disabled={disabled}
               onChange={(event) => patch({ dense_lr_schedule: event.target.value })}
@@ -495,7 +503,7 @@ export function FullTransformerAdvancedRecipe({
           {/* Warmup steps only reach the trainer on the one schedule that
               accepts them; the server gates it the same way. */}
           {warmupApplies && (
-            <label className="flex items-center gap-2">
+            <label className="flex min-w-0 items-center gap-2">
               <span className="font-semibold">Warm up over</span>
               <input type="number" min={warmupMin} max={warmupMax} step={10} value={warmupDraft}
                 onChange={(event) => setWarmupDraft(event.target.value)}
@@ -513,7 +521,7 @@ export function FullTransformerAdvancedRecipe({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-sky-300/30 bg-sky-400/10 px-3 py-2 text-sky-50">
-          <label className="flex items-center gap-2">
+          <label className="flex min-w-0 items-center gap-2">
             <span className="font-semibold">Checkpoint every</span>
             <input type="number" min={saveEveryMin} max={saveEveryMax} step={50} value={saveDraft}
               onChange={(event) => setSaveDraft(event.target.value)}
@@ -522,7 +530,7 @@ export function FullTransformerAdvancedRecipe({
               className={`w-[6rem] ${controlClass}`} />
             <span className="text-sky-100/80">steps</span>
           </label>
-          <label className="flex items-center gap-2">
+          <label className="flex min-w-0 items-center gap-2">
             <span className="font-semibold">Keep</span>
             <select value={String(keeps)} disabled={disabled}
               onChange={(event) => patch({ dense_max_step_saves: Number(event.target.value) })}
@@ -552,6 +560,8 @@ export function FullTransformerAdvancedRecipe({
               aria-label="Full-model preview prompts, one per line"
               className="w-full min-w-0 rounded border border-sky-300/40 bg-app/70 px-2 py-1 text-content text-[0.75rem] font-mono disabled:opacity-50" />
           </label>
+          <UseDatasetCaptionsButton images={datasetImages} max={maxSamplePrompts}
+            disabled={disabled} onPick={applySamplePrompts} className="mt-1" />
           <p className="m-0 mt-1 text-sky-200/70 text-[0.6875rem]">
             One per line, up to {maxSamplePrompts}. Empty = the generic defaults, which show nothing
             about this dataset — these images are the only way to judge the run while it costs money.
@@ -837,6 +847,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       requestHelpTip('dual-captions-advanced');
     }
   }, [advancedOpen, trainingMode]);
+
+  // Same problem for 🎲 Use dataset captions: it sits below the Preview-prompts
+  // textarea, in BOTH recipes, and nothing points at it. The TipHost shows one
+  // card at a time and does not mark the loser seen, so on the very first LoRA
+  // open dual-captions wins and this one arrives on the next open — in
+  // full-model mode, where dual captions does not apply, it shows right away.
+  useEffect(() => {
+    if (advancedOpen) requestHelpTip('sample-prompts-from-dataset');
+  }, [advancedOpen]);
 
   const togglePanel = (panelId, current, setter) => (event) => {
     event.preventDefault();
@@ -1187,11 +1206,22 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   useEffect(() => {
     setDifferentialGuidanceScaleDraft(String(adv?.differential_guidance_scale ?? 3));
   }, [adv?.differential_guidance_scale]);
-  const saveSamplePrompts = () => {
+  // Persist an EXPLICIT text. The blur handler below reads the state; the 🎲
+  // draw cannot — it has just called setSamplePromptsText, and the state it
+  // would read back is the previous render's, so it would save the old lines.
+  const persistSamplePrompts = (text) => {
     const stored = (adv?.sample_prompts ?? []).join('\n');
-    if (samplePromptsText === stored) return;      // no-op → skip the round-trip
-    saveAdv({ sample_prompts: samplePromptsText }); // server splits on newlines + trims
+    if (text === stored) return;                  // no-op → skip the round-trip
+    saveAdv({ sample_prompts: text });            // server splits on newlines + trims
   };
+  const saveSamplePrompts = () => persistSamplePrompts(samplePromptsText);
+  const applySamplePrompts = (text) => {
+    setSamplePromptsText(text);
+    persistSamplePrompts(text);
+  };
+  // Kept images carry the captions the 🎲 draw samples; the payload the panel
+  // already has is the only source, so the button costs no request.
+  const datasetImages = ds.data?.images || [];
   const saveDifferentialGuidanceScale = () => {
     const stored = String(adv?.differential_guidance_scale ?? 3);
     if (differentialGuidanceScaleDraft === stored) return;
@@ -2937,6 +2967,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               saveSamplePrompts={saveSamplePrompts}
               samplePromptsDefault={advSampleDefault}
               maxSamplePrompts={advMaxPrompts}
+              datasetImages={datasetImages}
+              applySamplePrompts={applySamplePrompts}
               quantizeTarget={denseQuantizeTarget(cloudLastHere || {})}
               suggestedQuantizePath={looksAbsoluteBase(base) ? String(base).trim() : ''}
               baseSummary={denseBaseSummary}
@@ -3351,6 +3383,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   aria-label="Preview sample prompts, one per line"
                   className="px-2 py-1.5 rounded-lg border border-border bg-surface text-content text-[0.75rem] font-mono leading-relaxed resize-y placeholder:text-content-subtle" />
               </label>
+              <div className="flex items-center gap-1.5 mt-1">
+                <UseDatasetCaptionsButton images={datasetImages} max={advMaxPrompts}
+                  onPick={applySamplePrompts} />
+                <HelpBadge topic="training.sample_prompts_from_dataset" />
+              </div>
               <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
                 <b className="text-content-muted font-medium">Why:</b> these are the test images ai-toolkit renders
                 during the run so you can watch the LoRA learn (and later pick the best epoch).

@@ -38,10 +38,11 @@ export function checkpointFileLabel(value) {
 /** `extra_loras` is stored as a JSON list of {filename, strength}. Bad JSON is
  *  an absent line, never a crash — this row is a nicety and the picture is not.
  *
- *  `only` splits the two populations that share this column: entries tagged
+ *  `only` splits the populations that share this column: entries tagged
  *  `combined` are the OTHER LoRAs of a combined stack (co-stars of the run,
- *  each chosen at its own weight), everything else is an always-on style LoRA.
- *  They read as opposites to a user, so they cannot share one label. */
+ *  each chosen at its own weight), entries tagged `external` are external LoRAs
+ *  sourced from outside, everything else is an always-on style LoRA. They read
+ *  as opposites to a user, so they cannot share one label. */
 export function extraLoraSummary(raw, { only = 'all' } = {}) {
   if (!has(raw)) return '';
   let list = raw;
@@ -50,7 +51,8 @@ export function extraLoraSummary(raw, { only = 'all' } = {}) {
   }
   if (!Array.isArray(list) || !list.length) return '';
   if (only === 'combined') list = list.filter((l) => l?.combined);
-  else if (only === 'always-on') list = list.filter((l) => !l?.combined);
+  else if (only === 'external') list = list.filter((l) => l?.external);
+  else if (only === 'always-on') list = list.filter((l) => !l?.combined && !l?.external);
   if (!list.length) return '';
   return list
     .map((l) => {
@@ -105,6 +107,8 @@ export function imageSettingFacts(img) {
   // ligne) ; seul le libellé suit le renommage 🧬 Combine → 🧬 Blend.
   push('combined_loras', 'Blended LoRAs',
     extraLoraSummary(img?.extra_loras, { only: 'combined' }));
+  push('external_loras', 'External LoRAs',
+    extraLoraSummary(img?.extra_loras, { only: 'external' }));
   push('extra_loras', 'Always-on LoRAs',
     extraLoraSummary(img?.extra_loras, { only: 'always-on' }));
   if (has(img?.face_score)) {
