@@ -306,6 +306,7 @@ Missing dependencies are shown in Setup/Settings and gated features stay unavail
 |---|---|---|
 | **Docker + existing ComfyUI** | Run LDS in Docker while keeping the ComfyUI already installed on the host | The launcher asks for the ComfyUI folder once; local training still uses host ai-toolkit or the cloud |
 | **Docker GPU + fresh ComfyUI** | Run LDS and a new isolated ComfyUI together on an NVIDIA GPU | Existing ComfyUI/models stay untouched; local training still uses host ai-toolkit or the cloud |
+| **Rented GPU pod (RunPod)** | Reach the studio, Image Bank and ComfyUI generation from any browser, on a GPU you do not own | Training still rents a vast.ai instance; ai-toolkit is not in the image, so local training is unavailable. Large ZIP exports can hit the pod proxy's 100-second timeout. See the [RunPod guide](docs/guide/runpod.md) |
 | **Full local** | Local engines, ML helpers, ai-toolkit training, Canvas generation and Test Studio | Install/connect only the tools you need; each capability degrades independently |
 
 ## Setup & install
@@ -463,6 +464,8 @@ The server binds to `127.0.0.1` by default. Before enabling LAN access or publis
 - **Model downloads you start** — Setup and the Install buttons stream weights from Hugging Face, Civitai, Ollama and pytorch.org. Two extras also fetch their own weights the first time you use them: the aesthetic head (~13 MB, from GitHub) and the NSFW classifier plus SigLIP 2 (Hugging Face).
 - **API engines and cloud training you configure** — only the providers whose keys you entered, and only when you press the button. OpenRouter additionally receives this project's public name and repository URL as attribution headers.
 - **The built-in scraper** — the sites you ask it to scan, and nothing else.
+
+When the app is served on an address the public internet can reach — a rented pod's proxy hostname, a tunnel — set `LDS_PUBLIC=1`. That forces the access token on whatever the setting says, so the switch cannot be turned off into an open door, and generates a token at boot if none exists. It applies to non-loopback binds only, and `LDS_ALLOW_UNAUTHENTICATED=1` still overrides it for setups that authenticate elsewhere.
 
 ## Known limitations
 
