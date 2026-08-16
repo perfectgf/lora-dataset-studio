@@ -598,7 +598,7 @@ export const BANK_SURFACES = [
     2
   ],
   [
-    "Open the original file",
+    "Open this image full size, as the Bank shows it — your own file on disk is never modified",
     1
   ],
   [

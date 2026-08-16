@@ -1883,6 +1883,51 @@ One caveat worth stating: the analysis passes (👤 Subject, ✨ Score, 📐 Fra
 still read the original file, so turning an image does **not** re-run them. Turn
 first, then run the passes if you want them to see it upright.
 
+## Crop and upscale inside a bank
+
+A bank is where the filtering and the curation happen, but reframing or
+upscaling a shot used to mean leaving it: promote into a dataset, edit there,
+export into a **new** bank, and start curating again. Both edits now happen in
+the bank itself, so the loop is *curate → edit → re-analyse → promote*, in one
+place. (Asked for by nofaceman on Discord, backed by mr.arrow.)
+
+**✂ Crop** is per image, in **▶ Review** — the only place a bank shows a picture
+big enough to draw a box on. Open Review (or press ▶ on a tile), then click
+**✂ Crop** or press `C`. Drag the box, or snap it to a ratio, and confirm.
+Cropping decides nothing: the image stays under your cursor so you can judge it
+once it is framed properly.
+
+**Nothing is resampled here**, and that is the one real difference from the crop
+inside a dataset. A dataset crop rescales the box you drew to a 1024 px long
+side, because a dataset image is training material and that is its size. A bank
+sits *upstream* of that choice — shrinking here would pick your training
+resolution before you have even picked a dataset, and would do it silently. So a
+bank crop is a pure cut: it keeps the pixels inside the box, and the dataset
+still decides the size when it imports.
+
+**✨ Upscale & improve** is a pass, on the **✂ Edits** panel (⚙ Passes). It takes
+the same kept / undecided / unkept / selection scope as everything else, which
+matters more here than anywhere: this one spends GPU-minutes **per image**. Pick
+the engine on the panel — **Klein** re-renders detail from a prompt (sharper, and
+skin and colour can shift) or **SeedVR2** resolves detail and leaves the original
+look alone — then launch. It runs in the background with a progress bar, and ⏹
+Stop ends it between two images, keeping everything already done. Unlike the
+dataset version, there is no candidate to validate: a bank *is* the review, so
+the result replaces what the bank shows.
+
+**Your own files are never written to.** Both edits land in a copy the app keeps
+next to the bank, exactly like the watermark cleaning. **↩ Revert** on the ✂
+Edits panel throws those copies away — for the selection, or for the whole bank —
+and gives you back the image it started from, including any rotation the edit had
+absorbed. In ▶ Review, **↩ Revert edit** does it for the image on screen.
+
+Two consequences worth knowing. First, an edit **clears every measurement taken
+from the old pixels**, so ✨ Score, 📐 Framing and the rest pass over those images
+again — which is the point: a sharpness score read off the shot before you cropped
+it describes an image the bank no longer holds. Second, ✨ Upscale & improve does
+not re-run on an image it has already improved; ↩ Revert is how you ask for a
+second attempt, and it is one click.
+
 ## Clean the watermarks a bank found
 
 **🚩 Find watermarks** flags the images carrying an overlaid logo, URL or

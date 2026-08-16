@@ -1785,6 +1785,29 @@ const TOPICS = [
      'watermark source', 'detector', 'vision model', 'why is this flagged',
      'watermark score', 'sensitivity', 'threshold', 'false positive'],
     '/bank', 'using-the-app', 'clean-the-watermarks-a-bank-found'),
+  /* ✂ and ✨ share one guide section but get a topic EACH, for the same reason
+     🎨 Medium and ⤢ Angle do below: they are two different gestures asked about
+     in two different vocabularies ("how do I crop in the bank?" vs "can I
+     upscale before promoting?"), and one topic would only ever be found by half
+     the people looking. ↩ Revert gets its own because it is what people search
+     for in a hurry, after the edit they regret. */
+  action('action-bank-crop', 'Crop an image inside a bank',
+    ['crop', 'cropping', 'reframe', 'reframing', 'framing', 'cut', 'trim',
+     'zoom in', 'recadrer', 'bank', 'review', 'lightbox', 'box', 'ratio',
+     'aspect', 'square', 'resample', 'resolution', 'no resize', 'without dataset',
+     'before promoting', 'edit image', 'C key'],
+    '/bank', 'using-the-app', 'crop-and-upscale-inside-a-bank'),
+  action('action-bank-improve', 'Upscale & improve images inside a bank',
+    ['upscale', 'upscaling', 'improve', 'enhance', 'sharpen', 'super resolution',
+     'super-resolution', 'klein', 'seedvr2', 'seedvr', 'low resolution', 'small',
+     'blurry', 'soft', 'quality', 'gpu', 'comfyui', 'bank', 'batch', 'pass',
+     'before promoting', 'without dataset', 'stop'],
+    '/bank', 'using-the-app', 'crop-and-upscale-inside-a-bank'),
+  action('action-bank-revert-edits', 'Undo a crop or an upscale made in a bank',
+    ['revert', 'undo crop', 'undo upscale', 'undo improve', 'restore', 'original',
+     'back to original', 'cancel edit', 'remove edit', 'edits', 'mistake',
+     'wrong crop', 'redo', 'improve again', 'run it again', 'bank'],
+    '/bank', 'using-the-app', 'crop-and-upscale-inside-a-bank'),
   // 🎨 Medium and ⤢ Angle share one guide section but get a topic EACH: they are
   // two separate chip rows, asked about in two very different words ("is this
   // anime?" vs "where are my profile shots?"), and one topic would only ever be

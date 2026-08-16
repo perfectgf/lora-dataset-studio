@@ -106,6 +106,9 @@ export function ProgressBar({ activity, onCancel, offline = false }) {
               semantic_dedup: 'Crops & variants', watermark: 'Watermark scan',
               framing: 'Framing pass', caption: 'Captioning', promote: 'Promotion',
               medium: 'Medium pass', angles: 'Measuring head angles',
+              // The longest pass in the app (one GPU render per image). A run
+              // that costs an hour must not sit under the anonymous fallback.
+              improve: 'Upscale & improve',
               bank_promote: 'Copying into the new bank',
               // The one destructive pass: it must NAME itself in the bar, not
               // ride under the anonymous "Job running" fallback.

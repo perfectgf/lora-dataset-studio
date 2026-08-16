@@ -58,10 +58,14 @@ test('the review lightbox offers the editor on any image it can still act on', (
   assert.match(lightbox, /M watermark mask/)       // printed, not folklore
 })
 
-test('the keyboard cannot decide on an image while its mask is open', () => {
+test('the keyboard cannot decide on an image while an editor is open', () => {
   // K/R/S are one keystroke from a decision; the editor must own the keyboard.
-  assert.match(lightbox, /if \(maskId != null\) return/)
-  assert.match(lightbox, /useFocusTrap\(dialogRef, maskId == null\)/)
+  // Widened when the ✂ crop editor joined the mask editor in this lightbox: the
+  // property being guarded was never "the mask specifically", it is that NO
+  // open editor leaves the decision keys live underneath it. Both ids are named
+  // so a third editor cannot be added without this line being read again.
+  assert.match(lightbox, /if \(maskId != null \|\| cropId != null\) return/)
+  assert.match(lightbox, /useFocusTrap\(dialogRef, maskId == null && cropId == null\)/)
 })
 
 test('the feature is announced and documented', () => {

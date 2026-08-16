@@ -541,6 +541,16 @@ def _dispatch_completion(job, filename, failed):
             reason = job.error_message if job.error_message != 'generation failed' else None
             face_dataset_service.link_completed_reference_edit(
                 job.job_id, filename, failed=failed, reason=reason)
+        elif md.get('is_bank_improve'):
+            # A Bank ✨ Upscale & improve. It rides the very same enqueue helpers
+            # as the dataset lane, so it necessarily carries their model_name —
+            # and the branch below would look for a FaceDatasetImage that does
+            # not exist. There is deliberately nothing to link: the bank pass
+            # POLLS its own queue row and writes the blob itself (same contract
+            # as watermark_klein), because the progress and the Stop button for
+            # the whole pass live in bank_jobs, not in one row per image.
+            logger.debug('job_queue: bank improve %s finished (failed=%s) — the '
+                         'bank pass owns its own result', job.job_id, failed)
         elif md.get('model_name') in DATASET_IMAGE_JOB_NAMES:
             from .services import face_dataset_service
             # The bare fallback 'generation failed' is LESS useful than the tile's

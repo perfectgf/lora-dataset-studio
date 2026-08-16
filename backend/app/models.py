@@ -522,6 +522,28 @@ class BankImage(db.Model):
     # and four quarter turns cost zero (the row is back at 0 and the copy is
     # dropped). Additive column — existing banks carry NULL and behave as before.
     rotation = db.Column(Integer, nullable=True)
+    # Manual pixel edit made in the BANK itself: NULL = none | 'crop' (the ✂ crop
+    # editor) | 'improve' (the ✨ Upscale & improve pass). Same principle as
+    # `rotation` and `watermark_clean_method` — the user's file is never written
+    # to, the result is a separate blob in the bank's own working directory
+    # (image_bank_service.edited_image_path) and the ONE resolver prefers it.
+    # It sits ABOVE the watermark clean in that chain: an edit is made from what
+    # the user was LOOKING at, which is the cleaned version when there is one.
+    # (Requested by nofaceman on Discord: curate, crop and re-analyse without
+    # the Bank → Dataset → export → Bank round-trip.)
+    edit_method = db.Column(String(16), nullable=True)
+    # Which generation of the edited blob is current, counting from 1. It is part
+    # of the blob's FILE NAME and of the grid's cache-busting URL: re-cropping the
+    # same image must not have to overwrite a file the previous response may still
+    # hold open (Windows), and a thumbnail cached for an hour must not survive the
+    # edit that replaced it. NULL whenever edit_method is NULL.
+    edit_generation = db.Column(Integer, nullable=True)
+    # The manual turn that was BAKED INTO the edited blob. A crop box is drawn on
+    # the turned image, so the turn has to be applied before the box means
+    # anything — after which `rotation` goes back to NULL (re-applying it would
+    # turn the pixels twice). Kept here so reverting the edit gives the user their
+    # rotation back instead of silently discarding it.
+    edit_baked_rotation = db.Column(Integer, nullable=True)
     # Triage decision — same words as dataset images (pending|keep|reject).
     # reject_reason: blur|noise|uniform|small|duplicate|unreadable|manual
     #                |low_aesthetic|nsfw|watermark (the V2 score-derived flags)

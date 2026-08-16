@@ -9,6 +9,7 @@
  * review, ⛶ open), same badge cluster, same tooltip.
  */
 import { FLAG_LABEL, STATUS_RING } from './bankFacets.js'
+import { editBadge, imageVersionQuery } from './bankEdits.js'
 import { angleBadge } from './bankMedium.js'
 import { detailSummary } from './bankProvenance.js'
 import { captionChips } from './bankTags.js'
@@ -22,6 +23,9 @@ export default function Tile({ img, bankId, selected, onToggle, onReview, onTags
   // her") yields zero chips, and `img.caption && …` would have offered the button
   // anyway. The test for "can this button do its job" is the job's own output.
   const tagChips = captionChips(img.caption)
+  // ✂/✨ made in the Bank itself. A state, like ✓ ✕ ⬆ and the flags — it belongs
+  // in the readout cluster, not among the actions.
+  const edited = editBadge(img)
   const badge = (txt, cls, key) => (
     <span key={key} className={`rounded px-1 py-px text-[10px] font-semibold leading-none ${cls}`}>{txt}</span>
   )
@@ -50,11 +54,14 @@ export default function Tile({ img, bankId, selected, onToggle, onReview, onTags
             ? `\n${captionOriginTooltipLine(img.caption, img.caption_origin)}: ${img.caption}`
             : '')}
         className="block w-full">
-        {/* ?r= is a cache buster, not a parameter the server reads: the thumb
-            route answers with max-age=3600, so a turned image would keep showing
-            its old orientation for an hour and read as "the button did nothing". */}
-        <img src={`/api/bank/${bankId}/thumb/${img.id}${img.rotation ? `?r=${img.rotation}` : ''}`}
-          alt={img.rotation ? `${img.name} (rotated ${img.rotation}°)` : img.name} loading="lazy"
+        {/* ?r=/?e= are cache busters, not parameters the server reads: the thumb
+            route answers with max-age=3600, so a turned OR edited image would keep
+            showing its old pixels for an hour and read as "the button did nothing".
+            ?e= carries the edit GENERATION, so a second crop of the same image
+            moves the URL too — see bankEdits.imageVersionQuery. */}
+        <img src={`/api/bank/${bankId}/thumb/${img.id}${imageVersionQuery(img)}`}
+          alt={[img.name, img.rotation ? `rotated ${img.rotation}°` : null,
+            edited ? edited.label : null].filter(Boolean).join(' — ')} loading="lazy"
           className={`w-full object-cover ${size === 'S' ? 'h-24' : 'h-36'}`} />
       </button>
       {selected && (
@@ -68,6 +75,16 @@ export default function Tile({ img, bankId, selected, onToggle, onReview, onTags
             tooltip and the review lightbox say where. */}
         {(img.promoted_dataset_id != null || img.promoted_bank_id != null)
           && badge('⬆', 'bg-indigo-500/80 text-white')}
+        {/* ✂/✨ = these pixels were edited HERE. Without it an edited image looks
+            like any other, and the grid cannot answer either "did my crop land?"
+            or "what does ↩ Revert still have to take back?". The tooltip carries
+            the promise the whole feature rests on: your own file was not touched. */}
+        {edited && (
+          <span title={edited.title} aria-label={edited.label}
+            className="rounded bg-sky-500/80 px-1 py-px text-[10px] font-semibold leading-none text-white">
+            {edited.text}
+          </span>
+        )}
         {img.flags.map((f) => badge(FLAG_LABEL[f]?.slice(0, 2) || f, 'bg-black/60 text-amber-200', f))}
         {img.face_cluster != null && badge(`👤${img.face_cluster}`, 'bg-black/60 text-sky-200')}
         {img.framing && badge(`📐${img.framing}`, 'bg-black/60 text-teal-200')}
@@ -124,8 +141,16 @@ export default function Tile({ img, bankId, selected, onToggle, onReview, onTags
         title="Review from this image — full size, one at a time, with Keep/Reject/Skip"
         aria-label={`Review from ${img.name}`}
         className="absolute bottom-1 right-6 rounded bg-black/60 px-1 text-[11px] text-white hover:bg-black/80">▶</button>
-      <a href={`/api/bank/${bankId}/file/${img.id}`} target="_blank" rel="noreferrer"
-        title="Open the original file" aria-label={`Open ${img.name} full size`}
+      {/* ⛶ serves what the bank RESOLVES for this image, and on an edited row that
+          is the crop/upscale — so the tooltip stops calling it "the original file",
+          which a ✂ crop makes visibly false, and the version key travels with it
+          (this route is cached too). Renamed rather than made conditional: a
+          computed title is invisible to the surface-inventory guard, and this
+          button is worth keeping under it. */}
+      <a href={`/api/bank/${bankId}/file/${img.id}${imageVersionQuery(img)}`}
+        target="_blank" rel="noreferrer"
+        title="Open this image full size, as the Bank shows it — your own file on disk is never modified"
+        aria-label={`Open ${img.name} full size`}
         className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[11px] text-white no-underline hover:bg-black/80">⛶</a>
     </li>
   )

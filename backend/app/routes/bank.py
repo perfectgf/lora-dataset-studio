@@ -12,7 +12,12 @@ from flask import Blueprint, current_app, jsonify, request, send_file
 from ..config import LOCAL_USER
 from ..models import BankImage
 from ..services import bank_jobs, dataset_activity
-from ._common import _map_error
+from ._common import _map_error, _require_no_stalled_comfyui
+# The ✨ improve preflight answers the SAME three engine exceptions here as in the
+# dataset lane, and its 409 body is what itemizes the missing assets and starts
+# their download. Imported rather than re-derived: a second copy of that mapping
+# is a second thing to keep in step with the installer.
+from .datasets import _improve_engine_error
 from ..services import bank_filter_translator as translator
 from ..services import image_bank_service as banks
 
@@ -581,6 +586,85 @@ def bank_watermark_undo(bank_id):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'restored': n})
+
+
+@bp.post('/bank/<int:bank_id>/image/<int:image_id>/crop')
+def bank_image_crop(bank_id, image_id):
+    """✂ Cut ONE bank image to {x, y, w, h}, in the pixels of the image as the
+    editor displayed it — the Bank's half of the dataset route of the same name,
+    with the same body and the same meaning.
+
+    Synchronous: it only writes one blob of ours. Nothing is resampled (a bank is
+    upstream of the training resolution — see the service docstring).
+    400 = unusable box · 404 = unknown bank/image · 409 = a pass holds the bank."""
+    data = request.get_json(silent=True) or {}
+    try:
+        result = banks.crop_image(LOCAL_USER, bank_id, image_id,
+                                  data['x'], data['y'], data['w'], data['h'])
+    except KeyError:
+        return jsonify({'error': 'x, y, w and h are required'}), 400
+    except bank_jobs.BankJobBusy as e:
+        return _busy(e)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
+
+
+@bp.post('/bank/<int:bank_id>/edits/revert')
+def bank_edits_revert(bank_id):
+    """Drop the bank-side ✂ crop / ✨ improve of {image_ids} (empty = all) and go
+    back to the image the bank started from. Synchronous — like the watermark
+    undo, it only deletes blobs we made ourselves."""
+    data = request.get_json(silent=True) or {}
+    try:
+        result = banks.revert_edits(LOCAL_USER, bank_id,
+                                    data.get('image_ids') or None)
+    except bank_jobs.BankJobBusy as e:
+        return _busy(e)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, **result})
+
+
+@bp.post('/bank/<int:bank_id>/improve')
+def bank_improve(bank_id):
+    """✨ Upscale & improve the images in scope, in the Bank itself.
+
+    {engine: 'klein'|'seedvr2'} — absent = the improve.engine setting, exactly
+    like the dataset lane. Takes the same {statuses}/{image_ids} scope as every
+    other pass; this one spends GPU-minutes per image, so aiming it matters more
+    here than anywhere else.
+
+    202 on launch · 409 when the bank is busy OR an engine is missing (the body
+    then carries the itemized assets and the auto-download that was started, the
+    same structured refusal the dataset routes return) · 400 on an empty pool ·
+    503 when the GPU is already taken by a training or a vision pass."""
+    data = request.get_json(silent=True) or {}
+    gate = _require_no_stalled_comfyui()
+    if gate:
+        return gate
+    engine = (data.get('engine') or '').strip() or None
+    try:
+        banks.start_improve(_app(), LOCAL_USER, bank_id, engine=engine,
+                            **_scope(data))
+    except bank_jobs.BankJobBusy as e:
+        return _busy(e)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 503
+    except Exception as e:
+        # The engine preflight misses (Klein nodes/models, SeedVR2 models) keep
+        # their own structured 409 — that body is what carries the itemized list
+        # and starts the download, so flattening it here would cost the user the
+        # one thing that makes the refusal actionable.
+        engine_error = _improve_engine_error(e)
+        if engine_error:
+            return engine_error
+        raise
+    return jsonify({'ok': True}), 202
 
 
 @bp.put('/bank/<int:bank_id>/image/<int:image_id>/watermark-regions')

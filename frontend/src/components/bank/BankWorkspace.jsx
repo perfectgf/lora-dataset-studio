@@ -1168,6 +1168,22 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       ? { ...im, rotation, width: im.height, height: im.width }
       : im)),
   }))
+  /* Same rule for a ✂ crop / ↩ revert made in ▶ Review, and it matters MORE here:
+     the tile's thumbnail URL carries the edit generation, so a tile left with the
+     old generation would keep serving the pre-crop image from the browser cache
+     for an hour behind the lightbox. The state comes from the route's own reply
+     rather than being guessed. */
+  const onReviewEdited = (imageId, state) => setPage((prev) => ({
+    ...prev,
+    images: prev.images.map((im) => (im.id === imageId
+      ? { ...im,
+          edit_method: state?.edit_method ?? null,
+          edit_generation: state?.edit_generation ?? 0,
+          rotation: state?.rotation ?? 0,
+          width: state?.width ?? im.width,
+          height: state?.height ?? im.height }
+      : im)),
+  }))
   const closeReview = () => { setReview(null); refreshPayload(); refreshImages() }
 
   const selectAllCurrent = async () => {
@@ -2471,7 +2487,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       {review && (
         <BankReviewLightbox bankId={bankId} ids={review.ids} startId={review.startId}
           seedImages={page.images} onDecided={onReviewDecided}
-          onRotated={onReviewRotated} onClose={closeReview} />
+          onRotated={onReviewRotated} onEdited={onReviewEdited} onClose={closeReview} />
       )}
 
       {relocating && (

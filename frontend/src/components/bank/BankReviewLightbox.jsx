@@ -26,7 +26,9 @@ import {
   DETAIL_CAVEAT, PROVENANCE_FLAG_LABEL, detailSummary, originHint, originLabel,
 } from './bankProvenance.js'
 import BankWatermarkMaskDialog from './BankWatermarkMaskDialog'
+import CropModal from '../dataset/CropModal.jsx'
 import { canEditMask, maskButtonLabel } from './bankWatermarkMask.js'
+import { cropOutcomeMessage, imageVersionQuery } from './bankEdits.js'
 import {
   REVIEW_SHORTCUT_HINT, ownsTypedKeys, reviewKeyAction,
 } from '../shared/reviewShortcuts.js'
@@ -101,7 +103,7 @@ function Facts({ img }) {
 }
 
 export default function BankReviewLightbox({
-  bankId, ids, startId = null, seedImages = [], onDecided, onRotated, onClose,
+  bankId, ids, startId = null, seedImages = [], onDecided, onRotated, onEdited, onClose,
 }) {
   const [session, setSession] = useState(() => createSession(ids, { startId }))
   const [meta, setMeta] = useState(() => {
@@ -111,16 +113,26 @@ export default function BankReviewLightbox({
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  /* What an edit just did, said HERE rather than as a toast: the review runs
+     full-screen over the workspace, and a toast fired behind it is a report the
+     user never reads. Cleared as soon as the cursor moves — it describes the
+     image on screen, not the session. */
+  const [notice, setNotice] = useState(null)
   // 🚩 Which image's watermark mask is open, if any. Review is where a flagged
   // image is actually LOOKED at, so it is where a wrong detection box gets
   // fixed — until now that was only possible inside a dataset (Qeeyana, Reddit).
   const [maskId, setMaskId] = useState(null)
+  /* ✂ Which image's crop editor is open. Review is the ONLY place the Bank shows
+     an image big enough to draw a box on, so it is where the crop lives —
+     the grid tile deliberately keeps its three hit targets and no more, which is
+     the same reason the quarter-turn is a bulk action there and a button here. */
+  const [cropId, setCropId] = useState(null)
   const dialogRef = useRef(null)
   const requested = useRef(new Set())
 
-  // Hand the trap over while the mask editor is open — two live traps fight over
-  // the focus and the editor's own controls become unreachable.
-  useFocusTrap(dialogRef, maskId == null)
+  // Hand the trap over while the mask or crop editor is open — two live traps
+  // fight over the focus and the editor's own controls become unreachable.
+  useFocusTrap(dialogRef, maskId == null && cropId == null)
 
   const id = currentId(session)
   const done = isFinished(session)
@@ -150,6 +162,7 @@ export default function BankReviewLightbox({
     if (target == null || busy) return
     setBusy(true)
     setError(null)
+    setNotice(null)
     try {
       await postJson(`/api/bank/${bankId}/images/status`, { ids: [target], status })
       setMeta((prev) => (prev[target] ? { ...prev, [target]: { ...prev[target], status } } : prev))
@@ -192,17 +205,82 @@ export default function BankReviewLightbox({
     }
   }, [bankId, busy, onRotated, session])
 
+  /* ✂ Cut the image under the cursor down to the box just drawn, and ↩ throw
+     that edit away. Both are asked for by nofaceman on Discord: the Bank has the
+     filtering and the curation, so reframing a shot used to mean a round trip
+     through a Dataset and an export into a NEW bank.
+
+     Like the quarter turn, they DECIDE NOTHING and do not advance — a badly
+     framed image is fixed and then judged, which is the whole reason you noticed
+     it here. And like the quarter turn, your own file is never rewritten: the
+     result is a copy the app keeps, and ↩ Revert deletes it.
+
+     The box arrives in the NATURAL pixels of the image the editor loaded, which
+     is the very image `/file/` resolves — cleaned and turned included. That is
+     what the server crops, so what you drew is what you get. */
+  const applyEdit = useCallback((target, state) => {
+    if (!state) return
+    setMeta((prev) => (prev[target]
+      ? { ...prev,
+          [target]: { ...prev[target],
+            edit_method: state.edit_method ?? null,
+            edit_generation: state.edit_generation ?? 0,
+            rotation: state.rotation ?? 0,
+            width: state.width ?? prev[target].width,
+            height: state.height ?? prev[target].height } }
+      : prev))
+    onEdited?.(target, state)
+  }, [onEdited])
+
+  const cropCurrent = useCallback(async (box) => {
+    const target = cropId
+    setCropId(null)
+    if (target == null || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const d = await postJson(`/api/bank/${bankId}/image/${target}/crop`, box)
+      applyEdit(target, d)
+      setNotice(cropOutcomeMessage(d))
+    } catch (e) {
+      setError(e?.message || 'Could not crop that image — it was NOT changed.')
+    } finally {
+      setBusy(false)
+    }
+  }, [applyEdit, bankId, busy, cropId])
+
+  const revertCurrent = useCallback(async () => {
+    const target = currentId(session)
+    if (target == null || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const d = await postJson(`/api/bank/${bankId}/edits/revert`, { image_ids: [target] })
+      // The route answers with the state of every row it touched, so the image
+      // under the cursor is re-rendered from the ledger rather than from a guess
+      // about what reverting should have produced.
+      applyEdit(target, (d?.images || []).find((r) => r.id === target)
+        || { edit_method: null, edit_generation: 0 })
+      setNotice('Back to the image this bank started from — the rotation the edit'
+        + ' had absorbed is yours again.')
+    } catch (e) {
+      setError(e?.message || 'Could not revert that image — it was NOT changed.')
+    } finally {
+      setBusy(false)
+    }
+  }, [applyEdit, bankId, busy, session])
+
   // Moving forward without judging IS a skip: it stays undecided in the DB and
   // is not proposed again in this session (→ and ⏭ are deliberately the same).
-  const doSkip = useCallback(() => { setError(null); setSession((s) => skip(s)) }, [])
-  const goBack = useCallback(() => { setError(null); setSession((s) => back(s)) }, [])
+  const doSkip = useCallback(() => { setError(null); setNotice(null); setSession((s) => skip(s)) }, [])
+  const goBack = useCallback(() => { setError(null); setNotice(null); setSession((s) => back(s)) }, [])
   const toggleShuffle = useCallback(() => setSession((s) => setShuffle(s, !s.shuffle)), [])
 
   useEffect(() => {
     const onKey = (e) => {
-      // The mask editor owns the keyboard while it is open: every letter here is
-      // one keystroke away from a decision on the image being masked.
-      if (maskId != null) return
+      // An open editor owns the keyboard: every letter here is one keystroke
+      // away from a decision on the image being edited.
+      if (maskId != null || cropId != null) return
       // K/R/S, ← and Esc come from the SHARED grammar (components/shared/
       // reviewShortcuts.js) — the same one the dataset lightbox reads, so the
       // two review surfaces cannot drift apart one refactor at a time. The keys
@@ -220,10 +298,14 @@ export default function BankReviewLightbox({
       else if (e.key === ']') { e.preventDefault(); rotateCurrent(90) }
       // M edits the watermark mask of the flagged image under the cursor.
       else if (e.key?.toLowerCase() === 'm' && canEditMask(img)) { e.preventDefault(); setMaskId(id) }
+      // C opens the crop editor. A letter, like M and for the same reason: it
+      // opens an EDITOR rather than deciding anything, so the "every free letter
+      // is one keystroke from a decision" rule is not what is at stake.
+      else if (e.key?.toLowerCase() === 'c' && id != null) { e.preventDefault(); setCropId(id) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, sendDecision, doSkip, goBack, rotateCurrent, maskId, img, id])
+  }, [onClose, sendDecision, doSkip, goBack, rotateCurrent, maskId, cropId, img, id])
 
   // The key cap itself is shared with the dataset lightbox (ShortcutKey.jsx):
   // same letters, same look, one place.
@@ -277,9 +359,9 @@ export default function BankReviewLightbox({
         <div className="flex min-h-0 flex-1 items-center justify-center p-3">
           {/* key= forces a fresh <img> per image so a slow load never shows the
               previous shot under the new one's buttons. */}
-          {/* ?r= busts the browser cache after a turn — the bytes at this URL
-              change while the URL itself does not. */}
-          <img key={id} src={`/api/bank/${bankId}/file/${id}${img?.rotation ? `?r=${img.rotation}` : ''}`}
+          {/* ?r=/?e= bust the browser cache after a turn or an edit — the bytes at
+              this URL change while the URL itself does not. */}
+          <img key={id} src={`/api/bank/${bankId}/file/${id}${imageVersionQuery(img)}`}
             alt={img?.name || `Bank image ${id}`}
             className="max-h-full max-w-full select-none object-contain" />
         </div>
@@ -291,6 +373,9 @@ export default function BankReviewLightbox({
             <p role="alert" className="text-center text-sm text-rose-300">
               ⚠️ {error} — try again, or close and check the app.
             </p>
+          )}
+          {notice && !error && (
+            <p role="status" className="text-center text-sm text-sky-200">✂ {notice}</p>
           )}
           <Facts img={img} />
           <div className="flex flex-wrap items-center justify-center gap-2">
@@ -311,6 +396,20 @@ export default function BankReviewLightbox({
               className="rounded-lg border border-white/20 px-3 py-2 text-sm text-white disabled:opacity-35 hover:bg-white/10">
               <span aria-hidden="true">↻</span><span className="sr-only">Rotate right</span>
             </button>
+            {/* ✂ and ↩ sit with the rotate pair, not with ✓/✕/⏭: everything left
+                of the decisions CHANGES THE IMAGE and advances nothing. */}
+            <button type="button" onClick={() => setCropId(id)} disabled={busy || id == null}
+              title="Crop this image (C) — decides nothing. Nothing is resampled: a Bank sits upstream of the training resolution, so the cut keeps its pixels and a dataset decides the size when it imports. Your own file is never modified, and ↩ Revert brings the original framing back."
+              className="rounded-lg border border-sky-400/60 bg-sky-500/20 px-4 py-2 text-sm font-semibold text-sky-100 disabled:opacity-50 hover:bg-sky-500/30">
+              ✂ Crop{shortcut('C')}
+            </button>
+            {img?.edit_method && (
+              <button type="button" onClick={revertCurrent} disabled={busy}
+                title="Throw away the ✂ crop / ✨ upscale made in this bank and go back to the image it started from. Only a copy made by the app is deleted — your own file was never modified."
+                className="rounded-lg border border-white/25 px-4 py-2 text-sm text-white disabled:opacity-50 hover:bg-white/10">
+                ↩ Revert edit
+              </button>
+            )}
             {canEditMask(img) && (
               <button type="button" onClick={() => setMaskId(id)} disabled={busy}
                 title="Draw the watermark zones on this image (M) — decides nothing. Works even when the scan found nothing: what you draw becomes the flag, and 🧽 Inpaint then repaints exactly that."
@@ -335,8 +434,8 @@ export default function BankReviewLightbox({
             </button>
           </div>
           <p className="text-center text-[11px] text-white/45">
-            {REVIEW_SHORTCUT_HINT} · [ ] rotate · M watermark mask · ← → move without
-            deciding · Esc close. Decisions are saved one by one — closing loses nothing.
+            {REVIEW_SHORTCUT_HINT} · [ ] rotate · C crop · M watermark mask · ← → move
+            without deciding · Esc close. Decisions are saved one by one — closing loses nothing.
           </p>
         </div>
       )}
@@ -345,6 +444,15 @@ export default function BankReviewLightbox({
         <BankWatermarkMaskDialog bankId={bankId} image={meta[maskId]}
           onSaved={(next) => setMeta((prev) => ({ ...prev, [next.id]: next }))}
           onClose={() => setMaskId(null)} />
+      )}
+
+      {/* The SAME editor the datasets use, unchanged: it already returns the box
+          in natural image pixels, which is exactly the contract the bank's crop
+          route expects. `onReset` is deliberately absent — it re-runs the
+          dataset's automatic head-crop, and a bank has no such thing. */}
+      {cropId != null && (
+        <CropModal imageUrl={`/api/bank/${bankId}/file/${cropId}${imageVersionQuery(meta[cropId])}`}
+          onCancel={() => setCropId(null)} onConfirm={cropCurrent} />
       )}
     </div>
   )

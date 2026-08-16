@@ -325,6 +325,70 @@ export const BANK_PASSES = {
     binCost: 'each rejected image costs a full repaint, the slowest step of the funnel',
   },
 
+  /* ✨ THE THIRD PASS THAT PRODUCES A NEW IMAGE, and the only one that spends
+   * GPU-minutes PER IMAGE. Asked for by nofaceman on Discord, in the same breath
+   * as the ✂ crop: the Bank holds the filtering and the curation, so being sent
+   * to a Dataset just to upscale — and exported back out to curate the result —
+   * is a detour around the screen you are already on.
+   *
+   * IT IS NOT THE DATASET PASS OF THE SAME NAME, in the one way that matters to
+   * the person pressing the button: a dataset improve creates a separate
+   * candidate you review next to the original, a BANK improve replaces what the
+   * bank shows. A bank IS the review — so ↩ Revert is the "no thanks", exactly
+   * like the watermark clean it sits next to.
+   *
+   * NOT IN BANK_PASS_ORDER, for the same reason as the two cleaning levels: its
+   * button lives on the ✂ Edits panel, with the ↩ Revert that takes it back.
+   */
+  improve: {
+    id: 'improve',
+    label: '✨ Upscale & improve',
+    verb: '✨ Improve',
+    endpoint: 'improve',
+    what: 'Re-renders each image at a higher resolution, in the Bank itself. Klein '
+      + 'rewrites detail from a prompt (sharper, and skin and colour can shift); '
+      + 'SeedVR2 resolves detail and leaves the original look alone. GPU, one '
+      + 'ComfyUI round-trip per image.',
+    scopes: true,
+    selection: true,
+    // No "do it again" lane on purpose: an improved image LEAVES the pool, and
+    // the way back in is ↩ Revert — one click, and it says what it takes back.
+    // A tick box here would be a second, quieter way to spend the same
+    // GPU-minutes twice on the same image.
+    redo: null,
+    settings: [
+      { name: 'Engine — Klein or SeedVR2 (picked on this panel, for this run)',
+        note: 'The Settings default (Settings ▸ Engines) governs the single-✨ '
+          + 'surfaces; a batch always states the engine on the button you press.' },
+      { name: 'Klein weights + ComfyUI (Setup ▸ Generation models), when Klein runs',
+        note: 'A bank has no dataset to inherit a Klein model from, so this pass '
+          + 'resolves it automatically — the panel names the one that will run.' },
+      { name: 'The improve instruction (Settings ▸ Engines ▸ Upscale & improve)',
+        note: 'Klein only. SeedVR2 sends no instruction at all.' },
+    ],
+    notHere: [
+      'WHICH images deserve it — that is the curation you already do in the grid, '
+        + 'and it is why the scope below matters more here than anywhere else.',
+      'The training resolution. A bank sits UPSTREAM of that choice: what an image '
+        + 'is finally scaled to is decided when a dataset imports it.',
+    ],
+    caveats: [
+      'Your own files are never written to. The result is a copy kept by the app, '
+        + 'and ↩ Revert on the ✂ Edits panel throws it away and brings the original '
+        + 'framing back — the rotation it absorbed included.',
+      'It replaces what the Bank SHOWS for that image, so everything downstream — '
+        + 'the grid, ▶ Review and what gets promoted — uses the improved version. '
+        + 'There is no candidate to validate: the bank is the review.',
+      'Every measurement taken from the old pixels is cleared, so ✨ Score, 📐 '
+        + 'Framing and the rest pass over those images again. That is deliberate: '
+        + 'scores read off the version before the upscale would describe an image '
+        + 'this bank no longer holds.',
+      'One ComfyUI round-trip per image, minutes apiece on a modest card. ⏹ Stop '
+        + 'ends the run between two images and keeps what is already done.',
+    ],
+    binCost: 'each rejected image costs a full GPU render, the most expensive line in the app',
+  },
+
   framing: {
     id: 'framing',
     label: '📐 Classify framing',

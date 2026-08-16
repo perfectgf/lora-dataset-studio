@@ -9801,17 +9801,25 @@ def _enqueue_improve(engine, *, user_id, source, source_path, prompt, label,
     spaces, and the completion callback is chosen by this metadata. The engine
     dispatch below stays the single place that knows Klein from SeedVR2 — that is
     the whole point of routing the second lane through here rather than growing a
-    parallel copy of it."""
+    parallel copy of it.
+
+    `source` only ever has to answer for its NAME here, and it is used to build a
+    staging file name — nothing else. A row that stores its name under another
+    column (a `BankImage` keeps a `relpath`) therefore falls back to the source
+    path's own basename rather than needing a shim object built for this one
+    line."""
     meta = (dict(extra_metadata) if extra_metadata is not None
             else _improve_extra_metadata(source, label, engine=engine))
+    source_filename = (getattr(source, 'filename', None)
+                       or os.path.basename(str(source_path or '')))
     if engine == 'seedvr2':
         from . import seedvr2_helper
         return seedvr2_helper.enqueue_seedvr2_upscale(
-            user_id=str(user_id), source_filename=source.filename,
+            user_id=str(user_id), source_filename=source_filename,
             source_path=source_path, extra_metadata=meta)
     from . import klein_edit_helper as keh
     return keh.enqueue_klein_edit(
-        user_id=str(user_id), source_filename=source.filename,
+        user_id=str(user_id), source_filename=source_filename,
         source_path=source_path, edit_prompt=prompt,
         **_improve_enqueue_profile(dataset), extra_metadata=meta)
 

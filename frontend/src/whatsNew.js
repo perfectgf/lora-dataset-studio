@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-16-bank-crop-and-upscale',
+    date: '2026-08-16',
+    title: 'Crop and upscale without leaving the Bank',
+    blurb:
+      'Reframing or upscaling a shot used to mean taking it out of the Bank: promote it into a dataset, edit it there, export the result into a NEW bank, and start curating all over again. Both now happen in the Bank itself. ✂ Crop is in ▶ Review — press C, drag the box, done; it decides nothing, so you can frame an image and then judge it. Nothing is resampled, unlike a dataset crop: a Bank sits upstream of the training resolution, so the cut keeps its pixels and the dataset still decides the size when it imports. ✨ Upscale & improve is a proper pass on the new ✂ Edits panel, with a scope, a progress bar and ⏹ Stop, running on Klein or SeedVR2. Your own files are never touched: both edits land in a copy the app keeps, ↩ Revert throws it away, and every measurement taken from the old pixels is cleared so the analysis passes re-read the image you are actually keeping. (Asked for by nofaceman on Discord, backed by mr.arrow.)',
+    to: '/bank',
+  },
+  {
     id: '2026-08-13-mark-a-watermark-the-scan-missed',
     date: '2026-08-13',
     title: 'Mark a watermark the scan missed, yourself',

@@ -77,7 +77,14 @@ test('the bank rotates a selection without ever writing to the user folder', () 
   // The promise made in the tooltip is the one the backend keeps.
   assert.match(bankWorkspace, /Your own files are never modified/);
   // A cached thumbnail (max-age=3600) would otherwise keep the old orientation.
-  assert.ok(bankTile.includes('${img.rotation ? `?r=${img.rotation}` : \'\'}'));
+  // The key itself moved into bankEdits.imageVersionQuery when the ✂ crop / ✨
+  // upscale generation had to ride in it too — a re-crop changes the pixels
+  // under an unchanged URL for exactly the same reason a turn does. The property
+  // is unchanged and now has its own unit tests (bankEdits.test.js, "a SECOND
+  // crop of the same image gets its own URL"); what this line guards is that the
+  // tile still asks for a version key at all.
+  assert.match(bankTile, /from '\.\/bankEdits\.js'/);
+  assert.match(bankTile, /\/thumb\/\$\{img\.id\}\$\{imageVersionQuery\(img\)\}/);
 });
 
 test('the bank review lightbox rotates without deciding, and updates the tile behind it', () => {

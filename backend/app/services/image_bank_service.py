@@ -413,6 +413,51 @@ def _prune_rotated_generations(destination: Path, image_id) -> None:
         pass
 
 
+def _edited_dir(bank_id) -> Path:
+    """Where ✂ Crop / ✨ Upscale & improve results live — the bank's own working
+    directory, next to clean/ and rotated/. Never inside the user's folder."""
+    return _bank_dir(bank_id) / 'edited'
+
+
+def edited_image_path(bank_id, image_id, generation) -> Path:
+    """The edited blob of one image, at one generation (may not exist).
+
+    The generation is in the NAME rather than being overwritten in place for two
+    reasons that both bit the rotation lane first: on Windows the file may still
+    be held open by the response that just served it, and a thumbnail cached for
+    an hour must not be able to outlive the edit that replaced it.
+    """
+    return _edited_dir(bank_id) / f'{image_id}.e{int(generation or 0)}.webp'
+
+
+def _prune_edited_generations(bank_id, image_id, keep: Path | None) -> None:
+    """Best-effort removal of every edited blob of one image except ``keep``.
+    A leftover is harmless — nothing points at it once the row moved on — so a
+    locked file is not an error."""
+    try:
+        for stale in _edited_dir(bank_id).glob(f'{image_id}.e*.webp'):
+            if keep is not None and stale == keep:
+                continue
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _drop_edited_blob(bank_id, row) -> None:
+    """Forget a bank-side edit: delete every generation of its blob, give the
+    baked turn back to the row and clear the markers so the readers fall back to
+    the clean/source chain. No commit (the caller owns the transaction)."""
+    _prune_edited_generations(bank_id, row.id, None)
+    if row.edit_method:
+        row.rotation = row.edit_baked_rotation or None
+    row.edit_method = None
+    row.edit_generation = None
+    row.edit_baked_rotation = None
+
+
 def _ensure_rotated(bank_id, row: BankImage, source: str) -> str:
     """Materialise (once) the turned copy of ``source`` and return its path.
 
@@ -484,7 +529,17 @@ def resolved_image_path(bank: ImageBank, row: BankImage) -> str | None:
     readers call it: promotion (the blob handed to import_images), the grid
     thumbnail, and the /bank/<id>/file route. A new reader calling
     abs_image_path() directly would silently serve the watermarked original —
-    test_bank_watermark_clean.py asserts these three go through here."""
+    test_bank_watermark_clean.py asserts these three go through here.
+
+    A bank-side ✂ crop / ✨ improve wins over both: it was made FROM whatever
+    this resolver returned at the time (cleaned and turned included), so its blob
+    already contains those transforms and re-applying them would apply them
+    twice. Fails open like the rest — a missing edited blob serves the chain
+    below rather than a 404."""
+    if row.edit_method:
+        edited = edited_image_path(bank.id, row.id, row.edit_generation)
+        if edited.is_file():
+            return str(edited)
     path = None
     if row.watermark_clean_method:
         cleaned = clean_image_path(bank.id, row.id)
@@ -509,6 +564,13 @@ def analysis_image_path(bank: ImageBank, row: BankImage, *,
     raw = abs_image_path(bank, row)
     if not raw or not os.path.isfile(raw):
         return None
+    # A bank-side edit is the effective image, and it is fail-CLOSED here for the
+    # same reason as everything else in this function: analysing the source and
+    # blessing the result as though it described the crop the user is looking at
+    # is exactly the silent mismatch this variant exists to prevent.
+    if row.edit_method:
+        edited = edited_image_path(bank.id, row.id, row.edit_generation)
+        return str(edited) if edited.is_file() else None
     path = raw
     if row.watermark_clean_method:
         if (not _valid_analysis_fingerprint(row.watermark_fingerprint)
@@ -1245,6 +1307,11 @@ def _image_dict(row: BankImage, th: dict, promoted_by: dict | None = None) -> di
         'name': os.path.basename(row.relpath),
         'relpath': row.relpath,
         'rotation': rotation,
+        # ✂/✨ made in the Bank. The GENERATION travels with the marker because
+        # the thumbnail route is cached for an hour under an URL that does not
+        # change on its own — it is what the grid busts that cache with.
+        'edit_method': row.edit_method,
+        'edit_generation': int(row.edit_generation or 0),
         'width': width, 'height': height, 'file_size': row.file_size,
         'quality_state': row.quality_state,
         'blur_score': row.blur_score, 'noise_score': row.noise_score,
@@ -1830,6 +1897,12 @@ def bank_payload(user_id, bank_id) -> dict | None:
             BankImage.watermark_state.isnot(None),
             ~_watermark_history_inactive_clause()).count(),
         'framing_classified': base.filter(BankImage.framing.isnot(None)).count(),
+        # ✂/✨ edited HERE, split by which edit produced the blob. Two numbers
+        # rather than one total: ↩ Revert undoes both, but "12 cropped" and "12
+        # upscaled" are answers to different questions, and a single figure would
+        # let a GPU pass hide behind a hand crop.
+        'cropped': base.filter(BankImage.edit_method == 'crop').count(),
+        'improved': base.filter(BankImage.edit_method == 'improve').count(),
         # 🎨 Medium — how many rows the pass has a verdict for ('unsure'
         # included: it IS a verdict). Drives the chip row's appearance and the
         # Sort menu's "run 🎨 Medium first" state.
@@ -1906,6 +1979,13 @@ def bank_payload(user_id, bank_id) -> dict | None:
         # Both figures are the same pool, said twice rather than left absent.
         'angles': {'todo': _todo_by_status(bank_id, _angle_todo_clause()),
                    'all': _todo_by_status(bank_id, _angle_todo_clause())},
+        # ✨ Upscale & improve — the pool is everything not already improved, and
+        # there is no "do it again" lane on purpose: an improved image leaves the
+        # pool and comes back only through ↩ Revert. Like the two cleaning levels
+        # above, 'all' repeats 'todo' rather than being absent (which the dialogs
+        # render as a permanent "counting…").
+        'improve': {'todo': _todo_by_status(bank_id, _improve_todo_clause()),
+                    'all': _todo_by_status(bank_id, _improve_todo_clause())},
         # 👥 takes no scope (its clusters are one numbering of the whole bank),
         # but its dialog still has to quote the ONE number it will run on — and
         # that number is not the pile: rows in a folder the user declared to be a
@@ -2659,6 +2739,11 @@ def _thumb_path(bank_id, row: BankImage) -> Path:
     suffix = f'.{row.watermark_clean_method}' if row.watermark_clean_method else ''
     if getattr(row, 'rotation', None):
         suffix += f'.r{int(row.rotation)}'
+    # A bank-side edit replaces the whole chain above, and each RE-edit must get
+    # its own name too: re-cropping produces different pixels under an unchanged
+    # method, so keying on the method alone would serve the first crop forever.
+    if getattr(row, 'edit_method', None):
+        suffix += f'.e{int(row.edit_generation or 0)}'
     return _thumbs_dir(bank_id) / f'{row.id}{suffix}.webp'
 
 
@@ -2737,6 +2822,10 @@ def _clear_bank_watermark_analysis(
         setattr(row, name, None)
     row.watermark_fingerprint = None
     row.watermark_clean_method = None
+    if had_clean:
+        # Same reasoning as undo_watermark_clean: a bank-side edit made on top of
+        # a cleaned image is made OF those pixels, so it cannot outlive them.
+        _drop_edited_blob(row.bank_id, row)
     if had_clean or not preserve_effective_derivative:
         try:
             clean_image_path(row.bank_id, row.id).unlink(missing_ok=True)
@@ -4489,6 +4578,129 @@ def rotate_images(user_id, bank_id, ids, delta, *, _bank_lease=None) -> dict:
     db.session.commit()
     reset_score_memo()
     return {'rotated': len(rotations), 'rotations': rotations}
+
+
+def _edit_state(row: BankImage) -> dict:
+    """What the grid needs to re-render one edited row without a refetch: the
+    marker, the generation (its cache-busting key) and the new geometry."""
+    return {'id': row.id, 'edit_method': row.edit_method,
+            'edit_generation': int(row.edit_generation or 0),
+            'rotation': int(row.rotation or 0),
+            'width': row.width, 'height': row.height}
+
+
+def _measure_edited_blob(row: BankImage, blob: Path) -> None:
+    """Bind the row's displayed dimensions to the blob we just wrote.
+
+    ``_invalidate_effective_analysis`` empties width/height along with every
+    other measured lane, which is right — they described the pre-edit pixels. But
+    the grid lays its tiles out from them, so leaving them NULL until some later
+    pass happens to run makes every freshly cropped tile collapse. These two are
+    the one pair we can restore honestly and for free: we wrote the file, so its
+    size is a fact, not an inference."""
+    try:
+        with safe_bank_source(str(blob), label='bank image edit') as im:
+            row.width, row.height = image_encoding.visual_size_from_header(im)
+    except (OSError, ValueError, MemoryError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning):
+        pass
+
+
+@_serialized_bank_mutation('crop')
+def crop_image(user_id, bank_id, image_id, x, y, w, h, *,
+               _bank_lease=None) -> dict | None:
+    """Cut ONE bank image down to the box (x, y, w, h), in the pixels of the
+    image as it is DISPLAYED. Returns the row's new edit state, or None when the
+    image is unknown (404). Raises ValueError on an unusable box.
+
+    Requested by nofaceman on Discord: the Bank has the filtering and the
+    curation, so being sent to a Dataset (and back out through an export) just to
+    reframe a shot is a detour. Cropping here means curate → crop → re-analyse →
+    promote, in one place.
+
+    NOTHING IS RESAMPLED. Unlike the dataset crop — which normalises the long
+    side down to the training resolution, because a dataset image is training
+    material — a bank is UPSTREAM of that choice. Shrinking here would decide the
+    training resolution before the user has picked a dataset, and would do it
+    invisibly. So this is a pure cut, published losslessly, and the dataset's own
+    import stays the one place that normalises.
+
+    The user's file is never written to (the crop is a blob in the bank's own
+    ``edited/``), the previous generation is kept until the new one is published,
+    and every measured lane is invalidated so the next pass re-reads THIS image —
+    which is what makes "crop, then re-analyse, then curate" work at all."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    row = BankImage.query.filter_by(bank_id=bank_id, id=int(image_id)).first()
+    if row is None:
+        return None
+    try:
+        box = (int(x), int(y), int(x) + int(w), int(y) + int(h))
+    except (TypeError, ValueError) as exc:
+        raise ValueError('invalid crop box') from exc
+    if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+        raise ValueError('invalid crop box')
+    # The box was drawn on what the ONE resolver serves — cleaned and turned
+    # included — so that is what has to be cut, and the turn is baked in by the
+    # same move (see BankImage.edit_baked_rotation).
+    src = resolved_image_path(bank, row)
+    if not src or not os.path.isfile(src):
+        raise ValueError('the image could not be read from its folder')
+    from .face_dataset_service import _apply_watermark_crop
+    generation = int(row.edit_generation or 0) + 1
+    baked = (row.edit_baked_rotation if row.edit_method
+             else (int(row.rotation or 0) % 360 or None))
+    try:
+        dst = _stage_edited_copy(bank_id, row, src, generation)
+    except (OSError, ValueError, MemoryError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning) as exc:
+        raise ValueError(f'the image could not be prepared for cropping: {exc}') from exc
+    if not _apply_watermark_crop(str(dst), box):
+        try:
+            dst.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ValueError('invalid crop box')
+    row.edit_method = 'crop'
+    row.edit_generation = generation
+    row.edit_baked_rotation = baked
+    row.rotation = None
+    _invalidate_effective_analysis(row)
+    _measure_edited_blob(row, dst)
+    db.session.commit()
+    # Only once the row POINTS at the new generation: pruning first would leave a
+    # crash between the two with a marker and no blob.
+    _prune_edited_generations(bank_id, row.id, dst)
+    reset_score_memo()
+    return _edit_state(row)
+
+
+@_serialized_bank_mutation('edit_revert')
+def revert_edits(user_id, bank_id, image_ids=None, *, _bank_lease=None) -> dict:
+    """Throw away bank-side ✂ crop / ✨ improve results and go back to the
+    image the bank started from. ``image_ids`` empty = every edited image.
+
+    Free of consequence for the same reason the watermark undo is: the only
+    thing deleted is a blob we made ourselves. The turn that the edit baked in
+    is given back to the row rather than dropped with it."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    q = BankImage.query.filter_by(bank_id=bank_id).filter(
+        BankImage.edit_method.isnot(None))
+    if image_ids:
+        ids = [int(i) for i in image_ids]
+        q = q.filter(BankImage.id.in_(ids[:_SQL_IN_CHUNK]))
+    rows = q.all()
+    for row in rows:
+        _drop_edited_blob(bank_id, row)
+        _invalidate_effective_analysis(row)
+    if rows:
+        db.session.commit()
+        reset_score_memo()
+    return {'reverted': len(rows),
+            'images': [_edit_state(r) for r in rows]}
 
 
 @_serialized_bank_mutation('apply_flags')
@@ -7593,19 +7805,19 @@ def _source_size(bank, row):
         return None, 0, 0
 
 
-def _stage_clean_copy(bank_id, row, src_path) -> Path:
-    """Create an upright, metadata-free working image for Bank cleaning.
+def _stage_upright_webp(dst: Path, src_path, *, label: str) -> Path:
+    """Create an upright, metadata-free WebP copy of ``src_path`` at ``dst``.
 
     Crop, LaMa and Klein all consume visual/VLM boxes. They therefore edit a
-    freshly rebuilt WebP in the Bank's ``clean/`` directory, never a byte copy of
-    a raw EXIF-tagged source. The source remains read-only and recoverable; the
-    clean blob is atomically published only once its staging write succeeded.
+    freshly rebuilt WebP in one of the Bank's own working directories, never a
+    byte copy of a raw EXIF-tagged source. The source remains read-only and
+    recoverable; the blob is atomically published only once its staging write
+    succeeded.
     """
-    dst = clean_image_path(bank_id, row.id)
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(f'.{dst.name}.part-{uuid.uuid4().hex[:8]}')
     try:
-        with safe_bank_source(src_path, label='bank watermark clean') as source:
+        with safe_bank_source(src_path, label=label) as source:
             source.load()
             oriented = ImageOps.exif_transpose(source)
             mode = ('RGBA' if ('A' in oriented.getbands()
@@ -7623,6 +7835,19 @@ def _stage_clean_copy(bank_id, row, src_path) -> Path:
             pass
         raise
     return dst
+
+
+def _stage_clean_copy(bank_id, row, src_path) -> Path:
+    """The watermark cleaners' working image, in the Bank's ``clean/``."""
+    return _stage_upright_webp(clean_image_path(bank_id, row.id), src_path,
+                               label='bank watermark clean')
+
+
+def _stage_edited_copy(bank_id, row, src_path, generation) -> Path:
+    """The ✂ crop / ✨ improve working image, in the Bank's ``edited/``."""
+    return _stage_upright_webp(
+        edited_image_path(bank_id, row.id, generation), src_path,
+        label='bank image edit')
 
 
 def start_watermark_crop(app, user_id, bank_id, statuses=None, ids=None):
@@ -7758,6 +7983,272 @@ def _watermark_inpaint_prereq(method) -> str | None:
     if not watermark_lama.is_available():
         return 'LaMa inpainting is not installed (Setup ▸ Quality tools)'
     return None
+
+
+# --- ✨ Upscale & improve, on the Bank ---------------------------------------
+# The Bank's version of the dataset pass of the same name, and deliberately the
+# SAME two engines through the SAME enqueue helpers (face_dataset_service owns
+# that dispatch; a parallel copy here would drift the day a third engine lands).
+# What differs is everything around them: a bank image has no candidate row to
+# review — a bank IS the review — so the result replaces the displayed image and
+# ↩ Revert takes it back, exactly like the watermark clean it sits next to.
+_IMPROVE_POLL_SECONDS = 2.0
+#: One image, one ComfyUI round-trip. Generous because a 4-8 MP Klein pass on a
+#: modest card genuinely takes minutes, and a pass that gives up early would
+#: report "failed" for a job that is still rendering.
+_IMPROVE_TIMEOUT_SECONDS = 1800
+
+
+def _improve_todo_clause():
+    """The rows ✨ Upscale & improve still has work on: everything that is not
+    already an improved image. Re-running the pass over a scope must not spend
+    GPU-minutes re-rendering what it rendered last time — ↩ Revert is how a user
+    asks for a second attempt, and it is one click."""
+    return or_(BankImage.edit_method.is_(None),
+               BankImage.edit_method != 'improve')
+
+
+def _improve_pool_query(bank_id, statuses=None, ids=None):
+    return _scoped_pool(bank_id, statuses, ids).filter(_improve_todo_clause())
+
+
+def _await_queue_job(job_id, timeout, *, should_cancel=None):
+    """Block until the queue worker finishes ``job_id`` → (status, filename,
+    error). ``db.session.rollback()`` each poll drops this thread's stale read
+    snapshot so the worker thread's commits become visible — the same
+    cross-thread read pattern as watermark_klein, which is the other pass that
+    owns its own ComfyUI result instead of waiting for a completion callback."""
+    from ..models import ImageGenerationQueue
+    deadline = time.monotonic() + timeout
+    while True:
+        db.session.rollback()
+        row = ImageGenerationQueue.query.filter_by(job_id=job_id).first()
+        if row is not None and row.status in ('completed', 'failed', 'cancelled'):
+            return row.status, row.result_filename, row.error_message
+        if should_cancel is not None and should_cancel():
+            return 'cancelled', None, None
+        if time.monotonic() >= deadline:
+            return 'timeout', None, None
+        time.sleep(_IMPROVE_POLL_SECONDS)
+
+
+def _fetch_comfy_result(filename) -> bytes | None:
+    """The finished render's bytes: off disk when ComfyUI shares its output
+    folder with us, over its /view API when it does not (a container or a remote
+    install). Same two-step every other lane uses — a path-only read is how a
+    remote ComfyUI silently produces "nothing came back"."""
+    if not filename:
+        return None
+    from .face_dataset_service import _comfy_output_dir
+    out_dir = _comfy_output_dir()
+    src = os.path.join(out_dir, filename) if out_dir else None
+    if src and os.path.isfile(src):
+        try:
+            with open(src, 'rb') as fh:
+                data = fh.read()
+        except OSError:
+            data = None
+        if data:
+            try:
+                os.remove(src)      # a temporary render, never user data
+            except OSError:
+                pass
+            return data
+    from ..utils.comfyui import fetch_output_image_bytes
+    return fetch_output_image_bytes(filename)
+
+
+def _publish_edited_bytes(bank_id, row, generation, data: bytes) -> Path:
+    """Write a finished render into the row's next edited generation.
+
+    Re-encoded rather than dropped in as-is: the blob's extension is what tells
+    every later reader (and PIL) what it holds, and the whole edited/ lane is
+    lossless WebP. Atomic, like every other blob the bank publishes."""
+    dst = edited_image_path(bank_id, row.id, generation)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(f'.{dst.name}.part-{uuid.uuid4().hex[:8]}')
+    try:
+        with Image.open(io.BytesIO(data)) as opened:
+            opened.load()
+            mode = ('RGBA' if ('A' in opened.getbands()
+                               or 'transparency' in getattr(opened, 'info', {}))
+                    else 'RGB')
+            image_encoding.save_edit(opened.convert(mode), str(tmp), 'WEBP',
+                                     image_encoding.LOSSLESS)
+        os.replace(tmp, dst)
+    except (OSError, ValueError, MemoryError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning):
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    return dst
+
+
+def start_improve(app, user_id, bank_id, statuses=None, ids=None, engine=None):
+    """✨ Upscale & improve every image in scope, in the Bank itself.
+
+    Requested by nofaceman on Discord, in the same breath as the crop: the Bank
+    is where the filtering and the curation are, so having to promote into a
+    Dataset just to upscale — and export back out to curate the result — is the
+    detour this removes.
+
+    Refuses BEFORE the 202 rather than failing image by image: a missing engine
+    raises its own structured exception (the route turns each into its own
+    actionable 409, with the auto-download offer intact) and a busy GPU raises
+    RuntimeError → 503. That is the whole reason the preflight is here and not in
+    the job thread — one refusal per pass, not one per image.
+    """
+    from . import face_dataset_service as fds
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    engine = fds.resolve_improve_engine(engine)
+    want = normalize_pass_statuses(statuses)
+    total = _improve_pool_query(bank_id, want, ids).count()
+    if not total:
+        if _improve_pool_query(bank_id, list(PASS_SCOPES)).count():
+            raise ValueError('nothing to improve in this scope — the images left '
+                             'to improve are in another pile (kept / undecided / '
+                             'unkept)')
+        raise ValueError('every image in this bank has already been improved — '
+                         '↩ Revert one to run it again')
+    # Raises KleinNodesMissing / KleinModelsMissing / SeedVR2ModelsMissing, which
+    # the route maps to its own actionable 409 — do not flatten them here.
+    fds._improve_preflight(engine)
+    reason = _gpu_busy_reason()
+    if reason:
+        raise RuntimeError(reason)
+    return bank_jobs.start(app, bank_id, 'improve',
+                           _improve_job(bank_id, engine, want, ids), total=total)
+
+
+def _improve_job(bank_id, engine, statuses=None, ids=None):
+    def run(job):
+        from . import face_dataset_service as fds
+        bank = _detach_bank(db.session.get(ImageBank, bank_id))
+        if not bank:
+            return
+        rows = (_improve_pool_query(bank_id, statuses, ids)
+                .order_by(BankImage.id.asc()).all())
+        bank_jobs.progress(job, done=0, total=len(rows),
+                           detail=f'{engine} upscale')
+        # WHAT STOP COSTS HERE, said before the click — and this pass owes that
+        # sentence more than any other: it is the only one whose unit of work is
+        # a multi-minute GPU render, so "it stops at its next safe point" would
+        # be read as instant. The render in flight is not interrupted (it is
+        # ComfyUI's, not ours) — we stop waiting for it, and its result is the
+        # one thing this pass drops on the way out.
+        bank_jobs.set_stop_notice(
+            job,
+            cost='Every image already improved stays. The one being rendered '
+                 'right now is abandoned — its GPU time is lost, and the image '
+                 'keeps its current version.',
+            wait='Stopping — no new image is sent to ComfyUI; the pass ends as '
+                 'soon as it stops waiting for the render in flight.')
+        row_ids = [r.id for r in rows]
+        improved = failed = vanished = unreadable = 0
+        # A bank has no dataset to inherit a Klein model pick from, so this runs
+        # on the auto-resolved one — the same value every bank-side Klein pass
+        # has always used (see routes/datasets.py, GET /api/klein-model).
+        prompt = fds._improve_prompt()
+        try:
+            for rid in row_ids:
+                if bank_jobs.cancelled(job):
+                    break
+                row = _live_image(rid)
+                if row is None:     # deleted since the pass started
+                    logger.info('bank improve: image %s was deleted mid-pass, '
+                                'skipping it', rid)
+                    vanished += 1
+                    bank_jobs.bump(job)
+                    continue
+                src = resolved_image_path(bank, row)
+                if not src or not os.path.isfile(src):
+                    unreadable += 1
+                    bank_jobs.bump(job)
+                    continue
+                generation = int(row.edit_generation or 0) + 1
+                baked = (row.edit_baked_rotation if row.edit_method
+                         else (int(row.rotation or 0) % 360 or None))
+                # Nothing of ours may hold a write transaction while a multi-minute
+                # GPU round-trip runs: the poll below reads across threads, and a
+                # held SQLite lock is how a long pass starves everything else.
+                db.session.commit()
+                try:
+                    job_id = fds._enqueue_improve(
+                        engine, user_id=bank.user_id, source=row,
+                        source_path=src, prompt=prompt,
+                        label=None, dataset=None,
+                        extra_metadata={'is_bank_improve': True,
+                                        'bank_id': bank_id,
+                                        'bank_image_id': row.id})
+                except Exception as exc:
+                    logger.warning('bank improve: image %s could not be queued: %s',
+                                   rid, exc)
+                    failed += 1
+                    bank_jobs.bump(job)
+                    continue
+                status, filename, err = _await_queue_job(
+                    job_id, _IMPROVE_TIMEOUT_SECONDS,
+                    should_cancel=lambda: bank_jobs.cancelled(job))
+                if status != 'completed':
+                    if status != 'cancelled':
+                        logger.warning('bank improve: image %s %s (%s)',
+                                       rid, status, err or 'no detail')
+                        failed += 1
+                    bank_jobs.bump(job)
+                    if bank_jobs.cancelled(job):
+                        break
+                    continue
+                data = _fetch_comfy_result(filename)
+                row = _live_image(rid)
+                if row is None:
+                    vanished += 1
+                    bank_jobs.bump(job)
+                    continue
+                if not data:
+                    logger.warning('bank improve: the finished image for %s could '
+                                   'not be retrieved from ComfyUI', rid)
+                    failed += 1
+                    bank_jobs.bump(job)
+                    continue
+                try:
+                    dst = _publish_edited_bytes(bank_id, row, generation, data)
+                except (OSError, ValueError, MemoryError,
+                        Image.DecompressionBombError,
+                        Image.DecompressionBombWarning) as exc:
+                    logger.warning('bank improve: image %s could not be written: %s',
+                                   rid, exc)
+                    failed += 1
+                    bank_jobs.bump(job)
+                    continue
+                row.edit_method = 'improve'
+                row.edit_generation = generation
+                row.edit_baked_rotation = baked
+                row.rotation = None
+                _invalidate_effective_analysis(row)
+                _measure_edited_blob(row, dst)
+                improved += 1
+                db.session.commit()
+                _prune_edited_generations(bank_id, row.id, dst)
+                bank_jobs.bump(job)
+        finally:
+            db.session.commit()
+            if improved:
+                reset_score_memo()
+        if bank_jobs.cancelled(job):
+            bank_jobs.progress(
+                job, detail=f'cancelled — {improved} improved so far')
+            return
+        detail = f'done — {improved} improved with {engine}'
+        detail += _skipped_note(vanished=vanished, unreadable=unreadable)
+        if failed:
+            detail += f', {failed} failed'
+        detail += _scope_note(bank_id, _improve_todo_clause(), statuses, ids)
+        bank_jobs.progress(job, detail=detail)
+    return run
 
 
 def start_watermark_inpaint(app, user_id, bank_id, method='auto',
@@ -8071,7 +8562,12 @@ def undo_watermark_clean(user_id, bank_id, image_ids=None, *,
     """Throw away cleaned versions and re-flag the images. The source was never
     modified, so undoing is just deleting our own blob — which is exactly what
     makes running both levels risk-free. ``image_ids`` empty = every cleaned
-    image of the bank. Returns how many rows were restored."""
+    image of the bank. Returns how many rows were restored.
+
+    A bank-side ✂ crop / ✨ improve made on top of a cleaned image goes with it.
+    It has to: that blob was produced FROM the cleaned pixels, so keeping it
+    would leave an image the user is told is no longer cleaned while the mark it
+    is being restored to is still gone."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
@@ -8087,6 +8583,7 @@ def undo_watermark_clean(user_id, bank_id, image_ids=None, *,
         if not _prepare_watermark_write(
                 row, raw_path, expected_raw_fingerprint):
             continue
+        _drop_edited_blob(bank_id, row)
         _discard_clean_blob(bank_id, row)
         _invalidate_effective_analysis(row)
         # Back to 'detected' with its bbox intact, so it re-enters both levels
