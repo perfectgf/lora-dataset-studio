@@ -92,7 +92,7 @@ function isInteractiveShortcutTarget(target) {
 
 export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces = {},
                                                   onSaveRegions, onClean, onRestore, onDismiss,
-                                                  onReject, onClose }) {
+                                                  onReject, onRepair, onClose }) {
   const initialReviewStateRef = useRef(null);
   if (!initialReviewStateRef.current) {
     initialReviewStateRef.current = buildWatermarkReviewState(queue);
@@ -117,6 +117,10 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   // of the old catch-all that blamed ComfyUI + the weights in every case.
   const kleinReason = kleinReady ? null : localEngineUnavailableReason('klein', caps);
   const [method, setMethod] = useState('lama');
+  /* ✦ What the drawn zone should become, when the user wants something OTHER
+     than a watermark reconstruction. Empty = the 🧽 lane, untouched.
+     (mr.arrow: jewelry / skin imperfections; .samexit: fix one detail.) */
+  const [repairPrompt, setRepairPrompt] = useState('');
   // Per-image crop-vs-inpaint choice (id -> 'crop' | 'inpaint'). Only offered when a
   // SAFE border crop exists for the image (watermark_route === 'crop') and no manual
   // zones are drawn. Unset entries fall back to the persisted "Allow auto-crop" default.
@@ -337,6 +341,30 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     void persistRegions(item.id, job.payload, job.visible, job.manual).catch(() => undefined);
   }, [item, persistRegions]);
 
+  /* ✦ Repair — the SAME drawn zones, repainted from the user's own sentence.
+     It rides the existing `run` machinery so it inherits the save-first guard,
+     the busy lock and the note surface; only the call and the wording differ.
+     The zones must be SAVED first for the same reason cleaning needs it: the
+     server repaints what it has stored, not what is on screen. */
+  const doRepair = useCallback(() => {
+    if (!item || !regions.length || !repairPrompt.trim() || !onRepair) return;
+    const activeSave = saveJobsRef.current[item.id];
+    if (activeSave && activeSave.status !== 'saved') return;
+    return run('repair', async (it) => {
+      if (!await waitForLatestSave(it.id)) {
+        return { note: { tone: 'err', text: 'Correction zones could not be saved. Retry or reset them before repairing.' } };
+      }
+      const d = await onRepair(it.id, repairPrompt.trim(), regions);
+      if (!d || d.ok === false) {
+        return { note: { tone: 'err', text: (d && d.error && (d.error.detail || d.error)) || 'Repair failed' } };
+      }
+      // Deliberately NOT a terminal outcome: a repair is not a watermark verdict,
+      // so the image keeps its own state and stays under the cursor — you look at
+      // what came back and repair again if it is not right.
+      return { note: { tone: 'ok', text: 'Repaired — everything outside your zones is untouched.' } };
+    });
+  }, [item, regions, repairPrompt, onRepair, run, waitForLatestSave]);
+
   const doClean = useCallback(() => {
     if (!item || outcome === 'cleaned' || !regions.length || manualLamaMissing) return;
     const activeSave = saveJobsRef.current[item.id];
@@ -461,6 +489,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     : oc?.text;
   const cleaning = working && workingKind === 'clean';   // navigation is held while true, so this always tracks `item`
   const restoring = working && workingKind === 'restore';
+  const repairing = working && workingKind === 'repair';
   // A real pixel edit ran (cleanDetail set on crop/inpaint/Klein) → a .orig exists to
   // undo. The "nothing to do" cleaned fallback sets no detail, so Restore stays hidden.
   const restorable = outcome === 'cleaned' && Boolean(cleanDetail[item?.id]);
@@ -705,6 +734,31 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
               className={`${btn} bg-amber-500/20 border border-amber-400/50 text-amber-100 hover:bg-amber-500/30`}>
               {cleaning ? '🧽 Cleaning…' : <>🧽 Clean <kbd className="text-[10px] text-white/50">c</kbd></>}
             </button>
+          )}
+          {/* ✦ REPAIR — the same drawn zones, your own sentence. Offered next to
+              🧽 Clean because it is the same gesture with the prompt unfrozen:
+              everything outside the zones stays byte-identical either way. The
+              field is what tells the two apart, so it is never hidden behind a
+              menu. (mr.arrow and .samexit, Discord.) */}
+          {onRepair && !(oc && oc.terminal) && (
+            <span className="flex items-center gap-1">
+              <input type="text" value={repairPrompt}
+                onChange={(e) => setRepairPrompt(e.target.value)}
+                disabled={actionBlocked}
+                placeholder="…or repaint it: remove the necklace"
+                title="Repaint ONLY the zones you drew, from this description. Everything outside them stays byte-identical — unlike ✦ Edit, which re-renders the whole image."
+                className="min-w-[11rem] rounded border border-white/20 bg-black/40 px-2 py-1 text-[0.75rem] text-white placeholder:text-white/35 disabled:opacity-40" />
+              <button type="button" onClick={doRepair}
+                disabled={actionBlocked || !regions.length || !repairPrompt.trim()}
+                title={!regions.length
+                  ? 'Draw the area to repair first'
+                  : !repairPrompt.trim()
+                    ? 'Say what should be painted in that area'
+                    : 'Repaint only the drawn zones from your description — everything outside them is left byte-identical'}
+                className={`${btn} bg-sky-500/20 border border-sky-400/50 text-sky-100 hover:bg-sky-500/30`}>
+                {repairing ? '✦ Repairing…' : '✦ Repair'}
+              </button>
+            </span>
           )}
           <HelpBadge topic="action-watermark-restore" className="self-center" />
           <button type="button" onClick={doDismiss} disabled={actionBlocked}

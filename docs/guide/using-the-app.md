@@ -1928,6 +1928,36 @@ it describes an image the bank no longer holds. Second, ✨ Upscale & improve do
 not re-run on an image it has already improved; ↩ Revert is how you ask for a
 second attempt, and it is one click.
 
+## Repaint one detail without regenerating the image
+
+Two people asked for this from opposite directions on the same week: one wanted
+the watermark remover pointed at a necklace and some skin blemishes, the other
+wanted to fix a small glitch in a fresh picture without regenerating the whole
+thing. Same hole.
+
+The app already had the hard part. **🧽 Clean** repaints exactly the box you draw
+and leaves every pixel outside it **byte-identical** — but its instruction was
+frozen on "reconstruct a clean, natural image", so it could only ever be aimed at
+a watermark. **✦ Edit**, the other lane, takes any instruction but re-renders the
+**whole** image, which drifts outside the area you cared about.
+
+**✦ Repair** is the first lane with both. Open an image in the watermark review
+view, draw the zone (the same editor as the mask), type what should be there —
+*"remove the necklace"* — and press **✦ Repair**. Only that zone is repainted.
+Everything outside it comes back exactly as it was, to the byte.
+
+A few things worth knowing:
+
+- **It says nothing about watermarks.** A repair does not flag, clear or stamp
+  anything: the image keeps whatever watermark state it had. It is an edit you
+  asked for, not a verdict.
+- **Your original is preserved first.** The master is copied aside *before*
+  anything is written, so a repair that fails costs you nothing — the file is
+  left exactly as it was.
+- **An empty description is refused**, on purpose. Falling back to the watermark
+  sentence would repaint your zone with an intention you never expressed.
+- It runs on Klein through ComfyUI, one round-trip per repair.
+
 ## Clean the watermarks a bank found
 
 **🚩 Find watermarks** flags the images carrying an overlaid logo, URL or

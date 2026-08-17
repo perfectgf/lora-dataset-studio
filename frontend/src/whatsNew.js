@@ -50,6 +50,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-17-repair-a-detail-free-prompt',
+    date: '2026-08-17',
+    title: 'Repaint one detail — and only that detail',
+    blurb:
+      'Until now the app had two halves of this and neither was the whole thing. 🧽 Clean repaints exactly the box you draw and leaves every pixel outside it byte-identical, but its instruction was frozen on watermark reconstruction. ✦ Edit takes any instruction but re-renders the whole image, drifting outside the part you cared about. ✦ Repair is the first lane with both: draw the zone, type what should be there ("remove the necklace"), and only that zone is repainted — the rest comes back to the byte. It stamps no watermark verdict, refuses an empty description rather than guessing, and preserves your original before writing anything, so a failed repair costs you nothing. (Asked for independently by mr.arrow and .samexit on Discord.)',
+    to: '/datasets',
+  },
+  {
+    id: '2026-08-17-vast-do-not-rent-this-machine-again',
+    date: '2026-08-17',
+    title: 'Stopping a cloud run can now blacklist the machine',
+    blurb:
+      'The app already refuses to re-rent a vast host when it can see the failure — a boot that never completes, a pod that stops progressing, a checkpoint it cannot serve. What it cannot see is a machine that boots perfectly and then simply trains at half speed: no failure happens, so nothing gets banned and the picker can rent it straight back. Stopping a run from the Runs page now offers "Do not rent this machine again", which puts that host on the same blacklist for the same few days. It is a tick box, not a rule: a stop can just as easily mean you changed your mind, and that says nothing about the machine. (Asked for by mr.arrow on Discord.)',
+    to: '/cloud',
+  },
+  {
     id: '2026-08-17-canvas-bulk-undeploy',
     date: '2026-08-17',
     title: 'Undeploy a pile of LoRAs in one go',

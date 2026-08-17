@@ -917,6 +917,20 @@ export function useDataset() {
     return d;
   }, [currentId, refresh]);
 
+  /* ✦ Repaint ONLY the drawn zones of one image, from the user's own sentence.
+     The nonce bump matters more here than almost anywhere: the file is
+     overwritten IN PLACE, so the URL does not move and the browser would keep
+     showing the pre-repair pixels. (mr.arrow and .samexit, Discord.) */
+  const repairImageRegion = useCallback(async (imageId, prompt, boxes) => {
+    const d = await postJson(`/api/dataset/${currentId}/image/${imageId}/repair`,
+      { prompt, boxes });
+    if (d.ok) {
+      setNonces((m) => ({ ...m, [imageId]: (m[imageId] || 0) + 1 }));
+    }
+    await refresh();
+    return d;
+  }, [currentId, refresh]);
+
   // Mark flagged image(s) as NOT a watermark (false positive) — badge clears and
   // future 🧽 Find passes skip them.
   const dismissWatermarks = useCallback(async (ids) => {
@@ -1654,7 +1668,7 @@ export function useDataset() {
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, reimproveImage, improveBatch, classify, caption, recaption, recaptionImages,
            setStatus, setCaption, mirrorImage, rotateImage, crop, cropRef, cropExtraRef, recropRefAuto, editReference, retryReferenceEdit, canRetryReferenceEdit, keepEditedReference, discardEditedReference, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, cancelCaption, regenerate, analyzeFaces, scoreFace,
-           findWatermarks, cancelWatermarkScan, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, dismissWatermarks, saveWatermarkRegions,
+           findWatermarks, cancelWatermarkScan, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, repairImageRegion, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder,
            backupEverything, backupJob, downloadBackup, openBackupsFolder, dismissBackup, restoreJob, dismissRestore,
            refresh, train, stopTraining, continueTraining, continueTrainingInCloud,

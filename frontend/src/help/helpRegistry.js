@@ -1797,6 +1797,12 @@ const TOPICS = [
      upscale before promoting?"), and one topic would only ever be found by half
      the people looking. ↩ Revert gets its own because it is what people search
      for in a hurry, after the edit they regret. */
+  action('action-image-repair', 'Repaint one detail without regenerating the image',
+    ['repair', 'repaint', 'inpaint', 'inpainting', 'fix a detail', 'small fix',
+     'remove jewelry', 'necklace', 'earrings', 'skin', 'blemish', 'imperfection',
+     'custom prompt', 'free prompt', 'mask', 'zone', 'without regenerating',
+     'keep the rest', 'byte identical', 'klein', 'dataset'],
+    '/datasets', 'using-the-app', 'repaint-one-detail-without-regenerating-the-image'),
   action('action-bank-crop', 'Crop an image inside a bank',
     ['crop', 'cropping', 'reframe', 'reframing', 'framing', 'cut', 'trim',
      'zoom in', 'recadrer', 'bank', 'review', 'lightbox', 'box', 'ratio',
