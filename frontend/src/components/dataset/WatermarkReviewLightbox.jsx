@@ -122,6 +122,18 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
      than a watermark reconstruction. Empty = the 🧽 lane, untouched.
      (mr.arrow: jewelry / skin imperfections; .samexit: fix one detail.) */
   const [repairOpen, setRepairOpen] = useState(false);
+  /* PHONE ONLY. This bar carries four groups that SET UP a clean — the zone
+     editor, crop-vs-inpaint, the engine, the model — and four that PERFORM one:
+     🧽 Clean, ✓ Not a watermark, ✕ Reject, and the arrows. On a wide screen they
+     coexist; at 400 px they wrap to a dozen full-width rows and the picture you
+     are supposed to be judging is a thumbnail above them.
+     The split is not a guess: the actions that already carry a KEYBOARD
+     SHORTCUT (c / r / d / x / ← →, printed in the legend below) are exactly the
+     ones that stay — a shortcut is what this screen already calls a main move.
+     The setup groups fold behind one button — `sm:contents` makes the
+     wrapper vanish from the layout above 640 px, so the desktop bar is
+     byte-for-byte the one that was there before. */
+  const [toolsOpen, setToolsOpen] = useState(false);
   /* Which images were repaired in THIS session — the ↩ undo is one step deep
      and the server is the authority, but the button must not appear on an image
      nobody has touched. */
@@ -515,6 +527,11 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     : saveState.status === 'failed' ? 'text-red-300' : 'text-emerald-300';
 
   const btn = 'flex-1 min-w-[7rem] min-h-[3rem] px-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 disabled:opacity-40';
+  /* `contents` and not a wrapper box: these groups sit in three different
+     parents (a wrap row, the column) and each already carries its own spacing.
+     A real element around them would add a box to every one of those layouts;
+     `display: contents` adds none, so above `sm` nothing about this bar changes. */
+  const foldable = `${toolsOpen ? 'contents' : 'hidden'} sm:contents`;
 
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Review flagged watermarks"
@@ -587,6 +604,17 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
           <span className="text-white/70 tabular-nums">
             {regions.length} correction zone{regions.length === 1 ? '' : 's'}
           </span>
+          {/* The one control that appears ONLY on a phone. It says what it opens
+              rather than showing a bare chevron: the groups behind it are the
+              difference between a crop and a repaint, which is not something to
+              discover by poking. */}
+          <button type="button" onClick={() => setToolsOpen((v) => !v)}
+            aria-expanded={toolsOpen}
+            title="Show the zone editor, the crop-or-repaint choice and the engine for this image"
+            className="min-h-9 rounded-lg border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white hover:bg-white/20 sm:hidden">
+            {toolsOpen ? '▴ Hide tools' : '▾ Zones & engine'}
+          </button>
+          <div className={foldable}>
           <button type="button" aria-pressed={addMode}
             onClick={() => setAddModeFor(item.id, !addMode)}
             disabled={editorDisabled || Boolean(oc?.terminal) || atRegionLimit}
@@ -611,6 +639,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
           <span aria-live="polite" className={`font-semibold ${saveCls}`}>
             {saveState.status === 'saved' ? '✓ ' : saveState.status === 'failed' ? '⚠ ' : ''}{saveLabel}
           </span>
+          </div>
         </div>
 
         {saveState.status === 'failed' && (
@@ -658,6 +687,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
             Crop cuts the band off (invents no pixel); Inpaint repaints the mark with the
             chosen engine. Overrides the persisted "Allow auto-crop" default for this one. */}
         {canCrop && !(oc && oc.terminal) && (
+          <div className={foldable}>
           <div role="group" aria-label="Removal method"
             className="flex items-center justify-center gap-1 text-xs">
             <span className="text-white/50">Method:</span>
@@ -678,12 +708,14 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
               </button>
             </div>
           </div>
+          </div>
         )}
 
         {/* Inpaint engine for THIS image: Klein is the only one that can clean an
             on-subject ('review') mark, so it makes those actionable. Greyed until
             ComfyUI + the Klein models are ready, or while Crop is the chosen method
             (a crop uses no engine). */}
+        <div className={foldable}>
         <div role="group" aria-label="Inpaint method"
           className="flex items-center justify-center gap-1 text-xs">
           <span className={useCrop ? 'text-white/30' : 'text-white/50'}>Engine:</span>
@@ -707,12 +739,15 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
             </button>
           </div>
         </div>
+        </div>
         {/* Cleaning this image overwrites it, so which model repaints it is not a
             detail — and it is the dataset's model, the same one improve uses.
             Named here, changeable here, only while Klein is the engine. */}
         {kleinSelected && !useCrop && (
-          <KleinModelSetting datasetId={datasetId}
-            className="mx-auto w-full max-w-md text-center" />
+          <div className={foldable}>
+            <KleinModelSetting datasetId={datasetId}
+              className="mx-auto w-full max-w-md text-center" />
+          </div>
         )}
 
         <div className="flex gap-2 flex-wrap">

@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-17-watermark-review-on-a-phone',
+    date: '2026-08-17',
+    title: 'Review watermarks from your phone without squinting',
+    blurb:
+      'Opened on a phone, the watermark review gave the photo about a third of the screen and spent the rest on controls — including a model picker and a permanent text field — so the one thing you were there to judge was the smallest thing on screen. The picture now gets the screen: 🧽 Clean, ✓ Not a watermark, ✕ Reject and the arrows stay put, and the setup controls (zone editor, crop-or-repaint, engine, model) fold behind one “Zones & engine” button. Nothing moves on a desktop, and anything explaining why a button is greyed out stays visible at every size.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-17-undo-a-repair',
     date: '2026-08-17',
     title: 'Undo a repair, and try another description',
