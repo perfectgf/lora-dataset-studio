@@ -24,7 +24,7 @@ export default function PromptField({ value, placeholder, onChange, onReset, isC
   };
   const applyCaption = (text) => {
     if (value && value.trim()
-      && !window.confirm('Replace the current test prompt with a random dataset caption?')) return;
+      && !window.confirm('Replace the current test prompt with a random caption drawn from your locked source?')) return;
     onChange(text);
   };
   return (

@@ -35,6 +35,7 @@ import io
 import logging
 import math
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -2302,6 +2303,48 @@ def list_banks(user_id, dataset_id=None) -> list:
             row['promotable'] = promotable.get(bank.id, 0)
         out.append(row)
     return out
+
+
+def random_kept_caption(user_id, bank_id) -> str | None:
+    """Return one cleaned caption from an owned BANK's kept images.
+
+    The Bank's half of ``face_dataset_service.random_kept_caption``, and
+    deliberately the same contract down to the return values: ``None`` means the
+    bank exists but has no non-blank kept caption, and an inaccessible bank
+    raises ``LookupError`` so the route answers 404 without leaking whether it
+    exists. Same shape of query too — the count and the random offset stay in
+    SQL, so a 50 000-image bank never materialises its captions to pick one.
+
+    WHY THE BANK IS A LEGITIMATE SOURCE: a bank is captioned by the 🏷️ Caption
+    pass long before anything is promoted, and it is usually the biggest pile of
+    real captions on the machine. Restricting this draw to datasets meant the
+    prompt shortcut could not reach them (asked for by the maintainer).
+
+    ``_PYTHON_STRIP_CHARS`` is imported rather than copied: it exists to make
+    SQL's trim() agree with Python's ``str.strip()``, and two copies of that
+    character set would be two answers to "is this caption blank".
+    """
+    if not get_bank(user_id, bank_id):
+        raise LookupError('bank not found')
+    from .face_dataset_service import _PYTHON_STRIP_CHARS
+
+    cleaned = func.trim(BankImage.caption, _PYTHON_STRIP_CHARS)
+    eligible = (db.session.query(BankImage.caption)
+                .join(ImageBank, BankImage.bank_id == ImageBank.id)
+                .filter(BankImage.bank_id == bank_id,
+                        ImageBank.user_id == str(user_id),
+                        BankImage.status == 'keep',
+                        BankImage.caption.isnot(None),
+                        cleaned != ''))
+    count = eligible.count()
+    if not count:
+        return None
+    caption = (eligible.order_by(BankImage.id.asc())
+               .offset(random.randrange(count)).limit(1).scalar())
+    # Same belt as the dataset lane: an unusual Unicode whitespace-only value
+    # that slipped through SQLite's trim character set must not come back as a
+    # "caption" made of spaces.
+    return (caption or '').strip() or None
 
 
 def _promotable_counts(user_id, dataset_id) -> dict | None:

@@ -245,11 +245,34 @@ def test_studio_random_caption_returns_a_trimmed_kept_caption(client, app, monke
 
 
 def test_studio_random_caption_rejects_missing_or_invalid_dataset_id(client):
-    for payload in ({}, {'dataset_id': 0}, {'dataset_id': 2 ** 63},
-                    {'dataset_id': '1'}, {'dataset_id': True}, []):
+    # A source WAS named and is unusable -> the refusal names that source.
+    for payload in ({'dataset_id': 0}, {'dataset_id': 2 ** 63},
+                    {'dataset_id': '1'}, {'dataset_id': True}):
         response = client.post('/api/studio/random-caption', json=payload)
         assert response.status_code == 400
         assert response.get_json() == {'error': 'dataset_id must be a positive integer'}
+    # NO source named -> the refusal names BOTH keys. The wording moved when a
+    # bank became a legal source: saying "dataset_id" alone would send the caller
+    # looking for the one key it happened to mention.
+    for payload in ({}, [], {'bank_id': None}):
+        response = client.post('/api/studio/random-caption', json=payload)
+        assert response.status_code == 400
+        assert response.get_json() == {
+            'error': 'dataset_id or bank_id must be a positive integer'}
+    # And a bank named badly is refused in the bank's own words.
+    for payload in ({'bank_id': 0}, {'bank_id': '1'}, {'bank_id': True}):
+        response = client.post('/api/studio/random-caption', json=payload)
+        assert response.status_code == 400
+        assert response.get_json() == {'error': 'bank_id must be a positive integer'}
+
+
+def test_studio_random_caption_refuses_two_sources_at_once(client):
+    """Guessing which pile the caller meant would draw from the wrong one in
+    silence — the exact failure mode a prompt shortcut cannot afford."""
+    response = client.post('/api/studio/random-caption',
+                           json={'dataset_id': 1, 'bank_id': 1})
+    assert response.status_code == 400
+    assert response.get_json() == {'error': 'send either dataset_id or bank_id, not both'}
 
 
 def test_studio_random_caption_hides_missing_or_inaccessible_dataset(client, app):
@@ -310,6 +333,64 @@ def test_studio_random_caption_explains_when_no_usable_caption_exists(client, ap
     assert response.status_code == 422
     assert response.get_json() == {
         'error': ('This dataset has no usable kept captions. Caption at least one '
+                  'kept image and try again.')
+    }
+
+
+def _make_bank(app, name='Dump', captions=(), user='local'):
+    """A bank with rows straight in the DB — the picker only ever reads counts
+    and captions, so no folder on disk is needed to exercise the draw."""
+    from app.extensions import db
+    from app.models import BankImage, ImageBank
+    with app.app_context():
+        bank = ImageBank(user_id=user, name=name, source_path=r'\\nowhere\unused')
+        db.session.add(bank)
+        db.session.flush()
+        for i, (status, caption) in enumerate(captions):
+            db.session.add(BankImage(bank_id=bank.id, relpath=f'{i}.jpg',
+                                     status=status, caption=caption))
+        db.session.commit()
+        return bank.id
+
+
+def test_studio_random_caption_draws_from_a_BANK_too(client, app, monkeypatch):
+    """The half that was missing: a bank is captioned by the 🏷️ Caption pass long
+    before anything is promoted, so it is usually the biggest pile of real
+    captions on the machine. Same eligibility rule as a dataset — kept only,
+    non-blank only — and the same trimming."""
+    bank_id = _make_bank(app, captions=[
+        ('keep', '\u2003'),                  # whitespace Python strips, SQL must too
+        ('keep', '  usable bank caption  '),
+        ('keep', ' \t\r\n '),
+        ('reject', 'rejected caption'),
+        ('pending', 'pending caption'),
+    ])
+    monkeypatch.setattr('app.services.image_bank_service.random.randrange', lambda count: 0)
+    response = client.post('/api/studio/random-caption', json={'bank_id': bank_id})
+    assert response.status_code == 200
+    assert response.get_json() == {'ok': True, 'caption': 'usable bank caption'}
+
+
+def test_studio_random_caption_hides_missing_or_foreign_bank(client, app):
+    """Same ownership silence as the dataset lane: a bank belonging to somebody
+    else is answered exactly like one that does not exist."""
+    foreign = _make_bank(app, name='Private', user='another-user',
+                         captions=[('keep', 'secret caption')])
+    for bank_id in (999999, foreign):
+        response = client.post('/api/studio/random-caption', json={'bank_id': bank_id})
+        assert response.status_code == 404
+        assert response.get_json() == {
+            'error': ('The selected bank was not found or is inaccessible. '
+                      'Choose a bank from your library and try again.')
+        }
+
+
+def test_studio_random_caption_explains_an_uncaptioned_bank_in_its_own_noun(client, app):
+    bank_id = _make_bank(app, captions=[('keep', ' \t '), ('reject', 'not eligible')])
+    response = client.post('/api/studio/random-caption', json={'bank_id': bank_id})
+    assert response.status_code == 422
+    assert response.get_json() == {
+        'error': ('This bank has no usable kept captions. Caption at least one '
                   'kept image and try again.')
     }
 

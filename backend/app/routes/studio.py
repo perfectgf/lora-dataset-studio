@@ -151,25 +151,51 @@ def studio_recent_prompts_delete():
 
 @bp.post('/random-caption')
 def studio_random_caption():
-    """Pick one usable training caption from the selected local dataset."""
+    """Pick one usable training caption from the selected local dataset OR bank.
+
+    ``{dataset_id}`` and ``{bank_id}`` are alternatives, never both. The dataset
+    form is byte-identical to the request that shipped before banks were a
+    source, so an older tab keeps working unchanged.
+
+    WHY BANKS TOO (asked for by the maintainer): a bank is captioned by the 🏷️
+    Caption pass long before anything is promoted, and it is usually the biggest
+    pile of real captions on the machine. Offering only datasets put the richest
+    source out of reach of the one shortcut that exists to reach it.
+    """
     data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({'error': 'dataset_id must be a positive integer'}), 400
-    dataset_id = data.get('dataset_id')
-    if (isinstance(dataset_id, bool) or not isinstance(dataset_id, int)
-            or dataset_id <= 0 or dataset_id > _MAX_DATABASE_ID):
-        return jsonify({'error': 'dataset_id must be a positive integer'}), 400
+    # NEITHER key given (or no object at all) names BOTH in the refusal: the old
+    # wording said "dataset_id" only, which stopped being the whole truth the day
+    # a bank became a legal source.
+    if not isinstance(data, dict) or (data.get('bank_id') is None
+                                      and data.get('dataset_id') is None):
+        return jsonify({'error': 'dataset_id or bank_id must be a positive integer'}), 400
+    has_bank = data.get('bank_id') is not None
+    has_dataset = data.get('dataset_id') is not None
+    if has_bank and has_dataset:
+        # Two sources in one request is a caller bug, and guessing which one it
+        # meant would draw from the wrong pile in silence.
+        return jsonify({'error': 'send either dataset_id or bank_id, not both'}), 400
+    key = 'bank_id' if has_bank else 'dataset_id'
+    source_id = data.get(key)
+    if (isinstance(source_id, bool) or not isinstance(source_id, int)
+            or source_id <= 0 or source_id > _MAX_DATABASE_ID):
+        return jsonify({'error': f'{key} must be a positive integer'}), 400
+    noun = 'bank' if has_bank else 'dataset'
     try:
-        caption = fds.random_kept_caption(LOCAL_USER, dataset_id)
+        if has_bank:
+            from ..services import image_bank_service as banks
+            caption = banks.random_kept_caption(LOCAL_USER, source_id)
+        else:
+            caption = fds.random_kept_caption(LOCAL_USER, source_id)
     except LookupError:
-        # Keep an inaccessible dataset indistinguishable from one that does not exist.
+        # Keep an inaccessible source indistinguishable from one that does not exist.
         return jsonify({
-            'error': ('The selected dataset was not found or is inaccessible. '
-                      'Choose a dataset from your library and try again.')
+            'error': (f'The selected {noun} was not found or is inaccessible. '
+                      f'Choose a {noun} from your library and try again.')
         }), 404
     if caption is None:
         return jsonify({
-            'error': ('This dataset has no usable kept captions. Caption at least one '
+            'error': (f'This {noun} has no usable kept captions. Caption at least one '
                       'kept image and try again.')
         }), 422
     return jsonify({'ok': True, 'caption': caption})

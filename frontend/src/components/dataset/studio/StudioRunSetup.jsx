@@ -64,7 +64,7 @@ export default function StudioRunSetup({
   };
   const applyCaption = (text) => {
     if (prompt && prompt.trim()
-      && !window.confirm('Replace the current prompt with a random dataset caption?')) return;
+      && !window.confirm('Replace the current prompt with a random caption drawn from your locked source?')) return;
     onPrompt(text);
   };
   const loadRecent = useCallback(() => {
