@@ -127,7 +127,11 @@ jobs:
         run: python -m unittest discover -s scripts/tests -p 'test_*.py'
 
       - name: Run the test suite
-        run: python -m pytest backend/tests -q
+        # Parallel: xdist workers are separate processes and this suite was
+        # hardened for it (in-memory SQLite per app instance, shared registries
+        # reset by fixtures). `auto` sizes to the runner rather than pinning a
+        # count — the local dev box uses 8, a 4-vCPU runner should use 4.
+        run: python -m pytest backend/tests -q -n auto --dist loadfile
 
       - name: Build the Windows source ZIP
         shell: pwsh

@@ -262,7 +262,11 @@ jobs:
         run: python -m pip install --disable-pip-version-check --no-cache-dir -r backend/requirements-torch-tests.txt
 
       - name: Run backend tests
-        run: python -m pytest backend/tests -q
+        # Parallel: xdist workers are separate processes and this suite was
+        # hardened for it (in-memory SQLite per app instance, shared registries
+        # reset by fixtures). `auto` sizes to the runner rather than pinning a
+        # count — the local dev box uses 8, a 4-vCPU runner should use 4.
+        run: python -m pytest backend/tests -q -n auto --dist loadfile
 
   frontend-quality:
     name: Frontend tests and build
