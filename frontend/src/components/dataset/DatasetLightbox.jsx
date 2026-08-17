@@ -772,9 +772,14 @@ export default function DatasetLightbox({
                 the note therefore follows the whole group (see below) — its own
                 first words, "Improve asks Klein to:", carry the attribution that
                 position gave it in the rail. */}
+            {/* Desktop material. Two paragraphs, a model dropdown and three
+                Settings links: useful the first time, noise the next hundred —
+                and on a 400 px screen they push the picture into a thumbnail
+                while the buttons that matter scroll away. Hidden below `sm`,
+                exactly like the Canvas header's blurb. */}
             {rail && btn.showKleinNote && !improvementActive && (
               <KleinImproveNote subjectType={subjectType} datasetId={datasetId}
-                className="w-full border-t border-white/10 pt-2" />
+                className="hidden w-full border-t border-white/10 pt-2 sm:block" />
             )}
           </Fragment>
         ))}

@@ -34,6 +34,7 @@ import {
   deleteSelectedWatermarkRegion,
 } from '../../utils/watermarkRegions';
 import WatermarkRegionEditor from './WatermarkRegionEditor';
+import RepairDialog from '../shared/RepairDialog';
 
 // The action Clean WILL take, per backend route (watermark_route in the payload).
 const ROUTE_LABEL = {
@@ -120,7 +121,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   /* ✦ What the drawn zone should become, when the user wants something OTHER
      than a watermark reconstruction. Empty = the 🧽 lane, untouched.
      (mr.arrow: jewelry / skin imperfections; .samexit: fix one detail.) */
-  const [repairPrompt, setRepairPrompt] = useState('');
+  const [repairOpen, setRepairOpen] = useState(false);
   /* Which images were repaired in THIS session — the ↩ undo is one step deep
      and the server is the authority, but the button must not appear on an image
      nobody has touched. */
@@ -350,40 +351,23 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
      the busy lock and the note surface; only the call and the wording differ.
      The zones must be SAVED first for the same reason cleaning needs it: the
      server repaints what it has stored, not what is on screen. */
-  const doRepair = useCallback(() => {
-    if (!item || !regions.length || !repairPrompt.trim() || !onRepair) return;
-    const activeSave = saveJobsRef.current[item.id];
-    if (activeSave && activeSave.status !== 'saved') return;
-    return run('repair', async (it) => {
-      if (!await waitForLatestSave(it.id)) {
-        return { note: { tone: 'err', text: 'Correction zones could not be saved. Retry or reset them before repairing.' } };
-      }
-      const d = await onRepair(it.id, repairPrompt.trim(), regions);
-      if (!d || d.ok === false) {
-        return { note: { tone: 'err', text: (d && d.error && (d.error.detail || d.error)) || 'Repair failed' } };
-      }
-      // Deliberately NOT a terminal outcome: a repair is not a watermark verdict,
-      // so the image keeps its own state and stays under the cursor — you look at
-      // what came back and repair again if it is not right.
-      setRepairedIds((prev) => new Set(prev).add(it.id));
-      return { note: { tone: 'ok', text: 'Repaired — everything outside your zones is untouched. Not right? Change the description and repair again, or ↩ undo.' } };
-    });
-  }, [item, regions, repairPrompt, onRepair, run, waitForLatestSave]);
+  /* The dialog hands back the zones AND the sentence, so nothing has to be saved
+     server-side first — unlike 🧽 Clean, which repaints what the server stored. */
+  const submitRepair = useCallback(async ({ boxes, prompt }) => {
+    if (!item || !onRepair) return { ok: false, error: 'not ready' };
+    const d = await onRepair(item.id, prompt, boxes);
+    if (d && d.ok !== false) setRepairedIds((prev) => new Set(prev).add(item.id));
+    return d;
+  }, [item, onRepair]);
 
-  const doUndoRepair = useCallback(() => {
-    if (!item || !onUndoRepair) return;
-    return run('repair', async (it) => {
-      const d = await onUndoRepair(it.id);
-      if (!d || d.ok === false) {
-        return { note: { tone: 'err', text: (d && (d.error?.detail || d.error)) || 'Could not put the previous image back' } };
-      }
-      if (d.undone === false) {
-        return { note: { tone: 'err', text: 'Nothing to undo — this image has not been repaired since.' } };
-      }
-      setRepairedIds((prev) => { const n = new Set(prev); n.delete(it.id); return n; });
-      return { note: { tone: 'ok', text: 'Back to the image from just before the repair.' } };
-    });
-  }, [item, onUndoRepair, run]);
+  const submitUndoRepair = useCallback(async () => {
+    if (!item || !onUndoRepair) return { ok: false };
+    const d = await onUndoRepair(item.id);
+    if (d && d.undone) {
+      setRepairedIds((prev) => { const n = new Set(prev); n.delete(item.id); return n; });
+    }
+    return d;
+  }, [item, onUndoRepair]);
 
   const doClean = useCallback(() => {
     if (!item || outcome === 'cleaned' || !regions.length || manualLamaMissing) return;
@@ -755,37 +739,18 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
               {cleaning ? '🧽 Cleaning…' : <>🧽 Clean <kbd className="text-[10px] text-white/50">c</kbd></>}
             </button>
           )}
-          {/* ✦ REPAIR — the same drawn zones, your own sentence. Offered next to
-              🧽 Clean because it is the same gesture with the prompt unfrozen:
-              everything outside the zones stays byte-identical either way. The
-              field is what tells the two apart, so it is never hidden behind a
-              menu. (mr.arrow and .samexit, Discord.) */}
+          {/* ✦ REPAIR opens the SAME fullscreen dialog the generated-image lane
+              uses. It used to be an inline text field plus two buttons right
+              here — a permanent input in a control bar, which on a 400 px screen
+              stole a whole row from the picture and showed up even for someone
+              who only came to clean a watermark. One button now; the drawing,
+              the sentence and ↩ Undo live in the dialog, where there is room. */}
           {onRepair && !(oc && oc.terminal) && (
-            <span className="flex items-center gap-1">
-              <input type="text" value={repairPrompt}
-                onChange={(e) => setRepairPrompt(e.target.value)}
-                disabled={actionBlocked}
-                placeholder="…or repaint it: remove the necklace"
-                title="Repaint ONLY the zones you drew, from this description. Everything outside them stays byte-identical — unlike ✦ Edit, which re-renders the whole image."
-                className="min-w-[11rem] rounded border border-white/20 bg-black/40 px-2 py-1 text-[0.75rem] text-white placeholder:text-white/35 disabled:opacity-40" />
-              {onUndoRepair && repairedIds.has(item?.id) && (
-                <button type="button" onClick={doUndoRepair} disabled={actionBlocked}
-                  title="Put back the image from just before this repair, so you can try another description"
-                  className={`${btn} bg-amber-500/20 border border-amber-400/50 text-amber-100`}>
-                  ↩ Undo
-                </button>
-              )}
-              <button type="button" onClick={doRepair}
-                disabled={actionBlocked || !regions.length || !repairPrompt.trim()}
-                title={!regions.length
-                  ? 'Draw the area to repair first'
-                  : !repairPrompt.trim()
-                    ? 'Say what should be painted in that area'
-                    : 'Repaint only the drawn zones from your description — everything outside them is left byte-identical'}
-                className={`${btn} bg-sky-500/20 border border-sky-400/50 text-sky-100 hover:bg-sky-500/30`}>
-                {repairing ? '✦ Repairing…' : '✦ Repair'}
-              </button>
-            </span>
+            <button type="button" onClick={() => setRepairOpen(true)} disabled={actionBlocked}
+              title="Repaint an area from your own description — draw the zone, say what should be there, and everything outside it stays byte-identical"
+              className={`${btn} bg-sky-500/20 border border-sky-400/50 text-sky-100 hover:bg-sky-500/30`}>
+              ✦ Repair
+            </button>
           )}
           <HelpBadge topic="action-watermark-restore" className="self-center" />
           <button type="button" onClick={doDismiss} disabled={actionBlocked}
@@ -819,6 +784,12 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
           )}
         </div>
       </div>
+      {/* Mounted INSIDE the overlay: a sibling would need a fragment and would
+          sit under it. */}
+      <RepairDialog open={repairOpen && !!url} src={url} alt={alt}
+        onClose={() => setRepairOpen(false)}
+        onSubmit={submitRepair}
+        onUndo={onUndoRepair && repairedIds.has(item?.id) ? submitUndoRepair : null} />
     </div>
   );
 }
