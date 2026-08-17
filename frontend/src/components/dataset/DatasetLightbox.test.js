@@ -255,3 +255,19 @@ test('curation grid and lightbox render provenance through ONE dispatching compo
   assert.match(attribution, /attribution\.photographerUrl/);
   assert.match(attribution, /attribution\.sourceUrl/);
 });
+
+test('the lightbox offers 🖌 Touch up next to the watermark mask, as its own action', () => {
+  assert.match(lightbox, /onTouchUp/);
+  assert.match(lightbox, /\{onTouchUp && \(/);
+  assert.match(lightbox, /onTouchUp\(img\)/);
+  assert.match(lightbox, /🖌 Touch up/);
+  assert.match(workspace, /onTouchUp=\{viewImgLive\._rescueReviewPreview/);
+  assert.match(workspace, /<RegionTouchupDialog/);
+  assert.match(hook, /`\/api\/dataset\/\$\{currentId\}\/image\/\$\{imageId\}\/region-inpaint`/);
+  assert.match(hook, /\{ mask, prompt \}/);
+  assert.match(hook, /region-inpaint\/restore/);
+  assert.match(lightbox, /onRestoreTouchUp/);
+  assert.match(lightbox, /img\?\.has_region_touchup/);
+  assert.match(lightbox, /↩ Reset touch-up/);
+  assert.match(workspace, /onRestoreTouchUp=\{viewImgLive\._rescueReviewPreview/);
+});

@@ -121,7 +121,9 @@ DECLARED_THIRD_PARTY_NODES = {
 # The Klein lane is the one that broke, and the one the app leans on hardest
 # (variations, watermark cleaning, rescue). It must need NOTHING but a stock
 # ComfyUI — no node pack, and no enum value borrowed from one.
-VANILLA_ONLY_WORKFLOWS = ('improve skin.json', 'klein_inpaint.json')
+VANILLA_ONLY_WORKFLOWS = (
+    'improve skin.json', 'klein_inpaint.json', 'klein_mask_inpaint.json',
+)
 
 
 def _graphs():
@@ -211,16 +213,39 @@ def test_the_klein_graphs_sample_the_way_the_rest_of_the_app_does():
         assert samplers == {('euler', 'simple')}, f'{name}: {samplers}'
 
 
+def test_klein_mask_inpaint_is_core_inpaint_not_a_personal_graph():
+    """The personal Flux.2 Klein Edit & Inpaint export used Easy-Use + a switch
+    and never wired the prompt into InpaintModelConditioning. The shipped copy
+    must stay a stock ComfyUI graph with the prompt on the inpaint node."""
+    graph = json.loads((WORKFLOW_DIR / 'klein_mask_inpaint.json').read_text(
+        encoding='utf-8'))
+    classes = {node['class_type'] for _, node in _nodes(graph)}
+    assert 'InpaintModelConditioning' in classes
+    assert 'LoadImageMask' in classes
+    assert 'easy isMaskEmpty' not in classes
+    assert 'ComfySwitchNode' not in classes
+    inpaint = graph['53']['inputs']
+    assert inpaint['positive'] == ['6', 0]
+    assert inpaint['mask'] == ['51', 0]
+    assert inpaint['pixels'] == ['52', 0]
+    assert inpaint['noise_mask'] is True
+    sampler = graph['77']['inputs']
+    assert sampler['positive'] == ['53', 0]
+    assert sampler['negative'] == ['53', 1]
+    assert sampler['latent_image'] == ['53', 2]
+
+
 # Core node classes the shipped graphs use, verified against the ComfyUI v0.28.3
 # source (nodes.py + comfy_extras/*, both the legacy NODE_CLASS_MAPPINGS and the
 # V3 `node_id=` schema).
 VANILLA_NODE_ALLOWLIST = frozenset({
     'BasicGuider', 'BasicScheduler', 'CFGGuider', 'CLIPLoader', 'CLIPTextEncode',
-    'CheckpointLoaderSimple', 'EmptyFlux2LatentImage', 'EmptyLatentImage',
-    'EmptySD3LatentImage', 'GetImageSize', 'ImageScaleToTotalPixels', 'KSampler',
-    'KSamplerSelect', 'LatentUpscaleBy', 'LoadImage', 'LoraLoader',
-    'LoraLoaderModelOnly', 'ModelSamplingFlux', 'PatchModelAddDownscale',
-    'PreviewImage', 'PrimitiveInt', 'RandomNoise', 'ReferenceLatent',
-    'SamplerCustomAdvanced', 'SaveImage', 'UNETLoader', 'VAEDecode', 'VAEEncode',
-    'VAELoader',
+    'CheckpointLoaderSimple', 'ConditioningZeroOut', 'EmptyFlux2LatentImage',
+    'EmptyLatentImage', 'EmptySD3LatentImage', 'GetImageSize',
+    'ImageScaleToTotalPixels', 'InpaintModelConditioning', 'KSampler',
+    'KSamplerSelect', 'LatentUpscaleBy', 'LoadImage', 'LoadImageMask',
+    'LoraLoader', 'LoraLoaderModelOnly', 'ModelSamplingFlux',
+    'PatchModelAddDownscale', 'PreviewImage', 'PrimitiveInt', 'RandomNoise',
+    'ReferenceLatent', 'SamplerCustomAdvanced', 'SaveImage', 'UNETLoader',
+    'VAEDecode', 'VAEEncode', 'VAELoader',
 })

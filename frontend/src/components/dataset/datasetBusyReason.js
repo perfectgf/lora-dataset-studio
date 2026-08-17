@@ -40,6 +40,7 @@ export const DATASET_JOB_LABELS = {
   bank_import: '🏦 Copy from a Bank',
   training_export: '🎓 Training export',
   backup: '💾 Portable backup',
+  region_inpaint: '🖌 Region touch-up',
 };
 
 /* Passes the user can actually STOP from this screen (backend

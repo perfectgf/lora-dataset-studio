@@ -76,6 +76,7 @@ from ..utils.comfyui import load_workflow_local, fetch_output_image_bytes
 logger = logging.getLogger(__name__)
 
 KLEIN_INPAINT_WORKFLOW_PATH = cfg.BACKEND_DIR / 'workflows' / 'klein_inpaint.json'
+KLEIN_MASK_INPAINT_WORKFLOW_PATH = cfg.BACKEND_DIR / 'workflows' / 'klein_mask_inpaint.json'
 # 2026-07-27: node 77 of that file sampled with `scheduler: "beta57"`, a value the
 # third-party RES4LYF pack injects into ComfyUI's CORE scheduler list at import —
 # so it worked on the machine the graph was captured on and refused to run
@@ -98,6 +99,9 @@ KLEIN_INPAINT_PROMPT = ('Reconstruct this photo as a clean, natural image: repla
 # (VAEEncode of the pre-filled crop) is the latent for BOTH the ReferenceLatent and the
 # KSampler now (full-edit), so it is checked too even though its wiring is fixed in the JSON.
 _REQUIRED_NODES = ('114', '10', '90', '52', '53', '6', '77', '9')
+# Masked inpaint graph (touch-up): LoadImageMask + InpaintModelConditioning.
+_REQUIRED_MASK_NODES = ('114', '10', '90', '52', '51', '6', '101', '53', '175',
+                        '102', '77', '8', '9')
 
 # --- Tunables (calibrated at the GPU smoke; the study left these open) ---------
 # Crop = a square this many times the mark's larger side, so the model gets real
@@ -123,6 +127,7 @@ KLEIN_DENOISE = 1.0            # full-edit refine: the crop's own latent is full
                                # crop back in, so 1.0 is required, not a tunable
 KLEIN_STEPS = 8               # Klein 9b is guidance-distilled (improve-skin edit uses 5); a
                               # couple more for cleaner reconstructed texture over the prefill
+KLEIN_MASK_STEPS = 4          # the working Flux.2 Klein InpaintModelConditioning graph
 KLEIN_TIMEOUT = 300           # per-image ComfyUI round-trip budget (seconds)
 
 _POLL_INTERVAL = 1.0
@@ -236,6 +241,25 @@ def _crop_boxes_norm(crop_box, W, H, boxes, *, expand_px=KLEIN_MASK_EXPAND_PX):
         if bx2 > bx1 and by2 > by1:
             out.append([bx1, by1, bx2, by2])
     return out
+
+
+def _snap_hw(w, h, *, mult=KLEIN_LATENT_MULT):
+    """Snap to Flux.2's latent stride without cropping or magnifying a face."""
+    sw = max(mult, int(round(w / mult)) * mult)
+    sh = max(mult, int(round(h / mult)) * mult)
+    return sw, sh
+
+
+def _full_frame_mask(W, H, boxes) -> Image.Image:
+    """Rasterize normalized boxes onto the FULL image (white = inpaint)."""
+    mask = Image.new('L', (W, H), 0)
+    draw = ImageDraw.Draw(mask)
+    for x1, y1, x2, y2 in boxes:
+        bx1, by1 = x1 * W, y1 * H
+        bx2, by2 = x2 * W, y2 * H
+        if bx2 > bx1 and by2 > by1:
+            draw.rectangle([bx1, by1, bx2 - 1, by2 - 1], fill=255)
+    return mask
 
 
 def _upscale_size(cw, ch, *, target_mp=KLEIN_TARGET_MP, mult=KLEIN_LATENT_MULT):
@@ -444,7 +468,8 @@ def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
     which is what a dataset that never chose and every bank (no dataset, nothing to
     inherit) get. A named model that has left the disk raises KleinModelGone rather
     than repainting on a neighbour: this lane overwrites the user's file in place,
-    so a silent swap is not even reversible by regenerating."""
+    so a silent swap is not even reversible by regenerating.
+    `prompt`: CLIP text for node 6. Empty/omitted uses ``KLEIN_INPAINT_PROMPT``."""
     workflow = load_workflow_local(str(KLEIN_INPAINT_WORKFLOW_PATH))
     if not workflow:
         return None, {'kind': 'failed', 'detail': 'failed to load klein_inpaint workflow'}
@@ -481,6 +506,7 @@ def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
     workflow['114']['inputs']['weight_dtype'] = keh._unet_weight_dtype(unet)
     workflow['10']['inputs']['vae_name'] = vae
     workflow['90']['inputs']['clip_name'] = te
+    text = (prompt or '').strip() or KLEIN_INPAINT_PROMPT
     workflow['52']['inputs']['image'] = crop_name
     # A CALLER may steer what is painted back in. None keeps the watermark
     # reconstruction prompt, so the cleaning lane sends the exact same graph it
@@ -488,7 +514,6 @@ def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
     # ONE thing this machinery could not do: a masked, prompted repair that
     # leaves every pixel outside the box byte-identical, instead of the ✦ Edit
     # lane's full re-render. (Asked for by mr.arrow and .samexit on Discord.)
-    text = (prompt or '').strip() or KLEIN_INPAINT_PROMPT
     workflow['6']['inputs']['text'] = text
     workflow['77']['inputs']['seed'] = int(seed)
     workflow['77']['inputs']['steps'] = max(1, int(steps))
@@ -521,6 +546,85 @@ def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
     return filled, None
 
 
+def _mask_rgb(mask_img) -> Image.Image:
+    """White = inpaint, as an RGB PNG LoadImageMask can read on the red channel."""
+    luma = mask_img.convert('L')
+    return Image.merge('RGB', (luma, luma, luma))
+
+
+def _run_klein_mask_job(user_id, crop_img, mask_img, *, seed, steps=KLEIN_MASK_STEPS,
+                        denoise=KLEIN_DENOISE, timeout=KLEIN_TIMEOUT, klein_model=None,
+                        prompt=None):
+    """Enqueue one InpaintModelConditioning job: Klein sees `crop_img`, denoises
+    only where `mask_img` is white. No prefill — the mask hides the thing to
+    remove. Isolated seam so tests can mock the GPU round-trip."""
+    workflow = load_workflow_local(str(KLEIN_MASK_INPAINT_WORKFLOW_PATH))
+    if not workflow:
+        return None, {'kind': 'failed',
+                      'detail': 'failed to load klein_mask_inpaint workflow'}
+    for node in _REQUIRED_MASK_NODES:
+        if node not in workflow:
+            return None, {'kind': 'failed',
+                          'detail': f'workflow node {node} missing — klein_mask_inpaint.json changed'}
+    unet = keh.unet_for_job(klein_model)
+    vae = keh.resolve_klein_vae()
+    te = keh.resolve_klein_text_encoder()
+    missing = keh.klein_missing_assets()
+    if any(a in missing for a in keh.KLEIN_REQUIRED):
+        raise keh.KleinModelsMissing(missing)
+
+    uid = uuid.uuid4().hex[:8]
+    crop_name = f'wmklein_crop_{uid}.png'
+    mask_name = f'wmklein_mask_{uid}.png'
+    crop_path = mask_path = None
+    try:
+        comfy_input = comfy_fs.ensure_input_usable(_comfy_input_dir())
+        crop_path = comfy_fs.stage_input_write(
+            crop_name, lambda p: crop_img.convert('RGB').save(p), comfy_input)
+        mask_path = comfy_fs.stage_input_write(
+            mask_name, lambda p: _mask_rgb(mask_img).save(p), comfy_input)
+    except comfy_fs.ComfyFolderUnavailable as exc:
+        return None, {'kind': 'unavailable', 'detail': str(exc)}
+
+    workflow['114']['inputs']['unet_name'] = unet
+    workflow['114']['inputs']['weight_dtype'] = keh._unet_weight_dtype(unet)
+    workflow['10']['inputs']['vae_name'] = vae
+    workflow['90']['inputs']['clip_name'] = te
+    text = (prompt or '').strip() or KLEIN_INPAINT_PROMPT
+    workflow['52']['inputs']['image'] = crop_name
+    workflow['51']['inputs']['image'] = mask_name
+    workflow['6']['inputs']['text'] = text
+    workflow['77']['inputs']['seed'] = int(seed)
+    workflow['77']['inputs']['steps'] = max(1, int(steps))
+    workflow['77']['inputs']['denoise'] = float(denoise)
+    workflow['9']['inputs']['filename_prefix'] = f'wmkleinmask_{uid}'
+
+    job_id = str(uuid.uuid4())
+    try:
+        queue_manager.add_job(job_type='image', user_id=str(user_id), workflow_data=workflow,
+                              prompt=text, job_id=job_id,
+                              metadata={'model_name': 'watermark_klein'})
+        status, filename, err_msg = _wait_for_job(job_id, timeout)
+    finally:
+        _cleanup(crop_path, mask_path)
+
+    if status != 'completed' or not filename:
+        return None, {'kind': 'failed',
+                      'detail': err_msg or f'klein mask inpaint {status}'}
+    data = _read_comfy_output(filename)
+    out_dir = _comfy_output_dir()
+    if out_dir:
+        _cleanup(os.path.join(out_dir, filename))
+    if not data:
+        return None, {'kind': 'failed',
+                      'detail': 'finished crop could not be retrieved from ComfyUI'}
+    try:
+        filled = Image.open(io.BytesIO(data)).convert('RGB')
+    except (OSError, ValueError) as e:
+        return None, {'kind': 'failed', 'detail': f'unreadable klein output: {e}'}
+    return filled, None
+
+
 def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cpu',
                             timeout=KLEIN_TIMEOUT,
                             klein_model=None, prompt=None) -> tuple[bool, dict | None]:
@@ -532,7 +636,10 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cp
     mask+feather. `device` selects the prefill LaMa device ('cpu' by default so the pending
     ComfyUI GPU job runs alone; Klein itself always owns the GPU via ComfyUI).
     `klein_model`: see _run_klein_job — the dataset's pick, or None (auto) when the
-    caller has no dataset to inherit from."""
+    caller has no dataset to inherit from.
+    `prompt`: optional CLIP text for node 6. Empty/omitted keeps
+    ``KLEIN_INPAINT_PROMPT`` so watermark cleaning is unchanged. A region
+    touch-up passes a composed removal instruction instead."""
     if not is_available():
         return False, {'kind': 'unavailable',
                        'detail': 'Klein inpaint is not ready (ComfyUI unreachable or models missing)'}
@@ -586,6 +693,62 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cp
         # to repaint a few square centimetres — which silently contradicted the
         # "every pixel outside the footprint keeps its ORIGINAL bytes" guarantee
         # this method is built on.
+        image_encoding.save_edit(
+            result, image_path, image_encoding.format_for_path(image_path, original),
+            image_encoding.LOSSLESS)
+    except (OSError, ValueError) as e:
+        return False, {'kind': 'failed', 'detail': f'could not save cleaned image: {e}'}
+    return True, None
+
+
+def inpaint_mask_klein(user_id, image_path, boxes=None, *, mask=None, seed=None,
+                       device='cpu', timeout=KLEIN_TIMEOUT,
+                       klein_model=None, prompt=None) -> tuple[bool, dict | None]:
+    """Masked Flux.2 Klein inpaint on the FULL image (the Comfy clipspace graph).
+
+    ``mask`` is an 'L' image, white = inpaint, same aspect as the photo.
+    ``boxes`` (normalized) are rasterized onto the full frame when no mask is
+    given. There is no crop, no 1 MP magnifying glass, no prefill. Unpainted
+    pixels are composited back so they stay byte-identical. ``device`` is
+    ignored (same call shape as ``inpaint_watermark_klein``).
+    """
+    if not is_available():
+        return False, {'kind': 'unavailable',
+                       'detail': 'Klein inpaint is not ready (ComfyUI unreachable or models missing)'}
+    try:
+        original = Image.open(image_path).convert('RGB')
+    except (OSError, ValueError) as e:
+        return False, {'kind': 'failed', 'detail': f'unreadable image: {e}'}
+    W, H = original.size
+    if mask is not None:
+        hard = mask.convert('L')
+        if hard.size != (W, H):
+            hard = hard.resize((W, H), Image.BILINEAR)
+    else:
+        norm = _normalize_boxes(boxes)
+        if not norm:
+            return False, {'kind': 'failed', 'detail': 'no valid inpaint mask'}
+        hard = _full_frame_mask(W, H, norm)
+    if hard.getextrema()[1] == 0:
+        return False, {'kind': 'failed', 'detail': 'inpaint mask is empty'}
+
+    scaled_size = _snap_hw(W, H)
+    scaled_img = (original if original.size == scaled_size
+                  else original.resize(scaled_size, Image.LANCZOS))
+    scaled_mask = (hard if hard.size == scaled_size
+                   else hard.resize(scaled_size, Image.BILINEAR))
+
+    seed = random.randint(0, 2 ** 63 - 1) if seed is None else int(seed)
+    filled_scaled, err = _run_klein_mask_job(
+        user_id, scaled_img, scaled_mask, seed=seed, timeout=timeout,
+        klein_model=klein_model, prompt=prompt)
+    if err:
+        return False, err
+    filled = (filled_scaled if filled_scaled.size == (W, H)
+              else filled_scaled.resize((W, H), Image.LANCZOS))
+    paste_mask = hard.filter(ImageFilter.GaussianBlur(KLEIN_COMPOSITE_FEATHER_PX))
+    result = composite_inpaint(original, filled, (0, 0, W, H), paste_mask)
+    try:
         image_encoding.save_edit(
             result, image_path, image_encoding.format_for_path(image_path, original),
             image_encoding.LOSSLESS)

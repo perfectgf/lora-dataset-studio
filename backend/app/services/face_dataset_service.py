@@ -25,6 +25,7 @@ import uuid
 import warnings
 import zipfile
 import zlib
+import base64
 from functools import wraps
 from pathlib import Path
 from types import SimpleNamespace
@@ -5370,7 +5371,8 @@ def dataset_payload(user_id, dataset_id):
                     'watermark_source': i.watermark_source,
                     'watermark_score': i.watermark_score,
                     **_watermark_regions_payload(i),
-                    **_watermark_route_payload(i)} for i in imgs],
+                    **_watermark_route_payload(i),
+                    'has_region_touchup': _has_region_touchup(i)} for i in imgs],
         # Kind-specific leak count (see _img_leaks): character = identity, concept = the
         # caption naming the concept (NEVER forced 0 any more), style = 0 (not applicable).
         # `captioned` bounds the badge ("N leaking / M checked") so a 0 reads as a real
@@ -8479,6 +8481,16 @@ WATERMARK_MAX_INPAINT_AREA = 0.10  # bbox area above this fraction -> manual rev
 WATERMARK_MIN_SIDE = 768           # never crop a side below this (ai-toolkit only downscales)
 WATERMARK_REGION_LIMIT = 32
 WATERMARK_REGION_MIN_SIDE = 0.005
+REGION_INPAINT_PROMPT_MAX = 500
+REGION_INPAINT_MASK_MAX = 8 * 1024 * 1024
+# The user text leads; Klein at cfg 1 is weak on prompt, so this only restates
+# "fill the painted hole from the surroundings, invent nothing extra".
+KLEIN_REGION_RECONSTRUCT = (
+    'Reconstruct the marked area so it matches the surrounding pixels. '
+    'Do not add grain, pores, noise or new detail. Keep the subject, pose, '
+    'colours and composition identical except for that change. No text, no logos, '
+    'no watermarks.'
+)
 
 
 def normalize_watermark_regions(value, *, allow_null=True) -> list[list[float]] | None:
@@ -8712,6 +8724,8 @@ def _promote_staged_watermark_edit(staged_path, live_path) -> bool:
 
 
 def _discard_staged_watermark_edit(staged_path) -> None:
+    if not staged_path:
+        return
     try:
         os.unlink(staged_path)
     except OSError:
@@ -9556,6 +9570,207 @@ def restore_watermark_original(user_id, dataset_id, image_id) -> dict | None:
     return {'watermark_state': img.watermark_state,
             **_watermark_route_payload(img),
             **_watermark_regions_payload(img)}
+
+
+def compose_region_inpaint_prompt(user_prompt) -> str:
+    """User removal instruction + the reconstruction contract Klein needs after prefill."""
+    if not isinstance(user_prompt, str):
+        raise ValueError('prompt is required')
+    text = user_prompt.strip()
+    if not text:
+        raise ValueError('prompt is required')
+    if len(text) > REGION_INPAINT_PROMPT_MAX:
+        raise ValueError(f'prompt must be at most {REGION_INPAINT_PROMPT_MAX} characters')
+    return f'{text}. {KLEIN_REGION_RECONSTRUCT}'
+
+
+def decode_region_inpaint_mask(raw, size) -> Image.Image:
+    """PNG/WebP/JPEG mask from a data URL or raw base64. White = inpaint.
+    Resized to ``size`` (the live image). Empty (all black) is refused."""
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError('mask is required')
+    text = raw.strip()
+    if text.startswith('data:'):
+        if ',' not in text:
+            raise ValueError('mask is not a valid image')
+        _header, b64 = text.split(',', 1)
+        if 'base64' not in _header.lower():
+            raise ValueError('mask is not a valid image')
+    else:
+        b64 = text
+    try:
+        blob = base64.b64decode(b64, validate=False)
+    except (ValueError, TypeError) as exc:
+        raise ValueError('mask is not a valid image') from exc
+    if not blob or len(blob) > REGION_INPAINT_MASK_MAX:
+        raise ValueError('mask is too large' if blob else 'mask is not a valid image')
+    try:
+        with Image.open(io.BytesIO(blob)) as opened:
+            mask = opened.convert('L')
+    except (OSError, ValueError, UnidentifiedImageError) as exc:
+        raise ValueError('mask is not a valid image') from exc
+    if size and mask.size != tuple(size):
+        mask = mask.resize(tuple(size), Image.BILINEAR)
+    if mask.getextrema()[1] == 0:
+        raise ValueError('paint the area to change first')
+    return mask
+
+
+def _region_touchup_path(path) -> str:
+    stem, ext = os.path.splitext(path)
+    return f'{stem}.touchup{ext or ".webp"}'
+
+
+def _has_region_touchup(img) -> bool:
+    if not img or not img.filename:
+        return False
+    try:
+        return os.path.isfile(_region_touchup_path(_img_path(img)))
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _snapshot_region_touchup(path) -> bool:
+    """Write-once copy of ``path`` to ``<stem>.touchup<ext>``.
+
+    The first apply on this image is the original to ↩ Reset. Later applies
+    must not overwrite it, or a second touch-up would make the pre-first-edit
+    pixels unrecoverable (``.orig`` may already be a watermark clean).
+    """
+    backup = _region_touchup_path(path)
+    if os.path.exists(backup):
+        try:
+            if not os.path.isfile(backup) or os.path.getsize(backup) <= 0:
+                raise OSError('existing touch-up snapshot is empty or not a regular file')
+            with Image.open(backup) as check:
+                check.verify()
+            return True
+        except (OSError, ValueError, UnidentifiedImageError) as exc:
+            logger.error('region inpaint: refusing edit; existing snapshot is unusable for %s: %s',
+                         path, exc)
+            return False
+    staged = None
+    try:
+        fd, staged = tempfile.mkstemp(
+            prefix=f'.{os.path.basename(backup)}.touchup-', suffix='.part',
+            dir=os.path.dirname(path),
+        )
+        os.close(fd)
+        shutil.copy2(path, staged)
+        with open(staged, 'rb+') as handle:
+            os.fsync(handle.fileno())
+        with Image.open(staged) as check:
+            check.verify()
+        os.replace(staged, backup)
+        staged = None
+        return True
+    except (OSError, ValueError, UnidentifiedImageError) as exc:
+        logger.error('region inpaint: could not snapshot %s: %s', path, exc)
+        return False
+    finally:
+        if staged:
+            try:
+                os.unlink(staged)
+            except OSError:
+                pass
+
+
+def _owned_dataset_image(user_id, dataset_id, image_id):
+    return (FaceDatasetImage.query
+            .join(FaceDataset, FaceDatasetImage.dataset_id == FaceDataset.id)
+            .filter(FaceDatasetImage.id == image_id,
+                    FaceDatasetImage.dataset_id == dataset_id,
+                    FaceDataset.user_id == str(user_id))
+            .one_or_none())
+
+
+@_serialize_dataset_ingest
+def inpaint_region(user_id, dataset_id, image_id, regions, prompt, mask=None) -> dict | None:
+    """Klein masked inpaint on ONE dataset image (full photo + painted mask).
+
+    Not a watermark clean: ``watermark_state`` / ``watermark_regions`` stay
+    untouched. ``mask`` is a PNG data URL (white = inpaint). ``regions`` is
+    kept as a fallback for tests: boxes are rasterized onto the full frame,
+    never cropped. Returns a small payload on success, None when the image
+    isn't found/owned.
+    """
+    from . import watermark_klein
+    from . import klein_edit_helper as keh
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    img = _owned_dataset_image(user_id, dataset_id, image_id)
+    if not img or not img.filename:
+        return None
+    composed = compose_region_inpaint_prompt(prompt)
+    if not watermark_klein.is_available():
+        raise RuntimeError(
+            'Klein inpaint is not ready (ComfyUI unreachable or models missing)')
+    klein_model = dataset_klein_model(ds)
+    if klein_model and not keh.klein_model_on_disk(klein_model):
+        raise keh.KleinModelGone(klein_model)
+    path = _img_path(img)
+    if not os.path.isfile(path):
+        raise RuntimeError('image file is missing')
+    token = dataset_activity.begin(
+        dataset_id, 'region_inpaint', total=1,
+        detail='Touching up a region…')
+    staged = None
+    try:
+        staged = _stage_oriented_watermark_edit(path)
+        if not staged:
+            raise RuntimeError('could not stage image EXIF orientation')
+        with Image.open(staged) as check:
+            frame_size = check.size
+        pil_mask = None
+        boxes = None
+        if mask:
+            pil_mask = decode_region_inpaint_mask(mask, frame_size)
+        else:
+            boxes = normalize_watermark_regions(regions, allow_null=False)
+            if not boxes:
+                raise ValueError('at least one region is required')
+        if not _preserve_original(path):
+            raise RuntimeError('could not preserve original; master was left unchanged')
+        if not _snapshot_region_touchup(path):
+            raise RuntimeError('could not snapshot the image for reset')
+        ok, err = watermark_klein.inpaint_mask_klein(
+            user_id, staged, boxes, mask=pil_mask, klein_model=klein_model,
+            prompt=composed)
+        if ok and _promote_staged_watermark_edit(staged, path):
+            staged = None  # promote consumed it
+            db.session.commit()
+            return {'ok': True, 'has_region_touchup': True}
+        if ok:
+            raise RuntimeError('could not promote staged region edit')
+        detail = (err or {}).get('detail') or 'region inpaint failed'
+        raise RuntimeError(detail)
+    finally:
+        _discard_staged_watermark_edit(staged)
+        dataset_activity.end(token)
+
+
+@_serialize_dataset_ingest
+def restore_region_inpaint(user_id, dataset_id, image_id) -> dict | None:
+    """Reset ALL region touch-ups on ONE image: copy the write-once
+    ``<stem>.touchup<ext>`` (the file from before the first apply) back over
+    the live file, then drop the snapshot. Watermark fields are left alone.
+    None when the image isn't found/owned; FileNotFoundError when no snapshot
+    exists."""
+    img = _owned_dataset_image(user_id, dataset_id, image_id)
+    if not img or not img.filename:
+        return None
+    path = _img_path(img)
+    backup = _region_touchup_path(path)
+    if not os.path.exists(backup):
+        raise FileNotFoundError('no touch-up to reset')
+    shutil.copy2(backup, path)
+    try:
+        os.unlink(backup)
+    except OSError:
+        pass
+    db.session.commit()
+    return {'ok': True, 'has_region_touchup': False}
 
 
 # --- Fan-out generation (Klein edit) ---------------------------------------

@@ -283,6 +283,72 @@ def test_watermark_clean_refuses_a_vanished_model_before_touching_a_file(
         assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'detected'
 
 
+def test_region_inpaint_inherits_the_dataset_model(app, tmp_path, monkeypatch):
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_klein
+    seen = []
+    monkeypatch.setattr(watermark_klein, 'is_available', lambda: True)
+
+    def _fake(user_id, path, boxes, **kwargs):
+        seen.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(watermark_klein, 'inpaint_mask_klein', _fake)
+    with app.app_context():
+        _comfy_with(tmp_path, KLEIN_FILE, OTHER_FILE)
+        ds, img = _flagged_dataset_image(svc, FaceDatasetImage, LOCAL_USER,
+                                         tmp_path, stored=OTHER_FILE)
+        out = svc.inpaint_region(
+            LOCAL_USER, ds.id, img.id, [[0.2, 0.2, 0.4, 0.4]], 'remove necklace')
+        assert out['ok'] is True
+        assert seen[-1].get('klein_model') == OTHER_FILE
+
+
+def test_region_inpaint_on_a_dataset_that_never_chose_sends_none(
+        app, tmp_path, monkeypatch):
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    from app.services import watermark_klein
+    seen = []
+    monkeypatch.setattr(watermark_klein, 'is_available', lambda: True)
+    monkeypatch.setattr(watermark_klein, 'inpaint_mask_klein',
+                        lambda *a, **k: seen.append(k) or (True, None))
+    with app.app_context():
+        _comfy_with(tmp_path, KLEIN_FILE, OTHER_FILE)
+        ds, img = _flagged_dataset_image(svc, FaceDatasetImage, LOCAL_USER, tmp_path)
+        svc.inpaint_region(
+            LOCAL_USER, ds.id, img.id, [[0.2, 0.2, 0.4, 0.4]], 'remove necklace')
+        assert seen[-1].get('klein_model') is None
+
+
+def test_region_inpaint_refuses_a_vanished_model_before_touching_a_file(
+        app, tmp_path, monkeypatch):
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper as keh
+    from app.services import watermark_klein
+    with app.app_context():
+        _comfy_with(tmp_path, KLEIN_FILE)
+        monkeypatch.setattr(watermark_klein, 'is_available', lambda: True)
+        ran = []
+        monkeypatch.setattr(watermark_klein, 'inpaint_mask_klein',
+                            lambda *a, **k: ran.append(a) or (True, None))
+        ds, img = _flagged_dataset_image(svc, FaceDatasetImage, LOCAL_USER,
+                                         tmp_path, stored=OTHER_FILE)
+        path = svc._img_path(img)
+        before = open(path, 'rb').read()
+        with pytest.raises(keh.KleinModelGone) as exc:
+            svc.inpaint_region(
+                LOCAL_USER, ds.id, img.id, [[0.2, 0.2, 0.4, 0.4]], 'remove necklace')
+        assert OTHER_FILE in str(exc.value)
+        assert not ran
+        assert open(path, 'rb').read() == before
+
+
 def test_the_bank_lane_names_no_model_on_purpose(client, tmp_path, app, monkeypatch):
     """A bank has no dataset to inherit a pick from, and the Klein model choice
     lives on the dataset. So this lane keeps the auto resolution it always had —

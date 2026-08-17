@@ -152,13 +152,15 @@ def test_boot_sweep_clears_old_orphans_but_spares_recent_and_foreign_files(tmp_p
     old = _touch(d / 'edit_source_0a1b2c3d_a.png', age_seconds=72 * 3600)
     old_ref = _touch(d / 'edit_ref1_0a1b2c3d_a.png', age_seconds=72 * 3600)
     old_krea = _touch(d / 'krea_source_4e5f6a7b_a.png', age_seconds=72 * 3600)
+    old_mask = _touch(d / 'wmklein_mask_0a1b2c3d.png', age_seconds=72 * 3600)
     recent = _touch(d / 'edit_source_8c9d0e1f_a.png', age_seconds=60)
     old_user_file = _touch(d / 'holiday.png', age_seconds=365 * 24 * 3600)
 
     removed = comfy_fs.prune_staged_inputs(str(d))
 
-    assert removed == 3
+    assert removed == 4
     assert not old.exists() and not old_ref.exists() and not old_krea.exists()
+    assert not old_mask.exists()
     assert recent.exists(), 'a fresh copy may still belong to a queued job'
     assert old_user_file.exists(), "the user's own input images are not ours to delete"
 
@@ -170,6 +172,7 @@ def test_boot_sweep_clears_old_orphans_but_spares_recent_and_foreign_files(tmp_p
     'edit_source_notahexuid_a.png',  # right lane, no uid -> not minted by us
     'edit_source.png',
     'wmklein_crop_notes.txt',
+    'wmklein_mask_notes.txt',
     'my_edit_source_0a1b2c3d_a.png',  # our shape, but not at the start
 ])
 def test_the_sweep_never_matches_a_file_it_did_not_mint(tmp_path, name):

@@ -29,6 +29,7 @@ import { captionEnginesSummary, CAPTION_ENGINE_WHY } from '../../utils/captionEn
 import { captionOriginInfo } from '../../utils/captionOrigin.js';
 import { extraRefCropSource } from './extraRefs';
 import DatasetLightbox from './DatasetLightbox';
+import RegionTouchupDialog from './RegionTouchupDialog';
 import DatasetSettingsModal from './DatasetSettingsModal';
 import DatasetToBankDialog from './DatasetToBankDialog';
 import PublishHfModal from './PublishHfModal';
@@ -259,9 +260,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Filename of the extra reference being cropped (extras have no numeric id).
   const [extraRefCrop, setExtraRefCrop] = useState(null);
   const [viewImg, setViewImg] = useState(null);
+  const [touchupImg, setTouchupImg] = useState(null);
   const [gridBulkBusy, setGridBulkBusy] = useState(false);
   useEffect(() => {
-    if (gridBulkBusy) setViewImg(null);
+    if (gridBulkBusy) {
+      setViewImg(null);
+      setTouchupImg(null);
+    }
   }, [gridBulkBusy]);
   useEffect(() => { setGridBulkBusy(false); }, [d?.id]);
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
@@ -813,6 +818,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             bank_import: `Copying images from a Bank…${prog}`,
             training_export: 'Freezing the Dataset for training…',
             backup: `Creating portable backup…${prog}`,
+            region_inpaint: `Touching up a region…${prog}`,
           }[act.kind];
           if (label) {
             // Copy/freeze details are stable phase names, while done/total lives
@@ -2162,6 +2168,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
           onMarkWatermark={viewImgLive._rescueReviewPreview
             ? undefined
             : ((image) => { setViewImg(null); setReviewQueue([image]); })}
+          onTouchUp={viewImgLive._rescueReviewPreview
+            ? undefined
+            : setTouchupImg}
+          onRestoreTouchUp={viewImgLive._rescueReviewPreview
+            ? undefined
+            : ((image) => ds.restoreRegionInpaint(image.id))}
           improvePending={viewImgImproving}
           improveReady={viewImgImprovementReady}
           busy={ds.busy || gridBulkBusy}
@@ -2173,6 +2185,17 @@ export default function DatasetWorkspace({ ds, onBack }) {
           onCrop={viewImgLive._rescueReviewPreview
             ? undefined
             : (img) => { setViewImg(null); setCropImg(img); }} />
+      )}
+      {touchupImg && (
+        <RegionTouchupDialog
+          datasetId={d.id}
+          image={images.find((i) => i.id === touchupImg.id) || touchupImg}
+          nonce={(ds.nonces && ds.nonces[touchupImg.id]) || 0}
+          busy={ds.busy || gridBulkBusy}
+          busyReason={(ds.busy || gridBulkBusy) ? datasetBusyReason(ds.busy ? act : null) : null}
+          onApply={(mask, prompt) => ds.inpaintRegion(touchupImg.id, mask, prompt)}
+          onRestore={() => ds.restoreRegionInpaint(touchupImg.id)}
+          onClose={() => setTouchupImg(null)} />
       )}
       {settingsOpen && (
         <DatasetSettingsModal d={d} busy={ds.busy}

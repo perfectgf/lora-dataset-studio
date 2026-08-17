@@ -1624,6 +1624,12 @@ def test_embedded_workflow_model_refs_are_all_layout_independent():
             ('flux2-vae.safetensors', 'RESOLVED'),
         ('klein_inpaint.json', '90', 'clip_name'):
             ('qwen_3_8b_fp8mixed.safetensors', 'RESOLVED'),
+        ('klein_mask_inpaint.json', '114', 'unet_name'):
+            ('klein\\flux-2-klein-9b-fp8.safetensors', 'RESOLVED'),
+        ('klein_mask_inpaint.json', '10', 'vae_name'):
+            ('flux2-vae.safetensors', 'RESOLVED'),
+        ('klein_mask_inpaint.json', '90', 'clip_name'):
+            ('qwen_3_8b_fp8mixed.safetensors', 'RESOLVED'),
         ('krea2_turbo.json', '20', 'unet_name'):
             ('Krea\\krea2_turbo_fp8.safetensors', 'OVERRIDDEN'),
         ('krea2_turbo.json', '21', 'clip_name'):

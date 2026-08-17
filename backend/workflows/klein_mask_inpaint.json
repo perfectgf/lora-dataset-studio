@@ -1,0 +1,104 @@
+{
+  "114": {
+    "inputs": {
+      "unet_name": "klein\\flux-2-klein-9b-fp8.safetensors",
+      "weight_dtype": "fp8_e4m3fn"
+    },
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Load Diffusion Model (Klein)" }
+  },
+  "10": {
+    "inputs": { "vae_name": "flux2-vae.safetensors" },
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE" }
+  },
+  "90": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Load CLIP" }
+  },
+  "52": {
+    "inputs": { "image": "wm_crop.png" },
+    "class_type": "LoadImage",
+    "_meta": { "title": "Load crop" }
+  },
+  "51": {
+    "inputs": {
+      "image": "wm_mask.png",
+      "channel": "red"
+    },
+    "class_type": "LoadImageMask",
+    "_meta": { "title": "Load mask" }
+  },
+  "6": {
+    "inputs": {
+      "text": "",
+      "clip": ["90", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Prompt" }
+  },
+  "101": {
+    "inputs": { "conditioning": ["6", 0] },
+    "class_type": "ConditioningZeroOut",
+    "_meta": { "title": "Conditioning Zero Out" }
+  },
+  "53": {
+    "inputs": {
+      "noise_mask": true,
+      "positive": ["6", 0],
+      "negative": ["101", 0],
+      "vae": ["10", 0],
+      "pixels": ["52", 0],
+      "mask": ["51", 0]
+    },
+    "class_type": "InpaintModelConditioning",
+    "_meta": { "title": "InpaintModelConditioning" }
+  },
+  "175": {
+    "inputs": { "image": ["52", 0] },
+    "class_type": "GetImageSize",
+    "_meta": { "title": "Crop size" }
+  },
+  "102": {
+    "inputs": {
+      "max_shift": 1.15,
+      "base_shift": 0.6,
+      "width": ["175", 0],
+      "height": ["175", 1],
+      "model": ["114", 0]
+    },
+    "class_type": "ModelSamplingFlux",
+    "_meta": { "title": "ModelSamplingFlux" }
+  },
+  "77": {
+    "inputs": {
+      "seed": 0,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["102", 0],
+      "positive": ["53", 0],
+      "negative": ["53", 1],
+      "latent_image": ["53", 2]
+    },
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler (masked inpaint)" }
+  },
+  "8": {
+    "inputs": { "samples": ["77", 0], "vae": ["10", 0] },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
+  },
+  "9": {
+    "inputs": { "filename_prefix": "wmkleinmask", "images": ["8", 0] },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" }
+  }
+}

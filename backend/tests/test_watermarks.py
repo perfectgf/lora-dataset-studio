@@ -2048,6 +2048,95 @@ def test_run_klein_job_takes_a_free_prompt_without_moving_the_cleaning_lane(
             assert captured['prompt'] == wk.KLEIN_INPAINT_PROMPT
 
 
+def test_run_klein_mask_job_wires_inpaint_nodes_and_stages_a_mask(
+        app, monkeypatch, tmp_path):
+    from app.services import watermark_klein as wk
+    from app.services import klein_edit_helper as keh
+
+    monkeypatch.setattr(wk, '_comfy_input_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(wk, '_comfy_output_dir', lambda: None)
+    monkeypatch.setattr(keh, 'resolve_klein_unet', lambda selected=None: 'klein\\unet.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_vae', lambda: 'flux2-vae.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_text_encoder', lambda: 'qwen_3_8b_fp8mixed.safetensors')
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda: [])
+    captured = {}
+    monkeypatch.setattr(wk.queue_manager, 'add_job',
+                        lambda **kw: captured.update(kw) or kw['job_id'])
+    monkeypatch.setattr(wk, '_wait_for_job',
+                        lambda job_id, timeout: ('completed', 'wmklein_out.png', None))
+    monkeypatch.setattr(wk, '_read_comfy_output', lambda filename: _img_bytes(size=(64, 64)))
+
+    custom = 'remove necklace. Reconstruct the marked area.'
+    with app.app_context():
+        crop = Image.new('RGB', (64, 64), (10, 20, 30))
+        mask = Image.new('L', (64, 64), 0)
+        filled, err = wk._run_klein_mask_job(
+            'local', crop, mask, seed=7, prompt=custom)
+
+    assert err is None and filled is not None and filled.size == (64, 64)
+    wf = captured['workflow_data']
+    assert wf['52']['class_type'] == 'LoadImage'
+    assert wf['51']['class_type'] == 'LoadImageMask'
+    assert wf['53']['class_type'] == 'InpaintModelConditioning'
+    assert wf['53']['inputs']['positive'] == ['6', 0]
+    assert wf['53']['inputs']['mask'] == ['51', 0]
+    assert wf['77']['inputs']['latent_image'] == ['53', 2]
+    assert wf['77']['inputs']['steps'] == wk.KLEIN_MASK_STEPS
+    assert wf['6']['inputs']['text'] == custom
+    assert wf['51']['inputs']['image'].startswith('wmklein_mask_')
+    assert wf['52']['inputs']['image'].startswith('wmklein_crop_')
+    assert not list(tmp_path.glob('wmklein_*'))
+
+
+def test_inpaint_mask_klein_does_not_prefill(app, monkeypatch, tmp_path):
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk, '_prefill_region',
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError('mask inpaint must not prefill')))
+    seen = {}
+
+    def _fake_job(user_id, crop_img, mask_img, *, seed, timeout=None, **kwargs):
+        seen['mask'] = mask_img
+        seen['prompt'] = kwargs.get('prompt')
+        return crop_img, None
+
+    monkeypatch.setattr(wk, '_run_klein_mask_job', _fake_job)
+    img = tmp_path / 'face.webp'
+    Image.new('RGB', (64, 64), (30, 30, 30)).save(img, 'WEBP')
+    custom = 'remove earrings. Reconstruct the marked area.'
+    with app.app_context():
+        ok, err = wk.inpaint_mask_klein(
+            'local', str(img), [[0.2, 0.2, 0.4, 0.4]], seed=1, prompt=custom)
+    assert ok and err is None
+    assert seen.get('prompt') == custom
+    assert seen['mask'].mode == 'L'
+    assert seen['mask'].getextrema()[1] == 255
+
+
+def test_inpaint_mask_klein_sends_the_full_image_not_a_crop(app, monkeypatch, tmp_path):
+    """A box around the ear must NOT become a 1 MP face close-up."""
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    seen = {}
+
+    def _fake_job(user_id, image, mask_img, *, seed, timeout=None, **kwargs):
+        seen['size'] = image.size
+        seen['mask_size'] = mask_img.size
+        return image, None
+
+    monkeypatch.setattr(wk, '_run_klein_mask_job', _fake_job)
+    img = tmp_path / 'face.webp'
+    Image.new('RGB', (256, 256), (30, 30, 30)).save(img, 'WEBP')
+    with app.app_context():
+        ok, err = wk.inpaint_mask_klein(
+            'local', str(img), [[0.40, 0.42, 0.48, 0.50]], seed=1,
+            prompt='remove earrings')
+    assert ok and err is None
+    assert seen['size'] == (256, 256)
+    assert seen['mask_size'] == (256, 256)
+
+
 def test_run_klein_job_raises_when_required_asset_missing(app, monkeypatch, tmp_path):
     from app.services import watermark_klein as wk
     from app.services import klein_edit_helper as keh
@@ -2160,6 +2249,27 @@ def test_inpaint_klein_harmonizes_the_drifted_patch_into_the_neighbourhood(monke
     out = np.asarray(Image.open(img).convert('RGB'))
     centre = out[int(0.45 * 512), int(0.45 * 512), 0]
     assert abs(int(centre) - 120) <= 3        # +40 drift removed → matches the wall, not 160
+
+
+def test_inpaint_watermark_klein_forwards_a_custom_prompt(app, monkeypatch, tmp_path):
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk, '_prefill_region', lambda scaled, boxes, device='cpu': (scaled, None))
+    seen = {}
+
+    def _fake_klein(user_id, crop_img, *, seed, timeout=None, **kwargs):
+        seen.update(kwargs)
+        return crop_img, None
+
+    monkeypatch.setattr(wk, '_run_klein_job', _fake_klein)
+    img = tmp_path / 'wm.webp'
+    Image.new('RGB', (64, 64), (30, 30, 30)).save(img, 'WEBP')
+    custom = 'remove earrings. Reconstruct the marked area.'
+    with app.app_context():
+        ok, err = wk.inpaint_watermark_klein(
+            'local', str(img), [[0.2, 0.2, 0.4, 0.4]], seed=1, prompt=custom)
+    assert ok and err is None
+    assert seen.get('prompt') == custom
 
 
 def test_inpaint_klein_aborts_before_gpu_when_prefill_unavailable(app, monkeypatch, tmp_path):

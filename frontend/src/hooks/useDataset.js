@@ -963,6 +963,30 @@ export function useDataset() {
     return d;
   }, [currentId, refresh]);
 
+  const inpaintRegion = useCallback(async (imageId, mask, prompt) => wrap(async () => {
+    const d = await postJson(
+      `/api/dataset/${currentId}/image/${imageId}/region-inpaint`,
+      { mask, prompt },
+    );
+    if (d?.ok) {
+      setNonces((m) => ({ ...m, [imageId]: (m[imageId] || 0) + 1 }));
+      await refresh();
+    }
+    return d || { ok: false, error: 'Could not apply the touch-up' };
+  }), [currentId, refresh, wrap]);
+
+  const restoreRegionInpaint = useCallback(async (imageId) => wrap(async () => {
+    const d = await postJson(
+      `/api/dataset/${currentId}/image/${imageId}/region-inpaint/restore`,
+      {},
+    );
+    if (d?.ok) {
+      setNonces((m) => ({ ...m, [imageId]: (m[imageId] || 0) + 1 }));
+      await refresh();
+    }
+    return d || { ok: false, error: 'Could not reset the touch-up' };
+  }), [currentId, refresh, wrap]);
+
   const setStatus = useCallback(async (imageId, status) => {
     const d = await postJson(`/api/dataset/image/${imageId}/status`, { status });
     if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
@@ -1681,6 +1705,7 @@ export function useDataset() {
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, reimproveImage, improveBatch, classify, caption, recaption, recaptionImages,
            setStatus, setCaption, mirrorImage, rotateImage, crop, cropRef, cropExtraRef, recropRefAuto, editReference, retryReferenceEdit, canRetryReferenceEdit, keepEditedReference, discardEditedReference, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, cancelCaption, regenerate, analyzeFaces, scoreFace,
            findWatermarks, cancelWatermarkScan, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, repairImageRegion, undoImageRepair, dismissWatermarks, saveWatermarkRegions,
+           inpaintRegion, restoreRegionInpaint,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder,
            backupEverything, backupJob, downloadBackup, openBackupsFolder, dismissBackup, restoreJob, dismissRestore,
            refresh, train, stopTraining, continueTraining, continueTrainingInCloud,

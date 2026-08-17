@@ -168,6 +168,12 @@ export default function DatasetLightbox({
   // Opens the watermark mask editor on THIS image, flagged or not. Optional like
   // the rest: a caller that does not pass it simply shows no button.
   onMarkWatermark,
+  // Opens the region touch-up editor (paint a mask + a removal prompt). Optional
+  // like onMarkWatermark — omitted on the rescue-review preview.
+  onTouchUp,
+  // Reset every region touch-up when a write-once .touchup snapshot exists.
+  // Optional; omitted on the rescue-review preview like onTouchUp.
+  onRestoreTouchUp,
   busy = false,
   // The sentence a refused write shows (which pass holds this dataset, where it
   // is, what to do). Opening, zooming and comparing never consult it: they read
@@ -713,6 +719,22 @@ export default function DatasetLightbox({
             aria-label={refused || 'Repair an area of this image'}
             className="min-h-9 px-3 py-1.5 rounded-lg bg-sky-500/25 hover:bg-sky-500/35 text-sky-50 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
             ✦ Repair
+          </button>
+        )}
+        {onTouchUp && (
+          <button type="button" onClick={() => onTouchUp(img)} disabled={busy}
+            title={refused || 'Paint what to remove — jewelry, a blemish, makeup. Klein sees the whole photo and only changes the painted pixels.'}
+            aria-label={refused || 'Touch up a region of this image'}
+            className="min-h-9 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            🖌 Touch up
+          </button>
+        )}
+        {onRestoreTouchUp && img?.has_region_touchup && (
+          <button type="button" onClick={() => onRestoreTouchUp(img)} disabled={busy}
+            title={refused || 'Reset every touch-up — put back the file as it was before the first apply.'}
+            aria-label={refused || 'Reset region touch-up'}
+            className="min-h-9 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            ↩ Reset touch-up
           </button>
         )}
         {onMirror && (

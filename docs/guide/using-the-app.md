@@ -2084,6 +2084,33 @@ a separate copy. A rotated image is shown unrotated here, because the whole
 watermark lane works on your original file, which the ↻ turn never changed.
 
 
+## Touch up a region — jewelry, blemishes, makeup
+
+Watermark cleaning is for marks. **🖌 Touch up**, on a dataset image you are
+looking at, is Klein inpaint for everything else you want *gone* from a
+patch: a necklace, earrings, a skin blemish, leftover makeup.
+
+It is a **new action**, not a watermark flag. Painting here does not mark
+the image as watermarked.
+
+- **Paint** over what you want gone (brush / eraser / size). Klein sees the
+  **whole photo** and only changes the painted pixels — the same contract as
+  a painted mask in the Flux.2 Klein inpaint graph, not a cropped box.
+- Type what to remove (`remove necklace`) or tap a chip.
+- **Only the painted pixels change.** Everything else keeps its original
+  bytes.
+- **↩ Reset** brings back the file as it was before the first apply, even
+  after several touch-ups, and even if a watermark clean already ran on the
+  same image. The button only appears while that snapshot exists.
+- **Klein-only.** LaMa cannot follow a prompt and smears the patch; if Klein is
+  not ready the button says why.
+- Captions are **not** rewritten. If the caption named the necklace, re-caption
+  that image.
+
+This is removal, not recolouring: "change hair color to black" needs a later
+path.
+
+
 ## Reject every flagged image at once
 
 In a dataset, **🧽 Find watermarks** flags the kept images that carry an overlaid

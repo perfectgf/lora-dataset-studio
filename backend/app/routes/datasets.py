@@ -1407,6 +1407,54 @@ def dataset_image_watermark_restore(dataset_id, image_id):
     return jsonify({'ok': True, **result})
 
 
+@bp.post('/dataset/<int:dataset_id>/image/<int:image_id>/region-inpaint')
+def dataset_image_region_inpaint(dataset_id, image_id):
+    """Klein-only region touch-up: painted mask on the full image, then
+    InpaintModelConditioning following `{prompt}`. Body:
+    `{mask: data-URL PNG, prompt:str}`. `regions` is still accepted as a
+    fallback (rasterized onto the full frame, not cropped)."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    if 'prompt' not in data:
+        return jsonify({'error': 'prompt is required'}), 400
+    if not data.get('mask') and 'regions' not in data:
+        return jsonify({'error': 'mask is required'}), 400
+    resp = _klein_clean_preflight()
+    if resp is not None:
+        return resp
+    try:
+        result = svc.inpaint_region(
+            LOCAL_USER, dataset_id, image_id, data.get('regions'), data.get('prompt'),
+            mask=data.get('mask'))
+    except Exception as e:
+        from ..services.klein_edit_helper import KleinModelsMissing
+        if isinstance(e, KleinModelsMissing):
+            return _klein_missing_response(e.missing)
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
+
+
+@bp.post('/dataset/<int:dataset_id>/image/<int:image_id>/region-inpaint/restore')
+def dataset_image_region_inpaint_restore(dataset_id, image_id):
+    """Reset ALL region touch-ups on ONE image (the write-once ``.touchup``
+    sibling from before the first apply). Does not change watermark_state.
+    404 when the image isn't found/owned or no snapshot was preserved."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    try:
+        result = svc.restore_region_inpaint(LOCAL_USER, dataset_id, image_id)
+    except FileNotFoundError:
+        return jsonify({'error': 'no touch-up to reset'}), 404
+    except Exception as e:
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
+
+
 @bp.post('/dataset/image/<int:image_id>/status')
 def dataset_image_status(image_id):
     data = request.get_json(silent=True) or {}

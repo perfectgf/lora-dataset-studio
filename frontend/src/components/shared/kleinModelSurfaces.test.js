@@ -26,6 +26,7 @@ const SURFACES = {
   '../dataset/ConceptSourcesPanel.jsx': true,   // rescue of small scraped images
   '../dataset/DatasetWorkspace.jsx': true,      // 🧽 Clean, bulk
   '../dataset/WatermarkReviewLightbox.jsx': true,  // 🧽 Clean, one image
+  '../dataset/RegionTouchupDialog.jsx': true,      // 🖌 region touch-up
   '../bank/BankWatermarkPanel.jsx': false,      // bank inpaint — naming only
 };
 

@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-17-region-touchup',
+    date: '2026-08-17',
+    title: 'Paint out jewelry, blemishes or makeup on one image',
+    blurb:
+      'Open any dataset image and press 🖌 Touch up. Paint over what you want gone, type “remove necklace” (or tap a chip), and Klein inpaints only those pixels on the whole photo — the same contract as a painted mask in Comfy. Everything you did not paint keeps its original pixels. ↩ Reset brings back the file from before the first apply, even after several touch-ups. It does not flag the image as a watermark. Distinct from ✦ Repair, which draws a box and crops; this paints a mask on the full photo.',
+    to: '/datasets?section=images',
+  },
+  {
     id: '2026-08-17-undo-a-repair',
     date: '2026-08-17',
     title: 'Undo a repair, and try another description',
