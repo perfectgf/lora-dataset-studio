@@ -1376,6 +1376,23 @@ def dataset_image_repair(dataset_id, image_id):
     return jsonify({'ok': True, **result})
 
 
+@bp.post('/dataset/<int:dataset_id>/image/<int:image_id>/repair/undo')
+def dataset_image_repair_undo(dataset_id, image_id):
+    """↩ Put back the pixels from just before the last ✦ Repair.
+
+    One step deep, and it says nothing about watermarks — unlike
+    /watermark-restore, which re-flags the image as 'detected' because it undoes
+    a 🧽 Clean. {'undone': false} means there was nothing to undo.
+    """
+    try:
+        result = svc.undo_image_repair(LOCAL_USER, dataset_id, image_id)
+    except (ValueError, RuntimeError) as e:
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(result)
+
+
 @bp.post('/dataset/<int:dataset_id>/image/<int:image_id>/watermark-restore')
 def dataset_image_watermark_restore(dataset_id, image_id):
     """Undo a watermark Clean on ONE image: restore the preserved original in place and

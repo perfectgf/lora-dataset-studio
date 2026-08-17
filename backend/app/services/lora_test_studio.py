@@ -3310,6 +3310,9 @@ def repair_generated_image(user_id, image_id, boxes, prompt, *, seed=None) -> di
     if not fds._preserve_original(path):
         fds._discard_staged_watermark_edit(staged)
         raise ValueError('could not preserve the original; your file was left unchanged')
+    # One step of undo, from the CURRENT pixels (fds.repair_snapshot_path explains
+    # why this is not the write-once .orig sibling).
+    fds.take_repair_snapshot(path)
     try:
         ok, err = watermark_klein.inpaint_watermark_klein(
             user_id, staged, boxes, seed=seed, klein_model=klein_model, prompt=text)
@@ -3320,6 +3323,26 @@ def repair_generated_image(user_id, image_id, boxes, prompt, *, seed=None) -> di
     finally:
         fds._discard_staged_watermark_edit(staged)
     return {'ok': True, 'filename': row.filename}
+
+
+def undo_generated_repair(user_id, image_id) -> dict | None:
+    """↩ Undo the last ✦ Repair of a GENERATED image.
+
+    Same one-step contract as the dataset lane, and the same reason: an inpaint
+    is a dice roll, so iterating on the sentence has to be cheap. Asked for by a
+    user on Discord after the repair shipped.
+    """
+    row = db.session.get(LoraTestImage, image_id)
+    if row is None:
+        return None
+    if not fds.get_dataset(user_id, row.dataset_id):
+        return None
+    if not row.filename:
+        return None
+    path = os.path.join(fds._dataset_dir(row.dataset_id), row.filename)
+    if not os.path.isfile(path):
+        raise ValueError(REPAIR_FILE_GONE)
+    return {'ok': True, 'undone': fds.undo_repair_at(path), 'filename': row.filename}
 
 
 IMPROVE_FILE_GONE = 'that image file is no longer on disk'

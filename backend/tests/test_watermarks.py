@@ -2471,3 +2471,97 @@ def test_repair_hides_an_unknown_or_foreign_image(app, monkeypatch):
         with pytest.raises(LookupError):
             svc.repair_image_region('another-user', ds.id, 1,
                                     [[0.3, 0.3, 0.2, 0.2]], 'x')
+
+
+# --- ↩ Undo a repair (asked for on Discord right after ✦ Repair shipped) -------
+
+def test_undo_puts_the_pre_repair_pixels_back(app, monkeypatch):
+    """"If the repair makes things worse than before, a quick undo option to
+    change the prompt would be welcome." An inpaint is a dice roll, so iterating
+    on the sentence has to be cheap — and before this each attempt overwrote the
+    file with no way back."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+
+    def _fake_inpaint(user_id, path, boxes, **kw):
+        with open(path, 'wb') as fh:      # the "repair" visibly changes the file
+            fh.write(_img_bytes(color=(1, 2, 3)))
+        return True, None
+
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk, 'inpaint_watermark_klein', _fake_inpaint)
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'U', 'u')
+        img = _kept_image(svc, ds.id, 'shot.webp', state=None)
+        path = svc._img_path(img)
+        before = open(path, 'rb').read()
+
+        svc.repair_image_region(LOCAL_USER, ds.id, img.id,
+                                [[0.3, 0.3, 0.2, 0.2]], 'remove the necklace')
+        assert open(path, 'rb').read() != before, 'the repair did not change the file'
+
+        out = svc.undo_image_repair(LOCAL_USER, ds.id, img.id)
+        assert out == {'ok': True, 'undone': True}
+        assert open(path, 'rb').read() == before
+
+        # ONE step deep, and the snapshot is consumed: a second press cannot
+        # silently revert something the user did after the first undo.
+        assert svc.undo_image_repair(LOCAL_USER, ds.id, img.id)['undone'] is False
+
+
+def test_undo_does_not_claim_anything_about_watermarks(app, monkeypatch):
+    """restore_watermark_original re-flags the image as 'detected' because it
+    undoes a 🧽 Clean. A repair never said anything about a watermark, so undoing
+    one must not either."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _stub_klein(monkeypatch)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'U', 'u')
+        img = _kept_image(svc, ds.id, 'shot.webp', state=None)
+        svc.repair_image_region(LOCAL_USER, ds.id, img.id,
+                                [[0.3, 0.3, 0.2, 0.2]], 'remove it')
+        svc.undo_image_repair(LOCAL_USER, ds.id, img.id)
+        svc.db.session.refresh(img)
+        assert img.watermark_state is None
+
+
+def test_undo_of_a_repair_never_reaches_the_write_once_original(app, monkeypatch):
+    """The .orig sibling holds the pixels from before the FIRST edit ever made to
+    this file. Undoing a repair with it would also throw away a watermark clean
+    the user made earlier and still wants — so the undo uses its own one-step
+    snapshot and leaves .orig alone."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _stub_klein(monkeypatch)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'U', 'u')
+        img = _kept_image(svc, ds.id, 'shot.webp', state=None)
+        path = svc._img_path(img)
+        svc.repair_image_region(LOCAL_USER, ds.id, img.id,
+                                [[0.3, 0.3, 0.2, 0.2]], 'remove it')
+        stem, ext = os.path.splitext(path)
+        orig = f'{stem}.orig{ext}'
+        assert os.path.exists(orig)
+        orig_bytes = open(orig, 'rb').read()
+        svc.undo_image_repair(LOCAL_USER, ds.id, img.id)
+        assert open(orig, 'rb').read() == orig_bytes, 'the undo touched .orig'
+
+
+def test_every_dataset_file_writer_keeps_its_ingest_guard(app):
+    """REGRESSION GUARD, and it is not hypothetical: inserting a function just
+    above restore_watermark_original silently STOLE its @_serialize_dataset_ingest
+    decorator — the function kept working and lost both its per-dataset write lock
+    and the refusal to write while a bank export is landing in that dataset.
+
+    Every service function that overwrites a dataset image in place must carry it.
+    """
+    import inspect
+    from app.services import face_dataset_service as svc
+    for name in ('restore_watermark_original', 'repair_image_region', 'undo_image_repair'):
+        fn = getattr(svc, name)
+        src = inspect.getsource(fn)
+        # @wraps keeps __wrapped__ on the decorated function; a bare function has none.
+        assert hasattr(fn, '__wrapped__'), f'{name} lost its @_serialize_dataset_ingest'

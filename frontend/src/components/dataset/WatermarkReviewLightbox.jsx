@@ -92,7 +92,7 @@ function isInteractiveShortcutTarget(target) {
 
 export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces = {},
                                                   onSaveRegions, onClean, onRestore, onDismiss,
-                                                  onReject, onRepair, onClose }) {
+                                                  onReject, onRepair, onUndoRepair, onClose }) {
   const initialReviewStateRef = useRef(null);
   if (!initialReviewStateRef.current) {
     initialReviewStateRef.current = buildWatermarkReviewState(queue);
@@ -121,6 +121,10 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
      than a watermark reconstruction. Empty = the 🧽 lane, untouched.
      (mr.arrow: jewelry / skin imperfections; .samexit: fix one detail.) */
   const [repairPrompt, setRepairPrompt] = useState('');
+  /* Which images were repaired in THIS session — the ↩ undo is one step deep
+     and the server is the authority, but the button must not appear on an image
+     nobody has touched. */
+  const [repairedIds, setRepairedIds] = useState(() => new Set());
   // Per-image crop-vs-inpaint choice (id -> 'crop' | 'inpaint'). Only offered when a
   // SAFE border crop exists for the image (watermark_route === 'crop') and no manual
   // zones are drawn. Unset entries fall back to the persisted "Allow auto-crop" default.
@@ -361,9 +365,25 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
       // Deliberately NOT a terminal outcome: a repair is not a watermark verdict,
       // so the image keeps its own state and stays under the cursor — you look at
       // what came back and repair again if it is not right.
-      return { note: { tone: 'ok', text: 'Repaired — everything outside your zones is untouched.' } };
+      setRepairedIds((prev) => new Set(prev).add(it.id));
+      return { note: { tone: 'ok', text: 'Repaired — everything outside your zones is untouched. Not right? Change the description and repair again, or ↩ undo.' } };
     });
   }, [item, regions, repairPrompt, onRepair, run, waitForLatestSave]);
+
+  const doUndoRepair = useCallback(() => {
+    if (!item || !onUndoRepair) return;
+    return run('repair', async (it) => {
+      const d = await onUndoRepair(it.id);
+      if (!d || d.ok === false) {
+        return { note: { tone: 'err', text: (d && (d.error?.detail || d.error)) || 'Could not put the previous image back' } };
+      }
+      if (d.undone === false) {
+        return { note: { tone: 'err', text: 'Nothing to undo — this image has not been repaired since.' } };
+      }
+      setRepairedIds((prev) => { const n = new Set(prev); n.delete(it.id); return n; });
+      return { note: { tone: 'ok', text: 'Back to the image from just before the repair.' } };
+    });
+  }, [item, onUndoRepair, run]);
 
   const doClean = useCallback(() => {
     if (!item || outcome === 'cleaned' || !regions.length || manualLamaMissing) return;
@@ -748,6 +768,13 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
                 placeholder="…or repaint it: remove the necklace"
                 title="Repaint ONLY the zones you drew, from this description. Everything outside them stays byte-identical — unlike ✦ Edit, which re-renders the whole image."
                 className="min-w-[11rem] rounded border border-white/20 bg-black/40 px-2 py-1 text-[0.75rem] text-white placeholder:text-white/35 disabled:opacity-40" />
+              {onUndoRepair && repairedIds.has(item?.id) && (
+                <button type="button" onClick={doUndoRepair} disabled={actionBlocked}
+                  title="Put back the image from just before this repair, so you can try another description"
+                  className={`${btn} bg-amber-500/20 border border-amber-400/50 text-amber-100`}>
+                  ↩ Undo
+                </button>
+              )}
               <button type="button" onClick={doRepair}
                 disabled={actionBlocked || !regions.length || !repairPrompt.trim()}
                 title={!regions.length

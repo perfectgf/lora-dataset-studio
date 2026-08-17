@@ -931,6 +931,18 @@ export function useDataset() {
     return d;
   }, [currentId, refresh]);
 
+  /* ↩ One step back from a ✦ Repair. Distinct from restoreWatermarkImage, which
+     undoes a 🧽 Clean and re-flags the image as 'detected' — a repair never
+     claimed anything about a watermark, so undoing one must not either. */
+  const undoImageRepair = useCallback(async (imageId) => {
+    const d = await postJson(`/api/dataset/${currentId}/image/${imageId}/repair/undo`, {});
+    if (d.ok) {
+      setNonces((m) => ({ ...m, [imageId]: (m[imageId] || 0) + 1 }));
+    }
+    await refresh();
+    return d;
+  }, [currentId, refresh]);
+
   // Mark flagged image(s) as NOT a watermark (false positive) — badge clears and
   // future 🧽 Find passes skip them.
   const dismissWatermarks = useCallback(async (ids) => {
@@ -1668,7 +1680,7 @@ export function useDataset() {
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, reimproveImage, improveBatch, classify, caption, recaption, recaptionImages,
            setStatus, setCaption, mirrorImage, rotateImage, crop, cropRef, cropExtraRef, recropRefAuto, editReference, retryReferenceEdit, canRetryReferenceEdit, keepEditedReference, discardEditedReference, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, cancelCaption, regenerate, analyzeFaces, scoreFace,
-           findWatermarks, cancelWatermarkScan, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, repairImageRegion, dismissWatermarks, saveWatermarkRegions,
+           findWatermarks, cancelWatermarkScan, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, repairImageRegion, undoImageRepair, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder,
            backupEverything, backupJob, downloadBackup, openBackupsFolder, dismissBackup, restoreJob, dismissRestore,
            refresh, train, stopTraining, continueTraining, continueTrainingInCloud,

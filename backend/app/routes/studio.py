@@ -234,6 +234,19 @@ def studio_image_repair(image_id):
     return jsonify(result)
 
 
+@bp.post('/image/<int:image_id>/repair/undo')
+def studio_image_repair_undo(image_id):
+    """↩ Put back the pixels from just before the last ✦ Repair of a generated
+    image. One step deep. {'undone': false} = there was nothing to undo."""
+    try:
+        result = lts.undo_generated_repair(LOCAL_USER, image_id)
+    except (ValueError, RuntimeError) as e:
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(result)
+
+
 @bp.post('/describe-image')
 def studio_describe_image():
     """Describe an uploaded image into a ready-to-paste Studio TEST PROMPT (Ollama

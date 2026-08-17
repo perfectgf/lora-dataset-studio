@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-17-undo-a-repair',
+    date: '2026-08-17',
+    title: 'Undo a repair, and try another description',
+    blurb:
+      'An inpaint is a dice roll, so the normal way to use ✦ Repair is: look at it, decide it is not right, change the sentence, go again. That was expensive — each attempt overwrote the image with no way back. Now the dialog stays open after a repair so you can repair again straight away, and ↩ Undo puts back the picture from just before it. One step deep, and it deliberately never touches the original kept for ↩ Undo cleaning, so undoing a repair cannot throw away a watermark clean you made earlier. (Suggested by a user on Discord the day ✦ Repair shipped.)',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-17-repair-a-generated-image',
     date: '2026-08-17',
     title: 'Fix one detail of a render instead of regenerating it',

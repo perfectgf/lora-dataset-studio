@@ -9363,6 +9363,80 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
         dataset_activity.end(token)
 
 
+REPAIR_UNDO_SUFFIX = '.prerepair'
+
+
+def repair_snapshot_path(path) -> str:
+    """Where the ONE-STEP undo of a ✦ Repair lives, next to the image.
+
+    NOT the `.orig` sibling. That one is write-once and holds the pixels from
+    before the FIRST edit ever made to this file, so restoring it would also
+    throw away a watermark clean the user made earlier and still wants — a
+    surprise nobody asked for when they press "undo my repair". This snapshot is
+    taken immediately before each repair and overwritten by the next one: it
+    undoes exactly the last repair, and nothing else.
+    """
+    stem, ext = os.path.splitext(path)
+    return f'{stem}{REPAIR_UNDO_SUFFIX}{ext or ".webp"}'
+
+
+def undo_repair_at(path) -> bool:
+    """Put the pre-repair pixels back at `path`. False when there is nothing to
+    undo (no snapshot), which the callers turn into a 404 rather than a failure.
+
+    The snapshot is CONSUMED: one repair, one undo. Keeping it would let a second
+    press silently revert a repair the user made after the first undo.
+    """
+    snap = repair_snapshot_path(path)
+    if not os.path.exists(snap):
+        return False
+    try:
+        shutil.copy2(snap, path)
+        os.remove(snap)
+    except OSError as e:
+        logger.warning('repair undo failed for %s: %s', path, e)
+        raise ValueError('could not put the previous image back') from e
+    return True
+
+
+def take_repair_snapshot(path) -> None:
+    """Copy the CURRENT pixels aside so the repair about to run can be undone.
+    Overwrites any previous snapshot — the undo is one step deep by design."""
+    try:
+        shutil.copy2(path, repair_snapshot_path(path))
+    except OSError as e:
+        # Not fatal: the repair still has the write-once .orig behind it. But the
+        # user loses the one-click undo, so it is worth a line in the log.
+        logger.warning('could not snapshot %s before repair: %s', path, e)
+
+
+@_serialize_dataset_ingest
+def undo_image_repair(user_id, dataset_id, image_id) -> dict | None:
+    """↩ Undo the last ✦ Repair of a dataset image.
+
+    Asked for by a user on Discord: "if the repair makes things worse than
+    before, a quick undo option to change the prompt would be welcome". An
+    inpaint is a dice roll — iterating on the sentence is the normal gesture, and
+    without this each attempt overwrote the file with no way back.
+
+    Deliberately does NOT touch `watermark_state`, unlike
+    restore_watermark_original: a repair never claimed anything about a
+    watermark, so undoing it must not claim anything either.
+
+    None = unknown/not yours (404). ValueError = the snapshot could not be put
+    back. {'ok': True, 'undone': False} = nothing to undo.
+    """
+    if not get_dataset(user_id, dataset_id):
+        return None
+    img = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, id=int(image_id)).first()
+    if img is None:
+        return None
+    path = _img_path(img)
+    if not path or not os.path.isfile(path):
+        raise ValueError('this image is no longer on disk')
+    return {'ok': True, 'undone': undo_repair_at(path)}
+
+
 @_serialize_dataset_ingest
 def repair_image_region(user_id, dataset_id, image_id, boxes, prompt, *, seed=None) -> dict:
     """✦ Repaint ONE hand-drawn box of a dataset image from a FREE prompt, leaving
@@ -9426,6 +9500,9 @@ def repair_image_region(user_id, dataset_id, image_id, boxes, prompt, *, seed=No
     if not _preserve_original(path):
         _discard_staged_watermark_edit(staged)
         raise ValueError('could not preserve the original; your file was left unchanged')
+    # One step of undo, taken from the CURRENT pixels — see repair_snapshot_path
+    # for why this is not the .orig sibling.
+    take_repair_snapshot(path)
     try:
         ok, err = watermark_klein.inpaint_watermark_klein(
             user_id, staged, boxes, seed=seed, klein_model=klein_model, prompt=text)
@@ -9440,6 +9517,7 @@ def repair_image_region(user_id, dataset_id, image_id, boxes, prompt, *, seed=No
     return {'ok': True}
 
 
+@_serialize_dataset_ingest
 def restore_watermark_original(user_id, dataset_id, image_id) -> dict | None:
     """Undo a watermark Clean on ONE image: copy the preserved `<stem>.orig<ext>` back
     over the current file and flip the row from 'cleaned' (or 'failed') back to

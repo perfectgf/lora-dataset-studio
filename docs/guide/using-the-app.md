@@ -1960,6 +1960,12 @@ A few things worth knowing:
   left exactly as it was.
 - **An empty description is refused**, on purpose. Falling back to the watermark
   sentence would repaint your zone with an intention you never expressed.
+- **↩ Undo puts the previous image back**, one step deep, so trying another
+  description costs nothing — which is the normal way to use this: look, not
+  right, change the sentence, go again. The dialog stays open after a repair for
+  exactly that. The undo is consumed once used, and it never reaches the
+  write-once original kept for ↩ Undo cleaning — undoing a repair must not throw
+  away a watermark clean you made earlier and still want.
 - It runs on Klein through ComfyUI, one round-trip per repair.
 
 **On a picture you just generated, too.** Open a generated image full size — on

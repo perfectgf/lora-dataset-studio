@@ -187,7 +187,7 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
   /* ✦ Repair one detail instead of regenerating the whole picture
      (.samexit, Discord). Absent = the button is not drawn, so a surface that
      has no route for it shows nothing rather than a dead control. */
-  onRepair = null }) {
+  onRepair = null, onRepairUndo = null }) {
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
   const [repairOpen, setRepairOpen] = useState(false);
@@ -330,7 +330,8 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
           context — a sibling would need a fragment and would sit under it. */}
       <RepairDialog open={repairOpen} src={img?.url} alt={alt}
         onClose={(result) => { setRepairOpen(false); if (result && onRepair?.done) onRepair.done(result); }}
-        onSubmit={({ boxes, prompt }) => onRepair.submit(img.id, boxes, prompt)} />
+        onSubmit={({ boxes, prompt }) => onRepair.submit(img.id, boxes, prompt)}
+        onUndo={onRepairUndo} />
     </div>
   );
 }

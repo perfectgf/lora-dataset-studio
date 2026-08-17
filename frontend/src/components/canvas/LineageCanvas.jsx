@@ -2430,6 +2430,10 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
             postJson(`/api/studio/image/${imageId}/repair`, { boxes, prompt }),
           done: () => onRefetchDataset?.(pinnedZoom?.dataset_id),
         } : undefined}
+        /* ↩ One step back, so trying another description costs nothing. */
+        onRepairUndo={canImproveCanvasImage(pinnedZoom)
+          ? () => postJson(`/api/studio/image/${pinnedZoom.id}/repair/undo`, {})
+          : undefined}
         datasetId={pinnedZoom?.dataset_id ?? null} />
 
       {/* 🪪 The lane's reference face, full size — and only that. A reference

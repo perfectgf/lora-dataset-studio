@@ -21,7 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import WatermarkRegionEditor from '../dataset/WatermarkRegionEditor';
 
-export default function RepairDialog({ open, src, alt = 'image', onClose, onSubmit }) {
+export default function RepairDialog({ open, src, alt = 'image', onClose, onSubmit, onUndo = null }) {
   const dialogRef = useRef(null);
   const [regions, setRegions] = useState([]);
   const [addMode, setAddMode] = useState(true);
@@ -29,12 +29,20 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  /* The dialog STAYS OPEN on success. An inpaint is a dice roll: the gesture
+     people actually make is look → not right → change the sentence → go again.
+     Closing on success forced a full round trip for every attempt. `bust` is
+     what makes the new pixels visible — the file is overwritten in place, so
+     the URL does not move. (Asked for on Discord right after ✦ Repair shipped.) */
+  const [done, setDone] = useState(false);
+  const [bust, setBust] = useState(0);
   useFocusTrap(dialogRef, open);
 
   // A fresh dialog never inherits the previous image's zones or sentence.
   useEffect(() => {
     if (!open) return;
     setRegions([]); setPrompt(''); setError(null); setSelected(null); setAddMode(true);
+    setDone(false); setBust(0);
   }, [open, src]);
 
   useEffect(() => {
@@ -54,13 +62,37 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
         setError((d && (d.error?.detail || d.error)) || 'The repair failed.');
         return;
       }
-      onClose(d);
+      setDone(true);
+      setBust((n) => n + 1);
     } catch (e) {
       setError(e?.message || 'The repair failed.');
     } finally {
       setBusy(false);
     }
-  }, [regions, prompt, busy, onSubmit, onClose]);
+  }, [regions, prompt, busy, onSubmit]);
+
+  const undo = useCallback(async () => {
+    if (!onUndo || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const d = await onUndo();
+      if (!d || d.ok === false) {
+        setError((d && (d.error?.detail || d.error)) || 'Could not put the previous image back.');
+        return;
+      }
+      if (d.undone === false) {
+        setError('There was nothing to undo — this image has not been repaired since.');
+        return;
+      }
+      setDone(false);
+      setBust((n) => n + 1);
+    } catch (e) {
+      setError(e?.message || 'Could not put the previous image back.');
+    } finally {
+      setBusy(false);
+    }
+  }, [onUndo, busy]);
 
   if (!open) return null;
   const ready = regions.length > 0 && !!prompt.trim();
@@ -81,13 +113,20 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
       </div>
 
       <div className="flex min-h-0 flex-1 items-center justify-center">
-        <WatermarkRegionEditor src={src} alt={alt} regions={regions} disabled={busy}
+        <WatermarkRegionEditor src={bust ? `${src}${src.includes('?') ? '&' : '?'}r=${bust}` : src}
+          alt={alt} regions={regions} disabled={busy}
           addMode={addMode} selectedIndex={selected}
           onAddModeChange={setAddMode} onSelectedIndexChange={setSelected}
           onCommit={setRegions} />
       </div>
 
       <div className="mt-2 flex flex-col gap-2">
+        {done && !error && (
+          <p role="status" className="m-0 rounded-lg border border-sky-400/40 bg-sky-500/10 px-3 py-1.5 text-[0.75rem] text-sky-100">
+            ✦ Repaired — everything outside your zone is untouched. Not right? Change the
+            description and repair again, or ↩ undo.
+          </p>
+        )}
         {error && (
           <p role="alert" className="m-0 rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-1.5 text-[0.75rem] text-red-200">
             {error}
@@ -97,9 +136,16 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
           <input type="text" value={prompt} onChange={(e) => setPrompt(e.target.value)}
             disabled={busy} placeholder='What should be there? e.g. "remove the extra finger"'
             className="min-w-[16rem] flex-1 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/35 disabled:opacity-40" />
-          <button type="button" onClick={() => onClose()} disabled={busy}
+          {done && onUndo && (
+            <button type="button" onClick={undo} disabled={busy}
+              title="Put back the image from just before this repair, so you can try another description"
+              className="rounded-lg border border-amber-400/50 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-40">
+              ↩ Undo repair
+            </button>
+          )}
+          <button type="button" onClick={() => onClose(done ? { ok: true } : undefined)} disabled={busy}
             className="rounded-lg border border-white/25 px-4 py-2 text-sm text-white disabled:opacity-40">
-            Cancel
+            {done ? 'Done' : 'Cancel'}
           </button>
           <button type="button" onClick={run} disabled={!ready || busy}
             title={!regions.length
@@ -108,7 +154,7 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
                 ? 'Say what should be painted in that area'
                 : 'Repaint only the drawn zone — everything outside it stays byte-identical'}
             className="rounded-lg border border-sky-400/60 bg-sky-500/25 px-5 py-2 text-sm font-semibold text-sky-50 disabled:opacity-40">
-            {busy ? '✦ Repairing…' : '✦ Repair'}
+            {busy ? '✦ Repairing…' : done ? '✦ Repair again' : '✦ Repair'}
           </button>
         </div>
       </div>
