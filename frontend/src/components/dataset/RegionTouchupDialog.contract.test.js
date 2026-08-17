@@ -15,6 +15,18 @@ test('touch-up paints a mask instead of drawing boxes', () => {
   assert.match(brush, /cssBrushCursor/);
   assert.match(brush, /cursor: disabled \? 'default' : cursorCss/);
   assert.doesNotMatch(brush, /setCursor/);
+  assert.match(brush, /max-h-\[100cqh\]/);
+  assert.doesNotMatch(brush, /70vh/);
+});
+
+test('touch-up parks the controls beside a portrait and under a landscape', () => {
+  assert.match(dialog, /decideActionPlacement/);
+  assert.match(dialog, /rememberImageRatio/);
+  assert.match(dialog, /readImageRatio/);
+  assert.match(dialog, /placement === 'rail'/);
+  assert.match(dialog, /w-\[17rem\]/);
+  assert.match(dialog, /locked: applying/);
+  assert.match(dialog, /onNaturalSize/);
 });
 
 test('touch-up is Klein-only and names the model', () => {

@@ -79,13 +79,16 @@ export default function InpaintBrushEditor({
   eraser = false,
   brushCss = 24,
   onDirty,
+  onNaturalSize,
   canvasRef,
 }) {
   const imageRef = useRef(null);
   const localCanvasRef = useRef(null);
   const dragRef = useRef(null);
   const onDirtyRef = useRef(onDirty);
+  const onNaturalSizeRef = useRef(onNaturalSize);
   onDirtyRef.current = onDirty;
+  onNaturalSizeRef.current = onNaturalSize;
   const cursorCss = useMemo(() => cssBrushCursor(brushCss, eraser), [brushCss, eraser]);
   const setCanvas = (node) => {
     localCanvasRef.current = node;
@@ -101,6 +104,7 @@ export default function InpaintBrushEditor({
       canvas.width = image.naturalWidth;
       canvas.height = image.naturalHeight;
     }
+    onNaturalSizeRef.current?.(image.naturalWidth, image.naturalHeight);
   }, []);
 
   useEffect(() => {
@@ -153,7 +157,7 @@ export default function InpaintBrushEditor({
 
   return (
     <div
-      className="relative inline-block max-h-[min(70vh,calc(100cqh_-_1.5rem))] max-w-[min(92vw,100cqw)] leading-none"
+      className="relative inline-block max-h-[100cqh] max-w-[100cqw] leading-none"
       role="group"
       aria-label="Touch-up brush"
       onClick={(event) => event.stopPropagation()}
@@ -166,7 +170,7 @@ export default function InpaintBrushEditor({
         draggable={false}
         onLoad={fitCanvas}
         onDragStart={(event) => event.preventDefault()}
-        className="block max-h-[min(70vh,calc(100cqh_-_1.5rem))] max-w-[min(92vw,100cqw)] select-none"
+        className="block max-h-[100cqh] max-w-[100cqw] select-none"
       />
       <canvas
         ref={setCanvas}
