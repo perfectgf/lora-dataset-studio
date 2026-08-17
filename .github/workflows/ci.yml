@@ -266,7 +266,12 @@ jobs:
         # hardened for it (in-memory SQLite per app instance, shared registries
         # reset by fixtures). `auto` sizes to the runner rather than pinning a
         # count — the local dev box uses 8, a 4-vCPU runner should use 4.
-        run: python -m pytest backend/tests -q -n auto --dist loadfile
+        # --basetemp: SHORT on purpose. The default runner temp path is already
+        # deep, xdist appends /popen-gwN per worker on top, and
+        # test_docker_launcher_fake_e2e asserts on a message PowerShell wraps by
+        # path length — measured: it fails at the default path, passes at a short
+        # one. D: is the runner's workspace drive.
+        run: python -m pytest backend/tests -q -n auto --dist loadfile --basetemp=D:/t
 
   frontend-quality:
     name: Frontend tests and build
