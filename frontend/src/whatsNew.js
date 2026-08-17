@@ -54,7 +54,7 @@ export const WHATS_NEW = [
     date: '2026-08-17',
     title: 'Repaint one detail — and only that detail',
     blurb:
-      'Until now the app had two halves of this and neither was the whole thing. 🧽 Clean repaints exactly the box you draw and leaves every pixel outside it byte-identical, but its instruction was frozen on watermark reconstruction. ✦ Edit takes any instruction but re-renders the whole image, drifting outside the part you cared about. ✦ Repair is the first lane with both: draw the zone, type what should be there ("remove the necklace"), and only that zone is repainted — the rest comes back to the byte. It stamps no watermark verdict, refuses an empty description rather than guessing, and preserves your original before writing anything, so a failed repair costs you nothing. (Asked for independently by mr.arrow and .samexit on Discord.)',
+      'Until now the app had two halves of this and neither was the whole thing. 🧽 Clean repaints exactly the box you draw and leaves every pixel outside it byte-identical, but its instruction was frozen on watermark reconstruction. ✦ Edit takes any instruction but re-renders the whole image, drifting outside the part you cared about. ✦ Repair is the first lane with both: open an image, press ✦ Repair in the action bar, draw the zone, type what should be there ("remove the necklace"), and only that zone is repainted — the rest comes back to the byte. It stamps no watermark verdict, refuses an empty description rather than guessing, and preserves your original before writing anything, so a failed repair costs you nothing. (Asked for independently by mr.arrow and .samexit on Discord.)',
     to: '/datasets',
   },
   {

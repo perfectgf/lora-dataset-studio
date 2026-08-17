@@ -1941,10 +1941,14 @@ frozen on "reconstruct a clean, natural image", so it could only ever be aimed a
 a watermark. **✦ Edit**, the other lane, takes any instruction but re-renders the
 **whole** image, which drifts outside the area you cared about.
 
-**✦ Repair** is the first lane with both. Open an image in the watermark review
-view, draw the zone (the same editor as the mask), type what should be there —
-*"remove the necklace"* — and press **✦ Repair**. Only that zone is repainted.
-Everything outside it comes back exactly as it was, to the byte.
+**✦ Repair** is the first lane with both. Open the image (click its tile) and press
+**✦ Repair** in the action bar. Draw the zone, type what should be there —
+*"remove the necklace"* — and press **✦ Repair** again. Only that zone is
+repainted. Everything outside it comes back exactly as it was, to the byte.
+
+The 🚩 button next to it opens the same editor from the other intention — you
+spotted a watermark the scan missed. Same screen, same zones; what differs is
+whether you press 🧽 Clean or ✦ Repair once you are there.
 
 A few things worth knowing:
 

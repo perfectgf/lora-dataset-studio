@@ -701,6 +701,20 @@ export default function DatasetLightbox({
             🚩 {watermarkMaskButtonLabel(img)}
           </button>
         )}
+        {/* ✦ THE SAME DOOR, NAMED FOR THE OTHER INTENTION. The zone editor behind
+            🚩 now does two jobs: flag a watermark the scan missed, and repaint any
+            area from your own words. Someone who wants a necklace gone will never
+            look under a button labelled "watermark" — measured the hard way: the
+            feature shipped and the person who asked for it could not find it.
+            Two intentions, two buttons, one destination; the tooltip says so. */}
+        {onMarkWatermark && img?.watermark_state !== 'cleaned' && (
+          <button type="button" onClick={() => onMarkWatermark(img)} disabled={busy}
+            title={refused || 'Repaint part of this image from your own description — draw the area, say what should be there ("remove the necklace"), and everything outside it stays byte-identical. Opens the same zone editor as 🚩.'}
+            aria-label={refused || 'Repair an area of this image'}
+            className="min-h-9 px-3 py-1.5 rounded-lg bg-sky-500/25 hover:bg-sky-500/35 text-sky-50 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            ✦ Repair
+          </button>
+        )}
         {onMirror && (
           <button type="button" onClick={mirror} disabled={busy || mirrorBusy}
             aria-busy={mirrorBusy}
