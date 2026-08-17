@@ -49,6 +49,12 @@ during a wave, so the full gate belongs at the **push**, not at every commit.
 
 Parallel runs are safe here — xdist workers are separate processes, the app uses
 an in-memory SQLite per instance and every shared registry is reset by a fixture.
+A worker does occasionally die mid-run (measured: once in five full runs, on a
+different test each time, none reproducible on their own). So a red from a
+parallel run is not a verdict: **replay the named test on its own before you
+believe it**, and re-run the suite. A crash that does not reproduce is the
+runner, not your change.
+
 Keep it at 8: each worker holds its own app, and `-n auto` (24 workers on a
 24-core box) exhausted memory and killed a worker mid-run. Give `--basetemp` a
 SHORT path: xdist appends `/gwN` per worker, and a long one trips a
