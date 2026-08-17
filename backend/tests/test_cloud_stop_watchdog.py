@@ -371,3 +371,33 @@ def test_stop_route_surfaces_the_failure(app, client, monkeypatch):
     body = r.get_json()
     assert r.status_code == 200
     assert body['ok'] is False and '90001' in body['error']
+
+
+def test_stopping_can_ban_the_host_but_only_when_the_user_says_so(ct, app, monkeypatch):
+    """"Do not rent this machine again", asked for by mr.arrow on Discord.
+
+    It has to be a deliberate tick rather than an automatic rule. The app bans a
+    host when a boot fails, stalls, or cannot serve its checkpoint — all of them
+    failures it can classify. A pod that boots fine and then simply trains at
+    half speed produces NO failure at all, so nothing here would ever ban it;
+    the person watching the throughput is the only one who knows. And the
+    reverse is just as true: stopping because you changed your mind says nothing
+    about the box, which is why a plain stop must leave it alone.
+    """
+    banned = []
+    with app.app_context():
+        run = _mkrun(ct, updated_at=datetime.utcnow())
+        _stub_destroy(ct, monkeypatch)
+        ct._monitor_threads[run.id] = _FakeThread(alive=True)
+        monkeypatch.setattr(ct, '_blacklist_run_host',
+                            lambda r, reason, ttl_seconds=None: banned.append(reason))
+
+        ct.request_stop(run.id)
+        assert banned == [], 'a plain stop must never exile the machine'
+
+    with app.app_context():
+        run2 = _mkrun(ct, updated_at=datetime.utcnow())
+        ct._monitor_threads[run2.id] = _FakeThread(alive=True)
+        ct.request_stop(run2.id, ban_host=True)
+        assert len(banned) == 1
+        assert 'again' in banned[0].lower()

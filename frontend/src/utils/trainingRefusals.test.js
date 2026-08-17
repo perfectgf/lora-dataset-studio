@@ -241,7 +241,10 @@ test('every mutating handler of the Runs hub says something when it is refused',
   // These three had `try { … } finally { … }` (or no try at all) before #23.
   for (const handler of [
     /const retry = async \(run\) => \{[\s\S]*?\n  \};/,
-    /const stop = async \(run\) => \{[\s\S]*?\n  \};/,
+    // Renamed to doStop when the native confirm became a dialog (the ban-this-host
+    // tick box could not live in a window.confirm). Same handler, same duty: a
+    // refused stop leaves a pod BILLING, so it may never fail silently.
+    /const doStop = async \(run, \{[\s\S]*?\n  \};/,
   ]) {
     const body = page.match(handler)?.[0];
     assert.ok(body, `handler not found: ${handler}`);

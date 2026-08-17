@@ -30,6 +30,7 @@ import {
 import { continueAttemptOutcome } from '../utils/continueOutcome';
 import { podBootFailureView, stopButtonLabel, uploadStallFailureView } from '../utils/launchProgress';
 import { runSilenceWarning, stopOutcomeMessage } from '../utils/runSilence';
+import CloudStopDialog from '../components/shared/CloudStopDialog';
 import { runsHubContinueLanes } from '../utils/runsHubContinueLanes';
 import {
   canFetchDenseLocally,
@@ -363,6 +364,9 @@ export default function CloudRunsPage() {
   const location = useLocation();
   const [data, setData] = useState(null);
   const [stopping, setStopping] = useState({});     // run_id -> bool
+  // ⏹ Which run's stop dialog is open (null = none). The dialog exists so the
+  // confirmation can also carry "do not rent this machine again".
+  const [stopTarget, setStopTarget] = useState(null);
   const [recheckingDelivery, setRecheckingDelivery] = useState({});
   const [stoppingLocal, setStoppingLocal] = useState(false);
   // Recent-history depth. The 5 s poll stays light by default (15); "Load older
@@ -553,19 +557,17 @@ export default function CloudRunsPage() {
     navigate(`/dataset/studio/${id}`);
   };
 
-  const stop = async (run) => {
-    const who = run.dataset_name || run.run_name || `run #${run.run_id}`;
-    const fullModel = isFullTransformerRun(run);
-    const consequence = fullModel
-      ? 'AI Toolkit uploads the full model to Hugging Face only when the run finishes cleanly. '
-        + 'The latest checkpoint can be permanently lost if it has not been uploaded yet, '
-        + 'even if an older checkpoint is already available on the Hub.'
-      : 'The pod is terminated. Any LoRA checkpoint reached so far is still downloaded '
-        + 'and importable — you only lose the remaining steps.';
-    if (!window.confirm(`Stop the cloud run for “${who}”?\n\n${consequence}`)) return;
+  /* The confirm became a real dialog so it could carry one more decision the
+     native one never could: "and do not rent this machine again". See
+     components/shared/CloudStopDialog.jsx (asked for by mr.arrow on Discord). */
+  const stop = (run) => setStopTarget(run);
+
+  const doStop = async (run, { banHost = false } = {}) => {
+    setStopTarget(null);
     setStopping((m) => ({ ...m, [run.run_id]: true }));
     try {
-      const d = await postJson('/api/dataset/train/cloud/stop', { run_id: run.run_id });
+      const d = await postJson('/api/dataset/train/cloud/stop',
+        banHost ? { run_id: run.run_id, ban_host: true } : { run_id: run.run_id });
       const m = stopOutcomeMessage(d);
       // A failed termination is the expensive case: keep it on screen (the
       // instance id in the text is what the user needs in the vast console).
@@ -1493,6 +1495,11 @@ export default function CloudRunsPage() {
           error={continueError}
           onResolve={submitContinue} />
       )}
+
+      <CloudStopDialog run={stopTarget}
+        fullModel={!!stopTarget && isFullTransformerRun(stopTarget)}
+        onCancel={() => setStopTarget(null)}
+        onConfirm={({ banHost }) => doStop(stopTarget, { banHost })} />
     </section>
   );
 }

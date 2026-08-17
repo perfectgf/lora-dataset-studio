@@ -2811,7 +2811,9 @@ def dataset_train_cloud_stop():
     hand (HTTP stays 200 — the request was understood, the outcome is in the
     body, which is what the UI renders)."""
     d = request.get_json(silent=True) or {}
-    res = ct.request_stop(d.get('run_id'))
+    # {ban_host: true} = "and do not rent this machine again" (mr.arrow,
+    # Discord). Opt-in: a stop alone says nothing about the host.
+    res = ct.request_stop(d.get('run_id'), ban_host=bool(d.get('ban_host')))
     if not isinstance(res, dict):       # defensive: legacy bool contract
         res = {'ok': bool(res)}
     return jsonify(res)

@@ -179,7 +179,8 @@ def test_cloud_progress_and_stop(client, monkeypatch):
                             'step': 5, 'total': 100, 'samples': []})
     r = client.get(f'/api/dataset/{ds}/train/cloud/progress')
     assert r.status_code == 200 and r.get_json()['phase'] == 'training'
-    monkeypatch.setattr('app.services.cloud_training.request_stop', lambda run_id=None: True)
+    monkeypatch.setattr('app.services.cloud_training.request_stop',
+                        lambda run_id=None, ban_host=False: True)
     assert client.post('/api/dataset/train/cloud/stop').get_json()['ok'] is True
 
 
@@ -187,8 +188,9 @@ def test_cloud_stop_forwards_run_id(client, monkeypatch):
     monkeypatch.setenv('VAST_API_KEY', 'k-test')
     seen = {}
 
-    def fake_request_stop(run_id=None):
+    def fake_request_stop(run_id=None, ban_host=False):
         seen['run_id'] = run_id
+        seen['ban_host'] = ban_host
         return True
 
     monkeypatch.setattr('app.services.cloud_training.request_stop', fake_request_stop)
@@ -201,6 +203,27 @@ def test_cloud_stop_forwards_run_id(client, monkeypatch):
     r = client.post('/api/dataset/train/cloud/stop')
     assert r.status_code == 200 and r.get_json()['ok'] is True
     assert seen['run_id'] is None
+    # The host ban is OPT-IN: a plain stop must never quietly exile a machine.
+    assert seen['ban_host'] is False
+
+
+def test_cloud_stop_forwards_the_host_ban_only_when_asked(client, monkeypatch):
+    """"Do not rent this machine again" is the user's verdict, not ours: a pod
+    that booted fine and then trains at half speed produces no failure the app
+    could classify, so nothing but the person watching it can ban that box.
+    (Asked for by mr.arrow on Discord.)"""
+    monkeypatch.setenv('VAST_API_KEY', 'k-test')
+    seen = {}
+
+    def fake_request_stop(run_id=None, ban_host=False):
+        seen['ban_host'] = ban_host
+        return True
+
+    monkeypatch.setattr('app.services.cloud_training.request_stop', fake_request_stop)
+    client.post('/api/dataset/train/cloud/stop', json={'run_id': 7, 'ban_host': True})
+    assert seen['ban_host'] is True
+    client.post('/api/dataset/train/cloud/stop', json={'run_id': 7})
+    assert seen['ban_host'] is False
 
 
 def test_cloud_sample_served_from_staging(client, app, monkeypatch, tmp_path):

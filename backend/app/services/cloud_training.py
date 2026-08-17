@@ -4077,11 +4077,20 @@ def _force_stop(run, detail, error=None) -> dict:
             'error': message, 'instance_id': iid}
 
 
-def _stop_one(run) -> dict:
+def _stop_one(run, ban_host=False) -> dict:
     # Decide BEFORE writing anything: stamping stop_requested_at bumps
     # updated_at, which would make a frozen run look freshly alive.
     responsive = _monitor_is_responsive(run)
     _stop_event_for(run.id).set()
+    if ban_host:
+        # THE USER SAYING SO IS THE SIGNAL, and it has to be, because the app
+        # cannot read it off the run. A stop means "I changed my mind" as often
+        # as "this box is bad" — which is exactly why the boot path only bans
+        # after 8 minutes of a stuck boot and stays silent otherwise. A pod that
+        # booted fine and then trains at half speed produces no failure at all,
+        # so nothing here would ever ban it; the person watching the throughput
+        # is the only one who knows. (Asked for by mr.arrow on Discord.)
+        _blacklist_run_host(run, 'you asked not to rent this machine again')
     if not run.stop_requested_at:
         _set(run, stop_requested_at=datetime.utcnow())
     if responsive:
@@ -4099,9 +4108,14 @@ def _stop_one(run) -> dict:
         error='stopped by user without a responsive monitor')
 
 
-def request_stop(run_id=None) -> dict:
+def request_stop(run_id=None, ban_host=False) -> dict:
     """Stop one run (or every active run when run_id is None) and report what
     ACTUALLY happened.
+
+    ``ban_host`` is the user answering "and do not rent this machine again": it
+    adds the run's host to the same blacklist a failed boot feeds, on the same
+    TTL (``cloud.host_blacklist_days``, 3 by default). It is opt-in because a
+    stop carries no verdict about the box on its own.
 
     Historically this only set an in-process threading.Event and returned True
     as long as the row was active — so when the monitor thread was dead or
@@ -4117,7 +4131,7 @@ def request_stop(run_id=None) -> dict:
         return {'ok': False, 'mode': 'none', 'runs': [],
                 'error': 'No active cloud run to stop — it may have already '
                          'finished.'}
-    results = [_stop_one(run) for run in runs]
+    results = [_stop_one(run, ban_host=ban_host) for run in runs]
     failed = [r for r in results if not r['ok']]
     modes = {r['mode'] for r in results}
     return {'ok': not failed,

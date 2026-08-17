@@ -26,6 +26,7 @@ import { preflightUrl } from '../components/dataset/preflightLane.js';
 const panel = readFileSync(new URL('../components/dataset/TrainingPanel.jsx', import.meta.url), 'utf8');
 const datasetHook = readFileSync(new URL('../hooks/useDataset.js', import.meta.url), 'utf8');
 const runsPage = readFileSync(new URL('../pages/CloudRunsPage.jsx', import.meta.url), 'utf8');
+const stopDialog = readFileSync(new URL('../pages/cloudStopDialog.js', import.meta.url), 'utf8');
 
 test('training mode enum is exact and every legacy or invalid value falls back to LoRA', () => {
   assert.equal(TRAINING_MODE_LORA, 'lora');
@@ -590,7 +591,12 @@ test('full run cards surface Hub status and suppress LoRA-only actions', () => {
   assert.match(runsPage, /!fullModel && run\.dataset_id != null/);
   assert.match(runsPage, /!fullModel && run\.record_id != null/);
   assert.match(runsPage, /isFullTransformerRun\(run\) && \([\s\S]*?<FullArtifactStatus run=\{run\}/);
-  assert.match(runsPage, /AI Toolkit uploads the full model to Hugging Face only when the run finishes cleanly/);
+  // The stop consequence moved into pages/cloudStopDialog.js when the confirm
+  // became a dialog — same sentence, one testable home, still the sentence a
+  // full-model run must show before it can lose its latest checkpoint.
+  assert.match(stopDialog, /AI Toolkit uploads the full model to Hugging Face only when the run finishes cleanly/);
+  assert.match(runsPage, /<CloudStopDialog run=\{stopTarget\}/);
+  assert.match(runsPage, /fullModel=\{!!stopTarget && isFullTransformerRun\(stopTarget\)\}/);
   assert.match(runsPage, /Verify Hugging Face delivery/);
   assert.match(runsPage, /Retry pod cleanup/);
   assert.match(runsPage, /\/api\/dataset\/train\/cloud\/recheck-delivery/);
