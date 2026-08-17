@@ -3255,7 +3255,7 @@ def _normalized_backup_image_meta(meta, *, version=BACKUP_VERSION):
         'watermark_state', 16,
         allowed=('none', 'detected', 'dismissed', 'cleaned', 'failed', 'error'))
     out['watermark_source'] = optional_text(
-        'watermark_source', 16, allowed=('detector', 'vision'))
+        'watermark_source', 16, allowed=('detector', 'vision', 'manual'))
     out['watermark_score'] = optional_number('watermark_score', 0.0, 1.0)
 
     def box_storage(field, *, many):

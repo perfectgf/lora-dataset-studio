@@ -198,6 +198,40 @@ def test_restore_rebuilds_datasets_on_clean_db(app, tmp_path):
         assert os.path.isfile(os.path.join(d, alice_imgs[0].filename))
 
 
+def test_restore_preserves_a_manually_marked_watermark(app, tmp_path):
+    """A hand-drawn watermark box sets FaceDatasetImage.watermark_source='manual'
+    (face_dataset_service.mask_watermark_region). The backup import validator's
+    allow-list only knew 'detector'/'vision', so every dataset carrying a
+    manually marked image was rejected whole on restore with "invalid backup
+    image watermark_source" — reported by firebird4579 (Discord), master-archive
+    restore on Python 3.10.6."""
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as svc
+    from app.services import full_backup as fb
+    from app.models import FaceDatasetImage
+
+    with app.app_context():
+        _dataset_with_image(svc, LOCAL_USER, 'Liza', 'liza')
+        img = FaceDatasetImage.query.filter_by(
+            dataset_id=svc.list_datasets(LOCAL_USER)[0].id).one()
+        img.watermark_state = 'detected'
+        img.watermark_source = 'manual'
+        svc.db.session.commit()
+
+        out = str(tmp_path / 'master.zip')
+        fb.build_full_backup(LOCAL_USER, out)
+        for ds in list(svc.list_datasets(LOCAL_USER)):
+            svc.delete_dataset(LOCAL_USER, ds.id)
+
+        report = fb.restore_full_backup(LOCAL_USER, out)
+        assert report['ok'] and report['restored'] == 1
+        assert report['skipped'] == [], report['skipped']
+
+        restored_img = FaceDatasetImage.query.filter_by(
+            dataset_id=svc.list_datasets(LOCAL_USER)[0].id).one()
+        assert restored_img.watermark_source == 'manual'
+
+
 def test_restore_name_collision_gets_a_suffix(app, tmp_path):
     from app.config import LOCAL_USER
     from app.services import face_dataset_service as svc
