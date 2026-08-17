@@ -333,7 +333,7 @@ A trained LoRA is not automatically a good LoRA. Test Studio compares checkpoint
 
 - sweep positive, over-cooked and slider-negative strengths;
 - compare several LoRAs from the same model family;
-- turn an image into a prompt with local vision, or draw a random non-empty caption from a chosen dataset;
+- turn an image into a prompt with local vision, or draw a random non-empty caption from a chosen dataset **or bank**;
 - vote, compute a Wilson ranking and optionally rank Character results by face similarity;
 - flip adjacent variants in place and export a labelled grid.
 

@@ -3051,6 +3051,34 @@ The graph embedded in a dataset's *Checkpoints & LoRAs* panel is unchanged and
 still holds the per-checkpoint actions (download, deploy, continue from here,
 inline previews). The canvas is a second way in, not a replacement.
 
+## Undeploy several LoRAs at once
+
+Deploying a checkpoint copies it into ComfyUI's `loras` folder so you can use it
+in a workflow. Over a few months of training that folder fills up, and taking
+LoRAs back out used to be a one-at-a-time errand: open a run's checkpoint pill,
+open its popover, press ⏏ Undeploy, repeat. Nothing anywhere even told you how
+many were deployed.
+
+**⏏ Undeploy…** at the top of the **Canvas** page opens the whole list at once —
+every LoRA this app has put into ComfyUI, across *all* your datasets and all
+families, grouped by dataset. Tick the ones you want gone, press the button, and
+they go in one pass. **Select all** is there for the clear-out.
+
+**Only what the app deployed is listed.** A LoRA you downloaded yourself and
+dropped in the same folder never appears, and is never touched — the list is
+built from the app's own record of what it imported, not from a directory scan.
+That distinction matters because this screen deletes files.
+
+**It is the reversible half.** Your *training saves* are kept: every LoRA you
+undeploy can be deployed again from its checkpoint whenever you want. The
+removed copies go to the trash, recoverable until you empty it in
+**Settings ▸ Maintenance**.
+
+The run reports what it actually did, in three parts, because they are not the
+same thing: how many were **removed**, how many were **already gone** (you had
+deleted the file by hand — no error, you have the outcome you asked for), and how
+many were **refused**, each named so you can act on it.
+
 ## Upscale a picture straight from the board
 
 Click a pinned picture (🔍, or the picture itself) and the full-screen view now

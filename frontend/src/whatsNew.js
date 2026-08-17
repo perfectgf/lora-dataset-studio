@@ -50,6 +50,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-17-canvas-bulk-undeploy',
+    date: '2026-08-17',
+    title: 'Undeploy a pile of LoRAs in one go',
+    blurb:
+      'Taking LoRAs back out of ComfyUI was a one-at-a-time errand buried in a checkpoint popover, and nothing anywhere told you how many were deployed. ⏏ Undeploy… at the top of the Canvas now opens the whole list — every LoRA the app has put into ComfyUI, across all your datasets and families, grouped by dataset. Tick what goes, press once, done; Select all is there for the clear-out. Only what the app deployed is listed, so a LoRA you downloaded into the same folder is never shown and never touched. Your training saves are kept — anything you undeploy can be deployed again from its checkpoint — and the removed copies go to the trash. The result is reported in three parts rather than a flat "done": removed, already gone, and refused (each one named).',
+    to: '/canvas',
+  },
+  {
+    id: '2026-08-17-caption-draw-from-a-bank',
+    date: '2026-08-17',
+    title: 'Draw a test prompt from a bank, not just a dataset',
+    blurb:
+      'The 🎲 Caption shortcut — the one that fills a test prompt with a real caption instead of something you invent — could only read datasets. But a bank is captioned by the 🏷️ Caption pass long before anything is promoted, so the biggest pile of real captions on your machine was the one it could not reach. The picker now lists your banks alongside your datasets, in their own section (a bank and the dataset it promotes into often share a name, so they are never mixed into one list). Your existing locked choice is untouched.',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-16-bank-crop-and-upscale',
     date: '2026-08-16',
     title: 'Crop and upscale without leaving the Bank',

@@ -16,6 +16,7 @@ import { tidyLaneRows } from '../utils/canvasPinBatch';
 import { useToast } from '../components/common/Toast';
 import CanvasDatasetFilter from '../components/canvas/CanvasDatasetFilter';
 import LineageCanvas from '../components/canvas/LineageCanvas';
+import CanvasUndeployPanel from '../components/canvas/CanvasUndeployPanel';
 import { HelpBadge } from '../help/HelpMode';
 
 /* ◉ LoRA Canvas — every dataset's training genealogy on one board.
@@ -51,6 +52,8 @@ export default function CanvasPage() {
   const [storedFamilies, setStoredFamilies] = useState(() => readFamilySelection(
     typeof localStorage !== 'undefined' ? localStorage : null));
   const [query, setQuery] = useState('');
+  // ⏏ Is the whole-install "what is deployed in ComfyUI" panel open.
+  const [undeployOpen, setUndeployOpen] = useState(false);
   const [extraFilters, setExtraFilters] = useState(() => readCanvasExtraFilters(
     typeof localStorage !== 'undefined' ? localStorage : null));
   // dataset_id -> { status: 'loading'|'ready'|'error', tree, error }
@@ -473,6 +476,15 @@ export default function CanvasPage() {
           <span aria-hidden>◉</span> LoRA Canvas
           <span className="px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.625rem] font-semibold uppercase tracking-wide">Beta</span>
           <HelpBadge topic="page-canvas" />
+          {/* ⏏ An INSTALL-wide action, so it lives on the page chrome rather
+              than on the board: what is deployed in ComfyUI has nothing to do
+              with which lanes are currently in view. ml-auto keeps it off the
+              title at every width. */}
+          <button type="button" onClick={() => setUndeployOpen(true)}
+            title="List every LoRA this app deployed into ComfyUI and remove the ones you tick. Your training saves are kept — each one can be deployed again."
+            className="ml-auto rounded-md border border-border px-2 py-1 text-[0.6875rem] font-medium text-content-muted hover:bg-surface-raised hover:text-content">
+            <span aria-hidden>⏏</span> Undeploy…
+          </button>
         </h1>
         <p className="mt-1 hidden text-content-muted text-[0.75rem] lg:block">
           Every training run you have made, on one board: each dataset gets a lane, each run a card,
@@ -523,6 +535,9 @@ export default function CanvasPage() {
             onPinLane={onPinLane} onTidyUp={onTidyUp}
             onRefetchDataset={onRefetchDataset} />
         )}
+
+      <CanvasUndeployPanel open={undeployOpen}
+        onClose={() => setUndeployOpen(false)} />
     </div>
   );
 }

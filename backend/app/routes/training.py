@@ -1654,6 +1654,76 @@ def dataset_train_checkpoint_delete(dataset_id):
     return jsonify({'ok': True, 'removed': removed})
 
 
+@bp.get('/deployed-loras')
+def deployed_loras_list():
+    """Every LoRA this app deployed into ComfyUI, across all datasets/families.
+
+    Ungated on purpose, exactly like the per-dataset list it aggregates: seeing
+    what is deployed — and being able to take it back — must not depend on
+    ai-toolkit being configured, because a cloud-only install deploys too.
+    """
+    return jsonify({'deployed': lt.list_all_deployed_checkpoints(LOCAL_USER)})
+
+
+@bp.post('/deployed-loras/undeploy')
+def deployed_loras_undeploy():
+    """Remove SEVERAL deployed LoRAs from ComfyUI's loras folders in one pass.
+
+    Body: {items: [{dataset_id, filename, train_type}]} — the rows the list route
+    returned, ticked. Same gate and same underlying call as the single-pill
+    undeploy, so a bulk removal can never reach a file the one-at-a-time route
+    would have refused.
+
+    ANSWERS A LEDGER, NOT AN "OK". Every other bulk action in this app reports
+    what it actually moved, and this one has three outcomes worth telling apart:
+    removed, already gone (someone deleted the file by hand — not an error), and
+    failed. A flat {ok: true} over 20 files would hide the two that did not go.
+    """
+    gate = _require_aitoolkit()
+    if gate and not capabilities.probe().get('cloud_training'):
+        return gate
+    body = request.get_json(silent=True) or {}
+    items = body.get('items')
+    if not isinstance(items, list) or not items:
+        return jsonify({'error': 'items must be a non-empty list'}), 400
+    removed, missing, failed = [], [], []
+    for item in items:
+        if not isinstance(item, dict):
+            failed.append({'filename': '', 'error': 'malformed item'})
+            continue
+        fn = item.get('filename') or ''
+        ds_id = item.get('dataset_id')
+        if (isinstance(ds_id, bool) or not isinstance(ds_id, int)
+                or not svc.get_dataset(LOCAL_USER, ds_id)):
+            failed.append({'filename': fn, 'error': 'dataset not found'})
+            continue
+        try:
+            lt.delete_imported_checkpoint(
+                LOCAL_USER, ds_id, fn, family=item.get('train_type') or None)
+        except ValueError as e:
+            # A refusal has two very different causes, and the exception says the
+            # same thing for both ('unknown checkpoint'): the file was deleted by
+            # hand since the list was drawn — nothing to do, and the user already
+            # has the outcome they clicked for — or the name is not one this app
+            # deployed, which they must be told about. Only the disk can tell.
+            if not lt.deployed_file_present(LOCAL_USER, ds_id, fn,
+                                            family=item.get('train_type') or None):
+                missing.append(fn)
+            else:
+                current_app.logger.warning('bulk undeploy refused %s: %s', fn, e)
+                failed.append({'filename': fn, 'error': str(e)[:200]})
+            continue
+        except Exception as e:
+            # One bad row must not abandon the rest of the selection — the whole
+            # point of the screen is doing many at once.
+            current_app.logger.warning('bulk undeploy failed for %s: %s', fn, e)
+            failed.append({'filename': fn, 'error': str(e)[:200]})
+            continue
+        removed.append(fn)
+    return jsonify({'ok': True, 'removed': removed, 'missing': missing,
+                    'failed': failed})
+
+
 @bp.post('/dataset/<int:dataset_id>/train/run-checkpoint/delete')
 def dataset_train_run_checkpoint_delete(dataset_id):
     """Move ONE RUN checkpoint to the trash — run-dir file, or a cloud run's
