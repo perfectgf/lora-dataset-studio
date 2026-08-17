@@ -1720,7 +1720,9 @@ def _stub_klein(monkeypatch, *, available=True, result=(True, None), recorder=No
 
     def _fake(user_id, path, boxes, **kwargs):
         if recorder is not None:
-            recorder.append({'path': path, 'boxes': boxes})
+            # kwargs too: the free prompt of the ✦ repair lane lives there, and a
+            # recorder blind to it cannot prove what Klein was actually asked.
+            recorder.append({'path': path, 'boxes': boxes, **kwargs})
         return result
 
     monkeypatch.setattr(wk, 'inpaint_watermark_klein', _fake)
@@ -1997,6 +1999,53 @@ def test_run_klein_job_wires_workflow_and_returns_filled(app, monkeypatch, tmp_p
     assert wf['6']['inputs']['text'] == wk.KLEIN_INPAINT_PROMPT
     # the input crop was cleaned up after the run
     assert not list(tmp_path.glob('wmklein_*'))
+
+
+def test_run_klein_job_takes_a_free_prompt_without_moving_the_cleaning_lane(
+        app, monkeypatch, tmp_path):
+    """The masked repaint can be STEERED, and the watermark lane must not notice.
+
+    The mask + byte-exact composite machinery was only ever reachable with one
+    frozen sentence, so "repaint exactly this box, but paint THIS" was
+    impossible — the only prompted lane (✦ Edit) re-renders the whole image and
+    drifts outside the zone. Asked for by mr.arrow (remove jewelry / skin
+    imperfections) and .samexit (fix one detail of a fresh generation) on
+    Discord, independently.
+
+    Two halves, both asserted: a caller that says nothing still sends the exact
+    reconstruction prompt the cleaner has always sent, and a caller that says
+    something gets it in node 6 AND on the queue row (which is what the user
+    reads back in the job list).
+    """
+    from app.services import watermark_klein as wk
+    from app.services import klein_edit_helper as keh
+
+    monkeypatch.setattr(wk, '_comfy_input_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(wk, '_comfy_output_dir', lambda: None)
+    monkeypatch.setattr(keh, 'resolve_klein_unet', lambda selected=None: 'klein\\unet.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_vae', lambda: 'flux2-vae.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_text_encoder', lambda: 'qwen_3_8b_fp8mixed.safetensors')
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda: [])
+    captured = {}
+    monkeypatch.setattr(wk.queue_manager, 'add_job',
+                        lambda **kw: captured.update(kw) or kw['job_id'])
+    monkeypatch.setattr(wk, '_wait_for_job',
+                        lambda job_id, timeout: ('completed', 'wmklein_out.png', None))
+    monkeypatch.setattr(wk, '_read_comfy_output', lambda filename: _img_bytes(size=(64, 64)))
+
+    with app.app_context():
+        crop = Image.new('RGB', (64, 64), (10, 20, 30))
+        wk._run_klein_job('local', crop, seed=7, prompt='remove the necklace')
+        assert captured['workflow_data']['6']['inputs']['text'] == 'remove the necklace'
+        assert captured['prompt'] == 'remove the necklace'
+
+        # Blank / whitespace is NOT a prompt: it falls back rather than sending an
+        # empty conditioning, which would repaint the box with nothing in mind.
+        for blank in (None, '', '   '):
+            captured.clear()
+            wk._run_klein_job('local', crop, seed=7, prompt=blank)
+            assert captured['workflow_data']['6']['inputs']['text'] == wk.KLEIN_INPAINT_PROMPT
+            assert captured['prompt'] == wk.KLEIN_INPAINT_PROMPT
 
 
 def test_run_klein_job_raises_when_required_asset_missing(app, monkeypatch, tmp_path):
@@ -2345,3 +2394,80 @@ def test_a_cleaned_image_still_refuses_a_zone(app):
                 LOCAL_USER, ds.id, img.id, [[0.1, 0.1, 0.2, 0.2]])
 
         assert img.watermark_state == 'cleaned'
+
+
+# --- ✦ Repair a drawn box from a FREE prompt (the masked lane, unfrozen) -------
+
+def test_repair_sends_the_users_prompt_and_stamps_no_watermark_verdict(app, monkeypatch):
+    """Asked for independently by mr.arrow (jewelry, skin imperfections) and
+    .samexit (fix one detail instead of regenerating a whole image).
+
+    Two things are asserted because both were missing before: the prompt reaches
+    Klein, and the repair does NOT touch `watermark_state`. Stamping one would
+    make the flag lie in both directions — an image nobody said was watermarked
+    would read as cleaned.
+    """
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    calls = []
+    _stub_klein(monkeypatch, recorder=calls)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'R', 'r')
+        img = _kept_image(svc, ds.id, 'shot.webp', state=None)
+        out = svc.repair_image_region(LOCAL_USER, ds.id, img.id,
+                                      [[0.3, 0.3, 0.2, 0.2]], 'remove the necklace')
+        assert out == {'ok': True}
+        assert len(calls) == 1
+        assert calls[0]['prompt'] == 'remove the necklace'
+        svc.db.session.refresh(img)
+        assert img.watermark_state is None
+
+
+def test_repair_refuses_a_blank_prompt_and_touches_nothing(app, monkeypatch):
+    """A blank prompt must NOT fall back to the watermark reconstruction
+    sentence: the caller asked for a prompted repair, and repainting the box
+    with an intention nobody expressed is worse than refusing."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    calls = []
+    _stub_klein(monkeypatch, recorder=calls)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'R', 'r')
+        img = _kept_image(svc, ds.id, 'shot.webp', state=None)
+        before = open(svc._img_path(img), 'rb').read()
+        for blank in (None, '', '   '):
+            with pytest.raises(ValueError):
+                svc.repair_image_region(LOCAL_USER, ds.id, img.id,
+                                        [[0.3, 0.3, 0.2, 0.2]], blank)
+        assert calls == [], 'nothing may reach the GPU without a prompt'
+        assert open(svc._img_path(img), 'rb').read() == before
+
+
+def test_repair_leaves_the_file_untouched_when_klein_fails(app, monkeypatch):
+    """The master is preserved BEFORE anything is written, so a failed repair
+    costs the user nothing — the same guarantee the cleaning lane gives."""
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _stub_klein(monkeypatch, result=(False, {'kind': 'failed', 'detail': 'boom'}))
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'R', 'r')
+        img = _kept_image(svc, ds.id, 'shot.webp', state=None)
+        before = open(svc._img_path(img), 'rb').read()
+        with pytest.raises(ValueError):
+            svc.repair_image_region(LOCAL_USER, ds.id, img.id,
+                                    [[0.3, 0.3, 0.2, 0.2]], 'remove the necklace')
+        assert open(svc._img_path(img), 'rb').read() == before
+
+
+def test_repair_hides_an_unknown_or_foreign_image(app, monkeypatch):
+    from app.services import face_dataset_service as svc
+    from app.config import LOCAL_USER
+    _stub_klein(monkeypatch)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'R', 'r')
+        with pytest.raises(LookupError):
+            svc.repair_image_region(LOCAL_USER, ds.id, 999999,
+                                    [[0.3, 0.3, 0.2, 0.2]], 'x')
+        with pytest.raises(LookupError):
+            svc.repair_image_region('another-user', ds.id, 1,
+                                    [[0.3, 0.3, 0.2, 0.2]], 'x')

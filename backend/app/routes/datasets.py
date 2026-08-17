@@ -1344,6 +1344,38 @@ def dataset_image_watermark_regions(dataset_id, image_id):
     return jsonify({'ok': True, **result})
 
 
+@bp.post('/dataset/<int:dataset_id>/image/<int:image_id>/repair')
+def dataset_image_repair(dataset_id, image_id):
+    """✦ Repaint the hand-drawn box(es) of ONE image from a FREE prompt, keeping
+    every pixel outside them byte-identical.
+
+    The masked lane with its prompt unfrozen — asked for independently by
+    mr.arrow (jewelry, skin imperfections) and .samexit (fix one detail instead
+    of regenerating). {boxes: [[x,y,w,h] normalised…], prompt: "…"}.
+
+    A missing prompt is a 400 rather than a silent fall back to the watermark
+    reconstruction sentence: the caller asked for a prompted repair, and painting
+    something nobody asked for is worse than refusing.
+    """
+    data = request.get_json(silent=True) or {}
+    boxes = data.get('boxes') or data.get('regions')
+    if not boxes:
+        return jsonify({'error': 'boxes is required — draw the area to repair'}), 400
+    try:
+        result = svc.repair_image_region(LOCAL_USER, dataset_id, image_id,
+                                        boxes, data.get('prompt'))
+    except LookupError:
+        return jsonify({'error': 'not found'}), 404
+    except Exception as e:
+        # A vanished Klein model keeps its own actionable 409 (it names the file
+        # and offers the download) instead of being flattened into a 400.
+        engine_error = _improve_engine_error(e)
+        if engine_error:
+            return engine_error
+        return _map_error(e)
+    return jsonify({'ok': True, **result})
+
+
 @bp.post('/dataset/<int:dataset_id>/image/<int:image_id>/watermark-restore')
 def dataset_image_watermark_restore(dataset_id, image_id):
     """Undo a watermark Clean on ONE image: restore the preserved original in place and

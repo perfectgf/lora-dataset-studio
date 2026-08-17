@@ -431,7 +431,8 @@ def _wait_for_job(job_id, timeout):
 
 
 def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
-                   denoise=KLEIN_DENOISE, timeout=KLEIN_TIMEOUT, klein_model=None):
+                   denoise=KLEIN_DENOISE, timeout=KLEIN_TIMEOUT, klein_model=None,
+                   prompt=None):
     """Enqueue one full-edit refine job on the PRE-FILLED `crop_img` and return
     (filled_crop_image, None) or (None, error). The crop must already be watermark-free —
     it becomes the KSampler latent AND the ReferenceLatent (no SetLatentNoiseMask). Isolated
@@ -481,7 +482,14 @@ def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
     workflow['10']['inputs']['vae_name'] = vae
     workflow['90']['inputs']['clip_name'] = te
     workflow['52']['inputs']['image'] = crop_name
-    workflow['6']['inputs']['text'] = KLEIN_INPAINT_PROMPT
+    # A CALLER may steer what is painted back in. None keeps the watermark
+    # reconstruction prompt, so the cleaning lane sends the exact same graph it
+    # always did — a test pins that value. What the free prompt unlocks is the
+    # ONE thing this machinery could not do: a masked, prompted repair that
+    # leaves every pixel outside the box byte-identical, instead of the ✦ Edit
+    # lane's full re-render. (Asked for by mr.arrow and .samexit on Discord.)
+    text = (prompt or '').strip() or KLEIN_INPAINT_PROMPT
+    workflow['6']['inputs']['text'] = text
     workflow['77']['inputs']['seed'] = int(seed)
     workflow['77']['inputs']['steps'] = max(1, int(steps))
     workflow['77']['inputs']['denoise'] = float(denoise)
@@ -490,7 +498,7 @@ def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
     job_id = str(uuid.uuid4())
     try:
         queue_manager.add_job(job_type='image', user_id=str(user_id), workflow_data=workflow,
-                              prompt=KLEIN_INPAINT_PROMPT, job_id=job_id,
+                              prompt=text, job_id=job_id,
                               metadata={'model_name': 'watermark_klein'})
         status, filename, err_msg = _wait_for_job(job_id, timeout)
     finally:
@@ -515,7 +523,7 @@ def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
 
 def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cpu',
                             timeout=KLEIN_TIMEOUT,
-                            klein_model=None) -> tuple[bool, dict | None]:
+                            klein_model=None, prompt=None) -> tuple[bool, dict | None]:
     """Remove the watermark(s) at normalized `boxes` from `image_path` via PREFILL + Klein
     full-edit refine + pixel-space composite, overwriting the file in place (WEBP q92, same
     as LaMa; the caller preserves the .orig). Returns the `(ok, error)` tuple contract:
@@ -554,7 +562,7 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cp
 
     seed = random.randint(0, 2 ** 63 - 1) if seed is None else int(seed)
     filled_scaled, err = _run_klein_job(user_id, prefilled, seed=seed, timeout=timeout,
-                                        klein_model=klein_model)
+                                        klein_model=klein_model, prompt=prompt)
     if err:
         return False, err
     filled_crop = (filled_scaled if filled_scaled.size == (cw, ch)

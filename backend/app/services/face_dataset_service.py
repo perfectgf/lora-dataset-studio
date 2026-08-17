@@ -9364,6 +9364,82 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
 
 
 @_serialize_dataset_ingest
+def repair_image_region(user_id, dataset_id, image_id, boxes, prompt, *, seed=None) -> dict:
+    """✦ Repaint ONE hand-drawn box of a dataset image from a FREE prompt, leaving
+    every pixel outside it byte-identical.
+
+    Asked for independently by two people on Discord: mr.arrow wanted the
+    watermark remover pointed at jewelry and skin imperfections, .samexit wanted
+    to fix one detail of a picture without regenerating the whole thing. Both
+    describe the same hole. The app had two lanes and neither could do it:
+
+      · 🧽 Clean repaints exactly a box and preserves everything outside it —
+        but its prompt is FROZEN on watermark reconstruction, so it cannot be
+        aimed at anything else;
+      · ✦ Edit takes any prompt — but re-renders the WHOLE image, which drifts
+        outside the zone (the mouth-and-teeth drift reported on this very lane).
+
+    So this is the masked lane with the prompt unfrozen. It reuses the cleaning
+    lane's safety verbatim rather than a second copy: an upright disposable
+    sibling is staged (EXIF orientation is what the boxes were drawn against), the
+    master is preserved as .orig BEFORE anything is written, and the edit is
+    promoted only once Klein succeeded — a failure leaves the user's file exactly
+    as it was.
+
+    It deliberately does NOT touch `watermark_state`: this is a repair the user
+    asked for, not a verdict about a watermark, and stamping one would make the
+    flag lie in both directions.
+
+    Raises LookupError (unknown dataset/image), ValueError (no prompt, no usable
+    box, unreadable image) and keh.KleinModelGone. Returns {'ok': True}.
+    """
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise LookupError('dataset not found')
+    img = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, id=int(image_id)).first()
+    if img is None:
+        raise LookupError('image not found')
+    text = (prompt or '').strip()
+    if not text:
+        # A blank prompt here is NOT the cleaning default: the caller asked for a
+        # prompted repair, and silently reconstructing "a clean natural image"
+        # instead would repaint the box with an intention nobody expressed.
+        raise ValueError('a prompt is required — say what should be painted in that area')
+    # Both imported HERE, like every other user of them in this module. `keh` is
+    # not a module-level name on purpose — further down the same alias means
+    # krea_edit_helper, so importing it at the top would be a trap, not a
+    # convenience — and watermark_klein is only ever pulled in where it is used.
+    from . import watermark_klein
+    from . import klein_edit_helper as keh
+    if not watermark_klein.is_available():
+        raise ValueError('Klein is not ready (ComfyUI unreachable or models missing)')
+    klein_model = dataset_klein_model(ds)
+    if klein_model and not keh.klein_model_on_disk(klein_model):
+        raise keh.KleinModelGone(klein_model)
+
+    path = _img_path(img)
+    if not path or not os.path.isfile(path):
+        raise ValueError('this image is no longer on disk')
+    staged = _stage_oriented_watermark_edit(path)
+    if not staged:
+        raise ValueError('could not stage the image (EXIF orientation)')
+    if not _preserve_original(path):
+        _discard_staged_watermark_edit(staged)
+        raise ValueError('could not preserve the original; your file was left unchanged')
+    try:
+        ok, err = watermark_klein.inpaint_watermark_klein(
+            user_id, staged, boxes, seed=seed, klein_model=klein_model, prompt=text)
+        if not ok:
+            detail = (err or {}).get('detail') or 'the repair failed'
+            raise ValueError(detail)
+        if not _promote_staged_watermark_edit(staged, path):
+            raise ValueError('the repair rendered but could not be written back')
+    finally:
+        _discard_staged_watermark_edit(staged)
+    db.session.commit()
+    return {'ok': True}
+
+
 def restore_watermark_original(user_id, dataset_id, image_id) -> dict | None:
     """Undo a watermark Clean on ONE image: copy the preserved `<stem>.orig<ext>` back
     over the current file and flip the row from 'cleaned' (or 'failed') back to
