@@ -30,6 +30,28 @@ from ..services import face_dataset_service as svc
 bp = Blueprint('backup', __name__, url_prefix='/api/backup')
 
 
+class _SeekableProxy:
+    """Makes `.seekable()` answer True on a stream that seek()/tell() already
+    proved seekable, but whose class doesn't expose the attribute.
+
+    Werkzeug spools a large upload into a `tempfile.SpooledTemporaryFile`, and
+    on Python < 3.11 that class does not proxy `seekable` at all (fixed by
+    https://github.com/python/cpython/issues/85781). `zipfile.ZipFile.open()`
+    reads `file.seekable` as a bare attribute, so the missing one raises
+    `AttributeError: 'SpooledTemporaryFile' object has no attribute
+    'seekable'` on every restore past that size — reported by firebird4579
+    (Discord) on Python 3.10.6. Everything else is delegated straight through."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def seekable(self):
+        return True
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
 def _uploaded_stream(file_storage):
     """A rewound, seekable upload stream, enforcing the archive cap."""
     stream = file_storage.stream
@@ -41,6 +63,8 @@ def _uploaded_stream(file_storage):
         raise ValueError('uploaded archive is not seekable') from exc
     if size > int(current_app.config['DATASET_ARCHIVE_MAX_UPLOAD_BYTES']):
         raise RequestEntityTooLarge()
+    if not callable(getattr(stream, 'seekable', None)):
+        stream = _SeekableProxy(stream)
     return stream
 
 
