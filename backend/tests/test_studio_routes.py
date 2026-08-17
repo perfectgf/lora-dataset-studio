@@ -6,6 +6,7 @@ exercise `create_run`/`create_comparison_run` patch the service layer instead
 of the gate, since those are covered end-to-end by test_studio_service.py.
 """
 import json
+import os
 
 
 def _create(client, name='Nova', trigger='nova'):
@@ -806,3 +807,108 @@ def test_studio_enhance_prompt_is_not_gated_on_comfyui(client, monkeypatch):
                         lambda p: 'enriched')
     resp = client.post('/api/studio/enhance-prompt', json={'prompt': 'a girl'})
     assert resp.status_code == 200
+
+
+# --- ✦ Repair a GENERATED image (.samexit, Discord) ---------------------------
+
+def _generated(app, ds_id, filename='gen.webp', status='done'):
+    """A finished generated image with a real file in the dataset folder."""
+    from app.extensions import db
+    from app.models import LoraTestImage
+    from app.services import face_dataset_service as fds
+    from PIL import Image
+    with app.app_context():
+        d = fds._dataset_dir(ds_id)
+        os.makedirs(d, exist_ok=True)
+        Image.new('RGB', (256, 256), (90, 90, 90)).save(os.path.join(d, filename), 'WEBP')
+        row = LoraTestImage(dataset_id=ds_id, checkpoint='z image\\x.safetensors',
+                            strength=1.0, filename=filename, status=status)
+        db.session.add(row)
+        db.session.commit()
+        return row.id
+
+
+def _stub_klein_ok(monkeypatch, recorder=None, result=(True, None)):
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+
+    def _fake(user_id, path, boxes, **kw):
+        if recorder is not None:
+            recorder.append({'path': path, 'boxes': boxes, **kw})
+        return result
+
+    monkeypatch.setattr(wk, 'inpaint_watermark_klein', _fake)
+
+
+def test_repair_of_a_generated_image_sends_the_prompt(client, app, monkeypatch):
+    """Fix one detail instead of regenerating the whole picture (.samexit).
+
+    The dataset lane already did this; a generated image simply has no
+    FaceDatasetImage row to hang it on, so it is addressed by its LoraTestImage
+    id and the file is resolved server-side.
+    """
+    calls = []
+    _stub_klein_ok(monkeypatch, recorder=calls)
+    ds_id = _create(client)
+    img_id = _generated(app, ds_id)
+    r = client.post(f'/api/studio/image/{img_id}/repair',
+                    json={'boxes': [[0.3, 0.3, 0.2, 0.2]], 'prompt': 'remove the extra finger'})
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['ok'] is True
+    assert len(calls) == 1 and calls[0]['prompt'] == 'remove the extra finger'
+
+
+def test_repair_of_a_generated_image_refuses_a_blank_prompt(client, app, monkeypatch):
+    calls = []
+    _stub_klein_ok(monkeypatch, recorder=calls)
+    ds_id = _create(client)
+    img_id = _generated(app, ds_id)
+    for payload in ({'boxes': [[0.3, 0.3, 0.2, 0.2]]},
+                    {'boxes': [[0.3, 0.3, 0.2, 0.2]], 'prompt': '   '}):
+        r = client.post(f'/api/studio/image/{img_id}/repair', json=payload)
+        assert r.status_code == 400
+    assert calls == [], 'nothing may reach the GPU without a prompt'
+
+
+def test_repair_of_a_generated_image_needs_a_zone(client, app, monkeypatch):
+    _stub_klein_ok(monkeypatch)
+    ds_id = _create(client)
+    img_id = _generated(app, ds_id)
+    r = client.post(f'/api/studio/image/{img_id}/repair', json={'prompt': 'x'})
+    assert r.status_code == 400
+    assert 'draw the area' in r.get_json()['error']
+
+
+def test_repair_hides_an_unknown_generated_image(client, app, monkeypatch):
+    _stub_klein_ok(monkeypatch)
+    r = client.post('/api/studio/image/999999/repair',
+                    json={'boxes': [[0.1, 0.1, 0.2, 0.2]], 'prompt': 'x'})
+    assert r.status_code == 404
+
+
+def test_repair_refuses_an_image_still_rendering(client, app, monkeypatch):
+    """A pending cell has no pixels to repair yet — say so instead of failing
+    somewhere deeper with a file-not-found."""
+    _stub_klein_ok(monkeypatch)
+    ds_id = _create(client)
+    img_id = _generated(app, ds_id, filename='pending.webp', status='pending')
+    r = client.post(f'/api/studio/image/{img_id}/repair',
+                    json={'boxes': [[0.1, 0.1, 0.2, 0.2]], 'prompt': 'x'})
+    assert r.status_code == 400
+    assert 'still rendering' in r.get_json()['error']
+
+
+def test_a_failed_repair_leaves_the_generated_file_untouched(client, app, monkeypatch):
+    """The picture is preserved BEFORE anything is written, so a repair that
+    fails costs nothing — the same guarantee the dataset lane gives."""
+    from app.services import face_dataset_service as fds
+    _stub_klein_ok(monkeypatch, result=(False, {'kind': 'failed', 'detail': 'boom'}))
+    ds_id = _create(client)
+    img_id = _generated(app, ds_id)
+    with app.app_context():
+        path = os.path.join(fds._dataset_dir(ds_id), 'gen.webp')
+        before = open(path, 'rb').read()
+    r = client.post(f'/api/studio/image/{img_id}/repair',
+                    json={'boxes': [[0.3, 0.3, 0.2, 0.2]], 'prompt': 'remove it'})
+    assert r.status_code == 400
+    assert open(path, 'rb').read() == before

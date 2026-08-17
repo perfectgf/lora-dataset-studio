@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-17-repair-a-generated-image',
+    date: '2026-08-17',
+    title: 'Fix one detail of a render instead of regenerating it',
+    blurb:
+      'A stray finger, an object you did not ask for — until now that meant throwing away the picture you liked and rolling the dice again, because the only prompted lane re-renders everything and gives you a different image. Open a generated image full size (on the Canvas, or from a checkpoint gallery) and press ✦ Repair next to ⬇ and ✨: draw the zone, say what should be there, and only that zone is repainted. Everything outside it comes back byte-identical, and your picture is preserved before anything is written, so a repair that fails costs you nothing. (Asked for by .samexit on Discord.)',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-17-repair-a-detail-free-prompt',
     date: '2026-08-17',
     title: 'Repaint one detail — and only that detail',

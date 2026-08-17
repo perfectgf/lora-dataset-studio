@@ -3253,6 +3253,75 @@ def link_completed_test_image(job_id, filename, failed=False, reason=None):
 # Worded as the user reads them, so the button can explain itself BEFORE the
 # click instead of surfacing an error after it.
 IMPROVE_SOURCE_GONE = 'that image is no longer in the library'
+REPAIR_NOT_DONE = 'this image is still rendering'
+REPAIR_FILE_GONE = 'that image file is no longer on disk'
+REPAIR_NEEDS_PROMPT = 'a prompt is required - say what should be painted in that area'
+
+
+def repair_generated_image(user_id, image_id, boxes, prompt, *, seed=None) -> dict | None:
+    """Repaint a drawn zone of a GENERATED image from a free prompt.
+
+    Asked for by .samexit on Discord: "add the inpaint feature immediately after
+    the first generation, to avoid having to completely regenerate the image just
+    to fix a small detail". Until now a bad hand or a stray object meant throwing
+    the whole picture away and rolling the dice again.
+
+    The dataset lane already does this (face_dataset_service.repair_image_region);
+    what a generated image lacks is a FaceDatasetImage row to hang it on. So the
+    row is addressed by its LoraTestImage id and the filename is resolved HERE —
+    the client never names a path. That is deliberate: this call overwrites a file
+    in place, and a client-supplied name is how an overwrite becomes an arbitrary
+    write.
+
+    Returns None when the image is unknown or not the caller's (so the route
+    answers 404 without leaking which of the two it was). Raises ValueError with
+    one of the REPAIR_* sentences, or keh.KleinModelGone.
+    """
+    row = db.session.get(LoraTestImage, image_id)
+    if row is None:
+        return None
+    ds = fds.get_dataset(user_id, row.dataset_id)
+    if not ds:
+        return None
+    if row.status != 'done' or not row.filename:
+        raise ValueError(REPAIR_NOT_DONE)
+    path = os.path.join(fds._dataset_dir(row.dataset_id), row.filename)
+    if not os.path.isfile(path):
+        raise ValueError(REPAIR_FILE_GONE)
+    text = (prompt or '').strip()
+    if not text:
+        raise ValueError(REPAIR_NEEDS_PROMPT)
+
+    from . import watermark_klein
+    from . import klein_edit_helper as keh
+    if not watermark_klein.is_available():
+        raise ValueError('Klein is not ready (ComfyUI unreachable or models missing)')
+    klein_model = fds.dataset_klein_model(ds)
+    if klein_model and not keh.klein_model_on_disk(klein_model):
+        raise keh.KleinModelGone(klein_model)
+
+    # The SAME safety as the dataset lane, reused rather than re-implemented: an
+    # upright disposable sibling (the boxes were drawn against EXIF orientation),
+    # the file preserved before anything is written, and the edit promoted only
+    # once Klein succeeded. A failed repair leaves the picture exactly as it was.
+    staged = fds._stage_oriented_watermark_edit(path)
+    if not staged:
+        raise ValueError('could not stage the image (EXIF orientation)')
+    if not fds._preserve_original(path):
+        fds._discard_staged_watermark_edit(staged)
+        raise ValueError('could not preserve the original; your file was left unchanged')
+    try:
+        ok, err = watermark_klein.inpaint_watermark_klein(
+            user_id, staged, boxes, seed=seed, klein_model=klein_model, prompt=text)
+        if not ok:
+            raise ValueError((err or {}).get('detail') or 'the repair failed')
+        if not fds._promote_staged_watermark_edit(staged, path):
+            raise ValueError('the repair rendered but could not be written back')
+    finally:
+        fds._discard_staged_watermark_edit(staged)
+    return {'ok': True, 'filename': row.filename}
+
+
 IMPROVE_FILE_GONE = 'that image file is no longer on disk'
 IMPROVE_NOT_DONE = 'this image is still rendering'
 IMPROVE_ALREADY_DERIVED = 'an upscale & improve result cannot be improved again'

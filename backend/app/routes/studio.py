@@ -18,6 +18,10 @@ from ..gpu_window import gpu_exclusive_vision_window
 from ..services import face_dataset_service as fds
 from ..services import lora_test_studio as lts
 from ..utils.comfyui import get_zimage_models
+# The engine-preflight misses answer the SAME actionable 409 here as in the
+# dataset lane — the body is what itemizes the missing assets and starts their
+# download. Imported rather than re-derived (routes/bank.py does the same).
+from .datasets import _improve_engine_error
 from ._common import (_map_error, _require_comfyui, _require_no_stalled_comfyui,
                       _studio_arch_mismatch_response, _studio_missing_response)
 
@@ -199,6 +203,35 @@ def studio_random_caption():
                       'kept image and try again.')
         }), 422
     return jsonify({'ok': True, 'caption': caption})
+
+
+@bp.post('/image/<int:image_id>/repair')
+def studio_image_repair(image_id):
+    """Repaint a drawn zone of a GENERATED image from a free prompt.
+
+    Asked for by .samexit on Discord: fix one detail instead of regenerating the
+    whole picture. The image is addressed by its id and the file is resolved
+    server-side — a client-supplied path is how an in-place overwrite becomes an
+    arbitrary write.
+
+    {boxes: [[x,y,w,h] normalised...], prompt: "..."}. A missing prompt is a 400
+    rather than a silent fall back to the watermark reconstruction sentence.
+    """
+    data = request.get_json(silent=True) or {}
+    boxes = data.get('boxes') or data.get('regions')
+    if not boxes:
+        return jsonify({'error': 'boxes is required - draw the area to repair'}), 400
+    try:
+        result = lts.repair_generated_image(LOCAL_USER, image_id, boxes,
+                                            data.get('prompt'))
+    except Exception as e:
+        engine_error = _improve_engine_error(e)
+        if engine_error:
+            return engine_error
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(result)
 
 
 @bp.post('/describe-image')

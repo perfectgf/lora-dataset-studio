@@ -1962,6 +1962,11 @@ A few things worth knowing:
   sentence would repaint your zone with an intention you never expressed.
 - It runs on Klein through ComfyUI, one round-trip per repair.
 
+**On a picture you just generated, too.** Open a generated image full size — on
+the Canvas, or from a checkpoint gallery — and press **✦ Repair** next to ⬇ and
+✨. Same gesture, same guarantee: a stray finger or an unwanted object no longer
+means throwing away the render you liked and rolling the dice again.
+
 ## Clean the watermarks a bank found
 
 **🚩 Find watermarks** flags the images carrying an overlaid logo, URL or

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import RepairDialog from './RepairDialog';
 import { useImageDownload } from '../../hooks/useImageDownload';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { lightboxImproveButtons } from '../../utils/improveEngines';
@@ -182,9 +183,14 @@ function ImproveActions({ img, onImprove, improvePending, improveReady, busy,
  */
 export default function GeneratedImageLightbox({ img, alt, actions = null,
   facts = true, onClose, onImprove = null, improvePending = false,
-  improveReady = false, busy = false, subjectType = '', datasetId = null }) {
+  improveReady = false, busy = false, subjectType = '', datasetId = null,
+  /* ✦ Repair one detail instead of regenerating the whole picture
+     (.samexit, Discord). Absent = the button is not drawn, so a surface that
+     has no route for it shows nothing rather than a dead control. */
+  onRepair = null }) {
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
+  const [repairOpen, setRepairOpen] = useState(false);
   const dl = useImageDownload();
   useFocusTrap(dialogRef, !!img);
   useEffect(() => {
@@ -296,6 +302,19 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
                 improvePending={improvePending} improveReady={improveReady}
                 busy={busy} subjectType={subjectType} datasetId={datasetId} />
             )}
+            {/* ✦ Repair sits with them because it answers the third thing you do
+                with a render: keep it, improve it — or fix the ONE part that is
+                wrong. Regenerating for a stray finger throws away the image you
+                liked; this repaints only what you draw. (.samexit, Discord.) */}
+            {onRepair && img.id != null && (
+              <button type="button" data-testid="lightbox-repair"
+                onClick={(e) => { e.stopPropagation(); setRepairOpen(true); }}
+                disabled={busy}
+                title="Repaint one area of this image from your own description — draw the zone, say what should be there, and everything outside it stays byte-identical"
+                className="rounded-md border border-sky-400/50 bg-sky-500/20 px-3 py-1.5 text-[0.75rem] font-semibold text-sky-50 hover:bg-sky-500/30 disabled:opacity-40">
+                <span aria-hidden>✦</span> Repair
+              </button>
+            )}
             {actions}
           </div>
           {dl.error && (
@@ -307,6 +326,11 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
         </div>
       </aside>
       )}
+      {/* The zone editor, mounted INSIDE the overlay so it inherits its stacking
+          context — a sibling would need a fragment and would sit under it. */}
+      <RepairDialog open={repairOpen} src={img?.url} alt={alt}
+        onClose={(result) => { setRepairOpen(false); if (result && onRepair?.done) onRepair.done(result); }}
+        onSubmit={({ boxes, prompt }) => onRepair.submit(img.id, boxes, prompt)} />
     </div>
   );
 }
