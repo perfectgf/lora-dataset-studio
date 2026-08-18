@@ -9015,7 +9015,10 @@ def _detect_watermarks_detector(dataset_id, row_ids, *, include_dismissed,
 
     token = dataset_activity.begin(dataset_id, 'watermark_detect', total=len(planned))
     try:
-        for path, state, score, regions, _error in watermark_detector.scan(
+        # Six fields, same as the bank's read of this generator. The fingerprint
+        # only feeds the bank's stale-write attestation — a dataset row has no
+        # such column, so it is deliberately dropped here, not missing.
+        for path, state, score, regions, _fingerprint, _error in watermark_detector.scan(
                 [p for _i, p in planned], should_cancel=_cancelled,
                 cancel_file=cancel_file):
             dataset_activity.bump(token)
