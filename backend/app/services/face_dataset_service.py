@@ -7288,6 +7288,16 @@ def _enforce_concept_omission(caption, leak_re, image_bytes, concept_desc, descr
     return caption
 
 
+def _caption_write_blocked(img, *, force, spare_asserted, field='caption'):
+    """A caption that appeared on the row while its image sat in inference wins
+    over the machine's answer: the pass planned its work minutes ago, and a
+    human has typed since. Mirror of the bank pass's mid-pass guard — the two
+    surfaces must spare hand-written words the same way."""
+    if not force and (getattr(img, field, None) or '').strip():
+        return True
+    return spare_asserted and caption_origin.is_protected(img, field=field)
+
+
 def _caption_concept(ds, force, backend, token=None, image_ids=None,
                      ollama_model=None, extra_instructions='', report=None,
                      outcome=None):
@@ -7312,8 +7322,15 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
     q = FaceDatasetImage.query.filter_by(dataset_id=ds.id, status='keep')
     if image_ids is not None:
         q = q.filter(FaceDatasetImage.id.in_(image_ids))
+    # A forced BATCH spares the captions a human wrote or corrected ('asserted')
+    # — the promise the caption editor's tooltip makes. Naming images is the
+    # explicit opt-out: the leak panel re-captions a leaking caption no matter
+    # who wrote it. Same shape as the bank pass (start_caption).
+    spare_asserted = bool(force) and image_ids is None
     if not force:
         q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))
+    elif spare_asserted:
+        q = q.filter(caption_origin.unprotected_clause(FaceDatasetImage))
     # (image_id, path), not (row, path): the loops below commit per image and
     # this pass runs for a long time over a live grid. See _live_image_row.
     todo = [(img.id, _img_path(img)) for img in q.all() if img.filename]
@@ -7325,6 +7342,7 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
                               detail=f'Preparing {len(todo)} concept caption(s)…')
     n = 0
     vanished = 0
+    spared = 0           # hand-written ('asserted') captions left untouched
     remaining = list(todo)
     refine_targets = []  # (image_id, p, joycap) -> Joy draft refined by Qwen
     # 1) JoyCaption batch (draft) when the backend allows it.
@@ -7376,6 +7394,9 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
             img = _live_image_row(image_id)
             if img is None:      # deleted while the pass ran
                 vanished += 1
+                continue
+            if _caption_write_blocked(img, force=force, spare_asserted=spare_asserted):
+                spared += 1
                 continue
             try:
                 with open(p, 'rb') as fh:
@@ -7467,6 +7488,9 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
                 if img is None:
                     vanished += 1
                     continue
+                if _caption_write_blocked(img, force=force, spare_asserted=spare_asserted):
+                    spared += 1
+                    continue
                 if not _usable_caption(final):
                     # Refine AND direct both unusable → fall back to the Joy draft (clean
                     # prose), scrubbed of any leak; leave blank if even that fails.
@@ -7508,6 +7532,9 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
                 if img is None:
                     vanished += 1
                     continue
+                if _caption_write_blocked(img, force=force, spare_asserted=spare_asserted):
+                    spared += 1
+                    continue
                 if _usable_caption(cap):
                     caption_origin.stamp(img, _cap_caption(cap), caption_origin.OLLAMA)
                     db.session.commit()
@@ -7527,6 +7554,8 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
     if vanished:
         logger.info('caption concept: %s image(s) were deleted while the pass ran, '
                     'skipped', vanished)
+    if spared:
+        logger.info('caption concept: %s hand-written caption(s) spared', spared)
     return n
 
 
@@ -7644,8 +7673,15 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
     q = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
     if ids is not None:
         q = q.filter(FaceDatasetImage.id.in_(ids))
+    # A forced BATCH spares the captions a human wrote or corrected ('asserted')
+    # — the promise the caption editor's tooltip makes. Naming images is the
+    # explicit opt-out: the leak panel re-captions a leaking caption no matter
+    # who wrote it. Same shape as the bank pass (start_caption).
+    spare_asserted = bool(force) and ids is None
     if not force:
         q = q.filter((FaceDatasetImage.caption.is_(None)) | (FaceDatasetImage.caption == ''))
+    elif spare_asserted:
+        q = q.filter(caption_origin.unprotected_clause(FaceDatasetImage))
     rows = q.all()
     # (image_id, path), not (row, path): both loops below commit per image, which
     # expires every row still to come, and this pass runs for minutes-to-hours
@@ -7666,6 +7702,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
     try:
         n = 0
         vanished = 0
+        spared = 0           # hand-written ('asserted') captions left untouched
         remaining = todo
         # In 'auto', why JoyCaption didn't contribute (deps missing / crash). Kept so a
         # LATER Ollama failure reports BOTH reasons instead of only the Ollama one —
@@ -7713,6 +7750,11 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
                     img = _live_image_row(image_id)
                     if img is None:      # deleted while the batch ran
                         vanished += 1
+                        dataset_activity.bump(token)
+                        continue
+                    if _caption_write_blocked(img, force=force,
+                                              spare_asserted=spare_asserted):
+                        spared += 1
                         dataset_activity.bump(token)
                         continue
                     cleaned = cleaner(cap) or cap
@@ -7776,6 +7818,11 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
                             vanished += 1
                             dataset_activity.bump(token)
                             continue
+                        if _caption_write_blocked(img, force=force,
+                                                  spare_asserted=spare_asserted):
+                            spared += 1
+                            dataset_activity.bump(token)
+                            continue
                         cleaned = cleaner(cap) or cap
                         # Which engine wrote THIS row, not which backend was asked
                         # for: in 'auto' the two branches both write inside one run.
@@ -7796,8 +7843,9 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
             finally:
                 unload_vision_model()  # libère la VRAM pour ComfyUI en fin de batch
         logger.info('captioning finished: dataset=%s backend=%s captioned=%s '
-                    'deleted_mid_pass=%s elapsed=%.1fs',
-                    dataset_id, backend, n, vanished, time.monotonic() - started)
+                    'deleted_mid_pass=%s spared_asserted=%s elapsed=%.1fs',
+                    dataset_id, backend, n, vanished, spared,
+                    time.monotonic() - started)
         return n
     except Exception:
         logger.exception('captioning failed: dataset=%s backend=%s elapsed=%.1fs',
@@ -8151,8 +8199,14 @@ def derive_short_captions(user_id, dataset_id, image_ids=None, force=False, mode
             return 0
         q = q.filter(FaceDatasetImage.id.in_(ids))
     rows = [i for i in q.all() if (i.caption or '').strip()]
+    # Same promise as the long pass: a forced batch never rewrites a short a
+    # human typed in the expanded editor; naming images is the explicit opt-out.
+    spare_asserted = bool(force) and image_ids is None
     if not force:
         rows = [i for i in rows if not (i.caption_short or '').strip()]
+    elif spare_asserted:
+        rows = [i for i in rows
+                if not caption_origin.is_protected(i, field='caption_short')]
     if not rows:
         return 0
     if generate is None:
@@ -8201,6 +8255,9 @@ def derive_short_captions(user_id, dataset_id, image_ids=None, force=False, mode
             img = _live_image_row(image_id)
             if img is None:      # deleted DURING its own generation
                 vanished += 1
+                continue
+            if _caption_write_blocked(img, force=force, spare_asserted=spare_asserted,
+                                      field='caption_short'):
                 continue
             # The SHORT gets its own stamp, on its own column: this pass derives it
             # with a text model while the long caption above it may well have been

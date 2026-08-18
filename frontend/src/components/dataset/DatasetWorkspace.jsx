@@ -600,6 +600,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
     && !isSmallImageRescueRow(i)).length;
   const keptUncaptioned = images.filter((i) => i.status === 'keep' && !i.caption).length;
   const keptCaptioned = kept - keptUncaptioned;
+  // Hand-written captions ('asserted'): a forced 🔄 Re-caption spares them, so the
+  // confirm and the button must count only what the pass will actually rewrite.
+  const keptAsserted = images.filter((i) => i.status === 'keep' && i.caption
+    && i.caption_origin === 'asserted').length;
+  const recaptionable = keptCaptioned - keptAsserted;
   // Captions that still leak identity/concept — the Identity-leak panel lists them for
   // in-place edit AND targeted 🔄 Re-caption (per row + a "Re-caption all leaking" header).
   const leakingImages = images.filter((i) => i.leak);
@@ -1693,11 +1698,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   {ds.captioning ? `✨ ${keptCaptioned}/${kept} captioned…` : '✨ Caption the kept ones'}
                 </button>
                 <HelpBadge topic="action-caption-generate" />
-                <button type="button" disabled={ds.busy || !keptCaptioned}
+                <button type="button" disabled={ds.busy || !recaptionable}
                   onClick={() => {
-                    if (window.confirm(recaptionConfirmation(d.kind || 'character', keptCaptioned))) ds.recaption(effCaptionMode);
+                    if (window.confirm(recaptionConfirmation(d.kind || 'character', recaptionable, keptAsserted))) ds.recaption(effCaptionMode);
                   }}
-                  title={isConcept
+                  title={keptCaptioned && !recaptionable
+                    ? 'Every existing caption is hand-written — a forced pass never rewrites those. Edit or clear them on their tiles instead.'
+                    : isConcept
                     ? "Re-generates every caption while keeping the recurring concept unspoken"
                     : isStyle
                       ? "Re-generates every caption as content-only text without naming the aesthetic"
