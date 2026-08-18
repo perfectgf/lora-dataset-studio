@@ -202,7 +202,13 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center">
+      {/* [container-type:size] turns this cell into a size-query container, so
+          both editors' `100cqh/100cqw` caps mean THIS stage — the space left
+          between the toolbars — instead of falling back to the whole viewport.
+          Without it the picture could still be taller than the room it has and
+          hide the prompt/Repair row below. Same construct the watermark review
+          and the bank mask dialog already use around the same editors. */}
+      <div className="flex min-h-0 flex-1 items-center justify-center [container-type:size]">
         {brush ? (
           <InpaintBrushEditor src={bust ? `${src}${src.includes('?') ? '&' : '?'}r=${bust}` : src}
             alt={alt} disabled={busy} eraser={eraser} brushCss={brushSize}
