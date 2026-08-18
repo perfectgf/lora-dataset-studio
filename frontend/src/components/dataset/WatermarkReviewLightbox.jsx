@@ -365,9 +365,9 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
      server repaints what it has stored, not what is on screen. */
   /* The dialog hands back the zones AND the sentence, so nothing has to be saved
      server-side first — unlike 🧽 Clean, which repaints what the server stored. */
-  const submitRepair = useCallback(async ({ boxes, prompt }) => {
+  const submitRepair = useCallback(async ({ boxes, mask, prompt }) => {
     if (!item || !onRepair) return { ok: false, error: 'not ready' };
-    const d = await onRepair(item.id, prompt, boxes);
+    const d = await onRepair(item.id, prompt, boxes, mask);
     if (d && d.ok !== false) setRepairedIds((prev) => new Set(prev).add(item.id));
     return d;
   }, [item, onRepair]);

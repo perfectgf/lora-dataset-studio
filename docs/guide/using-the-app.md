@@ -1946,6 +1946,23 @@ a watermark. **✦ Edit**, the other lane, takes any instruction but re-renders 
 *"remove the necklace"* — and press **✦ Repair** again. Only that zone is
 repainted. Everything outside it comes back exactly as it was, to the byte.
 
+**Two shapes, one button.** Inside that dialog you choose how to point at the
+area:
+
+- **▭ Box** — drag a rectangle. The app crops a square around it and works on
+  that crop, so it is quick and its memory use does not depend on how large the
+  photo is. Right for a mark in a corner.
+- **🖌 Brush** — paint over the thing itself, with a size slider, an eraser and
+  Clear. The *whole* picture goes to the model together with what you painted,
+  so it reconstructs while seeing the face around the necklace instead of only a
+  square of skin. Right for jewelry, glasses, straps — anything a rectangle
+  would only enclose by taking a lot of its surroundings with it. Very large
+  photos are scaled down for this pass; the result is composited back at full
+  size, and pixels you did not paint are copied from your file either way.
+
+Both work under a finger, so this is usable from a phone. The brush was
+contributed by JacobArrow on GitHub.
+
 The 🚩 button next to it opens the same editor from the other intention — you
 spotted a watermark the scan missed. Same screen, same zones; what differs is
 whether you press 🧽 Clean or ✦ Repair once you are there.

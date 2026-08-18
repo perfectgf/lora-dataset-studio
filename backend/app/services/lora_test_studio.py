@@ -3258,7 +3258,8 @@ REPAIR_FILE_GONE = 'that image file is no longer on disk'
 REPAIR_NEEDS_PROMPT = 'a prompt is required - say what should be painted in that area'
 
 
-def repair_generated_image(user_id, image_id, boxes, prompt, *, seed=None) -> dict | None:
+def repair_generated_image(user_id, image_id, boxes, prompt, *,
+                           seed=None, mask=None) -> dict | None:
     """Repaint a drawn zone of a GENERATED image from a free prompt.
 
     Asked for by .samexit on Discord: "add the inpaint feature immediately after
@@ -3307,6 +3308,15 @@ def repair_generated_image(user_id, image_id, boxes, prompt, *, seed=None) -> di
     staged = fds._stage_oriented_watermark_edit(path)
     if not staged:
         raise ValueError('could not stage the image (EXIF orientation)')
+    # A painted mask is sized against the STAGED frame — the upright image the
+    # browser drew it on. Same decoder as the dataset lane, not a second copy.
+    pil_mask = None
+    if mask is not None:
+        try:
+            pil_mask = fds.decode_repair_mask_for(staged, mask)
+        except ValueError:
+            fds._discard_staged_watermark_edit(staged)
+            raise
     if not fds._preserve_original(path):
         fds._discard_staged_watermark_edit(staged)
         raise ValueError('could not preserve the original; your file was left unchanged')
@@ -3314,8 +3324,15 @@ def repair_generated_image(user_id, image_id, boxes, prompt, *, seed=None) -> di
     # why this is not the write-once .orig sibling).
     fds.take_repair_snapshot(path)
     try:
-        ok, err = watermark_klein.inpaint_watermark_klein(
-            user_id, staged, boxes, seed=seed, klein_model=klein_model, prompt=text)
+        # A brush stroke goes through the full frame (Klein sees the whole
+        # picture); a drawn box keeps the cheaper crop-and-stitch lane.
+        if pil_mask is not None:
+            ok, err = watermark_klein.inpaint_mask_klein(
+                user_id, staged, mask=pil_mask, seed=seed,
+                klein_model=klein_model, prompt=text)
+        else:
+            ok, err = watermark_klein.inpaint_watermark_klein(
+                user_id, staged, boxes, seed=seed, klein_model=klein_model, prompt=text)
         if not ok:
             raise ValueError((err or {}).get('detail') or 'the repair failed')
         if not fds._promote_staged_watermark_edit(staged, path):

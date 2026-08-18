@@ -2205,7 +2205,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           onRestore={(id) => ds.restoreWatermarkImage(id)}
           onDismiss={(id) => ds.dismissWatermarks([id])}
           onReject={(id) => ds.setStatus(id, 'reject')}
-          onRepair={(id, prompt, boxes) => ds.repairImageRegion(id, prompt, boxes)}
+          onRepair={(id, prompt, boxes, mask) => ds.repairImageRegion(id, prompt, boxes, mask)}
           onUndoRepair={(id) => ds.undoImageRepair(id)}
           onClose={(recap) => {
             setReviewQueue(null);

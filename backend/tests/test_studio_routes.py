@@ -871,12 +871,20 @@ def test_repair_of_a_generated_image_refuses_a_blank_prompt(client, app, monkeyp
 
 
 def test_repair_of_a_generated_image_needs_a_zone(client, app, monkeypatch):
+    """A repair needs SOMETHING pointed at — since the brush landed, that is a
+    drawn box or a painted mask, and the refusal has to name both or it sends
+    a brush user looking for a rectangle they were never going to draw."""
     _stub_klein_ok(monkeypatch)
     ds_id = _create(client)
     img_id = _generated(app, ds_id)
     r = client.post(f'/api/studio/image/{img_id}/repair', json={'prompt': 'x'})
     assert r.status_code == 400
-    assert 'draw the area' in r.get_json()['error']
+    error = r.get_json()['error']
+    assert 'draw or paint the area' in error, error
+    # An empty mask alongside empty boxes is still nothing pointed at.
+    r = client.post(f'/api/studio/image/{img_id}/repair',
+                    json={'prompt': 'x', 'boxes': [], 'mask': ''})
+    assert r.status_code == 400
 
 
 def test_repair_hides_an_unknown_generated_image(client, app, monkeypatch):

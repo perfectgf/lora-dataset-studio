@@ -216,9 +216,11 @@ def test_the_klein_graphs_sample_the_way_the_rest_of_the_app_does():
 # V3 `node_id=` schema).
 VANILLA_NODE_ALLOWLIST = frozenset({
     'BasicGuider', 'BasicScheduler', 'CFGGuider', 'CLIPLoader', 'CLIPTextEncode',
-    'CheckpointLoaderSimple', 'EmptyFlux2LatentImage', 'EmptyLatentImage',
-    'EmptySD3LatentImage', 'GetImageSize', 'ImageScaleToTotalPixels', 'KSampler',
-    'KSamplerSelect', 'LatentUpscaleBy', 'LoadImage', 'LoraLoader',
+    'CheckpointLoaderSimple', 'ConditioningZeroOut', 'EmptyFlux2LatentImage',
+    'EmptyLatentImage', 'EmptySD3LatentImage', 'GetImageSize',
+    'ImageScaleToTotalPixels', 'InpaintModelConditioning', 'KSampler',
+    'KSamplerSelect', 'LatentUpscaleBy', 'LoadImage', 'LoadImageMask',
+    'LoraLoader',
     'LoraLoaderModelOnly', 'ModelSamplingFlux', 'PatchModelAddDownscale',
     'PreviewImage', 'PrimitiveInt', 'RandomNoise', 'ReferenceLatent',
     'SamplerCustomAdvanced', 'SaveImage', 'UNETLoader', 'VAEDecode', 'VAEEncode',

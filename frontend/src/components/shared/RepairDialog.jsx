@@ -9,6 +9,15 @@
  * away and rolling the dice again — the only prompted lane (✦ Edit) re-renders
  * everything and gives you a different image.
  *
+ * TWO SHAPES, ONE BUTTON. A box is right for a mark in a corner: the server
+ * crops a square around it and works at ~1 MP, which is quick and bounds VRAM.
+ * A BRUSH is right for a necklace or a pair of glasses, where a rectangle would
+ * hand the model a square full of face it was not asked to touch — that gesture
+ * sends the whole frame with a painted mask, so Klein reconstructs while seeing
+ * the picture around it. (Brush contributed by JacobArrow on GitHub, PR #37; it
+ * lives inside this dialog rather than behind a THIRD button in an action bar
+ * that already carries two doors to the same place.)
+ *
  * It reuses the DATASET's zone editor rather than growing a second one: the same
  * drawing gesture, the same normalised boxes, the same thing the server expects.
  * The only new part is the sentence you type and the call it posts.
@@ -20,6 +29,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import WatermarkRegionEditor from '../dataset/WatermarkRegionEditor';
+import InpaintBrushEditor, { maskPngFromCanvas } from './InpaintBrushEditor';
 
 export default function RepairDialog({ open, src, alt = 'image', onClose, onSubmit, onUndo = null }) {
   const dialogRef = useRef(null);
@@ -27,6 +37,13 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
   const [addMode, setAddMode] = useState(true);
   const [selected, setSelected] = useState(null);
   const [prompt, setPrompt] = useState('');
+  /* 'box' stays the default: it is the cheaper lane, and it is the gesture that
+     shipped — someone who learned it must not find it replaced. */
+  const [mode, setMode] = useState('box');
+  const [brushSize, setBrushSize] = useState(28);
+  const [eraser, setEraser] = useState(false);
+  const [painted, setPainted] = useState(false);
+  const brushCanvasRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   /* The dialog STAYS OPEN on success. An inpaint is a dice roll: the gesture
@@ -36,13 +53,18 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
      the URL does not move. (Asked for on Discord right after ✦ Repair shipped.) */
   const [done, setDone] = useState(false);
   const [bust, setBust] = useState(0);
+  /* Computed BEFORE the early return and before `run`, which closes over it:
+     hooks may not sit behind a conditional, and a `ready` declared after the
+     `if (!open)` would be a stale capture inside the callback. */
+  const brush = mode === 'brush';
+  const ready = !!prompt.trim() && (brush ? painted : regions.length > 0);
   useFocusTrap(dialogRef, open);
 
   // A fresh dialog never inherits the previous image's zones or sentence.
   useEffect(() => {
     if (!open) return;
     setRegions([]); setPrompt(''); setError(null); setSelected(null); setAddMode(true);
-    setDone(false); setBust(0);
+    setDone(false); setBust(0); setMode('box'); setEraser(false); setPainted(false);
   }, [open, src]);
 
   useEffect(() => {
@@ -53,11 +75,21 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
   }, [open, busy, onClose]);
 
   const run = useCallback(async () => {
-    if (!regions.length || !prompt.trim() || busy) return;
+    if (!ready || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const d = await onSubmit({ boxes: regions, prompt: prompt.trim() });
+      /* The mask is read from the canvas at SUBMIT time, not tracked in state:
+         it is up to a few megabytes of pixels, and keeping it in React would
+         re-encode it on every stroke for a value only this call ever reads. */
+      const mask = mode === 'brush' ? maskPngFromCanvas(brushCanvasRef.current) : null;
+      if (mode === 'brush' && !mask) {
+        setError('Paint the area to repair first.');
+        return;
+      }
+      const d = await onSubmit(mode === 'brush'
+        ? { mask, prompt: prompt.trim() }
+        : { boxes: regions, prompt: prompt.trim() });
       if (!d || d.ok === false) {
         setError((d && (d.error?.detail || d.error)) || 'The repair failed.');
         return;
@@ -69,7 +101,7 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
     } finally {
       setBusy(false);
     }
-  }, [regions, prompt, busy, onSubmit]);
+  }, [ready, mode, regions, prompt, busy, onSubmit]);
 
   const undo = useCallback(async () => {
     if (!onUndo || busy) return;
@@ -95,7 +127,6 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
   }, [onUndo, busy]);
 
   if (!open) return null;
-  const ready = regions.length > 0 && !!prompt.trim();
 
   return (
     <div className="fixed inset-0 z-[9998] flex flex-col bg-black/90 p-3 sm:p-4"
@@ -112,12 +143,69 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
         </button>
       </div>
 
+      {/* ONE row, and it only appears where it means something. The brush
+          controls are the brush's own; showing them next to a box editor that
+          cannot use them would be the clutter this dialog exists to avoid. */}
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-[0.6875rem] text-white/70">
+        <div role="group" aria-label="Repair shape"
+          className="flex items-center rounded-lg border border-white/15 bg-white/5 p-0.5">
+          <button type="button" aria-pressed={!brush} disabled={busy}
+            onClick={() => setMode('box')}
+            title="Draw a rectangle — quickest, and the model works on a crop of it"
+            className={`rounded-md px-2.5 py-1 font-semibold disabled:opacity-40 ${!brush
+              ? 'bg-sky-500/25 text-sky-100' : 'text-white/60 hover:text-white'}`}>
+            ▭ Box
+          </button>
+          <button type="button" aria-pressed={brush} disabled={busy}
+            onClick={() => setMode('brush')}
+            title="Paint over the thing to remove — the model sees the whole picture, better for jewelry, glasses or straps"
+            className={`rounded-md px-2.5 py-1 font-semibold disabled:opacity-40 ${brush
+              ? 'bg-pink-500/25 text-pink-100' : 'text-white/60 hover:text-white'}`}>
+            🖌 Brush
+          </button>
+        </div>
+        {brush && (
+          <>
+            <label className="flex items-center gap-1.5">
+              Size
+              <input type="range" min="8" max="120" step="2" value={brushSize}
+                disabled={busy} aria-label="Brush size"
+                onChange={(e) => setBrushSize(Number(e.target.value))}
+                className="w-24 accent-pink-400" />
+            </label>
+            <button type="button" aria-pressed={eraser} disabled={busy}
+              onClick={() => setEraser((v) => !v)}
+              className={`min-h-8 rounded-lg border px-2.5 py-1 font-semibold disabled:opacity-40 ${eraser
+                ? 'border-amber-300/60 bg-amber-500/20 text-amber-100'
+                : 'border-white/20 bg-white/10 text-white hover:bg-white/20'}`}>
+              ⌫ Erase
+            </button>
+            <button type="button" disabled={busy || !painted}
+              onClick={() => {
+                const c = brushCanvasRef.current;
+                c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
+                setPainted(false);
+              }}
+              className="min-h-8 rounded-lg border border-white/20 bg-white/10 px-2.5 py-1 font-semibold text-white hover:bg-white/20 disabled:opacity-40">
+              Clear
+            </button>
+            <span className="text-white/45">Paint over what should go.</span>
+          </>
+        )}
+      </div>
+
       <div className="flex min-h-0 flex-1 items-center justify-center">
-        <WatermarkRegionEditor src={bust ? `${src}${src.includes('?') ? '&' : '?'}r=${bust}` : src}
-          alt={alt} regions={regions} disabled={busy}
-          addMode={addMode} selectedIndex={selected}
-          onAddModeChange={setAddMode} onSelectedIndexChange={setSelected}
-          onCommit={setRegions} />
+        {brush ? (
+          <InpaintBrushEditor src={bust ? `${src}${src.includes('?') ? '&' : '?'}r=${bust}` : src}
+            alt={alt} disabled={busy} eraser={eraser} brushCss={brushSize}
+            canvasRef={brushCanvasRef} onDirty={setPainted} />
+        ) : (
+          <WatermarkRegionEditor src={bust ? `${src}${src.includes('?') ? '&' : '?'}r=${bust}` : src}
+            alt={alt} regions={regions} disabled={busy}
+            addMode={addMode} selectedIndex={selected}
+            onAddModeChange={setAddMode} onSelectedIndexChange={setSelected}
+            onCommit={setRegions} />
+        )}
       </div>
 
       <div className="mt-2 flex flex-col gap-2">
@@ -148,11 +236,13 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
             {done ? 'Done' : 'Cancel'}
           </button>
           <button type="button" onClick={run} disabled={!ready || busy}
-            title={!regions.length
-              ? 'Draw the area to repair first'
-              : !prompt.trim()
-                ? 'Say what should be painted in that area'
-                : 'Repaint only the drawn zone — everything outside it stays byte-identical'}
+            title={brush && !painted
+              ? 'Paint over the area to repair first'
+              : !brush && !regions.length
+                ? 'Draw the area to repair first'
+                : !prompt.trim()
+                  ? 'Say what should be painted in that area'
+                  : 'Repaint only that area — everything outside it stays byte-identical'}
             className="rounded-lg border border-sky-400/60 bg-sky-500/25 px-5 py-2 text-sm font-semibold text-sky-50 disabled:opacity-40">
             {busy ? '✦ Repairing…' : done ? '✦ Repair again' : '✦ Repair'}
           </button>

@@ -330,7 +330,7 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
           context — a sibling would need a fragment and would sit under it. */}
       <RepairDialog open={repairOpen} src={img?.url} alt={alt}
         onClose={(result) => { setRepairOpen(false); if (result && onRepair?.done) onRepair.done(result); }}
-        onSubmit={({ boxes, prompt }) => onRepair.submit(img.id, boxes, prompt)}
+        onSubmit={({ boxes, mask, prompt }) => onRepair.submit(img.id, boxes, prompt, mask)}
         onUndo={onRepairUndo} />
     </div>
   );

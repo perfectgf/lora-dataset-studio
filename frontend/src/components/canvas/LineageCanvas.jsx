@@ -2426,8 +2426,8 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
            Discord). Offered on the same pictures ✨ is: a board image with a
            library row behind it — that row's id is what the route addresses. */
         onRepair={canImproveCanvasImage(pinnedZoom) ? {
-          submit: (imageId, boxes, prompt) =>
-            postJson(`/api/studio/image/${imageId}/repair`, { boxes, prompt }),
+          submit: (imageId, boxes, prompt, mask) =>
+            postJson(`/api/studio/image/${imageId}/repair`, { boxes, prompt, mask }),
           done: () => onRefetchDataset?.(pinnedZoom?.dataset_id),
         } : undefined}
         /* ↩ One step back, so trying another description costs nothing. */

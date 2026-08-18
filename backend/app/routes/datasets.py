@@ -1359,11 +1359,12 @@ def dataset_image_repair(dataset_id, image_id):
     """
     data = request.get_json(silent=True) or {}
     boxes = data.get('boxes') or data.get('regions')
-    if not boxes:
-        return jsonify({'error': 'boxes is required — draw the area to repair'}), 400
+    mask = data.get('mask')
+    if not boxes and not mask:
+        return jsonify({'error': 'draw or paint the area to repair first'}), 400
     try:
         result = svc.repair_image_region(LOCAL_USER, dataset_id, image_id,
-                                        boxes, data.get('prompt'))
+                                        boxes, data.get('prompt'), mask=mask)
     except LookupError:
         return jsonify({'error': 'not found'}), 404
     except Exception as e:

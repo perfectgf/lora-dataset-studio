@@ -219,11 +219,12 @@ def studio_image_repair(image_id):
     """
     data = request.get_json(silent=True) or {}
     boxes = data.get('boxes') or data.get('regions')
-    if not boxes:
-        return jsonify({'error': 'boxes is required - draw the area to repair'}), 400
+    mask = data.get('mask')
+    if not boxes and not mask:
+        return jsonify({'error': 'draw or paint the area to repair first'}), 400
     try:
         result = lts.repair_generated_image(LOCAL_USER, image_id, boxes,
-                                            data.get('prompt'))
+                                            data.get('prompt'), mask=mask)
     except Exception as e:
         engine_error = _improve_engine_error(e)
         if engine_error:
