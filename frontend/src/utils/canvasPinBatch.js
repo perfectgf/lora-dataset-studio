@@ -183,44 +183,50 @@ export function boardObstacles(graph, imageNodes) {
 const sourceKey = (img) => `${img?.record_id ?? '?'}:${img?.step ?? '?'}`;
 
 /**
- * WHICH GENERATION + PROMPT made a picture — the identity two grids must never
- * share.
+ * WHICH GENERATION + PROMPT + CHECKPOINT made a picture — the identity two
+ * grids must never share.
  *
  * `lora_test_image.run_id` already groups every cell of one launch (it is what
- * the Test Studio resumes a run from), while `prompt` identifies one grid
- * INSIDE a multi-prompt launch. The checkpoint gallery publishes both. A key
- * made from `run_id` alone turns all prompts selected for one launch into one
- * strip; a key made from `prompt` alone joins separate launches. The pair is
- * the boundary the Canvas actually needs.
+ * the Test Studio resumes a run from), `prompt` identifies one grid INSIDE a
+ * multi-prompt launch, and `record_id`+`step` name the checkpoint that rendered
+ * it. The checkpoint gallery publishes all of them. A key without the
+ * checkpoint fused a Compare launch fired at several checkpoints into ONE
+ * strip, where the batches were indistinguishable — the report that added the
+ * last two members. A key without the run or the prompt merges separate
+ * launches or separate prompts. All four together are the boundary the Canvas
+ * actually needs: one grid per checkpoint, per prompt, per launch.
  *
- * An image made before that column was backfilled carries no run id and falls
- * back to its checkpoint, so a board that predates this draws exactly what it
- * drew before rather than silently regrouping itself.
+ * An image made before the run column was backfilled carries no run id and
+ * falls back to its checkpoint alone, so a board that predates this draws
+ * exactly what it drew before rather than silently regrouping itself.
  */
 const normalPrompt = (value) => String(value ?? '').trim().replace(/\s+/g, ' ');
 
-const runPromptKey = (value) => {
+const runGridKey = (value) => {
   const image = value?.image || value;
   const runId = image?.run_id;
   if (runId == null || String(runId) === '') return null;
   // JSON, not a delimiter: prompts are free text and may contain any separator
   // we could choose. Normalising whitespace makes the key match what the UI
   // shows as one prompt while preserving meaningful text and case.
-  return `run:${JSON.stringify([String(runId), normalPrompt(image?.prompt)])}`;
+  return `run:${JSON.stringify([String(runId), normalPrompt(image?.prompt),
+    String(image?.record_id ?? ''), String(image?.step ?? '')])}`;
 };
 
 export function imageBatchKey(value) {
   const image = value?.image || value;
-  const runKey = runPromptKey(image);
+  const runKey = runGridKey(image);
   if (runKey) return runKey;
   if (image?.record_id == null || image?.step == null) return null;
   return `ckpt:${String(image.record_id)}:${String(image.step)}`;
 }
 
 /**
- * TRAINING order: the step that made the picture, ascending. The one order a
- * strip of checkpoints is allowed to have — reading epoch 500 next to epoch
- * 2000 is the entire reason the pictures are side by side.
+ * TRAINING order: the step that made the picture, ascending. The one order the
+ * BOARD is allowed to read in — the band's columns run epoch 500 before epoch
+ * 2000, an over-cap lot keeps the early epochs, and inside one checkpoint's
+ * strip the tie falls through to the image id, so a strip reads in the order
+ * the pictures were made.
  *
  * It was `${record_id}:${step}` compared as TEXT, which sorts step 1000 before
  * step 500 and put a four-checkpoint lot on the board shuffled. Steps are
@@ -241,11 +247,11 @@ export function byTrainingOrder(a, b) {
 }
 
 /** Turn freshly pinned images into (or append them to) one strip per GENERATION
- * RUN + PROMPT (imageBatchKey) — not per checkpoint. Pinning a picture from a
- * gallery joins the grid of the prompt it belongs to; another prompt in the
- * SAME run starts its own. A picture from a later run does too. Manual mixed
- * groups are never reused. The undo snapshot covers both the new images and any
- * existing member whose membership is rewritten. */
+ * RUN + PROMPT + CHECKPOINT (imageBatchKey). Pinning a picture from a gallery
+ * joins the grid of the checkpoint batch it belongs to; another prompt or
+ * another checkpoint in the SAME run starts its own. A picture from a later run
+ * does too. Manual mixed groups are never reused. The undo snapshot covers both
+ * the new images and any existing member whose membership is rewritten. */
 export function groupPinnedBatchBySource({ nodes = [], placed = [], graph = null } = {}) {
   const before = new Map((nodes || []).filter((n) => n?.imageId != null)
     .map((n) => [Number(n.imageId), { ...n }]));
@@ -309,11 +315,11 @@ export function groupPinnedBatchBySource({ nodes = [], placed = [], graph = null
       if (members.length < 2) continue;
       groupId = nextGroupId([...working.values()], members[0].imageId);
     }
-    // A run+prompt key is an automatic Canvas grid. Legacy checkpoint keys are
+    // A run-bearing key is an automatic Canvas grid. Legacy checkpoint keys are
     // deliberately excluded, as are manual mixed groups (the homogeneous-group
     // check above refuses to reuse those). The whole current membership is in
     // `affected`, so moving its anchor remains one reversible/undoable write.
-    if (runPromptKey(additions[0]) === key) promptGroupIds.add(groupId);
+    if (runGridKey(additions[0]) === key) promptGroupIds.add(groupId);
     // ALWAYS training order, even when the picture that just arrived belongs
     // earlier than everything already in the strip: pinning epoch 500 after
     // epoch 2000 must not put 500 on the right-hand end. Nothing is lost by
@@ -334,15 +340,20 @@ export function groupPinnedBatchBySource({ nodes = [], placed = [], graph = null
   return { rows, undoRows: [...undo.values()].sort(byId) };
 }
 
-/** Turn one freshly generated/pinned lot into a strip PER GENERATION RUN AND
- * PROMPT, ordered by training step.
+/** Turn one freshly generated/pinned lot into a strip PER GENERATION RUN,
+ * PROMPT AND CHECKPOINT.
  *
- * Different checkpoints of ONE prompt belong together here — that strip is the
- * prompt's comparison grid. Another prompt selected in the SAME 📌 Pin all
- * gesture must get another strip; two runs can never share one either. Existing
- * groups are never reused. Images with no run id (made before the column was
- * backfilled) keep the old whole-gesture strip, which is safe — this function
- * cannot merge into anything that was already on the board. */
+ * Different checkpoints of one launch do NOT share a strip: a Compare batch
+ * fired at several checkpoints lands as one grid per checkpoint, so each
+ * checkpoint's batch stays readable as its own lot (fused, they were
+ * indistinguishable — the report this boundary comes from). Another prompt
+ * selected in the SAME 📌 Pin all gesture gets another strip too; two runs can
+ * never share one either. A checkpoint that contributed a single picture stays
+ * a loose tile — a grid of one is not a grid, and the band already parks it in
+ * that checkpoint's own column. Existing groups are never reused. Images with
+ * no run id (made before the column was backfilled) keep the old whole-gesture
+ * strip, which is safe — this function cannot merge into anything that was
+ * already on the board. */
 export function groupPinnedBatchTogether({ nodes = [], placed = [], graph = null } = {}) {
   const before = new Map((nodes || []).filter((n) => n?.imageId != null)
     .map((n) => [Number(n.imageId), { ...n }]));
@@ -354,7 +365,7 @@ export function groupPinnedBatchTogether({ nodes = [], placed = [], graph = null
     // Legacy rows deliberately stay one whole-gesture lot. The unit-pin path's
     // no-run fallback remains per checkpoint in `imageBatchKey`; these are two
     // historical behaviours and neither should be silently rewritten here.
-    const key = runPromptKey(p) ?? 'gesture';
+    const key = runGridKey(p) ?? 'gesture';
     if (!lots.has(key)) lots.set(key, []);
     lots.get(key).push(p);
   }
@@ -530,7 +541,7 @@ export function placeImageBatch({ graph, existing, images, remembered, max,
     // now: it is drawn above the strip, and without this allowance the first
     // prompt grid can cover the lineage card the band was placed below. Legacy
     // no-run lots keep their exact historical geometry.
-    const futureGroupBar = band.some((image) => runPromptKey(image) != null)
+    const futureGroupBar = band.some((image) => runGridKey(image) != null)
       ? groupBarMaxHeight(size) : 0;
     bandTop += BAND_GAP + futureGroupBar;
 

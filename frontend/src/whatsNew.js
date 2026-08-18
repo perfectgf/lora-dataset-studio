@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-18-canvas-one-grid-per-checkpoint',
+    date: '2026-08-18',
+    title: 'Pinned batches land as one grid per checkpoint',
+    blurb:
+      'Generate a batch on the Canvas with several checkpoints selected and pin the results: each checkpoint now gets its own grid on the board instead of everything fusing into one strip where the batches were indistinguishable. Prompts and separate launches keep their own grids too, and boards pinned before this keep drawing exactly what they drew.',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-18-the-app-gets-back-up-after-a-crash',
     date: '2026-08-18',
     title: 'The app gets itself back up after a crash',
