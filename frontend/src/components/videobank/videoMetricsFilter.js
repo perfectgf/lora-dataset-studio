@@ -35,6 +35,12 @@ export const FLAG_LABELS = {
   // the same scale — a user who learned "Low aesthetic" on the Bank must not
   // have to learn a second name for the same finding on a shot.
   low_aesthetic: 'Low aesthetic',
+  // 🔳 The safe zone's three findings, named apart because they have three
+  // different remedies: crop it, drop it, or stop trying. A single "bad framing"
+  // chip could only ever suggest the last one.
+  letterboxed: 'Letterbox bars',
+  burned_text: 'Burned-in text',
+  small_safe_zone: 'Little usable frame',
   unmeasured: 'Not measured yet',
 }
 
@@ -169,6 +175,37 @@ export function thresholdFields() {
         + 'still. LAION reference: 4 casual, 4.75 strict, both set for filtering '
         + 'a web crawl, so start by previewing 4 against your own bank. Shots '
         + 'rate after 🔎 Find scenes has run; an unrated shot is never flagged.' },
+    // 🔳 The safe zone. All three read what that pass measured on three frames
+    // of each shot, and all three ship empty: bands and burned-in text are
+    // properties of somebody's footage rather than of a classifier, so the
+    // published figures belong in these hints and in no default.
+    { key: 'bars_max', flag: 'letterboxed', direction: 'above',
+      label: 'Letterbox share',
+      hint: 'Flags shots where more than this share of the frame is a flat band '
+        + '— letterbox, pillarbox, or a vertical video padded into a wide one. '
+        + 'The same number the Bank puts on a still, where 0.04 was the measured '
+        + 'cut. Bands survive a training crop, so they are worth seeing; a '
+        + '2.35:1 film honestly carries about 0.12 and is not a defect. Needs '
+        + 'the 🔳 Safe zone pass; a shot it has not measured is never flagged.' },
+    { key: 'text_coverage_max', flag: 'burned_text', direction: 'above',
+      label: 'Burned-in text share',
+      hint: 'Flags shots where subtitles, chyrons or a text watermark cover more '
+        + 'than this share of the frame. Only text that HOLDS STILL across the '
+        + 'shot counts — a passing shop sign is scene content and is never '
+        + 'counted. 0.01 is already a full subtitle line. Needs the 🔳 Safe zone '
+        + 'pass AND its text extra from Setup; with the extra missing the pass '
+        + 'measures bands only and no shot is ever flagged here.' },
+    { key: 'safe_area_min', flag: 'small_safe_zone', direction: 'below',
+      label: 'Usable frame floor',
+      hint: 'Flags shots where cropping away the bands AND the burned-in text '
+        + 'would leave less than this share of the frame. HunyuanVideo 1.5 keeps '
+        + 'only clips whose crop leaves 60 % or more; below about 50 % there is '
+        + 'not enough picture left to be worth the trouble. Text in the MIDDLE '
+        + 'of a frame lands here rather than under the share above — it is '
+        + 'small, and there is no crop that removes it. Needs the 🔳 Safe zone '
+        + 'pass AND its text extra from Setup: without the extra the pass '
+        + 'measures bands only and stores no usable-frame reading at all, so '
+        + 'this cut flags nothing rather than clearing every shot.' },
   ]
 }
 

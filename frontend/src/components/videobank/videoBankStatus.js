@@ -53,6 +53,7 @@ export const PASS_LABELS = {
   caption: 'Describe shots',
   dedup: '✂ Duplicates',
   watermark: '🔖 Watermarks',
+  safezone: '🔳 Safe zone',
   pipeline: 'Run everything',
   promote: 'Build the dataset',
 }
@@ -67,6 +68,7 @@ export const PASS_RUNNING_LABELS = {
   caption: 'Describing shots',
   dedup: 'Comparing shots',
   watermark: 'Looking for watermarks',
+  safezone: 'Measuring the safe zone',
   pipeline: 'Running everything',
   promote: 'Building the dataset',
 }

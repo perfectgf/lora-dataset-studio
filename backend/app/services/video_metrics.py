@@ -87,7 +87,16 @@ ADVISORY_KEYS = ('duplicate_group', 'duplicate_of',
                  # re-measure (which decodes frames and knows nothing about
                  # CLIP) must carry it across rather than silently drop it and
                  # send the whole bank back through the aesthetic pass.
-                 'aesthetic_score')
+                 'aesthetic_score',
+                 # 🔳 The safe zone. Bands, burned-in text and what is left of
+                 # the frame — three decoded frames and a CPU OCR per shot, the
+                 # most expensive advisory pass in the lane, so dropping it on a
+                 # re-measure would be the costliest silence of the five. Pinned
+                 # against video_safe_zone.OWNED_KEYS by a test: a key that pass
+                 # writes and this list does not carry is erased by the next
+                 # quality scan with nothing anywhere to see.
+                 'safe_zone_state', 'safe_zone_frames', 'safe_bands',
+                 'bars_ratio', 'text_coverage', 'safe_rect', 'safe_area')
 
 
 def merge_advisory(previous, summary):
@@ -279,7 +288,8 @@ def summarise(frames, fps, audio=UNMEASURED):
 THRESHOLD_KEYS = ('min_duration_s', 'motion_floor', 'motion_ceiling',
                   'luma_floor', 'freeze_max', 'sharpness_floor',
                   'first_frame_floor', 'silence_max', 'audio_floor',
-                  'watermark_max', 'aesthetic_floor')
+                  'watermark_max', 'aesthetic_floor',
+                  'bars_max', 'text_coverage_max', 'safe_area_min')
 
 
 def verdicts(scores, thresholds, duration_s=None):
@@ -398,6 +408,40 @@ def verdicts(scores, thresholds, duration_s=None):
     look_floor = thresholds.get('aesthetic_floor')
     if look is not None and look_floor is not None and look < look_floor:
         flags.add('low_aesthetic')
+
+    # ── 🔳 The safe zone: three cuts on three different findings ─────────────
+    # They are deliberately NOT one. A padded clip, a subtitled clip and a clip
+    # with nothing croppable left are three states with three different
+    # remedies — crop it, drop it, forget it — and a single number could only
+    # ever recommend the last one. Same split as freeze vs still, and as quiet
+    # vs silent. All three obey the rule every cut above obeys: no measurement,
+    # no flag, so a bank measured without the OCR engine (which stores its bands
+    # and NO text keys) can never be flagged for text it was never shown.
+
+    # Container. `bars_ratio` is the same arithmetic the image bank's own
+    # `bars_ratio` column carries, so the number a user calibrated on stills
+    # means the same thing here.
+    bars = scores.get('bars_ratio')
+    bars_max = thresholds.get('bars_max')
+    if bars is not None and bars_max is not None and bars > bars_max:
+        flags.add('letterboxed')
+
+    # Burned-in text — subtitles, chyrons, lower thirds. Only zones that held
+    # still ACROSS the shot's frames feed this; a shop sign is scene content and
+    # never counted (see video_safe_zone_geometry.structural_text).
+    text = scores.get('text_coverage')
+    text_max = thresholds.get('text_coverage_max')
+    if text is not None and text_max is not None and text > text_max:
+        flags.add('burned_text')
+
+    # What is LEFT once both are cut away, as a share of the frame. The one cut
+    # here whose published numbers are worth quoting: HunyuanVideo 1.5 discards
+    # a clip whose crop keeps under 60 % of the frame. Quoted in the hint, and
+    # in no default — that figure was set for a web-scale crawl.
+    area = scores.get('safe_area')
+    area_min = thresholds.get('safe_area_min')
+    if area is not None and area_min is not None and area < area_min:
+        flags.add('small_safe_zone')
 
     return flags
 

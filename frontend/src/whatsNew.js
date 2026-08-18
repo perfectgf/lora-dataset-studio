@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-18-video-safe-zone',
+    date: '2026-08-18',
+    title: 'See the black bars and the subtitles before your LoRA learns them',
+    blurb:
+      'A subtitle sits in the same rectangle of every frame of every clip from the same source, so it is among the first things a LoRA learns to draw — and at thumbnail size you cannot see it. Neither are the letterbox bars on a vertical video somebody padded into 16:9. The 🎬 Video bank has a new 🔳 Safe zone pass: it looks at three frames of each shot, measures the flat bands on all four sides, reads any text that HOLDS STILL across those frames (a passing shop sign is scene content and is left alone), and works out how much of the frame a crop would leave you. Three new cuts in the thresholds panel — letterbox share, burned-in text share, usable frame floor — all empty by default, all applied as you move them with nothing rescanned. Reading text needs one small CPU package from Setup; without it the pass still measures the bands and says so rather than pretending it found none.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-18-the-app-gets-back-up-after-a-crash',
     date: '2026-08-18',
     title: 'The app gets itself back up after a crash',

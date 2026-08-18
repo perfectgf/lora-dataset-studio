@@ -403,6 +403,26 @@ def video_bank_watermark(bank_id):
                   rescan=bool(data.get('rescan')))
 
 
+@bp.post('/video-bank/<int:bank_id>/safezone')
+def video_bank_safe_zone(bank_id):
+    """🔳 Measure bands and burned-in text on each shot. Body {rescan?}.
+
+    ONE 503, not two, and that is the difference from the watermark route above:
+    without the decode extra there is no frame to look at and the pass is
+    impossible, but without the OCR engine HALF of it still works. Refusing here
+    on a missing RapidOCR would withhold a letterbox measurement that costs
+    nothing and needs nothing — so the missing extra travels as a state on every
+    shot and a sentence in the job detail instead of as a status code.
+    """
+    from .. import capabilities
+    cap = capabilities.probe_video()
+    if not cap['decode']:
+        return jsonify({'error': cap['detail']}), 503
+    data = request.get_json(silent=True) or {}
+    return _start(bank_id, svc.start_safe_zone, _app(), LOCAL_USER, bank_id,
+                  rescan=bool(data.get('rescan')))
+
+
 @bp.patch('/video-bank/<int:bank_id>/clip/<int:clip_id>/caption')
 def video_bank_clip_caption(bank_id, clip_id):
     """Store the caption a HUMAN wrote for one shot. Body {caption}.

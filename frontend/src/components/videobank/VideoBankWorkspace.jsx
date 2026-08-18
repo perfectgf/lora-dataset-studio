@@ -358,13 +358,22 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
             that pass caches, so running them before it is the one order that
             produces an honest-looking empty answer. */}
         {['pipeline', 'probe', 'detect', 'thumbs', 'measure', 'embed',
-          'caption', 'dedup', 'watermark'].map((pass) => {
+          'caption', 'dedup', 'watermark', 'safezone'].map((pass) => {
           const blocked = passBlockedBy(capability, pass)
           const primary = pass === 'pipeline'
+          // 🔳 is the one pass that runs with HALF its dependencies: no OCR
+          // engine still measures the bands. So it is never disabled for that —
+          // the tooltip says what the run will and will not include instead,
+          // which is the difference between a working button and a dead one.
+          const partial = pass === 'safezone' && capability
+            && !capability.video_text
           return (
             <button key={pass} type="button" onClick={() => startPass(pass)}
               disabled={busy || !!blocked}
-              title={blocked ? blocked.why : undefined}
+              title={blocked ? blocked.why
+                : partial ? `Bands only — ${capability.video_text_detail
+                    || 'the burned-in text extra is not installed'}`
+                : undefined}
               className={`rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${
                 primary
                   ? 'bg-gradient-primary text-white'

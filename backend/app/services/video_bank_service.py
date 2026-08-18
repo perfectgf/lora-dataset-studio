@@ -536,14 +536,26 @@ def caption_model_info() -> dict:
 def _capability() -> dict:
     """Decode / detect / encode reported SEPARATELY — they fail independently and
     are fixed differently, and a single "video unavailable" is how a user
-    reinstalls the wrong thing."""
+    reinstalls the wrong thing.
+
+    `video_text` rides along as a FOURTH field rather than joining the three,
+    because it is not one of them: those three decide whether a pass can run at
+    all, while this one decides whether 🔳 Safe zone measures burned-in text on
+    top of the bands it measures regardless. The workspace uses it for a tooltip,
+    never to disable a button — see PASS_REQUIREMENTS in videoCapability.js.
+    """
     try:
         from .. import capabilities
-        return capabilities.probe_video()
+        out = dict(capabilities.probe_video())
+        text = capabilities.probe_video_text()
+        out['video_text'] = bool(text.get('ok'))
+        out['video_text_detail'] = text.get('detail')
+        return out
     except Exception as e:                  # noqa: BLE001 — never 500 the payload
         logger.warning('video capability probe failed: %s', e)
         return {'ok': False, 'detail': 'could not probe the video extra',
-                'decode': False, 'detect': False, 'encode': False}
+                'decode': False, 'detect': False, 'encode': False,
+                'video_text': False, 'video_text_detail': None}
 
 
 def sources_payload(user_id, bank_id) -> list:
@@ -1278,6 +1290,63 @@ def _watermark_job(bank_id, rescan, use_gpu):
         # own would read as a clean bank.
         if out['error']:
             detail = f'stopped — {out["error"]} ({out["scanned"]} shot(s) judged)'
+        bank_jobs.progress(job, detail=detail)
+        return out
+    return run
+
+
+def start_safe_zone(app, user_id, bank_id, rescan=False):
+    """🔳 Measure the container and the burned-in text of each shot.
+
+    NEVER refused for a missing OCR engine, and that is the one thing that makes
+    it different from every other capability-bearing pass here. 🔖 Watermarks and
+    🗣 Describe have nothing to offer without their model, so they refuse up
+    front rather than deliver a 202 and a job that dies on an import. This pass
+    has two halves and only one of them needs an install: with no RapidOCR it
+    still measures letterbox and pillarbox bands on every shot, records
+    `safe_zone_state: 'bars_only'` so nothing can mistake that for "no text
+    found", and reports the missing extra in the job's own detail line.
+
+    No GPU window either. Decoding is PyAV and the OCR is CPU onnxruntime by
+    construction, so this can run while a training run owns the card — which is
+    most of the point of building the text half on onnxruntime rather than on
+    the torch detector that was already here.
+    """
+    _require_free_bank(user_id, bank_id)
+    return bank_jobs.start(app, job_key(bank_id), 'safezone',
+                           _safe_zone_job(bank_id, bool(rescan)))
+
+
+def _safe_zone_job(bank_id, rescan):
+    def run(job):
+        from . import video_safe_zone
+        total = len(video_safe_zone.pending_clips(bank_id, rescan))
+        bank_jobs.progress(job, done=0, total=total,
+                           detail='measuring the safe zone')
+
+        def on_text_progress(done, frames):
+            # Called from the reader thread of the OCR child — bank_jobs is
+            # lock-guarded, which is why this is allowed to touch it. A chunk is
+            # 40 shots and over a minute of OCR, so without this the bar stands
+            # still long enough to read as a hang.
+            bank_jobs.progress(job, detail=f'reading burned-in text '
+                                           f'({done}/{frames} frames)')
+
+        out = video_safe_zone.run_safe_zone(
+            bank_id, rescan,
+            on_clip=lambda: bank_jobs.bump(job),
+            should_stop=lambda: bank_jobs.cancelled(job),
+            on_text_progress=on_text_progress)
+        detail = f'done — {out["measured"]} shot(s) measured'
+        if out['letterboxed']:
+            detail += f', {out["letterboxed"]} with bands'
+        if out['unreadable']:
+            detail += f', {out["unreadable"]} could not be read'
+        if out['error']:
+            # Said out loud and NOT as a failure: the bands ARE measured, on
+            # every shot this run touched. Silence here would leave a bank whose
+            # text cut flags nothing and nothing anywhere saying why.
+            detail += f' — {out["error"]}'
         bank_jobs.progress(job, detail=detail)
         return out
     return run

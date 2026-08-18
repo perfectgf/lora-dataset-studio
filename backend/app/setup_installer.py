@@ -245,7 +245,7 @@ INSTALL_ACTIONS = ('ml_extras', 'scrape_extras', 'ollama_model',
                    'face_scoring', 'masks', 'watermark_inpaint',
                    'bank_scoring', 'bank_siglip2',
                    'watermark_detect',
-                   'video', 'shot_detect') + tuple(_MODEL_DOWNLOADS) + tuple(_NODE_PACKS)
+                   'video', 'shot_detect', 'video_text') + tuple(_MODEL_DOWNLOADS) + tuple(_NODE_PACKS)
 
 _ML_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-ml.txt'
 _SCRAPE_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-scrape.txt'
@@ -336,6 +336,22 @@ _CAPABILITY_PACKAGES = {
     #               kept failing in an environment nothing had put av into.
     'video': ('imageio-ffmpeg', 'av'),
     'shot_detect': ('transnetv2-pytorch', 'av'),
+    #   video_text  RapidOCR, for the safe-zone pass's burned-in-text half. It
+    #               lands in the SAME interpreter as face_scoring and masks (the
+    #               app's own by default) because it is the same kind of extra:
+    #               CPU onnxruntime, no torch, no second 2.5 GB copy of anything.
+    #               `onnxruntime` and `numpy` are named here for the reason the
+    #               masks line names them — a scoped install must resolve them
+    #               even when the headline package's own metadata is vague, and
+    #               _drop_provided_onnxruntime() still keeps this from stepping
+    #               on a GPU build the user installed themselves.
+    #               `opencv-python-headless` is named because RapidOCR depends on
+    #               the DESKTOP `opencv-python`, which drags a GUI stack onto a
+    #               server: naming the headless variant makes pip prefer it, the
+    #               same trick face_scoring and masks already use for the same
+    #               transitive dependency.
+    'video_text': ('rapidocr-onnxruntime', 'onnxruntime', 'numpy',
+                   'opencv-python-headless'),
     #   bank_scoring  has its own worker and its own package tuple
     #                 (_BANK_SCORING_PKGS); only the ONE package whose version
     #                 floor matters is declared in requirements-ml.txt, so it is
@@ -345,7 +361,7 @@ _CAPABILITY_PACKAGES = {
 }
 # The capabilities served by the GENERIC per-capability pip worker
 # (_run_ml_capability). watermark_inpaint keeps its own worker, so it's excluded.
-_CAPABILITY_ML_ACTIONS = ('face_scoring', 'masks', 'video')
+_CAPABILITY_ML_ACTIONS = ('face_scoring', 'masks', 'video', 'video_text')
 
 # Actions whose success makes a NEW importable package appear -> the probe
 # import-cache must be dropped so the capability flips without waiting out the

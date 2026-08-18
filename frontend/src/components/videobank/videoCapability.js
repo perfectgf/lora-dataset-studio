@@ -75,6 +75,13 @@ export const PASS_REQUIREMENTS = {
   // detector's own environment and weights are a separate install step, checked
   // server-side with its own sentence — the same split as embed and caption.
   watermark: ['decode'],
+  // 🔳 Safe zone decodes three frames per shot, so `decode` and nothing else.
+  // Its OCR engine is deliberately NOT listed here, and it is the only pass in
+  // this table whose second dependency is left out on purpose: without it the
+  // pass still measures letterbox and pillarbox bands on every shot and says so.
+  // Requiring it would grey out a button that works — the exact mistake this
+  // table exists to avoid, in the opposite direction.
+  safezone: ['decode'],
   pipeline: ['decode', 'detect'],
   promote: ['encode'],
 }
