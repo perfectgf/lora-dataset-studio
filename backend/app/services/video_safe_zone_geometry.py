@@ -152,6 +152,42 @@ def vote_bands(per_frame):
     return {side: min(b[side] for b in usable) for side in SIDES}
 
 
+# ── TWO SURFACES, ONE VOCABULARY, TWO CONTRACTS ──────────────────────────────
+# The image bank measures letterbox too (`image_provenance.bars_ratio`, the
+# `bars_ratio` column, the `bank.bars_max` cut, the `bars` flag). This module
+# deliberately shares its WORDS and deliberately does NOT share its shape, and
+# CLAUDE.md's two-surfaces rule says to write down which is which — because the
+# next person to notice the duplication will reach for the merge, and the merge
+# silently deletes the half this lane needs.
+#
+# SHARED, and must stay shared:
+#   * the name `bars_ratio` and the cut `bars_max`;
+#   * the arithmetic that folds four sides into that one number,
+#     `max(top + bottom, left + right)` — so 0.12 means the same thing on a
+#     still and on a shot, and a user carries their calibration across.
+#     Pinned by test_the_banded_share_is_the_larger_axis_and_matches_the_image_lane,
+#     which reads the image lane's source.
+#
+# NOT shared, on purpose, and NOT a bug to reconcile:
+#   * WHAT COUNTS AS A BAND. The image lane tests DARKNESS (`max(...) <=
+#     _BARS_DARK`); this one tests UNIFORMITY. A still off a chat app is padded
+#     black; a rush is padded black, white, or grey depending on who exported
+#     it, so darkness alone misses most of them here. Uniformity is looser and
+#     costs a known false positive (a flat sky) — which is why this cut ships
+#     with no default and the image lane's ships 0.04.
+#   * HOW MANY IMAGES ANSWER. There is one still; there are three frames, and
+#     the per-side MIN across them is what separates a container from a fade.
+#     A still has no fade to survive.
+#   * THE SHAPE OF THE ANSWER. The image lane stores ONE scalar. This one stores
+#     FOUR fractions (`safe_bands`) and derives the scalar from them, because
+#     `safe_rect` has to know WHICH edges to cut — a scalar cannot say whether
+#     0.24 is a letterbox or a pillarbox, and a crop needs to know.
+#
+# So: unify the vocabulary if it ever drifts. Do NOT collapse `vote_bands` into
+# a single-image call, and do NOT reduce `safe_bands` to a scalar to "match" the
+# image column — that throws away the input the safe zone is computed from.
+
+
 def bars_ratio(bands):
     """The ONE number `bars_max` cuts on: the larger of the two banded shares.
 

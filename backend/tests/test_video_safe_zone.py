@@ -163,6 +163,25 @@ def test_the_banded_share_is_the_larger_axis_and_matches_the_image_lane():
          'video cut carries the same name and must not mean something else')
 
 
+def test_the_per_side_bands_survive_any_alignment_with_the_image_lane():
+    """The half a future "unification" would delete, pinned.
+
+    The two lanes share the WORD `bars_ratio` and the arithmetic that produces
+    it, and a reader who notices that will reasonably reach for the merge. The
+    image lane stores ONE scalar; this one must keep FOUR fractions, because
+    `safe_rect` has to know WHICH edges to cut and a scalar cannot say whether
+    0.24 is a letterbox or a pillarbox — two clips with the identical ratio and
+    opposite geometry, here, to make the point undeniable."""
+    letterbox = {'top': 0.12, 'bottom': 0.12, 'left': 0.0, 'right': 0.0}
+    pillarbox = {'top': 0.0, 'bottom': 0.0, 'left': 0.12, 'right': 0.12}
+    assert geo.bars_ratio(letterbox) == geo.bars_ratio(pillarbox)
+    # Same scalar, opposite crops. The per-side values are the only thing that
+    # tells them apart, and the safe zone is built on them.
+    assert geo.safe_rect(letterbox, []) == (0.0, 0.12, 1.0, 0.88)
+    assert geo.safe_rect(pillarbox, []) == (0.12, 0.0, 0.88, 1.0)
+    assert geo.SIDES == ('top', 'bottom', 'left', 'right')
+
+
 # --- burned-in text -----------------------------------------------------------------
 
 SUB_A = (0.20, 0.82, 0.80, 0.90)        # a subtitle line
@@ -380,6 +399,47 @@ def test_the_pass_measures_bands_and_text_on_every_shot(app, monkeypatch):
     assert stored['text_coverage'] == pytest.approx(0.048, abs=1e-3)
     assert stored['safe_rect'] == [0.0, 0.12, 1.0, 0.82]
     assert stored['safe_area'] == pytest.approx(0.70, abs=1e-3)
+
+
+def test_one_decode_feeds_both_halves(app, monkeypatch):
+    """The bands and the OCR read the SAME frames, written ONCE.
+
+    Decoding is the expensive part of this feature — three frames per shot at
+    768 px — and splitting it into "a band pass" and "a text pass" is the
+    obvious-looking refactor that would double it for no gain. So: exactly one
+    `_write_frames` call per shot, and every path handed to the OCR child is one
+    of the paths the bands were measured on. Not a byte more decoded, whatever
+    the install can do with the result."""
+    bank_id, ids = _bank_with_clips(app, 2)
+    calls = []
+    banded = []
+
+    def _write(src, times, dest, stem, long_side=None):
+        calls.append((stem, long_side, [label for label, _s in times]))
+        return [(label, seconds, f'{dest}/{stem}_{label}.jpg')
+                for label, seconds in times]
+
+    monkeypatch.setattr(sz, '_write_frames', _write)
+    monkeypatch.setattr(sz, 'luma_grid',
+                        lambda path, probe=None: banded.append(path)
+                        or _letterboxed(100, 100, 12))
+    seen_by_ocr = []
+    monkeypatch.setattr(sz, 'text_engine_reason', lambda: None)
+    monkeypatch.setattr(
+        sz, 'read_text_boxes',
+        lambda frames, **kw: (seen_by_ocr.extend(f['path'] for f in frames)
+                              or {f['key']: [] for f in frames}))
+
+    with app.app_context():
+        assert sz.run_safe_zone(bank_id)['measured'] == 2
+
+    # ONE extraction per shot, at the resolution this pass chose.
+    assert [stem for stem, _ls, _labels in calls] == [f'clip_{c}' for c in ids]
+    assert {long_side for _stem, long_side, _labels in calls} == {sz.FRAME_LONG_SIDE}
+    # The OCR saw exactly the frames the bands were measured on — same paths,
+    # same count, no second decode hiding anywhere.
+    assert sorted(seen_by_ocr) == sorted(banded)
+    assert len(seen_by_ocr) == 6                    # 2 shots x 3 frames
 
 
 def test_a_shot_whose_frames_cannot_be_decoded_is_unreadable_and_never_zero(

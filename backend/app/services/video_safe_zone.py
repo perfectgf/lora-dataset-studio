@@ -82,12 +82,28 @@ logger = logging.getLogger(__name__)
 
 _SCRIPT = str(cfg.BACKEND_DIR / 'infer' / 'video_text_infer.py')
 
-# Long side of the extracted frames. The embedding pass writes 256 px because
-# CLIP sees 224; a subtitle is a few dozen pixels tall and is simply GONE at that
-# size, and the OCR would then confidently report a bank with no text in it. Same
-# number, and the same argument, as 🔖 Watermarks' FRAME_LONG_SIDE — and bounded
-# for the same reason too: the detector downsamples internally, so extracting 4K
-# would buy nothing and cost decode and disk.
+# Long side of the extracted frames — the constant somebody will find in six
+# months and wonder about, so here is the arithmetic that chose it.
+#
+# THE FLOOR IS THE SUBTITLE. Broadcast and streaming subtitles are cut at
+# roughly 4-5 % of frame height, so a 1080p source carries letters about 45 px
+# tall; scaled to a 768 px long side (×0.71 on 16:9) they land around 32 px.
+# Measured on this machine: RapidOCR read a 30 px line at 768×432 with 0.97
+# confidence, so 768 sits just above the floor rather than on it. The embedding
+# pass's 256 px would put that same line at ~10 px — GONE, and the OCR would
+# then confidently report a bank with no text in it, which is the worst
+# available outcome because it looks like a clean answer.
+#
+# THE CEILING IS THAT BIGGER BUYS NOTHING. RapidOCR's detector resizes to its
+# own input internally, so handing it a native 4K frame pays ~7× the pixels of
+# 1080p in decode and scratch disk to feed a downscale two functions later. Cost
+# at 768 is already 0.61 s per warm frame on CPU (measured), three frames per
+# shot; there is no budget to spend on pixels the model discards.
+#
+# Same number as 🔖 Watermarks' FRAME_LONG_SIDE, and that agreement is a
+# coincidence of two similar constraints rather than a shared contract — a logo
+# and a subtitle are both small things that vanish at thumbnail size. Neither
+# constant should be changed because the other moved.
 FRAME_LONG_SIDE = 768
 
 # Shots per OCR child invocation. The engine costs ~1.4 s to import and build and
@@ -441,11 +457,20 @@ def _extract_chunk(bank, chunk, relpaths, scratch):
     frame it got, in decode order, each with the OCR key that frame will be
     reported under.
 
+    ONE DECODE FEEDS BOTH HALVES, and that is a contract rather than a happy
+    accident. The bands are measured off the very JPEGs whose paths go to the
+    OCR child, in this loop, before anything else happens to them — so a shot is
+    opened once and its three frames are written once, whatever the install can
+    do with them. Splitting this into "a band pass" and "a text pass" would
+    double the only expensive part of the whole feature for no gain, and it is
+    the obvious-looking refactor, so `test_one_decode_feeds_both_halves` pins it.
+
     Extract first, then read the whole chunk's text in one child: the engine
     loads once per process, so interleaving one decode and one inference per clip
     would pay that load per clip. Bands are computed HERE, while the frame is on
     disk, because they cost a box-reduction and nothing else — sending them
-    through the OCR child would make an install without it lose them.
+    through the OCR child would make an install without it lose them, which is
+    the whole reason the letterbox half survives a missing engine.
     """
     from .video_bank_service import _abs_source_path
     extracted = {}
