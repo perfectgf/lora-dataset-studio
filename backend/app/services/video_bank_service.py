@@ -1072,12 +1072,49 @@ def _embed_job(bank_id, reembed, use_gpu):
                 bank_id, reembed, use_gpu=use_gpu,
                 on_clip=lambda: bank_jobs.bump(job),
                 should_stop=lambda: bank_jobs.cancelled(job))
+        out.update(_rate_the_look(job, bank_id, reembed))
         detail = f'done — {out["embedded"]} shot(s) searchable'
         if out['unreadable']:
             detail += f', {out["unreadable"]} could not be read'
+        if out.get('rated'):
+            detail += f' — {out["rated"]} rated for look'
+        if out.get('aesthetic_error'):
+            # Said out loud and NOT as a failure: the embedding run succeeded,
+            # and a head that could not be fetched is a different problem with a
+            # different fix. Silence here would leave a bank whose look cut flags
+            # nothing, with nothing to explain why.
+            detail += f' — look score unavailable ({out["aesthetic_error"]})'
         bank_jobs.progress(job, detail=detail)
         return out
     return run
+
+
+def _rate_the_look(job, bank_id, reembed):
+    """🎨 The look score, riding the pass that produced the vectors it reads.
+
+    AFTER the GPU window closes, deliberately: this is CPU arithmetic over an
+    .npz and holding the card through it would leave it idle AND unavailable.
+
+    Over the WHOLE bank rather than over what this run embedded: a bank embedded
+    before the score existed must not need hours of re-decoding to gain a number
+    it can get from vectors already on disk, so re-clicking 🔎 Find scenes IS the
+    retrofit. ``reembed`` carries through as ``rescore`` — rewritten vectors are
+    different vectors, and a stale rating beside them would be a verdict about
+    footage that has moved.
+
+    Skipped on cancel: a stopped pass has already kept everything it earned, and
+    charging it a torch import on the way out is not what Stop means.
+    """
+    from . import video_aesthetic
+    if bank_jobs.cancelled(job):
+        return {}
+    if not video_aesthetic.pending_clips(bank_id, bool(reembed)):
+        return {}
+    bank_jobs.progress(job, detail='rating how each shot looks')
+    out = video_aesthetic.run_aesthetic(
+        bank_id, rescore=bool(reembed),
+        should_stop=lambda: bank_jobs.cancelled(job))
+    return {'rated': out['rated'], 'aesthetic_error': out['error']}
 
 
 def start_dedup(app, user_id, bank_id, threshold=None):
