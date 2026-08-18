@@ -285,6 +285,14 @@ export function sourceState(source) {
   if (s.detect_state === 'error') {
     return { tone: 'error', label: 'Detection failed', title: 'This file was read, but shot detection failed on it.' }
   }
+  if (s.detect_state === 'single') {
+    // Its own badge and not "1 shot": the number is the same, the meaning is
+    // not. This file was DECLARED a single take, which is why the bank-wide
+    // re-cut and the detection pass both walk past it — and someone wondering
+    // why it never changes has to be able to see the reason on the card.
+    return { tone: 'info', label: 'Single shot',
+             title: 'You marked this file as one continuous take. Bulk passes leave it alone; ↻ Re-detect this file is the way back.' }
+  }
   if (s.detect_state === 'ok') {
     const clips = n(s.clips)
     return { tone: 'ok', label: `${clips} shot${clips === 1 ? '' : 's'}`, title: 'Shots detected.' }

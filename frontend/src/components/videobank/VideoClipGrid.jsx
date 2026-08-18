@@ -1,6 +1,7 @@
 import { videoClipThumbUrl } from './videoBankApi'
 import { clipLabel } from './videoClipFragment'
 import { FLAG_LABELS } from './videoMetricsFilter'
+import { transitionChip } from './videoShotCuts'
 
 /** 🎬 The shot gallery — JPEG thumbnails, and NOT ONE <video>.
  *
@@ -34,6 +35,9 @@ export default function VideoClipGrid({
     <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
       {clips.map((clip) => {
         const isChosen = chosen.has(clip.id)
+        // Only dissolves get one. Hard cuts are the vast majority, and a chip on
+        // every tile is a chip nobody reads — the same rule the flags follow.
+        const fade = transitionChip(clip)
         return (
           <li key={clip.id}
             className={`relative flex min-w-0 flex-col overflow-hidden rounded-lg border bg-surface transition-colors ${
@@ -76,6 +80,17 @@ export default function VideoClipGrid({
                   title={clip.flags.map((f) => FLAG_LABELS[f] || f).join(' · ')}
                   className="pointer-events-none absolute bottom-1 left-1 rounded bg-amber-500/90 px-1 text-[0.625rem] font-bold text-black">
                   ⚑ {clip.flags.length > 1 ? clip.flags.length : (FLAG_LABELS[clip.flags[0]] || clip.flags[0])}
+                </span>
+              )}
+              {/* The kind of boundary this shot sits between, read from the
+                  detector's second head. Amber like every other advisory mark,
+                  and top-centre so it never lands on the flags or the duration.
+                  It means "the first or last frames here are a cross-fade of
+                  the neighbouring shot" — worth knowing before training on it. */}
+              {fade && (
+                <span title={fade.title}
+                  className="pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 rounded bg-amber-500/90 px-1 text-[0.625rem] font-bold text-black">
+                  {fade.label}
                 </span>
               )}
             </button>

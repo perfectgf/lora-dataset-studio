@@ -2,6 +2,12 @@ import {
   formatDuration, formatFileSize, sourceGeometry, sourceState,
 } from './videoBankStatus'
 import { firstShotBounds } from './videoClipEdit'
+import { canRecut } from './videoShotCuts'
+
+// The per-file actions share one look: they are peers, and a difference in
+// weight between them would read as a difference in consequence.
+const ACTION = 'rounded border border-border bg-surface-raised px-1.5 py-0.5 '
+  + 'text-[0.625rem] font-semibold text-content-muted hover:bg-surface'
 
 const TONE = {
   ok: 'bg-emerald-500/15 text-emerald-200',
@@ -25,8 +31,17 @@ const TONE = {
  * that detection missed entirely — or a bank on an install with no detector, which
  * the app explicitly says can still "scan, cut, watch and triage" — has none. It
  * makes the first shot, which the lightbox then trims and splits.
+ *
+ * ▣ SINGLE SHOT AND ↻ RE-CUT ARE PER-FILE ON PURPOSE. A folder of rushes is
+ * mixed inside itself: the untouched phone clip and the tightly edited scene sit
+ * next to each other, and there is no bank-wide number that is right for both.
+ * Both buttons act on the ONE file whose name is on the card, which is also what
+ * lets ↻ replace hand-made cuts — it is the way back from ▣, and it says so
+ * before it does it.
  */
-export default function VideoSourceList({ sources, activeSourceId, onFilter, onCut }) {
+export default function VideoSourceList({
+  sources, activeSourceId, onFilter, onCut, onSingleShot, onRecut,
+}) {
   if (!sources?.length) {
     return (
       <p className="text-sm text-content-muted">
@@ -62,13 +77,32 @@ export default function VideoSourceList({ sources, activeSourceId, onFilter, onC
               {formatDuration(s.duration_s)} · {formatFileSize(s.file_size)}
               {sourceGeometry(s) ? ` · ${sourceGeometry(s)}` : ''}
             </p>
-            {onCut && firstShotBounds(s) && (
-              <button type="button" onClick={() => onCut(s, firstShotBounds(s))}
-                title="Add a 5 s shot at the start of this file, then trim or split it in the player"
-                className="self-start rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.625rem] font-semibold text-content-muted hover:bg-surface">
-                ✂ Cut a shot by hand
-              </button>
-            )}
+            <div className="flex flex-wrap gap-1">
+              {onCut && firstShotBounds(s) && (
+                <button type="button" onClick={() => onCut(s, firstShotBounds(s))}
+                  title="Add a 5 s shot at the start of this file, then trim or split it in the player"
+                  className={ACTION}>
+                  ✂ Cut a shot by hand
+                </button>
+              )}
+              {onSingleShot && s.probe_state === 'ok'
+                && s.detect_state !== 'single' && (
+                <button type="button" onClick={() => onSingleShot(s)}
+                  title="This file is one continuous take: replace its shots with a single full-length one"
+                  className={ACTION}>
+                  ▣ Single shot
+                </button>
+              )}
+              {onRecut && canRecut(s) && (
+                <button type="button" onClick={() => onRecut(s)}
+                  title={s.detect_state === 'single'
+                    ? 'Find the shots in this file again — undoes “single shot” for it'
+                    : 'Cut this file again at its own threshold, from what the detector already measured'}
+                  className={ACTION}>
+                  ↻ Re-detect this file
+                </button>
+              )}
+            </div>
           </li>
         )
       })}

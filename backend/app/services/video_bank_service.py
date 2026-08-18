@@ -73,6 +73,16 @@ PIPELINE_STEPS = ('probe', 'detect', 'thumbs')
 
 TRIAGE_STATUSES = ('pending', 'keep', 'reject')
 
+# A third value for VideoSource.detect_state, next to 'ok' and 'error': the user
+# declared this file a single take, and its clips were decided by hand rather
+# than found. Every BULK pass — the detection pass and the bank-wide re-cut —
+# skips a source in this state, which is the whole point: without it, a slider
+# moved once would quietly lay three detected clips back on top of the single
+# one and the declaration would mean nothing. Stored as a state rather than a
+# new column because that is exactly what it is, and because the source list
+# already reads this field.
+SINGLE_SHOT_STATE = 'single'
+
 # The shortest span a hand-cut shot may hold. Not a UI nicety: the shortest target
 # in the catalogue still asks for a fraction of a second of real footage, and a
 # 0.1 s shot promotes to a file that is one frame padded out to the profile's
@@ -191,14 +201,18 @@ def _probe_file(path):
     return video_probe.probe(path)
 
 
-def _detect_shots(path, fps_native=None):
-    """The shot boundaries of one file, as dicts carrying PTS seconds.
+def _detect_source(path, fps_native=None, **options):
+    """One file through the detector: its clips AND the vector that produced them.
 
     Imported lazily and by name so an install with no detection extra fails HERE,
     per file, into detect_state='error' — rather than at import time, which would
-    take the whole app down for a capability it may never use."""
+    take the whole app down for a capability it may never use.
+
+    Returns the dict services/shot_detect.detect_source documents. The
+    probabilities in it are what the pass persists, and they are the reason a
+    threshold change afterwards costs no GPU at all."""
     from . import shot_detect
-    return shot_detect.detect_shots(path, fps_native=fps_native)
+    return shot_detect.detect_source(path, fps_native=fps_native, **options)
 
 
 def _is_detector_unavailable(exc) -> bool:
@@ -437,7 +451,11 @@ def _counts(bank_id) -> dict:
         'sources': src.count(),
         'probed': src.filter(VideoSource.probe_state.isnot(None)).count(),
         'unreadable': src.filter_by(probe_state='unreadable').count(),
-        'detected': src.filter_by(detect_state='ok').count(),
+        # A file the user declared a single take counts as DONE. It is not
+        # waiting for anything, and leaving it out would make the workspace's
+        # next-step line keep offering a detection pass over a decision.
+        'detected': src.filter(VideoSource.detect_state
+                               .in_(('ok', SINGLE_SHOT_STATE))).count(),
         'detect_errors': src.filter_by(detect_state='error').count(),
         'clips': clips.count(),
         'pending': clips.filter_by(status='pending').count(),
@@ -513,7 +531,30 @@ def bank_payload(user_id, bank_id) -> dict | None:
     # theirs — and so a machine that does not have it yet learns that before
     # pressing the button rather than twenty minutes into a download.
     payload['caption_model'] = caption_model_info()
+    # The cut settings in force, so the Find shots panel opens on the truth
+    # rather than on a blank field that would read as "no threshold set".
+    payload['shot_detect'] = shot_detect_info(bank)
     return payload
+
+
+def shot_detect_info(bank: VideoBank) -> dict:
+    """What the Find shots panel needs: this bank's threshold, the global one it
+    would fall back to, and how many of its files could be re-cut instantly.
+
+    `threshold` is the bank's own override or None (inherit) — never the
+    resolved value, so the field can show empty instead of a number nobody
+    typed. `default` is what None means today."""
+    shot = _shot_config()
+    cached = (VideoSource.query.filter_by(bank_id=bank.id, probs_state='ok')
+              .count())
+    return {
+        'threshold': bank.shot_threshold,
+        'default': shot.threshold_default(),
+        'min_shot_seconds': shot.min_shot_seconds_default(),
+        'short_shot_policy': shot.short_shot_policy_default(),
+        'trim_dissolves': shot.trim_dissolves_default(),
+        'cached_sources': cached,
+    }
 
 
 def caption_model_info() -> dict:
@@ -558,6 +599,15 @@ def sources_payload(user_id, bank_id) -> list:
         'width': s.width, 'height': s.height, 'codec': s.codec,
         'probe_state': s.probe_state, 'detect_state': s.detect_state,
         'clips': clip_counts.get(s.id, 0),
+        # Whether this file can be re-cut INSTANTLY. Read from the column and
+        # not from the disk: this runs for every source on every poll, and a
+        # stat() per file per two seconds over a bank of hundreds is a cost the
+        # answer does not justify.
+        'has_probs': s.probs_state == 'ok',
+        # This file's own override, or None when it inherits. The UI needs the
+        # raw value, not the resolved one, to show an empty field rather than a
+        # number the user never typed.
+        'shot_threshold': s.shot_threshold,
     } for s in rows]
 
 
@@ -612,6 +662,11 @@ def _clip_row(clip: VideoClip, relpaths: dict, thresholds=None) -> dict:
         'promoted_dataset_id': clip.promoted_dataset_id,
         'metrics': metrics if metrics and metrics.get('metrics_state') == 'ok' else None,
         'flags': flags,
+        # Cut or dissolve at each end, when the detector's second head measured
+        # it. None throughout for a hand-made cut and for anything detected
+        # before that head was kept — no label rather than a guessed one.
+        'transition': (json.loads(clip.transition_json)
+                       if clip.transition_json else None),
     }
 
 
@@ -935,21 +990,42 @@ def start_detect(app, user_id, bank_id, redetect=False):
 
 def _detect_job(bank_id, redetect):
     def run(job):
-        q = VideoSource.query.filter_by(bank_id=bank_id, probe_state='ok')
+        q = (VideoSource.query.filter_by(bank_id=bank_id, probe_state='ok')
+             # Never a file the user declared a single take, in EITHER mode —
+             # see SINGLE_SHOT_STATE. "Re-detect everything" is a bulk gesture
+             # and a declaration is not something a bulk gesture may overrule.
+             .filter(db.or_(VideoSource.detect_state.is_(None),
+                            VideoSource.detect_state != SINGLE_SHOT_STATE)))
         if not redetect:
             q = q.filter(VideoSource.detect_state.is_(None))
         rows = q.order_by(VideoSource.id.asc()).all()
         bank = db.session.get(VideoBank, bank_id)
         bank_jobs.progress(job, done=0, total=len(rows), detail='detecting shots')
-        made = failed = 0
+        made = failed = cached = 0
         for src in rows:
             if bank_jobs.cancelled(job):
                 break
             path = _abs_source_path(bank, src.relpath) if bank else None
+            reuse = _reusable_probs(bank_id, src, path) if redetect else None
+            if reuse is not None:
+                # The expensive half of this pass is DECODING, and it has
+                # already been paid for this file. Re-cutting from the stored
+                # vector gives byte-identical bounds at the same threshold and
+                # takes milliseconds, so "Find shots again" over a bank that has
+                # already been through it once is now instant.
+                _drop_clips_of(bank_id, src.id, replace_manual=False)
+                made += _insert_clips(bank_id, src, reuse)
+                cached += 1
+                src.detect_state = 'ok'
+                db.session.commit()
+                bank_jobs.bump(job)
+                continue
             try:
                 if path is None:
                     raise OSError('source file is outside the bank folder')
-                shots = _detect_shots(path, src.fps_native)
+                result = _detect_source(path, src.fps_native,
+                                        threshold=shot_threshold_for(bank_id, src))
+                shots = result.get('clips') or []
             except Exception as e:      # noqa: BLE001 — one bad file, not the pass
                 if _is_detector_unavailable(e):
                     # A fact about the INSTALL, not about these files. Stamping
@@ -968,31 +1044,53 @@ def _detect_job(bank_id, redetect):
                 bank_jobs.bump(job)
                 continue
             if redetect:
-                # Only clips nobody has promoted: a re-detect must not silently
-                # revoke the provenance of a dataset already built.
-                #
-                # And never a HAND-MADE cut. A manual bound is the one thing in this
-                # bank the detector cannot reproduce — re-running it would wipe an
-                # afternoon of retouching behind a checkbox labelled "re-detect",
-                # with no warning and nothing to undo. The manual clips then sit
-                # alongside the freshly detected ones and may overlap them; that is
-                # the honest outcome, and the grid shows both.
-                (VideoClip.query
-                 .filter_by(bank_id=bank_id, source_id=src.id)
-                 .filter(VideoClip.promoted_dataset_id.is_(None))
-                 .filter(db.or_(VideoClip.detector.is_(None),
-                                VideoClip.detector != 'manual'))
-                 .delete(synchronize_session=False))
+                _drop_clips_of(bank_id, src.id, replace_manual=False)
             made += _insert_clips(bank_id, src, shots)
+            _remember_probs(bank_id, src, result.get('probs'))
             src.detect_state = 'ok'
             db.session.commit()
             bank_jobs.bump(job)
         detail = f'done — {made} clips found'
+        if cached:
+            detail += f', {cached} re-cut from cache'
         if failed:
             detail += f', {failed} files failed detection'
         bank_jobs.progress(job, detail=detail)
-        return {'clips': made, 'failed': failed}
+        return {'clips': made, 'failed': failed, 'from_cache': cached}
     return run
+
+
+def _reusable_probs(bank_id, src: VideoSource, path):
+    """The clips a cached vector would give for this file — or None to decode it.
+
+    WHY THIS IS GUARDED BY THE FILE SIZE. A bank points at a LIVE folder: people
+    keep dropping files into it, and they also re-export and overwrite them. A
+    cache keyed on nothing but the source id would then re-cut the NEW file at
+    the OLD file's boundaries and report a clean run — bounds that describe
+    footage nobody has any more, which is the one failure this whole lane is
+    built to avoid. The size recorded by the probe is a cheap, honest tripwire:
+    it does not catch a same-size re-encode, and a genuinely changed file
+    virtually never keeps its byte count.
+
+    Anything unresolvable — no cache, no probed rate, no size on record, a size
+    that moved — falls through to a real pass, which re-decodes and refills the
+    cache. Being wrong in that direction costs time; being wrong in the other
+    costs correctness.
+    """
+    from . import shot_probs
+    if not src.fps_native or not src.file_size or not path:
+        return None
+    try:
+        if os.path.getsize(path) != src.file_size:
+            return None
+    except OSError:
+        return None
+    probs = shot_probs.load_probs(bank_id, src.id)
+    if not probs or not probs.get('single'):
+        return None
+    return _shot_config().clips_from_probs(
+        probs, fps_native=src.fps_native,
+        threshold=shot_threshold_for(bank_id, src))
 
 
 def _insert_clips(bank_id, src: VideoSource, shots) -> int:
@@ -1010,17 +1108,326 @@ def _insert_clips(bank_id, src: VideoSource, shots) -> int:
             continue
         if end_s <= start_s:
             continue
+        transition = shot.get('transition')
         rows.append({
             'bank_id': bank_id, 'source_id': src.id,
             'start_s': start_s, 'end_s': end_s,
             'start_frame': shot.get('start_frame'),
             'end_frame': shot.get('end_frame'),
             'detector': (shot.get('detector') or 'transnetv2')[:16],
+            'transition_json': (json.dumps(transition)
+                                if transition and any(transition.values())
+                                else None),
             'status': 'pending',
         })
     for i0 in range(0, len(rows), _INSERT_CHUNK):
         db.session.execute(VideoClip.__table__.insert(), rows[i0:i0 + _INSERT_CHUNK])
     return len(rows)
+
+
+# --- re-cutting a file without re-running the detector ---------------------------
+#
+# THE ONE IDEA UNDER ALL OF THIS: the detector's per-frame probabilities are now
+# kept (services/shot_probs), so the threshold stopped being a decision baked
+# into a GPU pass and became a value that can be argued with. A slider over a
+# cached vector is the same gesture DaVinci Resolve offers over its own
+# confidence graph, and it is the reason 0.5 could stay the default honestly —
+# nobody ever measured it, and now nobody has to live with it either.
+#
+# WHY A PER-FILE OVERRIDE AND NOT JUST A PER-BANK ONE. The corpus is mixed
+# INSIDE one folder: an untouched single take and a tightly edited scene sit
+# next to each other, and no bank-level number is right for both. The ladder is
+# file, then bank, then global — and NULL at any level means "inherit", never
+# zero, because 0.0 is a real threshold that cuts on every frame.
+
+class ShotProbsMissing(RuntimeError):
+    """This source has no cached probabilities, so it cannot be re-cut instantly.
+
+    Not an error about the file — it is a fact about when it was detected. The
+    caller's answer is to offer a real detection pass, never to report the file
+    as broken."""
+
+
+def _shot_config():
+    from . import shot_detect
+    return shot_detect
+
+
+def shot_threshold_for(bank_id, source):
+    """The threshold that applies to ONE file: its own, else its bank's, else
+    the global default. Clamped on the way out — read on a hot path, so a
+    nonsense stored value degrades rather than aborting a pass."""
+    from . import shot_boundaries
+    bank = db.session.get(VideoBank, int(bank_id))
+    src = (source if isinstance(source, VideoSource)
+           else db.session.get(VideoSource, int(source)))
+    return shot_boundaries.resolve_threshold(
+        getattr(src, 'shot_threshold', None),
+        getattr(bank, 'shot_threshold', None),
+        _shot_config().threshold_default())
+
+
+def _validated_threshold(value):
+    """None (inherit) or a number inside [0, 1]. REFUSED rather than clamped:
+    the read path clamps because it must never abort a pass already running,
+    but a write has somebody there to be told they typed something wrong."""
+    if value is None or value == '':
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError('the threshold must be a number between 0 and 1') from None
+    if number != number or not (0.0 <= number <= 1.0):
+        raise ValueError('the threshold must be a number between 0 and 1')
+    return round(number, 3)
+
+
+def set_bank_shot_threshold(user_id, bank_id, value) -> dict | None:
+    """Set (or clear, with None) the whole bank's threshold. Cuts nothing by
+    itself — re-cutting is a separate, explicit gesture, because changing a
+    number must not silently rewrite hundreds of rows."""
+    bank = get_bank(user_id, bank_id)
+    if bank is None:
+        return None
+    bank.shot_threshold = _validated_threshold(value)
+    db.session.commit()
+    return {'threshold': bank.shot_threshold}
+
+
+def set_source_shot_threshold(user_id, bank_id, source_id, value) -> dict | None:
+    if get_bank(user_id, bank_id) is None:
+        return None
+    src = VideoSource.query.filter_by(id=int(source_id), bank_id=bank_id).first()
+    if src is None:
+        return None
+    src.shot_threshold = _validated_threshold(value)
+    db.session.commit()
+    return {'threshold': src.shot_threshold,
+            'effective': shot_threshold_for(bank_id, src)}
+
+
+def _remember_probs(bank_id, src: VideoSource, probs):
+    """Persist one source's probability vectors, or record that it has none.
+
+    Never fatal: a bank on a full disk must still finish its detection pass and
+    keep its clips. The only thing lost is the instant re-cut, and the source
+    row says so rather than pretending."""
+    if not probs or not probs.get('single'):
+        src.probs_state = None
+        return
+    try:
+        from . import shot_probs
+        shot_probs.save_probs(bank_id, src.id, probs.get('single'),
+                              probs.get('all'))
+        src.probs_state = 'ok'
+    except Exception as error:      # noqa: BLE001 — a cache write never sinks a pass
+        logger.warning('video bank %s: could not cache the shot probabilities '
+                       'of source %s: %s', bank_id, src.id, error)
+        src.probs_state = None
+
+
+def _load_probs_or_raise(bank_id, source_id):
+    from . import shot_probs
+    probs = shot_probs.load_probs(bank_id, source_id)
+    if not probs or not probs.get('single'):
+        raise ShotProbsMissing(
+            'this file has no cached shot probabilities — run Find shots on it '
+            'once and every later threshold change is instant')
+    return probs
+
+
+def _drop_clips_of(bank_id, source_id, *, replace_manual) -> dict:
+    """Delete the clips a re-cut is about to replace, and everything that
+    described them.
+
+    PROMOTED CLIPS ARE NEVER TOUCHED, at either level: a dataset already built
+    keeps its provenance, and revoking it behind a slider would make the badge
+    on those clips a lie.
+
+    HAND-MADE CUTS depend on the gesture, and the asymmetry is the design.
+    A bank-wide pass spares them — an afternoon of retouching must not vanish
+    behind a checkbox. A per-FILE re-cut replaces them, because it is a
+    deliberate action on a file the user picked out by name, and it is the only
+    way back from "this file is a single take". The count is reported so the UI
+    can say what it is about to do before doing it.
+
+    THE THUMBNAILS GO WITH THE ROWS. A thumbnail is a measurement OF A SPAN; the
+    grid points an <img> at a URL that serves whatever is on disk, so a leftover
+    file keeps showing a frame no clip contains. The search vectors are left in
+    the bank's .npz on purpose (rewriting tens of megabytes inside a click), and
+    are unreachable the moment their row is gone — the same trade
+    `_forget_measurements` documents for a trim.
+    """
+    query = (VideoClip.query.filter_by(bank_id=bank_id, source_id=int(source_id))
+             .filter(VideoClip.promoted_dataset_id.is_(None)))
+    if not replace_manual:
+        query = query.filter(db.or_(VideoClip.detector.is_(None),
+                                    VideoClip.detector != 'manual'))
+    doomed = query.all()
+    manual = sum(1 for clip in doomed if clip.detector == 'manual')
+    for clip in doomed:
+        try:
+            thumb_path(bank_id, clip.id).unlink(missing_ok=True)
+        except OSError:     # noqa: BLE001 — a locked thumbnail is not worth a 500
+            logger.info('video bank %s: could not remove the thumbnail of clip '
+                        '%s', bank_id, clip.id)
+        db.session.delete(clip)
+    db.session.flush()
+    return {'removed': len(doomed), 'replaced_manual': manual}
+
+
+def recut_source(user_id, bank_id, source_id, threshold=None) -> dict | None:
+    """Re-cut ONE file from its cached probabilities. No decode, no GPU.
+
+    This is also the way back from "this file is a single take": it replaces
+    hand-made cuts on this one file, which a bank-wide re-cut never does. See
+    `_drop_clips_of` for why the two levels differ."""
+    if get_bank(user_id, bank_id) is None:
+        return None
+    src = VideoSource.query.filter_by(id=int(source_id), bank_id=bank_id).first()
+    if src is None:
+        return None
+    probs = _load_probs_or_raise(bank_id, src.id)
+    thr = (_validated_threshold(threshold) if threshold is not None
+           else shot_threshold_for(bank_id, src))
+    fps = src.fps_native
+    if not fps:
+        raise ValueError('this file has not been probed, so its frame rate is '
+                         'unknown — run Probe first')
+    clips = _shot_config().clips_from_probs(probs, fps_native=fps, threshold=thr)
+    dropped = _drop_clips_of(bank_id, src.id, replace_manual=True)
+    made = _insert_clips(bank_id, src, clips)
+    src.detect_state = 'ok'
+    db.session.commit()
+    return {'clips': made, 'threshold': thr, 'counts': _counts(bank_id),
+            **dropped}
+
+
+def recut_bank(user_id, bank_id, threshold=None) -> dict | None:
+    """Re-cut every source that HAS a cached vector, sparing hand-made cuts.
+
+    Synchronous on purpose, unlike every heavy pass in this lane: there is no
+    decode here, only arithmetic over a few hundred KB per file, and putting it
+    behind the job queue would make an instant operation look like a slow one
+    and would lock the bank against the very next click."""
+    if get_bank(user_id, bank_id) is None:
+        return None
+    rows = (VideoSource.query.filter_by(bank_id=bank_id)
+            .order_by(VideoSource.id.asc()).all())
+    from . import shot_probs
+    done = made = skipped = single = 0
+    for src in rows:
+        if src.detect_state == SINGLE_SHOT_STATE:
+            single += 1
+            continue
+        probs = shot_probs.load_probs(bank_id, src.id)
+        if not probs or not probs.get('single') or not src.fps_native:
+            # Detected before the cache existed, or never probed. Counted and
+            # reported — never left with its old cuts as if it had been re-cut.
+            skipped += 1
+            continue
+        thr = (_validated_threshold(threshold) if threshold is not None
+               else shot_threshold_for(bank_id, src))
+        clips = _shot_config().clips_from_probs(probs, fps_native=src.fps_native,
+                                                threshold=thr)
+        _drop_clips_of(bank_id, src.id, replace_manual=False)
+        made += _insert_clips(bank_id, src, clips)
+        done += 1
+    db.session.commit()
+    # `single_shot` is counted apart from `skipped`: one is "this file has no
+    # cache and needs a real pass", the other is "you told me not to". Merging
+    # them would offer the user a fix for something that is not broken.
+    return {'sources': done, 'clips': made, 'skipped': skipped,
+            'single_shot': single, 'counts': _counts(bank_id)}
+
+
+def shot_dry_run(user_id, bank_id, source_id=None, thresholds=None) -> dict | None:
+    """"At threshold X you would get N shots" — for one file or the whole bank.
+
+    Reads the cache and writes nothing, exactly like the metrics dry run: the
+    point of a preview is to be able to change your mind after seeing it."""
+    if get_bank(user_id, bank_id) is None:
+        return None
+    from . import shot_boundaries, shot_probs
+    query = VideoSource.query.filter_by(bank_id=bank_id)
+    if source_id is not None:
+        query = query.filter_by(id=int(source_id))
+    rows = query.order_by(VideoSource.id.asc()).all()
+    if not rows:
+        return None
+    # Which value the ladder marks as "in force". For ONE file that is the
+    # file's own resolved threshold; for the whole bank it is the BANK's, with
+    # per-file overrides deliberately ignored — reading the first source's
+    # would mark a row nothing bank-wide actually uses, and that row is the one
+    # every other row's "8 fewer than now" is measured against.
+    if source_id is not None:
+        current = shot_threshold_for(bank_id, rows[0])
+    else:
+        bank = db.session.get(VideoBank, int(bank_id))
+        current = shot_boundaries.resolve_threshold(
+            None, getattr(bank, 'shot_threshold', None),
+            _shot_config().threshold_default())
+    ladder = ([_validated_threshold(t) for t in thresholds] if thresholds
+              else shot_boundaries.suggested_thresholds(current))
+    ladder = [t for t in ladder if t is not None]
+    totals = {t: 0 for t in ladder}
+    answered = skipped = single = 0
+    for src in rows:
+        if source_id is None and src.detect_state == SINGLE_SHOT_STATE:
+            # A bank-wide preview must count what the bank-wide RE-CUT would
+            # produce, and that pass walks past a declared single take. Counting
+            # it here promised two shots for a file that would keep its one —
+            # a preview that does not match the action it previews is worse than
+            # no preview. Asked about that file BY NAME the answer is different:
+            # the per-file re-cut does apply to it, and is the way back from the
+            # declaration.
+            single += 1
+            continue
+        probs = shot_probs.load_probs(bank_id, src.id)
+        if not probs or not probs.get('single') or not src.fps_native:
+            skipped += 1
+            continue
+        answered += 1
+        for row in _shot_config().sweep_probs(probs, fps_native=src.fps_native,
+                                              thresholds=ladder):
+            totals[row['threshold']] = totals.get(row['threshold'], 0) + row['shots']
+    return {'rows': [{'threshold': t, 'shots': totals.get(t, 0)} for t in ladder],
+            'sources': answered, 'skipped': skipped, 'single_shot': single,
+            'current': current}
+
+
+def mark_single_shot(user_id, bank_id, source_id) -> dict | None:
+    """"This file is one single take" — replace its clips with ONE, full length.
+
+    NO TOOL STUDIED OFFERS THIS, and a single-take corpus needs it more than any
+    slider: the failure mode there is not a missed cut, it is a file quietly
+    chopped into six fragments that each train on a third of a gesture. The
+    result is stamped `detector='manual'`, so a bank-wide re-cut leaves it
+    alone; the dedicated per-file re-cut is the way back.
+
+    Needs a probed duration, and says so rather than guessing: `ffmpeg -ss` past
+    the end of a file does not fail, it writes a one-frame clip, and the mistake
+    would only surface at promotion."""
+    if get_bank(user_id, bank_id) is None:
+        return None
+    src = VideoSource.query.filter_by(id=int(source_id), bank_id=bank_id).first()
+    if src is None:
+        return None
+    duration = src.duration_s
+    if not duration or duration <= 0:
+        raise ValueError('this file has not been probed, so its length is '
+                         'unknown — run Probe first')
+    if duration < MIN_CLIP_S:
+        raise ValueError(f'this file lasts {duration:.2f}s, less than the '
+                         f'{MIN_CLIP_S}s a clip needs')
+    dropped = _drop_clips_of(bank_id, src.id, replace_manual=True)
+    clip = VideoClip(bank_id=bank_id, source_id=src.id, start_s=0.0,
+                     end_s=round(float(duration), 3), detector='manual',
+                     status='pending')
+    db.session.add(clip)
+    src.detect_state = SINGLE_SHOT_STATE
+    db.session.commit()
+    return {'clips': 1, 'counts': _counts(bank_id), **dropped}
 
 
 def start_measure(app, user_id, bank_id, remeasure=False):

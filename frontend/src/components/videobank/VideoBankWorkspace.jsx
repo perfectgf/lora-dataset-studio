@@ -4,6 +4,7 @@ import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import {
   videoBankUrl, videoClipsUrl, videoPassUrl, videoSourceClipsUrl,
+  videoSourceRecutUrl, videoSourceSingleShotUrl,
 } from './videoBankApi'
 import { retouchToast } from './videoClipEdit'
 import { passBlockedBy } from './videoCapability'
@@ -18,6 +19,7 @@ import {
   hasMore,
 } from './videoTriage'
 import VideoCapabilityStrip from './VideoCapabilityStrip'
+import VideoShotCutsPanel from './VideoShotCutsPanel'
 import VideoThresholdsPanel from './VideoThresholdsPanel'
 import VideoSourceList from './VideoSourceList'
 import VideoClipGrid from './VideoClipGrid'
@@ -314,6 +316,47 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
     }
   }
 
+  /** ▣ "This file is one take" and ↻ "re-detect this one file".
+   *
+   * Both replace every shot of ONE file, so both confirm first — and the
+   * confirmation for ↻ names the thing the user could not get back: a re-cut of
+   * a single file replaces hand-made cuts too. That asymmetry with the
+   * bank-wide re-cut is deliberate (it is what makes ↻ the way back from ▣) and
+   * it is exactly the kind of asymmetry that has to be said out loud.
+   */
+  const perSource = async (src, url, question, done) => {
+    if (!window.confirm(question)) return
+    try {
+      const d = await postJson(url, {})
+      toast.success(done(d))
+      loadBank(false)
+      loadClips(false)
+    } catch (e) {
+      if (e?.status === 409) {
+        toast.warning('A pass is running on this bank — stop it first.')
+      } else if (e?.status === 503) {
+        toast.warning(e?.body?.error || 'This file has no cached measurement yet.')
+      } else {
+        toast.error(e?.body?.error || e?.message || 'That did not go through.')
+      }
+    }
+  }
+
+  const singleShot = (src) => perSource(
+    src, videoSourceSingleShotUrl(bankId, src.id),
+    `Replace every shot of ${src.relpath} with one full-length shot?\n\n`
+    + 'Shots already promoted into a dataset are kept. Bulk passes will leave '
+    + 'this file alone afterwards.',
+    () => 'One shot now covers the whole file.')
+
+  const recutSource = (src) => perSource(
+    src, videoSourceRecutUrl(bankId, src.id),
+    `Find the shots in ${src.relpath} again?\n\n`
+    + 'This replaces every shot on this file, INCLUDING any you cut by hand. '
+    + 'Shots already promoted into a dataset are kept.',
+    (d) => `${d.clips} shots`
+      + (d.replaced_manual ? `, replacing ${d.replaced_manual} hand-made.` : '.'))
+
   if (!bank) return <p className="text-sm text-content-muted">Loading…</p>
   const problems = countsProblems(counts)
 
@@ -408,6 +451,13 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
 
       {/* The cuts panel sits between the passes and the grid: it only means
           something once Measure has run, and it changes what the grid shows. */}
+      {/* Above the quality cuts on purpose: this panel decides which shots
+          EXIST, the other decides which of them get flagged. */}
+      {(counts.sources || 0) > 0 && (
+        <VideoShotCutsPanel bankId={bankId} shotDetect={bank?.shot_detect}
+          onChanged={() => { loadBank(false); loadClips(false) }} />
+      )}
+
       {(counts.clips || 0) > 0 && (
         <VideoThresholdsPanel bankId={bankId} saved={bank?.thresholds}
           totalClips={counts.clips || 0} onApplied={() => loadBank(false)} />
@@ -419,7 +469,8 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
         </summary>
         <div className="border-t border-border p-3">
           <VideoSourceList sources={bank.sources || []} activeSourceId={sourceId}
-            onFilter={setSourceId} onCut={cutByHand} />
+            onFilter={setSourceId} onCut={cutByHand}
+            onSingleShot={singleShot} onRecut={recutSource} />
         </div>
       </details>
 

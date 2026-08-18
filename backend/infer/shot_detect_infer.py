@@ -38,16 +38,27 @@ when the caller has no cached value to hand it.
 Weights ship INSIDE the `transnetv2-pytorch` wheel (~33 MB, MIT) — the
 constructor below never downloads anything and works fully offline.
 
+BOTH HEADS ARE REPORTED, NOT JUST THE ONE BOUNDARIES ARE DRAWN FROM. The
+network predicts `single_frame_pred` (the centre frame of a transition) and
+`all_frame_pred` (every frame the transition covers). This worker used to
+compute the second and drop it on the floor. It is the only signal anywhere
+that says how WIDE a transition is — hard cut or slow dissolve — and it costs
+nothing extra, the forward pass having already produced it. Both vectors go
+back to the parent when it asks (`emit_probs`), which persists them; from then
+on a different threshold is a re-read of a small file rather than a second
+pass over the GPU.
+
 Protocol (same streaming shape as watermark_detect_infer.py — one line per
 file, because a bank-wide pass must be able to report partial progress and
 must not let one corrupt source cost the rest):
   stdin  : ONE json object
            {"videos": [abs paths], "threshold": 0.5, "device": "auto"|"cuda"|"cpu",
-            "cancel_file": path|null}
-  stdout : ONE json line PER VIDEO, in input order:
+            "cancel_file": path|null, "emit_probs": bool}
+  stdout : ONE json line PER VIDEO, in input order, holding exactly ROW_KEYS:
            {"path": str, "state": "ok"|"error",
             "shots": [[start_frame, end_frame], ...],
-            "frame_count": int|null, "fps_native": float|null, "error": str|null}
+            "frame_count": int|null, "fps_native": float|null, "error": str|null,
+            "probs": {"single": [float], "all": [float]}|null}
            then a final line {"summary": {"ok": bool, "processed": int,
             "errors": int, "device": str, "error"?: str}}.
   stderr : "[shotdet] i/N state" progress lines + load diagnostics.
@@ -65,6 +76,24 @@ import sys
 # different interpreters, and a single test asserts they never drift, the
 # same safeguard the watermark detector's model ids already carry.
 DETECTOR_ID = 'transnetv2'
+
+# The EXACT keys of one per-video row, in order. Declared as a constant rather
+# than left implicit in a dict literal because the reader lives in another
+# interpreter: a test asserts this tuple against what `_detect_one` really
+# returns AND against the parent's own copy (services/shot_detect.ROW_KEYS), so
+# neither half can quietly grow, lose or rename a key. The lesson is paid for —
+# a stub built from a hand-copied shape stayed green for a whole wave while
+# production had already moved on.
+ROW_KEYS = ('path', 'state', 'shots', 'frame_count', 'fps_native', 'error',
+            'probs')
+# The two heads, named the same way on both sides of the pipe.
+PROBS_KEYS = ('single', 'all')
+
+# Emitted probabilities are rounded to this many decimals. A two-hour rush is a
+# quarter of a million frames on ONE json line; four decimals is three orders of
+# magnitude finer than any threshold anyone will ever set, and it roughly halves
+# the line.
+_PROB_DECIMALS = 4
 
 # TransNetV2's fixed input geometry (H, W, C) — see the library's own
 # `_input_size` attribute. Not configurable: the trained weights are for this
@@ -179,33 +208,49 @@ def _load_model(device):
 
 
 def _run_model(model, frames):
-    """The only place this worker touches a torch tensor. Returns a plain
-    list[float] of per-frame transition probabilities — the "single frame"
-    head, the same signal the reference implementation's own `detect_scenes()`
-    uses for scene splitting (the "many hot" head is an auxiliary training
-    target, not what boundaries are drawn from)."""
+    """The only place this worker touches a torch tensor. Returns BOTH heads as
+    plain list[float]:
+
+      single — the transition's centre frame. Boundaries are drawn from this,
+               and every published F1 for this network measures it.
+      all    — every frame the transition covers. Not a boundary signal; its
+               WIDTH is what distinguishes a hard cut from a dissolve, and it
+               is already computed by the same forward pass, so returning it
+               costs a `.tolist()` and nothing else.
+    """
     import numpy as np
     import torch
     tensor = torch.from_numpy(np.asarray(frames, dtype='uint8')).to(model.device)
-    single_frame_pred, _ = model.predict_frames(tensor, quiet=True)
-    return single_frame_pred.detach().cpu().tolist()
+    single_frame_pred, all_frame_pred = model.predict_frames(tensor, quiet=True)
+    return (single_frame_pred.detach().cpu().tolist(),
+            all_frame_pred.detach().cpu().tolist())
 
 
-def _detect_one(path, model, threshold):
+def _rounded(values):
+    return [round(float(v), _PROB_DECIMALS) for v in values]
+
+
+def _detect_one(path, model, threshold, emit_probs=False):
     """Decode + run + threshold ONE video. Never raises: a broken file becomes
     an 'error' row, exactly like the rest of this worker family, so one bad
-    source never sinks the batch it was queued with."""
+    source never sinks the batch it was queued with.
+
+    The row ALWAYS holds every key in ROW_KEYS, in that order — `probs` is None
+    rather than absent when the parent did not ask for it. A row whose shape
+    depends on the request is a row every reader has to guess at."""
     try:
         frames, fps_native, frame_count = _read_frames(path)
-        probs = _run_model(model, frames)
-        shots = _predictions_to_scenes(probs, threshold)
+        single, every = _run_model(model, frames)
+        shots = _predictions_to_scenes(single, threshold)
+        probs = ({'single': _rounded(single), 'all': _rounded(every)}
+                 if emit_probs else None)
         return {'path': path, 'state': 'ok', 'shots': shots,
                 'frame_count': frame_count, 'fps_native': fps_native,
-                'error': None}
+                'error': None, 'probs': probs}
     except Exception as e:               # noqa: BLE001 — one file, not the batch
         return {'path': path, 'state': 'error', 'shots': [],
                 'frame_count': None, 'fps_native': None,
-                'error': f'{type(e).__name__}: {e}'}
+                'error': f'{type(e).__name__}: {e}', 'probs': None}
 
 
 def main() -> int:
@@ -218,6 +263,7 @@ def main() -> int:
     threshold = float(job.get('threshold') or 0.5)
     cancel_file = job.get('cancel_file') or ''
     device = str(job.get('device') or 'auto')
+    emit_probs = bool(job.get('emit_probs'))
 
     try:
         model = _load_model(device)
@@ -231,7 +277,7 @@ def main() -> int:
         if _cancel_requested(cancel_file):
             _log(f'[shotdet] cancelled at {i - 1}/{len(videos)}')
             break
-        row = _detect_one(path, model, threshold)
+        row = _detect_one(path, model, threshold, emit_probs)
         processed += 1
         if row['state'] == 'error':
             errors += 1

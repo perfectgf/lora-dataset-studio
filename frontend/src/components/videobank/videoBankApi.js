@@ -74,6 +74,43 @@ export function videoSourceClipsUrl(bankId, sourceId) {
   return `/api/video-bank/${bankId}/source/${sourceId}/clips`
 }
 
+/** 🎬 The threshold the detector cuts at — for the whole bank, or for ONE file.
+ *
+ * Two URLs and not one with an optional id, so a call site cannot accidentally
+ * write a bank-wide value while meaning one file. POST rather than PATCH: the
+ * body carries `null` to CLEAR the override, and a PATCH whose payload is a
+ * deliberate null reads like a field somebody forgot to fill in. */
+export function videoShotThresholdUrl(bankId) {
+  return `/api/video-bank/${bankId}/shot-threshold`
+}
+
+export function videoSourceShotThresholdUrl(bankId, sourceId) {
+  return `/api/video-bank/${bankId}/source/${sourceId}/shot-threshold`
+}
+
+/** "At threshold X you would get N shots" — read from the cached probabilities,
+ * writes nothing. The same philosophy as the quality cuts' preview: a number
+ * only means something once you have seen what it would do to THIS bank. */
+export function videoShotDryRunUrl(bankId) {
+  return `/api/video-bank/${bankId}/shot-dry-run`
+}
+
+/** Re-cut from the cache. Bank-wide spares hand-made cuts; the per-file one
+ * replaces them, which is what makes it the way back from "single take". */
+export function videoRecutUrl(bankId) {
+  return `/api/video-bank/${bankId}/recut`
+}
+
+export function videoSourceRecutUrl(bankId, sourceId) {
+  return `/api/video-bank/${bankId}/source/${sourceId}/recut`
+}
+
+/** This file is ONE take: one full-length shot, and no bulk pass may overrule
+ * it afterwards. */
+export function videoSourceSingleShotUrl(bankId, sourceId) {
+  return `/api/video-bank/${bankId}/source/${sourceId}/single-shot`
+}
+
 /** 🔎 Rank this bank's shots against a typed phrase.
  *
  * A GET because it is a read and nothing else — re-runnable, bookmarkable, and

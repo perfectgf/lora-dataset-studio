@@ -33,6 +33,8 @@ from app.extensions import db
 from app.models import VideoClip, VideoDataset, VideoDatasetClip, VideoSource
 from app.services import video_bank_service as svc
 
+from _video_extra import detect_source_stub
+
 
 # --- fakes for the four media seams -------------------------------------------
 
@@ -62,7 +64,7 @@ def seams(monkeypatch):
         return 0, ''
 
     monkeypatch.setattr(svc, '_probe_file', _fake_probe)
-    monkeypatch.setattr(svc, '_detect_shots', _fake_shots)
+    monkeypatch.setattr(svc, '_detect_source', detect_source_stub(_fake_shots(None)))
     monkeypatch.setattr(svc, '_write_thumbnail', lambda *a, **k: True)
     monkeypatch.setattr(svc, '_run_ffmpeg', _run)
     monkeypatch.setattr(svc, '_ffmpeg_or_raise', lambda: '/usr/bin/ffmpeg')
@@ -196,12 +198,12 @@ def test_a_detector_failure_is_recorded_on_the_file_and_the_pass_continues(
     """detect_state is separate from probe_state because a file can be perfectly
     readable and still defeat the detector. Collapsing the two would send the user
     to reinstall the decoder for a detection problem."""
-    def _detect(path, _fps=None):
+    def _detect(path, _fps=None, **_options):
         if path.endswith('bad.mp4'):
             raise RuntimeError('detector exploded')
-        return _fake_shots(path)
+        return detect_source_stub(_fake_shots(path))(path)
 
-    monkeypatch.setattr(svc, '_detect_shots', _detect)
+    monkeypatch.setattr(svc, '_detect_source', _detect)
     with app.app_context():
         bank_id, _ = _bank(app, tmp_path, ('bad.mp4', 'good.mp4'))
         svc.start_probe(app, LOCAL_USER, bank_id)
@@ -229,10 +231,10 @@ def test_a_missing_detection_extra_fails_the_pass_not_every_file(
     class ShotDetectUnavailable(RuntimeError):
         pass
 
-    def _detect(_path, _fps=None):
+    def _detect(_path, _fps=None, **_options):
         raise ShotDetectUnavailable('transnetv2-pytorch is not installed')
 
-    monkeypatch.setattr(svc, '_detect_shots', _detect)
+    monkeypatch.setattr(svc, '_detect_source', _detect)
     with app.app_context():
         bank_id, _ = _bank(app, tmp_path, ('a.mp4', 'b.mp4'))
         svc.start_probe(app, LOCAL_USER, bank_id)
@@ -355,10 +357,10 @@ def test_a_clip_too_short_for_the_target_is_skipped_and_counted(app, tmp_path,
     ai-toolkit then clamps and repeats frames, training it as stills, and nothing
     anywhere says so. Skipping loudly is the only honest answer — and the clip must
     leave NO half-file and no orphan sidecar behind."""
-    monkeypatch.setattr(svc, '_detect_shots', lambda _p, _f=None: [
+    monkeypatch.setattr(svc, '_detect_source', detect_source_stub([
         {'start_s': 0.0, 'end_s': 8.0, 'start_frame': 0, 'end_frame': 240},
         {'start_s': 20.0, 'end_s': 22.0, 'start_frame': 600, 'end_frame': 660},
-    ])
+    ]))
     with app.app_context():
         _bank_id, _ids, out = _promoted(app, tmp_path, seams)
         ds = db.session.get(VideoDataset, out['id'])
