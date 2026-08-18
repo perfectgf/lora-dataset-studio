@@ -129,8 +129,16 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
   if (!open) return null;
 
   return (
+    /* STOPS ITS OWN CLICKS. Every host mounts this INSIDE its overlay so it
+       inherits the stacking context — and those overlays close when you click
+       their backdrop. Without this, clicking the description field (which has no
+       handler of its own to swallow the event) bubbled all the way up and shut
+       the whole review down: reported from the watermark review, where it threw
+       the user back to the dataset. Defended here rather than in each host, so a
+       fourth surface cannot reintroduce it. */
     <div className="fixed inset-0 z-[9998] flex flex-col bg-black/90 p-3 sm:p-4"
       role="dialog" aria-modal="true" aria-label="Repair an area of this image"
+      onClick={(e) => e.stopPropagation()}
       ref={dialogRef}>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold text-white">✦ Repair an area</span>

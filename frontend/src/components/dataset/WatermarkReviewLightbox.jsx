@@ -454,6 +454,10 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   useEffect(() => {
     const onKey = (e) => {
       if (isInteractiveShortcutTarget(e.target)) return;
+      // Escape peels ONE layer: while ✦ Repair is up it belongs to the dialog,
+      // which has its own window listener. Both firing closed the dialog AND the
+      // review underneath — the keyboard twin of the backdrop-click defect.
+      if (repairOpen) return;
       if (e.key === 'Escape') { e.preventDefault(); close(); return; }
       if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); return; }
       if (e.key === 'ArrowRight') { e.preventDefault(); go(1); return; }
@@ -465,7 +469,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [close, go, doClean, doRestore, doDismiss, doReject]);
+  }, [close, go, doClean, doRestore, doDismiss, doReject, repairOpen]);
 
   if (!total) return null;
 

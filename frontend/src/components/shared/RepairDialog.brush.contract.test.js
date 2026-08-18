@@ -85,3 +85,29 @@ test('the contribution is credited where the code lives', () => {
     assert.match(src, /JacobArrow/, `${name} must credit its contributor`);
   }
 });
+
+/* ── The dialog is a LAYER, and a layer must not act on the one beneath it ──
+   Reported from the watermark review: clicking the description field threw the
+   user back to the dataset. Every host mounts this dialog inside its own
+   overlay (so it inherits the stacking context), and those overlays close on a
+   backdrop click — so an event the dialog does not stop is a close. */
+
+test('a click inside the dialog never reaches the overlay behind it', () => {
+  assert.match(dialog, /onClick=\{\(e\) => e\.stopPropagation\(\)\}/);
+  // The host DOES close on a backdrop click — that is what makes this load-bearing.
+  assert.match(review, /className="fixed inset-0 z-\[9997\][^"]*" onClick=\{close\}/);
+});
+
+test('Escape peels one layer, not two', () => {
+  // Both the dialog and its hosts listen on `window`, so both fire unless the
+  // host stands down while the dialog is up.
+  assert.match(dialog, /if \(e\.key === 'Escape' && !busy\) onClose\(\)/);
+  assert.match(review, /if \(repairOpen\) return;/);
+  assert.match(generated, /if \(e\.key === 'Escape' && !repairOpen\) onClose\?\.\(\)/);
+});
+
+test('the guards are re-read when the dialog opens, not captured stale', () => {
+  // A listener registered once with repairOpen=false would keep closing forever.
+  assert.match(review, /doDismiss, doReject, repairOpen\]\);/);
+  assert.match(generated, /\}, \[img, onClose, repairOpen\]\);/);
+});
