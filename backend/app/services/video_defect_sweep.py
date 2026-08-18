@@ -438,38 +438,57 @@ def sweep_file(path, fps, *, should_stop=None, duration_s=None):
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+_STDERR_FILE = 'stderr.txt'
+
+
 def _run_polled(args, cwd, budget, should_stop):
     """(stopped, returncode, stderr tail). Terminates on a Stop or a timeout.
 
-    `terminate` and not `kill`: ffmpeg closes its outputs on SIGTERM, and on
-    Windows the metadata files are flushed by the same teardown — a hard kill
-    would leave three truncated files that parse into a plausible, wrong answer.
-    Nothing here reads them after a stop, but a partial file that LOOKS complete
-    is the kind of thing a later change starts trusting.
+    NO PIPES, and that is not a detail. This waits by POLLING rather than by
+    `communicate()`, because a source file can be an hour long and a Stop has to
+    land in a quarter of a second rather than at the end of it. A poll loop and a
+    pipe together are a deadlock: nobody drains the pipe, ffmpeg fills the OS
+    buffer (~64 KB), blocks on its next write, and never exits — so a file that
+    merely produced a lot of warnings would spin until the whole budget elapsed
+    and then be reported as a failure. stderr goes to a FILE, which has no such
+    ceiling, and stdout is discarded because every number this pass wants is
+    already going to the three metadata files.
+
+    `terminate` and not `kill`: ffmpeg closes its outputs on SIGTERM, and the
+    metadata files are flushed by that same teardown — a hard kill would leave
+    three truncated files that parse into a plausible, wrong answer. Nothing
+    reads them after a stop today, but a partial file that LOOKS complete is the
+    kind of thing a later change starts trusting.
     """
-    proc = subprocess.Popen(
-        args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding='utf-8', errors='replace',
-        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    deadline = time.time() + budget
+    err_path = os.path.join(cwd, _STDERR_FILE)
     stopped = False
-    while proc.poll() is None:
-        if should_stop is not None and should_stop():
-            stopped = True
-            break
-        if time.time() > deadline:
-            logger.warning('defect sweep: ffmpeg exceeded its %.0fs budget', budget)
-            break
-        time.sleep(_POLL_S)
-    if proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.communicate(timeout=15)
-        except Exception:            # noqa: BLE001 — it is going away regardless
-            proc.kill()
-        return stopped, proc.returncode, ''
-    _out, err = proc.communicate()
-    return stopped, proc.returncode, (err or '').strip()[-300:]
+    with open(err_path, 'w', encoding='utf-8') as err_file:
+        proc = subprocess.Popen(
+            args, cwd=cwd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=err_file,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        deadline = time.time() + budget
+        while proc.poll() is None:
+            if should_stop is not None and should_stop():
+                stopped = True
+                break
+            if time.time() > deadline:
+                logger.warning('defect sweep: ffmpeg exceeded its %.0fs budget',
+                               budget)
+                break
+            time.sleep(_POLL_S)
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=15)
+            except Exception:        # noqa: BLE001 — it is going away regardless
+                proc.kill()
+    try:
+        with open(err_path, encoding='utf-8', errors='replace') as fh:
+            tail = fh.read().strip()[-300:]
+    except OSError:
+        tail = ''
+    return stopped, proc.returncode, tail
 
 
 # --- the pass ---------------------------------------------------------------------

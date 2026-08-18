@@ -493,6 +493,54 @@ def test_a_corrupt_blob_is_never_the_reason_a_bank_loses_its_scores(monkeypatch)
     assert json.loads(clip.metrics_json) == {'defect_state': 'ok'}
 
 
+def test_the_sweep_never_waits_on_an_undrained_pipe(monkeypatch, tmp_path):
+    """A poll loop and a PIPE together are a deadlock, and this pass needs the
+    poll loop: a source file can be an hour long and a Stop has to land in a
+    quarter second, not at the end of it. With nobody draining, ffmpeg fills the
+    OS buffer (~64 KB), blocks on its next write and never exits — so a file that
+    merely produced a lot of warnings would burn the whole budget and then be
+    reported as broken. Pinned because `capture_output=True` is exactly what a
+    tidying refactor would reach for.
+    """
+    seen = {}
+
+    class _Proc:
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    def fake_popen(args, **kwargs):
+        seen.update(kwargs)
+        return _Proc()
+
+    monkeypatch.setattr(sweep.subprocess, 'Popen', fake_popen)
+    sweep._run_polled(['ffmpeg'], str(tmp_path), 10.0, None)
+
+    assert seen.get('stdout') is sweep.subprocess.DEVNULL
+    assert seen.get('stdin') is sweep.subprocess.DEVNULL
+    # stderr is a real file object, never a pipe: a file has no buffer ceiling.
+    assert seen.get('stderr') is not sweep.subprocess.PIPE
+    assert hasattr(seen.get('stderr'), 'write')
+
+
+def test_the_stderr_tail_survives_more_than_a_pipe_would_hold(tmp_path):
+    """The other half of the same decision: the reason for a file is that the
+    output can be big, so the tail has to come back from a big one."""
+    noisy = 'x' * 200_000 + '\nthe last words that matter'
+    err_path = tmp_path / sweep._STDERR_FILE
+    err_path.write_text(noisy, encoding='utf-8')
+
+    with open(err_path, encoding='utf-8') as fh:
+        tail = fh.read().strip()[-300:]
+
+    assert 'the last words that matter' in tail
+    assert len(tail) == 300
+
+
 # --- the one test that runs the real binary ------------------------------------------
 
 def _ffmpeg_or_skip():
