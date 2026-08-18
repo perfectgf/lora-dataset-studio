@@ -113,3 +113,21 @@ export function scrapeItemLabel(item) {
   }
   return kind === 'video' ? 'scraped video' : 'scraped image';
 }
+
+/**
+ * Which of the picker's source tabs can produce ANYTHING this destination
+ * takes. Reddit, Pexels and the keyless web search are image-only by
+ * construction (their backends hard-code `type: 'image'` and filter on image
+ * extensions before returning), so offering them to a video bank builds a
+ * guaranteed dead end — and Reddit was the DEFAULT tab, so the first thing a
+ * user met was a search that can never return a video. Only the URL tab reaches
+ * the sources that emit videos (RedGifs, Erome, Picazor, TikTok, X, Civitai).
+ *
+ * `modes` is the panel's own [key, label] list, passed in rather than imported,
+ * so this stays pure and the panel stays the owner of its labels.
+ */
+export function sourceModesForDestination(destination, modes) {
+  const list = Array.isArray(modes) ? modes : [];
+  if (!destinationMediaKinds(destination).includes('video')) return list;
+  return list.filter(([key]) => key === 'url');
+}

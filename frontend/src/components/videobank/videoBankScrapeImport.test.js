@@ -204,3 +204,29 @@ test('a successful import points at the next step, which is not obvious', () => 
   assert.equal(videoBankScrapeNextStep({ added: 0 }), '');
   assert.equal(videoBankScrapeNextStep(null), '');
 });
+
+
+test('the summary refuses to read a failed inventory as the perfect run', () => {
+  // `added && added !== saved` short-circuits at zero — which used to be
+  // exactly the case that needed a sentence.
+  assert.match(
+    summarizeVideoBankScrapeImport({ saved: 6, added: 0, skipped: {} }),
+    /none inventoried yet — press ↻ Rescan folder/);
+  assert.match(
+    summarizeVideoBankScrapeImport({
+      saved: 6, added: 0, skipped: {},
+      syncError: 'the source folder is not reachable right now' }),
+    /none inventoried — the source folder is not reachable right now/);
+  // A clean run keeps the clean sentence.
+  assert.equal(
+    summarizeVideoBankScrapeImport({ saved: 2, added: 2, skipped: {} }),
+    '2 video(s) downloaded into the bank');
+});
+
+
+test('a missing scraper install has its own sentence, apart from network failures', () => {
+  const line = summarizeVideoBankScrapeImport({
+    saved: 1, added: 1, skipped: { no_curl: 3, errors: 2 } });
+  assert.match(line, /3 need the scraper extras \(Setup → Install scraper extras\)/);
+  assert.match(line, /2 could not be downloaded/);
+});

@@ -42,6 +42,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -342,7 +343,7 @@ def _insert_sources(bank_id, folder, rels, source_metadata_by_relpath=None) -> i
 
 
 def refresh_bank(user_id, bank_id, force=False, *,
-                 source_metadata_by_relpath=None) -> dict | None:
+                 source_metadata_by_relpath=None, _bank_lease=None) -> dict | None:
     """Re-inventory the source folder.
 
     STRICTLY ADDITIVE, exactly like the image lane: the only write is an INSERT of
@@ -350,11 +351,35 @@ def refresh_bank(user_id, bank_id, force=False, *,
     an unplugged drive or a renamed folder would otherwise wipe a triage worked
     over days in one silent pass, and the user would have no way to know why.
 
+    SERIALISED like the image lane's walk, and the race it closes is concrete:
+    the scrape intake holds the bank's lease for up to several minutes of
+    downloads, and opening the bank's workspace fires a forced refresh. Without
+    a lease here that concurrent walk inventoried the freshly-moved files FIRST,
+    without their provenance (`_insert_sources` never updates a known row), and
+    the scrape's own walk then found nothing left to add — provenance silently
+    lost and `added` reporting zero. When the bank is busy the walk is simply
+    skipped ({'busy': True}); the owner of the lease will run it.
+
     Returns {'added', 'missing', 'unavailable', 'error'}, or None when the bank is
     unknown. ``force`` is accepted for symmetry with the image lane's cooldown.
     ``source_metadata_by_relpath`` — see ``_insert_sources`` — is threaded through
     only by the scrape intake; it is what keeps THIS walk the single inventory
     path instead of the scrape growing one of its own."""
+    key = job_key(bank_id)
+    if _bank_lease is None:
+        if bank_jobs.running(key):
+            return {'added': 0, 'missing': 0, 'unavailable': False,
+                    'error': None, 'busy': True}
+        try:
+            with bank_jobs.mutation_lease(key, 'folder_sync') as lease:
+                return refresh_bank(
+                    user_id, bank_id, force,
+                    source_metadata_by_relpath=source_metadata_by_relpath,
+                    _bank_lease=lease)
+        except bank_jobs.BankJobBusy:
+            return {'added': 0, 'missing': 0, 'unavailable': False,
+                    'error': None, 'busy': True}
+    bank_jobs.require_reservation(_bank_lease, key)
     bank = get_bank(user_id, bank_id)
     if bank is None:
         return None
@@ -1113,6 +1138,9 @@ def _embed_job(bank_id, reembed, use_gpu):
             detail += f', {out["unreadable"]} could not be read'
         if out.get('rated'):
             detail += f' — {out["rated"]} rated for look'
+        if out.get('unrated'):
+            detail += (f' — {out["unrated"]} shot(s) not rated '
+                       '(vectors missing from the store)')
         if out.get('aesthetic_error'):
             # Said out loud and NOT as a failure: the embedding run succeeded,
             # and a head that could not be fetched is a different problem with a
@@ -1149,7 +1177,13 @@ def _rate_the_look(job, bank_id, reembed):
     out = video_aesthetic.run_aesthetic(
         bank_id, rescore=bool(reembed),
         should_stop=lambda: bank_jobs.cancelled(job))
-    return {'rated': out['rated'], 'aesthetic_error': out['error']}
+    # `unrated` rides along — run_aesthetic's docstring promises it is "reported
+    # rather than folded into a total", and dropping it here was exactly the
+    # silence it warns about: a store missing half its vectors read as a clean
+    # run, and those shots re-queued (and re-paid a torch import) on every
+    # subsequent pass with nothing anywhere saying why.
+    return {'rated': out['rated'], 'unrated': out['unrated'],
+            'aesthetic_error': out['error']}
 
 
 def start_dedup(app, user_id, bank_id, threshold=None):
@@ -2082,11 +2116,29 @@ def _stage_scrape_video_bank(user_id, name) -> VideoBank:
 
 
 def _discard_unlaunched_scrape_bank(user_id, bank_id, folder):
-    """Remove a staged/committed destination whose import never got anywhere."""
+    """Remove a staged/committed destination whose import never got anywhere.
+
+    "Never got anywhere" is checked, not assumed: the caller's guard
+    (`bank_jobs.launched`) is structurally always False on this synchronous
+    path — nothing ever calls `bank_jobs.start` here — so ANY exception used to
+    reach this cleanup, including one raised AFTER the downloads had landed
+    (a `refresh_bank` commit failing under a transient SQLite lock). Deleting
+    the folder then destroys up to six freshly-downloaded videos to clean up a
+    DB hiccup. A folder that already holds files is an import that DID get
+    somewhere: keep the bank and the files, let the next walk inventory them,
+    and let the error surface on its own."""
     try:
         db.session.rollback()
     except Exception:  # noqa: BLE001 — cleanup must not mask the original failure
         logger.warning('video bank scrape: rollback failed', exc_info=True)
+    try:
+        landed = bool(folder) and os.path.isdir(folder) and bool(os.listdir(folder))
+    except OSError:
+        landed = True   # cannot PROVE it is empty — never delete on a guess
+    if landed:
+        logger.warning('video bank scrape: bank %s kept — its folder already '
+                       'holds downloaded files', bank_id)
+        return
     if bank_id is not None and get_bank(user_id, bank_id) is not None:
         try:
             delete_bank(user_id, bank_id)
@@ -2151,22 +2203,23 @@ def _video_blob_name(path) -> str | None:
     name of its own and reaches the bank, where the shot metrics and the triage
     are the one place that rules on them.
 
-    None when the file is not a container this lane stores."""
-    try:
-        with open(path, 'rb') as fh:
-            head = fh.read(64)
-            ext = _video_extension_from_magic(head)
-            if ext is None:
-                return None
-            digest = hashlib.sha256()
-            digest.update(head)
-            while True:
-                chunk = fh.read(1024 * 1024)
-                if not chunk:
-                    break
-                digest.update(chunk)
-    except OSError:
-        return None
+    None when the file is not a container this lane stores. OSError propagates:
+    "the bytes are not a video" and "the file could not be read back" must not
+    collapse into one word, because the first is about the FILE and the second is
+    about the machine (an antivirus lock right after writing is a measured
+    reality here) — the caller counts them under different reasons."""
+    with open(path, 'rb') as fh:
+        head = fh.read(64)
+        ext = _video_extension_from_magic(head)
+        if ext is None:
+            return None
+        digest = hashlib.sha256()
+        digest.update(head)
+        while True:
+            chunk = fh.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
     return f'{digest.hexdigest()[:24]}{ext}'
 
 
@@ -2188,7 +2241,7 @@ def _scrape_video_route(url) -> str:
 
 def _stream_video_to_disk(url, dest_path) -> str:
     """Fetch a direct media URL STRAIGHT TO DISK. Returns the skip reason
-    ('ok' | 'not_video' | 'too_large' | 'errors').
+    ('ok' | 'not_video' | 'too_large' | 'no_curl' | 'errors').
 
     Deliberately not `netfetch.fetch_hardened_bytes`: that one builds the whole
     body in memory, which is right for a 12 MB photo and wrong for a 200 MB clip.
@@ -2197,13 +2250,19 @@ def _stream_video_to_disk(url, dest_path) -> str:
     validation that just ran), a content-type allow-list, and the byte cap
     enforced DURING the stream rather than after it."""
     from ..scrape.netfetch import MAX_DRIVER_BYTES, _validate_public_http_url
-    ok_url, _err = _validate_public_http_url(url)
+    ok_url, err = _validate_public_http_url(url)
     if not ok_url:
+        logger.warning('video bank scrape: URL refused by the SSRF guard: %s', err)
         return 'errors'
     try:
         from curl_cffi import requests as cf_requests
     except ImportError:
-        return 'errors'
+        # Every direct-file item fails on an install without the scrape extras —
+        # a dedicated reason (same word as `fetch_hardened_bytes`) so the client
+        # can say "install the scrape extras" instead of blaming the network.
+        logger.warning('video bank scrape: curl_cffi is not installed — '
+                       'direct-file downloads need the scrape extras')
+        return 'no_curl'
     from urllib.parse import urlparse
     host = urlparse(url).hostname or ''
     try:
@@ -2212,9 +2271,13 @@ def _stream_video_to_disk(url, dest_path) -> str:
                             headers={'Referer': f'https://{host}/',
                                      'Accept': 'video/*,*/*'})
     except Exception:  # noqa: BLE001 — a network failure is a skipped item
+        logger.warning('video bank scrape: fetch failed for host %s', host,
+                       exc_info=True)
         return 'errors'
     try:
         if r.status_code != 200:
+            logger.warning('video bank scrape: host %s answered %s', host,
+                           r.status_code)
             return 'errors'
         ctype = (r.headers.get('content-type') or '').split(';')[0].strip().lower()
         if not ctype.startswith('video/'):
@@ -2222,16 +2285,34 @@ def _stream_video_to_disk(url, dest_path) -> str:
             # mislabelled blob. The magic check would catch it later anyway; not
             # spending 200 MB of bandwidth to find out is the point.
             return 'not_video'
+        # The library's `timeout` does NOT bound a streaming body — with
+        # stream=True it degrades to a connect timeout plus a low-speed guard, so
+        # a server trickling one byte per second holds this thread (and the
+        # bank's lease) open indefinitely. The wall clock below is the actual
+        # 180 s promise the constant's comment makes.
+        deadline = time.monotonic() + _SCRAPE_VIDEO_TIMEOUT
         written = 0
         with open(dest_path, 'wb') as fh:
             for chunk in r.iter_content(_SCRAPE_VIDEO_CHUNK):
+                if time.monotonic() > deadline:
+                    logger.warning('video bank scrape: host %s exceeded the '
+                                   '%ss wall clock', host, _SCRAPE_VIDEO_TIMEOUT)
+                    return 'errors'
                 if not chunk:
                     continue
                 written += len(chunk)
                 if written > MAX_DRIVER_BYTES:
                     return 'too_large'
                 fh.write(chunk)
+        if written == 0:
+            # A 200 with an empty body is a broken download, not a verdict about
+            # the file — 'not_video' here would send someone to inspect a clip
+            # that never arrived.
+            logger.warning('video bank scrape: host %s sent an empty body', host)
+            return 'errors'
     except OSError:
+        logger.warning('video bank scrape: could not write the download',
+                       exc_info=True)
         return 'errors'
     finally:
         try:
@@ -2255,20 +2336,39 @@ def _download_scrape_video(item, staging_dir) -> tuple:
         dest = os.path.join(staging_dir, uid)
         reason = _stream_video_to_disk(url, dest)
         return (reason, dest if reason == 'ok' else None)
-    from ..scrape.netfetch import download_via_ytdlp, _validate_public_http_url
-    ok_url, _err = _validate_public_http_url(url)
+    from ..scrape.netfetch import (MAX_DRIVER_BYTES, download_via_ytdlp,
+                                   _validate_public_http_url)
+    ok_url, err = _validate_public_http_url(url)
     if not ok_url:
+        logger.warning('video bank scrape: URL refused by the SSRF guard: %s', err)
         return ('errors', None)
     try:
-        ok, filename, _error = download_via_ytdlp(url, os.path.join(staging_dir, uid))
+        ok, filename, error = download_via_ytdlp(url, os.path.join(staging_dir, uid))
     except Exception:  # noqa: BLE001 — the resolver is a subprocess plus optional
         # imports; whatever it fails on, this item is skipped and the rest of the
         # batch continues.
         logger.warning('video bank scrape: resolver failed', exc_info=True)
         return ('errors', None)
     if not ok or not filename:
+        logger.warning('video bank scrape: resolver kept nothing: %s',
+                       error or 'no file produced')
         return ('errors', None)
-    return ('ok', os.path.join(staging_dir, filename))
+    path = os.path.join(staging_dir, filename)
+    # The 200 MB promise is only enforced by yt-dlp's plain-HTTP downloader; the
+    # fragmented ones (HLS/DASH — what a watch page usually serves) ignore
+    # `--max-filesize` entirely. The direct branch counts its bytes during the
+    # stream; this is the resolver branch's equivalent, after the fact.
+    try:
+        if os.path.getsize(path) > MAX_DRIVER_BYTES:
+            os.remove(path)
+            logger.warning('video bank scrape: resolver output exceeded the '
+                           '%s-byte cap', MAX_DRIVER_BYTES)
+            return ('too_large', None)
+    except OSError:
+        logger.warning('video bank scrape: could not size the resolver output',
+                       exc_info=True)
+        return ('errors', None)
+    return ('ok', path)
 
 
 def scrape_import_to_video_bank(user_id, items, bank_id=None, name=None, *,
@@ -2389,7 +2489,16 @@ def scrape_import_to_video_bank(user_id, items, bank_id=None, name=None, *,
             if reason != 'ok' or not path:
                 skipped[reason] = skipped.get(reason, 0) + 1
                 continue
-            blob = _video_blob_name(path)
+            try:
+                blob = _video_blob_name(path)
+            except OSError:
+                # The file arrived but cannot be read back (antivirus lock, lost
+                # handle). That is a machine problem, not a verdict about the
+                # clip — 'not_video' here would be a lie about a valid file.
+                logger.warning('video bank scrape: downloaded file unreadable',
+                               exc_info=True)
+                skipped['errors'] = skipped.get('errors', 0) + 1
+                continue
             if blob is None:
                 skipped['not_video'] = skipped.get('not_video', 0) + 1
                 continue
@@ -2400,11 +2509,26 @@ def scrape_import_to_video_bank(user_id, items, bank_id=None, name=None, *,
             if os.path.exists(dest):
                 already_there += 1
                 continue
+            # Publish in two steps. `shutil.move` across volumes (staging lives
+            # in %TEMP%, the bank's folder often does not) degrades to a
+            # progressive copy INTO the destination name — a crash mid-copy
+            # would leave a truncated file under its final content-hash name,
+            # which the walk then inventories and which no re-import of the same
+            # bytes ever repairs (the hash "already exists"). The `.part` name is
+            # invisible to the walk (not in VIDEO_EXTS); `os.replace` on the same
+            # volume is atomic.
+            part = dest + '.part'
             try:
-                shutil.move(path, dest)
+                shutil.move(path, part)
+                os.replace(part, dest)
             except OSError:
                 logger.warning('video bank scrape: could not store %s', blob,
                                exc_info=True)
+                try:
+                    if os.path.exists(part):
+                        os.remove(part)
+                except OSError:
+                    pass
                 skipped['errors'] = skipped.get('errors', 0) + 1
                 continue
             saved += 1
@@ -2413,8 +2537,14 @@ def scrape_import_to_video_bank(user_id, items, bank_id=None, name=None, *,
 
     # ONE inventory path, the same walk that picks up files dropped in the folder
     # by hand. No third insert.
-    sync = refresh_bank(user_id, bank.id, force=True,
+    sync = refresh_bank(user_id, bank.id, force=True, _bank_lease=_bank_lease,
                         source_metadata_by_relpath=source_metadata_by_relpath) or {}
-    return {'bank_id': bank.id, 'name': bank.name, 'created': _created,
-            'saved': saved, 'already_there': already_there,
-            'added': sync.get('added', 0), 'skipped': skipped}
+    out = {'bank_id': bank.id, 'name': bank.name, 'created': _created,
+           'saved': saved, 'already_there': already_there,
+           'added': sync.get('added', 0), 'skipped': skipped}
+    if sync.get('error'):
+        # Files downloaded but the walk could not inventory them is NOT the
+        # success it used to read as: without this field the client shows the
+        # perfect-run sentence while `added` is silently zero.
+        out['sync_error'] = sync['error']
+    return out

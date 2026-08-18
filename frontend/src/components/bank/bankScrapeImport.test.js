@@ -85,3 +85,60 @@ test('the summary never calls a byte-identical re-download a duplicate', () => {
   assert.match(msg, /1 could not be downloaded/);
   assert.doesNotMatch(msg, /duplicate/i);
 });
+
+
+test('a server refusal (thrown post) surfaces instead of escaping as a rejection', async () => {
+  // The REAL post (fetchClient.postJson) THROWS on any non-2xx — a resolved
+  // {ok:false} never happens for a 400/409. This pins the catch that turned
+  // every server refusal from an unhandled rejection (no toast, totals lost,
+  // onDone skipped) into the same envelope a soft failure uses.
+  let calls = 0;
+  const post = async (_url, body) => {
+    calls += 1;
+    if (calls === 1) {
+      return { ok: true, bank_id: 9, created: true, saved: body.items.length,
+        already_there: 0, added: body.items.length, skipped: {} };
+    }
+    const err = new Error('HTTP 409');
+    err.status = 409;
+    err.body = { error: 'a pass owns this bank right now' };
+    throw err;
+  };
+  const res = await runBankScrapeImport({
+    items: items(BANK_SCRAPE_BATCH + 3),
+    destination: { name: 'Pile' },
+    post,
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'a pass owns this bank right now');
+  assert.equal(res.status, 409);
+  // The first batch's work is not erased by the second batch's refusal.
+  assert.equal(res.saved, BANK_SCRAPE_BATCH);
+  assert.equal(res.bankId, 9);
+});
+
+
+test('a thrown post with no JSON body still yields a readable error', async () => {
+  const post = async () => {
+    const err = new Error('Network error');
+    throw err;
+  };
+  const res = await runBankScrapeImport({
+    items: items(2), destination: { name: 'Pile' }, post,
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'Network error');
+});
+
+
+test('a sync_error rides the totals to the caller', async () => {
+  const post = async (_url, body) => ({
+    ok: true, bank_id: 3, saved: body.items.length, already_there: 0,
+    added: 0, skipped: {}, sync_error: 'the source folder is not reachable right now',
+  });
+  const res = await runBankScrapeImport({
+    items: items(2), destination: { bank_id: 3 }, post,
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.syncError, 'the source folder is not reachable right now');
+});

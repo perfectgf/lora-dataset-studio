@@ -76,8 +76,22 @@ export async function runBankScrapeImport({ items, destination, post, onBatch,
     const body = bankId ? { items: batches[i], bank_id: bankId }
       : { items: batches[i], ...destination };
     onBatch?.({ index: i, count: batches.length, total: items.length });
-    // eslint-disable-next-line no-await-in-loop
-    const d = await post(endpoint, body);
+    let d;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      d = await post(endpoint, body);
+    } catch (e) {
+      // The REAL post (fetchClient.postJson) THROWS on any non-2xx — it never
+      // resolves to {ok:false}. Without this catch every server refusal (a 400
+      // "dataset folder", a 409 "bank busy") escaped as an unhandled rejection:
+      // no toast, the batches already imported uncounted, and the panel's
+      // carefully written error branch dead code. The refusal becomes the same
+      // envelope a soft failure uses, with the totals the earlier batches
+      // actually earned.
+      return { ok: false, bankId, created,
+        error: e?.body?.error || e?.message || 'Unexpected error',
+        status: e?.status, ...totals };
+    }
     if (!d?.ok) {
       return { ok: false, bankId, created,
         error: d?.error || 'Unexpected error', ...totals };
@@ -87,6 +101,10 @@ export async function runBankScrapeImport({ items, destination, post, onBatch,
     totals.saved += d.saved || 0;
     totals.alreadyThere += d.already_there || 0;
     totals.added += d.added || 0;
+    // Files stored but the folder walk failed — the batch is not a failure
+    // (the bytes are on disk) but the summary must not read as the perfect
+    // run. Last one wins; the video lane's summary turns it into a sentence.
+    if (d.sync_error) totals.syncError = d.sync_error;
     for (const [k, v] of Object.entries(d.skipped || {})) {
       totals.skipped[k] = (totals.skipped[k] || 0) + v;
     }

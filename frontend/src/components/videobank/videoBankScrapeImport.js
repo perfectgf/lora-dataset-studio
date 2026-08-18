@@ -92,15 +92,34 @@ const REFUSED_AT_INTAKE = 'not_video';
  * in the folder — file identity, not a verdict about the footage, which only the
  * shot detection and the metrics pass produce.
  */
+/** Like `not_video`, a reason with its own sentence: on an install without the
+ * scrape extras EVERY direct-file item fails, and "could not be downloaded"
+ * sends someone to check their connection for a missing package. */
+const MISSING_EXTRAS = 'no_curl';
+
 export function summarizeVideoBankScrapeImport(totals) {
-  const { saved = 0, alreadyThere = 0, added = 0, skipped = {} } = totals || {};
+  const { saved = 0, alreadyThere = 0, added = 0, skipped = {},
+          syncError = '' } = totals || {};
   const bits = [`${saved} video(s) downloaded into the bank`];
   if (added && added !== saved) bits.push(`${added} inventoried`);
+  if (saved && !added) {
+    // Downloaded-but-not-inventoried used to read as the perfect run: the
+    // `added &&` guard above short-circuits at zero, which is exactly the case
+    // that needs a sentence, not the one that can do without.
+    bits.push(syncError
+      ? `none inventoried — ${syncError}`
+      : 'none inventoried yet — press ↻ Rescan folder in the bank');
+  }
   if (alreadyThere) bits.push(`${alreadyThere} already in the folder`);
   const refused = Number(skipped[REFUSED_AT_INTAKE]) || 0;
+  const missingExtras = Number(skipped[MISSING_EXTRAS]) || 0;
   const failed = Object.entries(skipped)
-    .reduce((n, [k, v]) => (k === REFUSED_AT_INTAKE ? n : n + (Number(v) || 0)), 0);
+    .reduce((n, [k, v]) => (k === REFUSED_AT_INTAKE || k === MISSING_EXTRAS
+      ? n : n + (Number(v) || 0)), 0);
   if (refused) bits.push(`${refused} were not a video this bank can hold`);
+  if (missingExtras) {
+    bits.push(`${missingExtras} need the scraper extras (Setup → Install scraper extras)`);
+  }
   if (failed) bits.push(`${failed} could not be downloaded`);
   return bits.join(' · ');
 }

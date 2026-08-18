@@ -16,9 +16,11 @@ image lane's `scrape_import_to_bank`:
   reported as `already_there` — file identity, not a duplicate verdict;
 * the lease is re-checked AFTER the (slow) downloads and before the first write;
 
-plus the one place this lane deliberately DIVERGES: a video bank promises never
-to write into the folder it points at, so a scrape may only land in a folder the
-app itself created.
+Destinations are PERMISSIVE since 863cbb56, exactly like the image lane: any
+bank may receive a scrape — including one pointed at the user's own folder
+(picking the bank is the consent, and the panel names the folder). The one
+refusal that survives is a bank sitting on a DATASET's own folder, where consent
+cannot fix what landing clips inside training material would mean.
 """
 import json
 import os
@@ -717,3 +719,174 @@ def test_route_reports_a_busy_bank_as_409(app, client):
                          json={'items': [_item('http://x/b.mp4')],
                                'bank_id': bank_id})
     assert r2.status_code == 409 and r2.get_json().get('busy_kind')
+
+
+# --- honesty of failure paths (verification wave, 2026-08-18) -------------------
+def test_an_unreadable_download_is_an_error_not_a_verdict_about_the_file(app):
+    """A file that arrived but cannot be read back (antivirus lock, lost handle)
+    is a MACHINE problem. Counting it 'not_video' told the user their perfectly
+    valid clip was not a video."""
+    with app.app_context():
+        by_url = {'http://x/a.mp4': _mp4()}
+
+        def _boom(path):
+            raise OSError('locked by something else')
+
+        with patch.object(svc, '_download_scrape_video', _fake_downloader(by_url)), \
+             patch.object(svc, '_video_blob_name', _boom):
+            res = svc.scrape_import_to_video_bank(
+                LOCAL_USER, [_item('http://x/a.mp4')], name='Locked')
+        assert res['skipped'] == {'errors': 1}, res
+        assert 'not_video' not in res['skipped']
+
+
+def test_a_failure_after_files_landed_keeps_the_bank_and_the_files(app):
+    """The discard guard (`bank_jobs.launched`) is structurally always False on
+    this synchronous path, so ANY late exception used to reach the cleanup and
+    `rmtree` videos that had downloaded perfectly. A folder that holds files is
+    an import that DID get somewhere: bank and files survive, the error still
+    surfaces."""
+    with app.app_context():
+        by_url = {'http://x/a.mp4': _mp4()}
+
+        def _sync_blows_up(*a, **k):
+            raise RuntimeError('database is locked')
+
+        with patch.object(svc, '_download_scrape_video', _fake_downloader(by_url)), \
+             patch.object(svc, 'refresh_bank', _sync_blows_up), \
+             pytest.raises(RuntimeError):
+            svc.scrape_import_to_video_bank(
+                LOCAL_USER, [_item('http://x/a.mp4')], name='Survivor')
+        banks = svc.list_banks(LOCAL_USER)
+        assert len(banks) == 1, 'the bank row must survive a late failure'
+        bank = svc.get_bank(LOCAL_USER, banks[0]['id'])
+        assert len(_files(bank)) == 1, 'the downloaded file must survive'
+
+
+def test_a_truncated_publication_never_wears_the_final_name(app, monkeypatch):
+    """Publication goes staging -> `<hash>.part` -> atomic rename. If it dies
+    mid-way the partial file must NOT sit under its final content-hash name:
+    the walk would inventory a truncated rush that no re-import of the same
+    bytes ever repairs (the hash "already exists")."""
+    with app.app_context():
+        by_url = {'http://x/a.mp4': _mp4()}
+        real_replace = os.replace
+
+        def _no_replace(src, dst, *a, **k):
+            if str(src).endswith('.part'):
+                raise OSError('volume unplugged mid-copy')
+            return real_replace(src, dst, *a, **k)
+
+        monkeypatch.setattr(svc.os, 'replace', _no_replace)
+        with patch.object(svc, '_download_scrape_video', _fake_downloader(by_url)):
+            res = svc.scrape_import_to_video_bank(
+                LOCAL_USER, [_item('http://x/a.mp4')], name='Torn')
+        assert res['saved'] == 0 and res['skipped'] == {'errors': 1}, res
+        bank = svc.get_bank(LOCAL_USER, res['bank_id'])
+        assert _files(bank) == [], 'neither the final name nor a .part may remain'
+
+
+def test_the_walk_is_skipped_while_the_bank_is_busy(app):
+    """`refresh_bank` now serialises like the image lane. The race it closes:
+    the scrape holds the lease through minutes of downloads, opening the
+    workspace fires a forced refresh, and that concurrent walk used to
+    inventory the freshly-moved files WITHOUT their provenance."""
+    from app.services import bank_jobs
+    with app.app_context():
+        by_url = {'http://x/a.mp4': _mp4()}
+        with patch.object(svc, '_download_scrape_video', _fake_downloader(by_url)):
+            res = svc.scrape_import_to_video_bank(
+                LOCAL_USER, [_item('http://x/a.mp4')], name='Busy walk')
+        bank_id = res['bank_id']
+        with bank_jobs.mutation_lease(svc.job_key(bank_id), 'measure'):
+            out = svc.refresh_bank(LOCAL_USER, bank_id, force=True)
+        assert out == {'added': 0, 'missing': 0, 'unavailable': False,
+                       'error': None, 'busy': True}
+        # And once the lease is gone the walk runs again.
+        assert 'busy' not in (svc.refresh_bank(LOCAL_USER, bank_id) or {})
+
+
+def test_a_sync_failure_is_said_not_swallowed(app):
+    """Files downloaded but the walk failed used to read as the perfect run
+    ('N videos downloaded') with `added` silently zero."""
+    with app.app_context():
+        by_url = {'http://x/a.mp4': _mp4()}
+
+        def _broken_sync(*a, **k):
+            return {'added': 0, 'missing': 0, 'unavailable': True,
+                    'error': 'the source folder is not reachable right now'}
+
+        with patch.object(svc, '_download_scrape_video', _fake_downloader(by_url)), \
+             patch.object(svc, 'refresh_bank', _broken_sync):
+            res = svc.scrape_import_to_video_bank(
+                LOCAL_USER, [_item('http://x/a.mp4')], name='Blind walk')
+        assert res['saved'] == 1 and res['added'] == 0
+        assert res['sync_error'] == 'the source folder is not reachable right now'
+
+
+def test_the_resolver_output_is_capped_like_the_direct_branch(app, tmp_path):
+    """yt-dlp's fragmented downloaders (HLS/DASH -- what a watch page serves)
+    ignore `--max-filesize`; the direct branch counts its bytes during the
+    stream. This is the resolver branch's equivalent, after the fact."""
+    from app.scrape import netfetch
+
+    def _huge_ytdlp(url, dest_base):
+        name = os.path.basename(dest_base) + '.mp4'
+        with open(os.path.join(os.path.dirname(dest_base), name), 'wb') as fh:
+            fh.write(_mp4() + b'x' * 64)
+        return (True, name, None)
+
+    with app.app_context(), \
+         patch.object(netfetch, '_validate_public_http_url', lambda u: (True, None)), \
+         patch.object(netfetch, 'download_via_ytdlp', _huge_ytdlp), \
+         patch.object(netfetch, 'MAX_DRIVER_BYTES', 16):
+        reason, path = svc._download_scrape_video(
+            _item('https://www.redgifs.com/watch/abcdef'), str(tmp_path))
+    assert reason == 'too_large' and path is None
+    strays = [f for f in os.listdir(tmp_path) if f.endswith('.mp4')]
+    assert strays == [], 'the oversized file must not survive'
+
+
+def _fake_curl_response(chunks, status=200, ctype='video/mp4'):
+    class _R:
+        status_code = status
+        headers = {'content-type': ctype}
+
+        def iter_content(self, size):
+            yield from chunks
+
+        def close(self):
+            pass
+    return _R()
+
+
+def test_an_empty_200_body_is_a_failed_download_not_a_verdict(app, monkeypatch, tmp_path):
+    """A CDN answering 200 video/* with no bytes used to return 'ok' -- the item
+    then read as 'not a video this bank can hold' about a clip that never
+    arrived."""
+    import sys
+    import types
+    from app.scrape import netfetch
+    stub = types.ModuleType('curl_cffi')
+    stub.requests = types.SimpleNamespace(
+        get=lambda *a, **k: _fake_curl_response([]))
+    monkeypatch.setitem(sys.modules, 'curl_cffi', stub)
+    with app.app_context(), \
+         patch.object(netfetch, '_validate_public_http_url', lambda u: (True, None)):
+        reason = svc._stream_video_to_disk('https://cdn.example.test/clip.mp4',
+                                           str(tmp_path / 'out'))
+    assert reason == 'errors'
+
+
+def test_a_missing_curl_cffi_has_its_own_reason(app, monkeypatch, tmp_path):
+    """On an install without the scrape extras EVERY direct-file item fails;
+    'no_curl' (the image lane's word for the same case) lets the client say
+    'install the scrape extras' instead of blaming the network."""
+    import sys
+    from app.scrape import netfetch
+    monkeypatch.setitem(sys.modules, 'curl_cffi', None)
+    with app.app_context(), \
+         patch.object(netfetch, '_validate_public_http_url', lambda u: (True, None)):
+        reason = svc._stream_video_to_disk('https://cdn.example.test/clip.mp4',
+                                           str(tmp_path / 'out'))
+    assert reason == 'no_curl'

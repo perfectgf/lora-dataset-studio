@@ -296,7 +296,9 @@ def test_the_embed_pass_rates_the_look_when_it_is_done(app, monkeypatch):
     with app.app_context():
         out = svc._rate_the_look(job, bank_id, False)
 
-    assert out == {'rated': 1, 'aesthetic_error': None}
+    # `unrated` rides along since the wave's verification: a store missing half
+    # its vectors must not read as a clean run (run_aesthetic's own docstring).
+    assert out == {'rated': 1, 'unrated': 0, 'aesthetic_error': None}
     assert 'look' in job['detail']
     assert _summaries(app, bank_id)[ids[0]]['aesthetic_score'] == pytest.approx(5.0)
 

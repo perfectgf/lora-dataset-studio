@@ -140,12 +140,25 @@ def score_frames(bank_id, *, timeout=TIMEOUT):
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f'could not start the look score: '
                            f'{type(e).__name__}: {e}') from None
-    line = (proc.stdout or '').strip().splitlines()
-    try:
-        data = json.loads(line[-1]) if line else {}
-    except ValueError:
-        data = {}
+    # Last line STARTING with '{' rather than blindly the last line — same scan
+    # as person_mask's: a stray warning printed after the payload must not turn
+    # a successful run into "no result".
+    data = {}
+    for text in reversed((proc.stdout or '').strip().splitlines()):
+        if text.lstrip().startswith('{'):
+            try:
+                data = json.loads(text)
+            except ValueError:
+                data = {}
+            break
     if not data:
+        # The child's own words are the only diagnostic that exists for a worker
+        # that died before emitting JSON (a torch DLL that would not load, an
+        # OOM, a wrong `bank_scoring.python`). Same rc+stderr-tail convention as
+        # person_mask and the ffmpeg drivers — a generic sentence with no trace
+        # anywhere is not actionable by anyone.
+        logger.warning('look score: no JSON from the worker (rc=%s) stderr=%s',
+                       proc.returncode, (proc.stderr or '')[-400:])
         raise RuntimeError('the look score produced no result — check the '
                            '✨ Score interpreter')
     if not data.get('ok'):

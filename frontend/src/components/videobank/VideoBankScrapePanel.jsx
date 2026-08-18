@@ -107,7 +107,9 @@ export default function VideoBankScrapePanel({ banks, onDone }) {
                   className="accent-indigo-500" />
                 New bank
               </label>
-              <label className={`flex items-center gap-1.5 ${eligible.length ? '' : 'opacity-50'}`}>
+              <label className={`flex items-center gap-1.5 ${eligible.length ? '' : 'opacity-50'}`}
+                title={eligible.length || !(banks || []).length ? undefined
+                  : 'Your video banks sit on dataset folders, which a scrape can never write into.'}>
                 <input type="radio" name="video-bank-scrape-dest" value="existing"
                   disabled={!eligible.length}
                   checked={mode === 'existing'} onChange={() => setMode('existing')}
@@ -115,6 +117,16 @@ export default function VideoBankScrapePanel({ banks, onDone }) {
                 Add to an existing bank
               </label>
             </div>
+            {/* The ONE refusal that survived 863cbb56 was also the one left
+                mute: banks exist, none can receive, and the radio just greyed
+                out. Same rule as everywhere else in that commit — what replaces
+                a refusal is a sentence at the moment of choosing. */}
+            {!eligible.length && (banks || []).length > 0 && (
+              <p className="text-[0.6875rem] leading-relaxed text-content-subtle">
+                Your existing banks sit on a dataset&rsquo;s own folder, which a scrape
+                can never write into — create a new bank instead.
+              </p>
+            )}
             {mode === 'new' ? (
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-content-muted">Name</span>

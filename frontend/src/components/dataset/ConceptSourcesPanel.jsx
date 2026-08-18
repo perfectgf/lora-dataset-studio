@@ -47,6 +47,7 @@ import {
   scrapeItemMediaKind,
   scrapeTileThumbUrl,
   setAsideNotice,
+  sourceModesForDestination,
   splitScanItemsForDestination,
 } from './scrapeDestinationMedia';
 
@@ -108,6 +109,14 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
     : null;
   const [restoredScan] = useState(() => loadScraperScanState(scanKey));
   const [sourceMode, setSourceMode] = useState(restoredScan.sourceMode);
+  // The tabs this destination can use at all, and the one actually in force.
+  // A video bank only shows URL (the other three are image-only by
+  // construction), and a stored mode that is no longer offered — the empty
+  // state defaults to 'reddit' — silently coerces to the first tab shown
+  // instead of rendering a form whose search can never return anything.
+  const shownModes = sourceModesForDestination(destination, SOURCE_MODES);
+  const modeInUse = shownModes.some(([m]) => m === sourceMode)
+    ? sourceMode : shownModes[0][0];
   // `url` is only the editable URL-mode draft. Pagination uses activeScanUrl.
   const [url, setUrl] = useState(restoredScan.url);
   const [kw, setKw] = useState(restoredScan.kw);       // Reddit keyword search
@@ -141,6 +150,13 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
   // URLs whose thumbnail failed to load (dead/expired source links). Hidden from
   // the grid so you only ever see & pick live images — dead galleries are common.
   const [broken, setBroken] = useState(() => new Set());
+  // Video posters that 404ed. Kept APART from `broken`: an image tile whose
+  // thumbnail is dead usually IS the dead media (the thumb falls back to the
+  // item's own url), but a video's poster is a separate CDN asset from the
+  // watch page / .mp4 the backend downloads — an expired poster says nothing
+  // about the clip. Filing it in `broken` removed a downloadable clip from the
+  // grid and silently deselected it.
+  const [posterBroken, setPosterBroken] = useState(() => new Set());
   // Preview tile size (px). A category scrape returns whole galleries (many
   // off-concept frames) → larger previews speed up eyeballing. Persisted.
   const [tile, setTile] = useState(() => {
@@ -201,7 +217,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
       if (isFreshScan) {
         setActiveScanUrl(target);
         setActivePlatform(typeof body.platform === 'string' ? body.platform : '');
-        setSelected(new Set()); setBroken(new Set());
+        setSelected(new Set()); setBroken(new Set()); setPosterBroken(new Set());
         // "No images found" on a page full of clips would be a lie in a video
         // bank, so the sentence names what THIS destination was looking for.
         const { accepted } = splitScanItemsForDestination(destination, scanned);
@@ -300,7 +316,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
     setWebsearchKeyword(''); setWebsearchSafe(false);
     setActiveScanUrl(''); setActivePlatform(''); setItems([]); setPage(0);
     setPaginated(false); setPartial(false); setFullAlbums(false); setRescueSmall(false);
-    setSelected(new Set()); setBroken(new Set());
+    setSelected(new Set()); setBroken(new Set()); setPosterBroken(new Set());
   };
 
   return (
@@ -367,12 +383,12 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
         </SettingsLink>
         <div role="group" aria-label="Scraper source"
           className="inline-flex rounded-lg border border-border bg-surface-raised p-0.5">
-          {SOURCE_MODES.map(([mode, label]) => (
+          {shownModes.map(([mode, label]) => (
             <button key={mode} type="button"
-              aria-pressed={sourceMode === mode}
+              aria-pressed={modeInUse === mode}
               onClick={() => setSourceMode(mode)}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
-                sourceMode === mode
+                modeInUse === mode
                   ? 'bg-indigo-500 text-white shadow-sm'
                   : 'text-content-muted hover:bg-white/5 hover:text-content'}`}>
               {label}
@@ -385,7 +401,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
         </button>
       </div>
 
-      {sourceMode === 'reddit' && (
+      {modeInUse === 'reddit' && (
         <div className="rounded-lg border border-border bg-white/5 px-2 py-2 flex flex-col gap-1.5">
           <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1">
             <span aria-hidden>🔎</span> Search Reddit
@@ -423,7 +439,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
         </div>
       )}
 
-      {sourceMode === 'pexels' && (
+      {modeInUse === 'pexels' && (
         <div className="rounded-lg border border-border bg-white/5 px-2.5 py-2 flex flex-col gap-2">
           <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-2 text-[0.6875rem] leading-relaxed text-amber-100">
             <p>
@@ -473,7 +489,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
         </div>
       )}
 
-      {sourceMode === 'websearch' && (
+      {modeInUse === 'websearch' && (
         <div className="rounded-lg border border-border bg-white/5 px-2.5 py-2 flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <input value={websearchKeyword} onChange={(e) => setWebsearchKeyword(e.target.value)}
@@ -503,7 +519,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
         </div>
       )}
 
-      {sourceMode === 'url' && (
+      {modeInUse === 'url' && (
         <div className="rounded-lg border border-border bg-white/5 px-2 py-2 flex flex-col gap-1.5">
           <form className="flex flex-wrap gap-2"
             onSubmit={(e) => { e.preventDefault(); runScan(0); }}>
@@ -658,9 +674,15 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
                         restreams raster types, so that request 415s, the tile is
                         filed as a dead link and a perfectly good clip vanishes.
                         gallery-dl sources send no poster at all — the common
-                        case, not the edge one. */}
-                    {thumb ? (
-                      <img src={thumb} alt="" loading="lazy" onError={() => markBroken(it.url)}
+                        case, not the edge one. And a poster that 404s degrades
+                        to the same placeholder instead of `markBroken`: the
+                        poster is a separate asset from what the backend
+                        downloads, so its death is not the clip's. */}
+                    {thumb && !posterBroken.has(it.url) ? (
+                      <img src={thumb} alt="" loading="lazy"
+                        onError={() => (isVideo
+                          ? setPosterBroken((prev) => new Set(prev).add(it.url))
+                          : markBroken(it.url))}
                         className="w-full h-full object-cover" />
                     ) : (
                       <span aria-hidden

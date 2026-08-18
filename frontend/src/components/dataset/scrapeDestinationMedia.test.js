@@ -10,6 +10,7 @@ import {
   scrapeItemMediaKind,
   scrapeTileThumbUrl,
   setAsideNotice,
+  sourceModesForDestination,
   splitScanItemsForDestination,
 } from './scrapeDestinationMedia.js';
 
@@ -137,7 +138,26 @@ test('the grid renders what the destination accepts, and says what it set aside'
   assert.match(panel, /setAsideNotice\(destination, setAside\.length\)/);
 });
 
-test('a tile only renders an <img> when there is a thumbnail to render', () => {
+test('a tile only renders an <img> when there is a live thumbnail to render', () => {
   assert.match(panel, /const thumb = scrapeTileThumbUrl\(it\);/);
-  assert.match(panel, /\{thumb \? \(/);
+  // A dead VIDEO poster degrades to the placeholder instead of removing the
+  // clip: the poster is a separate CDN asset from what the backend downloads,
+  // so its 404 says nothing about the clip. `markBroken` stays the image
+  // tiles' verdict, where the thumb falls back to the medium itself.
+  assert.match(panel, /\{thumb && !posterBroken\.has\(it\.url\) \? \(/);
+  assert.match(panel, /isVideo\s*\n?\s*\? setPosterBroken/);
+});
+
+
+test('a video destination only offers the URL tab — the other three are image-only by construction', () => {
+  const MODES = [['reddit', 'Reddit'], ['pexels', 'Pexels'],
+    ['websearch', 'Web images'], ['url', 'URL']];
+  assert.deepEqual(sourceModesForDestination('video-bank', MODES),
+    [['url', 'URL']]);
+  // Image destinations keep every tab, and an unknown destination degrades to
+  // the historical image behaviour like everywhere else in this module.
+  assert.deepEqual(sourceModesForDestination('dataset', MODES), MODES);
+  assert.deepEqual(sourceModesForDestination('bank', MODES), MODES);
+  assert.deepEqual(sourceModesForDestination('typo', MODES), MODES);
+  assert.deepEqual(sourceModesForDestination('video-bank', null), []);
 });
