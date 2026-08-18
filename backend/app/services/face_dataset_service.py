@@ -9170,9 +9170,19 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
             ok, err = watermark_klein.inpaint_watermark_klein(user_id, staged, boxes,
                                                               klein_model=klein_model)
             if ok and _promote_staged_watermark_edit(staged, path):
+                # The hand-drawn zones SURVIVE the clean. They used to be
+                # dropped here, which quietly cost the user their work: ↩ Restore
+                # original puts the watermarked pixels back and re-flags the image
+                # 'detected' so it can be cleaned again — often with the other
+                # engine, which is the whole point of the button — but the zones
+                # it was going to use were already gone, so the retry silently
+                # fell back to the DETECTED bbox. Those zones exist precisely
+                # because the detector missed or mis-drew it.
+                # Nothing needs them cleared: the clean set is selected on
+                # watermark_state alone, so a 'cleaned' row cannot re-enter it,
+                # and the Bank — the same feature on the other surface — has
+                # always kept them (image_bank_service never nulls this field).
                 img.watermark_state = 'cleaned'
-                if manual:
-                    img.watermark_regions = None
                 out['inpainted_klein'] += 1
             elif ok:
                 if not manual:
@@ -9342,9 +9352,8 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
                         (False, {'kind': 'failed', 'detail': 'missing inpaint result'}),
                     )
                     if ok and _promote_staged_watermark_edit(staged_path, live_path):
+                        # Kept, for the reason spelled out in the Klein lane above.
                         img.watermark_state = 'cleaned'
-                        if manual:
-                            img.watermark_regions = None
                         out['inpainted'] += 1
                     elif ok:
                         if not manual:

@@ -545,7 +545,7 @@ def test_clean_large_mark_needs_review_no_edit(app, monkeypatch):
         assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'detected'
 
 
-def test_clean_manual_regions_force_one_composite_inpaint_at_edge_and_clear_on_success(
+def test_clean_manual_regions_force_one_composite_inpaint_at_edge_and_survive(
         app, monkeypatch):
     from app.services import face_dataset_service as svc
     from app.services import watermark_lama
@@ -588,7 +588,15 @@ def test_clean_manual_regions_force_one_composite_inpaint_at_edge_and_clear_on_s
         row = svc.db.session.get(FaceDatasetImage, img.id)
         assert row.watermark_state == 'cleaned'
         assert json.loads(row.watermark_bbox) == legacy_bbox
-        assert row.watermark_regions is None
+        # ...and the hand-drawn zones survive it too. These two lines used to
+        # disagree: the DETECTED bbox was kept and the user's CORRECTION of it
+        # deleted — backwards, since the zones exist only because that bbox was
+        # wrong (here it "would take the legacy crop route"). ↩ Restore original
+        # puts the watermarked pixels back and re-flags the row 'detected' to be
+        # re-cleaned, usually with the other engine; the zones the retry needs
+        # have to still be there. Nothing draws them meanwhile — the review
+        # screen hides its editor on a terminal outcome (`showEditor`).
+        assert json.loads(row.watermark_regions) == regions
 
 
 def test_clean_empty_manual_override_needs_review_without_touching_pixels(app, monkeypatch):
@@ -1764,7 +1772,7 @@ def test_clean_klein_makes_the_review_route_actionable(app, monkeypatch):
         assert svc.db.session.get(FaceDatasetImage, img.id).watermark_state == 'cleaned'
 
 
-def test_clean_klein_uses_manual_regions_and_clears_them(app, monkeypatch):
+def test_clean_klein_uses_manual_regions_and_keeps_them(app, monkeypatch):
     from app.services import face_dataset_service as svc
     from app.config import LOCAL_USER
     from app.models import FaceDatasetImage
@@ -1779,7 +1787,10 @@ def test_clean_klein_uses_manual_regions_and_clears_them(app, monkeypatch):
         assert len(calls) == 1 and calls[0]['boxes'] == regions
         assert calls[0]['path'] != svc._img_path(img) and not os.path.exists(calls[0]['path'])
         row = svc.db.session.get(FaceDatasetImage, img.id)
-        assert row.watermark_state == 'cleaned' and row.watermark_regions is None
+        # Kept — see the LaMa lane above for why. The engine differs; what the
+        # user drew does not belong to either of them.
+        assert row.watermark_state == 'cleaned'
+        assert json.loads(row.watermark_regions) == regions
 
 
 def test_clean_klein_unavailable_skips_and_leaves_detected(app, monkeypatch):
