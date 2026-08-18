@@ -363,3 +363,28 @@ def test_an_unlaunchable_interpreter_does_not_claim_onnxruntime_is_present(monke
 
     monkeypatch.setattr(setup_installer.subprocess, 'run', boom)
     assert setup_installer._onnxruntime_provided('/nope/py') is False
+
+
+def test_every_capability_the_app_probes_can_be_installed_from_setup():
+    """The hole the family guard above cannot see — and the reason it matters.
+
+    That guard walks ``_CAPABILITY_PACKAGES``, so it only ever examines
+    capabilities the installer ALREADY knows about. A capability added to
+    ``CAPABILITY_IMPORTS`` and forgotten in the installer is invisible to it, and
+    that is the worse failure of the two: the app probes the capability, the
+    Setup screen shows it ✗ Not installed, and there is no button that fixes it.
+    Whoever built the feature never saw it, because their machine already had the
+    dependency — it is the NEW user who meets the dead end.
+
+    An install ACTION is what is required here, not a package list: bank_siglip2
+    and watermark_detect are installed by dedicated workers rather than a scoped
+    pip set, and that is fine. What is never fine is a probe with no way out.
+    """
+    from app import setup_installer, capabilities
+    missing = sorted(set(capabilities.CAPABILITY_IMPORTS)
+                     - set(setup_installer.INSTALL_ACTIONS))
+    assert not missing, (
+        f"probed but not installable from Setup: {missing}. Every capability the "
+        "app probes needs an INSTALL_ACTIONS entry — otherwise Setup shows ✗ with "
+        "no button that repairs it. Add the action (plus its packages in "
+        "_CAPABILITY_PACKAGES when it installs with pip), or remove the probe.")
