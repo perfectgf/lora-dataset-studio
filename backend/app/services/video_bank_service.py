@@ -1922,6 +1922,19 @@ _SCRAPE_FOLDER_SAFE = re.compile(r'[^A-Za-z0-9 _-]')
 # and simply routes it away from the resolver.
 _DIRECT_VIDEO_URL_EXTS = ('.mp4', '.m4v', '.webm', '.mov', '.mkv', '.avi', '.ts')
 
+# ISO-BMFF brands that are NOT video, listed rather than guessed: the container
+# is shared by MP4, the whole HEIF picture family and M4A audio, so `ftyp` alone
+# proves nothing. Everything else with an `ftyp` is treated as MP4 — unknown
+# brands there are overwhelmingly MP4 profiles, and the probe pass is the honest
+# place for a file that turns out to hold no video stream.
+_NON_VIDEO_BMFF_BRANDS = frozenset((
+    b'avif', b'avis',                                    # AVIF stills / sequences
+    b'heic', b'heix', b'heim', b'heis',                  # HEIF pictures
+    b'hevc', b'hevx', b'hevm', b'hevs',                  # HEIF sequences
+    b'mif1', b'msf1',                                    # HEIF generic
+    b'M4A ', b'M4B ', b'M4P ',                           # audio-only
+))
+
 
 def folder_accepts_downloads(path) -> bool:
     """Whether the app may DOWNLOAD into ``path`` — i.e. it created it.
@@ -2003,16 +2016,24 @@ def _video_extension_from_magic(head: bytes) -> str | None:
     the container settles both questions at once — is this really a video, and
     under which of the five names the walk knows.
 
-    None when the bytes are not a container we store; that is also the magic check
-    every downloaded file must pass, whichever route brought it in."""
+    None when the bytes are not a container we store, and that verdict is the
+    intake's OWN — it is deliberately stricter than what brought the file here.
+    `netfetch.download_via_ytdlp` keeps anything with a broad video signature,
+    GIF included, because its own caller (a driver video) can use one. This bank
+    cannot: a `.gif` in the folder is a file the walk never lists, so it would sit
+    there for ever, counted by nobody. Refusing here — and letting the staging
+    folder take the file away with it — is what keeps "downloaded" and
+    "inventoried" the same set."""
     if not isinstance(head, (bytes, bytearray)) or len(head) < 12:
         return None
     head = bytes(head)
     if head[4:8] == b'ftyp':
         brand = head[8:12]
-        # AVIF/HEIF are ISO-BMFF too. They are pictures — refuse rather than store
-        # an image under a video name (the same ordering trap netfetch documents).
-        if brand in (b'avif', b'avis', b'heic', b'heix', b'hevc', b'mif1'):
+        # AVIF/HEIF are ISO-BMFF too, and so is an M4A. They are a picture and a
+        # sound file — refuse rather than store one under a video name (the same
+        # ordering trap netfetch documents) and leave the probe pass to discover
+        # it has no video stream.
+        if brand in _NON_VIDEO_BMFF_BRANDS:
             return None
         return '.mov' if brand == b'qt  ' else '.mp4'
     if head[:4] == b'\x1a\x45\xdf\xa3':          # EBML — Matroska family

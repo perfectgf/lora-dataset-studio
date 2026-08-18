@@ -130,10 +130,31 @@ test('the summary says videos, and never calls identical bytes a duplicate', () 
   assert.match(full, /4 video\(s\) downloaded into the bank/);
   assert.match(full, /3 inventoried/);
   assert.match(full, /2 already in the folder/);
-  assert.match(full, /3 could not be downloaded/);
   assert.ok(!/duplicate/i.test(full));
   assert.equal(summarizeVideoBankScrapeImport(null),
     '0 video(s) downloaded into the bank');
+});
+
+test('a file refused BY THE INTAKE is not reported as a failed download', () => {
+  // The server keeps them apart: `not_video` is a GIF or an audio-only file the
+  // resolver was happy to keep and the bank cannot hold — it downloaded fine.
+  // Saying "could not be downloaded" would send someone to look at their
+  // connection for a problem that is about the file.
+  const refused = summarizeVideoBankScrapeImport({
+    saved: 1, added: 1, skipped: { not_video: 3 } });
+  assert.match(refused, /3 were not a video this bank can hold/);
+  assert.ok(!/could not be downloaded/.test(refused));
+
+  const network = summarizeVideoBankScrapeImport({
+    saved: 1, added: 1, skipped: { errors: 2, too_large: 1 } });
+  assert.match(network, /3 could not be downloaded/);
+  assert.ok(!/can hold/.test(network));
+
+  // Both at once: two counts, two sentences, no double-counting.
+  const both = summarizeVideoBankScrapeImport({
+    saved: 0, added: 0, skipped: { not_video: 2, errors: 1 } });
+  assert.match(both, /2 were not a video this bank can hold/);
+  assert.match(both, /1 could not be downloaded/);
 });
 
 test('a successful import points at the next step, which is not obvious', () => {

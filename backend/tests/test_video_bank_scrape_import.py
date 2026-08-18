@@ -50,6 +50,20 @@ def _avi(marker=b'd'):
     return b'RIFF\x24\x00\x00\x00AVI LIST' + marker * 64
 
 
+def _gif(marker=b'g'):
+    """What `netfetch.download_via_ytdlp` will happily hand back: its own video
+    check matches GIF, because its first caller (a driver video) can use one."""
+    return b'GIF89a\x10\x00\x10\x00\x80\x00\x00' + marker * 64
+
+
+def _heic(marker=b'h'):
+    return b'\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heicmif1' + marker * 64
+
+
+def _m4a(marker=b'm'):
+    return b'\x00\x00\x00\x18ftypM4A \x00\x00\x02\x00isomiso2' + marker * 64
+
+
 def _item(url, **extra):
     return {'url': url, 'title': '', **extra}
 
@@ -144,6 +158,75 @@ def test_a_blob_that_is_not_a_video_container_is_refused(app):
                 LOCAL_USER, [_item('http://x/a.mp4'), _item('http://x/fake.mp4')],
                 name='Half junk')
         assert res['saved'] == 1 and res['skipped'].get('not_video') == 1
+
+
+def test_the_intake_refuses_what_the_downloader_was_happy_to_keep(app):
+    """THE INTAKE OWNS ITS OWN ACCEPTANCE, and it is stricter than what brought
+    the file here. `download_via_ytdlp` keeps anything with a broad video
+    signature — GIF included, and `ftyp` is shared with the whole HEIF picture
+    family and with M4A audio. The walk only inventories VIDEO_EXTS, so every one
+    of those would land in the bank folder as a file nothing ever lists: counted
+    by nobody, cut by nothing, and impossible to explain. Refused here, counted,
+    and gone with the staging folder."""
+    with app.app_context():
+        by_url = {'http://x/ok.mp4': _mp4(), 'http://x/anim.gif': _gif(),
+                  'http://x/pic.heic': _heic(), 'http://x/sound.m4a': _m4a()}
+        seen_staging = []
+        dl = _fake_downloader(by_url)
+
+        def _spy(item, staging_dir):
+            seen_staging.append(staging_dir)
+            return dl(item, staging_dir)
+
+        with patch.object(svc, '_download_scrape_video', _spy):
+            res = svc.scrape_import_to_video_bank(
+                LOCAL_USER, [_item(u) for u in by_url], name='Strict intake')
+        assert res['saved'] == 1, res
+        assert res['skipped'].get('not_video') == 3, res
+        bank = svc.get_bank(LOCAL_USER, res['bank_id'])
+        # ONE file in the folder, and it is the mp4 — nothing dead left behind.
+        assert [os.path.splitext(f)[1] for f in _files(bank)] == ['.mp4']
+        assert len(_sources(bank.id)) == 1
+        # …and the refused bytes are not lingering in a temp folder either.
+        assert seen_staging and not os.path.isdir(seen_staging[0])
+
+
+def test_the_magic_check_refuses_every_non_video_iso_bmff_brand():
+    """`ftyp` proves nothing on its own — the brand does. Read from the two sides
+    at once so a brand added to the refusal list keeps its meaning."""
+    assert svc._video_extension_from_magic(_gif()) is None
+    assert svc._video_extension_from_magic(_heic()) is None
+    assert svc._video_extension_from_magic(_m4a()) is None
+    for brand in svc._NON_VIDEO_BMFF_BRANDS:
+        head = b'\x00\x00\x00\x18ftyp' + brand + b'\x00\x00\x02\x00'
+        assert svc._video_extension_from_magic(head) is None, brand
+    # An unknown brand is still MP4: they are overwhelmingly MP4 profiles, and a
+    # file that turns out to hold no video stream is the probe pass's business.
+    assert svc._video_extension_from_magic(
+        b'\x00\x00\x00\x18ftypdash\x00\x00\x02\x00') == '.mp4'
+
+
+def test_a_gif_the_resolver_kept_is_a_skip_and_not_a_bank_file(app):
+    """The same thing again, through the REAL `_download_scrape_video` with only
+    the network end faked — the resolver says ok, the intake still says no."""
+    from app.scrape import netfetch
+
+    def _ytdlp_keeps_a_gif(url, dest_base):
+        name = os.path.basename(dest_base) + '.gif'
+        with open(os.path.join(os.path.dirname(dest_base), name), 'wb') as fh:
+            fh.write(_gif())
+        return (True, name, None)
+
+    with app.app_context(), \
+         patch.object(netfetch, '_validate_public_http_url', lambda u: (True, None)), \
+         patch.object(netfetch, 'download_via_ytdlp', _ytdlp_keeps_a_gif):
+        res = svc.scrape_import_to_video_bank(
+            LOCAL_USER, [_item('https://www.redgifs.com/watch/animated')],
+            name='Resolver kept a gif')
+    with app.app_context():
+        assert res['saved'] == 0 and res['skipped'].get('not_video') == 1, res
+        bank = svc.get_bank(LOCAL_USER, res['bank_id'])
+        assert _files(bank) == [] and _sources(bank.id) == []
 
 
 def test_nothing_is_judged_at_intake(app):

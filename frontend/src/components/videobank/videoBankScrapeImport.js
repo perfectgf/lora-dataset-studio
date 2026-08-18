@@ -52,6 +52,15 @@ export function scrapableVideoBanks(banks) {
 }
 
 /**
+ * The server's skip reason for "it arrived, and this bank cannot hold it": a GIF
+ * or an audio-only file the resolver was happy to keep, refused by the intake
+ * because the bank's folder walk would never list it. Called out separately
+ * below — lumping it in with the network failures would tell someone their clip
+ * "could not be downloaded" when it downloaded perfectly well.
+ */
+const REFUSED_AT_INTAKE = 'not_video';
+
+/**
  * One human sentence for a finished (or partly finished) run. `alreadyThere` is
  * NOT called a duplicate on purpose: it means the exact same bytes were already
  * in the folder — file identity, not a verdict about the footage, which only the
@@ -62,8 +71,10 @@ export function summarizeVideoBankScrapeImport(totals) {
   const bits = [`${saved} video(s) downloaded into the bank`];
   if (added && added !== saved) bits.push(`${added} inventoried`);
   if (alreadyThere) bits.push(`${alreadyThere} already in the folder`);
+  const refused = Number(skipped[REFUSED_AT_INTAKE]) || 0;
   const failed = Object.entries(skipped)
-    .reduce((n, [, v]) => n + (Number(v) || 0), 0);
+    .reduce((n, [k, v]) => (k === REFUSED_AT_INTAKE ? n : n + (Number(v) || 0)), 0);
+  if (refused) bits.push(`${refused} were not a video this bank can hold`);
   if (failed) bits.push(`${failed} could not be downloaded`);
   return bits.join(' · ');
 }
