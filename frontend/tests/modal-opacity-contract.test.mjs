@@ -34,7 +34,6 @@ const IMAGE_VIEWER_ALLOWLIST = new Set([
   'QuickVoteModal.jsx',        // fullscreen bg-black/95 image vote
   'BankReviewLightbox.jsx',    // fullscreen bg-black/95 bank triage viewer
   'PreviewLightbox.jsx',       // thin adapter over GeneratedImageLightbox
-  'RepairDialog.jsx',          // fullscreen zone editor over the image itself
 ])
 
 // Opaque panel tokens (alpha-free surfaces a card can be built on).

@@ -136,7 +136,7 @@ export default function RepairDialog({ open, src, alt = 'image', onClose, onSubm
        the whole review down: reported from the watermark review, where it threw
        the user back to the dataset. Defended here rather than in each host, so a
        fourth surface cannot reintroduce it. */
-    <div className="fixed inset-0 z-[9998] flex flex-col bg-black/90 p-3 sm:p-4"
+    <div className="fixed inset-0 z-[9998] flex flex-col bg-black p-3 sm:p-4"
       role="dialog" aria-modal="true" aria-label="Repair an area of this image"
       onClick={(e) => e.stopPropagation()}
       ref={dialogRef}>
