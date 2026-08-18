@@ -316,54 +316,121 @@ def test_the_lease_is_rechecked_after_the_downloads_and_before_the_first_write(a
 
 
 # --- where a scrape may land ---------------------------------------------------
-def test_a_bank_over_the_users_own_folder_refuses_to_receive_downloads(app, tmp_path):
-    """The promise this lane opens with: the folder you point a bank at is never
-    written to. A scrape into it would drop strangers' clips inside an archive of
-    originals — refused, with the alternative in the sentence."""
+def _own_folder_bank(tmp_path, name='Own footage', folder='my_rushes'):
+    """A bank pointed at a folder of the USER's own, the way `create_bank` makes
+    one — the destination this lane spent a wave refusing."""
+    from app.extensions import db
+    from app.models import VideoBank
+    rushes = tmp_path / folder
+    rushes.mkdir(exist_ok=True)
+    bank = VideoBank(user_id=LOCAL_USER, name=name, source_path=str(rushes))
+    db.session.add(bank)
+    db.session.commit()
+    return bank, rushes
+
+
+def test_a_bank_over_the_users_own_folder_receives_the_downloads(app, tmp_path):
+    """PICKING THE BANK IS THE CONSENT.
+
+    This shipped the other way round for one wave: a bank pointed at your own
+    rushes was refused, on the ground that the lane never writes into a folder
+    you own. It answered a question nobody had asked — "may the app write here?"
+    — instead of the one they had: put these clips in THAT bank. The passes still
+    never touch your files; a scrape is an errand you sent, and it lands where you
+    sent it."""
     with app.app_context():
-        from app.extensions import db
-        from app.models import VideoBank
-        rushes = tmp_path / 'my_rushes'
-        rushes.mkdir()
-        bank = VideoBank(user_id=LOCAL_USER, name='Own footage',
-                         source_path=str(rushes))
-        db.session.add(bank)
-        db.session.commit()
-        assert svc.folder_accepts_downloads(str(rushes)) is False
+        bank, rushes = _own_folder_bank(tmp_path)
+        (rushes / 'already_mine.mp4').write_bytes(_mp4(b'mine'))
+        assert svc.is_app_owned_scrape_folder(str(rushes)) is False
         with patch.object(svc, '_download_scrape_video',
-                          _fake_downloader({'http://x/a.mp4': _mp4()})), \
-             pytest.raises(ValueError) as err:
-            svc.scrape_import_to_video_bank(
+                          _fake_downloader({'http://x/a.mp4': _mp4(b'new')})):
+            res = svc.scrape_import_to_video_bank(
                 LOCAL_USER, [_item('http://x/a.mp4')], bank_id=bank.id)
-        assert 'new bank' in str(err.value)
-        assert os.listdir(rushes) == []
+        assert res['saved'] == 1 and res['created'] is False
+        # The clip is IN the user's folder, beside what was already there…
+        assert len(_files(bank)) == 2
+        assert 'already_mine.mp4' in _files(bank)
+        # …and both are inventoried: the walk is still the only intake.
+        assert res['added'] == 2
+        assert len(_sources(bank.id)) == 2
 
 
-def test_the_bank_list_says_which_banks_can_receive_a_scrape(app, tmp_path):
-    """So the picker can offer the banks that would accept one, instead of letting
-    the user choose and be refused after the click."""
+def test_provenance_still_reaches_a_bank_of_the_users_own(app, tmp_path):
+    """Nothing about the destination changes what is recorded."""
     with app.app_context():
-        from app.extensions import db
-        from app.models import VideoBank
-        rushes = tmp_path / 'rushes'
-        rushes.mkdir()
-        db.session.add(VideoBank(user_id=LOCAL_USER, name='Own footage',
-                                 source_path=str(rushes)))
-        db.session.commit()
+        bank, _rushes = _own_folder_bank(tmp_path, folder='provenance_rushes')
+        item = _websearch_item()
+        with patch.object(svc, '_download_scrape_video',
+                          _fake_downloader({item['url']: _mp4()})):
+            svc.scrape_import_to_video_bank(LOCAL_USER, [item], bank_id=bank.id)
+        rows = _sources(bank.id)
+        assert len(rows) == 1
+        assert json.loads(rows[0].source_metadata) == {
+            'platform': 'websearch',
+            'source_url': 'https://blog.example.test/post/42',
+        }
+
+
+def test_a_refused_file_never_reaches_the_users_own_folder(app, tmp_path):
+    """The staging folder protects YOUR folder too, and that matters more here
+    than it did when every destination was app-owned: a GIF or an audio file the
+    resolver was happy to keep is refused by the intake, and it must not appear
+    in an archive of originals even for the moment it takes to check it. Nothing
+    is ever written into the destination before its bytes have been accepted."""
+    with app.app_context():
+        bank, rushes = _own_folder_bank(tmp_path, folder='pristine_rushes')
+        by_url = {'http://x/anim.gif': _gif(), 'http://x/sound.m4a': _m4a()}
+        with patch.object(svc, '_download_scrape_video', _fake_downloader(by_url)):
+            res = svc.scrape_import_to_video_bank(
+                LOCAL_USER, [_item(u) for u in by_url], bank_id=bank.id)
+        assert res['saved'] == 0 and res['skipped'].get('not_video') == 2
+        assert os.listdir(rushes) == []          # not one byte, not even briefly
+        assert _sources(bank.id) == []
+
+
+def test_a_failed_import_never_deletes_a_folder_of_the_users_own(app, tmp_path):
+    """The cleanup path is the one place `rmtree` appears in this lane, and it is
+    now reachable with a user folder in scope. It removes ONLY a folder the app
+    created — `is_app_owned_scrape_folder` is what keeps a failed import from
+    taking someone's rushes with it."""
+    with app.app_context():
+        _bank, rushes = _own_folder_bank(tmp_path, folder='precious_rushes')
+        (rushes / 'keep_me.mp4').write_bytes(_mp4(b'keep'))
+        svc._discard_unlaunched_scrape_bank(LOCAL_USER, None, str(rushes))
+        assert rushes.is_dir() and os.listdir(rushes) == ['keep_me.mp4']
+
+
+def test_the_bank_list_says_where_a_scrape_would_land(app, tmp_path):
+    """`scrapable` survives as the picker's filter, but it now answers the only
+    question left (is this a dataset's folder?). `app_folder` is what tells the
+    picker whether it has something to WARN about — a folder of the user's own is
+    where a download is worth a sentence before the click."""
+    with app.app_context():
+        _own_folder_bank(tmp_path)
         with patch.object(svc, '_download_scrape_video',
                           _fake_downloader({'http://x/a.mp4': _mp4()})):
             res = svc.scrape_import_to_video_bank(
                 LOCAL_USER, [_item('http://x/a.mp4')], name='Scraped')
         by_name = {b['name']: b for b in svc.list_banks(LOCAL_USER)}
+        # BOTH are offerable now — that is the whole change.
         assert by_name['Scraped']['scrapable'] is True
+        assert by_name['Own footage']['scrapable'] is True
         assert by_name['Scraped']['id'] == res['bank_id']
-        assert by_name['Own footage']['scrapable'] is False
+        # …and they are told apart by who owns the folder, not by who may write.
+        assert by_name['Scraped']['app_folder'] is True
+        assert by_name['Own footage']['app_folder'] is False
+        # The path rides along, because the warning names it.
+        assert by_name['Own footage']['source_path']
 
 
 def test_a_bank_sitting_on_a_dataset_folder_is_refused(app):
-    """The image lane's guard, kept: writing here would drop files inside a
-    dataset's own storage. Reachable when the datasets root has been relocated
-    over the app's own data — the exact case a relocation makes possible."""
+    """THE ONE REFUSAL THAT SURVIVED "picking the bank is the consent".
+
+    A user CAN consent to files landing in a folder of their own — that is the
+    whole change. They cannot usefully consent to files landing inside a
+    dataset's own storage: those would be trained on, and attributed to a dataset
+    nobody added them to. Reachable when the datasets root has been relocated over
+    the app's own data — exactly what a relocation makes possible."""
     with app.app_context():
         from app import config as cfg
         with patch.object(svc, '_download_scrape_video',
@@ -373,12 +440,39 @@ def test_a_bank_sitting_on_a_dataset_folder_is_refused(app):
         # Point the datasets root at the folder that CONTAINS this bank's folder.
         cfg.save_config({'paths': {
             'dataset_images_root': str(cfg.video_bank_sources_root())}})
+        before = _files(svc.get_bank(LOCAL_USER, res['bank_id']))
         with patch.object(svc, '_download_scrape_video',
                           _fake_downloader({'http://x/b.mp4': _mp4(b'2')})), \
              pytest.raises(ValueError) as err:
             svc.scrape_import_to_video_bank(
                 LOCAL_USER, [_item('http://x/b.mp4')], bank_id=res['bank_id'])
         assert 'dataset' in str(err.value)
+        assert _files(svc.get_bank(LOCAL_USER, res['bank_id'])) == before
+        # …and the picker is told, so nobody is offered that bank in the first place.
+        assert svc.list_banks(LOCAL_USER)[0]['scrapable'] is False
+
+
+def test_a_bank_the_user_pointed_at_a_dataset_folder_is_refused_too(app, tmp_path):
+    """The likelier shape of the same trap now that any folder is a destination:
+    the user points a video bank straight at a dataset's image folder."""
+    with app.app_context():
+        from app import config as cfg
+        from app.extensions import db
+        from app.models import VideoBank
+        inside = cfg.dataset_images_root() / '42'
+        inside.mkdir(parents=True, exist_ok=True)
+        bank = VideoBank(user_id=LOCAL_USER, name='On a dataset',
+                         source_path=str(inside))
+        db.session.add(bank)
+        db.session.commit()
+        with patch.object(svc, '_download_scrape_video',
+                          _fake_downloader({'http://x/a.mp4': _mp4()})), \
+             pytest.raises(ValueError) as err:
+            svc.scrape_import_to_video_bank(
+                LOCAL_USER, [_item('http://x/a.mp4')], bank_id=bank.id)
+        assert 'dataset' in str(err.value)
+        assert os.listdir(inside) == []
+        assert svc.list_banks(LOCAL_USER)[0]['scrapable'] is False
 
 
 def test_two_scrapes_of_the_same_name_never_share_a_folder(app):

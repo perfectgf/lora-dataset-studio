@@ -10,9 +10,15 @@ wrong one — cutting 340 shots to keep 128 pays 212 encodes for files nobody as
 for, and it would put media in a container whose contract says it holds decisions.
 So `ffmpeg` runs exactly once per KEPT clip, at promotion, and never before.
 
-THE SOURCE FOLDER IS READ-ONLY, LITERALLY. Nothing here opens a file in the user's
-rushes folder for writing, ever. Thumbnails go to ``video_banks_root()``, clips go
-to ``video_datasets_root()``.
+NO PASS EVER WRITES TO THE SOURCE FOLDER. Probing, detection, thumbnailing and
+promotion never open a file in the user's rushes folder for writing: thumbnails go
+to ``video_banks_root()``, clips go to ``video_datasets_root()``. That is what
+makes it safe to point a bank at an archive of originals and press every button.
+
+THE ONE THING THAT DOES ADD FILES THERE IS 🕸 SCRAPE, and only because you sent it
+somewhere: picking a destination bank is the consent, and what it downloads is
+added to the folder that bank follows. It is an errand, not a pass. Everything
+else in this file still reads.
 
 WHY FOUR SEAMS. Probing, shot detection, thumbnailing and encoding each need
 something the app cannot assume is installed (PyAV, torch, ffmpeg). They are the
@@ -442,12 +448,18 @@ def _bank_row(bank: VideoBank) -> dict:
         'id': bank.id, 'name': bank.name, 'source_path': bank.source_path,
         'created_at': bank.created_at.isoformat() if bank.created_at else None,
         'counts': _counts(bank.id),
-        # Whether 🕸 scrape may DOWNLOAD into this bank's folder. False for every
-        # bank pointed at footage of the user's own — see
-        # ``folder_accepts_downloads``. Surfaced so the picker can offer the
-        # banks that would actually accept a scrape, instead of letting the user
-        # choose one and be refused after the click.
-        'scrapable': folder_accepts_downloads(bank.source_path),
+        # Whether 🕸 scrape may DOWNLOAD into this bank's folder. Now true for
+        # nearly every bank — picking a bank IS the consent — and false only for
+        # the one case no consent can fix: a folder that belongs to a dataset,
+        # where new files would land inside training material. Surfaced so the
+        # picker can offer what would actually be accepted instead of letting the
+        # user choose and be refused after the click.
+        'scrapable': not _dataset_folder_refusal(bank.source_path),
+        # Whether the APP created this folder (a bank born of a scrape) or the
+        # user pointed the bank at a folder of their own. Not a permission — it
+        # decides whether the picker has something to warn about, because adding
+        # files to a folder you assembled yourself is the surprising half.
+        'app_folder': is_app_owned_scrape_folder(bank.source_path),
     }
 
 
@@ -1926,12 +1938,24 @@ def delete_video_dataset(user_id, dataset_id) -> bool:
 #   4. The lease is re-checked AFTER the downloads (which are slow) and before the
 #      first write, so a stale reservation can never publish under a newer owner.
 #
-# WHERE IT DIVERGES FROM THE IMAGE LANE, AND WHY. A video bank points at a folder
-# of the user's own rushes and this module promises never to write into it. That
-# promise is worth more than the convenience of appending anywhere: a scrape MUST
-# land in a folder the app owns (`cfg.video_bank_sources_root()`), so "add to an
-# existing bank" is offered for scraped banks and refused, with a sentence, for a
-# bank pointed at someone's own footage.
+# WHERE THE SOURCE FOLDER'S READ-ONLY RULE STANDS, AND WHERE IT DOES NOT. Every
+# PASS in this module still refuses to touch the folder a bank points at: probing,
+# detection, thumbnails and promotion write to `video_banks_root()` and
+# `video_datasets_root()`, never to your footage. A scrape is not a pass — it is
+# an errand you sent, at a destination you named — and it adds the files it
+# brings back to the folder that bank follows, your own included.
+#
+# This shipped the other way round for one wave: only a folder the app had itself
+# created could receive a scrape. It was defensible and it was wrong, because it
+# answered a question nobody had asked ("may the app write here?") instead of the
+# one they had ("put these clips in THAT bank"). CHOOSING THE BANK IS THE
+# CONSENT — there is no second opt-in, and the UI says plainly, at the moment of
+# choosing, when the chosen folder is one of yours. The image bank has always
+# worked exactly like this.
+#
+# What is still refused is the one thing consent cannot fix: a folder that belongs
+# to a DATASET. Files landing there would sit inside training material, get
+# trained on, and be attributed to a dataset nobody added them to.
 
 # Per REQUEST cap. Far below the image outlet's 60 for a reason that is arithmetic
 # rather than taste: one image is capped at 12 MB and 20 s, one video at 200 MB
@@ -1973,15 +1997,23 @@ _NON_VIDEO_BMFF_BRANDS = frozenset((
 ))
 
 
-def folder_accepts_downloads(path) -> bool:
-    """Whether the app may DOWNLOAD into ``path`` — i.e. it created it.
+def is_app_owned_scrape_folder(path) -> bool:
+    """Whether the APP created ``path`` — i.e. it sits under
+    ``video_bank_sources_root()`` because a scrape made a bank of its own.
 
-    True only under ``video_bank_sources_root()``. Everything else is a folder the
-    user pointed a bank at, and the promise this module opens with (the source
-    folder is read-only, literally) is what makes a video bank safe to run over
-    an archive of originals. Same containment test as ``_contained_path``: both
-    sides realpath'd, and the separator carried so `/x/rushes-2` cannot pass for
-    a folder under `/x/rushes`."""
+    NOT a permission. It used to be one, and gating on it was the mistake this
+    module now documents at length; a bank you pointed at your own footage takes
+    a scrape like any other. What it is still good for, both of them load-bearing:
+
+    * it is the containment test behind the only ``rmtree`` in this lane
+      (``_discard_unlaunched_scrape_bank``) — that one MUST stay incapable of
+      deleting a folder the user assembled;
+    * it tells the UI whether the destination is a folder of the user's own, which
+      is the only case worth a sentence before they click.
+
+    Same containment test as ``_contained_path``: both sides realpath'd, and the
+    separator carried so `/x/rushes-2` cannot pass for a folder under
+    `/x/rushes`."""
     if not path:
         return False
     try:
@@ -1990,6 +2022,30 @@ def folder_accepts_downloads(path) -> bool:
     except OSError:
         return False
     return os.path.normcase(full).startswith(os.path.normcase(root + os.sep))
+
+
+def _dataset_folder_refusal(folder) -> str | None:
+    """The sentence refusing a folder that belongs to a dataset, or None.
+
+    BOTH roots, exactly like ``create_bank``: the image lane's (harmless today,
+    but the rule is the rule) and the video lane's own, which is the real trap —
+    downloading into a folder a bank points at, when that folder is also a video
+    dataset's output, would make the bank list its own training clips as source
+    material and re-promote them on the next pass.
+
+    This is the ONE refusal that survived the move to "picking the bank is the
+    consent": consent cannot make files landing inside training material safe."""
+    if not folder:
+        return None
+    for root in (None, cfg.video_datasets_root()):
+        try:
+            conflict = path_guard.dataset_folder_conflict(folder, datasets_root=root)
+        except OSError:      # an unreachable root is not a conflict
+            continue
+        if conflict:
+            return ('This bank points at a dataset\'s own folder, so scraping into '
+                    f'it would drop files inside the dataset. {conflict["message"]}')
+    return None
 
 
 def _scrape_folder_for(name: str) -> str:
@@ -2039,7 +2095,11 @@ def _discard_unlaunched_scrape_bank(user_id, bank_id, folder):
                            exc_info=True)
     # `folder` came from _scrape_folder_for; re-check containment anyway so a
     # future caller passing another path cannot turn this into a delete tool.
-    if folder and folder_accepts_downloads(folder):
+    # THIS CHECK IS NOT DECORATION any more: a scrape can now be aimed at a folder
+    # of the user's own, and the only thing standing between a failed import and
+    # an `rmtree` of someone's rushes is that this cleanup only ever removes a
+    # folder the app itself created.
+    if folder and is_app_owned_scrape_folder(folder):
         shutil.rmtree(folder, ignore_errors=True)
 
 
@@ -2218,12 +2278,16 @@ def scrape_import_to_video_bank(user_id, items, bank_id=None, name=None, *,
     Downloads the SELECTED scanned videos ({'url','title',…}) into a bank's source
     folder, then lets the ordinary folder walk inventory them — the same single
     inventory path every other video bank uses. Two modes: ``bank_id`` appends to
-    an existing SCRAPED bank (a bank follows a live folder, so a second scrape
-    resumes the pile), ``name`` creates one under ``video_bank_sources_root()``.
+    an EXISTING bank — any of them, including one you pointed at your own rushes
+    (a bank follows a live folder, so a second scrape resumes the pile) — and
+    ``name`` creates one under ``video_bank_sources_root()``.
 
-    A bank pointed at the user's own rushes is REFUSED as a destination: this
-    module never writes into a folder someone else owns, and dropping strangers'
-    clips into an archive of originals is precisely what that rule exists to stop.
+    PICKING THE BANK IS THE CONSENT. There is no opt-in beside it: naming a
+    destination is not something a user does by accident, and a second
+    confirmation would only train them to click through it. The clips are added
+    to the folder that bank follows, and the picker says so, with the path, when
+    that folder is one of theirs. The only destination still refused is a folder
+    that belongs to a DATASET — see ``_dataset_folder_refusal``.
 
     Nothing is judged at intake — length, motion, sharpness and duplicates are
     verdicts the metrics pass produces, with thresholds the user moves. Provenance
@@ -2261,19 +2325,11 @@ def scrape_import_to_video_bank(user_id, items, bank_id=None, name=None, *,
         folder = bank.source_path
         if not folder or not os.path.isdir(folder):
             raise ValueError("this bank's folder is unavailable right now")
-        if not folder_accepts_downloads(folder):
-            raise ValueError(
-                'This bank points at a folder of your own, which the app never '
-                'writes into. Scrape into a new bank — it gets a folder of its '
-                'own — or pick a bank that was created by a scrape.')
-        # Belt and braces, and the same pair of roots create_bank checks: a legacy
-        # bank sitting on a dataset's own folder must not become a download target.
-        for root in (None, cfg.video_datasets_root()):
-            conflict = path_guard.dataset_folder_conflict(folder, datasets_root=root)
-            if conflict:
-                raise ValueError(
-                    'This bank points at a dataset\'s own folder, so scraping into '
-                    f'it would drop files inside the dataset. {conflict["message"]}')
+        # A folder of the user's own is a legitimate destination — they named it.
+        # A DATASET's folder is not, and no amount of naming makes it one.
+        refusal = _dataset_folder_refusal(folder)
+        if refusal:
+            raise ValueError(refusal)
     else:
         name = (name or '').strip()
         if not name:

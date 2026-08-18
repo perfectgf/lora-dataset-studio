@@ -1338,14 +1338,16 @@ def video_banks_root() -> Path:
     return root
 
 def video_bank_sources_root() -> Path:
-    """Videos DOWNLOADED into a video bank by 🕸 "Scrape the web into a bank" —
-    one folder per bank, owned by the app.
+    """Videos DOWNLOADED by 🕸 "Scrape the web into a bank" for the banks that
+    scrape CREATES — one folder per bank, owned by the app.
 
     Deliberately NOT video_banks_root(): that tree's contract is thumbnails and
-    nothing else, and a scraped .mp4 is real source media. And deliberately not
-    the user's own rushes folder either — the video lane promises that a folder
-    you point a bank at is never written to, so a scrape gets a folder of its
-    own instead of dropping strangers' files into your footage.
+    nothing else, and a scraped .mp4 is real source media.
+
+    Not every scraped clip lands here, and that is the point of the wording: a
+    scrape sent to a bank you pointed at your own folder is added THERE, to the
+    folder that bank follows. This root is what a scrape uses when it has no
+    folder to follow yet — so it never has to invent a place inside yours.
 
     Same role as bank_sources_root() on the image side, kept apart for the same
     reason the two working roots are: hours of rushes and tens of thousands of

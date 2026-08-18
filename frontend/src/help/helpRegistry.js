@@ -723,8 +723,12 @@ const TOPICS = [
      'no videos found', 'my video link is ignored', 'video items dropped',
      'fill a video bank', 'video bank without a folder', 'no folder',
      'new video bank from the web', 'add more clips', 'resume scrape',
-     'which bank can receive a scrape', 'bank not in the list',
-     'why can i not scrape into this bank', 'my rushes folder'],
+     // People search for where the files END UP, and for the reassurance: the
+     // scrape is the one thing in this lane that adds to a folder of your own.
+     'where do the clips go', 'which folder', 'add to my own bank',
+     'scrape into an existing bank', 'add clips to my rushes folder',
+     'does it write to my folder', 'my rushes folder',
+     'bank not in the list', 'dataset folder'],
     '/video-bank', 'using-the-app', 'the-video-bank-turn-a-folder-of-rushes-into-shots'),
   action('video-bank-passes', 'Scan, find shots, make thumbnails',
     ['scan files', 'find shots', 'make thumbnails', 'run everything', 'video passes',

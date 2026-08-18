@@ -546,7 +546,7 @@ def video_bank_promote(bank_id):
 def video_bank_scrape_import():
     """Download the picked scan items into a video bank.
 
-    Body: {items:[{url,title,…}], bank_id?} to APPEND to a scraped bank, or
+    Body: {items:[{url,title,…}], bank_id?} to APPEND to any existing bank, or
     {items, name} to create one. The SAME contract as the image lane's
     `/api/bank/scrape-import`, on purpose — the two destinations answer
     {'ok','bank_id','name','created','saved','already_there','added','skipped'}
@@ -554,9 +554,10 @@ def video_bank_scrape_import():
 
     Synchronous, like the image outlet: the per-request cap
     (`SCRAPE_VIDEO_IMPORT_MAX`) is what bounds it, and a big selection arrives as
-    successive batches. 400 on bad input (including a bank whose folder the app
-    does not own — a video bank never writes into your own rushes), 409 when a
-    pass already owns the bank."""
+    successive batches. 400 on bad input — including the one destination that is
+    refused however explicitly it was picked: a bank sitting on a dataset's own
+    folder, where the clips would land inside training material. 409 when a pass
+    already owns the bank."""
     data = request.get_json(silent=True) or {}
     raw_bank_id = data.get('bank_id')
     bank_id = None
