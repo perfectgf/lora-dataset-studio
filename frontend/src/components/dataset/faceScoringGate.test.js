@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { faceAnalysisState, faceAnalysisLabel, autoTriageAvailable } from './faceScoringGate.js';
+import { faceAnalysisState, faceAnalysisLabel, autoTriageAvailable,
+  autoTriageEmptyReason } from './faceScoringGate.js';
 
 const BLOCKED = 'Face similarity needs a photographic face; it cannot read a drawn one. '
   + 'Set the subject type to Human if this dataset is photographic.';
@@ -103,4 +104,74 @@ test('auto-triage is withheld when scoring is blocked', () => {
   assert.equal(autoTriageAvailable(null), true);
   assert.equal(autoTriageAvailable(undefined), true);
   assert.equal(autoTriageAvailable(''), true);
+});
+
+// ── The panel explains its own emptiness ────────────────────────────────────
+// Reported by a user: "sometimes auto-triage shows, sometimes it doesn't." It
+// was returning null whenever its replay set was empty, so four unrelated
+// situations all rendered as the same silent absence.
+
+const img = (over = {}) => ({ id: 1, filename: 'a.png', status: 'pending',
+  face_state: 'scorable', face_score: 0.6, ...over });
+
+test('a panel with work to do says nothing (it renders its controls instead)', () => {
+  assert.equal(autoTriageEmptyReason([img()]), null);
+});
+
+test('a filter hiding the undecided images says so, and counts them', () => {
+  // The one case where the user is ONE CLICK from the work rather than a whole
+  // pass away — so it has to outrank every other reason.
+  const all = [img({ id: 1 }), img({ id: 2 }), img({ id: 3, status: 'keep' })];
+  const visible = [all[2]];                       // filter = "Kept"
+  const r = autoTriageEmptyReason(visible, all);
+  assert.equal(r.kind, 'hidden_by_filter');
+  assert.equal(r.count, 2);
+  assert.match(r.message, /filter hides them/);
+  // Singular is not "1 scored images".
+  assert.match(autoTriageEmptyReason([], [img()]).message, /^1 scored image is/);
+});
+
+test('a dataset that was never analysed names the pass to run', () => {
+  // Same contract as the greyed-out Sort menu on this screen.
+  const rows = [img({ face_state: null, face_score: null })];
+  const r = autoTriageEmptyReason(rows, rows);
+  assert.equal(r.kind, 'never_scored');
+  assert.match(r.message, /🎭 Analyze faces/);
+});
+
+test('a set the pass could not score at all says THAT, not "run the pass"', () => {
+  // The Discord report: wide shots came back entirely unscorable, so the tool
+  // that could have triaged them did not just empty — it vanished. Telling this
+  // user to "run 🎭 Analyze faces" would send them to redo what they just did.
+  const rows = [img({ face_state: 'too_small', face_score: null }),
+                img({ id: 2, face_state: 'extreme_pose', face_score: null })];
+  const r = autoTriageEmptyReason(rows, rows);
+  assert.equal(r.kind, 'none_scorable');
+  assert.match(r.message, /judge those by eye/);
+});
+
+test('a fully curated dataset says the work is done', () => {
+  const rows = [img({ status: 'keep' }), img({ id: 2, status: 'reject' })];
+  assert.equal(autoTriageEmptyReason(rows, rows).kind, 'all_decided');
+});
+
+test('without the unfiltered list the answer degrades, never lies', () => {
+  // `all` is optional (older callers, tests). The reason must then be whatever
+  // the visible list can PROVE — never an invented "your filter hides them".
+  const rows = [img({ status: 'keep' })];
+  assert.equal(autoTriageEmptyReason(rows).kind, 'all_decided');
+  assert.equal(autoTriageEmptyReason(rows, null).kind, 'all_decided');
+  assert.equal(autoTriageEmptyReason([]).kind, 'never_scored');
+});
+
+test('a scorable row with no score is not treated as scored', () => {
+  // face_state without face_score is a half-written row; auto-triage compares
+  // numbers, so it must not count as something it could have ruled on.
+  const rows = [img({ face_score: null })];
+  assert.equal(autoTriageEmptyReason(rows, rows).kind, 'none_scorable');
+});
+
+test('rows with no file are ignored rather than counted as unscored', () => {
+  const rows = [img({ filename: null, face_state: null }), img({ id: 2, status: 'keep' })];
+  assert.equal(autoTriageEmptyReason(rows, rows).kind, 'all_decided');
 });

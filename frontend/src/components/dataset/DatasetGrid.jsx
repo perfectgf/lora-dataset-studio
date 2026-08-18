@@ -15,7 +15,7 @@ import {
 } from '../../utils/improveEngines';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { useToast } from '../common/Toast';
-import { autoTriageAvailable } from './faceScoringGate.js';
+import { autoTriageAvailable, autoTriageEmptyReason } from './faceScoringGate.js';
 import { bulkActionMessage, createBulkActionGate } from './bulkActionGate.js';
 import { READS_STAY_OPEN, datasetBusyReason } from './datasetBusyReason.js';
 import {
@@ -66,7 +66,7 @@ const TILE_SIZE_TITLE = {
    Client-side derivation from the payload the grid already has; applies through
    the same batch endpoint as the manual multi-select, which already allows a
    direct keep<->reject switch (no backend change). */
-function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy,
+function AutoTriageBar({ images, allImages, datasetId, faceThresholds, onBatch, busy,
                          applying, onApplyingChange }) {
   const autoTriageRunGateRef = useRef(null);
   if (!autoTriageRunGateRef.current) {
@@ -110,7 +110,18 @@ function AutoTriageBar({ images, datasetId, faceThresholds, onBatch, busy,
   const replay = useMemo(() => [...pending, ...ownedImgs], [pending, ownedImgs]);
 
   // Keep the panel while there is anything to triage OR anything it still owns.
-  if (!replay.length) return null;
+  // With nothing to do it STAYS and says why: three unrelated situations used to
+  // render as the same silent absence (see autoTriageEmptyReason).
+  if (!replay.length) {
+    const empty = autoTriageEmptyReason(images, allImages);
+    if (!empty) return null;
+    return (
+      <div className="flex items-center gap-2 flex-wrap rounded-lg border border-dashed border-border bg-surface px-3 py-2">
+        <span className="text-content-muted text-sm font-semibold shrink-0">🎯 Auto-triage</span>
+        <span role="status" className="text-xs text-content-subtle">{empty.message}</span>
+      </div>
+    );
+  }
 
   const isReplay = lastRun != null; // at least one Apply already happened this session
   const keepTargets = replay.filter((i) => i.face_score >= t);
@@ -390,6 +401,9 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   };
   const ids = [...selected];
   const improveUniverse = Array.isArray(eligibilityImages) ? eligibilityImages : images;
+  // The dataset BEFORE the grid filters — `images` is what the filters left. Auto
+  // triage needs both to tell "nothing to do" from "your filter is hiding it".
+  const unfilteredImages = Array.isArray(eligibilityImages) ? eligibilityImages : images;
   const improveSelection = partitionKleinImproveSelection(improveUniverse, ids);
   const exclusionSummary = [...improveSelection.excluded.reduce((counts, item) => {
     counts.set(item.reason, (counts.get(item.reason) || 0) + 1);
@@ -465,6 +479,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
       )}
       {onBatch && autoTriageAvailable(faceScoringBlocked) && (
         <AutoTriageBar images={images.filter((image) => !isSmallImageRescueRow(image))}
+          allImages={unfilteredImages.filter((image) => !isSmallImageRescueRow(image))}
           datasetId={datasetId} faceThresholds={faceThresholds} onBatch={onBatch}
           busy={bulkBusy} applying={autoTriageApplying} onApplyingChange={setAutoTriageRun} />
       )}

@@ -72,7 +72,7 @@ def default_timeout(n_images: int) -> int:
 
 def score_dataset_faces(ref_path, image_paths, timeout: int | None = None,
                         on_progress=None):
-    """Retourne ({path: {state, sim?, det, bbox_frac, yaw}}, error|None).
+    """Retourne ({path: {state, sim?, det, bbox_frac, yaw, zoomed}}, error|None).
 
     `on_progress(done, total)` — optionnel — est appelé à chaque image finie par
     le scorer, depuis un thread de lecture (donc PAS dans un contexte Flask :

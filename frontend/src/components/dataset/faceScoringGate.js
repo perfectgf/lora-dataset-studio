@@ -65,3 +65,52 @@ export function faceAnalysisLabel(scope) {
 export function autoTriageAvailable(blockedReason) {
   return !blockedReason;
 }
+
+/** An image 🎯 Auto-triage is allowed to rule on, and one it can still act on. */
+const triageScorable = (i) => !!(i && i.filename && i.face_state === 'scorable'
+                                 && i.face_score != null);
+const triageActionable = (i) => triageScorable(i) && i.status === 'pending';
+
+/** Why 🎯 Auto-triage has nothing to offer, or null while it has work to do.
+ *
+ * The panel used to VANISH the moment its replay set went empty, with no word
+ * about why — three unrelated situations ("never scored", "your filter hides
+ * them", "you already decided everything") all rendered as the same absence, so
+ * the honest reading was "the app is broken". The Sort menu on this very screen
+ * already refuses that: it stays visible and greys itself out naming the pass to
+ * run (utils/gridSort.js), because "a sort that silently reorders nothing reads
+ * as a broken app". This is the same contract, applied to the same screen.
+ *
+ * `visible` is the FILTERED list the panel acts on; `all` is the dataset's full
+ * list. Holding the two apart is the whole point — it is what separates "there
+ * is nothing to do" from "there IS something to do and a filter is hiding it",
+ * which is the one case where the user is one click from the work rather than a
+ * whole pass away. `all` is optional: without it the answer degrades to what the
+ * visible list can prove, never to a wrong reason.
+ */
+export function autoTriageEmptyReason(visible, all = null) {
+  const shown = Array.isArray(visible) ? visible : [];
+  if (shown.some(triageActionable)) return null;      // the panel has work
+  const pool = (Array.isArray(all) && all.length) ? all : shown;
+  const hidden = pool.filter(triageActionable).length;
+  if (hidden > 0) {
+    return { kind: 'hidden_by_filter', count: hidden,
+             message: hidden === 1
+               ? '1 scored image is still undecided, but the current filter hides it.'
+               : `${hidden} scored images are still undecided, but the current filter hides them.` };
+  }
+  const rows = pool.filter((i) => i && i.filename);
+  if (!rows.length || !rows.some((i) => i.face_state != null)) {
+    return { kind: 'never_scored', count: 0,
+             message: 'No image carries a face score yet — run 🎭 Analyze faces to unlock auto-triage.' };
+  }
+  if (!rows.some(triageScorable)) {
+    // The case the Discord report was really about: a set of wide shots came
+    // back entirely unscorable, so the tool that could have sorted it was not
+    // merely empty — it was gone.
+    return { kind: 'none_scorable', count: 0,
+             message: 'None of these images could be scored (face too small, no face found, or a profile) — judge those by eye.' };
+  }
+  return { kind: 'all_decided', count: 0,
+           message: 'Every scored image already carries your ✓/✕ — nothing left to auto-triage.' };
+}

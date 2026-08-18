@@ -50,6 +50,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-18-auto-triage-says-why-its-empty',
+    date: '2026-08-18',
+    title: 'Auto-triage stops vanishing without a word',
+    blurb:
+      'The 🎯 Auto-triage bar used to disappear entirely whenever it had nothing to do — and four completely different situations looked identical: you had never run 🎭 Analyze faces, the pass could not score any of your images, you had already decided every one of them, or a decision filter was simply hiding the undecided ones. It now stays put and tells you which of the four it is, including how many scored images your current filter is hiding, so "nothing happens" is never left for you to guess at.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-08-18-analyze-faces-in-wider-shots',
+    date: '2026-08-18',
+    title: 'Face scores for your full-body and bust shots, not just the close-ups',
+    blurb:
+      '🎭 Analyze faces used to skip almost every wide shot: it asked the head to fill 6% of the frame, which describes your camera rather than the face — the same head passed on a small photo and failed on a big one. It now judges the head in actual pixels, and when a head is small in frame it takes a second look zoomed in on it, at the photo\'s own resolution, instead of at the shrunk-down copy the detector normally sees. Full-body and bust shots get a real score, so 🎯 Auto-triage and the “Face similarity” sort finally cover them. True profiles are still left unscored on purpose — a turned head can\'t be compared honestly, so it stays your call.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-18-repair-with-a-brush',
     date: '2026-08-18',
     title: 'Paint over what should go, instead of boxing it',
