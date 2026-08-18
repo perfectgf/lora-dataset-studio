@@ -42,6 +42,11 @@ NON_DATASET_JOB_NAMES = {
     # The watermark cleaner POLLS its own queue row for status/result_filename
     # (watermark_klein._await_job); it never wants a dispatch callback.
     'watermark_klein',
+    # Same lane, masked geometry: _run_klein_mask_job waits on _wait_for_job and
+    # reads the render itself, then composites it over the user's file in place.
+    # The finished image is never a dataset row of its own — the row it belongs
+    # to already exists and keeps its filename.
+    'watermark_klein_mask',
 }
 
 

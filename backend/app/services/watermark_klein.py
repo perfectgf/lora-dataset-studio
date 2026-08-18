@@ -617,33 +617,44 @@ def _run_klein_mask_job(user_id, frame_img, mask_img, *, seed, steps=KLEIN_MASK_
     except comfy_fs.ComfyFolderUnavailable as exc:
         return None, {'kind': 'failed', 'detail': str(exc)}
 
-    try:
-        workflow['114']['inputs']['unet_name'] = unet
-        workflow['114']['inputs']['weight_dtype'] = keh._unet_weight_dtype(unet)
-        workflow['10']['inputs']['vae_name'] = vae
-        workflow['90']['inputs']['clip_name'] = te
-        workflow['52']['inputs']['image'] = frame_name
-        workflow['51']['inputs']['image'] = mask_name
-        text = (prompt or '').strip() or KLEIN_INPAINT_PROMPT
-        workflow['6']['inputs']['text'] = text
-        workflow['77']['inputs']['seed'] = int(seed)
-        workflow['77']['inputs']['steps'] = max(1, int(steps))
-        workflow['77']['inputs']['denoise'] = float(denoise)
+    workflow['114']['inputs']['unet_name'] = unet
+    workflow['114']['inputs']['weight_dtype'] = keh._unet_weight_dtype(unet)
+    workflow['10']['inputs']['vae_name'] = vae
+    workflow['90']['inputs']['clip_name'] = te
+    workflow['52']['inputs']['image'] = frame_name
+    workflow['51']['inputs']['image'] = mask_name
+    text = (prompt or '').strip() or KLEIN_INPAINT_PROMPT
+    workflow['6']['inputs']['text'] = text
+    workflow['77']['inputs']['seed'] = int(seed)
+    workflow['77']['inputs']['steps'] = max(1, int(steps))
+    workflow['77']['inputs']['denoise'] = float(denoise)
+    workflow['9']['inputs']['filename_prefix'] = f'wmkleinmask_{uid}'
 
-        job_id = f'wmkleinmask_{uid}'
-        queue_manager.add_job(user_id, 'watermark_klein_mask', workflow,
-                              prompt=text, job_id=job_id, timeout=timeout)
-        filled = _await_klein_output(job_id, timeout=timeout)
-        if filled is None:
-            return None, {'kind': 'failed', 'detail': 'klein masked inpaint produced no image'}
-        return filled, None
+    job_id = str(uuid.uuid4())
+    status, filename, err_msg = None, None, None
+    try:
+        queue_manager.add_job(job_type='image', user_id=str(user_id),
+                              workflow_data=workflow, prompt=text, job_id=job_id,
+                              metadata={'model_name': 'watermark_klein_mask'})
+        status, filename, err_msg = _wait_for_job(job_id, timeout)
     finally:
         for stale in (frame_path, mask_path):
-            if stale:
-                try:
-                    os.unlink(stale)
-                except OSError:
-                    pass
+            _cleanup(stale)
+
+    if status != 'completed' or not filename:
+        return None, {'kind': 'failed',
+                      'detail': err_msg or f'klein masked inpaint {status}'}
+    data = _read_comfy_output(filename)
+    out_dir = _comfy_output_dir()
+    if out_dir:
+        _cleanup(os.path.join(out_dir, filename))  # temporary render, never user data
+    if not data:
+        return None, {'kind': 'failed',
+                      'detail': 'finished frame could not be retrieved from ComfyUI'}
+    try:
+        return Image.open(io.BytesIO(data)).convert('RGB'), None
+    except (OSError, ValueError) as e:
+        return None, {'kind': 'failed', 'detail': f'unreadable klein output: {e}'}
 
 
 def inpaint_mask_klein(user_id, image_path, boxes=None, *, mask=None, seed=None,

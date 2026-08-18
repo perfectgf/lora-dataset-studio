@@ -150,3 +150,78 @@ def test_an_oversized_mask_is_refused_before_it_is_decoded():
         b'\x00' * (fds.REPAIR_MASK_MAX_BYTES + 1)).decode()
     with pytest.raises(ValueError, match='too large'):
         fds.decode_repair_mask(huge, (10, 10))
+
+
+# --- the seam the other tests mock away -----------------------------------------
+# Every test above stands in for `_run_klein_mask_job` wholesale, which is the
+# right call for geometry — and is exactly why the lane shipped unable to enqueue
+# anything. Inside that function `_await_klein_output` did not exist and
+# `add_job` was called with the crop lane's arguments in the wrong positions:
+# a NameError and a TypeError on the first real brush stroke, invisible to a
+# suite that never entered the function. These tests enter it, and stand in one
+# level lower — at ComfyUI's door.
+
+def _klein_ready(monkeypatch):
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk.keh, 'unet_for_job', lambda *a, **k: 'klein.safetensors')
+    monkeypatch.setattr(wk.keh, '_unet_weight_dtype', lambda *a, **k: 'fp8_e4m3fn')
+    monkeypatch.setattr(wk.keh, 'resolve_klein_vae', lambda *a, **k: 'vae.safetensors')
+    monkeypatch.setattr(wk.keh, 'resolve_klein_text_encoder', lambda *a, **k: 'te.safetensors')
+    monkeypatch.setattr(wk.keh, 'klein_missing_assets', lambda *a, **k: [])
+
+
+def test_the_masked_lane_can_actually_enqueue_a_job(app, tmp_path, monkeypatch):
+    """THE regression this file exists for. Calls the real function; only
+    ComfyUI itself is stood in for."""
+    _klein_ready(monkeypatch)
+    monkeypatch.setattr(wk, '_comfy_input_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(wk, '_comfy_output_dir', lambda: str(tmp_path))
+
+    seen = {}
+    monkeypatch.setattr(wk.queue_manager, 'add_job',
+                        lambda **kw: seen.update(kw) or 'queued')
+    monkeypatch.setattr(wk, '_wait_for_job', lambda jid, t: ('completed', 'out.png', None))
+    buf = io.BytesIO()
+    Image.new('RGB', (64, 64), (3, 4, 5)).save(buf, format='PNG')
+    monkeypatch.setattr(wk, '_read_comfy_output', lambda name: buf.getvalue())
+
+    with app.app_context():
+        out, err = wk._run_klein_mask_job(
+            'u', Image.new('RGB', (64, 64)), Image.new('L', (64, 64), 255), seed=7)
+
+    assert err is None and out is not None, err
+    assert out.size == (64, 64)
+    # add_job is called BY NAME — the crop lane's positional order silently
+    # became (job_type=user_id, user_id='...', workflow_data=...) once.
+    assert seen['job_type'] == 'image'
+    assert seen['user_id'] == 'u'
+    assert seen['workflow_data']['51']['inputs']['image'].startswith('wmklein_mask_')
+    assert seen['workflow_data']['52']['inputs']['image'].startswith('wmklein_frame_')
+
+
+def test_a_failed_job_is_reported_not_swallowed(app, tmp_path, monkeypatch):
+    _klein_ready(monkeypatch)
+    monkeypatch.setattr(wk, '_comfy_input_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(wk.queue_manager, 'add_job', lambda **kw: 'queued')
+    monkeypatch.setattr(wk, '_wait_for_job',
+                        lambda jid, t: ('failed', None, 'the GPU said no'))
+
+    with app.app_context():
+        out, err = wk._run_klein_mask_job(
+            'u', Image.new('RGB', (32, 32)), Image.new('L', (32, 32), 255), seed=1)
+    assert out is None and 'the GPU said no' in err['detail']
+
+
+def test_the_staged_copies_are_removed_even_when_the_job_fails(app, tmp_path, monkeypatch):
+    """They are what the sweeper is a backstop FOR; the happy path must not be
+    the only one that cleans up."""
+    _klein_ready(monkeypatch)
+    monkeypatch.setattr(wk, '_comfy_input_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(wk.queue_manager, 'add_job', lambda **kw: 'queued')
+    monkeypatch.setattr(wk, '_wait_for_job', lambda jid, t: ('failed', None, 'nope'))
+
+    with app.app_context():
+        wk._run_klein_mask_job('u', Image.new('RGB', (32, 32)),
+                               Image.new('L', (32, 32), 255), seed=1)
+    leftovers = [f.name for f in tmp_path.iterdir() if f.name.startswith('wmklein_')]
+    assert leftovers == [], f'staged copies left behind: {leftovers}'
