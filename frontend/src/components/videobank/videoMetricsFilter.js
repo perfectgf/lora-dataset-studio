@@ -55,6 +55,17 @@ export const FLAG_LABELS = {
   dup_frames: 'Duplicated frames',
   blocky: 'Compression blocks',
   blurry: 'Blurred edges',
+  // 🤖 The hedge is the label, and it is deliberate. Every other chip here
+  // states a measured fact about the pixels ("Letterbox bars", "Duplicated
+  // frames"); this one states an inference from a statistic that is right about
+  // three times in four on re-encoded material, so a chip reading "AI-generated"
+  // would be a confident claim the measurement cannot support.
+  //
+  // It also must not read like the Bank's own AI verdict on a still. That one
+  // is `origin: 'ai'` and comes from METADATA — a generator's own prompt block,
+  // a C2PA mark — which is proof when it is there. Different method, different
+  // certainty, so a different word: the image lane says AI, this one says may be.
+  maybe_generated: 'May be AI-generated',
   unmeasured: 'Not measured yet',
 }
 
@@ -255,6 +266,27 @@ export function thresholdFields() {
         + 'heavily squeezed material. Deliberately reads the SHARPEST tenth of '
         + 'each shot, so a fast pan is not called blurry. Needs the 🩻 Defects '
         + 'pass.' },
+    // 🤖 The AI check — the only cut in this table whose LOW side is the
+    // suspicious one, and the only one whose hint has to carry an accuracy
+    // figure. Both are deliberate: a user who reads this as "high is bad" sets
+    // it backwards and flags every handheld shot in the bank, and a user who
+    // reads the flag as a verdict throws away real footage.
+    { key: 'motion_irregularity_floor', flag: 'maybe_generated', direction: 'below',
+      label: 'Motion irregularity floor',
+      hint: 'Flags shots whose motion is suspiciously SMOOTH — the low side is '
+        + 'the suspect one here, so raising this flags more. Real footage is '
+        + 'erratic (a hand shakes, a subject accelerates, the sensor is noisy) '
+        + 'and generated footage tends to be smoother than the world. '
+        + 'HOW RELIABLE: about three shots in four. Measured blind, the best '
+        + 'detector in the field scored 0.86 on untouched video and 0.74 once '
+        + 'it had been re-compressed — and anything scraped is re-compressed. '
+        + 'The method was also measured only against 2023–24 generators, and it '
+        + 'is worst on cheap, glitchy or heavily stylised output, which it reads '
+        + 'as MORE real. So treat a flag as "look at this one", never as a '
+        + 'verdict. There is no published value to type — the score has no '
+        + 'calibrated scale — so preview against your own bank. Needs the '
+        + '🤖 AI check pass; a shot it has not measured, or one too short for '
+        + 'its two-second window, is never flagged.' },
   ]
 }
 

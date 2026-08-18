@@ -521,6 +521,21 @@ DEFAULTS = {
                    'bars_max': None,
                    'text_coverage_max': None,
                    'safe_area_min': None,
+                   # 🤖 The may-be-AI-generated flag, and the ONE cut in this
+                   # section whose polarity is inverted: a LOW
+                   # `motion_irregularity` is the suspicious one, because real
+                   # footage moves erratically and generated footage is smoother
+                   # than the world. Hence a _floor, and raising it flags more.
+                   #
+                   # Empty, and here the reason is stronger than "it is your
+                   # footage". There IS no published cut to ship: the method's
+                   # own paper reports only AUC and average precision, which are
+                   # rank metrics that need no absolute scale, and its reference
+                   # implementation contains no threshold anywhere. The number's
+                   # magnitude also moves with the encoder and with the frame
+                   # count, so nobody's value transfers to anybody. Preview it
+                   # against your own bank; there is no other way to set it.
+                   'motion_irregularity_floor': None,
                    # 🩻 The defect sweep's three cuts, empty for a reason that is
                    # NOT quite the one above. Duplicated frames and blocking are
                    # damage rather than taste, so a default would be defensible

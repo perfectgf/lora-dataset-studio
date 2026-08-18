@@ -1851,6 +1851,75 @@ def _defects_job(bank_id, rescan):
     return run
 
 
+def start_ai_check(app, user_id, bank_id, recheck=False):
+    """🤖 Measure how erratically each shot moves, and flag the too-smooth ones.
+
+    Refused up front with the Setup sentence when no interpreter here can run
+    the encoder — a 202 followed by a job that dies on an import is the same
+    news, twenty minutes later and harder to read. Same refusal as 🔖 Watermarks
+    and 🗣 Describe, and the same environment as 🎨 Look: the ✨ Score
+    interpreter, which already carries torch and transformers.
+
+    ITS OWN BUTTON, and the two reasons are the two this lane already uses.
+    Different SAMPLING, which is the deciding one: this needs sixteen CONTIGUOUS
+    frames at 8 fps in colour at 224 px, and not one of the four decodes in this
+    lane produces anything like it — 🔎 embeds three frames spread across the
+    whole shot, 🗣 samples eight across the span, 🔳 takes three at 768 px, and
+    Measure reads the clip in greyscale at 160 px wide. A temporal statistic
+    over a spread sample would measure the gaps between moments instead of the
+    movement inside one, so there is nothing here to ride. And it CONSUMES
+    nothing — a shot is checkable the moment it has been cut — which is 🔳 Safe
+    zone's own test for a pass that earns a button rather than a queue position.
+
+    NO GPU WINDOW, unlike 🔖 Watermarks which takes one. That pass is a few
+    seconds; this one is tens of minutes over a bank, and holding the card that
+    long — unloading ComfyUI, blocking a training start — for an advisory flag
+    is the wrong trade. Running on the CPU is what lets it check a bank while a
+    training owns the card.
+    """
+    from .video_ai_check import unavailable_reason
+    _require_free_bank(user_id, bank_id)
+    reason = unavailable_reason()
+    if reason:
+        raise RuntimeError(reason)
+    return bank_jobs.start(app, job_key(bank_id), 'aicheck',
+                           _ai_check_job(bank_id, bool(recheck)))
+
+
+def _ai_check_job(bank_id, recheck):
+    def run(job):
+        from . import video_ai_check
+        total = len(video_ai_check.pending_clips(bank_id, recheck))
+        # The download warning rides in the detail the user is already watching,
+        # before the first shot: the encoder is a first-run download of several
+        # hundred megabytes, and a bar sitting at 0/900 while it arrives is
+        # indistinguishable from a hang.
+        notice = video_ai_check.model_download_notice()
+        bank_jobs.progress(job, done=0, total=total,
+                           detail=notice or 'checking how each shot moves')
+        out = video_ai_check.run_ai_check(
+            bank_id, recheck,
+            on_clip=lambda: bank_jobs.bump(job),
+            should_stop=lambda: bank_jobs.cancelled(job))
+        detail = f'done — {out["measured"]} shot(s) checked'
+        if out['too_short']:
+            # Named rather than folded into a total: these shots are not a
+            # failure and re-running will never fix them — the window needs
+            # about two and a half seconds and their cut is shorter than that.
+            detail += (f', {out["too_short"]} too short for the window '
+                       f'(under {video_ai_check.min_duration_s():.2f} s)')
+        if out['unreadable']:
+            detail += f', {out["unreadable"]} could not be read'
+        if out['error']:
+            # Said out loud and NOT as a failure: every shot checked before it
+            # is real and kept. Silence here leaves a bank whose cut flags
+            # nothing and nothing anywhere saying why.
+            detail = f'stopped — {out["error"]} ({out["measured"]} shot(s) checked)'
+        bank_jobs.progress(job, detail=detail)
+        return out
+    return run
+
+
 def _caption_available():
     """None when this install can caption, else the sentence saying why not."""
     from .video_caption_worker import unavailable_reason

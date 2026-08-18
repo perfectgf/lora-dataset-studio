@@ -55,6 +55,7 @@ export const PASS_LABELS = {
   watermark: '🔖 Watermarks',
   safezone: '🔳 Safe zone',
   defects: '🩻 Defects',
+  aicheck: '🤖 AI check',
   pipeline: 'Run everything',
   promote: 'Build the dataset',
 }
@@ -74,6 +75,9 @@ export const PASS_RUNNING_LABELS = {
   // its progress bar counts clips, and a participle that promised shots would
   // make a bar standing still for a whole rush look stuck.
   defects: 'Sweeping files',
+  // "Checking how shots move", not "Detecting AI": the participle a user reads
+  // for twenty minutes must describe the measurement, not promise the verdict.
+  aicheck: 'Checking how shots move',
   pipeline: 'Running everything',
   promote: 'Building the dataset',
 }

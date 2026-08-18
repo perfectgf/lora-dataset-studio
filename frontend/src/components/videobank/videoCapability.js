@@ -95,6 +95,12 @@ export const PASS_REQUIREMENTS = {
   // would grey out a button that works, and listing `encode` on the others
   // would grey out ones that never touch the binary.
   defects: ['encode'],
+  // 🤖 AI check decodes sixteen frames per shot with PyAV, so `decode` and
+  // nothing else. The encoder runs in the ✨ Score interpreter — the same split
+  // as embed, caption and watermark, checked server-side with its own sentence,
+  // because that environment is a different install step and not one of the
+  // three video pieces.
+  aicheck: ['decode'],
   pipeline: ['decode', 'detect'],
   promote: ['encode'],
 }

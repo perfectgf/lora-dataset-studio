@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-19-video-ai-check',
+    date: '2026-08-19',
+    title: 'See which shots may have been generated rather than filmed',
+    blurb:
+      'A scrape in 2026 brings back generated video mixed in with the real thing, and it is invisible at thumbnail size — a clean, well-lit, well-framed synthetic clip passes every other check in the bank. It is worth finding: published curation work reports that even under a tenth of a corpus being synthetic measurably degrades what a model learns from it. The 🎬 Video bank has a new 🤖 AI check: it looks at two contiguous seconds of each shot and measures how erratically the motion changes, because real footage is full of small irregularities and generated footage tends to be smoother than the world. Shots that come out suspiciously smooth get a “May be AI-generated” chip, against a new cut in 🎚 Quality cuts that is empty by default and applied as you move it with nothing rescanned. Read as a hint and never as a verdict: on re-compressed material — which anything scraped is — the best blind-evaluated detectors in the field are right about three times in four, and this one has never been measured against 2025-and-later generators. Nothing is ever rejected or deleted on it. Runs on the CPU, so it can check a bank while a training owns your card, and it needs the same ✨ Score interpreter the look score already uses.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-18-video-defect-sweep',
     date: '2026-08-18',
     title: 'Spot the footage that has already been through the mill',

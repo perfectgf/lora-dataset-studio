@@ -524,6 +524,25 @@ def video_bank_defects(bank_id):
                   rescan=bool(data.get('rescan')))
 
 
+@bp.post('/video-bank/<int:bank_id>/aicheck')
+def video_bank_ai_check(bank_id):
+    """🤖 Measure how erratically each shot moves. Body {recheck?}.
+
+    Two 503s that are NOT the same sentence, the same split as 🔖 Watermarks and
+    🗣 Describe: the decode extra is missing (no frames to encode at all), or no
+    interpreter here can run the model. Collapsing them is how somebody installs
+    the wrong thing twice. The second one is raised by the service, which owns
+    the ✨ Score sentence 🎨 Look already uses.
+    """
+    from .. import capabilities
+    cap = capabilities.probe_video()
+    if not cap['decode']:
+        return jsonify({'error': cap['detail']}), 503
+    data = request.get_json(silent=True) or {}
+    return _start(bank_id, svc.start_ai_check, _app(), LOCAL_USER, bank_id,
+                  recheck=bool(data.get('recheck')))
+
+
 @bp.patch('/video-bank/<int:bank_id>/clip/<int:clip_id>/caption')
 def video_bank_clip_caption(bank_id, clip_id):
     """Store the caption a HUMAN wrote for one shot. Body {caption}.
