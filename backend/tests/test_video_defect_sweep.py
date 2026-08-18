@@ -893,3 +893,19 @@ def test_an_unknown_bank_is_a_404_not_a_503(app, client, monkeypatch):
                         lambda force=False: {'ok': True, 'path': '/bin/ffmpeg',
                                              'reason': 'ffmpeg runs'})
     assert client.post('/api/video-bank/999999/defects', json={}).status_code == 404
+
+
+def test_the_two_lanes_treat_a_container_fact_the_same_way():
+    """CLAUDE.md's rule: a shared question ships on both surfaces or names why it
+    differs. `bits_per_pixel` here and `jpeg_quality` on a still are the SAME kind
+    of fact — how hard the file was squeezed, read from the header — and both are
+    displayed, never cut on. A flag on one and not the other would teach a user a
+    behaviour on one surface that the other contradicts."""
+    from app.config import DEFAULTS
+
+    assert 'bits_per_pixel' not in DEFAULTS['video_bank']
+    assert 'bpp_min' not in DEFAULTS['video_bank']
+    assert not any('bpp' in key or 'bit_rate' in key
+                   for key in video_metrics.THRESHOLD_KEYS)
+    # The image lane's own container fact carries no cut either.
+    assert not any('jpeg' in key for key in (DEFAULTS.get('bank') or {}))

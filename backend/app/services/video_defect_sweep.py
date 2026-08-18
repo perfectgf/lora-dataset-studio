@@ -47,10 +47,31 @@ the bank with no rescan. A clip whose window caught no frame carries
 clip is perfectly clean when nothing looked at it. Nothing is deleted, nothing is
 rejected, no triage decision is touched.
 
-THE IMAGE LANE HAS NO EQUIVALENT, deliberately. Duplicated frames are a
-temporal defect and a still has no time; blocks and soft edges the image bank
-already answers its own way, on one frame it decodes anyway. The divergence is
-real and it is the shape of the material, not an omission.
+THE OTHER SURFACE, named rather than assumed — the Bank asks two of these three
+questions already, and answers them differently on purpose:
+
+  dup_frame_ratio  has NO image equivalent and cannot have one. It is a temporal
+                   defect and a still has no time. Legitimate divergence, full
+                   stop.
+  blur_score       ↔ `BankImage.detail_ratio`. Same question ("was this enlarged
+                   from something smaller"), deliberately different method. The
+                   Bank rebuilds one still at a ladder of sizes and reports the
+                   smallest that still reconstructs it — accurate, and it costs
+                   several resamples of a full-size image. Paying that per FRAME
+                   is not on the table, while `blurdetect` rides inside a decode
+                   that is happening anyway. Both carry the same honest limit,
+                   stated in both places: neither can separate an enlargement
+                   from a genuinely soft photograph.
+  bit_rate / bpp   ↔ `BankImage.jpeg_quality`, and the parity here is exact —
+                   both are read straight out of the container header, both
+                   describe how hard the file was squeezed, and both are
+                   DISPLAYED FACTS that raise no flag. The Bank's comment says
+                   "a displayed FACT, never a flag"; this lane owes the same
+                   restraint for the same reason, and now has a stronger one:
+                   `block_score` MEASURES the damage these two predict.
+  bars_ratio       already shared, in both directions — 🔳 Safe zone reuses the
+                   Bank's arithmetic so a number calibrated on stills carries
+                   over. Nothing here touches it.
 """
 from __future__ import annotations
 
