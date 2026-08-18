@@ -406,6 +406,15 @@ _SCHEMA_ADDITIONS = (
     # detected before the cache existed reads NULL, which is exactly right: it
     # cannot be re-cut instantly and the UI offers it a real pass instead.
     ('video_source', 'probs_state', 'VARCHAR(12)'),
+    # 🩻 What the container says about the squeeze — the video stream's bit rate
+    # and codec profile, read by the same probe that reads the geometry. Both
+    # additive and nullable: a bank probed before these existed keeps every
+    # number it had and shows a dash for these two until it is re-probed, which
+    # is the honest state. NULL is also the CORRECT permanent answer for a
+    # container that carries no per-stream bit rate (MKV and WebM routinely do
+    # not), so nothing may ever read a NULL here as "not probed yet".
+    ('video_source', 'bit_rate', 'INTEGER'),
+    ('video_source', 'profile', 'VARCHAR(32)'),
     # Cut or dissolve, and how wide, at each end of a shot. NULL on every clip
     # cut before the detector's second head was kept — no label rather than a
     # guessed one.

@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 import {
   countsSummary, countsProblems, passLabel, activityLine, activityPercent,
   isBusy, finishedOutcome, announcement, nextStep, formatDuration,
-  formatFileSize, sourceGeometry, sourceState, passProgress, resumeSafetyNote,
+  formatFileSize, sourceGeometry, sourceEncoding, sourceState, passProgress,
+  resumeSafetyNote,
 } from './videoBankStatus.js'
 import { passBlockedBy } from './videoCapability.js'
 
@@ -245,4 +246,57 @@ test('stopping is described as safe, and says exactly what is kept', () => {
 test('no safety note when there is nothing yet to lose', () => {
   assert.equal(resumeSafetyNote({ kind: 'detect', done: 1, total: 246, finished: false },
                                 { detected: 1 }), null)
+})
+
+test('the squeeze line reads profile, bitrate and bits per pixel', () => {
+  assert.equal(
+    sourceEncoding({ profile: 'High', bit_rate: 5200000, bits_per_pixel: 0.1004 }),
+    'High · 5.2 Mb/s · 0.100 bpp')
+  // Below a megabit, kb/s — "0.4 Mb/s" reads as a rounding artefact.
+  assert.equal(sourceEncoding({ bit_rate: 420000 }), '420 kb/s')
+})
+
+test('a container that carries no bitrate shows nothing rather than a zero', () => {
+  // MKV and WebM routinely carry no per-stream bitrate — measured, on files
+  // holding the same footage as an .mp4 that reports one fine. That absence is a
+  // property of the container, and "0.000 bpp" would read as a broken file.
+  assert.equal(sourceEncoding({ profile: 'Profile 0', bit_rate: null,
+    bits_per_pixel: null }), 'Profile 0')
+  assert.equal(sourceEncoding({ bit_rate: 0, bits_per_pixel: 0 }), '')
+  assert.equal(sourceEncoding({}), '')
+  assert.equal(sourceEncoding(null), '')
+})
+
+test('the squeeze is its own line and never lengthens the geometry one', () => {
+  // Both lines have to survive a 400 px card. Six facts on one line wrap into
+  // three, which is what put this on a line of its own.
+  const source = { width: 1920, height: 1080, fps_native: 25, codec: 'h264',
+    profile: 'High', bit_rate: 5200000, bits_per_pixel: 0.1 }
+  assert.ok(!sourceGeometry(source).includes('bpp'))
+  assert.ok(!sourceGeometry(source).includes('Mb/s'))
+  assert.ok(!sourceEncoding(source).includes('1920'))
+})
+
+test('the defect sweep is a named pass everywhere a pass is named', () => {
+  // A pass missing from these tables shows the user a raw identifier in the
+  // button, in the progress line AND in the 409 "busy" refusal.
+  assert.equal(passLabel('defects'), '🩻 Defects')
+  assert.match(activityLine({ kind: 'defects', done: 3, total: 40 }, COUNTS),
+    /Sweeping files/)
+})
+
+test('the sweep is the one reading pass that needs the encoder', () => {
+  // Every other reading pass decodes with PyAV; this one hands whole files to
+  // the ffmpeg binary. An install with `av` and no ffmpeg must be refused for
+  // the binary it is actually missing, not for the extra it already has.
+  const noFfmpeg = { ok: false, decode: true, detect: true, encode: false }
+  assert.equal(passBlockedBy(noFfmpeg, 'measure'), null)
+  assert.equal(passBlockedBy(noFfmpeg, 'safezone'), null)
+  const blocked = passBlockedBy(noFfmpeg, 'defects')
+  assert.ok(blocked, 'the sweep must be refused without ffmpeg')
+  assert.match(blocked.why, /ffmpeg/i)
+
+  const noAv = { ok: false, decode: false, detect: true, encode: true }
+  assert.equal(passBlockedBy(noAv, 'defects'), null,
+    'the sweep never opens the file itself, so `av` is not its dependency')
 })

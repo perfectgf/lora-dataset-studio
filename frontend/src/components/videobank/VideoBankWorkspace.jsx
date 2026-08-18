@@ -400,8 +400,12 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
         {/* ✂ and 🔖 sit AFTER embed on purpose: duplicates reuse the vectors
             that pass caches, so running them before it is the one order that
             produces an honest-looking empty answer. */}
+        {/* 🩻 sits last: it is the only pass here that needs the ENCODER rather
+            than the decoder, so on an install without ffmpeg it is the one grey
+            button in a row of working ones — and the tooltip says which binary
+            rather than "unavailable". */}
         {['pipeline', 'probe', 'detect', 'thumbs', 'measure', 'embed',
-          'caption', 'dedup', 'watermark', 'safezone'].map((pass) => {
+          'caption', 'dedup', 'watermark', 'safezone', 'defects'].map((pass) => {
           const blocked = passBlockedBy(capability, pass)
           const primary = pass === 'pipeline'
           // 🔳 is the one pass that runs with HALF its dependencies: no OCR

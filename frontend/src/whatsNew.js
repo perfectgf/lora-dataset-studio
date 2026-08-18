@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-18-video-defect-sweep',
+    date: '2026-08-18',
+    title: 'Spot the footage that has already been through the mill',
+    blurb:
+      'A clip that was uploaded, re-encoded and re-uploaded three times carries damage a thumbnail cannot show you — and a LoRA learns it first, because it sits identically on every frame of every shot from that file. The 🎬 Video bank has a new 🩻 Defects pass: one sweep per source file finds frames that were simply delivered twice (what 24 fps material uploaded as 30 fps looks like), the macroblock grid showing through a hard squeeze, and edges that stay soft at FULL size. That last one is the important one — the sharpness floor measures a small analysis copy, where footage upscaled from 480p and the genuine 1080p are the same picture, so until now nothing in the app could tell them apart. Three new cuts in 🎚 Quality cuts, all empty by default, all applied as you move them with nothing rescanned. Each file card also shows how hard it was squeezed, in bits per pixel. Needs ffmpeg, which the video extra already installs.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-18-video-safe-zone',
     date: '2026-08-18',
     title: 'See the black bars and the subtitles before your LoRA learns them',

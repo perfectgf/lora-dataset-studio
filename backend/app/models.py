@@ -1290,6 +1290,15 @@ class VideoSource(db.Model):
     width = db.Column(Integer, nullable=True)
     height = db.Column(Integer, nullable=True)
     codec = db.Column(String(24), nullable=True)
+    # What the container says about the squeeze: the video stream's bit rate in
+    # bits per second, and the codec profile ('High', 'Main', 'Profile 0'…).
+    # Both are DISPLAYED, never cut on — the 🩻 defect sweep measures the damage
+    # they only predict. Additive and nullable (see _SCHEMA_ADDITIONS): a file
+    # probed before these existed simply has nothing to show, and MKV/WebM
+    # legitimately carry no per-stream bit rate at all, so NULL here is a
+    # property of the container as often as it is an age.
+    bit_rate = db.Column(Integer, nullable=True)
+    profile = db.Column(String(32), nullable=True)
     # NULL = not probed yet | 'ok' | 'unreadable'. Mirrors BankImage.quality_state's
     # vocabulary so "the file is broken" reads the same in both lanes.
     probe_state = db.Column(String(12), nullable=True)

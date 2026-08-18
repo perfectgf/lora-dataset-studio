@@ -2520,6 +2520,68 @@ been scanned. It decodes three frames per shot and reads them on the CPU, so a
 big bank takes real time — and it never touches the GPU, so it can run while a
 training is going.
 
+### 🩻 Defects — what a re-encode left behind
+
+The passes above measure your *footage*: how it moves, how it is lit, how sharp
+it is. This one measures the *file* — what happened to it between the camera and
+your disk. Material that was uploaded, transcoded and re-uploaded a few times
+carries damage that no thumbnail shows and that sits identically on every frame
+of every shot from that file, which is precisely the kind of thing a LoRA learns
+first and fastest.
+
+**🩻 Defects** hands each source file to ffmpeg once and reads three things back:
+
+- **Duplicated frames.** Frames that are near-copies of the one before them. This
+  is what 24 fps material uploaded as 30 fps looks like — one frame in five is a
+  repeat — and it is *not* the frozen-stretch flag: that one says nothing moved,
+  this one says the same picture was delivered twice. A shot can be full of
+  movement and full of duplicates at the same time.
+- **Compression blocks.** The 8×8 macroblock grid showing through a hard squeeze.
+  Nothing legitimate produces one: no camera, no lens, no lighting.
+- **Blurred edges, at full size.** Edges that stay wide even in the shot's
+  sharpest moments.
+
+**That last one is the reason this pass exists**, because it is the one thing
+nothing else in the app can see. The **Sharpness floor** above reads a Laplacian
+computed on a 160-pixel-wide analysis copy — deliberately, since that measurement
+over a full frame costs more than decoding it — and at 160 pixels, footage
+upscaled from 480p and the genuine 1080p **are the same picture**. Measured on
+three files carrying identical footage, the sharpness score read 354.35, 353.69
+and 353.72 for native, 480p-upscaled and 320p-upscaled. Indistinguishable. This
+pass reads the edges at full resolution instead and separates them.
+
+It reads the *sharpest* tenth of each shot rather than the blurriest, and that is
+on purpose: softness is sometimes a choice — a fast pan, a shallow depth of
+field, a deliberate rack focus — so asking "is it soft even at its sharpest" is
+the only form of the question that does not flag exactly the shots with the most
+interesting movement.
+
+Three cuts read the numbers: **Duplicated frames**, **Compression blocks** and
+**Blurred edges**. Empty by default like everything else here, and applied at
+read time, so moving one re-sorts the bank with nothing rescanned. **The block
+score deserves one warning the others do not:** its absolute value depends on
+what is in the frame nearly as much as on the damage — measured here, one scene
+from a good encode to a ruined one moved from 13 to 43, while four *different*
+scenes at one fixed quality spanned 1 to 25 000. Preview a value, look at what it
+caught, move it. Do not carry a number over from somebody else's bank.
+
+**Each file card now also shows how hard the file was squeezed** — its codec
+profile, its bitrate, and *bits per pixel per frame*, which is the comparable one
+(5 Mb/s is generous at 480p and starving at 4K). Roughly, under 0.05 is visibly
+damaged and over 0.15 is comfortable. It is shown and never cut on, because it
+only *predicts* the damage that the block score actually *measures* — and some
+containers, MKV and WebM in particular, carry no bitrate at all, in which case
+the line simply says less rather than inventing a number.
+
+It is its own button, like 🔳 Safe zone and for the same reason: it consumes
+nothing, so there is no order to protect. Two things are worth knowing before you
+press it. It is the only reading pass that needs **ffmpeg** rather than the
+decode extra — the video extra installs it, and without it this one button is
+greyed with the reason in its tooltip while everything else keeps working. And it
+costs real time: roughly **nine seconds per minute of 1080p source**, on the CPU,
+never touching the GPU. A four-hour bank is a little over half an hour. Stopping
+is safe and a re-run picks up at the first file it had not reached.
+
 ## Retouch a cut: trim, split, or draw a shot by hand
 
 Shot detection is good and it is not right. It cuts a slow dissolve a second

@@ -506,6 +506,24 @@ def video_bank_safe_zone(bank_id):
                   rescan=bool(data.get('rescan')))
 
 
+@bp.post('/video-bank/<int:bank_id>/defects')
+def video_bank_defects(bank_id):
+    """🩻 Sweep each source file for duplicated frames, blocks and soft edges.
+    Body {rescan?}.
+
+    ONE 503 and it names ffmpeg, not the decode extra — the opposite split from
+    every pass above. Those decode frames with PyAV and check `cap['decode']`;
+    this one hands the whole file to the ffmpeg binary and never opens it here,
+    so an install with `av` and no ffmpeg must be refused for the binary it is
+    actually missing. The service owns that sentence (it is the same
+    ffmpeg_ready() verdict the Setup row shows), so the two can never drift into
+    telling the user to install different things.
+    """
+    data = request.get_json(silent=True) or {}
+    return _start(bank_id, svc.start_defects, _app(), LOCAL_USER, bank_id,
+                  rescan=bool(data.get('rescan')))
+
+
 @bp.patch('/video-bank/<int:bank_id>/clip/<int:clip_id>/caption')
 def video_bank_clip_caption(bank_id, clip_id):
     """Store the caption a HUMAN wrote for one shot. Body {caption}.
