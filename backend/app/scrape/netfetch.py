@@ -29,9 +29,12 @@ DOWNLOAD_TIMEOUT = 180  # secondes
 # Timeout socket interne yt-dlp (par requête réseau).
 SOCKET_TIMEOUT = 30  # secondes
 
-# Plancher de version yt-dlp (CVE-2024-38519). WARNING non bloquant — un assert
+# Plancher de version yt-dlp. Relevé 2026-08-18 : l'ancien plancher (2024.07.01,
+# CVE-2024-38519) avait DEUX ans et DEUX CVE de retard — CVE-2026-50019 (fuite de
+# cookies, corrigée en 2026.06.09) et CVE-2026-55404 (injection de commande via
+# --write-link, corrigée en 2026.07.04). WARNING non bloquant — un assert
 # dur sur une version briquerait Flask au démarrage.
-YTDLP_VERSION_FLOOR = (2024, 7, 1)
+YTDLP_VERSION_FLOOR = (2026, 7, 4)
 _version_checked = False
 
 _ffmpeg_checked = None
@@ -67,7 +70,7 @@ def _check_ytdlp_version():
         _version_checked = True
         try:
             current_app.logger.warning(
-                "yt-dlp %s < plancher %s recommandé (CVE-2024-38519). "
+                "yt-dlp %s < plancher %s recommandé (CVE-2026-50019/55404). "
                 "Mettre à jour : python -m pip install -U yt-dlp",
                 ver, YTDLP_VERSION_FLOOR,
             )
