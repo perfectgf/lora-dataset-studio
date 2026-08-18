@@ -713,6 +713,19 @@ const TOPICS = [
       'video unavailable', 'video extra', 'which piece is missing'],
     guide: { chapter: 'using-the-app', anchor: 'the-video-bank-turn-a-folder-of-rushes-into-shots' },
     app: { route: '/video-bank' } },
+  // Searched for by what people TRIED and could not do: they pasted a RedGifs or
+  // TikTok link into the image scraper and got "no images found", or they
+  // downloaded clips by hand into a folder because nothing else was on offer.
+  action('video-bank-scrape', 'Scrape the web into a video bank',
+    ['scrape', 'scraper', 'scrape video', 'scrape videos', 'scrape into video bank',
+     'download videos', 'download a clip', 'video from the web', 'videos from a url',
+     'redgifs', 'tiktok', 'erome', 'picazor', 'x videos', 'twitter video',
+     'no videos found', 'my video link is ignored', 'video items dropped',
+     'fill a video bank', 'video bank without a folder', 'no folder',
+     'new video bank from the web', 'add more clips', 'resume scrape',
+     'which bank can receive a scrape', 'bank not in the list',
+     'why can i not scrape into this bank', 'my rushes folder'],
+    '/video-bank', 'using-the-app', 'the-video-bank-turn-a-folder-of-rushes-into-shots'),
   action('video-bank-passes', 'Scan, find shots, make thumbnails',
     ['scan files', 'find shots', 'make thumbnails', 'run everything', 'video passes',
      'order of passes', 'nothing was detected', 'no shots found', '0 shots',

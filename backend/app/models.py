@@ -1285,6 +1285,13 @@ class VideoSource(db.Model):
     # NULL = shot detection has not run on this file | 'ok' | 'error'. Separate from
     # probe_state because a file can be perfectly readable and still fail detection.
     detect_state = db.Column(String(12), nullable=True)
+    # Where this file came from, when the app is the one that brought it in
+    # (🕸 scrape → video bank), as the same validated JSON the image lane stores
+    # on BankImage.source_metadata — one vocabulary for provenance across both
+    # lanes. NULL on every file the user pointed the bank at themselves: nobody
+    # recorded an origin for those and inventing one would be a claim. Additive
+    # column (see _SCHEMA_ADDITIONS).
+    source_metadata = db.Column(Text, nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
 
     def __repr__(self):

@@ -392,6 +392,10 @@ _SCHEMA_ADDITIONS = (
     # model became configurable read NULL, which is honest — nobody recorded it.
     ('video_clip', 'caption_model', 'VARCHAR(120)'),
     ('video_clip', 'caption_style', 'VARCHAR(16)'),
+    # 🕸 Scrape → video bank: where a downloaded rush came from. Additive, and
+    # NULL is the honest value for every file a user pointed a bank at by hand —
+    # their origin was never recorded and must not be invented.
+    ('video_source', 'source_metadata', 'TEXT'),
 )
 
 # Indexes that only a FRESH database ever got. `index=True` on a model column is

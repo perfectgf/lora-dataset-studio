@@ -2369,6 +2369,26 @@ can judge; the three hundred shots inside it are.
 1. **Create it** — name it, point it at the folder. Every `.mp4`, `.mov`, `.mkv`,
    `.webm` and `.avi` under it (subfolders included) is inventoried in place.
    Nothing is copied and the folder is never modified.
+1bis. **🕸 Scrape the web into a video bank** — you don't need a folder of rushes
+   you assembled by hand. Unfold **🕸 Scrape the web into a video bank** on the
+   video bank list, choose a destination, then scan a URL and pick clips exactly
+   as you would pick images. The scanner has always listed videos — RedGifs,
+   Erome, Picazor, TikTok, X, Civitai and the gallery sources all return them —
+   and the picker now shows them, with a ▶ badge and their length. They are
+   downloaded, inventoried on the spot, and cut into shots when you run the
+   passes above.
+
+   Two things are worth knowing:
+
+   - **Nothing is judged on the way in**, exactly like the image bank. Length,
+     motion, sharpness and near-duplicates are verdicts the **📊 Measure
+     quality** pass produces, with thresholds you move. A clip refused at
+     download time is one you could never have reviewed.
+   - **Your own folders are never written into.** A scrape always lands in a
+     folder the app owns, which is why **Add to a scraped bank** only lists banks
+     that were created by a scrape: a bank you pointed at your own footage stays
+     read-only, and that is what makes it safe to run one over an archive of
+     originals.
 2. **▶ Run everything** chains the three passes in the only order that works:
    **scan** reads what each file is (length, size, frame rate), **find shots**
    cuts it at its shot boundaries, and **make thumbnails** grabs one frame from

@@ -538,3 +538,39 @@ def video_bank_promote(bank_id):
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 503
     return jsonify({'ok': True, **out}), 202
+
+
+# --- 🕸 scrape → video bank ------------------------------------------------------
+
+@bp.post('/video-bank/scrape-import')
+def video_bank_scrape_import():
+    """Download the picked scan items into a video bank.
+
+    Body: {items:[{url,title,…}], bank_id?} to APPEND to a scraped bank, or
+    {items, name} to create one. The SAME contract as the image lane's
+    `/api/bank/scrape-import`, on purpose — the two destinations answer
+    {'ok','bank_id','name','created','saved','already_there','added','skipped'}
+    so one client helper drives both.
+
+    Synchronous, like the image outlet: the per-request cap
+    (`SCRAPE_VIDEO_IMPORT_MAX`) is what bounds it, and a big selection arrives as
+    successive batches. 400 on bad input (including a bank whose folder the app
+    does not own — a video bank never writes into your own rushes), 409 when a
+    pass already owns the bank."""
+    data = request.get_json(silent=True) or {}
+    raw_bank_id = data.get('bank_id')
+    bank_id = None
+    if raw_bank_id is not None:
+        try:
+            bank_id = int(raw_bank_id)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'bank_id must be a number'}), 400
+    try:
+        res = svc.scrape_import_to_video_bank(LOCAL_USER, data.get('items'),
+                                              bank_id=bank_id,
+                                              name=data.get('name'))
+    except bank_jobs.BankJobBusy as e:
+        return _busy(e)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, **res})

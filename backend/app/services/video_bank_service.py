@@ -28,10 +28,16 @@ cannot see. Hence ``job_key()`` — the registry itself is happily reused.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
+import tempfile
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import config as cfg
@@ -309,20 +315,28 @@ def create_bank(user_id, name, folder):
     return bank, len(rels)
 
 
-def _insert_sources(bank_id, folder, rels) -> int:
+def _insert_sources(bank_id, folder, rels, source_metadata_by_relpath=None) -> int:
+    """INSERT one row per relpath. ``source_metadata_by_relpath`` carries the
+    ALREADY-VALIDATED provenance JSON of files the app itself just downloaded
+    (see ``scrape_import_to_video_bank``), so a scraped rush is born WITH its
+    origin instead of the walk having no way to attach one to a bare file it
+    found on disk. Every other caller omits it and the column stays NULL."""
+    provenance = source_metadata_by_relpath or {}
     rows = []
     for rel in rels:
         try:
             size = os.path.getsize(os.path.join(folder, rel))
         except OSError:
             size = None
-        rows.append({'bank_id': bank_id, 'relpath': rel, 'file_size': size})
+        rows.append({'bank_id': bank_id, 'relpath': rel, 'file_size': size,
+                     'source_metadata': provenance.get(rel)})
     for i0 in range(0, len(rows), _INSERT_CHUNK):
         db.session.execute(VideoSource.__table__.insert(), rows[i0:i0 + _INSERT_CHUNK])
     return len(rows)
 
 
-def refresh_bank(user_id, bank_id, force=False) -> dict | None:
+def refresh_bank(user_id, bank_id, force=False, *,
+                 source_metadata_by_relpath=None) -> dict | None:
     """Re-inventory the source folder.
 
     STRICTLY ADDITIVE, exactly like the image lane: the only write is an INSERT of
@@ -331,7 +345,10 @@ def refresh_bank(user_id, bank_id, force=False) -> dict | None:
     over days in one silent pass, and the user would have no way to know why.
 
     Returns {'added', 'missing', 'unavailable', 'error'}, or None when the bank is
-    unknown. ``force`` is accepted for symmetry with the image lane's cooldown."""
+    unknown. ``force`` is accepted for symmetry with the image lane's cooldown.
+    ``source_metadata_by_relpath`` — see ``_insert_sources`` — is threaded through
+    only by the scrape intake; it is what keeps THIS walk the single inventory
+    path instead of the scrape growing one of its own."""
     bank = get_bank(user_id, bank_id)
     if bank is None:
         return None
@@ -351,7 +368,7 @@ def refresh_bank(user_id, bank_id, force=False) -> dict | None:
     new = [r for r in rels if r not in known]
     out['missing'] = len(known - on_disk)
     if new:
-        _insert_sources(bank.id, bank.source_path, new)
+        _insert_sources(bank.id, bank.source_path, new, source_metadata_by_relpath)
         db.session.commit()
         out['added'] = len(new)
     return out
@@ -425,6 +442,12 @@ def _bank_row(bank: VideoBank) -> dict:
         'id': bank.id, 'name': bank.name, 'source_path': bank.source_path,
         'created_at': bank.created_at.isoformat() if bank.created_at else None,
         'counts': _counts(bank.id),
+        # Whether 🕸 scrape may DOWNLOAD into this bank's folder. False for every
+        # bank pointed at footage of the user's own — see
+        # ``folder_accepts_downloads``. Surfaced so the picker can offer the
+        # banks that would actually accept a scrape, instead of letting the user
+        # choose one and be refused after the click.
+        'scrapable': folder_accepts_downloads(bank.source_path),
     }
 
 
@@ -1880,3 +1903,462 @@ def delete_video_dataset(user_id, dataset_id) -> bool:
         logger.warning('video dataset %s: could not dispose its folder: %s',
                        dataset_id, e)
     return True
+
+
+# --- 🕸 scrape → VIDEO BANK -----------------------------------------------------
+#
+# The scraper already listed videos: `/api/scrape/scan` returns items carrying
+# `type: 'video'` from RedGifs, Erome, Picazor, TikTok, X, Civitai and every
+# gallery-dl backed source. Nothing consumed them — the picker dropped them on
+# the floor and the only way to get a scraped clip into a bank was to download it
+# by hand, into a folder, and point a bank at it.
+#
+# This is the image lane's `image_bank_service.scrape_import_to_bank` adapted to
+# video, and it keeps ALL of its invariants deliberately:
+#
+#   1. ONE inventory path. Files are downloaded into the bank's folder and the
+#      ORDINARY walk (`refresh_bank`) registers them. No second insert.
+#   2. No quality judgement at intake. Short, still, tiny or duplicated is what
+#      the metrics pass and the triage exist to rule on; a clip refused at
+#      download time is one nobody can review.
+#   3. Content-hash naming, so re-importing the same bytes overwrites nothing and
+#      reports `already_there` — file identity, never a "duplicate" verdict.
+#   4. The lease is re-checked AFTER the downloads (which are slow) and before the
+#      first write, so a stale reservation can never publish under a newer owner.
+#
+# WHERE IT DIVERGES FROM THE IMAGE LANE, AND WHY. A video bank points at a folder
+# of the user's own rushes and this module promises never to write into it. That
+# promise is worth more than the convenience of appending anywhere: a scrape MUST
+# land in a folder the app owns (`cfg.video_bank_sources_root()`), so "add to an
+# existing bank" is offered for scraped banks and refused, with a sentence, for a
+# bank pointed at someone's own footage.
+
+# Per REQUEST cap. Far below the image outlet's 60 for a reason that is arithmetic
+# rather than taste: one image is capped at 12 MB and 20 s, one video at 200 MB
+# and 180 s (netfetch.MAX_DRIVER_BYTES / DOWNLOAD_TIMEOUT). Six items over two
+# workers bounds a request at three download rounds — the same order of magnitude
+# as the image outlet's worst case, instead of an order beyond it. Bigger
+# selections are not refused: the client sends them as successive batches, the way
+# it already does for images.
+SCRAPE_VIDEO_IMPORT_MAX = 6
+
+# Two, not the image lane's six. A video download saturates the link on its own;
+# more of them in flight does not make the pipe wider, it only multiplies the peak
+# disk of half-finished files and the number of sources one request can annoy.
+_SCRAPE_VIDEO_DL_WORKERS = 2
+
+_SCRAPE_VIDEO_TIMEOUT = 180        # wall clock of ONE direct-file fetch, = netfetch's
+_SCRAPE_VIDEO_CHUNK = 256 * 1024
+
+_SCRAPE_FOLDER_SAFE = re.compile(r'[^A-Za-z0-9 _-]')
+
+# URL extensions that mean "this IS the media" — fetch the bytes directly rather
+# than paying a yt-dlp subprocess to rediscover what the link already says. Wider
+# than VIDEO_EXTS on purpose: what is STORED is decided by the file's own magic
+# (see `_video_extension_from_magic`), so recognising `.m4v` here costs nothing
+# and simply routes it away from the resolver.
+_DIRECT_VIDEO_URL_EXTS = ('.mp4', '.m4v', '.webm', '.mov', '.mkv', '.avi', '.ts')
+
+# ISO-BMFF brands that are NOT video, listed rather than guessed: the container
+# is shared by MP4, the whole HEIF picture family and M4A audio, so `ftyp` alone
+# proves nothing. Everything else with an `ftyp` is treated as MP4 — unknown
+# brands there are overwhelmingly MP4 profiles, and the probe pass is the honest
+# place for a file that turns out to hold no video stream.
+_NON_VIDEO_BMFF_BRANDS = frozenset((
+    b'avif', b'avis',                                    # AVIF stills / sequences
+    b'heic', b'heix', b'heim', b'heis',                  # HEIF pictures
+    b'hevc', b'hevx', b'hevm', b'hevs',                  # HEIF sequences
+    b'mif1', b'msf1',                                    # HEIF generic
+    b'M4A ', b'M4B ', b'M4P ',                           # audio-only
+))
+
+
+def folder_accepts_downloads(path) -> bool:
+    """Whether the app may DOWNLOAD into ``path`` — i.e. it created it.
+
+    True only under ``video_bank_sources_root()``. Everything else is a folder the
+    user pointed a bank at, and the promise this module opens with (the source
+    folder is read-only, literally) is what makes a video bank safe to run over
+    an archive of originals. Same containment test as ``_contained_path``: both
+    sides realpath'd, and the separator carried so `/x/rushes-2` cannot pass for
+    a folder under `/x/rushes`."""
+    if not path:
+        return False
+    try:
+        root = os.path.realpath(str(cfg.video_bank_sources_root()))
+        full = os.path.realpath(str(path))
+    except OSError:
+        return False
+    return os.path.normcase(full).startswith(os.path.normcase(root + os.sep))
+
+
+def _scrape_folder_for(name: str) -> str:
+    """A fresh, unused folder for a scraped bank. Suffixes -2, -3… rather than
+    reusing one: two scrapes of the same name must never silently merge into a
+    single pile. Creation IS the reservation (``os.mkdir``, not exists-then-make),
+    so two concurrent imports cannot end up sharing one folder."""
+    stem = _SCRAPE_FOLDER_SAFE.sub('_', name or '').strip() or 'bank'
+    root = cfg.video_bank_sources_root()
+    candidate = root / stem
+    i = 2
+    while True:
+        try:
+            os.mkdir(candidate)
+            return os.path.realpath(str(candidate))
+        except FileExistsError:
+            candidate = root / f'{stem}-{i}'
+            i += 1
+
+
+def _stage_scrape_video_bank(user_id, name) -> VideoBank:
+    """Reserve the private folder and FLUSH the still-uncommitted bank row, so its
+    id can be reserved in ``bank_jobs`` before the row is visible elsewhere."""
+    folder = _scrape_folder_for(name)
+    try:
+        bank = VideoBank(user_id=user_id, name=name, source_path=folder)
+        db.session.add(bank)
+        db.session.flush()
+        return bank
+    except Exception:
+        db.session.rollback()
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+
+
+def _discard_unlaunched_scrape_bank(user_id, bank_id, folder):
+    """Remove a staged/committed destination whose import never got anywhere."""
+    try:
+        db.session.rollback()
+    except Exception:  # noqa: BLE001 — cleanup must not mask the original failure
+        logger.warning('video bank scrape: rollback failed', exc_info=True)
+    if bank_id is not None and get_bank(user_id, bank_id) is not None:
+        try:
+            delete_bank(user_id, bank_id)
+        except Exception:  # noqa: BLE001
+            logger.warning('video bank scrape: could not discard bank %s', bank_id,
+                           exc_info=True)
+    # `folder` came from _scrape_folder_for; re-check containment anyway so a
+    # future caller passing another path cannot turn this into a delete tool.
+    if folder and folder_accepts_downloads(folder):
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _video_extension_from_magic(head: bytes) -> str | None:
+    """The extension a downloaded blob gets, read from its own first bytes.
+
+    THE EXTENSION IS NOT COPIED FROM THE URL, for a reason that would otherwise
+    bite silently: the walk only inventories ``VIDEO_EXTS``, so a `.m4v` (or a
+    query-string URL with no extension at all) would land in the folder, be
+    ignored by the walk, and the import would report files nobody can see. Reading
+    the container settles both questions at once — is this really a video, and
+    under which of the five names the walk knows.
+
+    None when the bytes are not a container we store, and that verdict is the
+    intake's OWN — it is deliberately stricter than what brought the file here.
+    `netfetch.download_via_ytdlp` keeps anything with a broad video signature,
+    GIF included, because its own caller (a driver video) can use one. This bank
+    cannot: a `.gif` in the folder is a file the walk never lists, so it would sit
+    there for ever, counted by nobody. Refusing here — and letting the staging
+    folder take the file away with it — is what keeps "downloaded" and
+    "inventoried" the same set."""
+    if not isinstance(head, (bytes, bytearray)) or len(head) < 12:
+        return None
+    head = bytes(head)
+    if head[4:8] == b'ftyp':
+        brand = head[8:12]
+        # AVIF/HEIF are ISO-BMFF too, and so is an M4A. They are a picture and a
+        # sound file — refuse rather than store one under a video name (the same
+        # ordering trap netfetch documents) and leave the probe pass to discover
+        # it has no video stream.
+        if brand in _NON_VIDEO_BMFF_BRANDS:
+            return None
+        return '.mov' if brand == b'qt  ' else '.mp4'
+    if head[:4] == b'\x1a\x45\xdf\xa3':          # EBML — Matroska family
+        # WebM is a Matroska profile; the DocType string sits in the header and is
+        # the only honest way to tell the two apart.
+        return '.webm' if b'webm' in head[:64] else '.mkv'
+    if head[:4] == b'RIFF' and head[8:12] == b'AVI ':
+        return '.avi'
+    return None
+
+
+def _video_blob_name(path) -> str | None:
+    """The name a downloaded video takes in the bank folder: its own content hash.
+
+    Same two consequences as the image lane's `_scrape_blob_name` — a re-download
+    of the SAME bytes writes the same name (idempotent, with nobody having to
+    decide what a duplicate is), while a re-encode or another resolution keeps a
+    name of its own and reaches the bank, where the shot metrics and the triage
+    are the one place that rules on them.
+
+    None when the file is not a container this lane stores."""
+    try:
+        with open(path, 'rb') as fh:
+            head = fh.read(64)
+            ext = _video_extension_from_magic(head)
+            if ext is None:
+                return None
+            digest = hashlib.sha256()
+            digest.update(head)
+            while True:
+                chunk = fh.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+    except OSError:
+        return None
+    return f'{digest.hexdigest()[:24]}{ext}'
+
+
+def _scrape_video_route(url) -> str:
+    """'direct' when the URL IS the file, 'resolve' when a page has to be read.
+
+    gallery-dl backed sources hand back a CDN media URL (`.../clip.mp4`) — asking
+    yt-dlp to open that is a subprocess and a second request for bytes we can
+    simply stream. RedGifs, TikTok, X and friends hand back a WATCH PAGE, where
+    yt-dlp is exactly the right tool. The extension is the discriminator because
+    it is the only thing both shapes agree to expose."""
+    try:
+        from urllib.parse import urlparse
+        path = (urlparse(str(url or '')).path or '').lower()
+    except Exception:  # noqa: BLE001 — an unparseable URL is simply not direct
+        return 'resolve'
+    return 'direct' if path.endswith(_DIRECT_VIDEO_URL_EXTS) else 'resolve'
+
+
+def _stream_video_to_disk(url, dest_path) -> str:
+    """Fetch a direct media URL STRAIGHT TO DISK. Returns the skip reason
+    ('ok' | 'not_video' | 'too_large' | 'errors').
+
+    Deliberately not `netfetch.fetch_hardened_bytes`: that one builds the whole
+    body in memory, which is right for a 12 MB photo and wrong for a 200 MB clip.
+    Every one of its guards is kept: anti-SSRF validation of the URL,
+    `allow_redirects=False` (a 3xx toward an internal IP would walk around the
+    validation that just ran), a content-type allow-list, and the byte cap
+    enforced DURING the stream rather than after it."""
+    from ..scrape.netfetch import MAX_DRIVER_BYTES, _validate_public_http_url
+    ok_url, _err = _validate_public_http_url(url)
+    if not ok_url:
+        return 'errors'
+    try:
+        from curl_cffi import requests as cf_requests
+    except ImportError:
+        return 'errors'
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ''
+    try:
+        r = cf_requests.get(url, impersonate='chrome', timeout=_SCRAPE_VIDEO_TIMEOUT,
+                            stream=True, allow_redirects=False,
+                            headers={'Referer': f'https://{host}/',
+                                     'Accept': 'video/*,*/*'})
+    except Exception:  # noqa: BLE001 — a network failure is a skipped item
+        return 'errors'
+    try:
+        if r.status_code != 200:
+            return 'errors'
+        ctype = (r.headers.get('content-type') or '').split(';')[0].strip().lower()
+        if not ctype.startswith('video/'):
+            # A content-type that is not video/* is html, a login wall or a
+            # mislabelled blob. The magic check would catch it later anyway; not
+            # spending 200 MB of bandwidth to find out is the point.
+            return 'not_video'
+        written = 0
+        with open(dest_path, 'wb') as fh:
+            for chunk in r.iter_content(_SCRAPE_VIDEO_CHUNK):
+                if not chunk:
+                    continue
+                written += len(chunk)
+                if written > MAX_DRIVER_BYTES:
+                    return 'too_large'
+                fh.write(chunk)
+    except OSError:
+        return 'errors'
+    finally:
+        try:
+            r.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return 'ok'
+
+
+def _download_scrape_video(item, staging_dir) -> tuple:
+    """Bring ONE scan item down into ``staging_dir``. Returns (reason, path|None).
+
+    Staging, not the bank folder: the stored name is the content hash, which is
+    only known once the bytes are in hand — and a half-written .mp4 sitting in the
+    bank folder is a file the walk would happily inventory as a rush."""
+    url = (item or {}).get('url')
+    if not url:
+        return ('errors', None)
+    uid = uuid.uuid4().hex
+    if _scrape_video_route(url) == 'direct':
+        dest = os.path.join(staging_dir, uid)
+        reason = _stream_video_to_disk(url, dest)
+        return (reason, dest if reason == 'ok' else None)
+    from ..scrape.netfetch import download_via_ytdlp, _validate_public_http_url
+    ok_url, _err = _validate_public_http_url(url)
+    if not ok_url:
+        return ('errors', None)
+    try:
+        ok, filename, _error = download_via_ytdlp(url, os.path.join(staging_dir, uid))
+    except Exception:  # noqa: BLE001 — the resolver is a subprocess plus optional
+        # imports; whatever it fails on, this item is skipped and the rest of the
+        # batch continues.
+        logger.warning('video bank scrape: resolver failed', exc_info=True)
+        return ('errors', None)
+    if not ok or not filename:
+        return ('errors', None)
+    return ('ok', os.path.join(staging_dir, filename))
+
+
+def scrape_import_to_video_bank(user_id, items, bank_id=None, name=None, *,
+                                _bank_lease=None, _created=False) -> dict:
+    """🕸 Scrape → VIDEO BANK: the scraper's third destination.
+
+    Downloads the SELECTED scanned videos ({'url','title',…}) into a bank's source
+    folder, then lets the ordinary folder walk inventory them — the same single
+    inventory path every other video bank uses. Two modes: ``bank_id`` appends to
+    an existing SCRAPED bank (a bank follows a live folder, so a second scrape
+    resumes the pile), ``name`` creates one under ``video_bank_sources_root()``.
+
+    A bank pointed at the user's own rushes is REFUSED as a destination: this
+    module never writes into a folder someone else owns, and dropping strangers'
+    clips into an archive of originals is precisely what that rule exists to stop.
+
+    Nothing is judged at intake — length, motion, sharpness and duplicates are
+    verdicts the metrics pass produces, with thresholds the user moves. Provenance
+    goes through the SAME validation gate as the image lane
+    (`normalize_source_metadata`), so what is stored is never the client's raw
+    claim; a platform that gate does not recognise stores nothing rather than a
+    guess.
+
+    Returns {'bank_id', 'name', 'created', 'saved', 'already_there', 'added',
+    'skipped': {...}} — ``added`` is what the walk actually inventoried. Raises
+    ValueError (bad input) or BankJobBusy (a pass owns the bank)."""
+    items = [it for it in (items or []) if isinstance(it, dict) and it.get('url')]
+    if not items:
+        raise ValueError('no items')
+    if len(items) > SCRAPE_VIDEO_IMPORT_MAX:
+        raise ValueError(f'max {SCRAPE_VIDEO_IMPORT_MAX} videos per import')
+
+    if bank_id is not None:
+        key = job_key(bank_id)
+        if _bank_lease is None:
+            # The quick advisory 409 first (it is what gives the UI a `busy_kind`
+            # to name), then the atomic lease, which is the authority if this read
+            # raced a new owner.
+            if bank_jobs.running(key):
+                snap = bank_jobs.get(key) or {}
+                raise bank_jobs.BankJobBusy(snap.get('kind') or 'background')
+            with bank_jobs.mutation_lease(key, 'scrape_import') as lease:
+                return scrape_import_to_video_bank(
+                    user_id, items, bank_id=bank_id, name=name,
+                    _bank_lease=lease, _created=_created)
+        bank_jobs.require_reservation(_bank_lease, key)
+        bank = get_bank(user_id, bank_id)
+        if bank is None:
+            raise ValueError('video bank not found')
+        folder = bank.source_path
+        if not folder or not os.path.isdir(folder):
+            raise ValueError("this bank's folder is unavailable right now")
+        if not folder_accepts_downloads(folder):
+            raise ValueError(
+                'This bank points at a folder of your own, which the app never '
+                'writes into. Scrape into a new bank — it gets a folder of its '
+                'own — or pick a bank that was created by a scrape.')
+        # Belt and braces, and the same pair of roots create_bank checks: a legacy
+        # bank sitting on a dataset's own folder must not become a download target.
+        for root in (None, cfg.video_datasets_root()):
+            conflict = path_guard.dataset_folder_conflict(folder, datasets_root=root)
+            if conflict:
+                raise ValueError(
+                    'This bank points at a dataset\'s own folder, so scraping into '
+                    f'it would drop files inside the dataset. {conflict["message"]}')
+    else:
+        name = (name or '').strip()
+        if not name:
+            raise ValueError('name is required')
+        bank = reservation = None
+        folder = None
+        try:
+            # The row becomes visible only once its reservation is installed,
+            # exactly like the image lane's background import paths.
+            bank = _stage_scrape_video_bank(user_id, name)
+            folder = bank.source_path
+            reservation = bank_jobs.reserve(job_key(bank.id), 'scrape_import')
+            db.session.commit()
+            return scrape_import_to_video_bank(
+                user_id, items, bank_id=bank.id, name=name,
+                _bank_lease=reservation, _created=True)
+        except Exception:
+            if bank is not None and not bank_jobs.launched(reservation):
+                _discard_unlaunched_scrape_bank(user_id, bank.id, folder)
+            raise
+        finally:
+            bank_jobs.abort(reservation)
+
+    from flask import current_app, has_app_context
+    app = current_app._get_current_object() if has_app_context() else None
+    staging = tempfile.mkdtemp(prefix='vbank_scrape_')
+
+    def _fetch(item):
+        # The resolver logs through `current_app`; a worker thread has no context
+        # of its own, and without this a yt-dlp failure would surface as an
+        # unrelated RuntimeError instead of the reason it actually failed.
+        if app is None:
+            return _download_scrape_video(item, staging)
+        with app.app_context():
+            return _download_scrape_video(item, staging)
+
+    try:
+        with ThreadPoolExecutor(max_workers=_SCRAPE_VIDEO_DL_WORKERS) as pool:
+            # Kept paired with its item: the blob name is only known once the
+            # bytes are in hand, and the pairing is also the only way back to the
+            # provenance a given file owns.
+            downloaded = list(zip(items, pool.map(_fetch, items)))
+        # Downloads are slow. Re-assert the capability before the first write so a
+        # stale or purged lease can never publish beside a newer bank owner.
+        bank_jobs.require_reservation(_bank_lease, job_key(bank.id))
+
+        from .face_dataset_service import _source_metadata_storage
+
+        skipped: dict[str, int] = {}
+        saved = already_there = 0
+        # blob name (== relpath: scraped files land FLAT in the bank folder) ->
+        # validated provenance JSON, handed to the walk so a freshly inventoried
+        # row is born WITH its source instead of the walk having no way to attach
+        # one to a bare file it just found.
+        source_metadata_by_relpath: dict[str, str] = {}
+        for item, (reason, path) in downloaded:
+            if reason != 'ok' or not path:
+                skipped[reason] = skipped.get(reason, 0) + 1
+                continue
+            blob = _video_blob_name(path)
+            if blob is None:
+                skipped['not_video'] = skipped.get('not_video', 0) + 1
+                continue
+            stored = _source_metadata_storage(item, image_url=item.get('url'))
+            if stored:
+                source_metadata_by_relpath[blob] = stored
+            dest = os.path.join(folder, blob)
+            if os.path.exists(dest):
+                already_there += 1
+                continue
+            try:
+                shutil.move(path, dest)
+            except OSError:
+                logger.warning('video bank scrape: could not store %s', blob,
+                               exc_info=True)
+                skipped['errors'] = skipped.get('errors', 0) + 1
+                continue
+            saved += 1
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    # ONE inventory path, the same walk that picks up files dropped in the folder
+    # by hand. No third insert.
+    sync = refresh_bank(user_id, bank.id, force=True,
+                        source_metadata_by_relpath=source_metadata_by_relpath) or {}
+    return {'bank_id': bank.id, 'name': bank.name, 'created': _created,
+            'saved': saved, 'already_there': already_there,
+            'added': sync.get('added', 0), 'skipped': skipped}
