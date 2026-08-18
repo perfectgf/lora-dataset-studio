@@ -618,6 +618,7 @@ export const INSTALL_ALL_ACTION_LABELS = {
   watermark_detect: 'Watermark detector',
   video: 'Video decoding (Video bank)',
   shot_detect: 'Shot detection (Video bank)',
+  video_text: 'Burned-in text (Video bank)',
   ollama_model: 'Vision model (captioning)',
   klein_model: 'Klein model (local generation)',
   klein_text_encoder: 'Klein text encoder',
@@ -832,6 +833,13 @@ export function installCatalog(caps) {
     // out of the install plans — the one button that would have fixed it.
     item('video', c.video_decode && c.video_encode, true, ''),
     item('shot_detect', c.video_detect, true, ''),
+    // The safe-zone pass's OCR half. Into the app's own Python like `video`:
+    // it is CPU onnxruntime and no torch, so unlike `shot_detect` it has no
+    // reason to borrow the scoring environment. Listed here even though the
+    // pass runs without it — a user who reads "bands only" on the button needs
+    // a row to click, and an extra with no row is the dead end this menu exists
+    // to close.
+    item('video_text', c.video_text, true, ''),
     item('ollama_model', o.vision_model_ready, o.reachable && modelName,
       !o.reachable ? 'Start Ollama first (the Captioning step).'
         : !modelName ? 'Set a vision model name first (the Captioning step).' : ''),

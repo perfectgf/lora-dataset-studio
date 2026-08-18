@@ -355,6 +355,15 @@ DEFAULTS = {
              #   reference bank (screenshots of videos, padded stills).
              'bars_max': 0.04},
     'masks': {'python': ''},
+    # 🔳 The burned-in-text reader (RapidOCR on CPU onnxruntime), used by the
+    # video lane's safe-zone pass. Blank = the app's own interpreter, which is
+    # where Setup installs it: the extra is small (an ONNX runtime the app
+    # already ships for face scoring and masks, plus ~16 MB of bundled PP-OCR
+    # weights) and drags no torch, so it does NOT need an environment of its own
+    # the way the detector and the scorer do. The override exists for the user
+    # who already keeps a CPU-ML interpreter and would rather not have a second
+    # copy of onnxruntime.
+    'video_text': {'python': ''},
     # Bank ✨ Score pass interpreter (CLIP aesthetic/NSFW stack). Auto-provisioned
     # by the bank_scoring installer into its own venv — declared here so a
     # full-config Save round-trips it instead of failing "unknown config section".
@@ -499,6 +508,19 @@ DEFAULTS = {
                    'sharpness_floor': None,
                    'watermark_max': 0.94,
                    'aesthetic_floor': None,
+                   # 🔳 The safe zone's three cuts, all empty for the same reason
+                   # the footage cuts above are. Bands and burned text are
+                   # properties of SOMEBODY'S FOOTAGE, not of a classifier: a
+                   # 2.35:1 film legitimately carries 12 % of bands, a subtitled
+                   # documentary is a perfectly good LoRA source if the subtitles
+                   # get cropped, and the published figures (the image bank's own
+                   # measured 0.04 for bars on stills; HunyuanVideo 1.5 keeping
+                   # only clips whose crop leaves ≥60 % of the frame) were set
+                   # for corpora that are not this one. They ride in the panel
+                   # hints, which is where a reference belongs.
+                   'bars_max': None,
+                   'text_coverage_max': None,
+                   'safe_area_min': None,
                    'duplicate_threshold': 0.96},
     # consistency_strength: the dx8152 LoRA anchors STRUCTURE (composition/
     # background), not the face — its own guide says start at 0.5 and that

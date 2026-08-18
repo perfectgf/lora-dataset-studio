@@ -859,6 +859,21 @@ const TOPICS = [
      'watermark score', 'watermark cut', 'watermark detector', 'detector weights',
      'not downloaded', 'ambassador frame'],
     '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
+  // Arrived at from the SYMPTOM in almost every case — "my LoRA writes
+  // subtitles", "black bars in every generation" — long before anyone goes
+  // looking for a control named after the measurement. The install question
+  // ("bands only") is here too: it is the one capability in the app whose
+  // absence downgrades a pass instead of blocking it, so the sentence a user
+  // meets is unlike every other missing-extra sentence.
+  action('video-safe-zone', 'Bands and burned-in text (🔳 Safe zone)',
+    ['safe zone', 'safezone', 'letterbox', 'letterboxed', 'pillarbox',
+     'black bars', 'bars', 'padding', 'padded video', 'vertical video padded',
+     'burned in text', 'burned-in text', 'subtitles', 'subtitle', 'captions in the picture',
+     'hardsub', 'hardsubs', 'chyron', 'lower third', 'text watermark',
+     'my lora writes text', 'my lora draws subtitles', 'gibberish text',
+     'text coverage', 'usable frame', 'crop', 'how much can i crop',
+     'bands only', 'rapidocr', 'ocr', 'text extra not installed'],
+    '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
   action('video-flag-chips', 'Filter the gallery by a quality flag',
     ['flag chips', 'filter by flag', 'flagged shots', 'select flagged',
      'reject all flagged', 'amber chips', 'show only flagged', 'counts loaded',

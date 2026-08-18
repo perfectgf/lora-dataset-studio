@@ -707,6 +707,16 @@ CAPABILITY_IMPORTS = {
     # av: the worker decodes with PyAV in this same environment — a probe that
     # skips it answers "ready" about a detector that cannot open a single file.
     'shot_detect': 'import torch, transnetv2_pytorch, av',
+    # 🔳 Burned-in text, for the video lane's safe-zone pass. BOTH names, because
+    # infer/video_text_infer.py imports both: cv2 is how it reads a frame and
+    # learns its size (the boxes come back normalised, which needs one), and
+    # rapidocr_onnxruntime is the engine. cv2 arrives as a DEPENDENCY of the
+    # engine rather than in its own right, which is exactly the shape that made
+    # issue #24 — a probe importing only the headline module reports ✓ while the
+    # feature dies on the first call. There is nothing else: no torch, no
+    # transformers, and no model download (the 1.4.x wheels carry the PP-OCRv4
+    # ONNX files, ~16 MB, so this works offline the day it is installed).
+    'video_text': 'import rapidocr_onnxruntime, cv2',
 }
 
 
@@ -792,6 +802,22 @@ def probe_masks() -> dict:
     python = cfg.get('masks.python') or sys.executable
     ok = _cached_import('masks', python, CAPABILITY_IMPORTS['masks'])
     return {'ok': ok, 'detail': 'rembg import OK' if ok else 'import failed'}
+
+
+def probe_video_text() -> dict:
+    """Can this install read burned-in text? Used by 🔳 Safe zone.
+
+    Deliberately NOT folded into `probe_video`'s three pieces. Those three are
+    what the LANE needs to exist at all — without decoding there is no bank —
+    while this one gates HALF of one optional pass: with no OCR engine the safe
+    zone still measures letterbox and pillarbox bands and says so on every shot.
+    Folding it in would grey out buttons that work.
+    """
+    python = cfg.get('video_text.python') or sys.executable
+    ok = _cached_import('video_text', python, CAPABILITY_IMPORTS['video_text'])
+    return {'ok': ok,
+            'detail': 'RapidOCR import OK' if ok
+                      else 'install the burned-in text extra from Setup'}
 
 
 def probe_video() -> dict:
@@ -1689,6 +1715,7 @@ def probe(force=False) -> dict:
     watermark_inpaint = probe_watermark_inpaint()
     watermark_detect = probe_watermark_detect()
     video = probe_video()
+    video_text = probe_video_text()
     scrape_deps = probe_scrape_deps()
     joycaption = probe_joycaption(aitoolkit)
     models = _scan_models()
@@ -2008,6 +2035,12 @@ def probe(force=False) -> dict:
         'video_decode': video['decode'],
         'video_detect': video['detect'],
         'video_encode': video['encode'],
+        # 🔳 The safe-zone pass's OCR half, published on its own because it is
+        # the only capability in this app whose absence downgrades a pass instead
+        # of blocking it: the bands are still measured. The workspace uses it to
+        # say "bands only" on the button rather than greying it out.
+        'video_text': video_text['ok'],
+        'video_text_detail': video_text['detail'],
         # Klein-inpaint (V2, quality) readiness = same as the Klein engine (ComfyUI
         # reachable + Klein models on disk). The custom-node preflight is a clean-time
         # 409. Greys the batch's "Klein (quality)" option when False.

@@ -27,3 +27,11 @@ transnetv2-pytorch>=1.0.5
 # With the floor, that same click is the repair. Installs into the bank-scoring
 # venv, not the Flask one (see _BANK_SCORING_PKGS in app/setup_installer.py).
 transformers>=4.57
+
+# Burned-in text (the video lane's safe-zone pass). RapidOCR is Apache-2.0 and
+# runs the PP-OCRv4 detector/recogniser on the CPU onnxruntime pinned above -
+# no torch, no second environment. Pinned BELOW 2: the 1.4.x wheels bundle the
+# ONNX weights (~16 MB) so a machine with no egress works the day it installs,
+# and RapidOCR 2.x both renamed the import to `rapidocr` and moved the models to
+# a download - either change alone breaks infer/video_text_infer.py.
+rapidocr-onnxruntime>=1.4.4,<2

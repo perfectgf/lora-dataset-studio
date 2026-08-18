@@ -358,6 +358,8 @@ const fullCaps = () => ({
   // Three video probes, not two: the `video` install action ships PyAV AND a
   // bundled ffmpeg, so a "fully installed" snapshot has to assert both.
   video_decode: true, video_detect: true, video_encode: true,
+  // The safe-zone pass's OCR half — its own action, its own probe.
+  video_text: true,
   ollama: { reachable: true, vision_model_ready: true, vision_model: 'qwen3-vl:8b' },
   // reachable matters for the Krea node pack: an unreachable ComfyUI's node probe
   // fails open, so "nothing missing" from a stopped ComfyUI must not read as
@@ -424,7 +426,7 @@ test('installCatalog lists every app-installable component, present + available'
   assert.deepEqual(
     installCatalog(fullCaps()).map((c) => c.action),
     ['face_scoring', 'masks', 'watermark_inpaint', 'video', 'shot_detect',
-      'ollama_model',
+      'video_text', 'ollama_model',
       'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora',
       'krea_nodes', 'krea_model', 'krea_text_encoder', 'krea_vae',
       'krea_identity_lora'],
@@ -439,7 +441,7 @@ test('installCatalog lists every app-installable component, present + available'
 test('installCatalog stays fully available for reinstall when all is green', () => {
   // The menu must never collapse once installed — each item can always be repaired.
   const cat = installCatalog(fullCaps());
-  assert.ok(cat.length === 15 && cat.every((c) => c.available));
+  assert.ok(cat.length === 16 && cat.every((c) => c.available));
 });
 
 test('installCatalog marks missing ML extras not-present but still available', () => {

@@ -2474,6 +2474,52 @@ Three states are kept apart here, and it matters:
   Measure again with re-measure** to fill them in; the pass otherwise skips
   everything it has already done.
 
+### 🔳 Safe zone — the bands and the text you cannot see at thumbnail size
+
+Two things eat a frame without ever showing up in a 90 px grid, and both are
+perfectly consistent across every clip that came out of the same file — which is
+exactly what a LoRA learns first:
+
+- **Bands.** Letterbox, pillarbox, a vertical video somebody padded into 16:9, a
+  4:3 broadcast scanned into a wide container. They survive a training crop.
+- **Burned-in text.** Subtitles, chyrons, lower thirds, a text watermark. A model
+  trained on subtitled footage does not learn the words — it learns that the
+  bottom sixth of a picture is a place where letters live, and then it draws
+  letter-shaped gibberish there forever.
+
+**🔳 Safe zone** decodes three frames of each shot and measures both, then
+works out the rectangle that excludes them — the *safe zone* — and how much of
+the frame that rectangle keeps. Three cuts read those numbers: **Letterbox
+share**, **Burned-in text share** and **Usable frame floor**. Like every cut in
+this panel they are empty by default and applied at read time, so moving one
+re-sorts the bank with nothing rescanned.
+
+**Only what holds still across the three frames counts.** That is the whole
+discrimination and it goes both ways: a band has to be on all three frames to be
+called structural, so a fade-out never invents one; and a text zone needs a
+partner in another frame, so a subtitle, a chyron and a station logo are caught
+while a shop sign in a pan and a newspaper someone holds up for a second are left
+alone as scene content.
+
+**Text in the MIDDLE of a frame is the case worth understanding.** It is small,
+so the text share barely moves — but there is no crop that removes it, so the
+usable frame collapses. That is what the third cut is for, and its answer to "can
+I save this clip by cropping" is an honest no.
+
+**Reading text needs one small extra**, *Burned-in text* in Setup (RapidOCR, CPU
+only, no GPU, and its weights ride inside the package so it works offline).
+Without it the pass still runs and still measures the bands — it reports **bands
+only** and stores no text reading at all, so the two text cuts flag nothing
+rather than quietly clearing every shot. This is the only pass in the app that
+works at half strength instead of refusing; the button stays enabled and says so
+in its tooltip.
+
+It is its own button rather than part of another pass, because unlike ✂ Duplicates
+and 🎨 Look it consumes nothing: a shot can be measured the moment its file has
+been scanned. It decodes three frames per shot and reads them on the CPU, so a
+big bank takes real time — and it never touches the GPU, so it can run while a
+training is going.
+
 ## Retouch a cut: trim, split, or draw a shot by hand
 
 Shot detection is good and it is not right. It cuts a slow dissolve a second
