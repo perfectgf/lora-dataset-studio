@@ -50,6 +50,13 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-18-the-app-gets-back-up-after-a-crash',
+    date: '2026-08-18',
+    title: 'The app gets itself back up after a crash',
+    blurb:
+      'Some deaths are not something the app can catch: an antivirus hook faulting inside an image library, or a native crash in one of the GPU extensions, kills the whole process outright — no error, no message, and until now it simply stayed down until you noticed and started it again. Launched from start.bat, it now comes back on its own, says in the console that it crashed rather than pretending nothing happened, and gives up after a few deaths in a row so an app that is broken at startup cannot loop forever. Set LDS_SUPERVISE=0 to run without it.',
+  },
+  {
     id: '2026-08-18-scrape-videos-into-a-video-bank',
     date: '2026-08-18',
     title: 'Fill a video bank straight from the web',

@@ -113,4 +113,14 @@ rem Port 5000 is a frequent collision (macOS AirPlay, another local Flask app).
 rem Use 5050 by default; backend/run.py advances automatically if it is occupied.
 if not defined LDS_PORT set "LDS_PORT=5050"
 set "LDS_OPEN_BROWSER=1"
-"%VPY%" backend\run.py
+rem Launched through the supervisor, not directly: a native crash (an access
+rem violation in a C extension, or an antivirus hook faulting inside one) kills
+rem the interpreter outright, and the app used to stay down until someone
+rem double-clicked this file again. The supervisor brings it back, says so, and
+rem gives up after a few deaths in a row so a backend broken at boot cannot
+rem become an endless respawn loop. LDS_SUPERVISE=0 opts out.
+if "%LDS_SUPERVISE%"=="0" (
+  "%VPY%" backend\run.py
+) else (
+  "%VPY%" backend\supervise.py
+)
