@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-18-face-analysis-can-use-the-gpu',
+    date: '2026-08-18',
+    title: 'Analyze faces can use your GPU — and says when it is working',
+    blurb:
+      'Two fixes to the same screen. 🎭 Analyze faces spent its first stretch fingerprinting every image before it told you anything, so a big dataset looked frozen and the banner fell back to claiming your GPU was busy and ComfyUI paused — neither of which was true. It now names itself and counts from the first second. And it can finally use the GPU: the Image bank’s face pass already could, this one was pinned to CPU. One setting now governs both (Settings ▸ face scoring device, `auto` by default), and a GPU run goes through the same exclusive window as every other GPU pass, so it can never compete with a training. Nothing changes unless you install `onnxruntime-gpu` into the face interpreter — the standard install ships the CPU build and stays on CPU, exactly as before.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-18-auto-triage-says-why-its-empty',
     date: '2026-08-18',
     title: 'Auto-triage stops vanishing without a word',

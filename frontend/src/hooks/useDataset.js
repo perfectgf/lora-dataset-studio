@@ -87,6 +87,12 @@ export function faceScoringErrorMessage(scoringError) {
   if (kind === 'busy') {
     return 'Face scoring is already running. Wait for the current image to finish, then try again.';
   }
+  // Not a failure: the fast lane was asked for and the card is taken. Saying
+  // "Face scoring failed" here would send someone hunting a bug that is really
+  // a training holding the GPU.
+  if (kind === 'gpu_busy') return detail
+    ? `Face scoring is set to use the GPU, and it is busy: ${detail}`
+    : 'Face scoring is set to use the GPU, and it is busy right now.';
   if (kind === 'ref_unusable') return detail
     ? `The reference photo is not usable for scoring: ${detail}`
     : 'The reference photo is not usable for scoring.';

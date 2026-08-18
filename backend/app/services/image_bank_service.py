@@ -6239,16 +6239,13 @@ _PROGRESS_RE = re.compile(r'\[embed\] (\d+)/(\d+)')
 
 
 def _resolve_face_device():
-    """(device, use_gpu) for the face pass. 'cpu' is the safe default and never
-    touches the GPU; GPU is used ONLY when the face interpreter truly exposes
-    CUDA (onnxruntime-gpu installed) and the config allows it. Config
-    face_scoring.device: 'auto' (default — GPU if available) | 'cpu' | 'cuda'.
-    A 'cuda' request without CUDA available still degrades to CPU here, so the
-    parent never opens the GPU-exclusive window for a pass that will run on CPU."""
+    """(device, use_gpu) for the face pass — see capabilities.resolve_face_device.
+
+    Kept as a thin local name because this module's tests patch it, but the RULE
+    itself now lives in one place, shared with the dataset scorer: both surfaces
+    run the same face models and must reach the same verdict about the GPU."""
     from .. import capabilities
-    pref = str(cfg.get('face_scoring.device') or 'auto').lower()
-    use_gpu = pref in ('auto', 'cuda') and capabilities.face_gpu_available()
-    return ('cuda' if use_gpu else 'cpu'), use_gpu
+    return capabilities.resolve_face_device()
 
 
 def _angle_todo_clause():

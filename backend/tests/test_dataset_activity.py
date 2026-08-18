@@ -343,3 +343,52 @@ def test_caption_kind_is_recaption_when_forced(app, monkeypatch):
         svc.caption_images(LOCAL_USER, ds.id, force=False)
         assert kinds and kinds[0] == 'caption'
         assert da.get(ds.id) is None
+
+
+def test_analyze_faces_announces_itself_before_fingerprinting(app, monkeypatch):
+    """Reported: "I launched an analyze but nothing seems to happen."
+
+    The reservation loop sha1s every candidate file WHOLE
+    (run_snapshot._content_sig), which on a large dataset is minutes of pure
+    I/O. The activity used to be declared only AFTER that loop, so for its whole
+    duration the screen had nothing to report and fell back to the generic
+    "GPU processing in progress... ComfyUI is paused" banner — wrong twice over
+    for a pass that runs on CPU and never touches ComfyUI — with no progress
+    either. What is pinned: the pass is visible from before the FIRST file is
+    fingerprinted, and it says which phase it is in.
+    """
+    from app.services import face_dataset_service as svc
+    from app.services import dataset_activity as da
+    from app.config import LOCAL_USER
+    da.reset()
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'F', 'f')
+        d = svc._dataset_dir(ds.id)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'ref.webp'), 'wb') as fh:
+            fh.write(_img_bytes())
+        ds.ref_filename = 'ref.webp'
+        svc.db.session.commit()
+        _kept_image(svc, ds.id, 'a.webp')
+
+        seen = []
+        original = svc._face_score_content_revision
+
+        def _watched(path):
+            seen.append(da.get(ds.id))
+            return original(path)
+
+        monkeypatch.setattr(svc, '_face_score_content_revision', _watched)
+        import app.services.face_similarity as fs
+        monkeypatch.setattr(fs, 'score_dataset_faces', lambda *a, **k: ({}, None))
+        svc.analyze_faces(LOCAL_USER, ds.id)
+
+        assert seen, 'the reservation loop never ran — the test proves nothing'
+        first = seen[0]
+        assert first is not None, 'the pass was invisible while it fingerprinted'
+        assert first['kind'] == 'analyze_faces'
+        # It names the phase, so the screen shows this instead of the generic
+        # GPU banner it falls back to when it cannot tell what is running.
+        assert 'checking images' in (first.get('detail') or '')
+        # And the indicator is still cleared at the end.
+        assert da.get(ds.id) is None

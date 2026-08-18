@@ -1,6 +1,8 @@
 """Face similarity scorer — InsightFace antelopev2, lance dans un interprete DEDIE
-(insightface y est installe, PAS dans le venv Flask). CPU force (provider CPU + ctx_id=-1)
--> pas de GPU, ne touche pas ComfyUI.
+(insightface y est installe, PAS dans le venv Flask). CPU par DEFAUT (provider CPU +
+ctx_id=-1) -> pas de GPU, ne touche pas ComfyUI. Le parent peut demander
+{"device": "cuda"}, mais SEULEMENT depuis la fenetre GPU exclusive (cf. le
+resolveur partage capabilities.resolve_face_device).
 Protocole stdin: {"ref": path, "images": [paths], "models_root": path|null} -> stdout
 UNE ligne JSON
 {"ref_ok": bool, "results": {path: {state, sim?, det, bbox_frac, yaw, zoomed}}}.
@@ -94,26 +96,41 @@ def main() -> int:
         print(json.dumps({"ref_ok": False, "results": {}, "error": f"bad json: {e}"})); return 1
     ref = req.get("ref"); images = [str(p) for p in (req.get("images") or [])]
     models_root = req.get("models_root") or None
+    # 'cpu' (default) or 'cuda'. The PARENT decides — it is the only side that
+    # knows whether it opened the GPU-exclusive window, and putting the model on
+    # CUDA outside that window is exactly the unserialized GPU grab that was
+    # removed here in "fix(gpu): serialize local inference and ComfyUI recovery".
+    want_cuda = str(req.get("device") or "cpu").lower() == "cuda"
     if not ref or not images:
         print(json.dumps({"ref_ok": False, "results": {}, "error": "missing ref/images"})); return 1
 
     import numpy as np, cv2
     from insightface.app import FaceAnalysis
     _repair_nested_antelopev2(models_root)
+    import onnxruntime as _ort
+    # Ask for CUDA only if the parent requested it AND this interpreter really
+    # exposes it: the stock face extra ships CPU onnxruntime, and listing a
+    # provider that does not exist makes onnxruntime fall back MUTELY — the pass
+    # would then run on CPU while the parent held ComfyUI paused for nothing.
+    use_cuda = want_cuda and 'CUDAExecutionProvider' in _ort.get_available_providers()
+    if want_cuda and not use_cuda:
+        _log('[face] CUDA requested but CUDAExecutionProvider is unavailable - running on CPU')
+    providers = (['CUDAExecutionProvider', 'CPUExecutionProvider'] if use_cuda
+                 else ['CPUExecutionProvider'])
     try:
-        kwargs = {'name': 'antelopev2', 'providers': ['CPUExecutionProvider']}
+        kwargs = {'name': 'antelopev2', 'providers': providers}
         if models_root:
             kwargs['root'] = models_root
         app = FaceAnalysis(**kwargs)
-        app.prepare(ctx_id=-1, det_size=(640, 640))
+        app.prepare(ctx_id=0 if use_cuda else -1, det_size=(640, 640))
     except Exception as e:
         # Un crash de chargement (modeles absents/corrompus) doit sortir en JSON
         # propre — pas en traceback muet que le parent resume en « pas de JSON ».
         print(json.dumps({"ref_ok": False, "results": {},
                           "error": f"model load failed: {type(e).__name__}: {e}"}))
         return 1
-    import onnxruntime as ort
-    _log(f"[face] providers: {ort.get_available_providers()}")
+    _log(f"[face] device={'cuda' if use_cuda else 'cpu'} "
+         f"providers: {_ort.get_available_providers()}")
 
     def biggest(faces):
         return max(faces, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1])) if faces else None

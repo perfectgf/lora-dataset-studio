@@ -784,7 +784,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
           // Passes that DON'T claim "ComfyUI is paused": the CPU ones, plus
           // 'generate' (engine-dependent — Nano Banana / ChatGPT don't touch
           // ComfyUI, and the Klein case is obvious from the tiles appearing).
-          const cpu = act.kind === 'analyze_faces'
+          // 'analyze_faces' is CPU by default and then claims nothing — but it
+          // has a GPU lane (face_scoring.device), and THAT one really does hold
+          // the exclusive window. The pass advertises its engine so this line
+          // never has to guess.
+          const cpu = (act.kind === 'analyze_faces' && act.engine !== 'cuda')
             || (act.kind === 'watermark_clean' && !String(act.detail || '').includes('GPU'))
             || act.kind === 'generate'
             // Same reasoning as 'generate': the improve batch feeds ComfyUI, and

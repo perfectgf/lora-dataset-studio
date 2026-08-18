@@ -729,6 +729,24 @@ def face_gpu_available() -> bool:
         "sys.exit(0 if 'CUDAExecutionProvider' in onnxruntime.get_available_providers() else 1)")
 
 
+def resolve_face_device():
+    """(device, use_gpu) for a face pass — the SINGLE answer both surfaces use.
+
+    The Bank pass and the dataset scorer ask the identical question ("may I put
+    InsightFace on the GPU for this run?"), so they must not answer it apart:
+    a divergence here is invisible until someone notices one surface is ten
+    times slower than the other. See the Bank/Dataset parity rule in CLAUDE.md.
+
+    `face_scoring.device`: 'auto' (default - GPU when truly available) | 'cpu'
+    | 'cuda'. A 'cuda' request on an interpreter without CUDA still degrades to
+    CPU here, so the caller never opens the GPU-exclusive window for a pass that
+    is going to run on CPU anyway.
+    """
+    pref = str(cfg.get('face_scoring.device') or 'auto').lower()
+    use_gpu = pref in ('auto', 'cuda') and face_gpu_available()
+    return ('cuda' if use_gpu else 'cpu'), use_gpu
+
+
 def bank_scoring_gpu_available() -> bool:
     """True only when the bank-scoring interpreter can actually run torch on
     CUDA. The scoring child picks its own device (``cuda if

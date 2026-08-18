@@ -8264,12 +8264,36 @@ def analyze_faces(user_id, dataset_id) -> dict:
     if not score_lock.acquire(blocking=False):
         return {}, _face_scoring_busy_error()
 
+    # Declared BEFORE the reservation loop, not after it. That loop sha1s every
+    # candidate file (run_snapshot._content_sig reads the image whole), which on a
+    # large dataset is minutes of pure I/O. Announced only afterwards, the entire
+    # phase ran with NO activity to report - so the screen fell back to its
+    # generic "GPU processing in progress... ComfyUI is paused" banner, wrong on
+    # both counts for a CPU pass, and showed no progress at all. Reported as
+    # "I launched an analyze but nothing seems to happen". The pass now names
+    # itself from its first second and counts files as it fingerprints them.
+    # The engine is advertised because it changes what the screen may CLAIM: on
+    # CPU this pass runs beside ComfyUI and must not say it paused anything, on
+    # GPU it holds the exclusive window and must say so. Resolved from the same
+    # shared answer the scorer itself will use.
+    from ..capabilities import resolve_face_device
+    face_engine, _face_use_gpu = resolve_face_device()
+    try:
+        token = dataset_activity.begin(dataset_id, 'analyze_faces',
+                                       total=len(by_path),
+                                       detail='Analyzing faces - checking images...',
+                                       engine=face_engine)
+    except Exception:
+        score_lock.release()
+        raise
+
     # Stamp every eligible file before inference.  A crop/mirror/rotate clears
     # this pair, making the final per-row write below fail closed if pixels move.
     reserved_by_path = {}
     try:
         from sqlalchemy import update
-        for p, img in by_path.items():
+        for checked, (p, img) in enumerate(by_path.items(), 1):
+            dataset_activity.progress(token, done=checked)
             revision = _face_score_content_revision(p)
             if revision is None:
                 continue
@@ -8291,17 +8315,19 @@ def analyze_faces(user_id, dataset_id) -> dict:
         db.session.commit()
     except Exception:
         db.session.rollback()
+        dataset_activity.end(token)
         score_lock.release()
         raise
     if not reserved_by_path:
+        dataset_activity.end(token)
         score_lock.release()
         return {}, None
 
-    try:
-        token = dataset_activity.begin(dataset_id, 'analyze_faces', total=len(reserved_by_path))
-    except Exception:
-        score_lock.release()
-        raise
+    # The real scope is only known now - images whose pixels moved under us
+    # dropped out. Clearing the detail (empty string, not None: None means
+    # "leave it as is") hands the screen back its counting label,
+    # "Analyzing faces... 12/340".
+    dataset_activity.progress(token, done=0, total=len(reserved_by_path), detail='')
 
     try:
         results, scoring_error = score_dataset_faces(

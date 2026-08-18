@@ -1,11 +1,16 @@
 """Scoring de ressemblance faciale via InsightFace antelopev2, en SUBPROCESS dans un
 interprete DEDIE (insightface absent du venv Flask). Meme pattern que
-app/services/joycaption.py. CPU -> ne touche pas le GPU/ComfyUI."""
+app/services/joycaption.py. CPU par DEFAUT -> ne touche pas le GPU/ComfyUI ;
+GPU seulement si face_scoring.device l'autorise ET que CUDA existe vraiment, et
+alors DANS la fenetre GPU exclusive."""
 from __future__ import annotations
 import json
 import logging
 import os
 import re
+from contextlib import nullcontext
+
+from ..gpu_window import GpuBusyError
 
 from .. import config as cfg
 from .infer_stream import run_infer_script, stderr_tail as _tail
@@ -82,7 +87,7 @@ def score_dataset_faces(ref_path, image_paths, timeout: int | None = None,
     `error` est None quand le scorer a tourne, sinon {'kind', 'detail'} :
     'unavailable' (extras ML absents), 'failed' (subprocess/JSON casse — detail
     = derniere ligne du traceback), 'ref_unusable' (la reference n'a pas de
-    visage exploitable). Les echecs restent NON-fatals ({} + error) mais
+    visage exploitable), 'gpu_busy' (voie GPU demandee, carte prise). Les echecs restent NON-fatals ({} + error) mais
     doivent etre VISIBLES : les avaler en {} muet transformait un scorer casse
     en « Face scoring done — 0/14 » avec toast vert (user-reported)."""
     image_paths = [p for p in (image_paths or []) if p and os.path.isfile(p)]
@@ -93,11 +98,41 @@ def score_dataset_faces(ref_path, image_paths, timeout: int | None = None,
                     'detail': 'face scoring is not installed (Quality tools step in Setup)'}
     if timeout is None:
         timeout = default_timeout(len(image_paths))
+    # Same verdict as the Bank's face pass, from the same resolver: two surfaces
+    # running the same models must not disagree about the GPU (CLAUDE.md, the
+    # Bank/Dataset parity rule). 'cpu' stays the answer on every stock install —
+    # the face extra ships CPU onnxruntime — so this changes nothing until the
+    # user puts onnxruntime-gpu in that interpreter.
+    from ..capabilities import resolve_face_device
+    device, use_gpu = resolve_face_device()
     payload = json.dumps({"ref": ref_path, "images": image_paths,
-                          "models_root": cfg.get('face_scoring.models_root') or None})
+                          "models_root": cfg.get('face_scoring.models_root') or None,
+                          "device": device})
+    # GPU is EXCLUSIVE or it is nothing. The window unloads ComfyUI and holds off
+    # a training start for the whole pass, which is precisely why this scorer was
+    # taken off CUDA in "fix(gpu): serialize local inference and ComfyUI
+    # recovery" back when no such window existed. A CPU pass stays out of it and
+    # keeps its original promise: it runs alongside ComfyUI, bothering nobody.
+    # Built INSIDE the try: a @contextmanager only raises on __enter__, but a
+    # refusal raised at construction time would otherwise escape this function
+    # as an unhandled error instead of the honest 'gpu_busy' below.
     try:
-        stdout, stderr_lines, returncode, timed_out = _run_scorer(
-            _scoring_python(), payload, timeout, on_progress)
+        if use_gpu:
+            from ..gpu_window import gpu_exclusive_vision_window
+            window = gpu_exclusive_vision_window(flag_ttl=1800)
+        else:
+            window = nullcontext()
+        with window:
+            stdout, stderr_lines, returncode, timed_out = _run_scorer(
+                _scoring_python(), payload, timeout, on_progress)
+    except GpuBusyError as e:
+        # The card is taken (a training, a Studio grid). Say so instead of
+        # failing obscurely — and do NOT silently fall back to CPU: the user
+        # asked for the fast lane, a slow one pretending to be it is worse.
+        logger.info('face_similarity: GPU occupe : %s', e)
+        return {}, {'kind': 'gpu_busy',
+                    'detail': f'the GPU is busy ({e}) - retry when it frees up, '
+                              f'or set face_scoring.device to cpu'}
     except OSError as e:
         logger.warning('face_similarity: subprocess echec : %s', e)
         return {}, {'kind': 'failed', 'detail': str(e)}
