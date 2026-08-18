@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {
   VIDEO_BANK_SCRAPE_BATCH,
   VIDEO_BANK_SCRAPE_ENDPOINT,
+  findVideoBank,
   runVideoBankScrapeImport,
   scrapableVideoBanks,
   summarizeVideoBankScrapeImport,
   videoBankScrapeDestination,
+  videoBankScrapeFolderNotice,
   videoBankScrapeNextStep,
 } from './videoBankScrapeImport.js';
 
@@ -28,10 +30,20 @@ test('a new bank needs a name, an existing one needs an id', () => {
     null);
 });
 
-test('a bank over the user’s own rushes is not a destination', () => {
-  // The lane promises never to write into the folder you pointed a bank at, so
-  // the server refuses that bank. Refusing it HERE means the user is not offered
-  // a choice that would be rejected after they clicked Import.
+test('a bank over the user’s own folder IS a destination', () => {
+  // This is the change. `app_folder: false` means the user pointed the bank at a
+  // folder of their own — which used to disqualify it, and now only decides
+  // whether there is something to say before the click. Picking it is consent.
+  const own = { id: 7, name: 'Own footage', scrapable: true, app_folder: false,
+    source_path: '/media/rushes' };
+  assert.deepEqual(
+    videoBankScrapeDestination({ mode: 'existing', bankId: '7', banks: [own] }),
+    { bank_id: 7 });
+});
+
+test('a bank sitting on a dataset folder is still not a destination', () => {
+  // The one refusal consent cannot lift. Refusing it HERE means the user is not
+  // offered a choice the server would answer with a 400 after they clicked.
   assert.equal(
     videoBankScrapeDestination({ mode: 'existing', bankId: '7', banks: [bank(7, false)] }),
     null);
@@ -44,11 +56,40 @@ test('a bank over the user’s own rushes is not a destination', () => {
     { bank_id: 7 });
 });
 
-test('only scrapable banks are offered', () => {
+test('every bank is offered except one whose folder belongs to a dataset', () => {
   assert.deepEqual(scrapableVideoBanks([bank(1, true), bank(2, false), bank(3, true)])
     .map((b) => b.id), [1, 3]);
   assert.deepEqual(scrapableVideoBanks(null), []);
   assert.deepEqual(scrapableVideoBanks([null, undefined]), []);
+});
+
+test('the folder notice fires only for a folder of the user’s own, and names it', () => {
+  // A bank the app created has a folder nobody else looks at — saying "files
+  // will go in it" there is noise. A folder you assembled yourself is the case
+  // worth one sentence, with the path, because that is what someone would go and
+  // check.
+  const own = { id: 7, app_folder: false, source_path: 'D:\\footage\\rushes 2026' };
+  const notice = videoBankScrapeFolderNotice(own);
+  assert.match(notice, /Downloads will be added to this bank/);
+  assert.ok(notice.includes('D:\\footage\\rushes 2026'));
+  assert.equal(videoBankScrapeFolderNotice({ id: 8, app_folder: true,
+    source_path: '/data/video_bank_sources/x' }), '');
+  assert.equal(videoBankScrapeFolderNotice(null), '');
+  // A row that predates the field (or a payload that lost it) still warns, and
+  // simply cannot name the folder — silence would be the wrong way to fail here.
+  const noPath = videoBankScrapeFolderNotice({ id: 9, app_folder: false });
+  assert.match(noPath, /Downloads will be added to this bank/);
+  assert.ok(!noPath.includes('undefined'));
+});
+
+test('the selected bank is found from the string a <select> holds', () => {
+  const banks = [{ id: 3, name: 'a' }, { id: 12, name: 'b' }];
+  assert.equal(findVideoBank(banks, '12').name, 'b');
+  assert.equal(findVideoBank(banks, 12).name, 'b');
+  assert.equal(findVideoBank(banks, ''), null);
+  assert.equal(findVideoBank(banks, '0'), null);
+  assert.equal(findVideoBank(banks, '99'), null);
+  assert.equal(findVideoBank(null, '3'), null);
 });
 
 test('the selection is cut at the server’s own per-request cap', async () => {

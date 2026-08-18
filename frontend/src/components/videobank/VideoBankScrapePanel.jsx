@@ -4,10 +4,12 @@ import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import ConceptSourcesPanel from '../dataset/ConceptSourcesPanel'
 import {
+  findVideoBank,
   runVideoBankScrapeImport,
   scrapableVideoBanks,
   summarizeVideoBankScrapeImport,
   videoBankScrapeDestination,
+  videoBankScrapeFolderNotice,
   videoBankScrapeNextStep,
 } from './videoBankScrapeImport'
 
@@ -19,11 +21,16 @@ import {
  * folder and point a bank at that folder. Same scan UI as the two image
  * destinations, one extra question: which bank receives the clips.
  *
- * WHY "ADD TO AN EXISTING BANK" ONLY LISTS SOME OF THEM. A video bank promises
- * never to write into the folder it points at — that is what makes it safe to
- * run over an archive of originals. So a scrape lands in a folder the app owns,
- * and a bank created from your own rushes is not a destination. The server says
- * which is which (`scrapable` on the bank row); the picker only shows those.
+ * "ADD TO AN EXISTING BANK" LISTS THEM ALL, your own folders included. The first
+ * cut of this panel only offered banks the app had itself created, on the ground
+ * that a video bank never writes into the folder it points at. That answered a
+ * question nobody had asked — "may the app write here?" — instead of the one
+ * they had: put these clips in THAT bank. Picking the bank is the consent, so
+ * there is no toggle beside it; what replaces the refusal is one sentence, at
+ * the moment of choosing, naming the folder the clips will be added to.
+ *
+ * (The only bank still missing from the list is one whose folder belongs to a
+ * dataset — `scrapable` on the bank row, decided server-side.)
  *
  * Collapsed by default: the page's first job is still to open a bank.
  */
@@ -35,6 +42,9 @@ export default function VideoBankScrapePanel({ banks, onDone }) {
   const [bankId, setBankId] = useState('')
   const [busy, setBusy] = useState(false)
   const eligible = scrapableVideoBanks(banks)
+  const folderNotice = mode === 'existing'
+    ? videoBankScrapeFolderNotice(findVideoBank(banks, bankId))
+    : ''
 
   const handleImport = async (items) => {
     const destination = videoBankScrapeDestination({ mode, name, bankId, banks })
@@ -102,7 +112,7 @@ export default function VideoBankScrapePanel({ banks, onDone }) {
                   disabled={!eligible.length}
                   checked={mode === 'existing'} onChange={() => setMode('existing')}
                   className="accent-indigo-500" />
-                Add to a scraped bank
+                Add to an existing bank
               </label>
             </div>
             {mode === 'new' ? (
@@ -128,11 +138,21 @@ export default function VideoBankScrapePanel({ banks, onDone }) {
                 </select>
               </label>
             )}
+            {/* The honesty that replaced a refusal — shown only when the chosen
+                bank follows a folder of the user's own, because that is the only
+                case where a download lands somewhere they also use themselves.
+                `break-all` on the path: a Windows path has no spaces to wrap at
+                and would otherwise push the panel sideways at 400 px. */}
+            {folderNotice && (
+              <p className="rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-1.5 text-[0.6875rem] leading-relaxed text-amber-100 break-all">
+                {folderNotice}
+              </p>
+            )}
             <p className="text-[0.6875rem] leading-relaxed text-content-subtle">
               Clips are stored exactly as downloaded, then cut into shots by the bank&rsquo;s
               own passes — length, motion and sharpness stay for you to judge there.
-              Only banks created by a scrape can receive one: a bank you pointed at your
-              own footage is never written into.
+              Whichever bank you pick receives them: the clips are added to the folder
+              that bank follows, alongside whatever is already in it.
             </p>
           </div>
 

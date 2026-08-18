@@ -206,7 +206,8 @@ export default function BankPage() {
         Point the app at a big unsorted folder (a Telegram export, a scrape dump…) and triage it
         into dataset-ready selections: a quality pass flags blur/noise/flat/small shots and groups
         near-duplicates, the face pass sorts the dump by person — then you promote the keepers
-        into a dataset. The folder itself is never modified.
+        into a dataset. No pass ever modifies your files; the one thing that adds to the folder
+        is a scrape you send to this bank yourself.
       </p>
 
       <form onSubmit={create}

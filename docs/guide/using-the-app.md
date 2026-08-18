@@ -2368,7 +2368,9 @@ can judge; the three hundred shots inside it are.
 
 1. **Create it** — name it, point it at the folder. Every `.mp4`, `.mov`, `.mkv`,
    `.webm` and `.avi` under it (subfolders included) is inventoried in place.
-   Nothing is copied and the folder is never modified.
+   Nothing is copied, and **no pass ever modifies your files** — scanning,
+   cutting and building all write elsewhere. The one thing that adds to that
+   folder is a scrape you send to this bank yourself (next step).
 1bis. **🕸 Scrape the web into a video bank** — you don't need a folder of rushes
    you assembled by hand. Unfold **🕸 Scrape the web into a video bank** on the
    video bank list, choose a destination, then scan a URL and pick clips exactly
@@ -2384,11 +2386,14 @@ can judge; the three hundred shots inside it are.
      motion, sharpness and near-duplicates are verdicts the **📊 Measure
      quality** pass produces, with thresholds you move. A clip refused at
      download time is one you could never have reviewed.
-   - **Your own folders are never written into.** A scrape always lands in a
-     folder the app owns, which is why **Add to a scraped bank** only lists banks
-     that were created by a scrape: a bank you pointed at your own footage stays
-     read-only, and that is what makes it safe to run one over an archive of
-     originals.
+   - **Any bank can receive them, and the picker says where they will land.**
+     A **new bank** gets a folder of its own under the app's own storage. **Add
+     to an existing bank** offers every bank you have, including one you pointed
+     at your own footage — the clips are simply added to the folder that bank
+     follows, and the picker prints that folder's path before you start.
+     Choosing the bank is the whole confirmation; there is no second checkbox.
+     The one destination that is refused is a bank sitting on a *dataset's* own
+     folder, where new files would end up inside training material.
 2. **▶ Run everything** chains the three passes in the only order that works:
    **scan** reads what each file is (length, size, frame rate), **find shots**
    cuts it at its shot boundaries, and **make thumbnails** grabs one frame from

@@ -1237,11 +1237,14 @@ class CanvasLayoutPreset(db.Model):
 class VideoBank(db.Model):
     """A triage bank over a folder of SOURCE VIDEOS, referenced in place.
 
-    Same promise as the image bank: the source folder is never written to. The
-    video bank keeps that promise more literally than one might expect — it
-    stores no media at all beyond thumbnails, because cutting a clip means
-    re-encoding it, and we only pay that at promotion, for the clips actually
-    kept. What lives here is bounds and decisions."""
+    Same promise as the image bank, and the same exception: no PASS ever writes
+    to the source folder — probing, detection, thumbnails and promotion all write
+    elsewhere — while a scrape you aim at this bank adds what it brings back to
+    the folder the bank follows. The video bank keeps the passes' half more
+    literally than one might expect: it stores no media at all beyond thumbnails,
+    because cutting a clip means re-encoding it, and we only pay that at
+    promotion, for the clips actually kept. What lives here is bounds and
+    decisions."""
     __tablename__ = 'video_bank'
     id = db.Column(Integer, primary_key=True)
     user_id = db.Column(String(36), nullable=False, index=True, default='local')

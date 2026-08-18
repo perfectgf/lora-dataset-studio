@@ -28,12 +28,13 @@ export const VIDEO_BANK_SCRAPE_BATCH = 6;
 
 /** The destination as the server wants it, or null when it is not usable yet.
  *
- * Same two shapes as the image lane — {bank_id} resumes, {name} creates — with
- * one addition it does not need: a video bank may only receive downloads into a
- * folder the APP owns, because this lane promises never to write into the folder
- * you pointed a bank at. `scrapable` on the bank row is the server's answer to
- * that question, so a bank over someone's own rushes is not offered rather than
- * being offered and then refused. */
+ * The same two shapes as the image lane — {bank_id} resumes, {name} creates —
+ * and now the same permissiveness: ANY bank can receive a scrape, including one
+ * you pointed at your own folder. Picking it is the consent.
+ *
+ * `scrapable` is still consulted, because one refusal survives that rule: a bank
+ * sitting on a dataset's own folder. The server is the authority; checking here
+ * only means the user is not offered a choice that would come back a 400. */
 export function videoBankScrapeDestination({ mode, name, bankId, banks }) {
   if (mode === 'existing') {
     const id = Number(bankId);
@@ -46,9 +47,34 @@ export function videoBankScrapeDestination({ mode, name, bankId, banks }) {
   return clean ? { name: clean } : null;
 }
 
-/** Only the banks that can actually receive a scrape. */
+/** The banks a scrape may be sent to — in practice all of them, minus any bank
+ * whose folder belongs to a dataset. */
 export function scrapableVideoBanks(banks) {
   return (Array.isArray(banks) ? banks : []).filter((b) => b && b.scrapable);
+}
+
+/**
+ * The line to show under the chosen bank, or '' when there is nothing to say.
+ *
+ * The honesty moved here from a refusal. A bank the app created has a folder
+ * nobody else looks at, so a download into it is unremarkable and saying so
+ * would be noise. A bank pointed at a folder of your own is the case worth one
+ * sentence BEFORE the click — with the path, because "this bank's folder" is
+ * exactly the part someone would have to go and check.
+ */
+export function videoBankScrapeFolderNotice(bank) {
+  if (!bank || bank.app_folder) return '';
+  const path = typeof bank.source_path === 'string' ? bank.source_path.trim() : '';
+  return path
+    ? `Downloads will be added to this bank’s folder on disk: ${path}`
+    : 'Downloads will be added to this bank’s folder on disk.';
+}
+
+/** The selected bank row, from the id the <select> holds (always a string). */
+export function findVideoBank(banks, bankId) {
+  const id = Number(bankId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return (Array.isArray(banks) ? banks : []).find((b) => Number(b?.id) === id) || null;
 }
 
 /**
