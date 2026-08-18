@@ -60,9 +60,9 @@ export const WHATS_NEW = [
   {
     id: '2026-08-18-canvas-one-grid-per-checkpoint',
     date: '2026-08-18',
-    title: 'Pinned batches land as one grid per checkpoint',
+    title: 'Pinned batches land as one grid per LoRA',
     blurb:
-      'Generate a batch on the Canvas with several checkpoints selected and pin the results: each checkpoint now gets its own grid on the board instead of everything fusing into one strip where the batches were indistinguishable. Prompts and separate launches keep their own grids too, and boards pinned before this keep drawing exactly what they drew.',
+      'Generate a batch on the Canvas with several LoRAs selected and pin the results: each LoRA now gets its own grid on the board instead of everything fusing into one strip where the batches were indistinguishable. The epochs of one LoRA still share its grid — that side-by-side is the point — and prompts and separate launches keep their own grids too. Boards pinned before this keep drawing exactly what they drew.',
     to: '/canvas',
   },
   {
