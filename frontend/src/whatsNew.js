@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-18-studio-guest-checkpoints',
+    date: '2026-08-18',
+    title: 'Test their LoRA next to yours, same prompt and seed',
+    blurb:
+      'The Test Studio could only tick epochs you trained here, so a character LoRA from another trainer had nowhere to sit in the grid. Compare with other LoRAs (under Checkpoints to test) adds files from your ComfyUI loras folder as their own rows — not stacked on yours — with the same prompt, seed and strengths. Tick any of yours and any of theirs; the counts do not have to match. Their trigger is not injected, so the comparison is the prompt you typed.',
+    to: '/studio',
+  },
+  {
     id: '2026-08-18-face-analysis-can-use-the-gpu',
     date: '2026-08-18',
     title: 'Analyze faces can use your GPU — and says when it is working',

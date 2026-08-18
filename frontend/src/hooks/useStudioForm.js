@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_STRENGTHS } from '../components/dataset/studio/constants';
 import { defaultCfgFor, defaultStepsFor, mixedModelDefaults } from '../utils/studioModelDefaults';
+import {
+  addGuestCheckpoint, chosenCheckpoints, normalizeGuestCheckpoints,
+  removeGuestCheckpoint,
+} from '../utils/studioGuestCheckpoints';
 
 const rollSeed = () => Math.floor(Math.random() * 2 ** 31);
 
@@ -35,6 +39,10 @@ export function useStudioForm(d, datasetId, family = null,
   });
 
   const [selCps, setSelCps] = useState(initial.selCps ?? null);              // null = tous cochés
+  // Guest files (not in this dataset's pool). Independent of selCps: null
+  // selCps still means "all of mine" without silently ticking every guest.
+  const [guestCps, setGuestCps] = useState(() => normalizeGuestCheckpoints(initial.guestCps));
+  const [selGuests, setSelGuests] = useState(initial.selGuests ?? null);
   const [selSts, setSelSts] = useState(initial.selSts ?? DEFAULT_STRENGTHS);
   const [seed, setSeed] = useState(() => initial.seed ?? rollSeed());
   const [seedLocked, setSeedLocked] = useState(initial.seedLocked ?? false);
@@ -77,18 +85,22 @@ export function useStudioForm(d, datasetId, family = null,
   useEffect(() => {
     try {
       localStorage.setItem(persistKey, JSON.stringify({
-        selCps, selSts, seed, seedLocked, genCount, promptText, selModels, selAspects, selCfgs, selSteps, selSteps2,
+        selCps, guestCps, selGuests, selSts, seed, seedLocked, genCount, promptText,
+        selModels, selAspects, selCfgs, selSteps, selSteps2,
       }));
     } catch { /* quota / private mode — la persistance est best-effort */ }
-  }, [persistKey, selCps, selSts, seed, seedLocked, genCount, promptText, selModels, selAspects, selCfgs, selSteps, selSteps2]);
+  }, [persistKey, selCps, guestCps, selGuests, selSts, seed, seedLocked, genCount, promptText, selModels, selAspects, selCfgs, selSteps, selSteps2]);
 
   const checkpoints = d?.checkpoints || [];
   const allFns = checkpoints.map((c) => c.filename);
   // Filtre les checkpoints persistés qui n'existent plus (dataset modifié depuis).
   // Checkpoints imposés (canvas) → ils sont la sélection, telle quelle. Ne PAS
   // les filtrer sur `allFns` : ils viennent de plusieurs datasets, alors que
-  // `d.checkpoints` est la liste d'un seul.
-  const chosenCps = pinnedCheckpoints ?? (selCps ?? allFns).filter((fn) => allFns.includes(fn));
+  // `d.checkpoints` est la liste d'un seul. Guests are a second list: null
+  // selCps still means "all of mine", never "all guests too".
+  const chosenCps = chosenCheckpoints({
+    mineFns: allFns, selCps, guests: guestCps, selGuests, pinned: pinnedCheckpoints,
+  });
   const effectivePrompt = promptText ?? (d?.prompt || '');
   // Défaut = 1re entrée de la liste — y compris « Official » (value '' , Krea) pour
   // que la puce par défaut apparaisse pressée ; le backend mappe '' → défaut câblé.
@@ -117,6 +129,32 @@ export function useStudioForm(d, datasetId, family = null,
   const toggleCp = (fn) =>
     setSelCps((cur) => {
       const base = cur ?? allFns;
+      return base.includes(fn) ? base.filter((f) => f !== fn) : [...base, fn];
+    });
+  const addGuest = (filename) => {
+    const fn = String(filename || '').trim();
+    if (!fn) return;
+    if (allFns.includes(fn)) {
+      setSelCps((cur) => {
+        const base = cur ?? allFns;
+        return base.includes(fn) ? base : [...base, fn];
+      });
+      return;
+    }
+    setGuestCps((cur) => addGuestCheckpoint(cur, fn, allFns));
+    setSelGuests((cur) => {
+      if (cur == null) return null;
+      return cur.includes(fn) ? cur : [...cur, fn];
+    });
+  };
+  const removeGuest = (filename) => {
+    setGuestCps((cur) => removeGuestCheckpoint(cur, filename));
+    setSelGuests((cur) => (cur == null ? null : cur.filter((f) => f !== filename)));
+  };
+  const toggleGuest = (fn) =>
+    setSelGuests((cur) => {
+      const fns = guestCps.map((g) => g.filename);
+      const base = cur ?? fns;
       return base.includes(fn) ? base.filter((f) => f !== fn) : [...base, fn];
     });
   const toggleSt = (s) =>
@@ -158,7 +196,9 @@ export function useStudioForm(d, datasetId, family = null,
     // Défauts DU MODÈLE sélectionné (pour l'étiquette « default … » des pickers).
     modelDefaultCfg, modelDefaultSteps,
     mixedModelDefaults: mixedModelDefaults(d, effectiveModels),
+    guestCps,
     setSelSts, setSeed, setSeedLocked, setGenCount, setPromptText,
-    toggleCp, toggleSt, toggleAspect, toggleCfg, toggleStep, toggleStep2, toggleModel, rollSeed, nextSeed,
+    toggleCp, addGuest, removeGuest, toggleGuest,
+    toggleSt, toggleAspect, toggleCfg, toggleStep, toggleStep2, toggleModel, rollSeed, nextSeed,
   };
 }

@@ -133,6 +133,11 @@ def _cells():
 
 # Plafond dur d'images par run (~4-6 min de GPU max en Z-Image Turbo).
 MAX_TEST_IMAGES = 24
+# Guest checkpoints (a LoRA file that is not in this dataset's trigger-matched
+# pool) share the Canvas plugin-node cap: enough for a mine-vs-theirs grid,
+# not enough for a picker dump to explode the matrix.
+MAX_GUEST_CHECKPOINTS = 16
+GUEST_LABEL_PREFIX = 'Theirs · '
 
 # 🔆 LA plage de force d'un LoRA dans cette app — UN seul couple de bornes.
 #
@@ -365,6 +370,101 @@ def _basename(path: str) -> str:
     return (path or '').replace('\\', '/').rsplit('/', 1)[-1]
 
 
+def _checkpoint_display_label(filename, known=None) -> str:
+    """Grid / ranking label for one checkpoint. Trigger-matched files keep the
+    trained-epoch parse; anything else (a guest from models/loras) is prefixed
+    so it groups as Theirs instead of sorting into the middle of your steps."""
+    trained = format_trained_lora_label(filename)
+    stem = _basename(filename).rsplit('.', 1)[0]
+    if known is not None and filename not in known:
+        return GUEST_LABEL_PREFIX + (trained or stem)
+    return trained or stem
+
+
+def _run_family_map(rows) -> dict:
+    """run_id → family taken from any member whose path has a family folder.
+
+    Guest files at the loras root have family_of_lora = None; they inherit
+    their run's family so they stay on the same grid as the epochs they were
+    compared against, instead of collapsing to the historical 'zimage' fallback
+    and vanishing from a Krea studio."""
+    out = {}
+    for r in rows:
+        rid = getattr(r, 'run_id', None)
+        if not rid or rid in out:
+            continue
+        fam = family_of_lora(getattr(r, 'checkpoint', None))
+        if fam:
+            out[rid] = fam
+    return out
+
+
+def _row_family(row, by_run, default='zimage'):
+    """Folder prefix, else the run's foldered sibling, else `default`.
+
+    Pass `default=None` to distinguish 'still unknown' from zimage — a
+    guest-only run has no sibling to inherit from and must not collapse
+    to zimage or it vanishes from a Krea studio."""
+    return (family_of_lora(getattr(row, 'checkpoint', None))
+            or by_run.get(getattr(row, 'run_id', None))
+            or default)
+
+
+def _filter_rows_by_family(rows, family, default='zimage'):
+    """Keep cells of one pipeline. Folder prefix wins; unfoldered guests
+    inherit their run. A guest-only run (every file at the loras root) has
+    no foldered sibling to inherit from — those cells stay on the family
+    tab that is open, instead of collapsing to `default` and vanishing
+    from a Krea studio. Unprefixed historical names that ARE this
+    dataset's stay zimage, as they always have."""
+    if not family:
+        return list(rows)
+    fam = family.lower()
+    by_run = _run_family_map(rows)
+    known_by_ds = {}
+    out = []
+    for r in rows:
+        r_fam = _row_family(r, by_run, default=None)
+        if r_fam is None:
+            dsid = getattr(r, 'dataset_id', None)
+            if dsid not in known_by_ds:
+                ds = FaceDataset.query.get(dsid) if dsid else None
+                known_by_ds[dsid] = _known_checkpoints(ds)
+            if getattr(r, 'checkpoint', None) not in known_by_ds[dsid]:
+                out.append(r)
+                continue
+            r_fam = default
+        if r_fam == fam:
+            out.append(r)
+    return out
+
+
+def _accept_guest_checkpoints(guests) -> set:
+    """Fail-closed: a filename not in this dataset's trigger-matched pool must
+    still resolve under a loras root, and must not climb out of it. Same
+    messages as Canvas `external_loras` so the two free-text channels cannot
+    disagree. Returns the set to union into `allowed`."""
+    uniq = []
+    seen = set()
+    for fn in guests or []:
+        if not fn or fn in seen:
+            continue
+        seen.add(fn)
+        uniq.append(fn)
+    if len(uniq) > MAX_GUEST_CHECKPOINTS:
+        raise ValueError(
+            f'at most {MAX_GUEST_CHECKPOINTS} LoRAs from outside this dataset '
+            'can be in one run')
+    out = set()
+    for fn in uniq:
+        if _is_unsafe_external_lora_name(fn):
+            raise ValueError(f'invalid external LoRA name: {fn}')
+        if not _resolve_lora_abs_path(fn):
+            raise ValueError(f'external LoRA not found: {fn}')
+        out.add(fn)
+    return out
+
+
 def _wilson_lower_bound(likes: int, voted: int, z: float = 1.96) -> float:
     """Borne basse de l'intervalle de Wilson (95%) sur le taux de 👍.
 
@@ -512,6 +612,20 @@ def list_test_checkpoints(ds, family=None) -> list[dict]:
     filtre d'ownership cross-user). Returns [{filename, label}], filename en forme
     LoraLoader."""
     return _trigger_match_checkpoints(ds, family)
+
+
+def _known_checkpoints(ds, family=None) -> set:
+    """Filenames this dataset owns in `family` (or every family, if omitted).
+    Used to decide the Theirs · prefix: a guest is anything we generated that
+    is not in this set."""
+    if ds is None:
+        return set()
+    if family:
+        return {c['filename'] for c in list_test_checkpoints(ds, family)}
+    out = set()
+    for fam in FAMILIES:
+        out |= {c['filename'] for c in list_test_checkpoints(ds, fam)}
+    return out
 
 
 def available_families(ds) -> list[dict]:
@@ -2299,6 +2413,12 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     prompt coché dans l'historique. Absent/vide → un seul prompt, `prompt`, comme
     avant.
 
+    A filename that is not in this dataset's trigger-matched pool is a GUEST
+    checkpoint (a LoRA trained elsewhere, sitting in models/loras). It becomes
+    its own cell — same prompt, same seed, same strength axis — not an extra
+    stacked on every cell. Guests are fail-closed (unsafe name / missing file)
+    and capped at MAX_GUEST_CHECKPOINTS.
+
     Each cell's row and its queue job land in ONE commit (`_persist_and_enqueue_cell`);
     an enqueue failure marks that row 'failed' and re-raises - already-enqueued cells
     keep their rows AND their jobs. Returns
@@ -2331,9 +2451,9 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     run_family = (next(iter(fams), None) or family or getattr(ds, 'train_type', None) or 'zimage').lower()
 
     allowed = {c['filename'] for c in list_test_checkpoints(ds, run_family)}
-    unknown = [c for c in cps_in if c not in allowed]
-    if unknown:
-        raise ValueError(f'unknown checkpoint(s) for this dataset: {unknown}')
+    guests = [c for c in cps_in if c not in allowed]
+    if guests:
+        allowed |= _accept_guest_checkpoints(guests)
 
     # LoRA « always-on » (style/utilitaire) appliqués à CHAQUE cellule (hors batch).
     # Validés contre les candidats de la famille (anti path-injection) + strength clamp.
@@ -3527,8 +3647,7 @@ def cell_scores(dataset_id, family=None) -> list[dict]:
     # ranking / best-config pick (P0-b).
     rows = [r for r in rows if r.status != 'failed']
     if family:
-        fam = family.lower()
-        rows = [r for r in rows if (family_of_lora(r.checkpoint) or 'zimage') == fam]
+        rows = _filter_rows_by_family(rows, family)
     agg = {}
     for r in rows:
         key = (r.checkpoint, r.strength, r.aspect, r.z_model, r.cfg, r.steps, r.steps2)
@@ -3621,12 +3740,13 @@ def checkpoint_model_breakdown(dataset_id, scores=None) -> list[dict]:
 
     `scores` partageable (cf. best_cell)."""
     scores = cell_scores(dataset_id) if scores is None else scores
+    known = _known_checkpoints(FaceDataset.query.get(dataset_id))
     acc = {}
     for e in scores:
         key = (e['checkpoint'], e['z_model'])
         a = acc.setdefault(key, {
             'checkpoint': e['checkpoint'],
-            'label': format_trained_lora_label(e['checkpoint']) or _basename(e['checkpoint']).rsplit('.', 1)[0],
+            'label': _checkpoint_display_label(e['checkpoint'], known),
             'z_model': e['z_model'], 'z_model_label': e['z_model_label'],
             'likes': 0, 'dislikes': 0, 'images': 0, 'voted': 0})
         a['likes'] += e['likes']
@@ -3683,7 +3803,9 @@ def best_preset(dataset_id, scores=None) -> dict | None:
            .order_by(LoraTestImage.id.desc()).first())
     return {
         **bc,
-        'label': format_trained_lora_label(bc['checkpoint']) or _basename(bc['checkpoint']).rsplit('.', 1)[0],
+        'label': _checkpoint_display_label(bc['checkpoint'],
+                                           _known_checkpoints(
+                                               FaceDataset.query.get(dataset_id))),
         'prompt': getattr(img, 'prompt', None) if img else None,
         'seed': img.seed if img else None,
         'filename': img.filename if img else None,
@@ -3720,7 +3842,9 @@ def best_per_checkpoint(dataset_id, scores=None) -> list[dict]:
                           steps=bc.get('steps'), steps2=bc.get('steps2'), status='done')
                .order_by(LoraTestImage.id.desc()).first())
         out.append({**bc,
-                    'label': format_trained_lora_label(bc['checkpoint']) or _basename(bc['checkpoint']).rsplit('.', 1)[0],
+                    'label': _checkpoint_display_label(bc['checkpoint'],
+                                                       _known_checkpoints(
+                                                           FaceDataset.query.get(dataset_id))),
                     'prompt': getattr(img, 'prompt', None) if img else None,
                     'seed': img.seed if img else None,
                     'filename': img.filename if img else None})
@@ -3910,7 +4034,7 @@ def score_faces(user_id, dataset_id, family=None) -> dict:
     eff = _resolve_family(ds, family, available_families(ds))
     rows = (_cells().filter_by(dataset_id=dataset_id, status='done')
             .filter(LoraTestImage.filename.isnot(None)).all())
-    rows = [r for r in rows if (family_of_lora(r.checkpoint) or 'zimage') == eff]
+    rows = _filter_rows_by_family(rows, eff)
     ds_dir = fds._dataset_dir(dataset_id)
     by_path = {}
     for r in rows:
@@ -3944,14 +4068,15 @@ def face_ranking(dataset_id, family) -> list:
     le front marque le 1er comme « 🏆 best epoch »."""
     rows = (_cells().filter_by(dataset_id=dataset_id)
             .filter(LoraTestImage.face_score.isnot(None)).all())
-    rows = [r for r in rows if (family_of_lora(r.checkpoint) or 'zimage') == family]
+    rows = _filter_rows_by_family(rows, family)
     agg = {}
     for r in rows:
         a = agg.setdefault(r.checkpoint, [0.0, 0])
         a[0] += float(r.face_score)
         a[1] += 1
+    known = _known_checkpoints(FaceDataset.query.get(dataset_id), family)
     out = [{'checkpoint': cp,
-            'label': format_trained_lora_label(cp) or _basename(cp).rsplit('.', 1)[0],
+            'label': _checkpoint_display_label(cp, known),
             'avg': round(s / n, 4), 'n': n}
            for cp, (s, n) in agg.items()]
     out.sort(key=lambda e: (-e['avg'], -e['n']))
@@ -4027,10 +4152,12 @@ def studio_payload(user_id, dataset_id, family=None) -> dict | None:
     eff = _resolve_family(ds, family, fams)
     rows_all = (_cells().filter_by(dataset_id=dataset_id)
                 .order_by(LoraTestImage.id.asc()).all())
-    # Grille = cellules de la famille effective (famille déduite du checkpoint).
-    rows = [r for r in rows_all if (family_of_lora(r.checkpoint) or 'zimage') == eff]
+    # Grille = cellules de la famille effective (famille déduite du checkpoint,
+    # les guests sans dossier héritant du run).
+    rows = _filter_rows_by_family(rows_all, eff)
     activity = _queue_activity(rows_all)
     best = _best_for_family(ds, eff)
+    known = _known_checkpoints(ds, eff)
     # Pool de bases selon la FAMILLE effective : SDXL → checkpoints SDXL (forme
     # {value,label}) ; Krea → base fixe (UNET du workflow, aucun sélecteur) ; sinon
     # modèles Z-Image. `train_type` = famille effective (le front adapte picker + handoff).
@@ -4094,7 +4221,7 @@ def studio_payload(user_id, dataset_id, family=None) -> dict | None:
         # panneau cesse d'être « ~12 s/image » sur toutes les cartes du monde.
         'seconds_per_image': measured_seconds_per_image(eff),
         'cells': [{'id': r.id, 'checkpoint': r.checkpoint,
-                   'label': format_trained_lora_label(r.checkpoint) or _basename(r.checkpoint).rsplit('.', 1)[0],
+                   'label': _checkpoint_display_label(r.checkpoint, known),
                    'strength': r.strength, 'aspect': r.aspect, 'filename': r.filename,
                    'rating': r.rating, 'seed': r.seed, 'run_seed': r.run_seed,
                    # WHICH launch this cell belongs to. The column has always been
