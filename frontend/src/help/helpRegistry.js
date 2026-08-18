@@ -890,6 +890,20 @@ const TOPICS = [
      'reuploaded', 'bitrate', 'bits per pixel', 'bpp', 'codec profile',
      'block max', 'blur max', 'dup frames max', 'needs ffmpeg'],
     '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
+  // Reached from the WORRY as much as from the feature name — "is this clip
+  // real", "my scrape is full of AI slop" — and from the two questions the
+  // hedge provokes the moment somebody sees the chip: how sure is it, and why
+  // does the Bank say "AI" about a still while this says "may be". The keywords
+  // carry both spellings of the cut, because its polarity is the thing people
+  // get wrong.
+  action('video-ai-check', 'Shots that may be AI-generated (🤖 AI check)',
+    ['ai check', 'aicheck', 'ai generated', 'ai-generated', 'is this real',
+     'synthetic video', 'generated video', 'ai slop', 'deepfake', 'fake video',
+     'sora', 'veo', 'kling', 'runway', 'generated clips in my bank',
+     'motion irregularity', 'motion irregularity floor', 'too smooth',
+     'suspiciously smooth', 'd3', 'second order', 'how accurate is the ai check',
+     'may be ai generated', 'why does the bank say ai and the video says maybe'],
+    '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
   action('video-flag-chips', 'Filter the gallery by a quality flag',
     ['flag chips', 'filter by flag', 'flagged shots', 'select flagged',
      'reject all flagged', 'amber chips', 'show only flagged', 'counts loaded',

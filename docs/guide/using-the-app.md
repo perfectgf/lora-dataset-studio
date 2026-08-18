@@ -2582,6 +2582,88 @@ costs real time: roughly **nine seconds per minute of 1080p source**, on the CPU
 never touching the GPU. A four-hour bank is a little over half an hour. Stopping
 is safe and a re-run picks up at the first file it had not reached.
 
+### 🤖 AI check — shots that may have been generated rather than filmed
+
+Every pass above measures something the camera did. This one asks whether there
+was a camera. A scrape in 2026 brings back generated clips mixed in with real
+footage, and they are invisible at thumbnail size — a clean, well-lit,
+well-framed synthetic clip passes the quality scan, the safe zone, the defect
+sweep and the look score without a mark on it. It is worth finding: the published
+curation work behind several open video models reports that even a small
+minority of synthetic material in a corpus — under a tenth of it — measurably
+degrades what a model trained on that corpus learns.
+
+**🤖 AI check** decodes two contiguous seconds from the middle of each shot and
+measures **how erratically the motion changes**. Not how much a shot moves — how
+much the *rate* of movement varies from instant to instant. Real footage is full
+of small irregularities: a hand shakes, a subject accelerates unevenly, light
+flickers, the sensor is noisy. Generated footage, on the evidence the method was
+built on, tends to be smoother than the world.
+
+The number is stored per shot and read by one cut in **🎚 Quality cuts**,
+**Motion irregularity floor** — the one threshold in the panel that works the
+other way round from the rest. **A LOW score is the suspicious one**, so this is
+a floor and raising it flags *more* shots; a shot below it wears a **May be
+AI-generated** chip in the grid like any other flag. Set it as a `_max` in your
+head and you will flag every handheld shot in the bank and clear every generated
+one.
+
+#### How much to trust it — read this before you use it
+
+Not much, and the pass is built around saying so.
+
+- **About three shots in four**, on material like yours. The SAFE Challenge
+  evaluated AI-video detectors *blind*, on footage the entrants had never seen:
+  the best system in the field scored **0.86** balanced accuracy on untouched
+  video and **0.74** once that video had been post-processed. Re-compression
+  alone moved AUC from 0.88 to 0.77. Anything scraped has been re-compressed by
+  definition, so 0.74–0.75 is the honest figure — not the high nineties a
+  detector's own paper reports on its own benchmark.
+- **It has never been measured against a 2025-or-later generator.** The method
+  was evaluated across forty subsets of 2023–24 output — ModelScope, Gen2, Pika,
+  LaVie, Sora, CogVideoX, OpenSora and a dozen more. Its whole thesis is that
+  *the generators of that moment* could not render second-order motion. That is
+  exactly the kind of claim that decays, and nothing here says anything about
+  Sora 2, Veo 3, Kling or Wan 2.5.
+- **It is worst on the cheapest fakes.** On one generator whose output is
+  incoherent and flickery, the reference implementation scores *below chance* —
+  chaotic generation reads as *more* real than clean generation. Heavily
+  stylised material and a hard cut inside the two-second window do the same
+  thing.
+
+So this is an **advisory** flag with a hedge built into its name. It ships with
+no default, nothing in the app rejects or deletes a shot because of it, and the
+chip says *may be*. Use it to decide what to look at, not what to throw away.
+
+#### The mechanics
+
+- Shots shorter than about **2.4 seconds** are not measured at all — the window
+  needs sixteen frames at 8 fps plus a margin at each end so a dissolve never
+  lands inside it. Those shots carry "too short" and no score, and they are
+  never flagged. Re-running will not change that; re-cutting them would.
+- **There is no value to type.** The method reports only rank metrics and its
+  reference implementation contains no threshold anywhere, so no published
+  number exists and nobody else's would transfer — the score's scale moves with
+  the encoder and with the frame count. Use **Preview** against your own bank,
+  look at what a value caught, move it.
+- It runs on the **CPU**, deliberately, at roughly **0.8 seconds per shot** —
+  about forty minutes for a three-thousand-shot bank. That is slower than the
+  card would be, and it is the trade that lets you check a bank *while a
+  training owns your GPU*. Stopping is safe; a re-run picks up where it left off.
+- It needs the same **✨ Score interpreter** the look score uses, and downloads
+  its encoder once on the first run.
+
+#### It is not the same claim the image bank makes
+
+The 🗃️ Bank already tells you whether a still is AI, and the two answers are
+**different in kind**, which is why they are worded differently. The image
+lane's `AI` verdict reads **metadata** — a generator's own prompt block inside
+the PNG, an A1111 parameter string, a C2PA mark — and that is *proof* when it is
+present. It is also absent from almost everything scraped, and its silence means
+"unknown", never "not AI". This pass reads **the pixels** and infers, so it is
+never proof and it is never silent. The image lane says *AI*; this one says *may
+be*. Neither is evidence for the other.
+
 ## Retouch a cut: trim, split, or draw a shot by hand
 
 Shot detection is good and it is not right. It cuts a slow dissolve a second

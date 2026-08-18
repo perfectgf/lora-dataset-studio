@@ -1577,17 +1577,29 @@ def _run_bank_scoring(action) -> int:
 
 
 def _verify_bank_scoring_import(action, python) -> bool:
-    """Import torch/open_clip/transformers in the target env once pip reports done —
-    HONESTY (a torch/torchvision mismatch fails only at import) and WARMING (a heavy
-    cold import that would time out the 60 s capability probe fired right after). A
-    timeout is 'still warming', never a failure. Mirrors _verify_watermark_import."""
-    if not os.path.isfile(python):
+    """Run the bank-scoring PROBE's own import in the target env once pip reports
+    done — HONESTY (a torch/torchvision mismatch fails only at import) and WARMING
+    (a heavy cold import that would time out the 60 s capability probe fired right
+    after). A timeout is 'still warming', never a failure. Mirrors
+    _verify_watermark_import.
+
+    The expression is `capabilities.CAPABILITY_IMPORTS['bank_scoring']`, literally
+    the one the probe runs, for the reason `_verify_capability_import` gives at
+    length: a gate that checks a SHORTER list than the probe reports "ready" and
+    is then contradicted by a ✗ with no reason anywhere. That is not theoretical
+    here — this list was the headline three while the probe grew numpy and PIL
+    under it. This action cannot simply call that generic gate, because this
+    interpreter is probed with `-s` (_NO_USER_SITE_IMPORT_KEYS) and a probe run
+    with different argv answers a different question.
+    """
+    expr = capabilities.CAPABILITY_IMPORTS.get('bank_scoring')
+    if not expr or not os.path.isfile(python):
         return True
-    _append(action, 'verifying the install (first import — this also warms it, so the '
-                    'capability turns green without a restart)…')
+    _append(action, 'verifying the install (running the same import the capability '
+                    'check runs — this also warms it, so it turns green without a '
+                    'restart)…')
     try:
-        proc = subprocess.run([python, '-s', '-c',
-                               'import torch, open_clip, transformers'],
+        proc = subprocess.run([python, '-s', '-c', expr],
                               capture_output=True, text=True, encoding='utf-8',
                               errors='replace', timeout=_WARM_IMPORT_TIMEOUT,
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))

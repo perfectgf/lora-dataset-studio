@@ -104,7 +104,16 @@ ADVISORY_KEYS = ('duplicate_group', 'duplicate_of',
                  # the most expensive silence of the six. Pinned against
                  # video_defect_sweep.OWNED_KEYS by a test.
                  'defect_state', 'defect_frames', 'dup_frame_ratio',
-                 'block_score', 'blur_score')
+                 'block_score', 'blur_score',
+                 # 🤖 The AI check. Sixteen contiguous frames decoded, cropped
+                 # and pushed through a vision transformer per shot — 0.83 s
+                 # each, measured, so a bank of a few thousand is tens of
+                 # minutes. Dropping it on a re-measure would be the most
+                 # expensive silence in this list after the defect sweep's, and
+                 # unlike that one it would also lose the STATE that says why a
+                 # shot has no score. Pinned against
+                 # video_ai_check.OWNED_KEYS by a test.
+                 'ai_check_state', 'ai_check_frames', 'motion_irregularity')
 
 
 def merge_advisory(previous, summary):
@@ -298,7 +307,8 @@ THRESHOLD_KEYS = ('min_duration_s', 'motion_floor', 'motion_ceiling',
                   'first_frame_floor', 'silence_max', 'audio_floor',
                   'watermark_max', 'aesthetic_floor',
                   'bars_max', 'text_coverage_max', 'safe_area_min',
-                  'dup_frames_max', 'block_max', 'blur_max')
+                  'dup_frames_max', 'block_max', 'blur_max',
+                  'motion_irregularity_floor')
 
 
 def verdicts(scores, thresholds, duration_s=None):
@@ -490,6 +500,27 @@ def verdicts(scores, thresholds, duration_s=None):
     blur_max = thresholds.get('blur_max')
     if blur is not None and blur_max is not None and blur > blur_max:
         flags.add('blurry')
+
+    # ── 🤖 The AI check: the one cut here whose polarity is inverted ─────────
+    # A LOW score is the suspicious one. `motion_irregularity` measures how
+    # erratically a shot's motion changes over two seconds, and the finding the
+    # method rests on is that real footage is erratic while a generated clip is
+    # smoother than the world — so this is a FLOOR, like `sharpness_floor` and
+    # `aesthetic_floor`, and raising it flags more shots. Writing it as a `_max`
+    # would flag every handheld shot in the bank and clear every generated one.
+    #
+    # `maybe_generated`, and the hedge in the name is the honest part rather
+    # than politeness: on re-encoded material — which a scraped bank is by
+    # construction — the best blind-evaluated detector in the field scores about
+    # three in four. Advisory, in no default, and no code path anywhere rejects
+    # or deletes on it. A shot the pass could not measure (too short for the
+    # window, frames unreadable) carries a STATE and no score, and is therefore
+    # never flagged — the same rule as every cut above.
+    smooth = scores.get('motion_irregularity')
+    smooth_floor = thresholds.get('motion_irregularity_floor')
+    if (smooth is not None and smooth_floor is not None
+            and smooth < smooth_floor):
+        flags.add('maybe_generated')
 
     return flags
 

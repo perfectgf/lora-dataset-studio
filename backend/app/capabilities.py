@@ -686,7 +686,22 @@ def probe_vast() -> dict:
 CAPABILITY_IMPORTS = {
     'face_scoring': 'import insightface, onnxruntime',
     'masks': 'import rembg',
-    'bank_scoring': 'import torch, open_clip, transformers',
+    # numpy and PIL are named even though nothing pip-installs them directly:
+    # they arrive transitively (torchvision, which open_clip_torch and timm both
+    # require, hard-requires both) and BOTH workers that run in this interpreter
+    # import them on any real call — infer/bank_score_infer.py reaches PIL at load
+    # time through bank_image_guard and numpy inside its scoring path, and
+    # infer/video_ai_check_infer.py imports both in _preprocess. Not at module
+    # scope in every case, which changes WHEN it fails and not whether: a probe
+    # that names only the headline packages reports ✓ while the feature dies on
+    # the first call, which is issue #24's exact shape; this entry under-imported
+    # for four waves and the AI check is what surfaced it.
+    # `from PIL import Image` rather than `import PIL`, because the bare package
+    # imports without its submodules and would pass on a broken install.
+    # setup_installer._verify_bank_scoring_import runs THIS string, so the
+    # install's honesty gate cannot fall behind the probe again.
+    'bank_scoring': ('import torch, open_clip, transformers, numpy; '
+                     'from PIL import Image'),
     'bank_siglip2': ('import torch, transformers, numpy; from PIL import Image; '
                      'from transformers import Siglip2Model, AutoProcessor'),
     'watermark_inpaint': 'import simple_lama_inpainting',

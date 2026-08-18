@@ -404,8 +404,12 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
             than the decoder, so on an install without ffmpeg it is the one grey
             button in a row of working ones — and the tooltip says which binary
             rather than "unavailable". */}
+        {/* 🤖 sits at the end because it is the slowest button in the row —
+            about 0.8 s per shot on the CPU, measured — and because it is the
+            only one whose result is a hedge rather than a measurement. */}
         {['pipeline', 'probe', 'detect', 'thumbs', 'measure', 'embed',
-          'caption', 'dedup', 'watermark', 'safezone', 'defects'].map((pass) => {
+          'caption', 'dedup', 'watermark', 'safezone', 'defects',
+          'aicheck'].map((pass) => {
           const blocked = passBlockedBy(capability, pass)
           const primary = pass === 'pipeline'
           // 🔳 is the one pass that runs with HALF its dependencies: no OCR
