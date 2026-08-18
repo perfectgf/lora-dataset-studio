@@ -119,8 +119,9 @@ the target model accepts.
 
 **What it does NOT do yet**, plainly:
 
-- **No aesthetic scoring.** The technical measures above say what is broken, not
-  what is beautiful — quality ranking and "most varied" are still to come.
+- **"Most varied" selection is still to come.** Shots do carry a look score now
+  (the same LAION aesthetic scale as the image bank, read off the vectors 🔎
+  Find scenes already caches) — but diversity-aware picking is not built yet.
   Searching by words ranks shots by what they LOOK like, which is a different
   question from whether they are any good.
 - **Near-duplicates are found, but the threshold is inherited, not measured on
