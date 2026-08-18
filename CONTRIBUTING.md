@@ -89,6 +89,28 @@ This is exactly what CI runs on a release tag, so run it locally before you open
 
 For the frontend, a successful `npm run build` is the check.
 
+## Before you start: see what is already in flight
+
+This is the part we got wrong for a long time, and a contributor was right to
+say so. Work used to land on `main` in one jump, so there was no way to tell
+what was already being built — twice, two people built the same feature without
+knowing about each other.
+
+So anything non-trivial now lives on a **pushed branch** before it lands, ours
+included. Before you start something bigger than a one-file fix:
+
+```
+git ls-remote --heads origin      # what is being worked on right now
+gh pr list                        # and what is already up for review
+```
+
+A branch named for the job means someone is on it. If it looks like yours, say
+so in the issue or on Discord — overlapping is easy to sort out beforehand and
+miserable to discover afterwards. If nothing matches, it is free.
+
+`main` stays releasable at all times. A branch may be broken while it cooks;
+`main` may not.
+
 ## Pull requests
 
 - **Keep PRs small and focused** — one change per PR reviews faster and reverts cleanly.

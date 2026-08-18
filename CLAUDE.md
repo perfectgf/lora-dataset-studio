@@ -125,6 +125,29 @@ does NOT owe you a CUDA install action — it owes you a graceful CPU default, a
 probe that tells the truth about what is available, and code that never clobbers
 what the user put there. That is the shape `face_scoring.device` takes.
 
+## Work happens on a branch, and the branch is PUSHED
+
+A branch nobody can see does not exist. This repo has outside contributors, and
+they cannot read your working copy — so work that lives only on your disk reads
+to them as work nobody is doing. That is not theoretical: PR #38 and #39 landed
+the same feature, same files, 1h27 apart, from two people who had no way of
+knowing about each other, and two more PRs were closed while still mergeable for
+the same reason. In that week 96 commits reached `main` and 7 went through a PR.
+
+- **Anything non-trivial goes on a branch, and that branch is pushed** before it
+  lands — even when no PR is opened. Pushing IS the announcement. Name it for
+  the job (`feat/shot-threshold`, `fix/mask-alignment`), never for whoever or
+  whatever is doing it.
+- **Look before you start**, on anything a contributor might also be attempting:
+  `git ls-remote --heads origin` and the open PRs. An overlap found before the
+  work is a conversation; found after, it is somebody's wasted evening.
+- **`main` stays releasable.** A branch may be red while it cooks; `main` may
+  not. The gate does not move: both suites green on that exact tree before any
+  push, to `main` or to a branch.
+- Small, obvious fixes may still go straight to `main`.
+- **Delete the branch once it lands.** A stale remote branch claims work is in
+  progress when it is finished — the same lie, reversed.
+
 ## Shipping checklist — the tail of EVERY user-visible wave
 
 1. **Source-only commits** — the dist rebuild is its own `build(frontend):`
