@@ -47,13 +47,23 @@ export function summarizeBankScrapeImport(totals) {
   return bits.join(' · ');
 }
 
+export const BANK_SCRAPE_ENDPOINT = '/api/bank/scrape-import';
+
 /**
  * Run the whole import. `post(url, body)` is the caller's JSON POST (injected so
  * this is testable without a server). Returns
  * {ok, bankId, created, saved, alreadyThere, added, skipped, error}.
+ *
+ * `endpoint` and `batchSize` exist for the 🎬 video lane, whose route answers the
+ * SAME shape under another address and bounds a request at fewer items (a clip is
+ * two orders of magnitude bigger than a photo). Everything that makes this
+ * function worth pinning — only the first batch may create the bank, every later
+ * one resumes into the id that came back — is identical on both, so it is one
+ * function rather than two that drift.
  */
-export async function runBankScrapeImport({ items, destination, post, onBatch }) {
-  const batches = bankScrapeBatches(items);
+export async function runBankScrapeImport({ items, destination, post, onBatch,
+  endpoint = BANK_SCRAPE_ENDPOINT, batchSize = BANK_SCRAPE_BATCH }) {
+  const batches = bankScrapeBatches(items, batchSize);
   const totals = { saved: 0, alreadyThere: 0, added: 0, skipped: {} };
   let bankId = destination?.bank_id ?? null;
   let created = false;
@@ -67,7 +77,7 @@ export async function runBankScrapeImport({ items, destination, post, onBatch })
       : { items: batches[i], ...destination };
     onBatch?.({ index: i, count: batches.length, total: items.length });
     // eslint-disable-next-line no-await-in-loop
-    const d = await post('/api/bank/scrape-import', body);
+    const d = await post(endpoint, body);
     if (!d?.ok) {
       return { ok: false, bankId, created,
         error: d?.error || 'Unexpected error', ...totals };

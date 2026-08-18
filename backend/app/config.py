@@ -1326,6 +1326,23 @@ def video_banks_root() -> Path:
     root.mkdir(parents=True, exist_ok=True)
     return root
 
+def video_bank_sources_root() -> Path:
+    """Videos DOWNLOADED into a video bank by 🕸 "Scrape the web into a bank" —
+    one folder per bank, owned by the app.
+
+    Deliberately NOT video_banks_root(): that tree's contract is thumbnails and
+    nothing else, and a scraped .mp4 is real source media. And deliberately not
+    the user's own rushes folder either — the video lane promises that a folder
+    you point a bank at is never written to, so a scrape gets a folder of its
+    own instead of dropping strangers' files into your footage.
+
+    Same role as bank_sources_root() on the image side, kept apart for the same
+    reason the two working roots are: hours of rushes and tens of thousands of
+    photos are not the same storage problem."""
+    root = _data_dir() / 'video_bank_sources'
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
 def video_datasets_root() -> Path:
     """Built video training sets: one flat ``<dataset id>/`` per set, holding the
     encoded ``clip_0001.mp4`` files and their homonym ``.txt`` captions.

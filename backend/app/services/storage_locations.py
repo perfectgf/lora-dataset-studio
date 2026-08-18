@@ -78,6 +78,11 @@ _DEFS = (
      'resolve': cfg.video_banks_root,
      'holds': 'Thumbnails of the shots detected in your video banks — never the '
               'source videos, and never the clips themselves.'},
+    {'key': 'video_bank_sources', 'label': 'Video bank source files',
+     'section': None, 'field': None,
+     'resolve': cfg.video_bank_sources_root,
+     'holds': 'Videos downloaded into a video bank by “Scrape the web into a '
+              'bank”. Your own rushes folders are never copied here.'},
     {'key': 'video_datasets', 'label': 'Video datasets',
      'section': 'paths', 'field': 'video_datasets_dir',
      'resolve': cfg.video_datasets_root,

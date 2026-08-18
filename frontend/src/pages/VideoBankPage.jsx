@@ -4,6 +4,7 @@ import { useToast } from '../components/common/Toast'
 import { HelpBadge } from '../help/HelpMode'
 import FolderPickerField from '../components/common/FolderPicker'
 import BankLaneTabs from '../components/videobank/BankLaneTabs'
+import VideoBankScrapePanel from '../components/videobank/VideoBankScrapePanel'
 import VideoBankWorkspace from '../components/videobank/VideoBankWorkspace'
 import VideoCapabilityStrip from '../components/videobank/VideoCapabilityStrip'
 import { countsSummary } from '../components/videobank/videoBankStatus'
@@ -146,6 +147,12 @@ export default function VideoBankPage() {
           {creating ? 'Inventorying…' : '➕ Create video bank'}
         </button>
       </form>
+
+      {/* Second way in: the scraper's own destination. A video bank no longer
+          needs a folder of rushes you assembled by hand — you can fill one
+          straight from the web, and the clips land in a folder the app owns
+          rather than in yours. */}
+      <VideoBankScrapePanel banks={banks} onDone={() => refresh()} />
 
       {banks == null ? (
         <p className="text-sm text-content-muted">Loading…</p>
