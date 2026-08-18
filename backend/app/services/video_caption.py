@@ -305,12 +305,14 @@ def _write_caption_frames(src_path, times, dest_dir, stem):
     return [path for _label, _t, path in written]
 
 
-def _caption_frames(paths, prompt, *, worker=None):
+def _caption_frames(paths, prompt, *, worker=None, span_s=None):
     """The caption for one shot's frames, through the warm worker. The second
-    seam, monkeypatched in tests so nothing here ever loads a real model."""
+    seam, monkeypatched in tests so nothing here ever loads a real model.
+    ``span_s`` — the seconds the frames actually span — rides along so the
+    model's frame timestamps tell the truth about time."""
     if worker is None:
         raise RuntimeError('no caption worker')
-    return worker.caption(paths, prompt)
+    return worker.caption(paths, prompt, span_s=span_s)
 
 
 # --- the pass ---------------------------------------------------------------------
@@ -349,8 +351,14 @@ def caption_one(bank, clip, *, worker, scratch, relpaths, model=None,
         if path:
             times = caption_frame_times(clip.start_s, clip.end_s)
             frames = _write_caption_frames(path, times, scratch, f'clip_{clip.id}')
+            # The span the sampled frames actually cover, so the model is told
+            # the truth about time. Without it, transformers stamps the frames
+            # at a default 24 fps: eight frames of a five-second shot read as
+            # <0.0s>…<0.3s>, and every description of speed and duration is
+            # wrong at the source.
+            span_s = times[-1] - times[0] if len(times) > 1 else 0.0
             caption = clean_caption(_caption_frames(frames, caption_prompt(style),
-                                                    worker=worker))
+                                                    worker=worker, span_s=span_s))
     except Exception as e:  # noqa: BLE001 — one shot never sinks the pass
         logger.warning('caption: clip %s failed: %s', clip.id, e)
         caption = ''

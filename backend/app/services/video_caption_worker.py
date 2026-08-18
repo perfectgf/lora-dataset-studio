@@ -142,7 +142,7 @@ class CaptionWorker:
         self._proc = proc
         return proc
 
-    def caption(self, frame_paths, prompt):
+    def caption(self, frame_paths, prompt, span_s=None):
         """The caption for one shot, or '' when the model refused THIS shot.
 
         '' rather than an exception for a per-clip refusal, so the caller stores
@@ -155,9 +155,13 @@ class CaptionWorker:
             if proc is None:
                 proc = self._start()
             try:
-                proc.stdin.write(json.dumps({
-                    'frames': [str(p) for p in frame_paths],
-                    'prompt': str(prompt)}) + '\n')
+                req = {'frames': [str(p) for p in frame_paths],
+                       'prompt': str(prompt)}
+                if span_s:
+                    # Seconds the frames span — lets the child stamp honest
+                    # timestamps instead of transformers' 24 fps default.
+                    req['span_s'] = float(span_s)
+                proc.stdin.write(json.dumps(req) + '\n')
                 proc.stdin.flush()
                 data = json.loads(_readline_with_timeout(proc, CAPTION_TIMEOUT))
             except TextEncodeError:

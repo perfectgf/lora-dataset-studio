@@ -123,7 +123,32 @@ def main() -> int:
                'error': f'caption model load failed: {type(e).__name__}: {e}'})
         return 1
 
-    def _caption(frame_paths, prompt):
+    def _video_metadata(n_frames, span_s):
+        """Honest timestamps for pre-sampled frames, or None when unavailable.
+
+        Without metadata the processor warns and DEFAULTS TO 24 fps, then writes
+        the resulting timestamps straight into the prompt
+        (processing_qwen3_vl.py: `<{curr_time:.1f} seconds>`): eight frames of a
+        five-second shot read as <0.0 s>…<0.3 s>, and the model literally
+        believes the whole action took a third of a second — every judgement of
+        speed and duration is wrong at the source. fps = (n-1)/span puts the
+        last frame AT the span, which is what evenly-spread sampling means.
+
+        None (fall back to today's behaviour) when the interpreter's
+        transformers predates the VideoMetadata dataclass — a degraded caption
+        beats a crashed worker on an install we do not control."""
+        if not span_s or span_s <= 0 or n_frames < 2:
+            return None
+        try:
+            from transformers.video_utils import VideoMetadata
+        except Exception:  # noqa: BLE001 — older transformers: no class, no fix
+            return None
+        fps = (n_frames - 1) / float(span_s)
+        return VideoMetadata(total_num_frames=n_frames, fps=fps,
+                             duration=float(span_s),
+                             frames_indices=list(range(n_frames)))
+
+    def _caption(frame_paths, prompt, span_s=None):
         images = [Image.open(p).convert('RGB') for p in frame_paths]
         try:
             messages = [{'role': 'user', 'content': [
@@ -134,7 +159,23 @@ def main() -> int:
             # `videos` takes a LIST OF SEQUENCES — one sequence per video in the
             # batch. Passing the frames flat silently reads as several one-frame
             # videos, which is how a "video" captioner ends up describing a still.
-            inputs = processor(text=[text], videos=[images], return_tensors='pt')
+            meta = _video_metadata(len(images), span_s)
+            try:
+                if meta is not None:
+                    inputs = processor(text=[text], videos=[images],
+                                       video_metadata=[meta],
+                                       return_tensors='pt')
+                else:
+                    inputs = processor(text=[text], videos=[images],
+                                       return_tensors='pt')
+            except TypeError:
+                # A processor built before the kwarg existed: same fallback as a
+                # missing dataclass — degrade to the old behaviour, loudly here
+                # rather than dying per clip.
+                _log('[caption] processor rejected video_metadata — '
+                     'falling back to default timestamps')
+                inputs = processor(text=[text], videos=[images],
+                                   return_tensors='pt')
             inputs = inputs.to(device)
             with torch.no_grad():
                 out = model.generate(**inputs, max_new_tokens=max_new_tokens,
@@ -166,11 +207,12 @@ def main() -> int:
             continue
         frames = [str(p) for p in (msg.get('frames') or [])]
         prompt = str(msg.get('prompt') or '')
+        span_s = msg.get('span_s')
         if not frames or not prompt:
             _emit({'ok': False, 'error': 'no frames or no prompt'})
             continue
         try:
-            caption = _caption(frames, prompt)
+            caption = _caption(frames, prompt, span_s)
         except Exception as e:  # noqa: BLE001 — one bad clip never kills the worker
             _emit({'ok': False, 'error': f'{type(e).__name__}: {e}'})
             continue

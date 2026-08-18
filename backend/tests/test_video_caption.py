@@ -309,3 +309,26 @@ def _states(app, bank_id):
     with app.app_context():
         return [c.caption_state for c in VideoClip.query.filter_by(bank_id=bank_id)
                 .order_by(VideoClip.id).all()]
+
+
+def test_the_model_is_told_how_long_the_shot_really_is():
+    """The frames are pre-sampled, so without a span the processor stamps them
+    at a default 24 fps and the model reads a five-second action as a third of
+    a second — every judgement of speed and duration wrong at the source. The
+    span the sampled instants actually cover must ride the seam to the worker."""
+    from app.services import video_caption as vc
+
+    seen = {}
+
+    class _Worker:
+        def caption(self, paths, prompt, span_s=None):
+            seen['span_s'] = span_s
+            return 'a caption'
+
+    times = vc.caption_frame_times(10.0, 15.0)
+    assert vc._caption_frames(['a.jpg', 'b.jpg'], 'p', worker=_Worker(),
+                              span_s=times[-1] - times[0]) == 'a caption'
+    # The span is the sampled instants' cover, inside the shot (edge margins
+    # shave it), never the raw clip length and never a made-up number.
+    assert 0 < seen['span_s'] <= 5.0
+    assert seen['span_s'] == times[-1] - times[0]
