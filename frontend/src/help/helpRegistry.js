@@ -660,6 +660,14 @@ const TOPICS = [
      'detail daemon', 'sdxl pass 2', 'sweep steps', 'try several steps',
      'default steps', 'always 8 steps', 'ignored steps'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  action('studio-guest-checkpoints', 'Compare with other LoRAs',
+    ['studio', 'test studio', 'theirs', 'guest checkpoint', 'external lora',
+     'compare someone elses lora', 'lora not trained here', 'civitai lora',
+     'kohya lora', 'other trainer', 'mine vs theirs', 'add a lora to test',
+     'same prompt and seed', 'guest lora', 'downloaded lora', 'not stacked',
+     'own row', 'checkpoints to test', 'add their lora', 'compare with other loras',
+     'other loras', 'accordion'],
+    '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   // Le lot vit dans le composant d'historique, monté par le Studio de test ET par
   // le panneau « Generate from the board » : un seul sujet d'aide pour les deux.
   action('studio-prompt-batch', '📝 Batch: run several saved prompts in one launch',
