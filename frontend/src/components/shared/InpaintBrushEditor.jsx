@@ -14,9 +14,27 @@
  *
  * Pointer events (not mouse) with capture, and `touch-none`: this has to work
  * under a finger, and a phone that scrolls the page while you paint is not a
- * brush. Adapted from the contribution: sizing switched from container-query
- * units to plain `max-h-full`, since the dialog around it is a flex box and not
- * a declared container.
+ * brush.
+ *
+ * SIZING — the wrapper and the img carry the SAME viewport-based lengths, and
+ * the canvas overlays with `inset-0`. Both halves of that matter:
+ *
+ *   - `max-h-full` on the img was a no-op. It resolves against the wrapper's
+ *     content height, which is itself defined by the img — indefinite, so the
+ *     used value is `none`. Nothing bounded the height: the picture grew to the
+ *     full stage width, overflowed downwards and covered the prompt/Repair row
+ *     underneath it. (The contribution used container-query units; they were
+ *     swapped for `max-h-full` on the way in, which is where this came from.
+ *     They are back, with a `vh` floor for hosts that declare no container.)
+ *   - because the wrapper is `inline-block` and shrink-wraps a single block img
+ *     with no padding, wrapper box == img box, so `absolute inset-0` puts the
+ *     canvas exactly on the displayed picture. When the img was allowed to
+ *     outgrow the wrapper, the canvas kept the WRAPPER's smaller box: a click
+ *     39.5% down the visible image landed at 50% in the mask, and the bottom of
+ *     the picture could not be reached at all. Same construct the box editor
+ *     (WatermarkRegionEditor) has always used, for the same reason.
+ *
+ * Any change here must keep `img.getBoundingClientRect()` equal to the canvas's.
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
@@ -179,13 +197,16 @@ export default function InpaintBrushEditor({
   }, []);
 
   return (
-    <div className="relative inline-block max-h-full max-w-full leading-none"
+    <div className="relative inline-block max-h-[min(70vh,calc(100cqh_-_1.5rem))] max-w-[min(92vw,100cqw)] leading-none"
       role="group" aria-label="Repair brush"
       onClick={(event) => event.stopPropagation()}>
+      {/* No object-fit class here: the element box already carries the
+          intrinsic ratio, and a fitted box that differs from the element box is
+          precisely the drift the canvas cannot see. */}
       <img ref={imageRef} src={src} alt={alt} draggable={false}
         onLoad={fitCanvas}
         onDragStart={(event) => event.preventDefault()}
-        className="block max-h-full max-w-full select-none object-contain" />
+        className="block max-h-[min(70vh,calc(100cqh_-_1.5rem))] max-w-[min(92vw,100cqw)] select-none" />
       <canvas ref={setCanvas}
         aria-label="Paint the area to repair"
         className="absolute inset-0 h-full w-full touch-none"
