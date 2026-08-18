@@ -164,6 +164,26 @@ def test_boot_sweep_clears_old_orphans_but_spares_recent_and_foreign_files(tmp_p
 
 
 @pytest.mark.parametrize('name', [
+    'wmklein_crop_0a1b2c3d.png',     # crop lane
+    'wmklein_frame_0a1b2c3d.png',    # masked lane — the full photo…
+    'wmklein_mask_0a1b2c3d.png',     # …and the mask beside it
+])
+def test_every_klein_staged_input_is_collectable(tmp_path, name):
+    """Both lanes unlink their own staged copies in a `finally`. This is the
+    backstop for the case that skips it — the app or ComfyUI dying between the
+    stage and the job — and a name the sweeper does not recognise leaks into the
+    user's ComfyUI input folder for good. The masked lane shipped with names
+    outside the family (`wmkleinmask_img_…`), which is exactly that leak."""
+    d = tmp_path / 'input'
+    d.mkdir()
+    orphan = _touch(d / name, age_seconds=365 * 24 * 3600)
+
+    assert comfy_fs.is_staged_input_name(name), f'{name} must be recognised as ours'
+    assert comfy_fs.prune_staged_inputs(str(d)) == 1
+    assert not orphan.exists()
+
+
+@pytest.mark.parametrize('name', [
     'edit_reference.png',            # a user file that merely STARTS like ours
     'edit_references_backup.png',
     'krea_sources.png',

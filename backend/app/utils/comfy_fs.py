@@ -270,7 +270,7 @@ def stage_input_write(dest_name, writer, input_dir) -> str:
 #     references; those are skipped whatever their age or name.
 _STAGED_INPUT_RE = re.compile(
     r'^(?:edit_source|edit_ref\d+|krea_source)_[0-9a-f]{8}_'
-    r'|^wmklein_crop_[0-9a-f]{8}\.png$')
+    r'|^wmklein_(?:crop|frame|mask)_[0-9a-f]{8}\.png$')
 
 # A staged input is dead once its job can no longer run. The worst case is a full
 # fan-out queued at once (MAX_FANOUT jobs) each burning the whole poll timeout

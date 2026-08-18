@@ -601,8 +601,12 @@ def _run_klein_mask_job(user_id, frame_img, mask_img, *, seed, steps=KLEIN_MASK_
         raise keh.KleinModelsMissing(missing)
 
     uid = uuid.uuid4().hex[:8]
-    frame_name = f'wmkleinmask_img_{uid}.png'
-    mask_name = f'wmkleinmask_mask_{uid}.png'
+    # SAME `wmklein_` family as the crop lane, because the orphan sweeper in
+    # comfy_fs matches on the exact shape these names take. A staged file the
+    # sweeper cannot recognise never gets collected when a job dies between
+    # staging and the `finally` below — it just sits in ComfyUI's input folder.
+    frame_name = f'wmklein_frame_{uid}.png'
+    mask_name = f'wmklein_mask_{uid}.png'
     frame_path = mask_path = None
     try:
         comfy_input = comfy_fs.ensure_input_usable(_comfy_input_dir())
