@@ -2162,6 +2162,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
           onMarkWatermark={viewImgLive._rescueReviewPreview
             ? undefined
             : ((image) => { setViewImg(null); setReviewQueue([image]); })}
+          /* ✦ Repair acts HERE now, without the detour through the watermark
+             review. Same call the review screen makes, so both surfaces share
+             one lane, one undo and one set of refusals. */
+          onRepair={viewImgLive._rescueReviewPreview
+            ? undefined
+            : ((id, prompt, boxes, mask) => ds.repairImageRegion(id, prompt, boxes, mask))}
+          onUndoRepair={viewImgLive._rescueReviewPreview
+            ? undefined
+            : ((id) => ds.undoImageRepair(id))}
           improvePending={viewImgImproving}
           improveReady={viewImgImprovementReady}
           busy={ds.busy || gridBulkBusy}

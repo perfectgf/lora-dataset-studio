@@ -9458,7 +9458,24 @@ def decode_repair_mask_for(frame_path, raw):
 
 def take_repair_snapshot(path) -> None:
     """Copy the CURRENT pixels aside so the repair about to run can be undone.
-    Overwrites any previous snapshot — the undo is one step deep by design."""
+    Overwrites any previous snapshot — the undo is one step deep BY DESIGN.
+
+    WRITE-ONCE WAS PROPOSED AND REJECTED, so nobody re-derives it as an
+    improvement. PR #37 kept its snapshot from before the FIRST edit, which
+    sounds strictly safer and is not, because repairs are ITERATED: the dialog
+    stays open and offers "✦ Repair again". Walk a real session —
+
+        1. remove the necklace   -> good, keep it
+        2. remove the earring    -> bad
+
+    ...and press undo. One step deep gives back the picture with the necklace
+    gone. Write-once gives back the untouched original and silently throws away
+    step 1, which the user never asked to lose. The safer-sounding rule is the
+    one that destroys work.
+
+    Getting all the way back to pristine is not lost either: `.orig` is
+    write-once and ↩ Restore original still returns it.
+    """
     try:
         shutil.copy2(path, repair_snapshot_path(path))
     except OSError as e:

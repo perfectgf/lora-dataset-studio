@@ -50,6 +50,10 @@
  * the state in one slot is what makes "moving image closes whichever pane was
  * open" true for both without a second reset path.
  *
+ * `repairOpen` — the ✦ Repair dialog — is here for exactly that reason too: it
+ * is a full-screen overlay showing ONE image, so ⟩ pressed behind it would
+ * leave you repairing a picture that is no longer the one on screen.
+ *
  * `actionsOpen` — the narrow-screen actions panel — lives here for the same
  * reason, not because a panel belongs to a picture: it is a full-screen overlay
  * on a phone, and ⟩ pressed behind it would otherwise land you on an image you
@@ -69,6 +73,7 @@ export function freshLightboxImageState(imageId) {
     compareMode: 'none',
     improving: false,
     actionsOpen: false,
+    repairOpen: false,
     deciding: false,
   };
 }
