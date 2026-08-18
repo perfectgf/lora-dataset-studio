@@ -521,6 +521,22 @@ DEFAULTS = {
                    'bars_max': None,
                    'text_coverage_max': None,
                    'safe_area_min': None,
+                   # 🩻 The defect sweep's three cuts, empty for a reason that is
+                   # NOT quite the one above. Duplicated frames and blocking are
+                   # damage rather than taste, so a default would be defensible
+                   # in principle — but `block_score` and `blur_score` are raw
+                   # filter outputs whose absolute value depends heavily on
+                   # CONTENT: measured across four scenes at one fixed quality,
+                   # `lavfi.block` spanned three orders of magnitude, while the
+                   # same scene across a quality ladder moved by under 4×. So
+                   # the signal is in the SPREAD within one bank, not in the
+                   # number, and any default would be this app's test material
+                   # deciding what counts as damaged in somebody else's. The
+                   # dry run is how a cut gets chosen; the panel hints carry the
+                   # orders of magnitude that make a first guess possible.
+                   'dup_frames_max': None,
+                   'block_max': None,
+                   'blur_max': None,
                    'duplicate_threshold': 0.96},
     # consistency_strength: the dx8152 LoRA anchors STRUCTURE (composition/
     # background), not the face — its own guide says start at 0.5 and that

@@ -600,6 +600,9 @@ def _capability() -> dict:
 
 
 def sources_payload(user_id, bank_id) -> list:
+    # Local, like every other reference to this module here: it is the decode
+    # seam's neighbour and the convention keeps `av` out of import time.
+    from . import video_probe
     rows = (VideoSource.query.filter_by(bank_id=bank_id)
             .order_by(VideoSource.relpath.asc()).all())
     clip_counts = dict(
@@ -609,6 +612,14 @@ def sources_payload(user_id, bank_id) -> list:
         'id': s.id, 'relpath': s.relpath, 'file_size': s.file_size,
         'duration_s': s.duration_s, 'fps_native': s.fps_native,
         'width': s.width, 'height': s.height, 'codec': s.codec,
+        # How hard this file was squeezed. `bits_per_pixel` is DERIVED here
+        # rather than stored — it is a pure function of the four values above it
+        # and a stored copy would go stale the day a re-probe corrects the frame
+        # rate. All three are shown and none is cut on: the 🩻 defect sweep
+        # measures the damage these predict.
+        'bit_rate': s.bit_rate, 'profile': s.profile,
+        'bits_per_pixel': video_probe.bits_per_pixel(
+            s.bit_rate, s.width, s.height, s.fps_native),
         'probe_state': s.probe_state, 'detect_state': s.detect_state,
         'clips': clip_counts.get(s.id, 0),
         # Whether this file can be re-cut INSTANTLY. Read from the column and
@@ -978,6 +989,13 @@ def _probe_job(bank_id, reprobe):
                 src.height = info.get('height')
                 codec = info.get('codec')
                 src.codec = str(codec)[:24] if codec else None
+                # Both may legitimately be None — a container that does not
+                # carry a per-stream bit rate is not a failed probe — so they
+                # are written unconditionally rather than guarded, which is what
+                # lets a RE-probe clear a value that is no longer true.
+                src.bit_rate = info.get('bit_rate')
+                profile = info.get('profile')
+                src.profile = str(profile)[:32] if profile else None
                 ok += 1
             else:
                 bad += 1
@@ -1754,6 +1772,80 @@ def _safe_zone_job(bank_id, rescan):
             # every shot this run touched. Silence here would leave a bank whose
             # text cut flags nothing and nothing anywhere saying why.
             detail += f' — {out["error"]}'
+        bank_jobs.progress(job, detail=detail)
+        return out
+    return run
+
+
+def start_defects(app, user_id, bank_id, rescan=False):
+    """🩻 Sweep each source file for duplicated frames, blocks and soft edges.
+
+    ITS OWN BUTTON, and not a phase of Measure, which is the obvious-looking
+    place for it. Three reasons, in order of how much they cost to get wrong:
+
+      * Different UNIT. Measure decodes one clip at a time through PyAV; this
+        decodes one FILE at a time through ffmpeg, because all three defects are
+        properties of the encode and the macroblock grid does not change at a
+        cut. Folded in, it would either decode each file once per shot — losing
+        the entire argument — or turn one progress bar into a count of two
+        different things.
+      * Different DEPENDENCY. Measure needs `av` and runs perfectly on an
+        install with no ffmpeg, which the lane explicitly supports ("with no
+        encoder you can scan, detect and triage"). Folding this in would either
+        make the quality pass refuse without a binary it has never needed, or
+        add a silent half that skips — and a pass that quietly does less than
+        its name is the failure this codebase keeps a whole vocabulary of states
+        to avoid.
+      * Different COST, and it is not small. Measured on 1080p25: ~9 s per
+        minute of source, which on a four-hour bank is a little over half an
+        hour of CPU on top of what Measure already costs. Bundling it would
+        multiply a button people press often, with no way to decline.
+
+    🔳 Safe zone's docstring already wrote the test this passes: a pass earns its
+    own button when it CONSUMES nothing, and this one consumes nothing — a file
+    is sweepable the moment it has probed and been cut. 🎨 Look and ✂ Duplicates
+    ride other passes because they read what those passes cached; there is no
+    such order to protect here.
+
+    Refused up front, with the Setup sentence, when ffmpeg is not usable — a 202
+    followed by a job that dies on a missing binary is the same news delivered
+    later and harder to read. NO GPU window: ffmpeg filters run on the CPU, so
+    this can sweep while a training run owns the card.
+    """
+    from .video_defect_sweep import unavailable_reason
+    _require_free_bank(user_id, bank_id)
+    reason = unavailable_reason()
+    if reason:
+        raise RuntimeError(reason)
+    return bank_jobs.start(app, job_key(bank_id), 'defects',
+                           _defects_job(bank_id, bool(rescan)))
+
+
+def _defects_job(bank_id, rescan):
+    def run(job):
+        from . import video_defect_sweep
+        pending = video_defect_sweep.pending_sources(bank_id, rescan)
+        # Progress counts CLIPS while the work advances one FILE at a time, so
+        # the bar can stand still for a whole file. The detail line names the
+        # file being swept for exactly that reason — a minute of silence on a
+        # long rush reads as a hang otherwise.
+        total = sum(len(clips) for _src, clips in pending)
+        bank_jobs.progress(job, done=0, total=total, detail='sweeping for defects')
+        out = video_defect_sweep.run_defects(
+            bank_id, rescan,
+            on_clip=lambda: bank_jobs.bump(job),
+            on_file=lambda relpath: bank_jobs.progress(
+                job, detail=f'sweeping {os.path.basename(relpath)}'),
+            should_stop=lambda: bank_jobs.cancelled(job))
+        detail = (f'done — {out["measured"]} shot(s) swept '
+                  f'across {out["files"]} file(s)')
+        if out['unreadable']:
+            detail += f', {out["unreadable"]} with no frames in range'
+        if out['error']:
+            # Said out loud and NOT as a failure: every file swept before it is
+            # real and kept. Silence here leaves a bank whose defect cuts flag
+            # nothing and nothing anywhere saying which file was skipped.
+            detail += f' — last problem: {out["error"]}'
         bank_jobs.progress(job, detail=detail)
         return out
     return run

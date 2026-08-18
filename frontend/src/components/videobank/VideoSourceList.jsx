@@ -1,5 +1,5 @@
 import {
-  formatDuration, formatFileSize, sourceGeometry, sourceState,
+  formatDuration, formatFileSize, sourceEncoding, sourceGeometry, sourceState,
 } from './videoBankStatus'
 import { firstShotBounds } from './videoClipEdit'
 import { canRecut } from './videoShotCuts'
@@ -77,6 +77,15 @@ export default function VideoSourceList({
               {formatDuration(s.duration_s)} · {formatFileSize(s.file_size)}
               {sourceGeometry(s) ? ` · ${sourceGeometry(s)}` : ''}
             </p>
+            {/* The squeeze, on its own line: the line above already carries
+                three facts and a fourth wraps at 400 px. Absent entirely when
+                the container said nothing — a blank beats a fabricated 0. */}
+            {sourceEncoding(s) && (
+              <p className="text-[0.6875rem] text-content-subtle"
+                title="How hard this file was compressed. Bits per pixel per frame is the comparable one: under ~0.05 is visibly damaged, over ~0.15 is comfortable. Shown only — the 🩻 Defects pass measures the damage this predicts.">
+                {sourceEncoding(s)}
+              </p>
+            )}
             <div className="flex flex-wrap gap-1">
               {onCut && firstShotBounds(s) && (
                 <button type="button" onClick={() => onCut(s, firstShotBounds(s))}

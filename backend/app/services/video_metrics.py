@@ -96,7 +96,15 @@ ADVISORY_KEYS = ('duplicate_group', 'duplicate_of',
                  # writes and this list does not carry is erased by the next
                  # quality scan with nothing anywhere to see.
                  'safe_zone_state', 'safe_zone_frames', 'safe_bands',
-                 'bars_ratio', 'text_coverage', 'safe_rect', 'safe_area')
+                 'bars_ratio', 'text_coverage', 'safe_rect', 'safe_area',
+                 # 🩻 The defect sweep. Produced by ONE ffmpeg pass over the
+                 # whole source file, so re-measuring a single clip cannot
+                 # reproduce them — dropping them here would send the entire
+                 # bank back through a decode of every file it holds, which is
+                 # the most expensive silence of the six. Pinned against
+                 # video_defect_sweep.OWNED_KEYS by a test.
+                 'defect_state', 'defect_frames', 'dup_frame_ratio',
+                 'block_score', 'blur_score')
 
 
 def merge_advisory(previous, summary):
@@ -289,7 +297,8 @@ THRESHOLD_KEYS = ('min_duration_s', 'motion_floor', 'motion_ceiling',
                   'luma_floor', 'freeze_max', 'sharpness_floor',
                   'first_frame_floor', 'silence_max', 'audio_floor',
                   'watermark_max', 'aesthetic_floor',
-                  'bars_max', 'text_coverage_max', 'safe_area_min')
+                  'bars_max', 'text_coverage_max', 'safe_area_min',
+                  'dup_frames_max', 'block_max', 'blur_max')
 
 
 def verdicts(scores, thresholds, duration_s=None):
@@ -442,6 +451,45 @@ def verdicts(scores, thresholds, duration_s=None):
     area_min = thresholds.get('safe_area_min')
     if area is not None and area_min is not None and area < area_min:
         flags.add('small_safe_zone')
+
+    # ── 🩻 The defect sweep: three cuts on what a re-encode left behind ──────
+    # One ffmpeg pass per SOURCE FILE produced all three (video_defect_sweep),
+    # and they are three flags rather than one for the same reason the safe
+    # zone's are: three findings with three different remedies — re-cut around
+    # the stall, drop the file, or find a better copy of it. All three obey the
+    # rule every cut above obeys: no measurement, no flag, so a bank swept
+    # before this shipped, or a shot too short to have been sampled, is never
+    # flagged for something nothing looked at.
+
+    # Frames delivered twice. NOT the same finding as `freeze`, and the two must
+    # not be collapsed: that one reads motion vectors and says nothing MOVED,
+    # this one says the same picture ARRIVED twice. A 24-into-30 pulldown
+    # produces the second with no trace of the first, and it is the single most
+    # common thing wrong with re-uploaded footage.
+    dup = scores.get('dup_frame_ratio')
+    dup_max = thresholds.get('dup_frames_max')
+    if dup is not None and dup_max is not None and dup > dup_max:
+        flags.add('dup_frames')
+
+    # The macroblock grid showing through. Never legitimate — no camera, lens or
+    # light produces one — so unlike every other cut here the only question is
+    # how much of it the user will tolerate.
+    block = scores.get('block_score')
+    block_max = thresholds.get('block_max')
+    if block is not None and block_max is not None and block > block_max:
+        flags.add('blocky')
+
+    # Wide edges at FULL SIZE, which is the half `soft` cannot see: that flag
+    # reads a Laplacian computed on a 160-pixel-wide analysis copy, and footage
+    # upscaled from something smaller is identical to the real thing at 160
+    # pixels (measured: three files, 354.35 / 353.69 / 353.72). Deliberately its
+    # own flag rather than more evidence for `soft` — a clip can be sharp at
+    # analysis size and mush at full size, and only one of the two is worth
+    # re-downloading a better copy over.
+    blur = scores.get('blur_score')
+    blur_max = thresholds.get('blur_max')
+    if blur is not None and blur_max is not None and blur > blur_max:
+        flags.add('blurry')
 
     return flags
 

@@ -874,6 +874,22 @@ const TOPICS = [
      'text coverage', 'usable frame', 'crop', 'how much can i crop',
      'bands only', 'rapidocr', 'ocr', 'text extra not installed'],
     '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
+  // Reached from the SYMPTOM in every case — "my LoRA output looks mushy",
+  // "everything I generate has blocks in it", "this 1080p file does not look
+  // like 1080p" — and from the one question this pass exists to answer that
+  // nothing else in the app can: whether a file was upscaled. The sharpness
+  // floor measures a small analysis copy and cannot see it, so a user who has
+  // already set that cut and still gets soft output arrives here next.
+  action('video-defect-sweep', 'Duplicated frames, blocks and soft edges (🩻 Defects)',
+    ['defects', 'defect sweep', 'duplicated frames', 'duplicate frames',
+     'repeated frames', 'same frame twice', 'pulldown', '24fps in 30fps',
+     'frame rate conversion', 'compression blocks', 'blocky', 'blocking',
+     'macroblock', 'macroblocks', 'artifacts', 'artefacts', 'squeezed',
+     'blurred edges', 'blurry', 'soft at full size', 'upscaled', 'upscale',
+     'fake 1080p', 'fake 4k', 'not really hd', 'reencoded', 're-encoded',
+     'reuploaded', 'bitrate', 'bits per pixel', 'bpp', 'codec profile',
+     'block max', 'blur max', 'dup frames max', 'needs ffmpeg'],
+    '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
   action('video-flag-chips', 'Filter the gallery by a quality flag',
     ['flag chips', 'filter by flag', 'flagged shots', 'select flagged',
      'reject all flagged', 'amber chips', 'show only flagged', 'counts loaded',

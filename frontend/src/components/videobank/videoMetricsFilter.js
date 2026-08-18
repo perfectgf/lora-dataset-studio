@@ -41,6 +41,20 @@ export const FLAG_LABELS = {
   letterboxed: 'Letterbox bars',
   burned_text: 'Burned-in text',
   small_safe_zone: 'Little usable frame',
+  // 🩻 What a re-encode left behind, named apart for the same reason the safe
+  // zone's three are: three findings, three remedies — re-cut around the stall,
+  // drop the file, or go and find a better copy of it.
+  //
+  // 'Blurred edges' next to 'No sharp frames' is NOT a duplicate wording for one
+  // finding, and the difference is the whole point of the second measurement:
+  // 'soft' reads a Laplacian on a 160-pixel-wide analysis copy and answers "is
+  // there detail in this shot", while this one measures edge width at FULL size
+  // and answers "are the pixels real". Footage upscaled from something smaller
+  // is identical to the genuine article at 160 pixels and obviously fake at
+  // 1080 — a clip can honestly carry either chip without the other.
+  dup_frames: 'Duplicated frames',
+  blocky: 'Compression blocks',
+  blurry: 'Blurred edges',
   unmeasured: 'Not measured yet',
 }
 
@@ -206,6 +220,41 @@ export function thresholdFields() {
         + 'pass AND its text extra from Setup: without the extra the pass '
         + 'measures bands only and stores no usable-frame reading at all, so '
         + 'this cut flags nothing rather than clearing every shot.' },
+    // 🩻 The defect sweep. All three read one ffmpeg pass per SOURCE FILE and
+    // all three ship empty — and here the reason is not only "it is your
+    // footage": the two quality scores are raw filter outputs whose absolute
+    // value depends heavily on CONTENT, so the signal is in the spread inside
+    // one bank rather than in the number. That makes the dry run less optional
+    // here than anywhere else in this table, which is why every hint below
+    // gives an order of magnitude instead of a value to type.
+    { key: 'dup_frames_max', flag: 'dup_frames', direction: 'above',
+      label: 'Duplicated frames',
+      hint: 'Flags shots where more than this share of frames is a repeat of '
+        + 'the one before. 0.1 means a tenth. This is what 24 fps material '
+        + 'uploaded as 30 fps looks like — one frame in five is a copy, so 0.15 '
+        + 'catches it — and it is NOT the frozen-share cut above: that one says '
+        + 'nothing moved, this one says the same picture arrived twice. Needs '
+        + 'the 🩻 Defects pass; a shot it has not swept is never flagged.' },
+    { key: 'block_max', flag: 'blocky', direction: 'above',
+      label: 'Compression blocks',
+      hint: 'Flags shots where the macroblock grid shows through. No default, '
+        + 'and no useful published one: the score depends on what is IN the '
+        + 'frame as much as on the damage — measured here, the same scene from '
+        + 'a good encode to a ruined one moved from 13 to 43, while four '
+        + 'different scenes at ONE quality spanned 1 to 25 000. So read your own '
+        + 'bank: preview a value, look at what it caught, move it. Needs the '
+        + '🩻 Defects pass.' },
+    { key: 'blur_max', flag: 'blurry', direction: 'above',
+      label: 'Blurred edges',
+      hint: 'Flags shots whose edges stay wide even at their sharpest, measured '
+        + 'at FULL resolution. This is the one that catches footage upscaled '
+        + 'from something smaller, which the sharpness floor above cannot see at '
+        + 'all — it measures a 160-pixel-wide copy, where a 480p upscale and the '
+        + 'real 1080p are the same picture (measured: 353.7 against 354.4). '
+        + 'Typical readings are 4-6 for clean footage and 7-12 for upscaled or '
+        + 'heavily squeezed material. Deliberately reads the SHARPEST tenth of '
+        + 'each shot, so a fast pan is not called blurry. Needs the 🩻 Defects '
+        + 'pass.' },
   ]
 }
 

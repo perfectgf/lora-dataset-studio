@@ -38,7 +38,12 @@ export const VIDEO_PIECES = [
   {
     key: 'encode',
     label: 'Cutting clips',
-    blurb: 'Re-encoding the shots you kept into a training set. Only promotion needs this.',
+    // "Only promotion needs this" was true for four waves and stopped being
+    // true when 🩻 Defects landed: that pass hands whole files to the same
+    // binary. A blurb that still said "only promotion" would send someone
+    // without ffmpeg looking for a different reason their sweep button is grey.
+    blurb: 'Re-encoding the shots you kept into a training set, and sweeping '
+      + 'your files for compression damage. Promotion and 🩻 Defects need this.',
     fix: 'Install ffmpeg, or put it on your PATH.',
   },
 ]
@@ -82,6 +87,14 @@ export const PASS_REQUIREMENTS = {
   // Requiring it would grey out a button that works — the exact mistake this
   // table exists to avoid, in the opposite direction.
   safezone: ['decode'],
+  // 🩻 Defects is the ONLY reading pass that needs `encode` — and it needs
+  // nothing else, which is the mirror image of every row above. The three
+  // measurements are ffmpeg filters running inside ffmpeg's own decode loop, so
+  // the file is never opened here: an install with `av` and no ffmpeg cannot
+  // run it, and an install with ffmpeg and no `av` can. Listing `decode` too
+  // would grey out a button that works, and listing `encode` on the others
+  // would grey out ones that never touch the binary.
+  defects: ['encode'],
   pipeline: ['decode', 'detect'],
   promote: ['encode'],
 }

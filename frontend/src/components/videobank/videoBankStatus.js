@@ -54,6 +54,7 @@ export const PASS_LABELS = {
   dedup: '✂ Duplicates',
   watermark: '🔖 Watermarks',
   safezone: '🔳 Safe zone',
+  defects: '🩻 Defects',
   pipeline: 'Run everything',
   promote: 'Build the dataset',
 }
@@ -69,6 +70,10 @@ export const PASS_RUNNING_LABELS = {
   dedup: 'Comparing shots',
   watermark: 'Looking for watermarks',
   safezone: 'Measuring the safe zone',
+  // "Sweeping files", not "shots": this pass advances one FILE at a time while
+  // its progress bar counts clips, and a participle that promised shots would
+  // make a bar standing still for a whole rush look stuck.
+  defects: 'Sweeping files',
   pipeline: 'Running everything',
   promote: 'Building the dataset',
 }
@@ -268,6 +273,42 @@ export function sourceGeometry(source) {
   if (s.width && s.height) parts.push(`${s.width}×${s.height}`)
   if (s.fps_native) parts.push(`${Math.round(Number(s.fps_native) * 100) / 100} fps`)
   if (s.codec) parts.push(s.codec)
+  return parts.join(' · ')
+}
+
+/** "High · 5.2 Mb/s · 0.215 bpp" — how hard this file was squeezed, or ''.
+ *
+ * ITS OWN LINE on the card, not appended to `sourceGeometry`. That line already
+ * carries three facts, and a fourth, fifth and sixth would wrap into three lines
+ * at 400 px wide — the width every card in this app has to survive.
+ *
+ * BITS PER PIXEL is the number worth reading and the reason the other two are
+ * shown at all: a bitrate means nothing without a resolution to divide it by
+ * (5 Mb/s is generous at 480p and starving at 4K), while bits per pixel per
+ * frame is comparable across a mixed bank. Roughly, under 0.05 is visibly
+ * damaged and over 0.15 is comfortable for ordinary 8-bit H.264.
+ *
+ * INFORMATIVE, never a cut, and that is a deliberate refusal rather than an
+ * omission: bits per pixel PREDICTS compression damage, and the 🩻 Defects pass
+ * MEASURES it. Offering a threshold on the prediction while the measurement sits
+ * one panel away would be the app guessing in front of its own answer.
+ *
+ * Silent when the container did not say — MKV and WebM routinely carry no
+ * per-stream bitrate, so a dash there is a property of the file rather than a
+ * pass nobody ran, and inventing a number from the file size would fold the
+ * audio track into a video statistic.
+ */
+export function sourceEncoding(source) {
+  const s = source || {}
+  const parts = []
+  if (s.profile) parts.push(String(s.profile))
+  const rate = Number(s.bit_rate)
+  if (Number.isFinite(rate) && rate > 0) {
+    parts.push(rate >= 1e6 ? `${(rate / 1e6).toFixed(1)} Mb/s`
+      : `${Math.round(rate / 1e3)} kb/s`)
+  }
+  const bpp = Number(s.bits_per_pixel)
+  if (Number.isFinite(bpp) && bpp > 0) parts.push(`${bpp.toFixed(3)} bpp`)
   return parts.join(' · ')
 }
 

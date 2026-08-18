@@ -221,3 +221,81 @@ test('an unrated shot is not a low-aesthetic shot', () => {
   assert.equal(flagCounts(clips).low_aesthetic, undefined);
   assert.equal(filterByFlag(clips, 'low_aesthetic').length, 0);
 });
+
+// --- 🩻 the defect sweep -------------------------------------------------------
+
+test('each defect the sweep finds has its own panel row and its own flag', () => {
+  // Three findings, three remedies — re-cut around the stall, drop the file, or
+  // go and find a better copy. One "damaged" row could only ever suggest the
+  // last one, which is the same argument that split the safe zone's three.
+  const fields = thresholdFields();
+  for (const [key, flag] of [['dup_frames_max', 'dup_frames'],
+    ['block_max', 'blocky'], ['blur_max', 'blurry']]) {
+    const field = fields.find((f) => f.key === key);
+    assert.ok(field, `${key} has no row, so it is settable only by hand-editing config.json`);
+    assert.equal(field.flag, flag);
+    assert.equal(field.direction, 'above');
+    assert.ok(FLAG_LABELS[flag]);
+  }
+});
+
+test('the blur cut says out loud what the sharpness floor cannot see', () => {
+  // The measured fact that earns this cut its own row: `sharpness_floor` reads a
+  // Laplacian on a 160-pixel-wide analysis copy, where footage upscaled from
+  // 480p and the genuine 1080p are the SAME PICTURE. A hint that did not say so
+  // would leave two rows that look like duplicates of each other.
+  const blur = thresholdFields().find((f) => f.key === 'blur_max');
+  assert.match(blur.hint, /upscal/i);
+  assert.match(blur.hint, /full resolution|full size/i);
+});
+
+test('the duplicated-frames cut is not sold as the frozen-share cut', () => {
+  // They read differently and mean differently: one says nothing MOVED, the
+  // other says the same picture ARRIVED twice. A 24-into-30 pulldown produces
+  // the second with no trace of the first.
+  const dup = thresholdFields().find((f) => f.key === 'dup_frames_max');
+  const freeze = thresholdFields().find((f) => f.key === 'freeze_max');
+  assert.notEqual(dup.label, freeze.label);
+  assert.notEqual(FLAG_LABELS.dup_frames, FLAG_LABELS.freeze);
+  assert.match(dup.hint, /fps|frame rate/i);
+});
+
+test('the block hint refuses to name a value, and says why', () => {
+  // The score depends on content as much as on damage (measured: 1 to 25 000
+  // across four scenes at ONE quality). A hint that offered "try 20" would be
+  // this app's test material deciding what counts as damaged in somebody else's.
+  const block = thresholdFields().find((f) => f.key === 'block_max');
+  assert.match(block.hint, /no default/i);
+  assert.match(block.hint, /own bank/i);
+});
+
+test('the three defect flags count, chip and filter like every other flag', () => {
+  const clips = [
+    { id: 1, flags: ['dup_frames'], metrics: { dup_frame_ratio: 0.4 } },
+    { id: 2, flags: ['blocky', 'blurry'], metrics: { block_score: 44 } },
+    { id: 3, flags: [], metrics: { dup_frame_ratio: 0.0 } },
+  ];
+  const counts = flagCounts(clips);
+  assert.equal(counts.dup_frames, 1);
+  assert.equal(counts.blocky, 1);
+  assert.equal(counts.flagged, 2, 'a clip with two flags is one clip');
+  assert.equal(filterByFlag(clips, 'blurry').map((c) => c.id).join(), '2');
+  assert.ok(flagChips(clips).some((c) => c.flag === 'dup_frames'));
+});
+
+test('a shot the sweep never touched offers no defect chip', () => {
+  // Same rule the look score follows: "nobody swept it" and "it swept clean" are
+  // different facts, and only one of them is fixed by running the pass.
+  const clips = [{ id: 1, flags: [], metrics: { metrics_state: 'ok' } }];
+  for (const flag of ['dup_frames', 'blocky', 'blurry']) {
+    assert.equal(flagCounts(clips)[flag], undefined);
+    assert.ok(!flagChips(clips).some((c) => c.flag === flag));
+  }
+});
+
+test('a defect cut travels in the payload only once it is set', () => {
+  const draft = draftThresholds({ block_max: 20 });
+  assert.equal(draft.blur_max, null);
+  assert.equal(payloadFromDraft(draft).block_max, 20);
+  assert.ok(!('blur_max' in payloadFromDraft(draft)));
+});
