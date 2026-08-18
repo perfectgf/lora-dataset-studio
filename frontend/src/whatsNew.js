@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-18-video-look-score',
+    date: '2026-08-18',
+    title: 'Your shots now carry a look score — for free',
+    blurb:
+      'The video bank could tell you a shot was sharp, lit and moving; it could not tell you it was ugly. 🔎 Find scenes now also rates how each shot LOOKS, using the same LAION aesthetic model — and the same ~1–10 scale — the image Bank’s ✨ Score puts on a still. It costs nothing extra: the rating is read off the frame vectors that pass already caches, so no video is decoded twice and your GPU is never touched. Already embedded a bank? Click 🔎 Find scenes again and it rates the whole thing in seconds, without re-reading a single file. The new Aesthetic floor sits in 🎚 Quality cuts, empty by default — preview 4 against your own bank first; the published LAION cuts (4 casual, 4.75 strict) were set for filtering a web crawl, and real rushes sit well above them. A shot with no rating is never flagged.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-18-cleaning-keeps-the-zones-you-drew',
     date: '2026-08-18',
     title: 'The zones you draw by hand survive a clean',

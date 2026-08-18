@@ -23,6 +23,11 @@ EVERY frame, so the useful question is rarely "what is the average?":
               thrashing?" are different questions and cannot share a number.
   freeze    → the SHARE of near-still frames. A frozen second inside a lively shot
               leaves the mean perfectly healthy; only the share reveals it.
+  aesthetic → MEAN, and it is the one entry here that does NOT follow the rule
+              above. See `aesthetic_of` for the argument: it is the only quantity
+              in this list that barely moves inside a shot, so its per-frame
+              readings are noise around one value rather than moments the model
+              learns separately.
 
 WHY RAW SCORES ARE STORED AND VERDICTS ARE NOT. Same philosophy as the image
 bank: retuning a threshold then re-sorts the bank with no rescan. It matters more
@@ -77,7 +82,12 @@ SHARPNESS_KEY = 'sharpness_p90'
 # scan, which rewrites the blob wholesale, must carry them across rather than
 # erase a dedup or watermark verdict every time somebody re-measures a bank.
 ADVISORY_KEYS = ('duplicate_group', 'duplicate_of',
-                 'watermark_score', 'watermark_state')
+                 'watermark_score', 'watermark_state',
+                 # 🎨 The look score. Produced from the search vectors, so a
+                 # re-measure (which decodes frames and knows nothing about
+                 # CLIP) must carry it across rather than silently drop it and
+                 # send the whole bank back through the aesthetic pass.
+                 'aesthetic_score')
 
 
 def merge_advisory(previous, summary):
@@ -159,6 +169,44 @@ def summarise_audio(windows):
     }
 
 
+def aesthetic_of(frame_scores):
+    """Collapse a shot's per-frame LAION aesthetic ratings (~1..10) into ONE
+    number — the score `video_aesthetic` stores and `aesthetic_floor` cuts on.
+
+    MEAN, and it is the only aggregation in this module NOT chosen by "which
+    moment does the model also learn". Exposure takes the MIN because half a
+    second of black IS in the training data; sharpness takes p90 because
+    legitimate motion blur must not sink a clip that is sharp somewhere. Look is
+    a different KIND of quantity: framing, lighting, palette and subject barely
+    move inside one shot — a cut is precisely where they change, which is why
+    shots exist at all. Three readings of one shot are therefore three noisy
+    measurements of ONE value, and the mean is what reduces that noise.
+
+    THE HONEST LIMIT, and why the two obvious alternatives are worse HERE. The
+    public curation pipelines this head comes from sample ~1 fps; this lane
+    embeds three frames chosen by POSITION and by SHARPNESS, and that biased
+    sample is what makes the choice:
+
+      * MIN would mostly report an EDGE frame. 'start' and 'end' sit
+        EDGE_MARGIN_S (0.25 s) inside the bounds — close enough to a cut that
+        dissolves and half-faded frames land there disproportionately, which is
+        the very reason that margin exists. A min would answer "how ugly is the
+        worst boundary" rather than "how does this shot look".
+      * MAX would collapse onto the 'key' frame, which IS the metrics pass's
+        ambassador — the sharpest sanely-exposed frame of the shot. That would
+        quietly turn this into a second reading of sharpness_p90 instead of an
+        independent signal.
+
+    None for an empty list, never 0.0: nothing was measured, and a 0 on a 1..10
+    scale is the strongest possible claim that a shot is hideous. Same rule as
+    `percentile` above, and the same reason.
+    """
+    values = [float(s) for s in (frame_scores or []) if s is not None]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
 def summarise(frames, fps, audio=UNMEASURED):
     """Collapse per-frame readings into the numbers stored on a clip.
 
@@ -231,7 +279,7 @@ def summarise(frames, fps, audio=UNMEASURED):
 THRESHOLD_KEYS = ('min_duration_s', 'motion_floor', 'motion_ceiling',
                   'luma_floor', 'freeze_max', 'sharpness_floor',
                   'first_frame_floor', 'silence_max', 'audio_floor',
-                  'watermark_max')
+                  'watermark_max', 'aesthetic_floor')
 
 
 def verdicts(scores, thresholds, duration_s=None):
@@ -339,6 +387,17 @@ def verdicts(scores, thresholds, duration_s=None):
     mark_max = thresholds.get('watermark_max')
     if mark is not None and mark_max is not None and mark > mark_max:
         flags.add('watermark')
+
+    # 🎨 Look. The LAION aesthetic head over the frame vectors 🔎 Find scenes
+    # cached — the SAME head, the same weights and the same 1..10 scale the image
+    # bank's ✨ Score pass puts on a still, so the flag wears the image lane's
+    # name (`low_aesthetic`) because it means the same thing on both surfaces.
+    # A shot the aesthetic pass never scored carries NO key at all and is never
+    # flagged: no measurement, no verdict, exactly like every rule above.
+    look = scores.get('aesthetic_score')
+    look_floor = thresholds.get('aesthetic_floor')
+    if look is not None and look_floor is not None and look < look_floor:
+        flags.add('low_aesthetic')
 
     return flags
 

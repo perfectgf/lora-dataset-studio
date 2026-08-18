@@ -730,7 +730,13 @@ const TOPICS = [
      'tiny clips', 'tiny shots', 'flash cut', 'flash cuts', '0.6 second shots',
      'half second shots', 'very short clips', 'shots too short',
      'minimum length', 'minimum duration', 'duration filter',
-     'hide short clips', 'too many clips'],
+     'hide short clips', 'too many clips',
+     // The look score arrives with 🔎 Find scenes but is READ here, and people
+     // search for it by the judgement ("ugly shots") or by the model's name,
+     // never by "aesthetic_floor".
+     'aesthetic', 'aesthetic floor', 'low aesthetic', 'ugly shots',
+     'pretty shots', 'nice looking', 'look score', 'laion', 'laion score',
+     'aesthetic score on video', 'rate how shots look'],
     '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
   // People search for the SYMPTOM ("the cut is one second too early", "half my
   // clip is frozen"), and — since it is the discovery this tool folds in — for

@@ -31,6 +31,10 @@ export const FLAG_LABELS = {
   // means "you already have this one".
   duplicate: 'Same as another shot',
   watermark: 'Watermark',
+  // Same wording the image bank puts on a still, because it is the same head on
+  // the same scale — a user who learned "Low aesthetic" on the Bank must not
+  // have to learn a second name for the same finding on a shot.
+  low_aesthetic: 'Low aesthetic',
   unmeasured: 'Not measured yet',
 }
 
@@ -154,6 +158,17 @@ export function thresholdFields() {
         + '🔖 Watermarks pass has run. The scores sit close to 1, so 0.94 is the '
         + 'measured cut, not 0.5 — lower it to catch faint marks and hand-check '
         + 'a few clean shots. Shots that pass has not judged are never flagged.' },
+    // The look score. Empty by default like the footage cuts, because the LAION
+    // references were chosen to filter a web crawl and deliberately-shot rushes
+    // sit well above them — so they belong in this hint, not in a default that
+    // would decide for the user what is beautiful.
+    { key: 'aesthetic_floor', flag: 'low_aesthetic', direction: 'below',
+      label: 'Aesthetic floor',
+      hint: 'Flags shots the LAION aesthetic head rates below this — the same '
+        + '~1–10 rating, and the same model, the Bank’s ✨ Score puts on a '
+        + 'still. LAION reference: 4 casual, 4.75 strict, both set for filtering '
+        + 'a web crawl, so start by previewing 4 against your own bank. Shots '
+        + 'rate after 🔎 Find scenes has run; an unrated shot is never flagged.' },
   ]
 }
 

@@ -483,11 +483,22 @@ DEFAULTS = {
     # no GPU). 0.96 is inherited from the image lane's semantic near-duplicate cut
     # over the SAME CLIP space (bank.semantic_dup_threshold); no video-pair
     # calibration exists yet, and video_clip_dedup says so out loud.
+    #
+    # aesthetic_floor is empty like the footage cuts and NOT numbered like
+    # watermark_max, even though it too reads a model rather than your material.
+    # The difference is what the model answers: a watermark score is a
+    # probability calibrated with the classifier, while the LAION head returns a
+    # TASTE rating on a 1..10 scale whose useful cut depends on the corpus — the
+    # published references (4 casual, 4.75 strict) were chosen to filter a web
+    # crawl, and a shelf of deliberately-shot rushes sits far above both. They
+    # ride in the panel as a hint, which is where a reference belongs; a default
+    # would be this app deciding what is beautiful.
     'video_bank': {'min_duration_s': None,
                    'motion_floor': None, 'motion_ceiling': None,
                    'luma_floor': None, 'freeze_max': None,
                    'sharpness_floor': None,
                    'watermark_max': 0.94,
+                   'aesthetic_floor': None,
                    'duplicate_threshold': 0.96},
     # consistency_strength: the dx8152 LoRA anchors STRUCTURE (composition/
     # background), not the face — its own guide says start at 0.5 and that

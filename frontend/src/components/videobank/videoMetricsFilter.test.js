@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FLAG_LABELS, cutSummary, draftThresholds, editThreshold, filterByFlag,
-  flagCounts, payloadFromDraft, thresholdFields, audioState, audioNote,
-  audioSummary,
+  flagChips, flagCounts, payloadFromDraft, thresholdFields, audioState,
+  audioNote, audioSummary,
 } from './videoMetricsFilter.js';
 
 const CLIPS = [
@@ -169,4 +169,55 @@ test('a level is shown in dBFS and a share as a percentage', () => {
   assert.match(audioSummary({ audio_state: 'ok', rms_dbfs: -14.23,
     silence_ratio: 0.42 }), /42%/);
   assert.equal(audioSummary({ audio_state: 'none' }), '');
+});
+
+// --- 🎨 the look score -------------------------------------------------------
+
+test('the look cut has a panel row that feeds a labelled flag', () => {
+  // The whole reason this table exists: a cut the backend honours and the panel
+  // omits is settable only by hand-editing config.json — invisibly.
+  const field = thresholdFields().find((f) => f.key === 'aesthetic_floor');
+  assert.ok(field, 'aesthetic_floor has no panel row');
+  assert.equal(field.flag, 'low_aesthetic');
+  assert.equal(field.direction, 'below');
+  assert.ok(FLAG_LABELS.low_aesthetic);
+});
+
+test('the look flag wears the same words as the image bank does', () => {
+  // Same model, same 1–10 scale, same finding. A user who learned "Low
+  // aesthetic" on a still must not have to learn a second name for a shot.
+  assert.match(FLAG_LABELS.low_aesthetic, /low aesthetic/i);
+});
+
+test('the look hint carries the published reference, not a default', () => {
+  // The numbers are a REFERENCE for a user choosing their own cut — the field
+  // ships empty on purpose. Dropping them from the hint would leave the only
+  // 1–10 field in the panel with nothing to anchor a first guess to.
+  const { hint } = thresholdFields().find((f) => f.key === 'aesthetic_floor');
+  assert.match(hint, /LAION/);
+  assert.match(hint, /4\.75/);
+  assert.match(hint, /Find scenes/);
+});
+
+test('the look chip counts shots and offers itself only when some are flagged', () => {
+  const clips = [
+    { id: 1, flags: ['low_aesthetic'], metrics: { aesthetic_score: 2.9 } },
+    { id: 2, flags: [], metrics: { aesthetic_score: 6.2 } },
+  ];
+  assert.equal(flagCounts(clips).low_aesthetic, 1);
+  const chip = flagChips(clips).find((c) => c.flag === 'low_aesthetic');
+  assert.equal(chip.count, 1);
+  assert.equal(filterByFlag(clips, 'low_aesthetic').map((c) => c.id).join(), '1');
+  assert.ok(!flagChips([{ id: 3, flags: [], metrics: {} }])
+    .some((c) => c.flag === 'low_aesthetic'));
+});
+
+test('an unrated shot is not a low-aesthetic shot', () => {
+  // "Nobody rated it" and "it rated badly" are different facts with different
+  // remedies — one is fixed by running 🔎 Find scenes, the other by dropping the
+  // shot. The backend never emits the flag without a score; this pins that the
+  // UI never invents one either.
+  const clips = [{ id: 1, flags: [], metrics: { metrics_state: 'ok' } }];
+  assert.equal(flagCounts(clips).low_aesthetic, undefined);
+  assert.equal(filterByFlag(clips, 'low_aesthetic').length, 0);
 });
