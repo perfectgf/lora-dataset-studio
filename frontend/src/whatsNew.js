@@ -58,6 +58,14 @@ export const WHATS_NEW = [
     to: '/studio',
   },
   {
+    id: '2026-08-18-cleaning-keeps-the-zones-you-drew',
+    date: '2026-08-18',
+    title: 'The zones you draw by hand survive a clean',
+    blurb:
+      'When 🚩 Find watermarks missed a mark, you could draw the zone yourself — and a successful 🧽 Clean then deleted what you had drawn. Nothing said so, and it only cost you later: ↩ Restore original brings the watermarked picture back so you can clean it again, usually with the other engine, but the retry no longer had your zones and quietly fell back to the box the detector got wrong in the first place. Your zones now survive both steps, so a second attempt starts exactly where you left off. (The Bank already worked this way.)',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-18-face-analysis-can-use-the-gpu',
     date: '2026-08-18',
     title: 'Analyze faces can use your GPU — and says when it is working',
