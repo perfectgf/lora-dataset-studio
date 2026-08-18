@@ -55,6 +55,9 @@ export const WHATS_NEW = [
     title: 'Fill a video bank straight from the web',
     blurb:
       'The scraper could already SEE videos — RedGifs, Erome, Picazor, TikTok, X, Civitai all list them — and the picker threw every one of them away, so the only way to triage a clip you found online was to download it by hand, drop it in a folder and point a bank at that folder. 🎬 Video bank now has its own 🕸 Scrape the web panel: paste a link, pick the clips, and they land in a bank ready to be cut into shots. Nothing is judged on the way in — length, motion and sharpness stay for the bank’s own passes, exactly like the image side. Your own rushes folders are never written into: a scrape always gets a folder of its own, which is also why “add to an existing bank” only offers banks that were created by a scrape.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-18-video-look-score',
     date: '2026-08-18',
     title: 'Your shots now carry a look score — for free',
