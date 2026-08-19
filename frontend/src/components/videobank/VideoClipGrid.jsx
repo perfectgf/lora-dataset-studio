@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { videoClipThumbUrl } from './videoBankApi'
 import { clipLabel } from './videoClipFragment'
 import { FLAG_LABELS } from './videoMetricsFilter'
@@ -18,10 +19,24 @@ import { transitionChip } from './videoShotCuts'
  * of scroll, on someone else's machine, with no message.
  *
  * `loading="lazy"` on every tile: an off-screen thumbnail costs nothing.
+ *
+ * ⌨ In burst mode one tile carries the CURSOR. It is marked three ways on
+ * purpose — a ring, a ▸ badge and `aria-current` — because a ring alone is a
+ * colour, and the whole run depends on knowing which shot the next keystroke
+ * will hit. The tile is also scrolled back into view whenever the cursor moves,
+ * since auto-advance can walk it off the bottom of the page in three keys.
  */
 export default function VideoClipGrid({
-  bankId, clips, selected, onToggle, onOpen, emptyMessage, matchLines,
+  bankId, clips, selected, onToggle, onOpen, emptyMessage, matchLines, cursorId,
 }) {
+  const cursorRef = useRef(null)
+  // `block: 'nearest'` and nothing more: it must bring the tile back when it has
+  // left the viewport and stay perfectly still when it has not — a centred
+  // scroll on every keystroke makes the whole grid twitch under the hand.
+  useEffect(() => {
+    cursorRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [cursorId])
+
   if (!clips.length) {
     return (
       <p className="rounded-xl border border-dashed border-border bg-app/30 px-4 py-8 text-center text-sm text-content-muted">
@@ -39,10 +54,15 @@ export default function VideoClipGrid({
         // Only dissolves get one. Hard cuts are the vast majority, and a chip on
         // every tile is a chip nobody reads — the same rule the flags follow.
         const fade = transitionChip(clip)
+        const isCursor = cursorId != null && clip.id === cursorId
         return (
           <li key={clip.id}
+            ref={isCursor ? cursorRef : null}
+            aria-current={isCursor ? 'true' : undefined}
             className={`relative flex min-w-0 flex-col overflow-hidden rounded-lg border bg-surface transition-colors ${
-              isChosen ? 'border-primary ring-1 ring-inset ring-primary/60' : 'border-border'}`}>
+              isCursor
+                ? 'border-amber-400 ring-2 ring-amber-400'
+                : (isChosen ? 'border-primary ring-1 ring-inset ring-primary/60' : 'border-border')}`}>
             <button type="button" onClick={(e) => onOpen(clip, e)}
               aria-label={`Play the shot at ${clipLabel(clip.start_s, clip.end_s)} of ${clip.relpath}`}
               className="relative block aspect-video w-full bg-surface-raised">
@@ -109,6 +129,18 @@ export default function VideoClipGrid({
               )}
             </button>
             <div className="flex min-w-0 items-center gap-1.5 px-1.5 py-1">
+              {/* The cursor marker lives in the FOOTER, not over the thumbnail:
+                  every corner up there is already taken (status, promoted,
+                  flags, camera, dissolve, duration) and a badge that lands on
+                  another badge is worse than no badge. It is here because the
+                  ring is a colour, and the whole run depends on knowing which
+                  shot the next keystroke will hit. */}
+              {isCursor && (
+                <span title="The next keystroke decides this shot"
+                  className="shrink-0 rounded bg-amber-400 px-1 text-[0.625rem] font-bold leading-tight text-black">
+                  ▸ next
+                </span>
+              )}
               <input type="checkbox" checked={isChosen}
                 onChange={(e) => onToggle(clip.id, e)}
                 aria-label={`Select the shot at ${clipLabel(clip.start_s, clip.end_s)}`}

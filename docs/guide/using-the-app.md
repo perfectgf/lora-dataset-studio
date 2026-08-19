@@ -2402,7 +2402,9 @@ can judge; the three hundred shots inside it are.
    order and each simply finds nothing to do and reports success.
 3. **Triage** — the grid is thumbnails, and only thumbnails. Click one to watch
    exactly that shot, `←`/`→` to move, `K` to keep, `R` to reject. Filter by
-   status, or click a file in the **Files** list to see only its shots.
+   status, or click a file in the **Files** list to see only its shots. For a
+   whole bank at speed, **⌨ Burst mode** judges shots straight from the grid,
+   one keystroke each — see *Triage a video bank from the keyboard* below.
 4. **🎬 Build the dataset** encodes what you kept. This is the only step that
    writes video.
 
@@ -2415,6 +2417,60 @@ than a preview.
 independent things: reading files, finding shots, and encoding clips. The app
 says which one is missing and what still works — with no ffmpeg, for example, you
 can scan, cut, watch and triage an entire bank, and only the final build waits.
+
+## Triage a video bank from the keyboard
+
+A rush of two hours becomes three hundred shots, and judging them by clicking a
+tile, clicking ✓ or ✕, then coming back to the grid is three gestures each. **⌨
+Burst mode**, above the gallery, makes it one keystroke.
+
+Turn it on and one tile carries the cursor — an amber ring and a **▸ next**
+marker under the thumbnail. From there:
+
+| Key | What it does |
+| --- | --- |
+| `K` | Keep this shot |
+| `R` | Reject this shot |
+| `P` | Put it back to untriaged |
+| `S` or `→` | Move on without deciding |
+| `←` | Move back one shot |
+| `U` | Undo the last decision, and go to that shot |
+| `Home` | Jump to the first untriaged shot |
+| `?` | Show or hide the shortcut panel |
+| `Esc` | Leave burst mode |
+
+They are the same keys as the image bank's **▶ Review** — `K` keep, `R` reject,
+`S` skip, `←` back, `Esc` out — because a reflex that is right on one screen and
+wrong on the next is worse than no reflex. `P`, `U` and `Home` are this lane's
+own: a video bank has three verdicts where the image review has two.
+
+Four things are worth knowing before you lean on it:
+
+- **The cursor jumps to the next shot you have not judged yet**, not simply the
+  next tile. On a half-triaged bank that is most of the speed. Untick
+  **Auto-advance** and the cursor stays put instead, so `K` then `R` corrects
+  the same shot — useful when you are being careful rather than fast.
+- **It never wraps.** When nothing untriaged is left ahead of the cursor, the
+  bar says so — and says how many are still sitting *behind* it, with `Home` to
+  go back to the first. A run that silently looped back to the top would put
+  your next keystroke on a shot you did not expect.
+- **Undo goes back one step at a time, and shows you what it fixed.** The bar
+  always names the decision it would take back (*"↩ U undoes ✕ Reject on 0:12 –
+  0:15"*) and how many steps are left in the net — ten. Each `U` restores what
+  the shot actually was before, so undoing a reject on a shot you had already
+  kept puts the **keep** back, not a blank. The offer sits in the bar rather
+  than in a toast on purpose: at one keystroke a second a toast is replaced
+  before it can be read.
+- **Your keystrokes never wait for the network.** The tile flips and the cursor
+  moves at once; the decisions are sent behind you, one request at a time, and a
+  run of identical verdicts goes out as a single batch. The bar shows *saving
+  N…* while anything is still unacknowledged — a run that has ended is not the
+  same thing as a run that is saved. If a save does fail, nothing is guessed:
+  the grid is reloaded from the bank and the message says how many decisions did
+  not land.
+
+Shortcuts never fire while you are typing in the search box or a threshold
+field, and the mode and the auto-advance setting are remembered for next time.
 
 ## Measure your shots, and choose your own cuts
 
