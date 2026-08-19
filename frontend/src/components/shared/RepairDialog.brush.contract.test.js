@@ -12,6 +12,7 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const dialog = read('./RepairDialog.jsx');
 const brush = read('./InpaintBrushEditor.jsx');
 const review = read('../dataset/WatermarkReviewLightbox.jsx');
+const lightbox = read('../dataset/DatasetLightbox.jsx');
 const generated = read('./GeneratedImageLightbox.jsx');
 const canvas = read('../canvas/LineageCanvas.jsx');
 const hook = read('../../hooks/useDataset.js');
@@ -20,7 +21,8 @@ test('the brush lives inside the repair dialog, not behind a new button', () => 
   assert.match(dialog, /import InpaintBrushEditor, \{ maskPngFromCanvas \}/);
   // ONE entry point per surface. A third door to the same place is exactly what
   // the phone-layout wave removed, and it must not grow back here.
-  for (const [name, src] of [['watermark review', review], ['generated', generated]]) {
+  for (const [name, src] of [['watermark review', review], ['dataset lightbox', lightbox],
+    ['generated', generated]]) {
     assert.equal((src.match(/<RepairDialog\b/g) || []).length, 1,
       `${name}: exactly one RepairDialog`);
   }
@@ -159,11 +161,13 @@ test('Escape peels one layer, not two', () => {
   // host stands down while the dialog is up.
   assert.match(dialog, /if \(e\.key === 'Escape' && !busy\) onClose\(\)/);
   assert.match(review, /if \(repairOpen\) return;/);
+  assert.match(lightbox, /if \(repairOpen\) return;/);
   assert.match(generated, /if \(e\.key === 'Escape' && !repairOpen\) onClose\?\.\(\)/);
 });
 
 test('the guards are re-read when the dialog opens, not captured stale', () => {
   // A listener registered once with repairOpen=false would keep closing forever.
   assert.match(review, /doDismiss, doReject, repairOpen\]\);/);
+  assert.match(lightbox, /panelOpen, closePanel, repairOpen\]\);/);
   assert.match(generated, /\}, \[img, onClose, repairOpen\]\);/);
 });
