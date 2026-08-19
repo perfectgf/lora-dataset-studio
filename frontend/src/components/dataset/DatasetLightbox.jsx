@@ -357,16 +357,18 @@ export default function DatasetLightbox({
   const prev = nav.prev;
   useEffect(() => {
     const onKey = (e) => {
+      /* ✦ Repair is a layer above this overlay. Both listen on `window`, so
+         without standing down, every letter here is a verdict on the picture
+         underneath the dialog — R rejected it while the user was drawing a
+         zone. Escape-only was not enough: watermark review already returns on
+         every key for the same reason, and the Bank does it for crop/mask. */
+      if (repairOpen) return;
       const action = reviewKeyAction(e);
       /* Escape peels ONE layer: an open actions panel first, the lightbox only
          once it is closed. Closing everything at once would throw the user out
          of the image they were about to act on — the panel is a detour, not a
          second window. */
       if (action === 'close') {
-        /* ...and ✦ Repair is a layer above the panel. Both this and the dialog
-           listen on `window`, so without this the one press closed the dialog
-           AND the lightbox under it. Same defect the watermark review had. */
-        if (repairOpen) return;
         if (panelOpen) { closePanel(); return; }
         onClose();
         return;
@@ -386,7 +388,7 @@ export default function DatasetLightbox({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, onNavigate, onStatus, decide, prev, nextImage, panelOpen, closePanel]);
+  }, [onClose, onNavigate, onStatus, decide, prev, nextImage, panelOpen, closePanel, repairOpen]);
   useEffect(() => { closeRef.current?.focus(); }, []);
   /* No "close the comparison when the image changes" effect on purpose: the id
      stamp above already guarantees it, for BOTH comparison modes, without a

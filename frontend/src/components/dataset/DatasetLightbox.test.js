@@ -122,6 +122,22 @@ test('the dataset lightbox offers Keep / Reject / Skip on the Bank keys', () => 
   assert.equal(REVIEW_SHORTCUT_HINT, 'K keep · R reject · S skip');
 });
 
+test('✦ Repair owns every shortcut while it is open, not just Escape', () => {
+  const onKey = lightbox.match(
+    /const onKey = \(e\) => \{([\s\S]*?)\};\s*window\.addEventListener\('keydown', onKey\)/,
+  )[1];
+  // The stand-down is BEFORE the grammar is read. Nested inside
+  // `action === 'close'` it still lets K/R/S judge the picture underneath.
+  const guard = onKey.search(/if \(repairOpen\) return;/);
+  const grammar = onKey.search(/reviewKeyAction\(e\)/);
+  assert.ok(guard >= 0, 'the lightbox must stand down while Repair is up');
+  assert.ok(grammar >= 0);
+  assert.ok(guard < grammar,
+    'a close-only guard still lets R reject the picture under the dialog');
+  // A listener registered once with repairOpen=false would keep judging forever.
+  assert.match(lightbox, /panelOpen, closePanel, repairOpen\]\);/);
+});
+
 test('a verdict advances only once the write has landed, and skip touches nothing', () => {
   const decide = lightbox.match(/const decide = useCallback\(([\s\S]*?)\n  \}, \[/)[1];
   // The move is INSIDE the try, after the await: advancing first and posting
