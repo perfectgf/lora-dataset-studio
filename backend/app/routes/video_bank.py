@@ -524,6 +524,22 @@ def video_bank_defects(bank_id):
                   rescan=bool(data.get('rescan')))
 
 
+@bp.post('/video-bank/<int:bank_id>/camera')
+def video_bank_camera(bank_id):
+    """🎥 How the camera moved in every shot — pan, tilt, zoom, roll, handheld.
+    Body {rescan?: bool}. Refused with the missing piece named when the decode
+    extra is absent: this pass tracks frames it decodes itself and has no
+    degraded form. The service refuses a second time on the same sentence, so a
+    direct call cannot start a job that dies on an import."""
+    from .. import capabilities
+    cap = capabilities.probe_video()
+    if not cap['decode']:
+        return jsonify({'error': cap['detail']}), 503
+    data = request.get_json(silent=True) or {}
+    return _start(bank_id, svc.start_camera, _app(), LOCAL_USER, bank_id,
+                  rescan=bool(data.get('rescan')))
+
+
 @bp.post('/video-bank/<int:bank_id>/aicheck')
 def video_bank_ai_check(bank_id):
     """🤖 Measure how erratically each shot moves. Body {recheck?}.

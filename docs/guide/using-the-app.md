@@ -2664,6 +2664,96 @@ present. It is also absent from almost everything scraped, and its silence means
 never proof and it is never silent. The image lane says *AI*; this one says *may
 be*. Neither is evidence for the other.
 
+### 🎥 Camera — what the camera did, as a label rather than a verdict
+
+Every other pass on this page measures whether a shot is **good**. This one
+measures what it **is**, and it never rejects anything. That is not politeness:
+a video LoRA learns camera language along with the subject, and the two people
+training on the same bank want opposite halves of it. One is building a
+locked-off product shot and every wobble is contamination; the other is training
+a handheld look, and the wobble *is* the target. So **🎥 Camera** labels, and you
+decide which half you wanted.
+
+Press it after the shots are cut. It tracks every frame of every shot — about
+fifteen times real time on the CPU, so it can run while a training owns your card
+— and stores the raw rates on each clip. The labels are worked out from those
+rates when the gallery is drawn, so nothing is ever rescanned.
+
+#### The labels
+
+Eight of them are **the video trainer's own words**, not this app's. They come
+from the vocabulary Hunyuan's camera classifier uses, which matters for one
+practical reason: a label here will mean the same thing to the model you train
+as it does to you.
+
+| Label | What it means |
+| --- | --- |
+| **Pan left / right / up / down** | The frame moves across the scene in that direction. |
+| **Zoom in / out** | The framing tightens or widens. |
+| **Static shot** | Nothing moved enough to name — a tripod, a clamp, or very steady hands. |
+| **Handheld** | The movement has a high-frequency part nobody is steering. |
+
+Three more are **this app's own**, and the gallery marks them with a small `ᐩ` so
+you never carry one into a caption expecting the trainer to recognise it:
+
+| Label | What it means |
+| --- | --- |
+| **Rolling** `ᐩ` | The horizon turns — the camera rotates about its own axis. Absent from the trainer's fourteen, and measured here because it is the one movement a language model reading the footage reliably gets wrong. |
+| **Slideshow** `ᐩ` | The whole frame moved as one rigid picture, which is what a photograph panned across does — a Ken Burns move, not a camera. |
+| **Subject moves** `ᐩ` | Something in the shot moved more than the camera did, so no direction could be read at all. |
+
+A shot carries **several** labels where several apply: a handheld pan that also
+zooms is all three, and the filter row lets you pick any one of them.
+
+#### Why there is no "tilt", and no orbit
+
+You will look for **tilt up** and **tilt down**, because the trainer's vocabulary
+has them and this app never shows them. They are missing on purpose. A camera
+that **pivots** and a camera that **slides** put exactly the same movement on the
+sensor — the difference between them is depth, and depth is not in a flat
+picture. Rather than guess at a coin flip, everything in that family is reported
+as **pan**, which is the honest superset.
+
+**Around left / around right** are missing for the same reason, harder. An orbit
+is a movement along an arc, and recovering it means reconstructing the scene in
+three dimensions. The published benchmark for this (CameraBench, 2025) puts the
+best geometric system at roughly **half** the answers correct, at *minutes* per
+clip. So the choice is not between cheap and accurate — it is between fast and
+expensive-but-still-a-coin-flip. Not offered.
+
+#### When the reading cannot be trusted
+
+The measurement finds the **dominant** motion in the frame. When a subject fills
+enough of it, the dominant motion *is* the subject, and the result is a confident
+description of a camera move that never happened — measured on a test clip whose
+camera was a tripod and whose subject crossed a third of the frame, the raw fit
+reported a brisk pan *and* a zoom.
+
+So the pass checks how much of the frame its answer actually explains, and when
+that falls too low it reports **Subject moves** and **no direction at all**. A
+shot labelled that way is not a failure; it means the camera reading would have
+been fiction, and the app would rather say nothing.
+
+**One more honest limit.** *Slideshow* is detected by the frame moving as one
+perfectly rigid picture, which is what a photograph does. A real pan across a
+scene with **no depth** — a flat wall, a horizon, a distant skyline — has no
+parallax either, and can land in the same bucket. If a shot you filmed yourself
+is labelled a slideshow, that is why.
+
+#### Filtering, and the one cut
+
+The labels appear on each thumbnail (slate, bottom right — never amber, because
+amber in this gallery means *a cut flagged this* and a pan is not a fault) and as
+a **🎥 Camera** row of filters above the grid. It composes with the ⚑ flag chips,
+so *"shaky shots that also pan right"* is one click each.
+
+If you do want to **cut** on camera movement, 🎚 Quality cuts gains
+**`camera_shake_max`**. It is empty by default like every other cut, and it is
+deliberately **not** the same threshold as the *Handheld* label: the label fires
+at a fixed internal floor and describes, the cut fires wherever you put it and
+rejects. A shot can be labelled handheld without being flagged, or the reverse,
+and both are correct.
+
 ## Retouch a cut: trim, split, or draw a shot by hand
 
 Shot detection is good and it is not right. It cuts a slow dissolve a second

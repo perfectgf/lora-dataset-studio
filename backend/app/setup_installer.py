@@ -334,7 +334,13 @@ _CAPABILITY_PACKAGES = {
     #               decode seam. Without this line the install reported success
     #               and the capability stayed off — the probe imports av, so it
     #               kept failing in an environment nothing had put av into.
-    'video': ('imageio-ffmpeg', 'av'),
+    #   video  `opencv-python-headless` and `numpy` are named for the camera
+    #          pass, which tracks and fits in the app's own interpreter. The
+    #          HEADLESS variant for the reason video_text names it below — the
+    #          desktop `opencv-python` drags a GUI stack onto a server — and
+    #          numpy explicitly because a scoped install must resolve it even
+    #          when the headline package's metadata is vague.
+    'video': ('imageio-ffmpeg', 'av', 'opencv-python-headless', 'numpy'),
     'shot_detect': ('transnetv2-pytorch', 'av'),
     #   video_text  RapidOCR, for the safe-zone pass's burned-in-text half. It
     #               lands in the SAME interpreter as face_scoring and masks (the

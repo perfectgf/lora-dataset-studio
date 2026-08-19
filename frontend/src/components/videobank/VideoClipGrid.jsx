@@ -1,6 +1,7 @@
 import { videoClipThumbUrl } from './videoBankApi'
 import { clipLabel } from './videoClipFragment'
 import { FLAG_LABELS } from './videoMetricsFilter'
+import { cameraBadge } from './videoCameraMotion'
 import { transitionChip } from './videoShotCuts'
 
 /** 🎬 The shot gallery — JPEG thumbnails, and NOT ONE <video>.
@@ -80,6 +81,19 @@ export default function VideoClipGrid({
                   title={clip.flags.map((f) => FLAG_LABELS[f] || f).join(' · ')}
                   className="pointer-events-none absolute bottom-1 left-1 rounded bg-amber-500/90 px-1 text-[0.625rem] font-bold text-black">
                   ⚑ {clip.flags.length > 1 ? clip.flags.length : (FLAG_LABELS[clip.flags[0]] || clip.flags[0])}
+                </span>
+              )}
+              {/* 🎥 What the camera did. SLATE, not amber, and that is the whole
+                  point of it being a separate badge: amber in this grid means
+                  "a cut flagged this", and a pan is not a fault. It sits bottom-
+                  RIGHT so it never collides with the flag badge on the left,
+                  and it shows the first label with a count when there are more,
+                  the same shape the flag badge uses for the same reason. */}
+              {(clip.camera || []).length > 0 && (
+                <span
+                  title={cameraBadge(clip)}
+                  className="pointer-events-none absolute bottom-1 right-1 rounded bg-slate-800/85 px-1 text-[0.625rem] font-semibold text-slate-100">
+                  🎥 {clip.camera.length > 1 ? clip.camera.length : cameraBadge(clip)}
                 </span>
               )}
               {/* The kind of boundary this shot sits between, read from the

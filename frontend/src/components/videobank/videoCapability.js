@@ -101,6 +101,11 @@ export const PASS_REQUIREMENTS = {
   // because that environment is a different install step and not one of the
   // three video pieces.
   aicheck: ['decode'],
+  // 🎥 Camera tracks frames it decodes itself, in the app's own interpreter, so
+  // `decode` and nothing else. Note that the decode probe now imports cv2 and
+  // numpy alongside av for exactly this pass — the capability is one row on the
+  // Setup screen and one install button, so it stays one requirement here.
+  camera: ['decode'],
   pipeline: ['decode', 'detect'],
   promote: ['encode'],
 }

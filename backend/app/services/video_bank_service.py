@@ -51,7 +51,8 @@ from .. import config as cfg
 from ..extensions import db
 from ..models import (VideoBank, VideoClip, VideoDataset, VideoDatasetClip,
                       VideoSource)
-from . import bank_jobs, video_metrics, ffmpeg_tools, path_guard, video_clip_export, video_targets
+from . import (bank_jobs, video_metrics, video_camera_motion, ffmpeg_tools,
+               path_guard, video_clip_export, video_targets)
 
 logger = logging.getLogger(__name__)
 
@@ -685,6 +686,15 @@ def _clip_row(clip: VideoClip, relpaths: dict, thresholds=None) -> dict:
         'promoted_dataset_id': clip.promoted_dataset_id,
         'metrics': metrics if metrics and metrics.get('metrics_state') == 'ok' else None,
         'flags': flags,
+        # 🎥 The camera labels, derived here beside the flags and for the same
+        # reason — from the RAW rates, at read time, never stored — but kept in
+        # their own field rather than folded into `flags`. A flag is something
+        # the user chose to cut on; a pan is a description, and putting the two
+        # in one list would make the grid's amber ⚑ badge announce "your shot
+        # pans right" as if it were a defect. Off the WHOLE blob, like the
+        # flags, because this pass writes its state whether or not the metrics
+        # pass ever ran.
+        'camera': video_camera_motion.labels(metrics or {}),
         # Cut or dissolve at each end, when the detector's second head measured
         # it. None throughout for a hand-made cut and for anything detected
         # before that head was kept — no label rather than a guessed one.
@@ -1915,6 +1925,69 @@ def _ai_check_job(bank_id, recheck):
             # is real and kept. Silence here leaves a bank whose cut flags
             # nothing and nothing anywhere saying why.
             detail = f'stopped — {out["error"]} ({out["measured"]} shot(s) checked)'
+        bank_jobs.progress(job, detail=detail)
+        return out
+    return run
+
+
+def start_camera(app, user_id, bank_id, rescan=False):
+    """🎥 Read how the camera moved in every shot — pan, zoom, roll, handheld.
+
+    Refused up front with the Setup sentence when the decode extra is missing,
+    like 🔍 Measure and 🤖 AI check: this pass cannot degrade, every number it
+    produces comes out of frames it decoded itself.
+
+    ITS OWN BUTTON, and this one had a real candidate to ride so the argument is
+    worth stating. 🩻 Defects already runs ONE ffmpeg pass per source file and
+    `vidstabdetect` would bolt onto its filter chain for a fifth of a second —
+    tempting, and wrong twice over. The unit is wrong: defects are properties of
+    the FILE (a macroblock grid does not change at a cut) while camera motion is
+    a property of the SHOT, so the readings would have to be cut back apart
+    afterwards. And the tool is wrong: vidstab writes local motion vectors at
+    whole-pixel precision with no rotation, no scale and no inlier ratio, which
+    is three of the four things this pass reports plus the guard that keeps it
+    honest — video_camera_motion's docstring has the measurements.
+
+    Nothing else in the lane decodes what this needs either: it wants EVERY
+    frame of a shot at 384 px, and the four existing decodes sample three, eight,
+    three and 160-px-wide-everything respectively. A trajectory with gaps is not
+    a smaller sample, it is a series whose steps mean different things.
+
+    NO GPU WINDOW. It is OpenCV on the CPU at 0.07 s per second of source, so a
+    bank can be read while a training owns the card — the same property 🤖 AI
+    check chose deliberately, here for free.
+    """
+    from .video_camera_motion import unavailable_reason
+    _require_free_bank(user_id, bank_id)
+    reason = unavailable_reason()
+    if reason:
+        raise RuntimeError(reason)
+    return bank_jobs.start(app, job_key(bank_id), 'camera',
+                           _camera_job(bank_id, bool(rescan)))
+
+
+def _camera_job(bank_id, rescan):
+    def run(job):
+        from . import video_camera_motion
+        total = len(video_camera_motion.pending_clips(bank_id, rescan))
+        bank_jobs.progress(job, done=0, total=total,
+                           detail='reading how the camera moved')
+        out = video_camera_motion.run_camera_motion(
+            bank_id, rescan,
+            on_clip=lambda: bank_jobs.bump(job),
+            should_stop=lambda: bank_jobs.cancelled(job))
+        detail = f'done — {out["measured"]} shot(s) read'
+        if out['too_short']:
+            # Named rather than folded into a total: re-running will never fix
+            # these. A trajectory needs a few frames to have a rate at all, and
+            # their cut is shorter than that.
+            detail += f', {out["too_short"]} too short to have a trajectory'
+        if out['unreadable']:
+            detail += f', {out["unreadable"]} could not be read'
+        if out['error']:
+            # The LAST per-clip failure, said out loud and not as a failure of
+            # the run: every shot read before it is real and kept.
+            detail += f' (last error: {out["error"]})'
         bank_jobs.progress(job, detail=detail)
         return out
     return run
