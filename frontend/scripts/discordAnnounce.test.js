@@ -9,7 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { extractCredits } from './releaseNotes.mjs';
-import { DISCORD_LIMIT, renderAnnouncement, renderLines } from './discordAnnounce.mjs';
+import { DISCORD_LIMIT, renderAnnouncement, renderLines, surfaceOf } from './discordAnnounce.mjs';
 
 const entry = (id, title, blurb = 'x') => ({ id, title, blurb, date: '2026-07-28' });
 
@@ -86,4 +86,34 @@ test('a split announcement numbers its parts, thanks once, and opens once', () =
   assert.ok(parts[0].includes('is out —'), 'the greeting opens part 1');
   assert.ok(parts.at(-1).includes('Thanks to'), 'the credits close the last part');
   parts.forEach((p, i) => assert.ok(p.includes(`part ${i + 1}/${parts.length}`)));
+});
+
+test('every line says WHERE the change lives, derived from the entry route', () => {
+  // Titles say WHAT changed and never WHERE; a reader of #announcements does
+  // not know which screen a line belongs to. The route the entry already
+  // carries answers it, so nothing is re-typed and a moved route cannot leave
+  // a stale label behind.
+  const lines = renderLines([
+    { title: 'Sweep for defects', to: '/video-bank' },
+    { title: 'Crop in place', to: '/bank' },
+    { title: 'Train from a preset', to: '/datasets?section=training' },
+    { title: 'Pin a grid', to: '/canvas' },
+  ]);
+  assert.deepEqual(lines, [
+    '• **Video bank** — Sweep for defects',
+    '• **Bank** — Crop in place',
+    '• **Datasets** — Train from a preset',
+    '• **Canvas** — Pin a grid',
+  ]);
+});
+
+test('/video-bank is never read as /bank, and an unknown route claims nothing', () => {
+  // The longest-prefix rule is the whole reason '/video-bank' does not render
+  // as 'Bank'; a route nobody mapped renders the bare title rather than
+  // inventing a place for it.
+  assert.equal(surfaceOf({ to: '/video-bank' }), 'Video bank');
+  assert.equal(surfaceOf({ to: '/bank?filter=kept' }), 'Bank');
+  assert.equal(surfaceOf({ to: '/somewhere-new' }), '');
+  assert.equal(surfaceOf({}), '');
+  assert.deepEqual(renderLines([{ title: 'Bare', to: '/nope' }]), ['• Bare']);
 });

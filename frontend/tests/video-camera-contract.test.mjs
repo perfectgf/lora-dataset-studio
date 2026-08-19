@@ -27,7 +27,10 @@ const python = readFileSync(
 
 /** A tuple of quoted strings out of the Python source, in order. */
 function pyTuple(name) {
-  const match = python.match(new RegExp(`^${name} = \\(([\\s\\S]*?)\\)\\n`, 'm'))
+  // `\r?\n`: git hands this file back in CRLF on a Windows checkout, and the
+  // author's worktree had it in LF — so an `\n`-only tail passed where it was
+  // written and failed in every fresh clone.
+  const match = python.match(new RegExp(`^${name} = \\(([\\s\\S]*?)\\)\\r?\\n`, 'm'))
   assert.ok(match, `${name} not found in video_camera_motion.py`)
   return [...match[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
 }

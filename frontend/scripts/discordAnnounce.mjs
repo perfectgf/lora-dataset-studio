@@ -43,11 +43,49 @@ import { extractCredits, newEntries, idsAtTag, previousTagOf, REPO_URL } from '.
 export const DISCORD_LIMIT = 2000;
 
 /**
+ * Where a change lives, from the route the entry already carries.
+ *
+ * A title says WHAT changed and never WHERE — and a reader of #announcements
+ * does not know which screen "Spot the footage that has been through the mill"
+ * belongs to. They then have to open the app and hunt, or skip the line. The
+ * entry already knows: `to:` is the deep link the What's-new panel uses, so the
+ * surface is derived, never re-typed — a route that changes cannot leave a
+ * stale label behind.
+ *
+ * Unknown or missing route → '' and the line renders exactly as before, rather
+ * than inventing a place.
+ */
+const SURFACE_BY_ROUTE = [
+  ['/video-bank', 'Video bank'],
+  ['/bank', 'Bank'],
+  ['/datasets', 'Datasets'],
+  ['/canvas', 'Canvas'],
+  ['/studio', 'Test Studio'],
+  ['/cloud', 'Cloud'],
+  ['/setup', 'Setup'],
+  ['/settings', 'Settings'],
+];
+
+export function surfaceOf(entry) {
+  const to = typeof entry?.to === 'string' ? entry.to.split('?')[0] : '';
+  if (!to) return '';
+  // Longest prefix wins: '/video-bank' must not be read as '/bank'.
+  const hit = SURFACE_BY_ROUTE
+    .filter(([route]) => to === route || to.startsWith(`${route}/`))
+    .sort((a, b) => b[0].length - a[0].length)[0];
+  return hit ? hit[1] : '';
+}
+
+/**
  * One line per entry. The title carries the news; the id never appears (it is
- * a storage key, not prose).
+ * a storage key, not prose). The surface is prefixed in bold so a reader can
+ * find the change without opening the app and hunting for it.
  */
 export function renderLines(entries) {
-  return entries.map((e) => `• ${String(e.title).trim()}`);
+  return entries.map((e) => {
+    const where = surfaceOf(e);
+    return `• ${where ? `**${where}** — ` : ''}${String(e.title).trim()}`;
+  });
 }
 
 /**
