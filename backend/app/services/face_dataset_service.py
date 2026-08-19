@@ -9580,7 +9580,7 @@ def repair_image_region(user_id, dataset_id, image_id, boxes, prompt, *,
     corner. A painted `mask` instead sends the WHOLE frame with that mask, so
     Klein reconstructs a necklace or a pair of glasses while actually seeing the
     face they sit on. Same preserve/snapshot/promote safety either way; only the
-    geometry handed to the model differs. (Masked lane contributed by JacobArrow
+    geometry handed to the model differs. (Masked lane contributed by OneCodingDude
     on GitHub, PR #37.)
 
     Raises LookupError (unknown dataset/image), ValueError (no prompt, no usable

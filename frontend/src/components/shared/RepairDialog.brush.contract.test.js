@@ -140,7 +140,7 @@ test('every surface forwards the mask all the way to its route', () => {
 test('the contribution is credited where the code lives', () => {
   // Repo rule: community work names its author in the source it landed in.
   for (const [name, src] of [['brush editor', brush], ['dialog', dialog]]) {
-    assert.match(src, /JacobArrow/, `${name} must credit its contributor`);
+    assert.match(src, /OneCodingDude/, `${name} must credit its contributor`);
   }
 });
 

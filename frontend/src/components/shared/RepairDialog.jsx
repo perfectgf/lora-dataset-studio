@@ -14,7 +14,7 @@
  * A BRUSH is right for a necklace or a pair of glasses, where a rectangle would
  * hand the model a square full of face it was not asked to touch — that gesture
  * sends the whole frame with a painted mask, so Klein reconstructs while seeing
- * the picture around it. (Brush contributed by JacobArrow on GitHub, PR #37; it
+ * the picture around it. (Brush contributed by OneCodingDude on GitHub, PR #37; it
  * lives inside this dialog rather than behind a THIRD button in an action bar
  * that already carries two doors to the same place.)
  *

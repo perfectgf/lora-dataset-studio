@@ -1961,7 +1961,7 @@ area:
   size, and pixels you did not paint are copied from your file either way.
 
 Both work under a finger, so this is usable from a phone. The brush was
-contributed by JacobArrow on GitHub.
+contributed by OneCodingDude on GitHub.
 
 The 🚩 button next to it opens the same editor from the other intention — you
 spotted a watermark the scan missed. Same screen, same zones; what differs is

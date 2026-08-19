@@ -1,7 +1,7 @@
 /**
  * 🖌 The repair BRUSH — paint the pixels to replace instead of boxing them.
  *
- * Contributed by JacobArrow on GitHub (PR #37). A rectangle is the wrong shape
+ * Contributed by OneCodingDude on GitHub (PR #37). A rectangle is the wrong shape
  * for most of what people actually want gone: a necklace, a pair of glasses, a
  * strap. Boxing one of those hands the model a square full of face it was never
  * asked to touch, and the reconstruction drifts accordingly.

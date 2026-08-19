@@ -164,7 +164,7 @@ export const WHATS_NEW = [
     date: '2026-08-18',
     title: 'Paint over what should go, instead of boxing it',
     blurb:
-      'A rectangle is the wrong shape for a necklace, a pair of glasses or a bra strap — it hands the model a square full of face it was never asked to touch. ✦ Repair now has a 🖌 Brush next to its ▭ Box: paint over the thing, say what should be there, and the whole picture goes to Klein with your painted mask, so it reconstructs while actually seeing the face around it. The box is still there and still the default — it is quicker, and better for a mark in a corner. Everything outside what you painted keeps its original bytes, exactly as before. (Contributed by JacobArrow on GitHub.)',
+      'A rectangle is the wrong shape for a necklace, a pair of glasses or a bra strap — it hands the model a square full of face it was never asked to touch. ✦ Repair now has a 🖌 Brush next to its ▭ Box: paint over the thing, say what should be there, and the whole picture goes to Klein with your painted mask, so it reconstructs while actually seeing the face around it. The box is still there and still the default — it is quicker, and better for a mark in a corner. Everything outside what you painted keeps its original bytes, exactly as before. (Contributed by OneCodingDude on GitHub.)',
     to: '/datasets',
   },
   {

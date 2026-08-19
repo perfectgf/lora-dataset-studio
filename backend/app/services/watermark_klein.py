@@ -123,7 +123,7 @@ KLEIN_COMPOSITE_FEATHER_PX = 6  # feather of the pixel-space paste seam (crop-na
 # ever seeing the face they sit on, and the patch is resampled to ~1 MP on the
 # way. Sending the WHOLE photo with a mask fixes both: full context, native
 # framing, and `noise_mask` keeps the sampler off every unpainted pixel.
-# (Lane contributed by JacobArrow on GitHub, PR #37.)
+# (Lane contributed by OneCodingDude on GitHub, PR #37.)
 KLEIN_MASK_STEPS = 4            # this graph is distilled harder than the crop one
 # ...but a full frame is not free, and THIS is where the contributed lane needed
 # changing: it snapped the image to the latent stride and sent it at whatever
