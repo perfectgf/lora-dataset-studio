@@ -566,6 +566,26 @@ DEFAULTS = {
                    # For scale: a shot with no wobble at all measures under
                    # 0.10, and strong handheld tremor measures about 1.16.
                    'camera_shake_max': None,
+                   # 🔗 Does one shot hold ONE scene: flag shots whose first and
+                   # last embedded frames have drifted far enough apart that the
+                   # shot probably holds a cut the detector missed. Empty, and
+                   # for a reason that is neither "it is your footage" nor "there
+                   # is no published number" — it is that the measured accuracy
+                   # does not earn a default. Duration-matched, over 362 forged
+                   # missed cuts against 337 real shots of this app's own
+                   # encoder: AUC 0.719, and a cut at 0.80 catches 34 % of the
+                   # missed cuts while flagging 14.6 % of honest shots. That is
+                   # worth SORTING a bank by and not worth deciding anything on,
+                   # so the number rides in the panel hint and the user chooses
+                   # whether to switch it on at all.
+                   #
+                   # Panda-70M's own 1.0 does NOT convert into a default here:
+                   # it is a Euclidean distance over ImageBind features, which
+                   # is cosine 0.5 on unit vectors, and 0.5 sits below the first
+                   # percentile of even completely unrelated CLIP ViT-L/14 frame
+                   # pairs (measured: p1 0.501, median 0.720). It would flag
+                   # nothing, ever. See video_temporal_coherence.
+                   'coherence_floor': None,
                    'duplicate_threshold': 0.96},
     # consistency_strength: the dx8152 LoRA anchors STRUCTURE (composition/
     # background), not the face — its own guide says start at 0.5 and that

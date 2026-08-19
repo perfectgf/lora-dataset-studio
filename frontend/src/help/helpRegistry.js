@@ -932,6 +932,21 @@ const TOPICS = [
      'why is there no tilt label', 'why is my pan called a slideshow',
      'motiondirector', 'hunyuan camera', 'filter by camera'],
     '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
+  // 🔗 Two searches to serve and one misconception to head off. People will look
+  // for this by the SYMPTOM ("two scenes in one clip", "the detector missed a
+  // cut") rather than by the number's name, so those phrases carry the keywords.
+  // The misconception is the one the calibration refuted: someone will assume a
+  // near-1 coherence means "nothing moves" and go looking for a still filter
+  // here — the keywords bring them to a section that says where stillness
+  // actually lives.
+  action('video-temporal-coherence', 'Spot a shot that is really two (🔗 coherence)',
+    ['scene coherence', 'coherence floor', 'temporal coherence', 'missed cut',
+     'cut inside the shot', 'two scenes in one clip', 'shot contains a cut',
+     'detector missed a cut', 'dissolve not cut', 'match cut', 'shot is really two',
+     'scene changes mid shot', 'why is my long take flagged',
+     'coherence says 1 but the shot moves', 'does coherence detect still shots',
+     'split a shot the detector missed'],
+    '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
   action('video-flag-chips', 'Filter the gallery by a quality flag',
     ['flag chips', 'filter by flag', 'flagged shots', 'select flagged',
      'reject all flagged', 'amber chips', 'show only flagged', 'counts loaded',
