@@ -1580,6 +1580,7 @@ def _embed_job(bank_id, reembed, use_gpu):
                 on_clip=lambda: bank_jobs.bump(job),
                 should_stop=lambda: bank_jobs.cancelled(job))
         out.update(_rate_the_look(job, bank_id, reembed))
+        out.update(_check_coherence(job, bank_id, reembed))
         detail = f'done — {out["embedded"]} shot(s) searchable'
         if out['unreadable']:
             detail += f', {out["unreadable"]} could not be read'
@@ -1594,6 +1595,13 @@ def _embed_job(bank_id, reembed, use_gpu):
             # different fix. Silence here would leave a bank whose look cut flags
             # nothing, with nothing to explain why.
             detail += f' — look score unavailable ({out["aesthetic_error"]})'
+        if out.get('coherence_unmeasured'):
+            # Same silence `unrated` exists to break, and it is the SAME store
+            # that caused it — reported separately anyway, because the two passes
+            # can disagree (the look score needs a subprocess this one does not)
+            # and one number for both would hide which of them fell over.
+            detail += (f' — {out["coherence_unmeasured"]} shot(s) not checked '
+                       'for scene changes (vectors missing from the store)')
         bank_jobs.progress(job, detail=detail)
         return out
     return run
@@ -1631,6 +1639,43 @@ def _rate_the_look(job, bank_id, reembed):
     # subsequent pass with nothing anywhere saying why.
     return {'rated': out['rated'], 'unrated': out['unrated'],
             'aesthetic_error': out['error']}
+
+
+def _check_coherence(job, bank_id, reembed):
+    """🔗 Does one shot hold ONE scene, riding the pass that produced the vectors.
+
+    LAST, after the look score, and the order is deliberate rather than
+    incidental: 🎨 pays a torch import and a possible 13 MB download, this pays a
+    few dot products in this very process. Putting the cheap certainty behind the
+    expensive uncertainty means a machine with no egress still gets its coherence
+    reading, because ``_rate_the_look`` returns its failure as a RESULT rather
+    than raising.
+
+    Over the WHOLE bank rather than over what this run embedded, for the same
+    reason the look score is: a bank embedded before this shipped must not need
+    hours of re-decoding to gain a number it can get from vectors already on
+    disk, so re-clicking 🔎 Find scenes IS the retrofit — and here that retrofit
+    costs nothing at all, not even an interpreter start. ``reembed`` carries
+    through as ``recheck``: rewritten vectors are different vectors, and a stale
+    reading beside them would be a verdict about footage that has moved.
+
+    Skipped on cancel, like the look score — a stopped pass has already kept
+    everything it earned.
+    """
+    from . import video_temporal_coherence
+    if bank_jobs.cancelled(job):
+        return {}
+    if not video_temporal_coherence.pending_clips(bank_id, bool(reembed)):
+        return {}
+    bank_jobs.progress(job, detail='checking each shot holds one scene')
+    out = video_temporal_coherence.run_coherence(
+        bank_id, recheck=bool(reembed),
+        should_stop=lambda: bank_jobs.cancelled(job))
+    # Namespaced rather than merged into the embed run's own keys: `measured`
+    # already means something else in half this module's results, and a caller
+    # reading one dictionary must not have to know which pass wrote which word.
+    return {'coherence_measured': out['measured'],
+            'coherence_unmeasured': out['unmeasured']}
 
 
 def start_dedup(app, user_id, bank_id, threshold=None):

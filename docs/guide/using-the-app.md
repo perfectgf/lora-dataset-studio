@@ -2754,6 +2754,54 @@ at a fixed internal floor and describes, the cut fires wherever you put it and
 rejects. A shot can be labelled handheld without being flagged, or the reverse,
 and both are correct.
 
+### 🔗 Does each shot hold one scene — the cut the detector missed
+
+Shot detection cuts on a change big enough to see. The ones it misses are the
+soft changes — a dissolve, a match cut, a new angle inside the same room — and
+what they leave behind is a "shot" that is really two. That clip is the worst
+kind of training example: it teaches the model a transition nobody asked for, and
+you cannot spot it by scrolling, because its thumbnail is one of its two halves
+and looks perfectly fine.
+
+**It runs by itself, at the end of 🔎 Find scenes, and costs nothing.** That pass
+already embedded three frames of every shot. Comparing a shot's first frame to
+its last is a handful of multiplications over numbers that are already on disk —
+no decoding, no model, no button. A bank you embedded before this existed gets
+its reading by clicking **🔎 Find scenes** again, and that click costs nothing for
+the shots already embedded.
+
+Each shot gains a **scene coherence** number: **1.00** means its first and last
+frames are the same picture, and lower means the picture changed across the shot.
+🎚 Quality cuts gains a **Scene coherence floor**, empty by default, that flags
+anything below it as **Cut inside the shot**. The remedy is the next section:
+open the shot and **✂ Split here**.
+
+**How much to trust it — read this before you set the cut.** This is a *ranking*,
+not a verdict. Measured on real footage, against shots of the same length, a cut
+at **0.80** catches about a third of the genuinely double shots while flagging
+about one honest shot in seven; **0.75** catches a fifth for one in ten. Use it to
+decide which shots to *look* at first, and expect to keep some of what it flags.
+
+**Why a long shot scores lower.** The number falls with elapsed time whether or
+not anything was cut — a twenty-second locked-off take can read 0.84 with no cut
+in it at all, simply because the light moved and people walked about. Short shots
+score high for the opposite non-reason. If your bank is mostly long takes, set
+the floor lower than the figures above suggest.
+
+**What it is not.** A shot whose reading is near 1.00 is *not* flagged as still,
+and this pass deliberately says nothing about stillness. The obvious other half
+of the idea — "nothing changed, so nothing moved" — was measured against this
+app's own motion readings and does not hold: the number tracks how *long* a shot
+is far more than whether anything moves in it, and genuinely motionless shots
+read no higher than ordinary ones. Stillness stays with **Barely moves**, which
+reads the codec's own motion vectors, and with the **Slideshow** camera label,
+which reads how rigidly the frame moves. Two measurements that look at the real
+thing.
+
+Shots with no vectors (you have not run 🔎 Find scenes) and shots **under a
+second** — too short for the embed pass to take more than one frame — carry no
+reading at all and are never flagged.
+
 ## Retouch a cut: trim, split, or draw a shot by hand
 
 Shot detection is good and it is not right. It cuts a slow dissolve a second

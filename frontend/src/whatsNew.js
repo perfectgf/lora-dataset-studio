@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-19-video-temporal-coherence',
+    date: '2026-08-19',
+    title: 'Find the shots that are secretly two shots',
+    blurb:
+      'Shot detection cuts on a change big enough to see. The ones it misses are the soft ones — a dissolve, a match cut, a new angle inside the same room — and each one leaves behind a “shot” that is really two scenes. It is the worst kind of training example, because it teaches the model a transition nobody asked for, and you cannot catch it by scrolling: the thumbnail is one of the two halves and looks perfectly fine. The 🎬 Video bank now checks every shot for this by itself, at the end of 🔎 Find scenes, and it costs nothing at all — no decoding, no model, no GPU, no button. It compares a shot’s first frame to its last using vectors that pass already cached, so a bank you embedded weeks ago gets its reading by clicking 🔎 Find scenes again. Each shot gains a scene coherence number (1.00 means its ends are the same picture), and 🎚 Quality cuts gains a Scene coherence floor that flags anything below it as “Cut inside the shot” — then ✂ Split here does the repair. Empty by default, and the Guide is blunt about why: this is a ranking, not a verdict. Measured against shots of the same length, a cut at 0.80 catches about a third of the double shots and flags about one honest shot in seven, so use it to choose what to look at first. Long takes score lower whether or not anything was cut, which the panel says out loud.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-19-video-camera-motion',
     date: '2026-08-19',
     title: 'Sort your shots by what the camera did',
