@@ -66,6 +66,17 @@ export const FLAG_LABELS = {
   // a C2PA mark — which is proof when it is there. Different method, different
   // certainty, so a different word: the image lane says AI, this one says may be.
   maybe_generated: 'May be AI-generated',
+  // 🎥 The camera pass's ONE flag, and the only one of its eleven readings that
+  // belongs in this amber list. The other ten are descriptions and live in the
+  // camera facet — a shot that pans is not defective, and the wobble one user
+  // is cutting is the very thing the next user is training on. This one is here
+  // because a wobble nobody asked for IS a quality problem, and because the
+  // measurement separates cleanly enough to cut on.
+  //
+  // "Camera shake" and not "Handheld": handheld is the camera LABEL, fires at a
+  // fixed internal floor, and describes. This flag fires wherever the user put
+  // the cut and rejects. Same measurement, two jobs, so two words.
+  shaky: 'Camera shake',
   unmeasured: 'Not measured yet',
 }
 
@@ -287,6 +298,26 @@ export function thresholdFields() {
         + 'calibrated scale — so preview against your own bank. Needs the '
         + '🤖 AI check pass; a shot it has not measured, or one too short for '
         + 'its two-second window, is never flagged.' },
+    // 🎥 Camera motion's only cut. Its hint carries two things no other hint
+    // here needs: the scale (because this number IS comparable between banks,
+    // unlike block_score, so real figures help) and the warning that it is not
+    // the same threshold as the handheld LABEL — a user who assumes they are
+    // one number will set this and wonder why the labels did not move.
+    { key: 'camera_shake_max', flag: 'shaky', direction: 'above',
+      label: 'Camera shake',
+      hint: 'Flags shots whose camera wobbles more than you want — the '
+        + 'high-frequency part of the movement, as a percentage of the frame '
+        + 'width. Unlike the cuts above, this number IS comparable between '
+        + 'banks: it does not move with resolution, content or encoder. For '
+        + 'scale, a smoothly-moved or locked-off shot measures under 0.10 and '
+        + 'strong handheld tremor measures about 1.16, so a cut around 0.3 '
+        + 'separates them. NO DEFAULT on purpose, because which side you want '
+        + 'is the whole question: filtering FOR the wobble is exactly how you '
+        + 'build a handheld-look training set. This is NOT the same threshold '
+        + 'as the "handheld shot" camera label, which fires at a fixed internal '
+        + 'floor — the label says what the shot is, this cut says what you '
+        + 'reject. Needs the 🎥 Camera pass; a shot it has not read is never '
+        + 'flagged.' },
   ]
 }
 

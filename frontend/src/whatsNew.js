@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-19-video-camera-motion',
+    date: '2026-08-19',
+    title: 'Sort your shots by what the camera did',
+    blurb:
+      'A video LoRA learns camera language along with everything else, and until now there was no way to see any of it: a bank of a thousand shots gave you no answer to “which of these are locked off” or “where are the handheld ones”. The 🎬 Video bank has a new 🎥 Camera pass. It tracks every frame of every shot and labels what the camera did — pan left, pan right, pan up, pan down, zoom in, zoom out, static shot, handheld shot — using the same words the video trainer itself uses, so a label here means the same thing there. Three more are ours: rolling, slideshow (a photograph panned across rather than filmed) and subject moves. The labels appear on each thumbnail and as a new 🎥 Camera row of filters above the gallery, which composes with the ⚑ flag chips — “shaky shots that also pan right” is one click each. Nothing is ever rejected: these are descriptions, not faults, because the wobble one person is filtering out is exactly what the next person is training on. If you do want to cut on it, 🎚 Quality cuts gains a Camera shake threshold, empty by default like the rest. The pass runs on the CPU at about fifteen times real time and needs only the video decode extra, which now installs OpenCV alongside PyAV — press Install on the video row in Setup if it shows a ✗. Honest limits, stated in the app too: a pivot and a slide look identical in a flat picture so both are called a pan, orbits are not detected at all, and a real pan across a wall or a horizon can read as a slideshow because it has no depth either.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-19-video-ai-check',
     date: '2026-08-19',
     title: 'See which shots may have been generated rather than filmed',

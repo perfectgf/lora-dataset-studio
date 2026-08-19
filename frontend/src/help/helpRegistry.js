@@ -904,6 +904,22 @@ const TOPICS = [
      'suspiciously smooth', 'd3', 'second order', 'how accurate is the ai check',
      'may be ai generated', 'why does the bank say ai and the video says maybe'],
     '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
+  // 🎥 Two things people will search for and one they will complain about. The
+  // complaint is the missing "tilt up" — the trainer's own vocabulary has it and
+  // this pass never emits it — so the keywords carry the words nobody will find
+  // as chips, and the Guide section says why they are absent rather than
+  // leaving someone convinced the detection is broken.
+  action('video-camera-motion', 'Label what the camera did (🎥 Camera)',
+    ['camera motion', 'camera movement', 'camera pass', 'pan', 'pan left',
+     'pan right', 'pan up', 'pan down', 'tilt', 'tilt up', 'tilt down',
+     'zoom in', 'zoom out', 'dolly', 'truck', 'orbit', 'around left',
+     'arc shot', 'roll', 'rolling', 'dutch angle', 'handheld', 'handheld shot',
+     'shaky', 'shaky footage', 'camera shake', 'camera shake max', 'wobble',
+     'tripod', 'static shot', 'locked off', 'slideshow', 'ken burns',
+     'still image panned', 'subject moves', 'subject motion',
+     'why is there no tilt label', 'why is my pan called a slideshow',
+     'motiondirector', 'hunyuan camera', 'filter by camera'],
+    '/video-bank', 'using-the-app', 'measure-your-shots-and-choose-your-own-cuts'),
   action('video-flag-chips', 'Filter the gallery by a quality flag',
     ['flag chips', 'filter by flag', 'flagged shots', 'select flagged',
      'reject all flagged', 'amber chips', 'show only flagged', 'counts loaded',

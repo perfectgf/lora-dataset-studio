@@ -56,6 +56,7 @@ export const PASS_LABELS = {
   safezone: '🔳 Safe zone',
   defects: '🩻 Defects',
   aicheck: '🤖 AI check',
+  camera: '🎥 Camera',
   pipeline: 'Run everything',
   promote: 'Build the dataset',
 }
@@ -78,6 +79,10 @@ export const PASS_RUNNING_LABELS = {
   // "Checking how shots move", not "Detecting AI": the participle a user reads
   // for twenty minutes must describe the measurement, not promise the verdict.
   aicheck: 'Checking how shots move',
+  // "Reading the camera", not "Detecting pans": this pass labels rather than
+  // finds, and a participle promising a find makes a shot that turns out static
+  // look like a miss.
+  camera: 'Reading the camera',
   pipeline: 'Running everything',
   promote: 'Building the dataset',
 }

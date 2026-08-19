@@ -552,6 +552,20 @@ DEFAULTS = {
                    'dup_frames_max': None,
                    'block_max': None,
                    'blur_max': None,
+                   # 🎥 The camera pass's only cut: flag shots whose camera
+                   # wobbles more than you want. Empty, and here for a reason
+                   # none of the above have — the number IS comparable between
+                   # banks (it is a percentage of the frame width, so it does
+                   # not move with resolution, content or encoder), but WHICH
+                   # SIDE of it you want is the whole question. Someone training
+                   # a locked-off product shot wants every wobble gone; someone
+                   # training a handheld look wants exactly those clips and
+                   # would set this cut to find them and keep them. A default
+                   # would pick a side, and this app does not have one.
+                   #
+                   # For scale: a shot with no wobble at all measures under
+                   # 0.10, and strong handheld tremor measures about 1.16.
+                   'camera_shake_max': None,
                    'duplicate_threshold': 0.96},
     # consistency_strength: the dx8152 LoRA anchors STRUCTURE (composition/
     # background), not the face — its own guide says start at 0.5 and that

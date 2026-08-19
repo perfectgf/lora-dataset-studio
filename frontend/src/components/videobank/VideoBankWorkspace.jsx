@@ -27,6 +27,9 @@ import VideoClipLightbox from './VideoClipLightbox'
 import VideoClipSearchBox from './VideoClipSearchBox'
 import { matchLine, captionStyleLabel } from './videoClipSearch'
 import { filterByFlag, flagChips, flagFilterNote } from './videoMetricsFilter'
+import {
+  cameraChips, filterByCamera, CAMERA_HINTS, CAMERA_FACET_NOTE,
+} from './videoCameraMotion'
 import PromoteVideoDialog from './PromoteVideoDialog'
 
 const PAGE = 120
@@ -76,6 +79,10 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
   // already loaded — the status filter is a server-side query and this is not,
   // which is a real difference and the reason the chip row carries a note.
   const [flag, setFlag] = useState(null)
+  // Its own state and not a second value of `flag`: the two filters COMPOSE —
+  // "shots I flagged as shaky that also pan right" is a real question, and one
+  // shared slot would make picking either clear the other.
+  const [camera, setCamera] = useState(null)
   // The last job we announced, so a finished pass is toasted ONCE instead of on
   // every poll for as long as the server keeps its snapshot.
   const announced = useRef(null)
@@ -120,7 +127,8 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
     // The flag chip goes with them: it was computed over the previous bucket's
     // clips, and a chip left pressed over a page it never counted narrows the
     // grid to something the user did not ask for.
-    setSelected([]); setAnchor(null); setSearch(null); setOpenIndex(null); setFlag(null)
+    setSelected([]); setAnchor(null); setSearch(null); setOpenIndex(null)
+    setFlag(null); setCamera(null)
     loadClips(false)
   }, [bankId, status, sourceId])                          // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -153,7 +161,12 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
   // already have twice" is a question about the ranking, and a chip row that
   // went inert under a search would be the one place it is most useful.
   const baseClips = search ? (search.clips || []) : clips
-  const shownClips = filterByFlag(baseClips, flag)
+  // The two filters compose, flag first. The camera CHIPS are counted over the
+  // flag-filtered set rather than over `shownClips`, so picking one does not
+  // make the other ten vanish — the same reason `chips` counts over `baseClips`.
+  const flagged = filterByFlag(baseClips, flag)
+  const shownClips = filterByCamera(flagged, camera)
+  const cameraOptions = cameraChips(flagged)
   const chips = flagChips(baseClips)
   const flagNote = search ? '' : flagFilterNote(clips.length, total)
   const matchLines = search
@@ -407,9 +420,13 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
         {/* 🤖 sits at the end because it is the slowest button in the row —
             about 0.8 s per shot on the CPU, measured — and because it is the
             only one whose result is a hedge rather than a measurement. */}
+        {/* 🎥 sits beside 🤖 rather than earlier because it consumes nothing
+            and produces no input for anything else — but it goes BEFORE it,
+            because it is the cheap one of the pair (0.07 s per second of source
+            against 0.8 s per shot) and a row is read left to right. */}
         {['pipeline', 'probe', 'detect', 'thumbs', 'measure', 'embed',
           'caption', 'dedup', 'watermark', 'safezone', 'defects',
-          'aicheck'].map((pass) => {
+          'camera', 'aicheck'].map((pass) => {
           const blocked = passBlockedBy(capability, pass)
           const primary = pass === 'pipeline'
           // 🔳 is the one pass that runs with HALF its dependencies: no OCR
@@ -578,13 +595,51 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
           total would be a wrong number rather than a filter. */}
       {flagNote && <p className="text-[0.6875rem] text-content-subtle">{flagNote}</p>}
 
+      {/* 🎥 The camera facet, deliberately its OWN row and not more amber chips.
+          These describe rather than accuse — the wobble one user filters out is
+          what the next user is filtering FOR — so they are neutral-coloured and
+          sit apart from the ⚑ row above. Chips marked ᐩ are this app's own
+          words rather than the trainer's. */}
+      {cameraOptions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[0.6875rem] font-semibold text-content-muted">🎥 Camera:</span>
+          {cameraOptions.map((c) => (
+            <button key={c.name} type="button"
+              title={CAMERA_HINTS[c.name] || ''}
+              onClick={() => setCamera((v) => (v === c.name ? null : c.name))}
+              aria-pressed={camera === c.name}
+              className={`rounded-full border px-2.5 py-1 text-[0.6875rem] font-semibold transition-colors ${
+                camera === c.name
+                  ? 'border-sky-400/70 bg-sky-500/20 text-sky-100'
+                  : 'border-border bg-surface text-content-muted hover:bg-surface-raised'}`}>
+              {c.label}{c.ours ? ' ᐩ' : ''} ({c.count})
+            </button>
+          ))}
+          {camera && (
+            <button type="button" onClick={() => setCamera(null)}
+              className="rounded-full border border-border bg-surface px-2.5 py-1 text-[0.6875rem] text-content-muted hover:bg-surface-raised">
+              show all ✕
+            </button>
+          )}
+          <span className="text-[0.6875rem] text-content-subtle">{CAMERA_FACET_NOTE}</span>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-content-muted">
+          {/* The camera branch comes FIRST, and it is a fix rather than an
+              ordering preference: with only a camera chip pressed this line fell
+              through to "9 of 9 shown" while the grid was showing one tile.
+              A count that contradicts the grid is worse than no count. It also
+              wins when BOTH filters are on, because `shownClips` is the composed
+              result and "flagged" would name only half of what narrowed it. */}
           {selected.length
             ? `${selected.length} selected`
-            : (flag
-              ? `${shownClips.length} flagged`
-              : (search ? `${shownClips.length} found` : `${clips.length} of ${total} shown`))}
+            : (camera
+              ? `${shownClips.length} shown`
+              : (flag
+                ? `${shownClips.length} flagged`
+                : (search ? `${shownClips.length} found` : `${clips.length} of ${total} shown`)))}
         </span>
         <button type="button" onClick={() => triage(selected, 'keep')} disabled={!selected.length}
           className="rounded-md bg-emerald-600/80 px-2.5 py-1 font-semibold text-white hover:bg-emerald-600 disabled:opacity-30">

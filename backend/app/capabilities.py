@@ -718,7 +718,13 @@ CAPABILITY_IMPORTS = {
     # already manages — the same call the watermark detector made, for the same
     # ~2.5 GB reason. ffmpeg is not an import at all and is resolved separately
     # (services/ffmpeg_tools).
-    'video': 'import av',
+    # cv2 and numpy are named because the camera-motion pass tracks corners and
+    # fits a similarity transform IN THIS PROCESS, on the frames PyAV hands it —
+    # so a probe that names only `av` reports the video extra ready and then the
+    # pass dies on its first clip. Issue #24's exact shape, and the second time
+    # this list has under-imported: the AI check surfaced the same omission in
+    # `bank_scoring`. setup_installer's 'video' package tuple installs both.
+    'video': 'import av, cv2, numpy',
     # av: the worker decodes with PyAV in this same environment — a probe that
     # skips it answers "ready" about a detector that cannot open a single file.
     'shot_detect': 'import torch, transnetv2_pytorch, av',
