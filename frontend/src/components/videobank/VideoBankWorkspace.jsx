@@ -18,6 +18,13 @@ import {
   triagePayload, triageAllPayload, triageAllConfirmation, emptyGridMessage,
   hasMore,
 } from './videoTriage'
+import {
+  burstKeyAction, clipIndex, firstPendingIndex, stepIndex, afterDecision,
+  undoEntry, pushUndo, popUndo,
+  createQueue, queueDecision, startBatch, finishBatch, queueDepth,
+  loadBurstPrefs, saveBurstPrefs,
+} from './videoBurstTriage'
+import VideoBurstBar from './VideoBurstBar'
 import VideoCapabilityStrip from './VideoCapabilityStrip'
 import VideoShotCutsPanel from './VideoShotCutsPanel'
 import VideoThresholdsPanel from './VideoThresholdsPanel'
@@ -86,6 +93,19 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
   // The last job we announced, so a finished pass is toasted ONCE instead of on
   // every poll for as long as the server keeps its snapshot.
   const announced = useRef(null)
+  // ⌨ Burst mode — one keystroke per shot on the grid. The mode and the
+  // auto-advance are screen preferences and survive a reload; the cursor,
+  // the undo net and the send queue are the run itself and do not.
+  const [burst, setBurst] = useState(() => loadBurstPrefs())
+  const [cursorId, setCursorId] = useState(null)
+  const [undoStack, setUndoStack] = useState([])
+  const [helpOpen, setHelpOpen] = useState(false)
+  // Decisions typed but not yet acknowledged by the server. A ref and not state
+  // because a burst run mutates it faster than React re-renders, and the count
+  // that the bar shows is derived from it after every step.
+  const queue = useRef(createQueue())
+  const flushing = useRef(false)
+  const [saving, setSaving] = useState(0)
 
   const loadBank = useCallback(async (refresh = false) => {
     try {
@@ -260,6 +280,174 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
     }
     setAnchor(id)
   }
+
+  /* ── ⌨ Burst mode ─────────────────────────────────────────────────────────
+     The keyboard run. Every decision is applied to the rows IMMEDIATELY and
+     sent afterwards — the hand never waits for the network, which is the whole
+     measured gain — and the queue in videoBurstTriage keeps exactly one request
+     in flight so a fast run cannot land its decisions out of order.
+
+     Every body still goes through `triagePayload`, which refuses an empty id
+     list. That is not ceremony: an empty `ids` means EVERY CLIP IN THE BANK on
+     this endpoint, and a burst run posts constantly. */
+
+  /* The rows and the cursor as the KEY HANDLER must see them.
+   *
+   * Measured, on this screen: twenty-four keydowns delivered inside ONE task
+   * landed one decision and swallowed twenty-three — every handler after the
+   * first read the same render-time `shownClips` and the same `cursorId`, and
+   * re-decided the shot that was already decided. A real keyboard cannot do
+   * that (each keydown is its own task and React commits in between — the same
+   * twenty-four keys at 190/s all landed), but anything that dispatches events
+   * in a loop can, and "the second key did nothing" is not a failure anyone
+   * would think to look for.
+   *
+   * So the handler reads this ref instead. It is refreshed on every render —
+   * the derive-during-render pattern VideoClipLightbox already uses for its
+   * player key — and each decision writes the new truth into it straight away,
+   * so between two renders the ref, not the stale closure, is the authority. */
+  const live = useRef({ clips: [], cursorId: null })
+  live.current = { clips: shownClips, cursorId }
+
+  const retagRow = useCallback((id, status) => {
+    const retag = (rows) => rows.map((c) => (c.id === id ? { ...c, status } : c))
+    setClips(retag)
+    setSearch((r) => (r ? { ...r, clips: retag(r.clips || []) } : r))
+  }, [])
+
+  /** Send what is queued, one request at a time, until the queue is empty. */
+  const flushBurst = useCallback(async () => {
+    if (flushing.current) return
+    flushing.current = true
+    try {
+      for (;;) {
+        queue.current = startBatch(queue.current)
+        const batch = queue.current.inflight
+        if (!batch) break
+        const body = triagePayload(batch.ids, batch.status)
+        if (!body) { queue.current = finishBatch(queue.current); continue }
+        try {
+          const d = await postJson(videoPassUrl(bankId, 'triage'), body)
+          setBank((b) => (b ? { ...b, counts: d.counts || b.counts } : b))
+          queue.current = finishBatch(queue.current)
+        } catch (e) {
+          // A failed batch makes the rows on screen a claim nothing backs, and
+          // it makes the undo net describe a state that never existed. So we do
+          // not guess our way back: the grid is reloaded from the bank, the net
+          // is dropped, and the message says how many decisions did not land.
+          const lost = queueDepth(queue.current)
+          queue.current = createQueue()
+          setUndoStack([])
+          toast.error(`${lost} decision(s) did not save — the grid now shows what the `
+            + `bank actually holds. (${e?.message || 'the request failed'})`)
+          loadClips(false)
+          break
+        }
+        setSaving(queueDepth(queue.current))
+      }
+    } finally {
+      flushing.current = false
+      setSaving(queueDepth(queue.current))
+    }
+  }, [bankId, toast, loadClips])
+
+  /** Move the cursor in BOTH the ref the handler reads and the state the grid
+   * draws, so a second keystroke in the same task sees where the first left it. */
+  const placeCursor = useCallback((id) => {
+    live.current.cursorId = id ?? null
+    setCursorId(id ?? null)
+  }, [])
+
+  const burstDecide = useCallback((status) => {
+    const rows = live.current.clips
+    const at = clipIndex(rows, live.current.cursorId)
+    const clip = at >= 0 ? rows[at] : null
+    if (!clip) return
+    const before = clip.status || 'pending'
+    // Pressing K on an already-kept shot must still MOVE — a key that does
+    // nothing reads as a dropped keystroke — but it owes the server nothing and
+    // it is not something to offer an undo for.
+    if (before !== status) {
+      setUndoStack((s) => pushUndo(s, undoEntry(clip, status)))
+      retagRow(clip.id, status)
+      queue.current = queueDecision(queue.current, clip.id, status)
+      setSaving(queueDepth(queue.current))
+      flushBurst()
+    }
+    const next = rows.map((c) => (c.id === clip.id ? { ...c, status } : c))
+    live.current.clips = next
+    const to = afterDecision({ clips: next, index: at, autoAdvance: burst.autoAdvance })
+    placeCursor(next[to]?.id ?? clip.id)
+  }, [burst.autoAdvance, retagRow, flushBurst, placeCursor])
+
+  const burstUndo = useCallback(() => {
+    const { entry, stack } = popUndo(undoStack)
+    if (!entry) return
+    setUndoStack(stack)
+    retagRow(entry.id, entry.from)
+    live.current.clips = live.current.clips.map((c) => (
+      c.id === entry.id ? { ...c, status: entry.from } : c))
+    // The cursor goes ONTO the shot that was put back. An undo you cannot see
+    // is indistinguishable from an undo that did nothing.
+    placeCursor(entry.id)
+    queue.current = queueDecision(queue.current, entry.id, entry.from)
+    setSaving(queueDepth(queue.current))
+    flushBurst()
+  }, [undoStack, retagRow, flushBurst, placeCursor])
+
+  const burstMove = useCallback((delta) => {
+    const rows = live.current.clips
+    const at = clipIndex(rows, live.current.cursorId)
+    const to = stepIndex(rows, at < 0 ? 0 : at, delta)
+    if (to >= 0) placeCursor(rows[to].id)
+  }, [placeCursor])
+
+  const burstFirst = useCallback(() => {
+    const rows = live.current.clips
+    const i = firstPendingIndex(rows)
+    if (i >= 0) placeCursor(rows[i].id)
+  }, [placeCursor])
+
+  const setBurstPref = useCallback((patch) => {
+    setBurst((b) => saveBurstPrefs({ ...b, ...patch }))
+  }, [])
+
+  // Where the cursor sits. Re-resolved by ID rather than by position, because a
+  // filter change replaces the whole list — and kept where it is as long as the
+  // shot is still on screen, which is what makes a decision not move it.
+  useEffect(() => {
+    if (!burst.on) {
+      if (cursorId !== null) placeCursor(null)
+      return
+    }
+    if (cursorId != null && shownClips.some((c) => c.id === cursorId)) return
+    const i = firstPendingIndex(shownClips)
+    placeCursor(shownClips[i >= 0 ? i : 0]?.id ?? null)
+  }, [burst.on, shownClips, cursorId, placeCursor])
+
+  useEffect(() => {
+    if (!burst.on) return undefined
+    const onKey = (e) => {
+      // The player and the promote dialog own the keyboard while they are open:
+      // the lightbox has its own K/R/←/→ over the shot it is showing, and a
+      // second handler would decide TWO different shots on one keystroke.
+      if (openIndex != null || promoting) return
+      const action = burstKeyAction(e)
+      if (!action) return
+      e.preventDefault()
+      // 'keep' | 'reject' | 'pending' ARE the three triage statuses, by name.
+      if (action === 'keep' || action === 'reject' || action === 'pending') burstDecide(action)
+      else if (action === 'skip') burstMove(1)
+      else if (action === 'back') burstMove(-1)
+      else if (action === 'undo') burstUndo()
+      else if (action === 'first') burstFirst()
+      else if (action === 'help') setHelpOpen((v) => !v)
+      else if (action === 'exit') setBurstPref({ on: false })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [burst.on, openIndex, promoting, burstDecide, burstMove, burstUndo, burstFirst,
+    setBurstPref])
 
   const openAt = (clip) => setOpenIndex(shownClips.findIndex((c) => c.id === clip.id))
   const openClip = openIndex != null ? shownClips[openIndex] : null
@@ -669,8 +857,23 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
         </button>
       </div>
 
+      {/* ⌨ Directly above the grid it drives — the cursor it moves is a tile
+          down there, and a control for it anywhere else would be a control for
+          something off screen. */}
+      {(counts.clips || 0) > 0 && (
+        <VideoBurstBar on={burst.on} autoAdvance={burst.autoAdvance}
+          clips={shownClips} index={clipIndex(shownClips, cursorId)}
+          hasMore={!search && hasMore({ loaded: clips.length, total })}
+          undoStack={undoStack} saving={saving}
+          helpOpen={helpOpen} onHelp={() => setHelpOpen((v) => !v)}
+          onToggle={() => setBurstPref({ on: !burst.on })}
+          onAutoAdvance={(v) => setBurstPref({ autoAdvance: v })}
+          onUndo={burstUndo} />
+      )}
+
       <VideoClipGrid bankId={bankId} clips={shownClips} selected={selected}
         onToggle={onToggle} onOpen={openAt} matchLines={matchLines}
+        cursorId={burst.on ? cursorId : null}
         emptyMessage={search
           ? `Nothing came back for “${search.query}”.`
           : emptyGridMessage({

@@ -736,6 +736,18 @@ const TOPICS = [
      'why is my bank empty', 'next step', 'cancel a pass', 'stop', 'busy',
      'already running', 'rescan folder', 'new videos'],
     '/video-bank', 'using-the-app', 'the-video-bank-turn-a-folder-of-rushes-into-shots'),
+  // Nobody searches "burst mode" until they have seen it. They search the
+  // SYMPTOM of not having it — "triage faster", "too many clicks" — or the
+  // thing they just pressed and nothing happened ("K does nothing").
+  action('video-burst-triage', 'Triage shots from the keyboard (burst mode)',
+    ['burst', 'burst mode', 'keyboard', 'keyboard shortcuts', 'shortcuts',
+     'hotkeys', 'keys', 'triage faster', 'faster triage', 'too many clicks',
+     'one key per shot', 'k keep', 'r reject', 'keep reject keyboard',
+     'auto-advance', 'auto advance', 'next untriaged', 'skip a shot',
+     'undo', 'undo a decision', 'i rejected the wrong shot', 'take it back',
+     'p untriaged', 'reset a shot', 'cursor', 'which shot is selected',
+     'k does nothing', 'shortcuts do not work', 'shortcut while typing'],
+    '/video-bank', 'using-the-app', 'triage-a-video-bank-from-the-keyboard'),
   action('video-quality-cuts', 'Measure shots and set quality cuts',
     ['measure quality', 'quality cuts', 'flags', 'flagged shots', 'amber flag',
      'still clip', 'barely moves', 'frozen', 'freeze', 'black frames',
