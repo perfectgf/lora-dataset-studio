@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-20-edit-a-custom-shot',
+    date: '2026-08-20',
+    title: 'Edit a custom shot instead of retyping it',
+    blurb:
+      'A ✨ Custom shot is a whole sentence you wrote — outfit, pose, setting, light — and until now the only way to change one word of it was to delete the card and type the other forty again. Worse, the card that came back was a different card: it landed at the end of the row, unselected, so a typo cost you your place in a selection you had spent minutes building. Every custom card now has an ✏️ next to its ✕. Press it and the words come back into the ✨ Custom shot box below, with the framing you picked; change what you want and Save puts the card back exactly where it was, still selected. Cancel leaves it untouched. The one thing that does not carry over is the ✓×N tally on the card, and on purpose: those images were generated from the words you just replaced. (Asked for by .samexit on Discord.)',
+    to: '/datasets?section=add&panel=generate',
+  },
+  {
     id: '2026-08-19-video-burst-triage',
     date: '2026-08-19',
     title: 'Triage a video bank one keystroke per shot',

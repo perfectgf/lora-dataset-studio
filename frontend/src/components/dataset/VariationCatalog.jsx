@@ -24,6 +24,9 @@ import {
   applyShotImport, buildShotExport, parseShotImport, promoteCustomShot, MAX_IMPORT_BYTES,
 } from '../../utils/shotImport';
 import {
+  createCustomShot, editCustomShot, customShotDraft,
+} from '../../utils/customShots';
+import {
   ENGINE_ACCENTS, ENGINE_LABELS, billingEngines, canonicalEngines, engineBatches,
   estimateCost, generateBlockedReason, localQueuesBehindApi, localOnly, readEngines,
   readMode, totalImages, writeEngines, writeMode,
@@ -290,20 +293,57 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
     catch { /* private browsing / full storage: keep the in-memory preset usable */ }
   }, [customPresets]);
 
+  // ✏️ Which card the composer below is re-wording (null = writing a new one).
+  // Asked for by .samexit (Discord): a custom card could be added and deleted,
+  // never corrected. The composer is REUSED rather than duplicated inline on the
+  // card — it already owns the prompt box, the framing picker and the 🔞
+  // register line, and a second editor would drift from it the first time one of
+  // those changes. See utils/customShots.js for what an edit keeps.
+  const [editingShotId, setEditingShotId] = useState(null);
+  const customDetailsRef = useRef(null);
+
   const addCustomShot = () => {
-    const p = customPrompt.trim();
-    if (!p) return;
-    const hot = nsfwMode && localOnlyRun;
-    const shot = { id: `custom_${Date.now()}`, label: `${hot ? '🔞' : '✨'} ${p.slice(0, 40)}`,
-                   prompt: p, framing: customFraming, nsfw: hot };
+    const shot = createCustomShot({
+      prompt: customPrompt, framing: customFraming, nsfw: nsfwMode && localOnlyRun });
+    if (!shot) return;
     setCustomShots((s) => [...s, shot]);
     setSelected((s) => new Set(s).add(shot.id));   // freshly added = selected
     setCustomPrompt('');
   };
 
+  /** Load a card back into the composer. Opens the <details> if it is folded —
+   *  otherwise ✏️ would look like it did nothing at all, the editor being out of
+   *  sight below the grid of cards. */
+  const startEditCustomShot = (shot) => {
+    const draft = customShotDraft(customShots, shot.id);
+    if (!draft) return;
+    setEditingShotId(shot.id);
+    setCustomPrompt(draft.prompt);
+    setCustomFraming(draft.framing);
+    if (customDetailsRef.current) customDetailsRef.current.open = true;
+  };
+
+  const editingShot = editingShotId
+    ? customShots.find((c) => c.id === editingShotId) || null : null;
+
+  const cancelEditCustomShot = () => {
+    setEditingShotId(null);
+    setCustomPrompt('');
+  };
+
+  const saveEditCustomShot = () => {
+    if (!editingShotId) return;
+    setCustomShots((s) => editCustomShot(s, editingShotId, {
+      prompt: customPrompt, framing: customFraming }));
+    cancelEditCustomShot();
+  };
+
   const removeCustomShot = (id) => {
     setCustomShots((s) => s.filter((c) => c.id !== id));
     setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
+    // Deleting the card being edited must not leave the composer pointing at a
+    // shot that no longer exists — Save would then silently do nothing.
+    if (id === editingShotId) cancelEditCustomShot();
   };
 
   // 📥 Imported shots (idea by ashish.sinha — Discord): a JSON catalog the user
@@ -434,9 +474,13 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
 
   /** One user-shot card — selectable like a catalog card, plus the ✕ that only
    *  user shots have. Shared by the ✨ Custom and 📥 Imported groups so they can
-   *  never drift apart. */
-  const renderUserShot = (c, onRemove, removeTitle, onKeep = null) => {
+   *  never drift apart. The actions come as an options object rather than four
+   *  positional arguments: the two groups offer DIFFERENT ones (only ✨ cards can
+   *  be kept or edited), and a call site that reads `{ onRemove, removeTitle }`
+   *  says which is which without counting commas. */
+  const renderUserShot = (c, { onRemove, removeTitle, onKeep = null, onEdit = null }) => {
     const on = selected.has(c.id);
+    const editing = !!onEdit && c.id === editingShotId;
     const done = doneByLabel.get(c.label) || 0;
     const blocked = c.nsfw && !localOnlyRun;   // 🔞 card while an API engine is in the run
     const cls = on
@@ -445,7 +489,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
         ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100/90 hover:bg-emerald-500/15'
         : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised';
     return (
-      <div key={c.id} className={`relative flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border transition-colors ${cls} ${blocked ? 'opacity-40' : ''}`}>
+      <div key={c.id} className={`relative flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border transition-colors ${cls} ${blocked ? 'opacity-40' : ''} ${editing ? 'ring-2 ring-amber-400/70' : ''}`}>
         <button type="button" onClick={() => !blocked && toggle(c.id)} aria-pressed={on}
           disabled={blocked}
           title={blocked ? '🔞 shot — check Klein alone to generate it' : c.prompt}
@@ -475,11 +519,24 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
               Keep
             </button>
           )}
-          <button type="button" onClick={onRemove}
-            aria-label={`${removeTitle} ${c.label}`} title={removeTitle}
-            className="self-end w-4 h-4 grid place-items-center rounded bg-black/40 text-content-subtle hover:text-white text-[0.625rem] leading-none">
-            ✕
-          </button>
+          {/* ✏️ and ✕ share a row so the action column stays exactly as wide as
+              the "Keep" button above it — a third stacked button would have eaten
+              width from the label, which is the one thing this card cannot spare. */}
+          <span className="flex items-center justify-end gap-0.5">
+            {onEdit && (
+              <button type="button" onClick={onEdit}
+                aria-label={`Edit the shot ${c.label}`}
+                title="Edit this shot — its words come back into the ✨ Custom shot box below, and saving replaces the card in place"
+                className="w-4 h-4 grid place-items-center rounded bg-black/40 text-content-subtle hover:text-amber-300 text-[0.625rem] leading-none">
+                ✏️
+              </button>
+            )}
+            <button type="button" onClick={onRemove}
+              aria-label={`${removeTitle} ${c.label}`} title={removeTitle}
+              className="w-4 h-4 grid place-items-center rounded bg-black/40 text-content-subtle hover:text-white text-[0.625rem] leading-none">
+              ✕
+            </button>
+          </span>
         </span>
       </div>
     );
@@ -1734,12 +1791,16 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
               <span aria-hidden="true">✨</span>
               <span className="text-[0.6875rem] uppercase font-semibold text-content-muted">Custom</span>
               <span className="text-content-subtle text-[0.625rem]">
-                your own shots, stored in this browser — Keep saves one for good, ✕ removes it
+                your own shots, stored in this browser — ✏️ edits one, Keep saves it for good, ✕ removes it
               </span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5">
-              {customShots.map((c) => renderUserShot(c, () => removeCustomShot(c.id),
-                'Remove this custom shot', () => keepCustomShot(c)))}
+              {customShots.map((c) => renderUserShot(c, {
+                onRemove: () => removeCustomShot(c.id),
+                removeTitle: 'Remove this custom shot',
+                onKeep: () => keepCustomShot(c),
+                onEdit: () => startEditCustomShot(c),
+              }))}
             </div>
           </div>
         )}
@@ -1761,8 +1822,10 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
               </button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5">
-              {importedShots.map((c) => renderUserShot(c, () => removeImportedShot(c),
-                'Remove this imported shot'))}
+              {importedShots.map((c) => renderUserShot(c, {
+                onRemove: () => removeImportedShot(c),
+                removeTitle: 'Remove this imported shot',
+              }))}
             </div>
           </div>
         )}
@@ -1830,16 +1893,20 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
           NSFW mode is on with Klein). Included in the next Generate alongside the
           selected catalog shots. Collapsed by default (power-user tool) — the
           <details> keeps its fields mounted, so drafts survive fold/unfold. */}
-      <details className="rounded-lg border border-border bg-app/30 open:pb-2">
+      <details ref={customDetailsRef} className="rounded-lg border border-border bg-app/30 open:pb-2">
         <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
-          ✨ Custom shot
+          {editingShot ? '✏️ Editing a custom shot' : '✨ Custom shot'}
           <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
-            write your own prompt — it becomes a reusable card in the Custom group above{nsfwMode && localOnlyRun ? ' — 🔞 register active' : ''}
+            {editingShot
+              ? 'change the words or the framing, then Save — the card keeps its place'
+              : `write your own prompt — it becomes a reusable card in the Custom group above${nsfwMode && localOnlyRun ? ' — 🔞 register active' : ''}`}
           </span>
         </summary>
         <div className="px-2.5 pt-1 flex flex-col gap-1">
           <label className="text-content-muted text-[0.6875rem]" htmlFor="custom-shot-prompt">
-            Describe outfit, pose and setting, pick a framing, then Add.
+            {editingShot
+              ? 'Saving replaces the card in place — it keeps its position and stays selected. Its ✓×N tally starts over, because those images were generated from the words you are replacing.'
+              : 'Describe outfit, pose and setting, pick a framing, then Add.'}
           </label>
           <div className="flex gap-1.5 items-start">
             <textarea id="custom-shot-prompt" value={customPrompt} rows={2}
@@ -1853,10 +1920,25 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
                 <option key={fr} value={fr}>{FRAMING_LABEL[fr]}</option>
               ))}
             </select>
-            <button type="button" onClick={addCustomShot} disabled={!customPrompt.trim()}
-              className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
-              ＋ Add
-            </button>
+            {editingShot ? (
+              <span className="flex flex-col gap-1">
+                <button type="button" onClick={saveEditCustomShot} disabled={!customPrompt.trim()}
+                  title="Replace this card with the words above"
+                  className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
+                  ✔ Save
+                </button>
+                <button type="button" onClick={cancelEditCustomShot}
+                  title="Leave the card as it was"
+                  className="px-2.5 py-1 rounded-lg border border-border text-content text-[0.6875rem] font-semibold hover:bg-surface-raised">
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button type="button" onClick={addCustomShot} disabled={!customPrompt.trim()}
+                className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
+                ＋ Add
+              </button>
+            )}
           </div>
         </div>
       </details>
