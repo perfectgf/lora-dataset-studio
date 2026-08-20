@@ -50,6 +50,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-20-caption-appearance-policy',
+    date: '2026-08-20',
+    title: 'Choose whether hair, makeup, facial hair and glasses bind to the trigger',
+    blurb:
+      'What a caption does not name binds to the trigger, and Extra instructions could not '
+      + 'change that: hair was always forbidden, makeup was never asked for, and mascara still '
+      + 'baked in. Captions ⚙️ Options on a character dataset now has Appearance in captions — '
+      + 'Omit or Describe for hair, makeup and nails, facial hair, and glasses. Face, eyes, '
+      + 'skin, age, gender and ethnicity stay omitted. Untouched datasets keep the classic lock '
+      + 'until you flip a row; then makeup defaults to Describe so it cannot silently bind. '
+      + 'Re-caption to apply. Suggested by Sam Exit and Meeseeks (Discord).',
+    to: '/datasets?section=captions',
+  },
+  {
     id: '2026-08-20-viewer-pinch-zoom',
     date: '2026-08-20',
     title: 'Zoom into a render to see whether it actually got the detail right',

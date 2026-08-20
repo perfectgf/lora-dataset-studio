@@ -1086,8 +1086,9 @@ def dataset_caption_cancel(dataset_id):
 @bp.get('/dataset/<int:dataset_id>/caption/options')
 def dataset_caption_options_get(dataset_id):
     """Per-dataset caption method overrides {backend, ollama_model, vocabulary, length,
-    instructions} for the ⚙️ Options popover. Empty values mean "follow the global
-    default" (for length, the standard prompt with nothing appended)."""
+    instructions, appearance} for the ⚙️ Options popover. Empty values mean "follow the
+    global default" (for length, the standard prompt with nothing appended). Empty
+    appearance is the historical identity lock."""
     ds = svc.get_dataset(LOCAL_USER, dataset_id)
     if not ds:
         return jsonify({'error': 'not found'}), 404

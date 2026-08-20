@@ -73,7 +73,9 @@ def test_badge_counts_only_kept_captioned_and_flags_offenders(app):
         _add(ds.id, '', status='keep')                                  # kept, no caption -> not counted
 
         payload = svc.dataset_payload(LOCAL_USER, ds.id)
-        assert payload['caption_leak'] == {'leaking': 1, 'captioned': 2}
+        assert payload['caption_leak']['leaking'] == 1
+        assert payload['caption_leak']['captioned'] == 2
+        assert 'hair' in payload['caption_leak']['watched']
         # per-image flag: exactly the kept leaking caption carries leak=True
         flagged = [i for i in payload['images'] if i['leak']]
         assert len(flagged) == 1
@@ -87,7 +89,8 @@ def test_badge_is_zero_when_captions_are_clean(app):
         _add(ds.id, 'full body, walking, denim jacket, city street')
         payload = svc.dataset_payload(LOCAL_USER, ds.id)
         # A REAL 0 on 2 checked captions — the state the owner sees on a clean set.
-        assert payload['caption_leak'] == {'leaking': 0, 'captioned': 2}
+        assert payload['caption_leak']['leaking'] == 0
+        assert payload['caption_leak']['captioned'] == 2
         assert all(i['leak'] is False for i in payload['images'])
 
 

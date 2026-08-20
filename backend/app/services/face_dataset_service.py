@@ -56,12 +56,14 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU,
                               JOYCAPTION_PROMPT, aspect_for_label, caption_prompt_for,
                               caption_prompt_for_style, caption_prompt_for_concept,
                               caption_has_identity_leak, caption_has_concept_leak,
+                              appearance_describe_phrases, appearance_omit_shorten_clause,
                               compose_prompt_suffix, concept_lexical_field,
                               drop_identity_sentences, drop_identity_tags,
-                              drop_style_lead_in,
+                              drop_style_lead_in, identity_leak_chips,
                               is_nsfw_label, prompt_by_label, wrap_variation,
                               wrap_variation_klein, wrap_variation_krea,
                               get_identity_prompt,
+                              normalize_appearance,
                               normalize_subject_type,
                               KLEIN_IMAGE_IMPROVE_PROMPT)
 
@@ -1045,11 +1047,12 @@ _LENGTH_INSTRUCTION = {
 
 
 def caption_options(ds) -> dict:
-    """Normalized per-dataset caption overrides: {backend, ollama_model, instructions}.
-    Empty strings = "use the global default". Never raises ({} defaults on a missing or
-    corrupt blob) so every caption path can read it unconditionally."""
+    """Normalized per-dataset caption overrides: {backend, ollama_model, instructions,
+    vocabulary, length, appearance}. Empty strings / empty appearance = "use the
+    global default" / historical identity lock. Never raises ({} defaults on a
+    missing or corrupt blob) so every caption path can read it unconditionally."""
     out = {'backend': '', 'ollama_model': '', 'instructions': '', 'vocabulary': '',
-           'length': ''}
+           'length': '', 'appearance': {}}
     raw = getattr(ds, 'caption_options', None) if ds else None
     if not raw:
         return out
@@ -1076,6 +1079,7 @@ def caption_options(ds) -> dict:
     length = str(data.get('length') or '').strip().lower()
     if length in _CAPTION_LENGTHS:
         out['length'] = length
+    out['appearance'] = normalize_appearance(data.get('appearance'))
     return out
 
 
@@ -1108,6 +1112,20 @@ def set_caption_options(user_id, dataset_id, patch) -> dict:
         if ln and ln not in _CAPTION_LENGTHS:
             raise ValueError(f'invalid caption length: {ln}')
         cur['length'] = ln
+    if 'appearance' in patch:
+        raw_app = patch.get('appearance')
+        if raw_app in (None, '', {}):
+            cur['appearance'] = {}
+        elif not isinstance(raw_app, dict):
+            raise ValueError('invalid caption appearance: expected an object')
+        else:
+            # A dict with no valid family (all-bogus keys) is not a policy — refuse
+            # so a typo cannot silently wipe the lock. A partial dict (one toggle)
+            # fills the rest from APPEARANCE_DEFAULTS via normalize_appearance.
+            normalized = normalize_appearance(raw_app)
+            if not normalized and raw_app:
+                raise ValueError('invalid caption appearance: no known family')
+            cur['appearance'] = normalized
     stored = {k: v for k, v in cur.items() if v}
     ds.caption_options = json.dumps(stored) if stored else None
     db.session.commit()
@@ -1250,15 +1268,39 @@ def _with_caption_instructions(prompt: str, instructions: str) -> str:
     return f'{prompt}\n\nAdditional instructions from the user:\n{extra}'
 
 
-def _caption_preset_parts(vocabulary=None, length=None) -> list:
+def _length_instruction_text(length, appearance=None) -> str | None:
+    """The length-preset paragraph, with Describe-family extras folded in so a
+    Concise instruction cannot fight a hair/makeup policy (it currently names
+    only subject, pose, clothing and setting). No appearance → the historical
+    sentence, byte-identical."""
+    key = (length or '').strip().lower()
+    text = _LENGTH_INSTRUCTION.get(key)
+    if not text:
+        return None
+    extras = appearance_describe_phrases(appearance)
+    if not extras:
+        return text
+    joined = ', '.join(extras)
+    if key == 'concise':
+        return text.replace(
+            'the clothing and the setting',
+            f'the clothing, {joined}, and the setting')
+    if key == 'detailed':
+        return text.rstrip('.') + f', plus {joined}.'
+    return text
+
+
+def _caption_preset_parts(vocabulary=None, length=None, appearance=None) -> list:
     """The preset instructions for a run, in their fixed order: vocabulary register first
     (how to name things), then length (how much to write). One list so the dataset pass,
-    the Caption Lab preview and the image bank never drift on that order."""
+    the Caption Lab preview and the image bank never drift on that order. `appearance`
+    only affects the length paragraph (Describe families named so Concise cannot omit
+    them); Caption Lab / the bank pass None and stay descriptive."""
     parts = []
     register = _VOCABULARY_INSTRUCTION.get((vocabulary or '').strip().lower())
     if register:
         parts.append(register)
-    size = _LENGTH_INSTRUCTION.get((length or '').strip().lower())
+    size = _length_instruction_text(length, appearance)
     if size:
         parts.append(size)
     return parts
@@ -1271,7 +1313,8 @@ def _combined_caption_instructions(opts) -> str:
     dataset that never touched the popover produces byte-identical prompts. All of it rides
     at the END of the prompt, after the kind omission rules, and the output cleaners still
     post-filter."""
-    parts = _caption_preset_parts(opts.get('vocabulary'), opts.get('length'))
+    appearance = opts.get('appearance') or None
+    parts = _caption_preset_parts(opts.get('vocabulary'), opts.get('length'), appearance)
     extra = (opts.get('instructions') or '').strip()
     if extra:
         parts.append(extra)
@@ -5246,6 +5289,7 @@ def dataset_payload(user_id, dataset_id):
     kind_concept = is_concept(ds)
     kind_style = is_style(ds)
     body = is_body_fidelity(ds)
+    appearance = (caption_options(ds).get('appearance') or None)
     # Cached concept ban-list (JSON on the row) → the concept-leak detector unions it with
     # concept_desc + the derived body/pose field, so the badge and the caption-time
     # enforcement agree on what "leaking" means. Ignored for non-concept kinds.
@@ -5258,7 +5302,7 @@ def dataset_payload(user_id, dataset_id):
             return caption_has_concept_leak(i.caption, ds.concept_desc, _concept_terms)
         if kind_style:
             return False
-        return caption_has_identity_leak(i.caption, body=body)
+        return caption_has_identity_leak(i.caption, body=body, appearance=appearance)
 
     return {
         'id': ds.id, 'name': ds.name, 'trigger_word': ds.trigger_word,
@@ -5378,6 +5422,12 @@ def dataset_payload(user_id, dataset_id):
         'caption_leak': {
             'leaking': sum(1 for i in imgs if _img_leaks(i)),
             'captioned': sum(1 for i in imgs if i.status == 'keep' and i.caption),
+            # Character-only watched list (legacy hair/eyes/skin/face, or the
+            # active appearance policy). The Identity-leak panel renders these
+            # chips instead of a hardcoded set so a Describe family never stays
+            # flagged. Concept/style ignore it.
+            'watched': ([] if (kind_concept or kind_style)
+                        else identity_leak_chips(appearance, body=body)),
         },
         # Live server-side batch on this dataset (watermark detect/clean, caption/
         # re-caption, face analysis, framing classify) as {kind, done, total,
@@ -7583,10 +7633,11 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
         # (tatouages/cicatrices/piercings…) et le post-filtre les retire — elles doivent
         # se lier au trigger, pas aux mots (même principe que le visage).
         body = is_body_fidelity(ds)
-        cap_prompt = caption_prompt_for(mode, body=body)
+        appearance = (opts.get('appearance') or None) or None
+        cap_prompt = caption_prompt_for(mode, body=body, appearance=appearance)
         base_cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
         def cleaner(text):
-            return base_cleaner(text, body=body)
+            return base_cleaner(text, body=body, appearance=appearance)
     # Extra user instructions ride at the END of the prompt (both engines) — the kind
     # omission rules stay first, and the cleaner above still post-filters the output.
     cap_prompt = _with_caption_instructions(cap_prompt, extra_instructions)
@@ -8044,8 +8095,13 @@ def _shorten_prompt(ds, long_caption) -> str:
         rule = (f'Never mention or describe this recurring element: '
                 f'{(ds.concept_desc or "").strip()}. Keep it fully omitted.\n')
     else:
-        rule = ("Never mention or describe the person's identity, face, or facial "
-                'features.\n')
+        appearance = caption_options(ds).get('appearance') or None
+        if appearance:
+            rule = ('Never mention or describe: '
+                    f'{appearance_omit_shorten_clause(appearance)}.\n')
+        else:
+            rule = ("Never mention or describe the person's identity, face, or facial "
+                    'features.\n')
     return f'{_SHORTEN_BASE}{rule}\nCAPTION:\n{(long_caption or "").strip()}\n'
 
 
@@ -8065,7 +8121,8 @@ def _scrub_short_like_long(ds, text, mode) -> str:
         return _enforce_concept_omission(t, leak_re, b'', (ds.concept_desc or '').strip(),
                                          describe=None) or ''
     cleaner = drop_identity_tags if mode == 'booru' else drop_identity_sentences
-    return cleaner(t, body=is_body_fidelity(ds)) or ''
+    return cleaner(t, body=is_body_fidelity(ds),
+                   appearance=(caption_options(ds).get('appearance') or None)) or ''
 
 
 def derive_short_captions(user_id, dataset_id, image_ids=None, force=False, mode=None,

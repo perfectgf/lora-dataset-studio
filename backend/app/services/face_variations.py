@@ -2525,10 +2525,254 @@ BODY_FIDELITY_BOORU_SUFFIX = (
     "measurement tags. Clothing, pose and framing tags stay required.")
 
 
-def caption_prompt_for(mode, body=False) -> str:
+# --- Appearance policy (omit vs describe) ------------------------------------
+# Character captioning's golden rule: omitted traits bind to the trigger, named
+# traits stay prompt-controllable. Historically that rule was a hardcoded omit
+# list (hair always banned) with a silent gap (makeup neither asked nor forbidden).
+# Extra instructions cannot move a family between columns: the prompt forbids it
+# first and the leak cleaners strip it after.
+#
+# A per-dataset policy opts four VARIABLE families into Omit or Describe. Core
+# identity (face, eyes, skin, age, gender, ethnicity, body build) stays locked
+# omit — describing those is how a character LoRA dies. No policy (None / {})
+# keeps the historical prompt and cleaners BYTE-IDENTICAL.
+#
+# Makeup defaults to Describe once a policy exists so mascara cannot silently
+# bind. Hair and facial hair default to Omit (classic lock). Glasses default to
+# Describe (already in the MUST-describe accessories list).
+
+APPEARANCE_FAMILIES = ('hair', 'makeup', 'facial_hair', 'glasses')
+APPEARANCE_STATES = ('omit', 'describe')
+APPEARANCE_DEFAULTS = {
+    'hair': 'omit',
+    'makeup': 'describe',
+    'facial_hair': 'omit',
+    'glasses': 'describe',
+}
+
+# UI / leak-chip copy. The captioner, the cleaner and the Identity-leak panel
+# all read the same labels so a Describe family never stays on the watched list.
+APPEARANCE_FAMILY_META = {
+    'hair': {
+        'label': 'Hair',
+        'hint': 'length, colour, style, how it falls',
+        'leak_chip': 'hair',
+        'prose_omit': (
+            'hair (its length, colour, style, texture, or how it falls - e.g. do NOT '
+            'write "long hair", "hair falls around the shoulders", "hair tied back", '
+            '"ponytail")'),
+        'prose_describe': (
+            'the visible hair (length, colour, style, and how it falls)'),
+        'booru_omit': (
+            'hair (length/colour/style - e.g. long_hair, blonde_hair, ponytail, bangs, '
+            'braid)'),
+        'concise': 'the hairstyle',
+        'shorten_omit': 'hair (length, colour, style)',
+    },
+    'makeup': {
+        'label': 'Makeup and nails',
+        'hint': 'mascara, lipstick, eyeshadow, blush, manicure',
+        'leak_chip': 'makeup · nails',
+        'prose_omit': (
+            'makeup and nails (mascara, lipstick, eyeshadow, blush, eyeliner, '
+            'manicure, nail polish)'),
+        'prose_describe': (
+            'any visible makeup or the lack of it (mascara, lipstick, eyeshadow, blush, '
+            'nails) — say "no makeup" or "bare nails" when that is what the photo shows'),
+        'booru_omit': (
+            'makeup (mascara, lipstick, eyeshadow, blush, nail_polish, manicure)'),
+        'concise': 'the makeup or lack of it',
+        'shorten_omit': 'makeup, mascara, lipstick, nails',
+    },
+    'facial_hair': {
+        'label': 'Facial hair',
+        'hint': 'beard, stubble, moustache, or clean-shaven',
+        'leak_chip': 'facial hair',
+        'prose_omit': (
+            'facial hair (beard, stubble, moustache, goatee, sideburns, or a '
+            'clean-shaven face)'),
+        'prose_describe': (
+            'facial hair or a clean-shaven face'),
+        'booru_omit': (
+            'facial hair (beard, stubble, mustache, goatee, sideburns, clean_shaven)'),
+        'concise': 'facial hair or a clean shave',
+        'shorten_omit': 'beard, stubble, moustache',
+    },
+    'glasses': {
+        'label': 'Glasses',
+        'hint': 'glasses and sunglasses',
+        'leak_chip': 'glasses',
+        'prose_omit': 'glasses, sunglasses or spectacles',
+        'prose_describe': 'glasses or sunglasses when worn, or their absence',
+        'booru_omit': 'glasses, sunglasses, spectacles',
+        'concise': 'glasses',
+        'shorten_omit': 'glasses, sunglasses',
+    },
+}
+
+# Locked omit — not user-toggleable. Shown in the Options panel so the rule is
+# visible, never offered as Describe.
+APPEARANCE_LOCKED_OMIT_CHIPS = (
+    'eye colour',
+    'skin · complexion · freckles',
+    'jawline · eyebrows · facial features',
+    'face shape',
+    'age · gender · ethnicity',
+)
+
+
+def normalize_appearance(raw) -> dict:
+    """A full four-family policy, or {} when none is set.
+
+    A partial dict (the first toggle the user flipped) fills the other families
+    from APPEARANCE_DEFAULTS. Unknown families and invalid states are dropped.
+    {} / None / a dict with no valid family stays empty so a dataset that never
+    touched the section keeps the historical prompt and cleaners.
+    """
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    out = {}
+    any_valid = False
+    for fam in APPEARANCE_FAMILIES:
+        val = str(raw.get(fam) or '').strip().lower()
+        if val in APPEARANCE_STATES:
+            out[fam] = val
+            any_valid = True
+        else:
+            out[fam] = APPEARANCE_DEFAULTS[fam]
+    return out if any_valid else {}
+
+
+def _family_state(appearance, fam) -> str | None:
+    """Omit/describe for a family, or None when no policy is active (legacy)."""
+    if not appearance:
+        return None
+    return appearance.get(fam) or APPEARANCE_DEFAULTS[fam]
+
+
+def appearance_describe_phrases(appearance) -> list:
+    """Concise/detailed length-preset extras for families set to Describe."""
+    if not appearance:
+        return []
+    return [APPEARANCE_FAMILY_META[fam]['concise']
+            for fam in APPEARANCE_FAMILIES
+            if _family_state(appearance, fam) == 'describe'
+            and fam != 'glasses']  # glasses already sit in "clothing and accessories"
+
+
+def appearance_omit_shorten_clause(appearance) -> str:
+    """Dual-short kind rule listing every family the long caption omitted."""
+    bits = ["the person's identity, face, or facial features"]
+    if appearance:
+        for fam in APPEARANCE_FAMILIES:
+            if _family_state(appearance, fam) == 'omit':
+                bits.append(APPEARANCE_FAMILY_META[fam]['shorten_omit'])
+    return '; '.join(bits)
+
+
+def identity_leak_chips(appearance=None, body=False) -> list:
+    """Labels the Identity-leak panel lists as 'words watched'. Legacy (no
+    policy) keeps the historical hair/eyes/skin/face set; a policy adds/removes
+    the variable families so a Describe row never stays on the watched list."""
+    chips = []
+    if not appearance:
+        chips.append('hair')
+        chips.extend(APPEARANCE_LOCKED_OMIT_CHIPS[:4])  # no age chip historically
+    else:
+        for fam in APPEARANCE_FAMILIES:
+            if _family_state(appearance, fam) == 'omit':
+                chips.append(APPEARANCE_FAMILY_META[fam]['leak_chip'])
+        chips.extend(APPEARANCE_LOCKED_OMIT_CHIPS)
+    if body:
+        chips.append('tattoos · scars · piercings (body fidelity)')
+    return chips
+
+
+def _join_en(parts) -> str:
+    parts = [p for p in parts if p]
+    if not parts:
+        return ''
+    if len(parts) == 1:
+        return parts[0]
+    return ', '.join(parts[:-1]) + ', or ' + parts[-1]
+
+
+_CORE_PROSE_OMIT = (
+    'face shape, facial features, eye colour, eyebrows, nose, lips, jawline, '
+    'skin tone or texture, freckles, age, gender, body build, or ethnicity')
+_CORE_BOORU_OMIT = (
+    'eye colour (blue_eyes, brown_eyes, ...), face shape, facial features '
+    '(eyebrows, eyelashes, lips, nose, jawline, freckles, moles), skin tone or '
+    'texture, age, gender or count (1girl, 1boy, solo, woman, man, female, '
+    'male), or body build (breast size, curvy, petite, muscular, thick thighs)')
+
+
+def _appearance_caption_prompt(mode, appearance) -> str:
+    """Compose the character caption prompt from an active omit/describe policy.
+    Never used when appearance is empty — those callers keep the historical
+    CAPTION_PROMPT / CAPTION_PROMPT_BOORU constants, byte-identical."""
+    omit_bits = []
+    describe_bits = []
+    glasses_omit = _family_state(appearance, 'glasses') == 'omit'
+    for fam in APPEARANCE_FAMILIES:
+        meta = APPEARANCE_FAMILY_META[fam]
+        if _family_state(appearance, fam) == 'omit':
+            omit_bits.append(meta['booru_omit'] if mode == 'booru' else meta['prose_omit'])
+        elif fam != 'glasses':
+            describe_bits.append(meta['prose_describe'] if mode != 'booru'
+                                 else meta['booru_omit'].split(' (', 1)[0])
+    if mode == 'booru':
+        clothes = ('clothing and accessories with their colours'
+                   + (' (except glasses and sunglasses)' if glasses_omit else ''))
+        extra_describe = ''
+        if describe_bits:
+            extra_describe = (
+                ' Also tag: ' + ', '.join(describe_bits)
+                + ' (including the absence of makeup or facial hair when that is what the image shows).')
+        omit_list = _join_en(omit_bits + [_CORE_BOORU_OMIT])
+        return (
+            "Caption Type: Booru tag list.\n\n"
+            "ABSOLUTE RULE - the subject's physical identity is already known and must NEVER be "
+            f"tagged. Do NOT output any tag describing: {omit_list}.\n\n"
+            "DO output comma-separated booru/danbooru tags for ONLY: expression and gaze "
+            "(smile, open_mouth, looking_at_viewer, closed_eyes, wink); pose and framing "
+            "(standing, sitting, upper_body, cowboy_shot, full_body, portrait, from_side, "
+            f"from_above); {clothes}; the setting or location; and the lighting and mood."
+            f"{extra_describe} Output ONLY the comma-separated tag list - no preamble, "
+            "no sentences, no quotation marks.")
+    clothes = ('clothing and accessories with their colours'
+               + (' (except glasses and sunglasses)' if glasses_omit else ''))
+    must = (
+        "the subject's expression and gaze as actions or states ONLY "
+        "(smiling, laughing, surprised, eyes closed, looking at the viewer); pose and body "
+        f"position; {clothes}; the setting or location; and the lighting and mood")
+    if describe_bits:
+        must += '. You MUST also describe: ' + _join_en(describe_bits)
+    omit_list = _join_en(omit_bits + [_CORE_PROSE_OMIT])
+    return (
+        "Caption Type: Straightforward.\n\n"
+        "ABSOLUTE RULE - the subject's physical identity is already known and must NEVER "
+        f"appear in the caption. Never mention, in any form: {omit_list}. If a person is "
+        "present, refer to them only as \"the subject\".\n\n"
+        f"You MUST still describe: {must}.\n\n"
+        "Output ONE caption as flowing natural-language prose, beginning with the shot type and "
+        "framing (close-up, three-quarter shot, full-body, wide), then the pose, then the "
+        "expression, then the clothing and accessories, then the setting, then the lighting and "
+        "mood. Output only the caption itself - no preamble, no \"Here is\", no quotation marks, "
+        "no commentary.")
+
+
+def caption_prompt_for(mode, body=False, appearance=None) -> str:
     """The caption prompt for a character dataset: prose vs booru, with the extra
-    body-identity ban block when the dataset targets full-body fidelity."""
-    base = CAPTION_PROMPT_BOORU if mode == 'booru' else JOYCAPTION_PROMPT
+    body-identity ban block when the dataset targets full-body fidelity.
+
+    `appearance` is a normalized policy dict (see normalize_appearance). Empty /
+    None keeps the historical CAPTION_PROMPT / CAPTION_PROMPT_BOORU constants so a
+    dataset that never set a policy is byte-identical to before this option."""
+    if appearance:
+        base = _appearance_caption_prompt(mode, appearance)
+    else:
+        base = CAPTION_PROMPT_BOORU if mode == 'booru' else JOYCAPTION_PROMPT
     if not body:
         return base
     return base + (BODY_FIDELITY_BOORU_SUFFIX if mode == 'booru' else BODY_FIDELITY_PROSE_SUFFIX)
@@ -2545,18 +2789,91 @@ _IDENTITY_LEAK = re.compile(
     r'|\b(?:round|oval|square|angular|heart-shaped|long|narrow|wide|slim|chubby)\s+face\b',
     re.I)
 
+# Core identity (locked omit) without hair — used when an appearance policy is
+# active so hair can leave the detector. Same categories as _IDENTITY_LEAK minus
+# the leading `\bhair\b`.
+_CORE_IDENTITY_LEAK = re.compile(
+    r'\bcomplexion\b|\bfreckles?\b|\bjawline\b|\beyebrows?\b|\bfacial\s+features?\b'
+    r'|\bskin\b'
+    r'|\b(?:blue|brown|green|hazel|grey|gray|dark|light|pale|amber)\s+eyes\b'
+    r'|\b(?:round|oval|square|angular|heart-shaped|long|narrow|wide|slim|chubby)\s+face\b',
+    re.I)
+
+# Hair accessory (wardrobe, always describe) vs hair-as-identity. `\bhair\b`
+# alone would flag "hair clip" / "hair accessory"; those stay in the caption
+# even when the Hair family is Omit.
+_HAIR_WARDROBE = re.compile(
+    r'hair[\s_-]?(clip|clips|accessor(?:y|ies)|pins?|barrettes?|scrunchies?|'
+    r'bands?|bows?|ribbons?|ornaments?)',
+    re.I)
+
+_MAKEUP_LEAK = re.compile(
+    r'\bmakeup\b|\bmascara\b|\blipstick\b|\beyeshadow\b|\beye[\s_-]?shadow\b'
+    r'|\bblush\b|\beyeliner\b|\beye[\s_-]?liner\b|\bfoundation\b|\blip[\s_-]?gloss\b'
+    r'|\bmanicure\b|\bnail[\s_-]?polish\b|\bpainted[\s_-]?nails\b'
+    r'|\bfalse[\s_-]?(eye)?lashes\b',
+    re.I)
+
+_FACIAL_HAIR_LEAK = re.compile(
+    r'\bbeards?\b|\bstubble\b|\bmoustaches?\b|\bmustaches?\b|\bgoatees?\b'
+    r'|\bsideburns?\b|\bclean[\s_-]?shaven\b',
+    re.I)
+
+_GLASSES_LEAK = re.compile(
+    r'\bglasses\b|\bsunglasses\b|\bspectacles\b|\beyeglasses\b',
+    re.I)
+
 # Marques corporelles permanentes = identité en mode body-fidelity (détection + drop).
 _BODY_LEAK = re.compile(
     r'\btattoos?\b|\btattooed\b|\bscars?\b|\bscarred\b|\bbirthmarks?\b|\bmoles?\b'
     r'|\bpiercings?\b|\bpierced\b', re.I)
 
 
-def caption_has_identity_leak(caption, body=False) -> bool:
+_HAIR_STYLE_LEAK = re.compile(
+    r'\bponytails?\b|\btwintails?\b|\bbangs\b|\bbraids?\b|\bahoge\b'
+    r'|\bbun\b|\bbald\b|\bsidelocks?\b',
+    re.I)
+
+
+def _identity_hair_in(text) -> bool:
+    """True when the caption names hair-as-identity, not a hair accessory."""
+    if _HAIR_STYLE_LEAK.search(text or ''):
+        return True
+    for m in re.finditer(r'\bhair\b', text or '', re.I):
+        if _HAIR_WARDROBE.match(text[m.start():]):
+            continue
+        return True
+    return False
+
+
+def _policy_identity_hit(caption, appearance) -> bool:
+    """Any omit-family (plus locked core) present in `caption` under a policy."""
+    if _CORE_IDENTITY_LEAK.search(caption):
+        return True
+    if _family_state(appearance, 'hair') == 'omit' and _identity_hair_in(caption):
+        return True
+    if _family_state(appearance, 'makeup') == 'omit' and _MAKEUP_LEAK.search(caption):
+        return True
+    if (_family_state(appearance, 'facial_hair') == 'omit'
+            and _FACIAL_HAIR_LEAK.search(caption)):
+        return True
+    if _family_state(appearance, 'glasses') == 'omit' and _GLASSES_LEAK.search(caption):
+        return True
+    return False
+
+
+def caption_has_identity_leak(caption, body=False, appearance=None) -> bool:
     """True si la caption mentionne un VRAI trait d'identite. Detecteur SEUL (badge).
-    body=True (fidélité corps) flague AUSSI les marques corporelles permanentes."""
+    body=True (fidélité corps) flague AUSSI les marques corporelles permanentes.
+    appearance=None keeps the historical hair/eyes/skin/face net; a policy dict
+    watches locked core plus every family set to Omit, and ignores Describe ones."""
     if not caption:
         return False
-    return bool(_IDENTITY_LEAK.search(caption) or (body and _BODY_LEAK.search(caption)))
+    if appearance:
+        hit = _policy_identity_hit(caption, appearance)
+    else:
+        hit = bool(_IDENTITY_LEAK.search(caption))
+    return bool(hit or (body and _BODY_LEAK.search(caption)))
 
 
 # Post-filtre : drop les PHRASES decrivant un trait d'identite. Avec le prompt
@@ -2568,12 +2885,23 @@ _DROP_SENT = re.compile(
     r'|\bskin\s+(?:tone|texture)\b', re.I)
 
 
-def drop_identity_sentences(caption, body=False) -> str:
+def _sentence_is_identity(sent, body=False, appearance=None) -> bool:
+    if appearance:
+        if _policy_identity_hit(sent, appearance):
+            return True
+    elif _DROP_SENT.search(sent):
+        return True
+    return bool(body and _BODY_LEAK.search(sent))
+
+
+def drop_identity_sentences(caption, body=False, appearance=None) -> str:
     """Retire les phrases d'identite isolees d'une caption (post-captioning).
-    body=True retire aussi les phrases décrivant une marque corporelle permanente."""
+    body=True retire aussi les phrases décrivant une marque corporelle permanente.
+    appearance=None keeps the historical `\bhair\b` drop; a policy only drops
+    sentences that name an Omit family (hair-clip wardrobe is not hair-identity)."""
     parts = re.split(r'(?<=[.!?])\s+', caption or '')
-    kept = [s for s in parts if s.strip() and not _DROP_SENT.search(s)
-            and not (body and _BODY_LEAK.search(s))]
+    kept = [s for s in parts if s.strip()
+            and not _sentence_is_identity(s, body=body, appearance=appearance)]
     return ' '.join(kept).strip()
 
 
@@ -2907,15 +3235,65 @@ _IDENTITY_TAG_EXACT = frozenset({
     'dark-skinned_male', 'pointy_ears',
 })
 
+# Policy-path splits of the historical identity tag net. bun/bald move with Hair;
+# sideburn moves with Facial hair; lipstick is Makeup (not locked-omit `lips`).
+_CORE_TAG_CONTAINS = ('eyebrow', 'eyelash', 'freckle', 'complexion', 'jawline')
+_CORE_TAG_EXACT = _IDENTITY_TAG_EXACT - frozenset({'bun', 'bald'})
+_HAIR_TAG_CONTAINS = ('bangs', 'braid', 'ponytail', 'twintail')
+_HAIR_TAG_EXACT = frozenset({'bun', 'bald'})
+# Wardrobe, always described: hair_bow, hair_ornament, hairclip, hair_ribbon…
+_HAIR_ACCESSORY_MARKERS = (
+    'bow', 'ornament', 'clip', 'ribbon', 'band', 'pin', 'tie', 'scrunchie', 'flower',
+)
+_MAKEUP_TAG_CONTAINS = (
+    'makeup', 'mascara', 'lipstick', 'eyeshadow', 'eyeliner', 'blush',
+    'manicure', 'nail_polish', 'painted_nail', 'fingernails', 'rouge',
+    'lipgloss', 'lip_gloss', 'false_lash', 'fake_lash',
+)
+_FACIAL_HAIR_TAG_CONTAINS = (
+    'beard', 'stubble', 'moustache', 'mustache', 'goatee', 'sideburn', 'clean_shaven',
+)
+_GLASSES_TAG_CONTAINS = ('glasses', 'sunglasses', 'spectacles', 'eyeglasses')
+
 
 # Marques corporelles permanentes (mode body-fidelity) — par sous-chaîne : couvre
 # tattoo/arm_tattoo/tattooed, scar/scar_on_face, piercing/ear_piercing…
 _BODY_TAG_CONTAINS = ('tattoo', 'scar', 'birthmark', 'piercing', 'pierced')
 
 
-def _is_identity_tag(tag, body=False) -> bool:
+def _is_hair_identity_tag(t) -> bool:
+    """Hairstyle/colour/length tags, NOT hair accessories (bow, clip, ornament)."""
+    if t in _HAIR_TAG_EXACT or any(sub in t for sub in _HAIR_TAG_CONTAINS):
+        return True
+    if 'hair' not in t:
+        return False
+    return not any(m in t for m in _HAIR_ACCESSORY_MARKERS)
+
+
+def _is_identity_tag(tag, body=False, appearance=None) -> bool:
     t = (tag or '').strip().lower().replace(' ', '_')
     if not t:
+        return False
+    if appearance:
+        if t in _CORE_TAG_EXACT:
+            return True
+        if 'eyes' in t:  # garde l'EXPRESSION, drop la couleur
+            return not any(k in t for k in ('closed', 'wink', 'half'))
+        if any(sub in t for sub in _CORE_TAG_CONTAINS):
+            return True
+        if _family_state(appearance, 'hair') == 'omit' and _is_hair_identity_tag(t):
+            return True
+        if (_family_state(appearance, 'makeup') == 'omit'
+                and any(sub in t for sub in _MAKEUP_TAG_CONTAINS)):
+            return True
+        if (_family_state(appearance, 'facial_hair') == 'omit'
+                and any(sub in t for sub in _FACIAL_HAIR_TAG_CONTAINS)):
+            return True
+        if (_family_state(appearance, 'glasses') == 'omit'
+                and any(sub in t for sub in _GLASSES_TAG_CONTAINS)):
+            return True
+        if body and any(sub in t for sub in _BODY_TAG_CONTAINS):
+            return True
         return False
     if t in _IDENTITY_TAG_EXACT:
         return True
@@ -2926,13 +3304,15 @@ def _is_identity_tag(tag, body=False) -> bool:
     return any(sub in t for sub in _IDENTITY_TAG_CONTAINS)
 
 
-def drop_identity_tags(caption, body=False) -> str:
+def drop_identity_tags(caption, body=False, appearance=None) -> str:
     """Retire les tags booru d'identité d'une caption en liste de tags (mode booru),
     pendant booru de drop_identity_sentences (mode prose). body=True retire aussi
-    les marques corporelles permanentes (fidélité corps)."""
+    les marques corporelles permanentes (fidélité corps). appearance=None keeps
+    the historical tag net; a policy only drops Omit-family tags (hair clips stay)."""
     if not caption:
         return ''
-    kept = [t.strip() for t in caption.split(',') if t.strip() and not _is_identity_tag(t, body=body)]
+    kept = [t.strip() for t in caption.split(',')
+            if t.strip() and not _is_identity_tag(t, body=body, appearance=appearance)]
     return ', '.join(kept).strip()
 
 
