@@ -107,10 +107,12 @@ export default function CanvasLayoutPresets({ positions, imageNodes, datasetIds,
       className="relative">
       <summary title="Layouts — save this arrangement, or put a saved one back"
         className="flex h-10 cursor-pointer list-none items-center gap-1 rounded-md border border-border bg-app/60 px-2 text-content-muted text-[0.6875rem] font-semibold hover:text-content sm:px-3 lg:h-9">
-        {/* 📱 Icon only below `sm`: at 400 px the board's toolbar wrapped into
-            five rows and ate a quarter of the screen. The word is back from
-            `sm` up, and the title carries it at every width. */}
-        <span aria-hidden>💾</span> <span className="hidden sm:inline">Layouts</span>
+        {/* 📱 This was icon-only below `sm`, because at 400 px the board's
+            toolbar wrapped into five rows and ate a quarter of the screen. It is
+            not in that toolbar below `lg` any more — it is in the board's ⋯
+            shelf, which is as wide as the screen — so the word is back at every
+            width, and the title still carries the sentence. */}
+        <span aria-hidden>💾</span> Layouts
       </summary>
       {/* `top-full` and not just `mt-1`: an absolutely-positioned box with no
           `top` falls back to its STATIC position, which is wherever the

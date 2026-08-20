@@ -120,7 +120,10 @@ test('the filter costs the board a row of chips, not a panel', () => {
   // No fold-out body at all any more: the controls live in popovers, so there
   // is nothing that can grow between the page title and the board.
   assert.doesNotMatch(src, /max-h-\[\d+vh\]/);
-  assert.match(src, /flex flex-wrap items-center gap-1\.5/);
+  // A WRAPPING ROW is the property; the gap is 4 px below `md` and 6 from
+  // there up (measured at 412 px: two pixels a chip is what bought the bar
+  // its single row back — see canvasResponsive.test.js).
+  assert.match(src, /flex flex-wrap items-center gap-1 md:gap-1\.5/);
   // The dataset list scrolls inside its own popover instead.
   assert.match(src, /max-h-64[^"]*overflow-y-auto/);
 });

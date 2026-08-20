@@ -457,21 +457,20 @@ export default function CanvasPage() {
        flex child defaults to `min-height:auto`, refuses to shrink under its
        content, and the PAGE scrolls instead of the board. */
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* 📱 The blurb is the first thing a small screen can afford to lose. It
-          explains the page once; after that it is height spent above the board,
-          on every single load.
+      {/* 📱 The blurb was the first thing a small screen could afford to lose:
+          it explains the page once, and after that it is height spent above the
+          board on every single load. It went first, hidden up to `lg`.
 
-          The threshold was `sm` (640 px) and that was one breakpoint too early.
-          A phone in portrait reports ~400 CSS px and was already covered, but the
-          widths between 640 and 1024 — a phone in landscape, a tablet, a phone
-          whose browser reports a 900-px layout viewport — got the full paragraph
-          back: measured at 900 px it is 36 px of blurb plus its margin above a
-          board that is the entire point of the page. It now stays hidden right
-          up to `lg`, which is also where every other control on this screen stops
-          being finger-sized — one line, not two. Desktop is untouched, and the ?
-          badge next to the title carries the same explanation at every width, so
-          nothing is actually lost. */}
-      <header className="mb-2 sm:mb-3">
+          The WHOLE HEADER goes now, at the same `lg`. Measured at 412×780 it was
+          67 px — a title repeating the word the nav bar is already highlighting,
+          a Beta badge, and a button — above a board that had 297 px to work in.
+          Two things had to be re-homed rather than dropped for that to be
+          honest, and both were: the <h1> stays as a screen-reader heading (a
+          screen with no heading is a screen a reader lands in the middle of),
+          and ⏏ Undeploy… together with the page's ? badge move onto the board's
+          ⋯ shelf. Desktop, from `lg` up, is untouched. */}
+      <h1 className="sr-only lg:hidden">LoRA Canvas</h1>
+      <header className="mb-2 hidden sm:mb-3 lg:block">
         <h1 className="flex items-center gap-2 text-lg font-semibold text-content">
           <span aria-hidden>◉</span> LoRA Canvas
           <span className="px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.625rem] font-semibold uppercase tracking-wide">Beta</span>
@@ -533,7 +532,11 @@ export default function CanvasPage() {
             onForgetImageNodes={onForgetImageNodes}
             onReloadLayout={onReloadLayout}
             onPinLane={onPinLane} onTidyUp={onTidyUp}
-            onRefetchDataset={onRefetchDataset} />
+            onRefetchDataset={onRefetchDataset}
+            /* ⏏ Below `lg` the header that carries this button is not drawn, so
+               the board's ⋯ shelf carries it instead. Same handler, same panel —
+               the action moves, it is never lost. */
+            onOpenUndeploy={() => setUndeployOpen(true)} />
         )}
 
       <CanvasUndeployPanel open={undeployOpen}
