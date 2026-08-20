@@ -1768,10 +1768,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       ) : (
                         <p className="m-0 text-content-muted leading-relaxed">
                           An <strong className="text-content">identity leak</strong> is a word in a caption
-                          that describes <em>who the person is</em> — hair, eye or skin colour, facial
-                          features. On a character LoRA these words must stay OUT of the captions: they
-                          dilute the identity into the text instead of binding it to your trigger word{' '}
+                          that describes <em>who the person is</em> — the traits currently set to Omit
+                          (face, eyes, skin, and by default hair). On a character LoRA those words
+                          must stay OUT of the captions: they dilute the identity into the text instead
+                          of binding it to your trigger word{' '}
                           <code className="text-indigo-300">{d.trigger_word || 'your trigger'}</code>.
+                          Flip a family to Describe in Captions ⚙️ Options when you want that look
+                          prompt-controllable.
                         </p>
                       )}
                     </div>
@@ -1802,9 +1805,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       </p>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
-                        {['hair', 'eye colour', 'skin · complexion · freckles',
-                          'jawline · eyebrows · facial features', 'face shape',
-                          ...(bodyFid ? ['tattoos · scars · piercings (body fidelity)'] : [])].map((c) => (
+                        {(d.caption_leak?.watched?.length
+                          ? d.caption_leak.watched
+                          : ['hair', 'eye colour', 'skin · complexion · freckles',
+                             'jawline · eyebrows · facial features', 'face shape',
+                             ...(bodyFid ? ['tattoos · scars · piercings (body fidelity)'] : [])]
+                        ).map((c) => (
                           <span key={c} className="rounded-full bg-surface border border-border px-2 py-0.5 text-content-muted text-[0.6875rem]">{c}</span>
                         ))}
                       </div>
@@ -2240,7 +2246,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           onClose={() => setFolderBrowseOpen(false)} />
       )}
       {captionOptionsOpen && (
-        <CaptionOptionsPopover datasetId={d.id} trainType={d.train_type}
+        <CaptionOptionsPopover datasetId={d.id} trainType={d.train_type} kind={d.kind}
           onClose={() => setCaptionOptionsOpen(false)} />
       )}
       {reviewQueue && reviewQueue.length > 0 && (

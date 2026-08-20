@@ -7451,11 +7451,13 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
     # On saute entièrement cette dimension (comme le badge caption_leak du payload), sinon
     # CHAQUE caption concept déclenche un faux avertissement au preflight.
     body = fds.is_body_fidelity(ds)
+    appearance = (fds.caption_options(ds).get('appearance') or None)
     leak_images = [] if (concept or slider) else [
         {'id': r.id, 'filename': r.filename, 'caption': (r.caption or '').strip()}
         for r in kept
         if (r.caption or '').strip()
-        and caption_has_identity_leak((r.caption or '').strip(), body=body)]
+        and caption_has_identity_leak((r.caption or '').strip(), body=body,
+                                     appearance=appearance)]
     if leak_images:
         warnings.append(f'{len(leak_images)} caption(s) still describe the identity (face/hair'
                         f'{"/body marks" if body else ""}) — it will bind to those words '

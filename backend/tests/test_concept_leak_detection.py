@@ -133,7 +133,8 @@ def test_concept_badge_counts_real_leaks(app):
         _add(ds.id, '', status='keep')   # no caption -> not counted
         payload = svc.dataset_payload(LOCAL_USER, ds.id)
         # the false "0 leak" is gone: 2 of 3 captions name the pose
-        assert payload['caption_leak'] == {'leaking': 2, 'captioned': 3}
+        assert payload['caption_leak']['leaking'] == 2
+        assert payload['caption_leak']['captioned'] == 3
         flagged = [i for i in payload['images'] if i['leak']]
         assert len(flagged) == 2
 
@@ -146,7 +147,8 @@ def test_concept_badge_zero_when_captions_are_clean(app):
             _add(ds.id, c)
         payload = svc.dataset_payload(LOCAL_USER, ds.id)
         # a REAL 0 on 2 checked captions (not a forced 0)
-        assert payload['caption_leak'] == {'leaking': 0, 'captioned': 2}
+        assert payload['caption_leak']['leaking'] == 0
+        assert payload['caption_leak']['captioned'] == 2
         assert all(i['leak'] is False for i in payload['images'])
 
 
@@ -165,7 +167,8 @@ def test_character_dataset_still_flags_identity(app):
         _add(ds.id, 'a woman with long blonde hair and blue eyes')  # identity leak
         _add(ds.id, 'standing in a field, green jacket, neutral gaze')  # clean
         payload = svc.dataset_payload(LOCAL_USER, ds.id)
-        assert payload['caption_leak'] == {'leaking': 1, 'captioned': 2}
+        assert payload['caption_leak']['leaking'] == 1
+        assert payload['caption_leak']['captioned'] == 2
 
 
 # --- 6) pipeline post-processing: enriched ban-list makes retry/drop catch pose -

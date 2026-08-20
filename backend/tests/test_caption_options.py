@@ -41,7 +41,7 @@ def test_caption_options_defaults_and_normalization(app):
         # Never set → all-empty (follow the global defaults).
         assert svc.caption_options(ds) == {
             'backend': '', 'ollama_model': '', 'instructions': '', 'vocabulary': '',
-            'length': ''}
+            'length': '', 'appearance': {}}
 
         # A corrupt blob degrades to defaults, never raises.
         ds.caption_options = '{not json'
@@ -94,7 +94,7 @@ def test_set_caption_options_roundtrip_and_validation(app):
                                        'instructions': 'name the season', 'vocabulary': 'explicit'})
         assert eff == {'backend': 'ollama', 'ollama_model': 'q:8b',
                        'instructions': 'name the season', 'vocabulary': 'explicit',
-                       'length': ''}
+                       'length': '', 'appearance': {}}
         stored = json.loads(db.session.get(FaceDataset, ds.id).caption_options)
         assert stored == {'backend': 'ollama', 'ollama_model': 'q:8b',
                           'instructions': 'name the season', 'vocabulary': 'explicit'}
@@ -103,7 +103,7 @@ def test_set_caption_options_roundtrip_and_validation(app):
         svc.set_caption_options(LOCAL_USER, ds.id, {'instructions': 'name the outfit'})
         assert svc.caption_options(db.session.get(FaceDataset, ds.id)) == {
             'backend': 'ollama', 'ollama_model': 'q:8b', 'instructions': 'name the outfit',
-            'vocabulary': 'explicit', 'length': ''}
+            'vocabulary': 'explicit', 'length': '', 'appearance': {}}
 
         # Clearing every field stores NULL (identical to never-touched).
         svc.set_caption_options(LOCAL_USER, ds.id,
@@ -259,7 +259,7 @@ def test_caption_options_routes(app, client):
     assert r.status_code == 200
     assert r.get_json()['options'] == {
         'backend': '', 'ollama_model': '', 'instructions': '', 'vocabulary': '',
-        'length': ''}
+        'length': '', 'appearance': {}}
 
     r = client.post(f'/api/dataset/{ds_id}/caption/options',
                     json={'backend': 'joycaption', 'instructions': 'be terse'})

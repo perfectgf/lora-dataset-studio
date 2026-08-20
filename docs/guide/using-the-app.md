@@ -51,7 +51,9 @@ captioning rules and a few guards change with the dataset kind.
    they poison training.
 7. **Caption** — one click captions the kept set (prose or booru tags,
    matched to the target model). The **identity-leak check** flags any caption
-   that describes hair/face/skin — fix every flagged one. A find/replace +
+   that describes a trait currently set to Omit (face/eyes/skin, and by default
+   hair). ⚙️ Options lets you Describe hair, makeup, facial hair or glasses so
+   they stay prompt-controllable. Fix every flagged caption. A find/replace +
    tag-frequency panel sweeps the whole set at once; its **💾 Write .txt
    files** button drops a kohya-style `<image>.txt` next to each kept image
    in the dataset folder (same format as the export ZIP) for external tools.
@@ -3684,7 +3686,8 @@ otherwise be read as a vote for the checkpoint that did not produce it.
 - Trust the composition meter over your instinct — a set that "looks varied"
   is usually still face-heavy.
 - Fix every leak the badge reports before training; one "a woman with long
-  blonde hair" caption quietly competes with your trigger.
+  blonde hair" caption quietly competes with your trigger unless Hair is set
+  to Describe in Captions ⚙️ Options.
 - Don't chase steps. Train the auto count, then let the Test Studio find the
   *earliest* checkpoint that nails the identity — it keeps the most prompt
   flexibility.

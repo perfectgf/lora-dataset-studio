@@ -8,11 +8,11 @@ const workspace = readFileSync(new URL('./DatasetWorkspace.jsx', import.meta.url
 test('the Krea 2 Ollama suggestion is gated by the dataset train type', () => {
   assert.match(
     workspace,
-    /<CaptionOptionsPopover datasetId=\{d\.id\} trainType=\{d\.train_type\}/,
+    /<CaptionOptionsPopover datasetId=\{d\.id\} trainType=\{d\.train_type\} kind=\{d\.kind\}/,
   );
   assert.match(
     popover,
-    /CaptionOptionsPopover\(\{ datasetId, trainType, onClose, onSaved \}\)/,
+    /CaptionOptionsPopover\(\{ datasetId, trainType, kind, onClose, onSaved \}\)/,
   );
   assert.match(popover, /\{trainType === 'krea' && \(/);
   assert.doesNotMatch(popover, /\{trainType !== 'sdxl' && \(/);
