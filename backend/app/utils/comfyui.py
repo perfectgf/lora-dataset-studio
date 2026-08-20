@@ -1498,8 +1498,10 @@ def free_comfyui_vram(worker_url=None, timeout=10) -> ComfyVramFreeVerdict:
 # tout-chiffres de 4+ caractères = un compteur de steps (pas une version 'v13').
 _TRAINED_STEP_RE = re.compile(r'^\d{4,}$')
 # Source-run tag token: `rc<id>` (cloud CloudTrainingRun id) / `rl<id>` (local
-# TrainingRunRecord id) appended by lora_training.import_checkpoint. It carries
-# run identity for the ☁/💻 #N chips, so it is stripped from display labels.
+# TrainingRunRecord id) appended by lora_training.import_checkpoint. Kept out of
+# the base/merge token list (so it is not mistaken for a recipe tag) and
+# re-appended at the END of the display label — without it, two runs of the same
+# dataset version collapse to one identical Test Studio name.
 _RUN_TAG_TOKEN_RE = re.compile(r'^r[cl]\d+$')
 
 # Familles d'entraînement (= pipeline). La clé interne ('zimage'/'sdxl'/'krea') et
@@ -1562,18 +1564,18 @@ def family_of_lora(filename: str) -> str | None:
 
 def _finish_parse(trigger: str, rest_tokens):
     """Partage final du parse : depuis un trigger déjà isolé et les tokens qui le
-    SUIVENT, extrait le step (1er token tout-chiffres 4+) et le reste (base/merge),
-    en jetant le tag de run `rc<id>`/`rl<id>` (surfacé en chip ☁/💻 #N, pas du bruit
-    de label)."""
-    step, rest = None, []
+    SUIVENT, extrait le step (1er token tout-chiffres 4+), le reste (base/merge)
+    et le tag de run `rc<id>`/`rl<id>` (identité du run — rendu en fin de label
+    pour que deux runs de la même version dataset restent distincts)."""
+    step, rest, run_tag = None, [], None
     for t in rest_tokens:
         if step is None and _TRAINED_STEP_RE.match(t):
             step = int(t)
         elif _RUN_TAG_TOKEN_RE.match(t):
-            continue
+            run_tag = t
         else:
             rest.append(t)
-    return trigger, step, rest
+    return trigger, step, rest, run_tag
 
 
 def _parse_trained_stem(filename: str, trigger: str | None = None):
@@ -1620,9 +1622,18 @@ def _parse_trained_stem(filename: str, trigger: str | None = None):
     if step_idx is not None and step_idx > 0:
         return _finish_parse('_'.join(tokens[:step_idx]), tokens[step_idx:])
 
-    # 3) Pas de step : tag de base de famille en fin → trigger = tout ce qui précède.
-    if len(tokens) > 1 and tokens[-1] in _FAMILY_BASE_TAGS:
-        return _finish_parse('_'.join(tokens[:-1]), [tokens[-1]])
+    # 3) Pas de step : tag de base de famille, éventuellement suivi du tag de
+    #    run (`rcN`/`rlN`) et du suffixe de version (`vN`) — le trigger = tout
+    #    ce qui précède le tag de base. Sans peler ces suffixes, un final
+    #    `…_Krea-2-Raw_rc27_v2` tombait dans le repli legacy et tronquait les
+    #    triggers multi-token (`leg_behind` → `leg`).
+    core = list(tokens)
+    peeled = []
+    while core and (re.fullmatch(r'v\d+', core[-1])
+                    or _RUN_TAG_TOKEN_RE.match(core[-1])):
+        peeled.insert(0, core.pop())
+    if len(core) > 1 and core[-1] in _FAMILY_BASE_TAGS:
+        return _finish_parse('_'.join(core[:-1]), [core[-1], *peeled])
 
     # 4) Repli legacy : premier token = trigger.
     return _finish_parse(tokens[0], tokens[1:])
@@ -1638,18 +1649,22 @@ def trained_lora_group(filename: str, family: str | None = None,
 
     La clé = le displayName AMPUTÉ du segment « N steps » → cohérente avec le label
     affiché (cf. format_trained_lora_label) : le checkpoint final (sans step) a un
-    displayName EXACTEMENT égal à la clé de son groupe. `trigger` (optionnel) = le
+    displayName EXACTEMENT égal à la clé de son groupe. Le tag de run (`rc27` /
+    `rl12`) fait partie de la clé : deux runs de la même version dataset ne
+    doivent pas s'empiler sous une seule entrée. `trigger` (optionnel) = le
     trigger réel du dataset pour un parse EXACT (cf. _parse_trained_stem)."""
     parsed = _parse_trained_stem(filename, trigger)
     if not parsed:
         return None, None
-    trigger, step, rest = parsed
+    trigger, step, rest, run_tag = parsed
     if rest:
         base = ' '.join(rest)
     else:
         fam = family or family_of_lora(filename)
         base = FAMILY_LABELS.get(fam, fam) if fam else ''
     group = f'{trigger} · {base}' if base else trigger
+    if run_tag:
+        group = f'{group} · {run_tag}'
     return group, step
 
 
@@ -1660,8 +1675,10 @@ def format_trained_lora_label(filename: str, family: str | None = None,
 
     Le step est zero-paddé à 9 chiffres (``000004000``) ; affiché brut il se lit
     comme du bruit et rend deux checkpoints frères indiscernables. On expose les
-    axes que l'utilisateur compare : le trigger, le step dé-paddé (``4000``) et la
-    base d'entraînement. Cette base apparaît dans le nom sous forme de tag de merge
+    axes que l'utilisateur compare : le trigger, le step dé-paddé (``4000``), la
+    base d'entraînement, et le tag de run (`rc27` / `rl12`) quand il est présent —
+    sans lui, deux runs déployés de la même version dataset portent le même nom
+    dans le Test Studio. Cette base apparaît dans le nom sous forme de tag de merge
     (``bigLove_zt3``) ; QUAND ce tag est absent (LoRA entraîné sur la base officielle
     de la famille, ex. ``lora_Lola2_000002000`` en Krea), on affiche au moins la
     PIPELINE (Krea 2 / SDXL / Z-Image) — sinon on ne sait pas avec quoi il a été fait.
@@ -1676,11 +1693,12 @@ def format_trained_lora_label(filename: str, family: str | None = None,
         'krea/lora_Lola2_000002000' (family krea)  -> 'Lola2 · 2000 steps · Krea 2'
         'sdxl/lora_Lola2_mopMix_pornmaster'        -> 'Lola2 · mopMix pornmaster'
         'lora_leg_behind_000002000_Krea-2-Turbo'   -> 'leg_behind · 2000 steps · Krea 2'
+        '…_Krea-2-Raw_rc27_v2'                    -> '… · Krea-2-Raw v2 · rc27'
     """
     parsed = _parse_trained_stem(filename, trigger)
     if not parsed:
         return ''
-    trigger, step, rest = parsed
+    trigger, step, rest, run_tag = parsed
     parts = [trigger]
     if step is not None:
         parts.append(f'{step} steps')
@@ -1690,6 +1708,8 @@ def format_trained_lora_label(filename: str, family: str | None = None,
         fam = family or family_of_lora(filename)     # pas de tag -> au moins la pipeline
         if fam:
             parts.append(FAMILY_LABELS.get(fam, fam))
+    if run_tag:
+        parts.append(run_tag)
     return ' · '.join(parts)
 
 

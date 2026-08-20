@@ -167,6 +167,37 @@ def test_underscore_trigger_siblings_group_together():
     assert (sa, sb) == (2000, 2500)
 
 
+def test_run_tag_distinguishes_same_dataset_version():
+    """Two cloud runs of the same dataset version deploy as `…_rc15_v2` and
+    `…_rc27_v2`. Without the run tag in the label, Test Studio shows the same
+    name twice and the user cannot tell which epoch is the winner."""
+    a = r'krea\lora_nova_000002000_Krea-2-Raw_rc15_v2.safetensors'
+    b = r'krea\lora_nova_000002000_Krea-2-Raw_rc27_v2.safetensors'
+    assert format_trained_lora_label(a, 'krea') == (
+        'nova · 2000 steps · Krea-2-Raw v2 · rc15')
+    assert format_trained_lora_label(b, 'krea') == (
+        'nova · 2000 steps · Krea-2-Raw v2 · rc27')
+    ga, _ = trained_lora_group(a, 'krea')
+    gb, _ = trained_lora_group(b, 'krea')
+    assert ga != gb
+    assert ga == 'nova · Krea-2-Raw v2 · rc15'
+    assert gb == 'nova · Krea-2-Raw v2 · rc27'
+    # Epochs of the SAME run still share one expandable group.
+    c = r'krea\lora_nova_000002500_Krea-2-Raw_rc27_v2.safetensors'
+    assert trained_lora_group(c, 'krea')[0] == gb
+    assert '2500' in format_trained_lora_label(c, 'krea')
+
+
+def test_run_tag_on_final_keeps_underscore_trigger():
+    """A step-less final carrying `_rcN_vN` after the family base tag must still
+    recover a multi-token trigger — the suffixes are peeled before the base-tag
+    anchor, not mistaken for part of the trigger."""
+    f = r'krea\lora_leg_behind_Krea-2-Turbo_rl5_v1.safetensors'
+    assert format_trained_lora_label(f, 'krea') == (
+        'leg_behind · Krea-2-Turbo v1 · rl5')
+    assert trained_lora_group(f, 'krea')[0] == 'leg_behind · Krea-2-Turbo v1 · rl5'
+
+
 def test_underscore_trigger_final_checkpoint_uses_family_tag():
     """The FINAL checkpoint carries no step, only a family base tag
     (`lora_leg_behind_Krea-2-Turbo`). Recognizing the known tag still recovers the
