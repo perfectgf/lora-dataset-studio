@@ -452,8 +452,13 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
           className="flex items-center gap-1.5 flex-1 min-w-0 text-left disabled:cursor-not-allowed">
           <ShotIllustration framing={c.framing} label={c.label} className="w-7 h-7 shrink-0" />
           {/* Wraps like a catalog card instead of truncating: an imported label is
-              a real name the user chose, and "Shiba, zo…" identifies nothing. */}
-          <span className="min-w-0 leading-tight break-words">{c.label}</span>
+              a real name the user chose, and "Shiba, zo…" identifies nothing.
+              The floor is what keeps that wrap readable: `break-words` lets a flex
+              item shrink below its longest WORD, so on a narrow grid track a long
+              hand-written label (the ✨ cards carry whole sentences, the built-ins
+              carry two words) collapsed into a column one character wide. 4.5rem
+              still fits two cards per row at 400 px. */}
+          <span className="min-w-[4.5rem] leading-tight break-words">{c.label}</span>
           <span className="ml-auto shrink-0 flex items-center gap-1">
             {done > 0 && <span className="text-emerald-300 font-semibold">✓×{done}</span>}
             {on && <span className="text-indigo-300" aria-hidden="true">✓</span>}
