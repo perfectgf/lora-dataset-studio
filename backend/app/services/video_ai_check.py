@@ -88,6 +88,7 @@ import sys
 import tempfile
 
 from .. import config as cfg
+from . import infer_env
 from ..extensions import db
 from ..models import VideoBank, VideoClip, VideoSource
 
@@ -316,7 +317,29 @@ def pending_clips(bank_id, rescan=False):
             .order_by(VideoClip.id.asc()).all())
     if rescan:
         return rows
-    return [c for c in rows if STATE_KEY not in _summary(c)]
+    return _retry_when_idle(rows, STATE_KEY,
+                            lambda c: STATE_KEY in _summary(c))
+
+
+# --- the way back for a shot a pass gave up on -----------------------------------
+# 'unreadable' is a HYPOTHESIS about a file, and every pass in this lane can form
+# it for a reason that had nothing to do with the file — a decoder that stopped
+# loading, a folder that moved, an interpreter an unrelated install broke. A
+# hypothesis nothing ever re-tests becomes a fact by accident, and the shot is
+# gone: the pass stops offering it, and its own button reports "nothing to do".
+#
+# So the pass offers them again, but only once it has NOTHING ELSE to do. On the
+# normal path — a bank that grew — the second tier is never reached and costs
+# nothing, which is what lets the recovery ride the button the user was already
+# going to click instead of needing one of its own. See
+# video_clip_search.pending_clips, where this rule was written first, after a
+# bank of 861 shots retired itself in one pass.
+def _retry_when_idle(rows, state_key, done):
+    """`done` first; when there are none, the ones that failed last time."""
+    fresh = [c for c in rows if not done(c)]
+    if fresh:
+        return fresh
+    return [c for c in rows if _summary(c).get(state_key) == 'unreadable']
 
 
 def _write_window(src_path, times, dest_dir, stem):
@@ -401,8 +424,7 @@ def score_chunk(payload, *, timeout=None):
     if not payload:
         return {}
     python = cfg.get('bank_scoring.python') or sys.executable
-    env = dict(os.environ)
-    env['PYTHONUTF8'] = '1'
+    env = infer_env.worker_env(python, PYTHONUTF8='1')
     # Belt and braces with the child, which hides CUDA again before it imports
     # torch: a 16-frame base-ViT forward is not worth taking a card off a
     # training run for, and the parent takes no GPU window on its behalf.
@@ -413,7 +435,8 @@ def score_chunk(payload, *, timeout=None):
                           'models_root': cfg.get('bank_scoring.models_root') or None})
     try:
         proc = subprocess.run(
-            [python, _SCRIPT], input=request + '\n', capture_output=True,
+            infer_env.worker_argv(python, _SCRIPT),
+            input=request + '\n', capture_output=True,
             text=True, encoding='utf-8', errors='replace', timeout=budget,
             env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except subprocess.TimeoutExpired:

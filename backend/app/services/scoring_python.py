@@ -60,6 +60,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .. import config as cfg
+from . import infer_env
 
 # Everything backend/infer/bank_score_infer.py imports to complete a pass, in
 # report order. `pip` is the name to install, `module` is what actually gets
@@ -208,8 +209,10 @@ def _run_probe(python: str):
     UNKNOWN — never a claim that the interpreter is unusable."""
     try:
         proc = subprocess.run(
-            [python, '-s', '-c', _PROBE_CODE], capture_output=True, text=True,
+            infer_env.worker_argv(python, '-c', _PROBE_CODE),
+            capture_output=True, text=True,
             encoding='utf-8', errors='replace', timeout=PROBE_TIMEOUT,
+            env=infer_env.worker_env(python),
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except Exception:      # noqa: BLE001 — OSError, TimeoutExpired, anything
         return None

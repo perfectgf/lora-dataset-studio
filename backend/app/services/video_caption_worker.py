@@ -14,12 +14,12 @@ work.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import threading
 
 from .. import config as cfg
+from . import infer_env
 from .clip_text_encoder import TextEncodeError, _readline_with_timeout
 
 _SCRIPT = str(cfg.BACKEND_DIR / 'infer' / 'video_caption_infer.py')
@@ -101,8 +101,8 @@ class CaptionWorker:
 
     def _start(self):
         python = cfg.get('bank_scoring.python') or sys.executable
-        env = dict(os.environ)
-        env['PYTHONUTF8'] = '1'
+        # No user site-packages, and the same for the probe - see infer_env.
+        env = infer_env.worker_env(python, PYTHONUTF8='1')
         if not self.use_gpu:
             # Belt and braces with the child, which hides CUDA again before it
             # imports torch. Two locks on the same door because the failure —
@@ -110,7 +110,8 @@ class CaptionWorker:
             env['CUDA_VISIBLE_DEVICES'] = ''
         try:
             proc = subprocess.Popen(
-                [python, _SCRIPT], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                infer_env.worker_argv(python, _SCRIPT),
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, text=True, encoding='utf-8',
                 errors='replace', bufsize=1, env=env,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))

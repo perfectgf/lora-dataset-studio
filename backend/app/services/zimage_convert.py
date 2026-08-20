@@ -25,6 +25,7 @@ import threading
 from .. import config as cfg
 from ..job_queue import queue_manager
 from ..utils.comfy_names import local_model_path
+from . import infer_env
 from .lora_training import (_aitoolkit_dir, _hf_home, _venv_python,
                             assert_free_disk, MIN_FREE_GB_CONVERT)
 
@@ -145,8 +146,10 @@ def convert(z_model: str) -> str:
     out = converted_dir(z_model)
     os.makedirs(out, exist_ok=True)
     logger.info(f'conversion base {z_model} -> {out}')
-    proc = subprocess.run([str(_venv_python()), _CONVERTER, merge, official_config_path, '--save', out],
-                          capture_output=True, text=True, timeout=2400)
+    proc = subprocess.run(infer_env.worker_argv(_venv_python(), _CONVERTER, merge,
+                                                official_config_path, '--save', out),
+                          capture_output=True, text=True, timeout=2400,
+                          env=infer_env.worker_env(_venv_python()))
     if not is_converted(z_model):
         tail = (proc.stdout or '')[-600:] + ' | ' + (proc.stderr or '')[-600:]
         raise ValueError(f'conversion failed: {tail}')

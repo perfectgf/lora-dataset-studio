@@ -159,9 +159,18 @@ def test_banner_before_the_json_still_encodes(app, tmp_path, monkeypatch):
 
 def test_borrowed_clip_worker_ignores_the_user_site(app, tmp_path, monkeypatch):
     """The readiness probe and the actual long-lived worker must use the same
-    isolated Python.  This prevents a user's global package from poisoning a
-    healthy ComfyUI embedded environment only when the worker starts."""
+    isolated Python. This prevents a user's global package from poisoning a
+    healthy ComfyUI embedded environment only when the worker starts.
+
+    BORROWED is the word that does the work, and it is not decoration. The
+    stub above runs under THIS interpreter, which is the app's own — and there
+    the flag is deliberately withheld, because on a system-Python install the
+    user site-packages is where pip actually put torch (services/infer_env).
+    So the real launch is exercised on our own Python, and the borrowed contract
+    is asserted on the argv builder both halves go through."""
     import subprocess
+
+    from app.services import infer_env
     seen = []
     real_popen = subprocess.Popen
 
@@ -174,8 +183,13 @@ def test_borrowed_clip_worker_ignores_the_user_site(app, tmp_path, monkeypatch):
         monkeypatch.setattr(enc.subprocess, 'Popen', capture)
         vec, _ = enc.encode_query('isolated')
         enc.release()
-    assert vec.shape == (768,)
-    assert seen and seen[0][1] == '-s'
+        assert vec.shape == (768,)
+        # Our own interpreter: launched as it stands, and it still answers.
+        assert seen and seen[0][1] != '-s'
+        # A borrowed one: the flag, on the same builder the worker uses.
+        assert infer_env.worker_argv(
+            r'C:\ComfyUI\python_embeded\python.exe',
+            enc._SCRIPT)[1] == '-s'
 
 
 def test_medium_prototypes_survive_a_chatty_worker(app, tmp_path, monkeypatch):

@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 from .. import config as cfg
+from . import infer_env
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,11 @@ def generate_person_masks(image_paths, out_dir, timeout: int = 1200) -> dict:
         return {}
     payload = json.dumps({"images": image_paths, "out_dir": out_dir})
     try:
-        proc = subprocess.run([_mask_python(), _SCRIPT], input=payload,
+        proc = subprocess.run(infer_env.worker_argv(_mask_python(), _SCRIPT),
+                              input=payload,
                               capture_output=True, text=True, encoding='utf-8',
                               errors='replace', timeout=timeout,
+                              env=infer_env.worker_env(_mask_python()),
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except (subprocess.TimeoutExpired, OSError) as e:
         logger.warning('person_mask: subprocess échec : %s', e)

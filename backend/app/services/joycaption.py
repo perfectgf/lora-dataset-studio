@@ -17,6 +17,7 @@ import threading
 import time
 
 from .. import config as cfg
+from . import infer_env
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +95,15 @@ def caption_images_joycaption(paths, prompt: str | None = None,
     # (default 64 Mi-pixels / 16384 px) budget. The worker downsizes to 384² for the
     # vision tower anyway, so the accepted image is never held at full size for long.
     from .input_budget import infer_worker_env
-    env = dict(os.environ, HF_HOME=str(cfg.aitoolkit_path('hf_home')), PYTHONIOENCODING='utf-8',
-               **infer_worker_env())
+    env = infer_env.worker_env(venv_python,
+                               HF_HOME=str(cfg.aitoolkit_path('hf_home')),
+                               PYTHONIOENCODING='utf-8', **infer_worker_env())
     started = time.monotonic()
     logger.info('joycaption: starting batch (%d image(s), timeout=%ss)', len(paths), timeout)
     try:
         proc = subprocess.Popen(
-            [venv_python, script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            infer_env.worker_argv(venv_python, script),
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, env=env, cwd=os.path.dirname(script), text=True,
             encoding='utf-8', errors='replace',
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))

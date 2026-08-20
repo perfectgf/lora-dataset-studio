@@ -676,9 +676,9 @@ def test_the_install_verifies_with_the_probes_own_import_not_a_shorter_one(monke
     monkeypatch.setattr(setup_installer, '_append', lambda *a, **k: None)
     assert setup_installer._verify_bank_scoring_import('bank_scoring', 'py.exe')
     assert ran['argv'][-1] == capabilities.CAPABILITY_IMPORTS['bank_scoring']
-    # `-s` survives: this interpreter is PROBED with no user site
-    # (capabilities._NO_USER_SITE_IMPORT_KEYS), and a verification run with
-    # different argv answers a different question than the one that decides ✓/✗.
+    # `-s` survives: this interpreter is PROBED with no user site, and RUN with
+    # no user site (services.infer_env) — a verification run with different argv
+    # answers a different question than the one that decides ✓/✗.
     assert '-s' in ran['argv']
 
 

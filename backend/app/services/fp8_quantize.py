@@ -59,6 +59,7 @@ import threading
 import time
 
 from .. import config as cfg
+from . import infer_env
 from ..job_queue import queue_manager
 from . import fp8_export, model_integrity
 
@@ -159,8 +160,10 @@ def _probe(python: str):
         return hit[1]
     try:
         proc = subprocess.run(
-            [python, '-c', _PROBE_CODE], capture_output=True, text=True,
+            infer_env.worker_argv(python, '-c', _PROBE_CODE),
+            capture_output=True, text=True,
             encoding='utf-8', errors='replace', timeout=_PROBE_TIMEOUT,
+            env=infer_env.worker_env(python),
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         info = json.loads(((proc.stdout or '').strip().splitlines() or [''])[-1])
         info = info if isinstance(info, dict) else None
@@ -360,9 +363,15 @@ def quantize(source, *, overwrite=False, destination=None, progress=None,
 
 
 def worker_command(python, source, destination) -> list:
-    """The exact argv. Exposed so a test can assert it without running torch."""
-    return [str(python), os.path.abspath(fp8_export.__file__),
-            '--src', str(source), '--dst', str(destination), '--progress']
+    """The exact argv. Exposed so a test can assert it without running torch.
+
+    No user site-packages: with `quantize.python` unset this falls back on the
+    interpreter ✨ Score borrows, so it inherits that environment's exposure to
+    whatever an unrelated `pip install --user` left on the machine. `_probe`
+    asks the same question the same way — see services/infer_env."""
+    return infer_env.worker_argv(
+        python, os.path.abspath(fp8_export.__file__),
+        '--src', str(source), '--dst', str(destination), '--progress')
 
 
 def run_worker(python, source, destination, *, progress=None, cancelled=None) -> dict:
@@ -378,6 +387,7 @@ def run_worker(python, source, destination, *, progress=None, cancelled=None) ->
         proc = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding='utf-8', errors='replace', bufsize=1,
+            env=infer_env.worker_env(python),
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(fp8_export.__file__))),
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except OSError as e:

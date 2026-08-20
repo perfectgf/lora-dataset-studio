@@ -51,6 +51,7 @@ from .. import config as cfg
 from ..extensions import db
 from ..models import VideoClip
 from . import video_metrics
+from . import infer_env
 
 logger = logging.getLogger(__name__)
 
@@ -121,8 +122,7 @@ def score_frames(bank_id, *, timeout=TIMEOUT):
     if not os.path.isfile(store):
         return {}
     python = cfg.get('bank_scoring.python') or sys.executable
-    env = dict(os.environ)
-    env['PYTHONUTF8'] = '1'
+    env = infer_env.worker_env(python, PYTHONUTF8='1')
     # Belt and braces with the child, which hides CUDA again before it imports
     # torch: this pass has no use for a card on any bank size, and must never be
     # the reason a training run loses one.
@@ -131,7 +131,8 @@ def score_frames(bank_id, *, timeout=TIMEOUT):
                           'models_root': cfg.get('bank_scoring.models_root') or None})
     try:
         proc = subprocess.run(
-            [python, _SCRIPT], input=payload + '\n', capture_output=True,
+            infer_env.worker_argv(python, _SCRIPT),
+            input=payload + '\n', capture_output=True,
             text=True, encoding='utf-8', errors='replace', timeout=timeout,
             env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except subprocess.TimeoutExpired:
