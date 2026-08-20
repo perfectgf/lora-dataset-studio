@@ -184,8 +184,8 @@ function GridSortSelect({ value, images, onChange }) {
    "showing N of M" count, and a one-click "clear all". Session-only state lives
    in the parent workspace (transient view, not persisted). */
 function GridFilterBar({
-  excludes, includes, statusLabel, shown, total,
-  onRemoveExclude, onRemoveInclude, onRemoveStatus, onClearAll,
+  excludes, includes, statusLabel, coverageLabel, shown, total,
+  onRemoveExclude, onRemoveInclude, onRemoveStatus, onRemoveCoverage, onClearAll,
 }) {
   return (
     <div role="status"
@@ -202,6 +202,15 @@ function GridFilterBar({
             <button type="button" onClick={onRemoveStatus}
               aria-label="Show images with any decision again"
               className="w-4 h-4 grid place-items-center rounded-full hover:bg-amber-500/30">✕</button>
+          </span>
+        )}
+        {coverageLabel && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full border border-emerald-400/50 bg-emerald-500/15 pl-2 pr-1 py-0.5 text-[0.6875rem] text-emerald-100">
+            <span aria-hidden>🔍</span> {coverageLabel}
+            <button type="button" onClick={onRemoveCoverage}
+              aria-label="Stop showing only the images from that coverage chip"
+              className="w-4 h-4 grid place-items-center rounded-full hover:bg-emerald-500/30">✕</button>
           </span>
         )}
         {excludes.map((t) => (
@@ -249,6 +258,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
     capsLoading,
   });
   const [cropImg, setCropImg] = useState(null);
+  // 🔍 The coverage chip the user clicked, or null. Session-only like the tag
+  // filters: it is a way of LOOKING at the set, not a property of it, and one
+  // that would be actively misleading to restore days later against a dataset
+  // whose captions have since been rewritten. {key, label, ids}.
+  const [coverageFilter, setCoverageFilter] = useState(null);
   const [captionOptionsOpen, setCaptionOptionsOpen] = useState(false);
   // Frozen snapshot of the flagged queue when review mode opens (null = closed).
   const [reviewQueue, setReviewQueue] = useState(null);
@@ -612,10 +626,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const toggleInclude = toggleTag(setIncludeTags, setExcludeTags);
   const clearFilters = () => {
     setExcludeTags([]); setIncludeTags([]); setStatusFilter(DEFAULT_GRID_STATUS_FILTER);
+    setCoverageFilter(null);
   };
   const tagFiltersActive = excludeTags.length > 0 || includeTags.length > 0;
   const statusFilterActive = statusFilter !== DEFAULT_GRID_STATUS_FILTER;
-  const filtersActive = tagFiltersActive || statusFilterActive;
+  const filtersActive = tagFiltersActive || statusFilterActive || !!coverageFilter;
   const statusFilterLabel = GRID_STATUS_FILTERS.find((f) => f.id === statusFilter)?.label || '';
   const statusFilterOpts = { unresolvedRescueIds };
   const statusCounts = gridStatusFilterCounts(rescueGridImages, statusFilterOpts);
@@ -625,10 +640,20 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Decision filter first, tag filter on top — the two compose, order-independent.
   // The sort runs LAST and only reorders: membership is entirely the filters'
   // business, so "shown / total" and every bulk action keep meaning what they say.
-  const gridImages = sortDatasetImages(filterImages(
+  const filteredGridImages = filterImages(
     filterImagesByStatus(rescueGridImages, statusFilter, statusFilterOpts),
     { excludes: excludeTags, includes: includeTags, mode: effCaptionMode },
-  ), gridSort);
+  );
+  // 🔍 A coverage chip narrows to the exact images that bucket counted. It is an
+  // id list rather than a re-run of the lexicon in the browser: the panel and the
+  // grid then cannot disagree about what "profile 3" means, and the app keeps ONE
+  // place where a caption is read for variety (services/caption_coverage.py).
+  // Third filter, same rank as the other two — so it also narrows what select-all
+  // and every bulk action see, which is the point of picking a bucket.
+  const coverageIds = coverageFilter ? new Set(coverageFilter.ids) : null;
+  const gridImages = sortDatasetImages(coverageIds
+    ? filteredGridImages.filter((i) => coverageIds.has(i.id))
+    : filteredGridImages, gridSort);
   // Outcome tally for the refusal notice below the progress banner. Counted from
   // the rows already polled — no extra request, and it survives a page reload
   // because it reads the stored fail_kind rather than a one-shot end-of-batch
@@ -1234,9 +1259,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
               {filtersActive && (
                 <GridFilterBar excludes={excludeTags} includes={includeTags}
                   statusLabel={statusFilterActive ? statusFilterLabel : ''}
+                  coverageLabel={coverageFilter ? coverageFilter.label : ''}
                   shown={gridImages.length} total={rescueGridImages.length}
                   onRemoveExclude={toggleExclude} onRemoveInclude={toggleInclude}
                   onRemoveStatus={() => setStatusFilter(DEFAULT_GRID_STATUS_FILTER)}
+                  onRemoveCoverage={() => setCoverageFilter(null)}
                   onClearAll={clearFilters} />
               )}
               {filtersActive && gridImages.length === 0 ? (
@@ -1308,7 +1335,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       fully green on a set that is the same pose, one outfit, one
                       light — none of which it counts. This is that second
                       question, read from the captions already written. */}
-                  <CoveragePanel datasetId={d.id} refreshKey={images.length} />
+                  {/* A chip is a place to go, not only a number: clicking one
+                      narrows the grid to exactly the images it counted and jumps
+                      to it — the panel lives in Add images, the grid in Images,
+                      and a filter applied to a screen you cannot see would look
+                      like nothing happened. */}
+                  <CoveragePanel datasetId={d.id} refreshKey={images.length}
+                    onPick={(pick) => { setCoverageFilter(pick); setSection('images'); }} />
                   {/* Images imported WITHOUT head-crop have no shot type, so they count
                       for nothing in the bar above (the default on body-fidelity datasets:
                       a whole drag-and-drop import can leave it at 0). The vision pass that

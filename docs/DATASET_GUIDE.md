@@ -547,6 +547,32 @@ repeats them on screen rather than hiding them:
   missing for the wrong reason.
 - **It never selects, keeps, rejects or changes anything.** It is advice.
 
+### Clicking a chip shows you those images
+
+A number tells you *profile 3*; it does not tell you **which** three, and hunting
+for them by eye in a grid of two hundred is the part that made the panel easy to
+read and hard to act on. **Click any chip that has a count** and the grid opens
+filtered to exactly the images that chip counted, with `🔍 profile — camera view`
+in the filter bar and the usual *clear all* next to it.
+
+It stays advice: filtering changes which images you are *looking at*, never what
+they are. Nothing is kept, rejected, recaptioned or reordered by the click, and
+removing the chip brings the whole grid back.
+
+Two things follow from the panel reading captions rather than pixels, and they
+are worth knowing before you trust a filter:
+
+- **The filter shows what the chip counted, no more.** Rejected and failed images
+  are outside the panel's pool, so they stay outside its filter — the number and
+  the images you get can never disagree.
+- **A chip with a zero is not clickable**, because there is nothing to show. That
+  is the gap the panel is pointing at, and the answer to it is generating or
+  importing, not filtering.
+
+Pair it with **Sort ▸ Shot type** on the grid and the two compose: filter to the
+profiles, group what is left by shot type, and decide what to keep with like
+sitting next to like.
+
 The panel reads the same pool the Composition bar counts: everything that is not
 rejected and not failed. It also tells you how many images have **no shot type
 yet**, which is the one thing the bar above silently drops.

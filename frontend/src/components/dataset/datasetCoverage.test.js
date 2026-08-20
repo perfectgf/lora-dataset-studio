@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  axisRows, axisSummary, coverageReadiness, coverageScope, generateMoreHint,
+  axisRows, axisSummary, coverageFilterLabel, coverageReadiness, coverageScope,
+  generateMoreHint,
 } from './datasetCoverage.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -101,4 +102,57 @@ test('the panel is wired in under the composition bar', () => {
   const bar = ws.indexOf('<CompositionBar');
   const panel = ws.indexOf('<CoveragePanel');
   assert.ok(bar > 0 && panel > bar, 'CoveragePanel must render after CompositionBar');
+});
+
+// ---- a chip that knows its images can become a filter ----------------------
+
+// The same axis as above, now with the ids the dataset payload carries.
+const WITH_IDS = {
+  id: 'view',
+  label: 'Camera view',
+  mode: 'buckets',
+  buckets: [
+    { id: 'frontal', label: 'frontal', count: 2, core: true, thin: false, image_ids: [7, 9] },
+    { id: 'profile', label: 'profile', count: 0, core: true, thin: false, image_ids: [] },
+  ],
+};
+
+test('axisRows carries the ids through, and tells "none" apart from "never said"', () => {
+  const withIds = Object.fromEntries(axisRows(WITH_IDS).map((r) => [r.id, r]));
+  assert.deepEqual(withIds.frontal.imageIds, [7, 9]);
+  // Counted nobody, but the payload DID answer: an empty list, not null.
+  assert.deepEqual(withIds.profile.imageIds, []);
+  // A payload that never mentioned ids at all (the bank's) reads as null, which
+  // is what keeps its chips from turning into buttons that filter to nothing.
+  const silent = Object.fromEntries(axisRows(FRONT_ONLY.axes[0]).map((r) => [r.id, r]));
+  assert.equal(silent.frontal.imageIds, null);
+});
+
+test('a coverage pick is named by its axis as well as its bucket', () => {
+  // "studio" is a light on one axis and a place on another: the bucket alone
+  // would put two different filters under the same name in the filter bar.
+  const [frontal] = axisRows(WITH_IDS);
+  assert.equal(coverageFilterLabel(WITH_IDS, frontal), 'frontal — camera view');
+});
+
+test('the grid narrows to the ids a chip picked, and says so in the filter bar', () => {
+  const ws = fs.readFileSync(path.join(here, 'DatasetWorkspace.jsx'), 'utf8');
+  // The pick both filters AND jumps to the grid: the panel lives in another
+  // section, and a filter applied out of sight reads as nothing happening.
+  assert.match(ws, /setCoverageFilter\(pick\); setSection\('images'\)/);
+  // It narrows by id — never by re-running the caption lexicon in the browser.
+  assert.match(ws, /coverageIds\.has\(i\.id\)/);
+  // It is a filter like the others: it shows in the bar, it clears with the rest.
+  assert.match(ws, /coverageLabel=\{coverageFilter \? coverageFilter\.label : ''\}/);
+  assert.match(ws, /filtersActive = tagFiltersActive \|\| statusFilterActive \|\| !!coverageFilter/);
+  const clearAll = ws.slice(ws.indexOf('const clearFilters'), ws.indexOf('const tagFiltersActive'));
+  assert.match(clearAll, /setCoverageFilter\(null\)/, 'clear all must clear it too');
+});
+
+test('the bank panel says WHY its chips are not buttons', () => {
+  // CLAUDE.md: a shared feature ships on both surfaces, or names the reason.
+  const bank = fs.readFileSync(
+    path.join(here, '..', 'bank', 'BankCoveragePanel.jsx'), 'utf8');
+  assert.match(bank, /DELIBERATE DIVERGENCE/);
+  assert.match(bank, /pages over SQL/);
 });

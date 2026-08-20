@@ -122,9 +122,15 @@ test('the 🏷️ tag chips are wired to the gallery filters', () => {
 
 test('the dataset grid renders the sorted+filtered list, and sorts last', () => {
   assert.match(WORKSPACE, /sortDatasetImages, \}? ?from '\.\.\/\.\.\/utils\/gridSort'|from '\.\.\/\.\.\/utils\/gridSort'/)
-  // Sort wraps the filters — membership stays the filters' business.
-  assert.match(WORKSPACE, /const gridImages = sortDatasetImages\(filterImages\(/)
-  assert.match(WORKSPACE, /\), gridSort\);/)
+  // Sort wraps the filters — membership stays the filters' business. The three
+  // filters (decision, caption tags, coverage chip) build one list; the sort only
+  // ever reorders THAT list, and is the last thing applied.
+  assert.match(WORKSPACE, /const filteredGridImages = filterImages\(\n\s*filterImagesByStatus\(/)
+  assert.match(WORKSPACE, /const gridImages = sortDatasetImages\(coverageIds/)
+  assert.match(WORKSPACE, /: filteredGridImages, gridSort\);/)
+  // The coverage chip narrows by ID — never by re-reading the captions in the
+  // browser, which would be a second, drifting copy of the lexicon.
+  assert.match(WORKSPACE, /filteredGridImages\.filter\(\(i\) => coverageIds\.has\(i\.id\)\)/)
   // The very list that was sorted is what the grid (and thus its select-all) gets.
   assert.match(WORKSPACE, /<DatasetGrid images=\{gridImages\}/)
   assert.match(WORKSPACE, /<GridSortSelect value=\{gridSort\}/)

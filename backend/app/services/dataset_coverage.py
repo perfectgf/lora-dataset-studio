@@ -56,7 +56,13 @@ def coverage(user_id, dataset_id) -> dict | None:
 
     imgs = _pool(dataset_id)
     kind = (getattr(ds, 'kind', None) or 'character').lower()
-    report = caption_coverage.analyse([i.caption for i in imgs], kind=kind)
+    # The ids ride along so each bucket can say WHICH images it counted, which is
+    # what lets a chip become a filter on the grid ("show me those 3 profiles")
+    # instead of a number you then hunt for by eye. They describe THIS pool, so a
+    # chip filter shows exactly what the panel counted — never a rejected image
+    # the panel deliberately left out.
+    report = caption_coverage.analyse([i.caption for i in imgs], kind=kind,
+                                      ids=[i.id for i in imgs])
 
     # Framing is NOT re-reported bucket by bucket (the composition bar above owns
     # that); what the bar cannot say is how many images it silently ignored.

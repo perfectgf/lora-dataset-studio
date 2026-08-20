@@ -261,21 +261,41 @@ def scan_caption(text: str) -> dict:
     return hits
 
 
-def analyse(captions, kind=None) -> dict:
+def analyse(captions, kind=None, ids=None) -> dict:
     """Per-axis coverage over an iterable of caption strings.
 
     `captions` is every caption in the pool INCLUDING the empty ones — the count
     of missing captions is half the honesty of this panel, so it must not be
     filtered out by the caller and silently forgotten.
+
+    `ids` is optional and positional to `captions`: pass it and every bucket also
+    reports WHICH images landed in it (`image_ids`), so the panel can hand the
+    grid a filter instead of only a number. It is gathered in the SAME pass as
+    the counts on purpose — a second walk over the captions would be a second
+    place for the lexicon to be applied, and the day the two disagreed the panel
+    would show a count its own list could not reproduce.
     """
     caps = list(captions or [])
     total = len(caps)
-    written = [c for c in caps if (c or '').strip()]
+    if ids is not None:
+        ids = list(ids)
+        if len(ids) != total:
+            raise ValueError('ids must be positional to captions '
+                             f'({len(ids)} ids for {total} captions)')
+    # Pair BEFORE dropping the empties: filtering first and zipping after would
+    # line each id up with the wrong caption the moment one image has none.
+    pairs = [(ids[i] if ids is not None else None, c)
+             for i, c in enumerate(caps) if (c or '').strip()]
+    written = [c for _, c in pairs]
     counts = {aid: {b.id: 0 for b in AXES[aid].buckets} for aid in AXES}
-    for c in written:
+    members = ({aid: {b.id: [] for b in AXES[aid].buckets} for aid in AXES}
+               if ids is not None else None)
+    for img_id, c in pairs:
         for aid, bids in scan_caption(c).items():
             for bid in bids:
                 counts[aid][bid] += 1
+                if members is not None:
+                    members[aid][bid].append(img_id)
 
     out_axes = []
     for aid in axes_for_kind(kind):
@@ -283,10 +303,13 @@ def analyse(captions, kind=None) -> dict:
         rows = []
         for b in axis.buckets:
             n = counts[aid][b.id]
-            rows.append({'id': b.id, 'label': b.label, 'count': n, 'core': b.core,
-                         # "thin" only means something once there is a set to be
-                         # thin against: one profile shot out of six is fine.
-                         'thin': 0 < n <= 1 and len(written) >= 8})
+            row = {'id': b.id, 'label': b.label, 'count': n, 'core': b.core,
+                   # "thin" only means something once there is a set to be
+                   # thin against: one profile shot out of six is fine.
+                   'thin': 0 < n <= 1 and len(written) >= 8}
+            if members is not None:
+                row['image_ids'] = members[aid][b.id]
+            rows.append(row)
         present = [r for r in rows if r['count'] > 0]
         out_axes.append({
             'id': axis.id, 'label': axis.label, 'mode': axis.mode,

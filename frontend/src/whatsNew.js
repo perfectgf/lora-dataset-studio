@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-20-coverage-chips-show-their-images',
+    date: '2026-08-20',
+    title: 'Click a coverage chip to see exactly those images',
+    blurb:
+      'The 🔍 Coverage panel could tell you that three captions mention a profile. It could not tell you WHICH three, so acting on it meant scrolling a grid of two hundred looking for them — the panel was easy to read and hard to use. Every chip with a count is now a button: click frontal 35, or nude 7, or backlit 1, and the grid opens showing exactly those images, with 🔍 profile — camera view in the filter bar and clear all beside it. It composes with everything already there, so filter to the profiles and Sort ▸ Shot type puts what is left in order. The images you get are the ones the number counted and no others: rejected and failed pictures are outside the panel, so they stay outside its filter. A chip showing zero stays a plain chip, because there is nothing to show you and the answer to that gap is generating, not filtering. Still advice only: it changes what you are looking at, never what your images are. (Asked for by .samexit on Discord.)',
+    to: '/datasets?section=add&panel=generate',
+  },
+  {
     id: '2026-08-20-group-the-grid-by-shot-type',
     date: '2026-08-20',
     title: 'Compare like with like: group the grid by shot type',

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../../api/fetchClient';
 import {
-  axisRows, axisSummary, coverageReadiness, coverageScope, generateMoreHint,
+  axisRows, axisSummary, coverageFilterLabel, coverageReadiness, coverageScope,
+  generateMoreHint,
 } from './datasetCoverage.js';
 
 /** 🔍 Coverage — the variety read that sits under the composition meter.
@@ -22,7 +23,7 @@ const STATE_STYLE = {
   none: 'border-border bg-surface-raised text-content-subtle',
 };
 
-function Axis({ axis }) {
+function Axis({ axis, onPick }) {
   const rows = axisRows(axis);
   return (
     <div className="flex flex-col gap-1">
@@ -30,27 +31,50 @@ function Axis({ axis }) {
         <span className="text-content-muted text-[0.6875rem] uppercase tracking-wide">{axis.label}</span>
         {axis.hint && <span className="text-content-subtle text-[0.6875rem]">{axis.hint}</span>}
       </div>
-      {/* The chips are decoration on top of a sentence a screen reader can read
-          out — the sentence is the carrier, never the colour. */}
+      {/* The sentence is the carrier for a screen reader, never the colour. The
+          chips used to be pure decoration on top of it (`aria-hidden` on the row);
+          the ones that can now be CLICKED carry their own label instead, because
+          an action nobody can reach is not an action. The dead ones stay hidden. */}
       <span className="sr-only">{axisSummary(axis)}</span>
-      <div aria-hidden className="flex flex-wrap gap-1">
-        {rows.map((r) => (
-          <span key={r.id} title={r.count ? `${r.count} caption${r.count === 1 ? '' : 's'} mention this`
-            : (r.state === 'gap' ? 'No caption mentions this' : 'Not mentioned (optional)')}
-            className={`rounded-full border px-2 py-0.5 text-[0.6875rem] ${STATE_STYLE[r.state]}`}>
-            {/* Every chip carries its number, including the zeros. A chip that
-                showed the count only when it had one left the absences marked by
-                colour alone — and the marker standing in for it read as a typo
-                rather than as "none". */}
-            {r.label}<span className="opacity-60"> {r.count}</span>
-          </span>
-        ))}
+      <div className="flex flex-wrap gap-1">
+        {rows.map((r) => {
+          // Clickable only when the payload actually named the images: a count
+          // with no list behind it (the bank panel, an older server) must stay a
+          // plain chip rather than a button that would filter to nothing.
+          const pickable = !!onPick && r.count > 0 && !!r.imageIds && r.imageIds.length > 0;
+          const cls = `rounded-full border px-2 py-0.5 text-[0.6875rem] ${STATE_STYLE[r.state]}`;
+          /* Every chip carries its number, including the zeros. A chip that
+             showed the count only when it had one left the absences marked by
+             colour alone — and the marker standing in for it read as a typo
+             rather than as "none". */
+          const body = <>{r.label}<span className="opacity-60"> {r.count}</span></>;
+          if (!pickable) {
+            return (
+              <span key={r.id} aria-hidden
+                title={r.count ? `${r.count} caption${r.count === 1 ? '' : 's'} mention this`
+                  : (r.state === 'gap' ? 'No caption mentions this' : 'Not mentioned (optional)')}
+                className={cls}>{body}</span>
+            );
+          }
+          return (
+            <button type="button" key={r.id}
+              onClick={() => onPick({
+                key: `${axis.id}:${r.id}`,
+                label: coverageFilterLabel(axis, r),
+                ids: r.imageIds,
+              })}
+              title={`Show these ${r.count} in the grid — the images whose captions mention this`}
+              className={`${cls} hover:brightness-125 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70`}>
+              {body}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-export default function CoveragePanel({ datasetId, refreshKey = 0 }) {
+export default function CoveragePanel({ datasetId, refreshKey = 0, onPick = null }) {
   const [open, setOpen] = useState(false);
   const [coverage, setCoverage] = useState(null);
   const [error, setError] = useState('');
@@ -103,7 +127,9 @@ export default function CoveragePanel({ datasetId, refreshKey = 0 }) {
                 <p className="m-0 text-[0.6875rem] text-emerald-300/90">→ {hint}</p>
               )}
               <div className="flex flex-col gap-2 border-t border-border pt-2">
-                {(coverage.axes || []).map((axis) => <Axis key={axis.id} axis={axis} />)}
+                {(coverage.axes || []).map((axis) => (
+                  <Axis key={axis.id} axis={axis} onPick={onPick} />
+                ))}
               </div>
             </>
           )}
@@ -112,6 +138,7 @@ export default function CoveragePanel({ datasetId, refreshKey = 0 }) {
             and failed). Advice only — nothing is kept, rejected or changed. This reads the words in your
             captions, not the pixels: a shot the captioner never described is invisible here,
             and “not smiling” still counts as a smile.
+            {onPick && ' Click any chip with a count to see exactly those images in the grid.'}
           </p>
         </div>
       )}

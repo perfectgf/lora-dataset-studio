@@ -76,7 +76,15 @@ function VarietyAxes({ variety }) {
             {axis.hint && <span className="text-[11px] text-content-subtle">{axis.hint}</span>}
           </div>
           {/* The chips decorate a sentence a screen reader can read out; the
-              sentence is the carrier, never the colour. */}
+              sentence is the carrier, never the colour.
+              DELIBERATE DIVERGENCE from the dataset panel, where a chip is a
+              button that narrows the grid to the images it counted. That works
+              there because a dataset holds every row in memory, so the filter is
+              an id list. A bank pages over SQL: the equivalent would have to be a
+              server-side facet running the caption lexicon in the query, next to
+              the flag/framing/medium facets the rail already offers — a bigger
+              piece than the panel, and not one to fake by shipping a chip that
+              can only filter the page you happen to be looking at. */}
           <span className="sr-only">{axisSummary(axis)}</span>
           <div aria-hidden className="flex flex-wrap gap-1">
             {axisRows(axis).map((r) => (

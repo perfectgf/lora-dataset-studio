@@ -2135,7 +2135,9 @@ const TOPICS = [
      'angles', 'camera angle', 'view', 'lighting', 'outfit', 'clothes',
      'expression', 'setting', 'background', 'overfit', 'overfitting',
      'baked in', 'generalise', 'generalize', 'only makes one', 'captions',
-     'caption keywords', 'composition green', 'target reached'],
+     'caption keywords', 'composition green', 'target reached',
+     'show me those', 'which images', 'click a chip', 'filter by caption',
+     'see the profiles', 'find the ones'],
     '/datasets?section=add', 'dataset-guide', '9-coverage-what-your-set-never-showed'),
   // Krea's Fit path applies the selected card's frame to a reference that still
   // anchors identity. Keep the stable id/anchor so old help links continue to land.

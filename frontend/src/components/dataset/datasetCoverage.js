@@ -14,7 +14,13 @@
 
 /** Rows for one axis: every bucket, in lexicon order, with the state a reader
  *  needs to hear. `state` is 'ok' | 'thin' | 'gap' (a core bucket nobody
- *  mentioned) | 'none' (absent, but nobody needs it). */
+ *  mentioned) | 'none' (absent, but nobody needs it).
+ *
+ *  `imageIds` is the list of images the bucket counted, when the payload carries
+ *  it (the dataset panel asks for it, the bank one does not) — it is what turns
+ *  a number into somewhere to go. `null` means "this payload never said", which
+ *  is NOT the same as an empty list, and the difference decides whether a chip
+ *  can be clicked at all. */
 export function axisRows(axis) {
   const buckets = (axis && axis.buckets) || [];
   return buckets.map((b) => ({
@@ -22,7 +28,15 @@ export function axisRows(axis) {
     label: b.label,
     count: b.count || 0,
     state: b.count > 0 ? (b.thin ? 'thin' : 'ok') : (b.core ? 'gap' : 'none'),
+    imageIds: Array.isArray(b.image_ids) ? b.image_ids : null,
   }));
+}
+
+/** What the grid's filter bar calls a coverage pick. The axis is part of the
+ *  name because the bucket alone is ambiguous across axes — "studio" is both a
+ *  light and a place, and the two are different chips on the same panel. */
+export function coverageFilterLabel(axis, row) {
+  return `${row.label} — ${String(axis.label || '').toLowerCase()}`;
 }
 
 /** One line per axis, the thing a screen reader announces. Says what IS there

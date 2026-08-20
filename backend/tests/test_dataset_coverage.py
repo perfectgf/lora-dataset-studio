@@ -208,3 +208,80 @@ def test_coverage_of_a_style_dataset_drops_the_character_axes(app):
 
 def test_coverage_404_on_a_missing_dataset(client):
     assert client.get('/api/dataset/999999/coverage').status_code == 404
+
+
+# --- which images a bucket counted, not just how many ------------------------
+
+def test_analyse_reports_the_ids_of_each_bucket_in_the_same_pass_as_the_counts():
+    """A chip is only a filter if it can name its images, and the number it shows
+    must be reproducible from that list — so the two come out of one walk."""
+    from app.services.caption_coverage import analyse
+    report = analyse(
+        ['a woman in profile, smiling', 'facing the camera, neutral', 'in profile at night'],
+        ids=[11, 22, 33])
+    view = next(a for a in report['axes'] if a['id'] == 'view')
+    profile = next(b for b in view['buckets'] if b['id'] == 'profile')
+    assert profile['image_ids'] == [11, 33]
+    assert profile['count'] == len(profile['image_ids'])
+    frontal = next(b for b in view['buckets'] if b['id'] == 'frontal')
+    assert frontal['image_ids'] == [22]
+    # A bucket nobody mentioned reports an EMPTY list, never a missing key: the
+    # panel keys on it to decide whether a chip can be clicked at all.
+    behind = next(b for b in view['buckets'] if b['id'] == 'from_behind')
+    assert behind['image_ids'] == [] and behind['count'] == 0
+
+
+def test_analyse_without_ids_keeps_its_old_payload_exactly():
+    """The ids are additive. Every caller that does not ask for them (the bank
+    variety read among them) must not start receiving a new key."""
+    from app.services.caption_coverage import analyse
+    report = analyse(['a woman in profile'])
+    for axis in report['axes']:
+        for bucket in axis['buckets']:
+            assert 'image_ids' not in bucket
+
+
+def test_ids_stay_lined_up_when_an_image_has_no_caption():
+    """The empties are dropped before counting; dropping them before PAIRING
+    would shift every id after the gap onto the wrong caption."""
+    from app.services.caption_coverage import analyse
+    report = analyse(['', 'a woman in profile', None, 'in profile too'],
+                     ids=[1, 2, 3, 4])
+    view = next(a for a in report['axes'] if a['id'] == 'view')
+    profile = next(b for b in view['buckets'] if b['id'] == 'profile')
+    assert profile['image_ids'] == [2, 4]
+    assert report['uncaptioned'] == 2
+
+
+def test_ids_of_the_wrong_length_are_refused_rather_than_silently_zipped():
+    import pytest as _pytest
+    from app.services.caption_coverage import analyse
+    with _pytest.raises(ValueError):
+        analyse(['a', 'b', 'c'], ids=[1, 2])
+
+
+def test_coverage_buckets_carry_the_ids_of_the_pool_they_counted(app):
+    """And only that pool: a rejected image is out of the panel, so it must be
+    out of the chip filter too, or clicking would show an image the number
+    above it never counted."""
+    from app.services import face_dataset_service as svc
+    from app.services import dataset_coverage as cov
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Ids', 'ids')
+        _seed(svc, ds.id, [
+            ('keep', 'face', 'a woman in profile, smiling'),
+            ('reject', 'face', 'a woman in profile, smiling'),
+            ('keep', 'body', 'facing the camera'),
+        ])
+        rows = (FaceDatasetImage.query
+                .filter(FaceDatasetImage.dataset_id == ds.id)
+                .order_by(FaceDatasetImage.id).all())
+        kept_profile, rejected_profile = rows[0].id, rows[1].id
+        payload = cov.coverage(LOCAL_USER, ds.id)
+    view = next(a for a in payload['axes'] if a['id'] == 'view')
+    profile = next(b for b in view['buckets'] if b['id'] == 'profile')
+    assert profile['image_ids'] == [kept_profile]
+    assert rejected_profile not in profile['image_ids']
+    assert profile['count'] == 1
