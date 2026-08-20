@@ -34,10 +34,14 @@ import {
  *    raises the "connection lost" toast. A load readout is not worth an alarm;
  *    it just stops updating until the next poll succeeds.
  *
- * 📱 Below `sm` the whole thing is `hidden`. The board's toolbar already wraps
- * into two rows on a 400-px screen and every pixel spent there is a pixel of
- * board under the fold — and the phone is precisely the device where you are
- * NOT the one driving the GPU.
+ * 📱 It used to be `hidden` below `sm`, and the reason given was the toolbar:
+ * on a 400-px screen that row already wrapped twice, and every pixel spent
+ * there was a pixel of board under the fold. That reason has gone — the readout
+ * is not in the toolbar below `2xl` any more, it is in the board's ⋯ shelf,
+ * where it costs the board nothing until it is opened. And the phone turns out
+ * to be the device that wants it MOST: it is the screen you check the machine
+ * from when you are not sitting at it, which is the whole reason the board is
+ * opened over Tailscale in the first place.
  */
 
 const TONE_CLASS = {
@@ -97,7 +101,7 @@ export default function CanvasSystemStats() {
 
   return (
     <span data-testid="canvas-system-stats"
-      className="hidden items-center gap-1.5 sm:flex">
+      className="flex flex-wrap items-center gap-1.5">
       {enabled && (
         <span className="flex items-center gap-1.5 tabular-nums text-[0.625rem]"
           title={machineLoadSummary(segments)}>

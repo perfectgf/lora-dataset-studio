@@ -127,7 +127,14 @@ test('the checkpoint popover is ONE component, hosted by BOTH surfaces', () => {
     assert.doesNotMatch(src, /<span aria-hidden>▶<\/span> Continue from here/);
     assert.doesNotMatch(src, /Deploy → \$\{/);
     assert.doesNotMatch(src, /✓<\/span> Deployed/);
-    assert.doesNotMatch(src, /⏏<\/span>/);
+    /* ⏏ ALONE is not the invariant, and asserting on it was too wide. The
+       glyph is this app's word for "undeploy" wherever it appears, and the
+       canvas has its own install-wide ⏏ Undeploy… — the panel listing every
+       LoRA the app pushed into ComfyUI, a different action on a different
+       scope, which moved onto the board's ⋯ shelf when the page header
+       stopped being drawn on a phone. What may not be re-declared here is
+       this popover's undeploy ROW, so that is what is pinned. */
+    assert.doesNotMatch(src, /⏏<\/span> \{deleting/);
     assert.doesNotMatch(src, /className="lds-ck-popover/);
   }
   // download reuses the server-provided url — no url built in the component

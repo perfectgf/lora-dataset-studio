@@ -445,7 +445,14 @@ function Shell() {
      `h-svh`, not `h-screen`: on a phone `100vh` is the LARGEST viewport, the one
      you only get once the URL bar has scrolled away — so `h-screen` here would
      put the bottom of the board under the browser chrome on every load, which
-     is the exact fold bug the frame's old `vh` heights were fighting. */
+     is the exact fold bug the frame's old `vh` heights were fighting.
+
+     …and below `sm` the gutter goes to ZERO. 8 px a side reads as a considered
+     margin on a desktop; on a 360-px phone it is 16 px of the 328 the toolbar
+     has to fit in, and it was the difference between that toolbar being one row
+     and being two. The frame keeps its own border, so the board still ends
+     somewhere visible — it just ends at the edge of the screen, which is where
+     a surface you pan and zoom should end. */
   const boardRoute = pathname === '/canvas';
   return (
     <div className={boardRoute ? 'flex h-svh flex-col' : undefined}>
@@ -464,7 +471,7 @@ function Shell() {
       <UpdateBanner />
       <main id="main-content" tabIndex={-1}
         className={boardRoute
-          ? 'flex min-h-0 w-full flex-1 flex-col px-2 py-2 sm:px-3 sm:py-3'
+          ? 'flex min-h-0 w-full flex-1 flex-col p-0 sm:px-3 sm:py-3'
           : wideWorkspaceRoute
             ? 'mx-auto w-full max-w-[1800px] px-3 py-4 sm:px-4 sm:py-6'
             : 'mx-auto max-w-5xl px-4 py-6'}>

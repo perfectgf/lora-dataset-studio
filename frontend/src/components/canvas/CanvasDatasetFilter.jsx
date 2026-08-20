@@ -98,7 +98,7 @@ export default function CanvasDatasetFilter({
     // sits above the board's. The frame is isolated too, so the two cannot argue.
     <section data-testid="canvas-dataset-filter"
       aria-label="Canvas filters"
-      className="lds-canvas-filter relative isolate z-20 flex flex-wrap items-center gap-1.5">
+      className="lds-canvas-filter relative isolate z-20 flex flex-wrap items-center gap-1 md:gap-1.5">
 
       {/* ── Datasets ─────────────────────────────────────────────────────── */}
       <CanvasFilterMenu label="Datasets" glyph="◧" testId="canvas-filter-datasets"
@@ -220,7 +220,7 @@ export default function CanvasDatasetFilter({
         title={showPinned
           ? 'Pinned images are on the board — click to hide them'
           : 'Pinned images are HIDDEN — click to put them back on the board'}
-        className={'flex h-10 items-center gap-1.5 rounded-md border px-2.5 text-[0.75rem] font-semibold lg:h-9 '
+        className={'flex h-10 items-center gap-1 md:gap-1.5 rounded-md border px-2 md:px-2.5 text-[0.75rem] font-semibold lg:h-9 '
           + (showPinned
             ? 'border-border bg-app/60 text-content hover:border-indigo-400/50'
             // Hidden is the state worth shouting about: pinned pictures missing
@@ -231,7 +231,7 @@ export default function CanvasDatasetFilter({
             "off" NEVER does: pinned pictures missing from the board with no
             visible cause is a bug report, and that is precisely the state a
             phone must not have to guess at. */}
-        <span className="hidden sm:inline">Pinned</span>
+        <span className="hidden md:inline">Pinned</span>
         {!showPinned && <span className="font-normal">off</span>}
       </button>
 
@@ -262,7 +262,7 @@ export default function CanvasDatasetFilter({
           ? `Search is narrowing the board: “${query}” — tap to edit or clear it`
           : 'Search runs — dataset, ID, model, variant'}
         aria-label="Search runs"
-        className={'flex h-10 items-center gap-1.5 rounded-md border px-2.5 text-[0.75rem] font-semibold lg:hidden '
+        className={'flex h-10 items-center gap-1 md:gap-1.5 rounded-md border px-2 md:px-2.5 text-[0.75rem] font-semibold lg:hidden '
           + (queryActive
             ? 'border-indigo-400/60 bg-indigo-500/15 text-indigo-100'
             : 'border-border bg-app/60 text-content hover:border-indigo-400/50')}>
@@ -278,13 +278,30 @@ export default function CanvasDatasetFilter({
           + (searchOpen ? 'basis-full ' : 'hidden ')
           + (queryActive ? 'border-indigo-400/60' : 'border-border')} />
 
+      {/* 📏 …and below `md` it is not DRAWN at all until there is something to
+          reset. Measured at 412 px the bar has 366 px and its four chips, 🔍
+          and the runs readout come to 351 of them — a seventh control fits only
+          by taking a second 46-px row off the board, permanently, for a button
+          that is disabled on most visits. Greyed out is not free: it costs the
+          same width as an enabled one. From `md` up it keeps the familiar
+          always-there-but-disabled behaviour, because there the width is not
+          the scarce thing. `md` and not `sm`: at 640 the labelled row is 635 px
+          of the 580 it has, at 768 it is 635 of 708. */}
       <button type="button" onClick={() => { setPick(''); onResetFilters(); }}
         disabled={!anyNarrowing}
         data-testid="canvas-filter-reset"
         title={anyNarrowing ? 'Put every dataset, model and status back on the board'
           : 'Nothing is filtered out'}
-        className="flex h-10 items-center rounded-md border border-border px-2.5 text-content-muted text-[0.75rem] hover:text-content disabled:opacity-40 lg:h-9">
-        Reset
+        aria-label="Reset the filters"
+        className={'h-10 items-center rounded-md border border-border px-2 md:px-2.5 text-content-muted text-[0.75rem] hover:text-content disabled:opacity-40 lg:h-9 md:flex '
+          + (anyNarrowing ? 'flex' : 'hidden')}>
+        {/* ↺ below `sm`, the word from there up. Measured at 412 px: this row
+            held five chips on its first line and wrapped for "Reset" and the
+            runs readout alone — 46 px of board spent on a control that is
+            disabled on most visits. The glyph is the same button, 35 px
+            narrower, and the sentence stays on its title and its aria-label. */}
+        <span aria-hidden className="md:hidden">↺</span>
+        <span className="hidden md:inline">Reset</span>
       </button>
 
       {/* The readout that makes the whole bar honest: whatever is set, this says

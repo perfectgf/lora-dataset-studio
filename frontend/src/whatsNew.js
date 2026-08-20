@@ -50,6 +50,40 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-20-canvas-room-to-work',
+    date: '2026-08-20',
+    title: 'The ◉ Canvas gets its screen back on a phone',
+    blurb:
+      'The board is the whole point of the page, and on a phone it was getting half the screen: '
+
+      + 'the filter bar wrapped onto two rows, the toolbar under it onto two more, and the page '
+
+      + 'title repeated a word the nav bar was already highlighting. Measured on a 412-px phone, '
+
+      + 'the board had 297 px to work in — 50 % of the page. It now has 451, which is 76 %, and on '
+
+      + 'a folding phone opened out it goes from 57 % to 72 %. Nothing was taken away to get there. '
+
+      + 'The toolbar is ranked instead: zoom, Fit and 🎨 Generate stay where your thumb is, and a new '
+
+      + '⋯ button holds ✦ Tidy up, 💾 Layouts, 📷 PNG, 🔌 external LoRAs, ⏏ Undeploy, the colour key, '
+
+      + 'the machine load and the full list of board gestures — as a sheet that floats over the '
+
+      + 'board, so opening it never pushes the board down. ⋯ shows a badge when an external LoRA is '
+
+      + 'on the board, so nothing it holds can go quietly. The chips in there carry their words '
+
+      + 'again, and CPU/GPU/VRAM now reads from a phone too — which is the screen you check the '
+
+      + 'machine from when you are not sitting at it. The desktop toolbar drops to a single row as '
+
+      + 'well, because that ~500-character gesture line had been giving it a second one at every '
+
+      + 'width, 1920 included.',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-20-coverage-chips-show-their-images',
     date: '2026-08-20',
     title: 'Click a coverage chip to see exactly those images',
