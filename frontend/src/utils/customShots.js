@@ -13,12 +13,20 @@
  * and the retyped card came back at the END of the row, unselected, which is not
  * what "edit" means to anyone.
  *
+ * The SAME rules serve the 📥 Imported cards, because the line that matters is
+ * not which group a card sits in: it is whether its name was DERIVED from its
+ * prompt or CHOSEN by a human. A card promoted with ⇪ Keep carries a derived
+ * name and lives on the server; a card from a JSON catalog carries a name its
+ * author wrote. Re-deriving the second would delete the name. See
+ * `hasDerivedLabel`.
+ *
  * What an edit deliberately KEEPS:
  *  • the id — so the card stays where it is in the row, stays selected, and any
  *    preset that names it keeps naming it;
  *  • the register (`nsfw`) — an edit re-words a card, it does not re-file it.
  *    Deriving it from the CURRENT mode, like an add does, would silently demote
- *    a 🔞 card to ✨ because the user happened to fix a typo with the mode off.
+ *    a 🔞 card to ✨ because the user happened to fix a typo with the mode off;
+ *  • a name a human chose. Only a name the app itself derived follows the prompt.
  *
  * What it deliberately does NOT keep: the ✓×N tally on the card. That badge
  * counts images stamped with the OLD label, and they were generated from the old
@@ -60,6 +68,15 @@ export function createCustomShot({ prompt, framing, nsfw = false, id = null }) {
   return nsfw ? { ...shot, nsfw: true } : shot;
 }
 
+/** Is this card's name the app's own derivation of its prompt, or a name a
+ *  person wrote? The ✨ cards (and anything ⇪ Keep promoted from one) carry a
+ *  derived name and must follow their prompt. An imported catalog entry carries
+ *  its author's name, and an edit that silently rewrote it would be a small act
+ *  of vandalism on the one part of the card the user actually typed. */
+export function hasDerivedLabel(shot) {
+  return !!shot && shot.label === customShotLabel(shot.prompt, !!shot.nsfw);
+}
+
 /**
  * Re-word an existing card IN PLACE.
  *
@@ -81,7 +98,7 @@ export function editCustomShot(shots, id, { prompt, framing }) {
   const next = [...list];
   next[index] = {
     ...current,
-    label: customShotLabel(text, nsfw),
+    label: hasDerivedLabel(current) ? customShotLabel(text, nsfw) : current.label,
     prompt: text,
     framing: nextFraming,
   };

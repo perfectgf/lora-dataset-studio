@@ -24,7 +24,7 @@ import {
   applyShotImport, buildShotExport, parseShotImport, promoteCustomShot, MAX_IMPORT_BYTES,
 } from '../../utils/shotImport';
 import {
-  createCustomShot, editCustomShot, customShotDraft,
+  createCustomShot, editCustomShot, customShotDraft, hasDerivedLabel,
 } from '../../utils/customShots';
 import {
   ENGINE_ACCENTS, ENGINE_LABELS, billingEngines, canonicalEngines, engineBatches,
@@ -293,13 +293,19 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
     catch { /* private browsing / full storage: keep the in-memory preset usable */ }
   }, [customPresets]);
 
-  // ✏️ Which card the composer below is re-wording (null = writing a new one).
-  // Asked for by .samexit (Discord): a custom card could be added and deleted,
-  // never corrected. The composer is REUSED rather than duplicated inline on the
-  // card — it already owns the prompt box, the framing picker and the 🔞
-  // register line, and a second editor would drift from it the first time one of
-  // those changes. See utils/customShots.js for what an edit keeps.
+  // ✏️ Which card the composer below is re-wording (null = writing a new one),
+  // and which list it lives in — ✨ localStorage or 📥 the server-side catalog.
+  // Asked for by .samexit (Discord): a card could be added and deleted, never
+  // corrected. Then, once ✏️ shipped on the ✨ cards only, reported again by the
+  // same person: ⇪ Keep moves a card into the 📥 group, so saving a card for
+  // good was taking its pencil away. The two groups now offer the same verb.
+  // The composer is REUSED rather than duplicated inline on the card — it
+  // already owns the prompt box, the framing picker and the 🔞 register line,
+  // and a second editor would drift from it the first time one of those
+  // changes. See utils/customShots.js for what an edit keeps.
   const [editingShotId, setEditingShotId] = useState(null);
+  const [editingImported, setEditingImported] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
   const customDetailsRef = useRef(null);
 
   const addCustomShot = () => {
@@ -311,31 +317,56 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
     setCustomPrompt('');
   };
 
-  /** Load a card back into the composer. Opens the <details> if it is folded —
-   *  otherwise ✏️ would look like it did nothing at all, the editor being out of
-   *  sight below the grid of cards. */
-  const startEditCustomShot = (shot) => {
-    const draft = customShotDraft(customShots, shot.id);
+  /** Load a card back into the composer, from either group. Opens the <details>
+   *  if it is folded — otherwise ✏️ would look like it did nothing at all, the
+   *  editor being out of sight below the grid of cards. */
+  const startEditShot = (shot, { imported = false } = {}) => {
+    const draft = customShotDraft(imported ? importedShots : customShots, shot.id);
     if (!draft) return;
     setEditingShotId(shot.id);
+    setEditingImported(imported);
     setCustomPrompt(draft.prompt);
     setCustomFraming(draft.framing);
     if (customDetailsRef.current) customDetailsRef.current.open = true;
   };
 
-  const editingShot = editingShotId
-    ? customShots.find((c) => c.id === editingShotId) || null : null;
-
   const cancelEditCustomShot = () => {
     setEditingShotId(null);
+    setEditingImported(false);
+    setEditBusy(false);
     setCustomPrompt('');
   };
 
-  const saveEditCustomShot = () => {
-    if (!editingShotId) return;
-    setCustomShots((s) => editCustomShot(s, editingShotId, {
-      prompt: customPrompt, framing: customFraming }));
-    cancelEditCustomShot();
+  const saveEditCustomShot = async () => {
+    if (!editingShotId || editBusy) return;
+    if (!editingImported) {
+      setCustomShots((s) => editCustomShot(s, editingShotId, {
+        prompt: customPrompt, framing: customFraming }));
+      cancelEditCustomShot();
+      return;
+    }
+    // 📥 cards live on the server, so an edit is a round trip that the app can
+    // REFUSE (a re-derived name colliding with another catalog entry). Confirm
+    // the change actually landed before closing the editor: a silent revert
+    // would leave the user believing they saved something they did not.
+    const next = editCustomShot(importedShots, editingShotId, {
+      prompt: customPrompt, framing: customFraming });
+    if (next === importedShots) { cancelEditCustomShot(); return; }   // no-op
+    const want = next.find((s) => s.id === editingShotId);
+    setEditBusy(true);
+    try {
+      const d = await persistImported(next);
+      const landed = (d.shots || []).find((s) => s.id === editingShotId);
+      if (!landed || landed.prompt !== want.prompt) {
+        toast.error(`“${want.label}” was refused by the app — the card is unchanged.`);
+        setEditBusy(false);
+        return;
+      }
+      cancelEditCustomShot();
+    } catch {
+      toast.error('Could not save that shot.');
+      setEditBusy(false);
+    }
   };
 
   const removeCustomShot = (id) => {
@@ -343,7 +374,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
     setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
     // Deleting the card being edited must not leave the composer pointing at a
     // shot that no longer exists — Save would then silently do nothing.
-    if (id === editingShotId) cancelEditCustomShot();
+    if (id === editingShotId && !editingImported) cancelEditCustomShot();
   };
 
   // 📥 Imported shots (idea by ashish.sinha — Discord): a JSON catalog the user
@@ -352,6 +383,21 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
   // show up on a phone as well as the desktop and ride along in the full backup —
   // the ✨ cards above stay in localStorage, unchanged.
   const [importedShots, setImportedShots] = useState([]);
+
+  /** The card the composer is holding, from whichever list it belongs to.
+   *
+   *  ⚠️ This line must stay BELOW `importedShots`, not up with the other ✏️ state
+   *  where a reader would naturally group it. It is evaluated DURING RENDER, so
+   *  reading `importedShots` before its `const` declaration is a temporal dead
+   *  zone: `Cannot access … before initialization`, thrown on the first click of
+   *  ✏️ on an imported card, caught by the error boundary, panel gone. Nothing in
+   *  the test suite sees it — `node --test` cannot mount this JSX — so it was
+   *  green on 3939 tests and broken in the browser. Moving it back up is the one
+   *  tidy that re-breaks it. */
+  const editingShot = editingShotId
+    ? (editingImported ? importedShots : customShots)
+      .find((c) => c.id === editingShotId) || null
+    : null;
   // Every label the by-label resolvers already answer for (all catalogs + legacy
   // aliases). An imported label that shadows one of these resolves to the WRONG
   // entry on regenerate, so the importer refuses them — see shotImport.js.
@@ -418,6 +464,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
 
   const removeImportedShot = async (shot) => {
     setSelected((s) => { const n = new Set(s); n.delete(shot.id); return n; });
+    if (shot.id === editingShotId && editingImported) cancelEditCustomShot();
     try { await persistImported(importedShots.filter((s) => s.id !== shot.id)); }
     catch { toast.error('Could not remove that shot.'); }
   };
@@ -429,6 +476,9 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
    *  Saved first, removed from localStorage only once the server confirms it
    *  landed: a failure must never make the card disappear. */
   const keepCustomShot = async (shot) => {
+    // ⇪ Keep moves the card from one list to the other. If it is the one being
+    // edited, the composer would keep pointing at the list it just left.
+    if (shot.id === editingShotId) cancelEditCustomShot();
     const res = promoteCustomShot({ shot, customShots, importedShots, reservedLabels });
     if (!res.ok) { toast.error(res.message); return; }
     try {
@@ -1799,7 +1849,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
                 onRemove: () => removeCustomShot(c.id),
                 removeTitle: 'Remove this custom shot',
                 onKeep: () => keepCustomShot(c),
-                onEdit: () => startEditCustomShot(c),
+                onEdit: () => startEditShot(c),
               }))}
             </div>
           </div>
@@ -1814,7 +1864,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
               <span aria-hidden="true">📥</span>
               <span className="text-[0.6875rem] uppercase font-semibold text-content-muted">Imported</span>
               <span className="text-content-subtle text-[0.625rem]">
-                {importedShots.length} shot{importedShots.length === 1 ? '' : 's'} from your JSON catalog — saved on this machine, not in the browser
+                {importedShots.length} shot{importedShots.length === 1 ? '' : 's'} from your JSON catalog — ✏️ edits one, saved on this machine, not in the browser
               </span>
               <button type="button" onClick={removeAllImported}
                 className="ml-auto px-1.5 py-px rounded border border-border text-content-subtle hover:text-white text-[0.625rem]">
@@ -1825,6 +1875,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
               {importedShots.map((c) => renderUserShot(c, {
                 onRemove: () => removeImportedShot(c),
                 removeTitle: 'Remove this imported shot',
+                onEdit: () => startEditShot(c, { imported: true }),
               }))}
             </div>
           </div>
@@ -1905,7 +1956,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
         <div className="px-2.5 pt-1 flex flex-col gap-1">
           <label className="text-content-muted text-[0.6875rem]" htmlFor="custom-shot-prompt">
             {editingShot
-              ? 'Saving replaces the card in place — it keeps its position and stays selected. Its ✓×N tally starts over, because those images were generated from the words you are replacing.'
+              ? `Saving replaces the card in place — it keeps its position and stays selected. Its ✓×N tally starts over, because those images were generated from the words you are replacing.${editingImported ? ' This one is saved on this machine, so the change is written there too.' : ''}${hasDerivedLabel(editingShot) ? '' : ' Its name was written by hand and is kept as it is.'}`
               : 'Describe outfit, pose and setting, pick a framing, then Add.'}
           </label>
           <div className="flex gap-1.5 items-start">
@@ -1922,12 +1973,13 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
             </select>
             {editingShot ? (
               <span className="flex flex-col gap-1">
-                <button type="button" onClick={saveEditCustomShot} disabled={!customPrompt.trim()}
+                <button type="button" onClick={saveEditCustomShot}
+                  disabled={!customPrompt.trim() || editBusy}
                   title="Replace this card with the words above"
                   className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
-                  ✔ Save
+                  {editBusy ? 'Saving…' : '✔ Save'}
                 </button>
-                <button type="button" onClick={cancelEditCustomShot}
+                <button type="button" onClick={cancelEditCustomShot} disabled={editBusy}
                   title="Leave the card as it was"
                   className="px-2.5 py-1 rounded-lg border border-border text-content text-[0.6875rem] font-semibold hover:bg-surface-raised">
                   Cancel

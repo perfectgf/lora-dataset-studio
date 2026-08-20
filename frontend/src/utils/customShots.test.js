@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   CUSTOM_SHOT_PREVIEW_CHARS, customShotLabel, createCustomShot,
-  editCustomShot, customShotDraft,
+  editCustomShot, customShotDraft, hasDerivedLabel,
 } from './customShots.js';
 
 const SHOTS = [
@@ -65,4 +65,39 @@ test('the draft is what the editor opens with, or null when the card is gone', (
   assert.deepEqual(customShotDraft(SHOTS, 'custom_3'), { prompt: 'close portrait', framing: 'face' });
   assert.equal(customShotDraft(SHOTS, 'custom_404'), null);
   assert.equal(customShotDraft(null, 'custom_1'), null);
+});
+
+// ---- the line that matters is derived vs chosen, not ✨ vs 📥 --------------
+
+// A 📥 catalog entry: the label is a name its author wrote in the JSON, and it
+// has nothing to do with the prompt.
+const IMPORTED = [
+  { id: 'imp_shiba', label: 'Shiba, zoomed', prompt: 'a shiba inu, tight crop on the head', framing: 'face' },
+  { id: 'imp_kept', label: '✨ on a vintage motorbike', prompt: 'on a vintage motorbike', framing: 'body' },
+];
+
+test('a name the app derived follows the prompt, a name a human wrote does not', () => {
+  assert.equal(hasDerivedLabel(SHOTS[0]), true);          // ✨ derived
+  assert.equal(hasDerivedLabel(SHOTS[1]), true);          // 🔞 derived
+  assert.equal(hasDerivedLabel(IMPORTED[0]), false);      // written by hand
+  assert.equal(hasDerivedLabel(IMPORTED[1]), true);       // promoted by ⇪ Keep
+  assert.equal(hasDerivedLabel(null), false);
+});
+
+test('editing an imported card keeps the name its author chose', () => {
+  const next = editCustomShot(IMPORTED, 'imp_shiba',
+    { prompt: 'a shiba inu on a bench, tight crop', framing: 'bust' });
+  assert.equal(next[0].label, 'Shiba, zoomed', 'the hand-written name survives the edit');
+  assert.equal(next[0].prompt, 'a shiba inu on a bench, tight crop');
+  assert.equal(next[0].framing, 'bust');
+  assert.equal(next[0].id, 'imp_shiba');
+});
+
+test('a card promoted by Keep still re-derives, because its name was never chosen', () => {
+  // This is the case .samexit hit: ⇪ Keep moves a ✨ card into the 📥 group, and
+  // it must keep behaving like the ✨ card it was.
+  const next = editCustomShot(IMPORTED, 'imp_kept',
+    { prompt: 'on a red vintage motorbike', framing: 'body' });
+  assert.equal(next[1].label, '✨ on a red vintage motorbike');
+  assert.equal(next[1].prompt, 'on a red vintage motorbike');
 });
