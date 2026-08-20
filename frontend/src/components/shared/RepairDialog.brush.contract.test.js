@@ -162,12 +162,19 @@ test('Escape peels one layer, not two', () => {
   assert.match(dialog, /if \(e\.key === 'Escape' && !busy\) onClose\(\)/);
   assert.match(review, /if \(repairOpen\) return;/);
   assert.match(lightbox, /if \(repairOpen\) return;/);
-  assert.match(generated, /if \(e\.key === 'Escape' && !repairOpen\) onClose\?\.\(\)/);
+  /* The generated-image viewer now has THREE rungs, not two, and the order is
+     the order the layers were put on: the ✦ Repair dialog stands the viewer's
+     listener down entirely, then a magnified picture is put back, then the
+     viewer closes. Escape must never throw away the render you were in the
+     middle of inspecting to get you out of a viewer you did not ask to leave. */
+  assert.match(generated, /if \(e\.key !== 'Escape' \|\| repairOpen\) return;/);
+  assert.match(generated, /if \(zoom\.zoomed\) \{ zoom\.reset\(\); return; \}/);
+  assert.match(generated, /if \(zoom\.zoomed\) \{ zoom\.reset\(\); return; \}[^]{0,40}onClose\?\.\(\);/);
 });
 
 test('the guards are re-read when the dialog opens, not captured stale', () => {
   // A listener registered once with repairOpen=false would keep closing forever.
   assert.match(review, /doDismiss, doReject, repairOpen\]\);/);
   assert.match(lightbox, /panelOpen, closePanel, repairOpen\]\);/);
-  assert.match(generated, /\}, \[img, onClose, repairOpen\]\);/);
+  assert.match(generated, /\}, \[img, onClose, repairOpen, zoom\]\);/);
 });
