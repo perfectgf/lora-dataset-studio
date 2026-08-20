@@ -47,6 +47,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import import_report  # noqa: E402
+
 # MUST match bank_score_infer.py and clip_text_infer.py — see the contract note.
 MODEL_NAME = 'ViT-L-14'
 PRETRAINED = 'openai'
@@ -81,7 +84,7 @@ def main() -> int:
         from PIL import Image
     except Exception as e:  # noqa: BLE001 — clean JSON, never a mute traceback
         _emit({'ok': False, 'ready': False,
-               'error': f'ML deps missing: {type(e).__name__}: {e}'})
+               'error': import_report.import_failure(e)})
         return 1
 
     device = 'cuda' if (want != 'cpu' and torch.cuda.is_available()) else 'cpu'

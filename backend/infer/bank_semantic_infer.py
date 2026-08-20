@@ -34,6 +34,7 @@ _CACHE_KEYS = frozenset({
 })
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import import_report  # noqa: E402
 from bank_image_guard import read_validated_bank_image  # noqa: E402
 import npz_atomic  # noqa: E402
 
@@ -412,7 +413,7 @@ def main() -> int:
         from transformers import AutoModel, AutoProcessor
     except Exception as exc:  # clean JSON instead of an invisible traceback
         _emit({'ok': False, 'results': {},
-               'error': f'ML deps missing: {type(exc).__name__}: {exc}'})
+               'error': import_report.import_failure(exc)})
         return 1
 
     cuda_available = bool(torch.cuda.is_available())

@@ -80,6 +80,7 @@ _NSFW_MODEL = 'Marqo/nsfw-image-detection-384'
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import import_report  # noqa: E402
 from bank_image_guard import read_validated_bank_image  # noqa: E402
 import npz_atomic  # noqa: E402
 
@@ -491,7 +492,7 @@ def main() -> int:
             from PIL import Image
         except Exception as e:  # noqa: BLE001 — clean JSON, never a mute traceback
             print(json.dumps({'ok': False, 'results': {}, 'clusters': {},
-                              'error': f'ML deps missing: {type(e).__name__}: {e}'}))
+                              'error': import_report.import_failure(e)}))
             return 1
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # Heads BEFORE CLIP, on purpose: whether a holed entry is worth re-running

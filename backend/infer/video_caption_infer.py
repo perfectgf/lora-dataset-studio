@@ -56,6 +56,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import import_report  # noqa: E402
+
 # The DEFAULT checkpoint — verified present in the local HF cache, see the module
 # docstring. The parent normally sends an explicit `model` in the handshake (from
 # the config key `video_caption.model`); this is what a bare invocation falls back
@@ -103,7 +106,7 @@ def main() -> int:
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
     except Exception as e:  # noqa: BLE001 — clean JSON, never a mute traceback
         _emit({'ok': False, 'ready': False,
-               'error': f'ML deps missing: {type(e).__name__}: {e}'})
+               'error': import_report.import_failure(e)})
         return 1
 
     device = 'cuda' if (want != 'cpu' and torch.cuda.is_available()) else 'cpu'
