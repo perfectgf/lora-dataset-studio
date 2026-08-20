@@ -4474,8 +4474,9 @@ def _custom_combo_hash(ds, base_model=_PERSISTED, family=None) -> str:
 # silently replaced A's LoRA). Cloud runs tag with their CloudTrainingRun id
 # (`_rc49`), local runs with their TrainingRunRecord id (`_rl12`) — matching the
 # ☁/💻 #N chips on the Runs page. Parsed back out (parse_deployed_run) so the
-# "in ComfyUI" list can show each file's source run. It is stripped from display
-# labels (comfyui._parse_trained_stem) so it reads as a chip, not name noise.
+# "in ComfyUI" list can show each file's source run. Display labels also keep
+# the raw `rcN`/`rlN` token (comfyui.format_trained_lora_label) so Test Studio
+# can tell two same-version runs apart where no chip is shown.
 _DEPLOYED_RUN_TAG_RE = re.compile(r'_r([cl])(\d+)(?:_v\d+)?(?:\.[^.]+)?$')
 
 
