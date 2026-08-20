@@ -9,7 +9,8 @@ import {
   imageHeadlineFacts, imagePromptBlocks, imageSettingFacts, promptFold,
 } from '../../utils/generatedImageFacts';
 import {
-  FACTS_PANEL_CLASS, IMAGE_CLASS, IMAGE_PANE_CLASS, SHELL_CLASS,
+  FACTS_PANEL_CLASS, IMAGE_CLASS, IMAGE_CLASS_BARE, IMAGE_PANE_CLASS,
+  IMAGE_PANE_CLASS_BARE, SHELL_CLASS,
 } from './generatedImageLightboxLayout';
 
 /* 🔍 ONE generated image, large, with what it was made from.
@@ -191,6 +192,14 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
   const [repairOpen, setRepairOpen] = useState(false);
+  /* 🔍 Are the facts on screen? They are what this viewer is FOR, so they open
+     with it — but they are not what you want while you are looking. Measured at
+     412x780, the panel open, the picture is 35 % of the screen; put away, it is
+     the screen. The state lives here rather than in localStorage on purpose:
+     hiding the details is a decision about the render in front of you, not a
+     preference, and it survives flipping to the next image (this component
+     stays mounted across `img` changes) which is the span that matters. */
+  const [factsOpen, setFactsOpen] = useState(true);
   const dl = useImageDownload();
   useFocusTrap(dialogRef, !!img);
   useEffect(() => {
@@ -204,6 +213,10 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
   useEffect(() => { if (img) closeRef.current?.focus(); }, [img]);
 
   if (!img) return null;
+  /* ONE reading of "are the facts on screen", used by the panel, the pane and
+     the picture. Two of them disagreeing draws a bare pane around a framed
+     picture, or a frame around nothing. */
+  const showFacts = facts && factsOpen;
   const head = imageHeadlineFacts(img);
   const settings = imageSettingFacts(img);
   const blocks = imagePromptBlocks(img);
@@ -226,16 +239,41 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
         title="Close (Esc)" aria-label="Close image"
         className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg leading-none text-white hover:bg-white/20">✕</button>
 
-      <div className={IMAGE_PANE_CLASS}>
-        <img src={img.url} alt={label} onClick={(e) => e.stopPropagation()}
-          className={IMAGE_CLASS} />
+      {/* 📱 Put the details away and give the picture the screen.
+
+          Beside ✕ and pinned to the OVERLAY for the same reason ✕ is: it must
+          be the same target at every width, and it must not be inside the
+          column it folds. Only drawn when there ARE facts — a 🪪 reference face
+          passes `facts={false}` and has nothing to fold. */}
+      {facts && (
+        <button type="button" data-testid="lightbox-facts-toggle"
+          onClick={(e) => { e.stopPropagation(); setFactsOpen((v) => !v); }}
+          aria-expanded={factsOpen}
+          title={factsOpen
+            ? 'Hide the details and give the picture the whole screen — or just tap the picture'
+            : 'Show the seed, the settings and the prompt again'}
+          aria-label={factsOpen ? 'Hide the image details' : 'Show the image details'}
+          className="absolute right-14 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-base leading-none text-white hover:bg-white/20">
+          <span aria-hidden>{factsOpen ? '⤢' : 'ⓘ'}</span>
+        </button>
+      )}
+
+      <div className={showFacts ? IMAGE_PANE_CLASS : IMAGE_PANE_CLASS_BARE}>
+        {/* Tapping the picture folds the details away and brings them back —
+            the gesture every photo viewer on a phone already has, and the one a
+            thumb reaches without aiming. It cannot close the viewer by
+            accident: the press stops here, as it always did, and the button
+            above is what makes the gesture discoverable rather than folklore. */}
+        <img src={img.url} alt={label}
+          onClick={(e) => { e.stopPropagation(); if (facts) setFactsOpen((v) => !v); }}
+          className={showFacts ? IMAGE_CLASS : IMAGE_CLASS_BARE} />
       </div>
 
       {/* THE fix for the wall of text: a column, not a line. Bounded width above
           `md` and the panel's own width below it — either way the prose has a
           reading width, never the width of the screen. Its own scroll, so the
           image never shrinks to make room for a long prompt. */}
-      {facts && (
+      {showFacts && (
       <aside onClick={(e) => e.stopPropagation()}
         data-testid="generated-image-facts"
         /* OPAQUE, not a tint. At 60 % the page behind it stayed legible through
