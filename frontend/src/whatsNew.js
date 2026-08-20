@@ -50,6 +50,24 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-20-viewer-pinch-zoom',
+    date: '2026-08-20',
+    title: 'Zoom into a render to see whether it actually got the detail right',
+    blurb:
+      'Folding the details away gave the picture the window on a tablet and a desktop, and '
+      + 'barely moved on a phone held upright — measured, 35 % of the screen became 39 %. The '
+      + 'panel was never the limit there: a 4:3 render on a 412-px screen already has the whole '
+      + 'width, so seeing more means magnifying, not folding. The image viewer now zooms. Pinch '
+      + 'it, double-tap it, or roll the wheel on a desktop, then drag to move around; a second '
+      + 'double-tap, Esc, or the ⤾ chip that appears puts it straight back. It zooms around your '
+      + 'fingers, so pinching on a face makes that face bigger instead of the middle of the '
+      + 'picture, and it stops exactly where the file does — one screen pixel per stored pixel, '
+      + 'never magnified guesswork you could mistake for detail. The picture can never be '
+      + 'dragged off the screen either: it always covers the window, so there is no way to end '
+      + 'up looking at black with no way back. Every render opens at fit, including the next one '
+      + 'you flip to.',
+  },
+  {
     id: '2026-08-20-lightbox-hide-the-details',
     date: '2026-08-20',
     title: 'Put the details away and give the render the screen',

@@ -146,9 +146,12 @@ test('the fold has a button AND the gesture, and never strands the reader', () =
   const asideIdx = lightbox.indexOf('<aside');
   assert.ok(toggleIdx > 0 && toggleIdx < asideIdx);
   assert.match(lightbox.slice(toggleIdx - 200, toggleIdx + 700), /absolute right-14 top-3/);
-  // Tapping the picture does it too — and still cannot close the viewer, which
-  // is what `stopPropagation` on the image has always been for.
-  assert.match(lightbox, /onClick=\{\(e\) => \{ e\.stopPropagation\(\); if \(facts\) setFactsOpen/);
+  // Tapping the picture does it too. The tap now arrives through the zoom hook
+  // rather than from an onClick, because a single tap and the first half of a
+  // double tap are the same event — see useImageZoomPan. It still cannot close
+  // the viewer: the press never reaches the backdrop.
+  assert.match(lightbox, /onTap: useCallback\(\(\) => \{ if \(facts\) setFactsOpen\(\(v\) => !v\); \}, \[facts\]\)/);
+  assert.match(lightbox, /onClick=\{\(e\) => e\.stopPropagation\(\)\}/);
   // A picture with no facts (a 🪪 reference face passes facts={false}) gets no
   // toggle: a control that folds nothing is a control that reads as broken.
   const toggleBlock = lightbox.slice(lightbox.indexOf('{facts && ('), toggleIdx + 60);

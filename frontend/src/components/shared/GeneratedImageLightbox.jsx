@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useImageZoomPan } from '../../hooks/useImageZoomPan';
 import RepairDialog from './RepairDialog';
 import { useImageDownload } from '../../hooks/useImageDownload';
 import { useCapabilities } from '../../context/CapabilitiesContext';
@@ -191,6 +192,11 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
   onRepair = null, onRepairUndo = null }) {
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
+  /* ONE reading of "are the facts on screen", used by the panel, the pane and
+     the picture. Two of them disagreeing draws a bare pane around a framed
+     picture, or a frame around nothing. Declared with the hooks, above the
+     early return: an effect depends on it, and a hook may not sit behind a
+     conditional return. */
   const [repairOpen, setRepairOpen] = useState(false);
   /* 🔍 Are the facts on screen? They are what this viewer is FOR, so they open
      with it — but they are not what you want while you are looking. Measured at
@@ -200,23 +206,54 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
      preference, and it survives flipping to the next image (this component
      stays mounted across `img` changes) which is the span that matters. */
   const [factsOpen, setFactsOpen] = useState(true);
+  const showFacts = facts && factsOpen;
+  const paneRef = useRef(null);
+  const imgRef = useRef(null);
+  /* 🔍 Pinch, wheel and double-tap, over utils/imageZoomPan's geometry.
+
+     Folding the details away answered "let me see the render" on every shape
+     but one: measured, a phone held UPRIGHT went from 35 % of the screen to
+     39 % and stopped, because a 4:3 render at 412 px wide already has the whole
+     of the scarce axis. Folding cannot give it more; only magnifying can. This
+     is that half, and the phone is the device that needs it.
+
+     `onTap` is the fold — the two gestures share a beginning, so the single tap
+     waits DOUBLE_TAP_MS to find out which it was. See the hook. */
+  const zoom = useImageZoomPan({
+    imgRef,
+    frameRef: paneRef,
+    active: !!img,
+    resetKey: img?.url || null,
+    onTap: useCallback(() => { if (facts) setFactsOpen((v) => !v); }, [facts]),
+  });
   const dl = useImageDownload();
   useFocusTrap(dialogRef, !!img);
   useEffect(() => {
     if (!img) return undefined;
     // Escape peels ONE layer — see RepairDialog: while it is open the key is
     // its own, and this listener would close the lightbox underneath it.
-    const onKey = (e) => { if (e.key === 'Escape' && !repairOpen) onClose?.(); };
+    // …and a magnified picture is a layer of its own: Escape puts the zoom back
+    // before it closes the viewer, so the key never throws away the render you
+    // were in the middle of inspecting.
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || repairOpen) return;
+      if (zoom.zoomed) { zoom.reset(); return; }
+      onClose?.();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [img, onClose, repairOpen]);
+  }, [img, onClose, repairOpen, zoom]);
   useEffect(() => { if (img) closeRef.current?.focus(); }, [img]);
+  /* Folding the details resizes the frame under a held zoom, and a view that
+     was legally at its edge before is a strip of backdrop afterwards. Settle
+     re-applies the travel limit without touching the magnification — the zoom
+     is the user's, the gap is not. */
+  const settle = zoom.settle;
+  useEffect(() => { settle(); }, [showFacts, settle]);
 
+  // Every hook above this line, every read of `img` below it: nothing renders
+  // for a viewer with no picture, and a hook may not sit behind a return.
   if (!img) return null;
-  /* ONE reading of "are the facts on screen", used by the panel, the pane and
-     the picture. Two of them disagreeing draws a bare pane around a framed
-     picture, or a frame around nothing. */
-  const showFacts = facts && factsOpen;
   const head = imageHeadlineFacts(img);
   const settings = imageSettingFacts(img);
   const blocks = imagePromptBlocks(img);
@@ -258,14 +295,40 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
         </button>
       )}
 
-      <div className={showFacts ? IMAGE_PANE_CLASS : IMAGE_PANE_CLASS_BARE}>
+      {/* The gestures live on the PANE, not on the picture: zoomed in past the
+          frame on one axis there are still bars of backdrop on the other, and a
+          pan that dies the moment your thumb crosses onto one is a pan that
+          fights you. `touch-none` because the browser would otherwise take the
+          pinch for itself and zoom the whole page over a viewer that was
+          already zooming the picture. */}
+      {/* ⤾ The way back out, for the wheel and the pinch — a double tap already
+          goes home, but nothing says so, and a magnified picture with no
+          visible way back is the state people close the viewer to escape.
+          Only while it can do something. */}
+      {zoom.zoomed && (
+        <button type="button" data-testid="lightbox-zoom-reset"
+          onClick={(e) => { e.stopPropagation(); zoom.reset(); }}
+          title="Back to the whole picture (double-tap it, or press Esc)"
+          aria-label="Reset the zoom"
+          className="absolute right-24 top-3 z-10 flex h-9 items-center rounded-full bg-white/10 px-3 text-[0.75rem] font-semibold leading-none text-white hover:bg-white/20">
+          <span aria-hidden className="mr-1">⤾</span>{Math.round(zoom.view.scale * 100)}%
+        </button>
+      )}
+
+      <div ref={paneRef} {...zoom.handlers}
+        className={(showFacts ? IMAGE_PANE_CLASS : IMAGE_PANE_CLASS_BARE) + ' touch-none'}
+        /* A press on the backdrop still closes the viewer, which is the way out
+           people reach for first — but not while the picture is magnified, or
+           letting go after a pan would shut the thing you were inspecting. */
+        onClick={(e) => { if (zoom.zoomed) e.stopPropagation(); }}>
         {/* Tapping the picture folds the details away and brings them back —
             the gesture every photo viewer on a phone already has, and the one a
-            thumb reaches without aiming. It cannot close the viewer by
-            accident: the press stops here, as it always did, and the button
-            above is what makes the gesture discoverable rather than folklore. */}
-        <img src={img.url} alt={label}
-          onClick={(e) => { e.stopPropagation(); if (facts) setFactsOpen((v) => !v); }}
+            thumb reaches without aiming. Double-tap magnifies instead, and the
+            press never reaches the backdrop, so neither can close the viewer by
+            accident. */}
+        <img ref={imgRef} src={img.url} alt={label} draggable={false}
+          onClick={(e) => e.stopPropagation()}
+          style={zoom.style}
           className={showFacts ? IMAGE_CLASS : IMAGE_CLASS_BARE} />
       </div>
 
