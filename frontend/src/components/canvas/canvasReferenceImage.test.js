@@ -47,7 +47,14 @@ test('the reference is enlargeable, and labelled for a screen reader', () => {
   // grown the ✨ improve opt-in, and a test that breaks every time a prop is
   // added teaches nothing about the reference image it is here to protect.
   assert.match(lightbox, /facts = true, onClose[,}]/);
-  assert.match(lightbox, /\{facts && \(\s*<aside/);
+  // The column is drawn only when there ARE facts. It now also folds on demand
+  // (⤢ gives the picture the whole screen), so the condition is one derived
+  // boolean rather than `facts` alone — what is pinned here is that `facts`
+  // still gates it, which is the reference image's half of the contract: a 🪪
+  // face has no seed, no sampler and no prompt, and an empty table is a wrong
+  // answer rather than a neutral default.
+  assert.match(lightbox, /const showFacts = facts && factsOpen;/);
+  assert.match(lightbox, /\{showFacts && \(\s*<aside/);
 });
 
 test('the reference button opts out of the board gesture', () => {

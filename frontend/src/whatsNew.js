@@ -50,6 +50,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-20-lightbox-hide-the-details',
+    date: '2026-08-20',
+    title: 'Put the details away and give the render the screen',
+    blurb:
+      'The image viewer shows you what a render was made from — seed, settings, prompt — and '
+      + 'that panel is the point of it. It is also not what you want on screen while you are '
+      + 'actually looking at the picture: measured on a phone the render was drawn at 35 % of '
+      + 'the screen, and on a tablet held sideways the same 35 %, with the panel taking the rest. '
+      + 'There is a new ⤢ button beside the ✕ that folds the whole panel away — and tapping the '
+      + 'picture does it too, the gesture every photo viewer already has. The picture then takes '
+      + 'the entire window, frame and padding included: 90 % of a tablet held sideways, 84 % of a '
+      + 'desktop window. Tap again, or press ⓘ, and everything comes back exactly where it was — '
+      + 'including while you flip from one render to the next, so comparing two crops does not '
+      + 'mean re-hiding the panel each time.',
+  },
+  {
     id: '2026-08-20-canvas-room-to-work',
     date: '2026-08-20',
     title: 'The ◉ Canvas gets its screen back on a phone',

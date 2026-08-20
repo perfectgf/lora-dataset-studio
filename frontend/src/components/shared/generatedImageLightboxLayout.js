@@ -69,6 +69,42 @@ export const IMAGE_PANE_CLASS = 'flex min-h-0 min-w-0 flex-1 items-center justif
  *  it fill the column rather than sit small and centred at the top. */
 export const IMAGE_CLASS = 'max-h-full max-w-full select-none rounded-lg object-contain shadow-2xl';
 
+/* ── AND THE SECOND STATE: THE FACTS PUT AWAY ────────────────────────────────
+ *
+ * Everything above is about where the facts SIT. It says nothing about the case
+ * where you do not want them at all — which, measured, is most of what a phone
+ * is for here. At 412x780 with the panel open the picture is drawn 388x290:
+ * 35 % of the screen, because the panel takes 45 vh under it and the pane keeps
+ * 12 px of padding around what is left. At 904x750 held sideways it is the same
+ * 35 %, the rail spending 320 of the 904 px instead. A viewer whose picture
+ * never gets past a third of the screen is a viewer you cannot judge a render
+ * in, and judging renders is the entire job.
+ *
+ * So the panel folds away, and when it does the padding goes with it: 12 px a
+ * side is a considered frame around a picture in a layout, and 24 px of a
+ * 412-px screen when the picture IS the layout. The rounding and the drop
+ * shadow go too — they draw the edge of a card, and there is no card left, just
+ * a picture on black.
+ *
+ * ⚠️ Two helper FUNCTIONS were the obvious way to keep the pane and the picture
+ * from disagreeing, and they were wrong. This module must stay nothing but
+ * constants: tests/modal-opacity-contract.test.mjs follows a component's class
+ * module only when every binding it imports is SCREAMING_SNAKE_CASE — which is
+ * what tells a class module apart from a component or a hook, and what stops
+ * some unrelated `bg-app` three files away from vouching for a see-through
+ * form. Adding `imageClass` to the import made the whole module invisible to
+ * it, and this viewer was reported as a dialog with no opaque surface while the
+ * panel's `bg-app` sat right here. The guard was right.
+ *
+ * So the pair is chosen at the call site instead — from ONE derived boolean, so
+ * a bare pane can still never end up around a framed picture. */
+
+/** The image half with the facts put away — same box, no frame around it. */
+export const IMAGE_PANE_CLASS_BARE = 'flex min-h-0 min-w-0 flex-1 items-center justify-center p-0';
+
+/** The picture with nothing beside it: no card edge, no shadow. */
+export const IMAGE_CLASS_BARE = 'max-h-full max-w-full select-none object-contain';
+
 /** The facts column. Stacked: a bounded band under the image with its own
  *  scroll. Split: a full-height bordered column of bounded width. */
 export const FACTS_PANEL_CLASS = 'max-h-[45vh] w-full shrink-0 overflow-y-auto '

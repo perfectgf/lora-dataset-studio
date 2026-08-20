@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import {
-  FACTS_PANEL_CLASS, IMAGE_CLASS, IMAGE_PANE_CLASS, MAX_PANEL_PX, MIN_PANEL_PX,
+  FACTS_PANEL_CLASS, IMAGE_CLASS, IMAGE_CLASS_BARE, IMAGE_PANE_CLASS,
+  IMAGE_PANE_CLASS_BARE, MAX_PANEL_PX, MIN_PANEL_PX,
   SHELL_CLASS, SPLIT_MIN_WIDTH_PX, SPLIT_VARIANT,
 } from './generatedImageLightboxLayout.js';
 
@@ -96,14 +97,63 @@ test('the image pane can shrink on both axes', () => {
 });
 
 test('the lightbox uses these classes rather than restating them', () => {
-  for (const name of ['SHELL_CLASS', 'IMAGE_PANE_CLASS', 'IMAGE_CLASS', 'FACTS_PANEL_CLASS']) {
+  for (const name of ['SHELL_CLASS', 'FACTS_PANEL_CLASS']) {
     assert.ok(lightbox.includes(`{${name}}`),
       `GeneratedImageLightbox.jsx should render {${name}}`);
   }
+  // The pane and the picture now depend on one state — are the facts on screen —
+  // and they read it from ONE derived boolean. Not from helper functions: this
+  // module must export nothing but constants or the opacity contract goes blind
+  // to it (see the note in the module itself).
+  assert.match(lightbox, /const showFacts = facts && factsOpen;/);
+  assert.match(lightbox, /showFacts \? IMAGE_PANE_CLASS : IMAGE_PANE_CLASS_BARE/);
+  assert.match(lightbox, /showFacts \? IMAGE_CLASS : IMAGE_CLASS_BARE/);
   // No second copy of the breakpoint anywhere in the component: that is how the
   // two halves drift apart.
   assert.ok(!/lg:flex-row|lg:w-\[\d/.test(lightbox),
     'a leftover lg: layout utility is still in the component');
+});
+
+/* 📏 Measured on a real render, the panel open: at 412x780 the picture is drawn
+   388x290 — 35 % of the screen — and at 904x750 held sideways it is 560x418,
+   the same 35 %, the rail spending 320 of 904 px instead of 45 vh. The facts
+   are what this viewer is for and they are not what you want while you are
+   looking at the render; both have to be reachable in one gesture. */
+test('the facts fold away and the picture takes the screen', () => {
+  // Both states exist, and the bare one drops the frame with the panel: 12 px a
+  // side is a considered margin in a layout and 24 px of a 412-px screen when
+  // the picture IS the layout.
+  assert.ok(IMAGE_PANE_CLASS.includes('p-3'));
+  assert.ok(IMAGE_PANE_CLASS_BARE.includes('p-0'));
+  assert.ok(!IMAGE_CLASS_BARE.includes('rounded') && !IMAGE_CLASS_BARE.includes('shadow'));
+  // …and everything load-bearing survives the fold.
+  for (const c of ['min-h-0', 'min-w-0', 'flex-1']) assert.ok(IMAGE_PANE_CLASS_BARE.includes(c));
+  for (const c of ['object-contain', 'max-h-full', 'max-w-full']) assert.ok(IMAGE_CLASS_BARE.includes(c));
+  // Every export is a constant — the shape this module must keep, so the
+  // opacity contract can still read the panel's `bg-app` through the import.
+  const src = fs.readFileSync(new URL('./generatedImageLightboxLayout.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /export function /);
+});
+
+test('the fold has a button AND the gesture, and never strands the reader', () => {
+  // Discoverable: a tap-to-hide with no affordance is folklore, not a feature.
+  assert.match(lightbox, /data-testid="lightbox-facts-toggle"/);
+  assert.match(lightbox, /aria-expanded=\{factsOpen\}/);
+  // An emoji is not an accessible name, and the name has to say which way it goes.
+  assert.match(lightbox, /aria-label=\{factsOpen \? 'Hide the image details' : 'Show the image details'\}/);
+  // Pinned to the OVERLAY beside ✕, never inside the column it folds.
+  const toggleIdx = lightbox.indexOf('data-testid="lightbox-facts-toggle"');
+  const asideIdx = lightbox.indexOf('<aside');
+  assert.ok(toggleIdx > 0 && toggleIdx < asideIdx);
+  assert.match(lightbox.slice(toggleIdx - 200, toggleIdx + 700), /absolute right-14 top-3/);
+  // Tapping the picture does it too — and still cannot close the viewer, which
+  // is what `stopPropagation` on the image has always been for.
+  assert.match(lightbox, /onClick=\{\(e\) => \{ e\.stopPropagation\(\); if \(facts\) setFactsOpen/);
+  // A picture with no facts (a 🪪 reference face passes facts={false}) gets no
+  // toggle: a control that folds nothing is a control that reads as broken.
+  const toggleBlock = lightbox.slice(lightbox.indexOf('{facts && ('), toggleIdx + 60);
+  assert.match(toggleBlock, /data-testid="lightbox-facts-toggle"/);
+  assert.match(lightbox, /\{showFacts && \(/);
 });
 
 test('the close button is pinned to the overlay, above both halves', () => {
