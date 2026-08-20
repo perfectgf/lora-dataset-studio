@@ -118,6 +118,14 @@ export const WHATS_NEW = [
     to: '/canvas',
   },
   {
+    id: '2026-08-20-scene-prompts-from-a-bank',
+    date: '2026-08-20',
+    title: 'Run a bank’s captions in order, as one batch',
+    blurb:
+      'The 🎲 shortcut draws ONE caption at random — the right tool for a bag of images, the wrong one when the ORDER is the point: a storyboard, a shoot, a chapter read page by page. Both generation panels (the Test Studio and the board’s 🎨 Generate) now have 🎬 Scenes from a bank under the prompt: pick a bank, load its captions in bank order — each shown with the image it came from — tick the ones you want, and every ticked scene becomes one pass of the same run, in order, alongside anything you ticked in the prompt history. Same checkpoints, same settings, same seed, so the scenes stay comparable. An image with no caption is skipped and counted rather than guessed, and the button and the counter say how many passes before you click.',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-20-coverage-chips-show-their-images',
     date: '2026-08-20',
     title: 'Click a coverage chip to see exactly those images',

@@ -9324,6 +9324,71 @@ def start_caption(app, user_id, bank_id, ids=None, force=False, vocabulary=None,
                            total=total)
 
 
+# --- Scene captions -------------------------------------------------------
+# A bank of reference images read as a source of MISE EN SCENE: every row that
+# already carries a caption becomes one ordered scene, and a generation panel
+# can run those captions IN ORDER with the user's own LoRA supplying the
+# character. A READ, never a pass — no GPU, no writes, alive while a job runs.
+
+# The dataset shot importer's own prompt ceiling (frontend/src/utils/shotImport.js),
+# restated here so a scene can never carry a line that surface would refuse.
+SCENE_MAX_PROMPT = 500
+_SCENE_FRAMINGS = ('face', 'bust', 'body', 'back')
+
+
+def _scene_prompt(caption: str) -> str:
+    """One import-safe prompt line: collapsed whitespace, word-boundary cut."""
+    text = ' '.join(str(caption or '').split())
+    if len(text) <= SCENE_MAX_PROMPT:
+        return text
+    cut = text.rfind(' ', 0, SCENE_MAX_PROMPT - 1)
+    return text[:cut if cut > 0 else SCENE_MAX_PROMPT - 1] + '…'
+
+
+def export_scene_captions(user_id, bank_id, statuses=None):
+    """The bank's captions as ORDERED scene cards.
+
+    One card per captioned image, in bank order (row id ascending = import
+    order). Order is the point: each card is one beat of a sequence, so a
+    missing framing is NOT a gate — the card rides the row's classified framing
+    when there is one and 'body' otherwise, because refusing a page would
+    silently drop a beat from the middle. Only a missing caption skips a row,
+    and it is COUNTED, never guessed.
+
+    Labels carry the sequence number ("Scene 3 — page_003.jpg") so the reading
+    order stays visible wherever the card lands. ``image_id`` lets a UI show the
+    page the scene came from (bank thumb route); it is display-only and never
+    rides a generation payload.
+    """
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    want = _normalize_caption_statuses(statuses)
+    th = thresholds()
+    rows = (_caption_scope_q(bank_id, want)
+            .order_by(BankImage.id.asc()).all())
+    scenes = []
+    skipped = {'no_caption': 0}
+    for row in rows:
+        caption = (row.caption or '').strip()
+        if not caption:
+            skipped['no_caption'] += 1
+            continue
+        stem = os.path.basename(row.relpath or '') or f'image {row.id}'
+        label = f'Scene {len(scenes) + 1} — {stem}'
+        if len(label) > 80:
+            label = label[:79] + '…'
+        nsfw = (row.nsfw_score is not None
+                and row.nsfw_score > th['nsfw_max'])
+        framing = row.framing if row.framing in _SCENE_FRAMINGS else 'body'
+        scenes.append({'label': label, 'framing': framing,
+                       'prompt': _scene_prompt(caption),
+                       'image_id': row.id,
+                       **({'nsfw': True} if nsfw else {})})
+    return {'bank_id': bank_id, 'bank_name': bank.name,
+            'scenes': scenes, 'skipped': skipped}
+
+
 # The name each stored origin gets in a sentence. 'asserted' is absent ON PURPOSE:
 # no pass ever writes it, and a pass that reported it would be reporting something
 # it did not do. Keys are the stored values (services/caption_origin.py) — frozen.

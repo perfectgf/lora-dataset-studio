@@ -676,6 +676,18 @@ const TOPICS = [
      'how long will this take', 'estimated time', 'duration', 'at your current pace',
      'this run will queue', 'confirmation before a long run', 'seconds per image'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  // 🎬 Les scènes vivent dans le même rail que le lot d'historique, monté par le
+  // Studio de test ET par « Generate from the board » : un seul sujet pour les deux.
+  action('studio-scene-prompts', '🎬 Scenes: run a bank’s captions in order',
+    ['studio', 'test studio', 'canvas', 'generate from the board', 'scene', 'scenes',
+     'scenes from a bank', 'bank captions', 'import captions', 'captions from a bank',
+     'use my bank captions', 'reuse a caption', 'staging', 'mise en scene',
+     'storyboard', 'sequence', 'in order', 'reading order', 'page order',
+     'pick scenes', 'tick scenes', 'select all scenes', 'load scenes',
+     'one pass per scene', 'run captions in order', 'choose a bank',
+     'no scenes loaded', 'scene skipped', 'image without a caption',
+     'caption pass', 'thumbnail of the page', 'which page'],
+    '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   action('studio-enhance-prompt', '✨ Enhance: enrich the test prompt with the local model',
     ['studio', 'test studio', 'enhance', 'enhance prompt', 'improve prompt', 'better prompt',
      'rewrite prompt', 'llm', 'ollama', 'local model', 'prompt magic', 'button greyed out',

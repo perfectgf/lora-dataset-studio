@@ -71,7 +71,9 @@ test('the batch reaches BOTH launch routes, through the channel both hooks sprea
   // The key rides in the same object as the global generation settings. That is
   // only safe because BOTH hooks spread that object into their body — checking
   // one half would have proved the feature on one screen only.
-  assert.match(SETUP, /const settings = launchSettings\(genSettings, pickedPrompts\)/)
+  // `allPickedPrompts` = the history batch plus the 🎬 scene batch, one channel:
+  // the scenes ride the SAME `prompts` key, so both screens get both features.
+  assert.match(SETUP, /const settings = launchSettings\(genSettings, allPickedPrompts\)/)
   assert.match(SETUP, /form\.genCount, settings,/)
   assert.match(STUDIO_HOOK, /count, family, \.\.\.genSettings \}/)
   assert.match(CANVAS_HOOK, /count, \.\.\.genSettings,/)
@@ -82,7 +84,7 @@ test('ticking nothing is not a new code path', () => {
   // (asserted for real in promptBatch.test.js); the panel must not add anything
   // of its own around it.
   assert.doesNotMatch(SETUP, /prompts:\s*\[/)
-  assert.match(SETUP, /const promptMult = Math\.max\(1, pickedPrompts\.length\)/)
+  assert.match(SETUP, /const promptMult = Math\.max\(1, allPickedPrompts\.length\)/)
 })
 
 test('what the batch costs is announced before the click, not by the queue', () => {

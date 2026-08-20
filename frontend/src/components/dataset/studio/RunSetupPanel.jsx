@@ -12,6 +12,8 @@ import StudioGenerationSettings from './StudioGenerationSettings';
 import StudioActionBar from './StudioActionBar';
 import StudioPreflightBanner from './StudioPreflightBanner';
 import { launchSettings, launchText as batchLaunchText, visibleBatch } from './promptBatch';
+import SceneBankPrompts from './SceneBankPrompts';
+import { combinedPromptBatch } from './scenePrompts';
 import { heavyRunConfirm, heavyRunNotice, runCost } from './runCost';
 
 // Rail gauche « Setup du run » : pickers + seed/launch + bandeaux d'état.
@@ -70,17 +72,24 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
   const toggleBatchPrompt = (p) => setBatchPrompts((cur) => (
     cur.includes(p) ? cur.filter((v) => v !== p) : [...cur, p]));
 
+  // 🎬 Scenes from a bank : les captions d'une banque DANS L'ORDRE, chaque scène
+  // cochée devenant une passe du même axe 📝. Non persisté, même raison que le
+  // lot d'historique ci-dessus. La règle vit dans scenePrompts.js (pur, testé).
+  const [sceneBatch, setSceneBatch] = useState({ source: null, scenes: [], picked: [] });
+  const allPickedPrompts = combinedPromptBatch(
+    pickedPrompts, sceneBatch.scenes, sceneBatch.picked);
+
   // Le nombre de cellules RÉELLEMENT lancées. `cellTotal` n'est fourni que par un
   // mode qui change la formule (🧬 Blend : une pile = une configuration) — sinon
   // c'est le total du formulaire, inchangé.
   // 📝 Chaque prompt coché est une passe de plus sur la MÊME grille : le compteur
   // et le bouton doivent le dire avant le clic, pas la file d'attente après.
-  const promptMult = Math.max(1, pickedPrompts.length);
+  const promptMult = Math.max(1, allPickedPrompts.length);
   const cells = cellTotal != null ? cellTotal : form.total;
   const total = cells * promptMult;
   const canLaunch = total > 0 && !d.pending && !d.gpu_busy && !studio.launching
     && !launchBlocked;
-  const launchText = batchLaunchText(launchLabel, pickedPrompts);
+  const launchText = batchLaunchText(launchLabel, allPickedPrompts);
   // Axe ⚖ batch (Always-on LoRA cochés batch) : chaque config tourne SANS puis
   // AVEC chaque LoRA coché → le compteur d'images/temps doit en tenir compte
   // (le backend multiplie déjà les cellules par 1 + nb cochés).
@@ -100,7 +109,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
     // hooks étalent cet objet dans le corps du POST) — donc aucune signature à
     // changer, et le lot arrive identiquement sur les deux routes. Absent quand
     // rien n'est coché : le corps envoyé est alors octet pour octet celui d'avant.
-    const settings = launchSettings(genSettings, pickedPrompts);
+    const settings = launchSettings(genSettings, allPickedPrompts);
     const res = await studio.launch(
       form.chosenCps, form.selSts, form.nextSeed(), form.effectivePrompt,
       form.effectiveModels, form.effectiveAspects, form.effectiveCfgs, form.effectiveSteps,
@@ -205,6 +214,10 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
             onToggleBatchPrompt={toggleBatchPrompt}
             onClearBatchPrompts={() => setBatchPrompts([])}
           />
+
+          {/* 🎬 Les captions d'une banque, dans l'ordre, comme passes de prompt
+              supplémentaires — juste sous le prompt qu'elles prolongent. */}
+          <SceneBankPrompts value={sceneBatch} onChange={setSceneBatch} />
 
           <AxisPickers
             zModels={d.z_models}

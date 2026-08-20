@@ -797,6 +797,22 @@ def bank_caption(bank_id):
                   include_asserted=bool(data.get('include_asserted')))
 
 
+@bp.get('/bank/<int:bank_id>/scenes')
+def bank_scenes(bank_id):
+    """The bank's captions as ORDERED scene cards — served raw so a generation
+    panel can offer them as a prompt batch without going through a dataset.
+    Read-only: no GPU, no writes, answers while a pass is running.
+    ?statuses=keep,pending scopes like the caption pass. 404 on a missing bank."""
+    raw = (request.args.get('statuses') or '').strip()
+    statuses = [s for s in (p.strip() for p in raw.split(',')) if s] or None
+    try:
+        payload = banks.export_scene_captions(LOCAL_USER, bank_id, statuses=statuses)
+    except ValueError as e:
+        msg = str(e)
+        return jsonify({'error': msg}), 404 if msg == 'bank not found' else 400
+    return jsonify(payload)
+
+
 @bp.post('/bank/<int:bank_id>/pipeline')
 def bank_pipeline(bank_id):
     """Launch the chained "Launch all" triage pipeline. Body: {steps:[...],
