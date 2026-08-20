@@ -554,7 +554,8 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
               still fits two cards per row at 400 px. */}
           <span className="min-w-[4.5rem] leading-tight break-words">{c.label}</span>
           <span className="ml-auto shrink-0 flex items-center gap-1">
-            {done > 0 && <span className="text-emerald-300 font-semibold">✓×{done}</span>}
+            {done > 0 && <span className="text-emerald-300 font-semibold"
+              aria-label={`${done} already in the dataset`}>✓×{done}</span>}
             {on && <span className="text-indigo-300" aria-hidden="true">✓</span>}
           </span>
         </button>
@@ -1811,7 +1812,15 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
                   return (
                     <button key={e.id} type="button" onClick={() => toggle(e.id)}
                       aria-pressed={on}
-                      title={done > 0 ? `${done} image(s) of this shot already in the dataset` : undefined}
+                      /* The tooltip of a shot card always says the SAME thing: the
+                         prompt it will send. It is the only fact about a card that
+                         is not already on it, and the one a user hovers to find.
+                         The "N already in the dataset" message this replaced was
+                         both a duplicate of the ✓×N badge and, being a title, it
+                         DISPLACED the prompt exactly on the cards you had used
+                         most. Reported by .samexit on Discord, who found the three
+                         card kinds each behaving differently. */
+                      title={e.prompt}
                       className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border text-left transition-colors ${cls}`}>
                       <ShotIllustration framing={e.framing} label={e.label} className="w-7 h-7 shrink-0" />
                       <span className="min-w-0 leading-tight">
@@ -1918,12 +1927,13 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
                       : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised';
                   return (
                     <button key={e.id} type="button" onClick={() => toggle(e.id)} aria-pressed={on}
-                      title={done > 0 ? `${done} image(s) of this shot already in the dataset` : e.prompt}
+                      title={e.prompt}
                       className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border text-left transition-colors ${cls}`}>
                       <ShotIllustration framing={e.framing} label={e.label} className="w-7 h-7 shrink-0" />
                       <span className="min-w-0 leading-tight">{displayLabel(e.label)}</span>
                       <span className="ml-auto shrink-0 flex items-center gap-1">
-                        {done > 0 && <span className="text-emerald-300 font-semibold">✓×{done}</span>}
+                        {done > 0 && <span className="text-emerald-300 font-semibold"
+              aria-label={`${done} already in the dataset`}>✓×{done}</span>}
                         {on && <span className="text-rose-300" aria-hidden="true">✓</span>}
                       </span>
                     </button>
