@@ -1563,9 +1563,23 @@ the other way round at all.
 opens the way you were reviewing it; other banks keep their own. Pick **Default**
 to forget the preference.
 
-In a **dataset** (above the grid, next to the decision chips): **Face similarity
-↓ / ↑**, the ArcFace cosine against your reference photo computed by **🎭 Analyze
-faces**. ↓ is "who looks most like my subject", ↑ is the shortlist to cut.
+In a **dataset** (above the grid, next to the decision chips) there are two
+kinds of entry, and they answer different questions:
+
+- **Face similarity ↓ / ↑** — the ArcFace cosine against your reference photo
+  computed by **🎭 Analyze faces**. ↓ is "who looks most like my subject", ↑ is
+  the shortlist to cut. This *ranks* the whole grid.
+- **Shot type** — face, then bust, then body, then back, in the order the
+  composition bar counts them. This *groups*: it ranks nothing, it puts every
+  shot of one kind in a single run so you can compare like with like. A grid in
+  arrival order interleaves the four kinds, which is the wrong arrangement for
+  the question you are actually asking — *do I have too many of these, not
+  enough of those, and which of these near-identical ones do I keep?* The shot
+  type is the one the **📐 Classify framing** pass wrote (and the one the shot
+  card carried, for a generated image).
+- **Shot type, then face similarity ↓** — the same grouping, with the closest to
+  your reference at the head of each kind. This is the order for curating: walk
+  down a run and the ones to cut are at its end.
 
 Two things worth knowing:
 

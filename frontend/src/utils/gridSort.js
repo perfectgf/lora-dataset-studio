@@ -204,18 +204,58 @@ export function bankSortGroups(counts) {
 
 /* -------------------------------------------------------------------------- */
 
-/** Dataset sort entries. Only face similarity is offered: it is the one quantity
- *  a dataset row actually carries per image (`face_score`, the ArcFace cosine vs
- *  the reference). Aesthetics/sharpness are BANK columns — a dataset image has
- *  never been through those passes, so offering them here would be a menu entry
- *  that can only ever be greyed out. */
+/** The four shot types, in the order the app already speaks them everywhere
+ *  else: the composition target (12/6/6/1), the variation catalog groups, the
+ *  framing column's own enum. Ordering the grid on this INDEX rather than
+ *  alphabetically is what makes the sort a grouping — equal keys land next to
+ *  each other, so "all the bust shots" become one run you can read across. */
+const FRAMING_ORDER = ['face', 'bust', 'body', 'back'];
+
+const framingRank = (img) => {
+  const i = FRAMING_ORDER.indexOf(img?.framing);
+  return i < 0 ? null : i;    // 'unknown', NULL, anything unclassified: no rank
+};
+
+/** What a dataset row has to CARRY for an entry to do anything, and the pass
+ *  that puts it there. Same doctrine as the bank menu above: an entry whose data
+ *  does not exist is offered but DISABLED, naming the pass to run — a sort that
+ *  silently reorders nothing reads as a broken app. */
+const NEEDS = {
+  face: {
+    has: (i) => faceScore(i) !== null,
+    missing: 'run 🎭 Analyze faces first',
+    reason: 'No image has a face score yet — run 🎭 Analyze faces (Curation) to sort by this.',
+  },
+  framing: {
+    has: (i) => framingRank(i) !== null,
+    missing: 'run 📐 Classify framing first',
+    reason: 'No image has a shot type yet — run 📐 Classify framing (under the Composition bar) to group by this.',
+  },
+};
+
+/** Dataset sort entries.
+ *
+ *  Two families, and they answer different questions. The MEASURED one (face
+ *  similarity) ranks the whole grid best-to-worst; the CATEGORICAL one (shot
+ *  type) does not rank anything, it puts like next to like. Asked for by
+ *  .samexit (Discord) three times over four days: the generated list mixes face,
+ *  bust, body and back shots together, which is exactly the wrong arrangement
+ *  for the only question being asked at that moment — "do I have too many of
+ *  these, not enough of those, and which of these near-identical ones do I
+ *  keep?". Nothing else a dataset row carries is offered here: aesthetics and
+ *  sharpness are BANK columns, so a menu entry for them could only ever be
+ *  greyed out. */
 export const DATASET_SORTS = [
   { id: 'default', label: 'Newest first',
     title: 'The order images were added — most recent first' },
-  { id: 'face_desc', label: 'Face similarity ↓',
+  { id: 'face_desc', label: 'Face similarity ↓', needs: ['face'],
     title: 'Closest to your reference photo first — from 🎭 Analyze faces' },
-  { id: 'face_asc', label: 'Face similarity ↑',
+  { id: 'face_asc', label: 'Face similarity ↑', needs: ['face'],
     title: 'Least like your reference first — the ones to cut, from 🎭 Analyze faces' },
+  { id: 'shot', label: 'Shot type', needs: ['framing'],
+    title: 'Face, then bust, then body, then back — every shot of one kind in a single run, newest first inside each' },
+  { id: 'shot_face', label: 'Shot type, then face similarity ↓', needs: ['framing', 'face'],
+    title: 'The same grouping, with the closest to your reference at the head of each kind — the order for deciding what to keep' },
 ];
 
 export const DEFAULT_DATASET_SORT = 'default';
@@ -233,46 +273,67 @@ const faceScore = (img) => {
   return (typeof v === 'number' && Number.isFinite(v)) ? v : null;
 };
 
+/** Each entry is a LIST of ordering steps, applied in order, the next one
+ *  breaking the ties the previous left. One step is the historical case; two is
+ *  what turns a grouping into something you can also act on. */
 const DATASET_SORT_SPECS = {
-  face_desc: { value: faceScore, direction: 'desc' },
-  face_asc: { value: faceScore, direction: 'asc' },
+  face_desc: [{ value: faceScore, direction: 'desc' }],
+  face_asc: [{ value: faceScore, direction: 'asc' }],
+  shot: [{ value: framingRank, direction: 'asc' }],
+  shot_face: [
+    { value: framingRank, direction: 'asc' },
+    { value: faceScore, direction: 'desc' },
+  ],
 };
 
 /**
  * Reorder the dataset grid. Returns the SAME array reference for 'default' and
  * for an unknown id (cheap no-op, like filterImagesByStatus) — the payload
  * already arrives newest-first. Never adds or drops an image.
- * Unscored rows (no face_score: the pass never ran, or the face was not scorable)
- * go last in both directions; ties fall back to the default newest-first order,
- * so the result is deterministic.
+ *
+ * A value the matching pass never produced (no face_score, no shot type) SINKS
+ * TO THE END of the step that reads it, in both directions — the same rule the
+ * bank sorts follow, and the reason "worst first" opens on the worst MEASURED
+ * image rather than on the pile nobody measured. On a two-step order that sink
+ * is per step: the unclassified images gather at the end of the grid, and inside
+ * each shot type the unscored ones gather at the end of their own run.
+ *
+ * Ties left by every step fall back to the default newest-first order, so the
+ * result is deterministic.
  */
 export function sortDatasetImages(images, sortId) {
   const list = images || [];
-  const spec = DATASET_SORT_SPECS[normalizeDatasetSort(sortId)];
-  if (!spec || list.length < 2) return list;
-  const dir = spec.direction === 'asc' ? 1 : -1;
+  const steps = DATASET_SORT_SPECS[normalizeDatasetSort(sortId)];
+  if (!steps || list.length < 2) return list;
   return [...list].sort((a, b) => {
-    const va = spec.value(a);
-    const vb = spec.value(b);
-    if ((va === null) !== (vb === null)) return va === null ? 1 : -1;
-    if (va !== null && va !== vb) return (va - vb) * dir;
+    for (const step of steps) {
+      const dir = step.direction === 'asc' ? 1 : -1;
+      const va = step.value(a);
+      const vb = step.value(b);
+      if ((va === null) !== (vb === null)) return va === null ? 1 : -1;
+      if (va !== null && va !== vb) return (va - vb) * dir;
+    }
     return (b.id || 0) - (a.id || 0);
   });
 }
 
-/** The dataset's Sort menu. Disabled — with the reason — while no image of the
- *  set carries a face score, so "sort by similarity" can never look broken. */
+/** The dataset's Sort menu. An entry is disabled — with the reason, and naming
+ *  the pass to run — while NO image of the set carries what it orders on, so
+ *  neither "sort by similarity" nor "group by shot type" can ever look broken.
+ *  An entry needing two things names the FIRST one still missing, because a
+ *  sentence listing two passes is a sentence nobody finishes reading. */
 export function datasetSortOptions(images) {
-  const anyScored = (images || []).some((i) => faceScore(i) !== null);
+  const list = images || [];
+  const met = Object.fromEntries(
+    Object.entries(NEEDS).map(([key, need]) => [key, list.some(need.has)]));
   return DATASET_SORTS.map((s) => {
-    const empty = s.id !== DEFAULT_DATASET_SORT && !anyScored;
+    const lacking = (s.needs || []).find((key) => !met[key]);
+    const need = lacking ? NEEDS[lacking] : null;
     return {
       id: s.id,
-      label: empty ? `${s.label} — run 🎭 Analyze faces first` : s.label,
-      title: empty
-        ? 'No image has a face score yet — run 🎭 Analyze faces (Curation) to sort by this.'
-        : s.title,
-      disabled: empty,
+      label: need ? `${s.label} — ${need.missing}` : s.label,
+      title: need ? need.reason : s.title,
+      disabled: !!need,
     };
   });
 }

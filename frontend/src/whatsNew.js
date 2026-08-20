@@ -50,6 +50,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-20-group-the-grid-by-shot-type',
+    date: '2026-08-20',
+    title: 'Compare like with like: group the grid by shot type',
+    blurb:
+      'The grid shows your images in the order they arrived, which means a face shot, then a back shot, then two bodies, then another face — and every question you actually ask at that point is about ONE kind at a time: do I have too many of these, not enough of those, and which of these near-identical ones do I keep? The Sort menu above the grid has two new entries. Shot type puts every face shot in one run, then the busts, then the bodies, then the backs, in the same order the Composition bar counts them; images the 📐 Classify framing pass never reached gather at the end rather than in the middle. Shot type, then face similarity ↓ is the same grouping with the closest to your reference at the head of each run, so you walk down a kind and the ones to cut are waiting at its end. Like every sort here it only reorders: the filters still decide which images are shown, the counts do not move, and select-all and the ⟨ ⟩ arrows follow what is on screen. (Asked for by .samexit on Discord.)',
+    to: '/datasets?section=images&panel=review',
+  },
+  {
     id: '2026-08-20-edit-a-custom-shot',
     date: '2026-08-20',
     title: 'Edit a custom shot instead of retyping it',

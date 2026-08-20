@@ -146,14 +146,17 @@ function GridStatusFilter({ value, counts, onChange }) {
   );
 }
 
-/* Order the grid on what was MEASURED instead of by arrival date — asked for by
-   nofaceman (Discord). A dataset row carries exactly one such number, the face
-   similarity to the reference, so that is the only thing offered here (the
-   aesthetic/sharpness scores live on bank images, which have their own sort).
+/* Two ways to arrange the grid, and they answer different questions.
+   MEASURED (face similarity to the reference — asked for by nofaceman, Discord)
+   ranks the whole grid best-to-worst; CATEGORICAL (shot type — asked for by
+   .samexit, Discord) does not rank anything, it puts every face shot in one run,
+   every bust in the next, so near-identical images can be compared side by side
+   instead of scattered through the arrival order. Nothing else is offered: the
+   aesthetic/sharpness scores live on bank images, which have their own sort.
    Sorting NARROWS nothing: it composes with both grid filters, and since the
    grid derives its tiles AND its "select all" from the same list, the selection
-   follows the order on screen. Unscored images go last, both ways; while nothing
-   is scored the options are greyed out naming the pass to run, rather than
+   follows the order on screen. Images a pass never reached go last, both ways;
+   an entry whose pass has not run is greyed out naming that pass, rather than
    silently reordering nothing. `shrink-0` + a bounded width keep it usable when
    the toolbar wraps at 400 px. */
 function GridSortSelect({ value, images, onChange }) {
@@ -162,7 +165,7 @@ function GridSortSelect({ value, images, onChange }) {
       Sort
       <select value={value} onChange={(e) => onChange(e.target.value)}
         aria-label="Sort the grid"
-        title="Order the images by face similarity to your reference. Unscored images sink to the end."
+        title="Order the images by face similarity to your reference, or group them by shot type. Images the pass never reached sink to the end."
         className="max-w-[13rem] rounded-md border border-border bg-surface px-2 py-0.5 text-[0.6875rem] text-content">
         {datasetSortOptions(images).map((o) => (
           <option key={o.id} value={o.id} disabled={o.disabled} title={o.title}>

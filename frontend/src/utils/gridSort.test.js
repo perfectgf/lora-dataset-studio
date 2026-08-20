@@ -8,9 +8,12 @@ import {
 } from './gridSort.js';
 import { filterImagesByStatus } from './gridStatusFilter.js';
 
-// id → the dataset row shape the grid actually receives.
-const img = (id, face_score, status = 'keep') => ({
+// id → the dataset row shape the grid actually receives. `framing` is left off
+// by default on purpose: that is what a row looks like before the 📐 classify
+// pass, and it is the case every sort has to survive.
+const img = (id, face_score, status = 'keep', framing = undefined) => ({
   id, face_score, status, filename: `${id}.png`,
+  ...(framing === undefined ? {} : { framing }),
 });
 
 // Deliberately unordered scores + two rows the face pass never reached.
@@ -74,17 +77,78 @@ test('"select all" follows the active sort — it takes the list the grid shows'
 
 // ---- menus: an option whose data does not exist is disabled WITH the reason -
 
-test('dataset menu greys out similarity until something is scored', () => {
-  const none = datasetSortOptions([img(1, null), img(2, undefined)]);
-  assert.deepEqual(none.map((o) => o.disabled), [false, true, true]);
-  for (const o of none.slice(1)) {
-    assert.match(o.label, /Analyze faces/, 'the reason must be IN the label');
-    assert.match(o.title, /No image has a face score yet/);
+test('dataset menu greys out an entry until the pass it reads has run', () => {
+  // Nothing measured at all: every entry but Newest first is offered and dead,
+  // each naming the pass that would bring it to life.
+  const byId = (list) => Object.fromEntries(list.map((o) => [o.id, o]));
+  const none = byId(datasetSortOptions([img(1, null), img(2, undefined)]));
+  assert.equal(none.default.disabled, false);
+  for (const id of ['face_desc', 'face_asc']) {
+    assert.equal(none[id].disabled, true);
+    assert.match(none[id].label, /Analyze faces/, 'the reason must be IN the label');
+    assert.match(none[id].title, /No image has a face score yet/);
   }
-  // One scored image is enough to make the sort meaningful.
-  const some = datasetSortOptions(IMAGES);
-  assert.deepEqual(some.map((o) => o.disabled), [false, false, false]);
-  assert.deepEqual(some.map((o) => o.id), DATASET_SORTS.map((s) => s.id));
+  for (const id of ['shot', 'shot_face']) {
+    assert.equal(none[id].disabled, true);
+    assert.match(none[id].label, /Classify framing/, 'the reason must be IN the label');
+    assert.match(none[id].title, /No image has a shot type yet/);
+  }
+
+  // One scored image is enough for the similarity sorts — and NOT enough for the
+  // grouping, which reads a different column entirely.
+  const scored = byId(datasetSortOptions(IMAGES));
+  assert.equal(scored.face_desc.disabled, false);
+  assert.equal(scored.shot.disabled, true);
+  assert.match(scored.shot.label, /Classify framing/);
+
+  // The reverse: classified but never scored. The grouping alone works; the one
+  // that ALSO reads the face score names the face pass, not the framing pass.
+  const framed = byId(datasetSortOptions([img(1, null, 'keep', 'face'), img(2, null, 'keep', 'body')]));
+  assert.equal(framed.shot.disabled, false);
+  assert.equal(framed.shot_face.disabled, true);
+  assert.match(framed.shot_face.label, /Analyze faces/,
+    'an entry needing two passes names the first one still missing');
+
+  const all = byId(datasetSortOptions([img(1, 0.5, 'keep', 'face')]));
+  assert.deepEqual(Object.values(all).map((o) => o.disabled), [false, false, false, false, false]);
+  assert.deepEqual(Object.keys(all), DATASET_SORTS.map((s) => s.id));
+});
+
+// ---- shot type: a CATEGORICAL order, asked for by .samexit (Discord) ---------
+
+// A set that mixes the four kinds, out of order, plus one image the classify
+// pass never reached and one it could not call.
+const MIXED = [
+  img(1, 0.30, 'keep', 'back'), img(2, 0.90, 'keep', 'face'), img(3, 0.10, 'keep', 'unknown'),
+  img(4, 0.50, 'keep', 'body'), img(5, 0.70, 'keep', 'face'), img(6, null, 'keep', 'bust'),
+  img(7, 0.20, 'keep'),
+];
+
+test('shot type puts every kind in one run, in the order the app speaks them', () => {
+  // face, face, bust, body, back — then the two with no shot type, at the END.
+  assert.deepEqual(order(sortDatasetImages(MIXED, 'shot')), [5, 2, 6, 4, 1, 7, 3]);
+  // Inside a kind, the fallback is the default newest-first (5 before 2), NOT
+  // the face score — 2 scores higher and still comes second.
+  assert.equal(sortDatasetImages(MIXED, 'shot')[0].id, 5);
+});
+
+test('shot type then similarity ranks inside each kind, unscored last in its own run', () => {
+  // face: 2 (0.90) then 5 (0.70) — the reverse of the newest-first order above.
+  // bust: 6 alone, unscored. body: 4. back: 1. Then the unclassified pair.
+  assert.deepEqual(order(sortDatasetImages(MIXED, 'shot_face')), [2, 5, 6, 4, 1, 7, 3]);
+  const twoFaces = [img(8, null, 'keep', 'face'), img(9, 0.4, 'keep', 'face')];
+  // An unscored row sinks inside ITS OWN kind, never out of the group.
+  assert.deepEqual(order(sortDatasetImages(twoFaces, 'shot_face')), [9, 8]);
+});
+
+test('grouping never adds, drops or duplicates an image', () => {
+  for (const id of ['shot', 'shot_face']) {
+    const out = sortDatasetImages(MIXED, id);
+    assert.equal(out.length, MIXED.length);
+    assert.deepEqual([...order(out)].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7]);
+    assert.notEqual(out, MIXED, 'a real order returns a new array, never mutates');
+    assert.deepEqual(order(MIXED), [1, 2, 3, 4, 5, 6, 7], 'the input is untouched');
+  }
 });
 
 test('bank menu greys out what the passes have not produced yet', () => {
