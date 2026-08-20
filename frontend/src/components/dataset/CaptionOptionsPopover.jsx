@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch, postJson } from '../../api/fetchClient';
 import { useToast } from '../common/Toast';
+import { appearancePolicyChanged } from '../../utils/captionAppearancePolicy.js';
 
 /* ⚙️ Caption method options (per-dataset). Lets the user override, for THIS dataset:
    - the caption engine (or leave it on the global default);
@@ -77,6 +78,8 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
   const [instructions, setInstructions] = useState('');
   const [appearance, setAppearance] = useState(null); // null = no policy (classic lock)
   const [appearanceDirty, setAppearanceDirty] = useState(false);
+  // The policy as LOADED, to tell a real edit from a plain re-save on Save.
+  const initialAppearanceRef = useRef(null);
   const [models, setModels] = useState([]);
   const [modelsReachable, setModelsReachable] = useState(true);
   const [pullName, setPullName] = useState('');
@@ -104,6 +107,7 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
         setInstructions(o.instructions || '');
         const stored = o.appearance && Object.keys(o.appearance).length ? o.appearance : null;
         setAppearance(stored);
+        initialAppearanceRef.current = stored;
         setAppearanceDirty(false);
         setModels(mdl.models || []);
         setModelsReachable(mdl.reachable !== false);
@@ -202,7 +206,19 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
         payload.appearance = { ...APPEARANCE_DEFAULTS, ...(appearance || {}) };
       }
       const r = await postJson(`/api/dataset/${datasetId}/caption/options`, payload);
-      toast.success('Caption options saved');
+      // A moved policy only steers the NEXT run: images already captioned keep the
+      // rule they were written under, and the plain Caption button skips them (it
+      // only fills empty captions). Say so, or the dataset silently ends up half
+      // under each rule. Same 'future captions' nudge as a kind change.
+      const policyMoved = appearancePolicyChanged(
+        initialAppearanceRef.current, r.options?.appearance);
+      if (policyMoved) {
+        toast.success(
+          'Appearance policy saved — re-caption to apply it to existing captions',
+          10000);
+      } else {
+        toast.success('Caption options saved');
+      }
       onSaved?.(r.options);
       onClose();
     } catch (e) {
