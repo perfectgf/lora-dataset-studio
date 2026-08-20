@@ -142,7 +142,29 @@ def pending_clips(bank_id, rescan=False):
     # metrics_json with the rest, so the resume test is a JSON read. Cheap enough
     # — the alternative is a migration on a table that legacy databases already
     # created without it.
-    return [c for c in rows if 'watermark_state' not in _summary(c)]
+    return _retry_when_idle(rows, 'watermark_state',
+                            lambda c: 'watermark_state' in _summary(c))
+
+
+# --- the way back for a shot a pass gave up on -----------------------------------
+# 'unreadable' is a HYPOTHESIS about a file, and every pass in this lane can form
+# it for a reason that had nothing to do with the file — a decoder that stopped
+# loading, a folder that moved, an interpreter an unrelated install broke. A
+# hypothesis nothing ever re-tests becomes a fact by accident, and the shot is
+# gone: the pass stops offering it, and its own button reports "nothing to do".
+#
+# So the pass offers them again, but only once it has NOTHING ELSE to do. On the
+# normal path — a bank that grew — the second tier is never reached and costs
+# nothing, which is what lets the recovery ride the button the user was already
+# going to click instead of needing one of its own. See
+# video_clip_search.pending_clips, where this rule was written first, after a
+# bank of 861 shots retired itself in one pass.
+def _retry_when_idle(rows, state_key, done):
+    """`done` first; when there are none, the ones that failed last time."""
+    fresh = [c for c in rows if not done(c)]
+    if fresh:
+        return fresh
+    return [c for c in rows if _summary(c).get(state_key) == 'unreadable']
 
 
 def run_watermark(bank_id, rescan=False, *, on_clip=None, should_stop=None):

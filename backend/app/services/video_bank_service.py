@@ -1579,6 +1579,16 @@ def _embed_job(bank_id, reembed, use_gpu):
                 bank_id, reembed, use_gpu=use_gpu,
                 on_clip=lambda: bank_jobs.bump(job),
                 should_stop=lambda: bank_jobs.cancelled(job))
+        if out.get('aborted'):
+            # The pass gave up because the MACHINE was failing, not the footage.
+            # Nothing after this runs: the look score and the coherence check
+            # both read the vectors this pass did not produce, and a run of
+            # "0 shot(s) rated" underneath would bury the one line that matters.
+            # It is a detail rather than a raise for the reason the watermark
+            # pass gives: everything embedded before the failure is committed and
+            # keeps its verdicts.
+            bank_jobs.progress(job, detail=f'stopped — {out["aborted"]}')
+            return out
         out.update(_rate_the_look(job, bank_id, reembed))
         out.update(_check_coherence(job, bank_id, reembed))
         detail = f'done — {out["embedded"]} shot(s) searchable'

@@ -137,6 +137,230 @@ def test_one_undecodable_shot_costs_that_shot_not_the_pass(app, monkeypatch):
     assert sorted(_states(app, bank_id)) == ['ok', 'ok', 'unreadable']
 
 
+# --- when it is the MACHINE failing, not the footage -----------------------------
+# 'unreadable' retires a shot: `pending_clips` stops offering it, ✂ Duplicates and
+# 🎨 the look score stop seeing it, and nothing in the app ever re-tests the guess.
+# So the pass must not write that word about a failure it cannot attribute to the
+# file — which is exactly what it did for 855 shots in a row while the frame
+# encoder could not start at all.
+
+def test_a_frame_encoder_that_cannot_start_marks_nothing_at_all(app, monkeypatch):
+    """THE regression, in one test. The encoder raising is a statement about
+    this interpreter, and the next shot would repeat it identically — so the
+    pass stops instead of writing 861 verdicts about footage it never read."""
+    from app.services.clip_image_encoder import ImageEncodeError
+
+    bank_id = _bank_with_clips(app, 6)
+    monkeypatch.setattr(vcs, '_write_frames',
+                        lambda src, times, d, stem:
+                        [(l, t, f'{d}/{stem}_{l}.jpg') for l, t in times])
+
+    def dead(paths, **kw):
+        raise ImageEncodeError("ML dependency installed but broken: importing it "
+                               "raised AttributeError: module 'ssl' has no "
+                               "attribute 'wrap_socket'")
+
+    monkeypatch.setattr(vcs, '_encode_frame_files', dead)
+
+    with app.app_context():
+        out = vcs.run_embed(bank_id)
+
+    assert out['embedded'] == 0
+    assert out['unreadable'] == 0, 'no shot may be blamed for a dead worker'
+    assert _states(app, bank_id) == [None] * 6
+    # And the sentence carries the child's own words, not a generic phrase.
+    assert 'wrap_socket' in out['aborted']
+
+
+def test_a_run_of_failures_stops_the_pass_before_it_retires_them(app, monkeypatch):
+    """The backstop, for an environment failure that arrives as something other
+    than an encoder error — a decode library that cannot load, a bank folder
+    that moved. 855 identical failures is not 855 facts about 855 files."""
+    bank_id = _bank_with_clips(app, vcs.SYSTEMIC_STREAK + 5)
+
+    def always_bad(src_path, times, dest_dir, stem):
+        raise OSError('cannot open the decoder')
+
+    monkeypatch.setattr(vcs, '_write_frames', always_bad)
+    monkeypatch.setattr(vcs, '_encode_frame_files', lambda paths, **kw: [])
+
+    with app.app_context():
+        out = vcs.run_embed(bank_id)
+
+    assert out['unreadable'] == 0
+    assert set(_states(app, bank_id)) == {None}
+    assert 'cannot open the decoder' in out['aborted']
+
+
+def test_a_rough_patch_in_a_bank_is_still_only_a_rough_patch(app, monkeypatch):
+    """The guard counts CONSECUTIVE failures and resets on every success, so a
+    bank with bad files scattered through it never trips it — and each of those
+    files still gets the verdict it earned."""
+    bank_id = _bank_with_clips(app, 12)
+    seen = {'n': 0}
+
+    def every_other(src_path, times, dest_dir, stem):
+        seen['n'] += 1
+        if seen['n'] % 2 == 0:
+            raise OSError('bitstream error')
+        return [(l, t, f'{dest_dir}/{stem}_{l}.jpg') for l, t in times]
+
+    monkeypatch.setattr(vcs, '_write_frames', every_other)
+    monkeypatch.setattr(vcs, '_encode_frame_files',
+                        lambda paths, **kw: [_vec(1, 0) for _ in paths])
+
+    with app.app_context():
+        out = vcs.run_embed(bank_id)
+
+    assert out['aborted'] is None
+    assert out['embedded'] == 6 and out['unreadable'] == 6
+
+
+def test_a_tail_of_failures_shorter_than_the_streak_is_still_the_files_fault(
+        app, monkeypatch):
+    """Held verdicts are not lost verdicts. A bank whose last shots are damaged
+    ends normally, and those shots are retired like any other bad file — the
+    guard only fires on a run long enough to mean something."""
+    bank_id = _bank_with_clips(app, 4)
+    seen = {'n': 0}
+
+    def last_two_bad(src_path, times, dest_dir, stem):
+        seen['n'] += 1
+        if seen['n'] > 2:
+            raise OSError('bitstream error')
+        return [(l, t, f'{dest_dir}/{stem}_{l}.jpg') for l, t in times]
+
+    monkeypatch.setattr(vcs, '_write_frames', last_two_bad)
+    monkeypatch.setattr(vcs, '_encode_frame_files',
+                        lambda paths, **kw: [_vec(1, 0) for _ in paths])
+
+    with app.app_context():
+        out = vcs.run_embed(bank_id)
+
+    assert out['aborted'] is None
+    assert _states(app, bank_id) == ['ok', 'ok', 'unreadable', 'unreadable']
+
+
+def test_a_pass_that_gave_up_leaves_every_shot_in_the_queue(app, monkeypatch):
+    """The whole point of not marking them: the next click picks them up. A
+    marked shot would be gone from `pending_clips` forever."""
+    from app.services.clip_image_encoder import ImageEncodeError
+
+    bank_id = _bank_with_clips(app, 4)
+    monkeypatch.setattr(vcs, '_write_frames',
+                        lambda src, times, d, stem:
+                        [(l, t, f'{d}/{stem}_{l}.jpg') for l, t in times])
+    broken = {'yes': True}
+
+    def encode(paths, **kw):
+        if broken['yes']:
+            raise ImageEncodeError('the frame encoder produced no result')
+        return [_vec(1, 0) for _ in paths]
+
+    monkeypatch.setattr(vcs, '_encode_frame_files', encode)
+
+    with app.app_context():
+        vcs.run_embed(bank_id)
+        assert vcs.pending_clips(bank_id).count() == 4
+        broken['yes'] = False
+        out = vcs.run_embed(bank_id)
+
+    assert out['embedded'] == 4
+
+
+# --- the way back, for a bank that was already retired ---------------------------
+
+def test_find_scenes_picks_the_failed_shots_back_up_when_nothing_else_is_left(
+        app, monkeypatch):
+    """The dead end this closes: a bank whose shots were all marked 'unreadable'
+    answered "0 shots to embed" to 🔎 Find scenes and "run Find scenes first" to
+    ✂ Duplicates — at the same time, with no way out of the app.
+
+    'unreadable' is a HYPOTHESIS about a file, formed by a pass that may have
+    been wrong about its whole environment, and a hypothesis nothing ever
+    re-tests becomes a fact by accident."""
+    bank_id = _bank_with_clips(app, 3)
+    _mark_all(app, bank_id, 'unreadable')
+
+    with app.app_context():
+        assert vcs.pending_clips(bank_id).count() == 3
+
+    _fake_seams(monkeypatch)
+    with app.app_context():
+        out = vcs.run_embed(bank_id)
+
+    assert out['embedded'] == 3
+    assert _states(app, bank_id) == ['ok', 'ok', 'ok']
+
+
+def test_a_bank_with_new_shots_does_not_re_decode_the_failed_ones(app):
+    """The retry is the SECOND tier and only that: on the normal path — a bank
+    that grew — it costs nothing, which is what lets it ride the button the user
+    was going to click anyway instead of needing one of its own."""
+    from app.extensions import db
+    from app.models import VideoClip
+
+    bank_id = _bank_with_clips(app, 3)
+    _mark_all(app, bank_id, 'unreadable')
+    with app.app_context():
+        first = VideoClip.query.filter_by(bank_id=bank_id).first()
+        db.session.add(VideoClip(bank_id=bank_id, source_id=first.source_id,
+                                 start_s=99.0, end_s=104.0))
+        db.session.commit()
+        pending = vcs.pending_clips(bank_id).all()
+
+    assert [c.embed_state for c in pending] == [None]
+
+
+def test_an_embedded_shot_is_never_offered_again(app):
+    """The resume contract the retry must not break."""
+    bank_id = _bank_with_clips(app, 3)
+    _mark_all(app, bank_id, 'ok')
+
+    with app.app_context():
+        assert vcs.pending_clips(bank_id).count() == 0
+
+
+def test_the_job_says_the_pass_was_abandoned_and_runs_nothing_after_it(
+        app, monkeypatch):
+    """What the user actually reads. The look score and the coherence check both
+    consume the vectors this pass did not produce, so letting them run would bury
+    the one line that matters under two "0 shot(s) rated" — the same silence the
+    original failure hid behind."""
+    from app.services import video_bank_service as svc
+
+    bank_id = _bank_with_clips(app, 2)
+    monkeypatch.setattr(
+        'app.services.video_clip_search.run_embed',
+        lambda *a, **k: {'embedded': 0, 'unreadable': 0,
+                         'aborted': 'the frame encoder could not run: boom'})
+
+    def _explode(*a, **k):
+        raise AssertionError('a follow-on pass ran after an abandoned embed')
+
+    monkeypatch.setattr(svc, '_rate_the_look', _explode)
+    monkeypatch.setattr(svc, '_check_coherence', _explode)
+    job = {'done': 0, 'total': 0, 'detail': ''}
+    monkeypatch.setattr(svc.bank_jobs, 'progress',
+                        lambda j, **kw: j.update(kw))
+    monkeypatch.setattr(svc.bank_jobs, 'cancelled', lambda j: False)
+
+    with app.app_context():
+        svc._embed_job(bank_id, False, False)(job)
+
+    assert job['detail'].startswith('stopped —')
+    assert 'the frame encoder could not run' in job['detail']
+
+
+def _mark_all(app, bank_id, state):
+    from app.extensions import db
+    from app.models import VideoClip
+    with app.app_context():
+        for clip in VideoClip.query.filter_by(bank_id=bank_id).all():
+            clip.embed_state = state
+        db.session.commit()
+
+
 def test_the_vector_store_survives_a_restart(app, monkeypatch):
     """Vectors live in a file next to the bank, not in memory: a pass that ran
     overnight must still be searchable tomorrow."""
