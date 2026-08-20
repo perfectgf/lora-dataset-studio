@@ -64,6 +64,7 @@ import requests
 from . import capabilities
 from . import config as cfg
 from .utils.redact import redact_user_paths
+from .services import infer_env
 
 logger = logging.getLogger(__name__)
 
@@ -1422,9 +1423,12 @@ def _verify_watermark_import(action, python) -> bool:
     _append(action, 'verifying the install (first import — this also warms it, so the '
                     'capability turns green without a restart)…')
     try:
-        proc = subprocess.run([python, '-c', 'import simple_lama_inpainting'],
+        proc = subprocess.run(
+                              infer_env.worker_argv(
+                                  python, '-c', 'import simple_lama_inpainting'),
                               capture_output=True, text=True, encoding='utf-8',
                               errors='replace', timeout=_WARM_IMPORT_TIMEOUT,
+                              env=infer_env.worker_env(python),
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except subprocess.TimeoutExpired:
         _append(action, 'still warming up (the first import is slow on a fresh machine) — '
@@ -1594,9 +1598,8 @@ def _verify_bank_scoring_import(action, python) -> bool:
     length: a gate that checks a SHORTER list than the probe reports "ready" and
     is then contradicted by a ✗ with no reason anywhere. That is not theoretical
     here — this list was the headline three while the probe grew numpy and PIL
-    under it. This action cannot simply call that generic gate, because this
-    interpreter is probed with `-s` (_NO_USER_SITE_IMPORT_KEYS) and a probe run
-    with different argv answers a different question.
+    under it. Kept separate from that generic gate only because it reports a different
+    sentence; both now run the worker's own isolated argv (`services.infer_env`).
     """
     expr = capabilities.CAPABILITY_IMPORTS.get('bank_scoring')
     if not expr or not os.path.isfile(python):
@@ -1605,9 +1608,10 @@ def _verify_bank_scoring_import(action, python) -> bool:
                     'check runs — this also warms it, so it turns green without a '
                     'restart)…')
     try:
-        proc = subprocess.run([python, '-s', '-c', expr],
+        proc = subprocess.run(infer_env.worker_argv(python, '-c', expr),
                               capture_output=True, text=True, encoding='utf-8',
                               errors='replace', timeout=_WARM_IMPORT_TIMEOUT,
+                              env=infer_env.worker_env(python),
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except subprocess.TimeoutExpired:
         _append(action, 'still warming up (the first import is slow on a fresh machine) — '
@@ -1799,9 +1803,12 @@ def _verify_watermark_detect_import(action, python) -> bool:
         return True
     _append(action, 'verifying the install (first import — this also warms it)…')
     try:
-        proc = subprocess.run([python, '-c', 'import torch, transformers'],
+        proc = subprocess.run(
+                              infer_env.worker_argv(
+                                  python, '-c', 'import torch, transformers'),
                               capture_output=True, text=True, encoding='utf-8',
                               errors='replace', timeout=_WARM_IMPORT_TIMEOUT,
+                              env=infer_env.worker_env(python),
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except subprocess.TimeoutExpired:
         _append(action, 'still warming up — the capability turns green on its own '
@@ -1979,9 +1986,11 @@ def _verify_capability_import(action, python) -> bool:
     _append(action, 'verifying the install (running the same import the capability '
                     'check runs — this also warms it, so it turns green without a restart)…')
     try:
-        proc = subprocess.run([python, '-c', expr], capture_output=True, text=True,
+        proc = subprocess.run(infer_env.worker_argv(python, '-c', expr),
+                              capture_output=True, text=True,
                               encoding='utf-8', errors='replace',
                               timeout=_WARM_IMPORT_TIMEOUT,
+                              env=infer_env.worker_env(python),
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except subprocess.TimeoutExpired:
         _append(action, 'still warming up (the first import is slow on a fresh machine) — '
@@ -2774,9 +2783,12 @@ def _verify_shot_detect_import(action, python) -> bool:
         return True
     _append(action, 'verifying the install (first import — this also warms it)…')
     try:
-        proc = subprocess.run([python, '-c', 'import torch, transnetv2_pytorch, av'],
+        proc = subprocess.run(
+                              infer_env.worker_argv(
+                                  python, '-c', 'import torch, transnetv2_pytorch, av'),
                               capture_output=True, text=True, encoding='utf-8',
                               errors='replace', timeout=_WARM_IMPORT_TIMEOUT,
+                              env=infer_env.worker_env(python),
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except subprocess.TimeoutExpired:
         _append(action, 'still warming up — the capability turns green on its own '

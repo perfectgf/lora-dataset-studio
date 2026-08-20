@@ -257,13 +257,26 @@ def test_the_first_interpreter_that_has_the_dependencies_wins(monkeypatch):
 
 
 def test_the_worker_runs_the_shipped_exporter_as_a_cli(tmp_path):
-    """One conversion in the product: the child IS the file the pod runs."""
+    """One conversion in the product: the child IS the file the pod runs.
+
+    With `quantize.python` unset this falls back on the interpreter ✨ Score
+    borrows, so a BORROWED one is launched without the machine's user
+    site-packages — the same contract `_probe` asks its question under, and the
+    same one every other infer worker keeps (services/infer_env)."""
+    import sys
+
     from app.services import fp8_export
     command = fq.worker_command('py.exe', 'A.safetensors', 'B.safetensors')
     assert command[0] == 'py.exe'
-    assert command[1] == os.path.abspath(fp8_export.__file__)
-    assert command[2:] == ['--src', 'A.safetensors', '--dst', 'B.safetensors',
+    assert command[1] == '-s'
+    assert command[2] == os.path.abspath(fp8_export.__file__)
+    assert command[3:] == ['--src', 'A.safetensors', '--dst', 'B.safetensors',
                            '--progress']
+
+    # ...and our OWN interpreter keeps its user site, because on a system-Python
+    # install that directory is where torch itself lives.
+    ours = fq.worker_command(sys.executable, 'A.safetensors', 'B.safetensors')
+    assert ours[1] == os.path.abspath(fp8_export.__file__)
 
 
 def test_a_worker_that_cannot_even_start_is_a_sentence_not_an_oserror(tmp_path):

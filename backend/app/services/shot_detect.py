@@ -43,13 +43,13 @@ them.
 from __future__ import annotations
 import json
 import logging
-import os
 import subprocess
 import sys
 import threading
 
 from .. import config as cfg
 from . import shot_boundaries
+from . import infer_env
 
 logger = logging.getLogger(__name__)
 
@@ -415,10 +415,12 @@ def _run_worker(paths, *, threshold, device, cancel_file, on_progress,
         'emit_probs': bool(emit_probs),
     }
     python = detector_python()
-    env = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
+    env = infer_env.worker_env(python, PYTHONUTF8='1',
+                           PYTHONIOENCODING='utf-8')
     try:
         proc = subprocess.Popen(
-            [python, _SCRIPT], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            infer_env.worker_argv(python, _SCRIPT),
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
             env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except OSError as e:

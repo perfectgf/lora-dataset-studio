@@ -46,6 +46,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import import_report  # noqa: E402
+
 # MUST match bank_score_infer.py — see the contract note above.
 MODEL_NAME = 'ViT-L-14'
 PRETRAINED = 'openai'
@@ -77,7 +80,7 @@ def main() -> int:
         import torch
     except Exception as e:  # noqa: BLE001 — clean JSON, never a mute traceback
         _emit({'ok': False, 'ready': False,
-               'error': f'ML deps missing: {type(e).__name__}: {e}'})
+               'error': import_report.import_failure(e)})
         return 1
 
     _log(f'[text] loading CLIP {MODEL_NAME}/{PRETRAINED} (CPU)…')

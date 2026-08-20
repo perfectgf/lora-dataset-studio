@@ -785,8 +785,11 @@ def test_run_watermark_inpaint_verifies_import_after_install(app, monkeypatch, t
         setup_installer._runs['watermark_inpaint'] = setup_installer._new_run()
         rc = setup_installer._run_watermark_inpaint('watermark_inpaint')
     assert rc == 0
-    # Imported in the SAME interpreter pip targeted, with the exact probe expression.
-    assert seen['cmd'] == [str(py), '-c', 'import simple_lama_inpainting']
+    # Imported in the SAME interpreter pip targeted, with the exact probe
+    # expression AND the isolation the real worker uses (services.infer_env):
+    # a gate that verifies against a different sys.path than the pass will see
+    # is a gate that can pass while the pass dies.
+    assert seen['cmd'] == [str(py), '-s', '-c', 'import simple_lama_inpainting']
 
 
 def test_run_watermark_inpaint_fails_when_package_does_not_import(app, monkeypatch, tmp_path):

@@ -68,6 +68,7 @@ from .face_dataset_service import (SCRAPE_IMPORT_MAX, _dhash, _download_scrape_i
                                    normalize_watermark_regions)
 from .image_quality import ANALYSIS_MAX_SIDE, quality_metrics
 from .image_provenance import ORIGINS, provenance_metrics
+from . import infer_env
 
 logger = logging.getLogger(__name__)
 
@@ -6133,9 +6134,14 @@ def _release_db_before_inference():
 
 
 def _infer_subprocess_argv(python, script) -> list:
-    """Use Score's borrowed interpreter without unrelated user-site packages."""
-    return ([python, '-s', script]
-            if script == _SCORE_SCRIPT else [python, script])
+    """Use the borrowed interpreter without unrelated user-site packages.
+
+    Every ``backend/infer/*`` script, not only Score's: they share the borrowed
+    interpreter and therefore share its user site-packages, and the readiness
+    probe that vouches for each of them runs isolated (``services.infer_env``).
+    Launching any of them differently is how a green capability card turns into
+    a per-item failure once the real pass starts."""
+    return infer_env.worker_argv(python, script)
 
 
 def _drive_infer_subprocess(job, python, script, payload, cache_path,
@@ -6162,6 +6168,7 @@ def _drive_infer_subprocess(job, python, script, payload, cache_path,
             _infer_subprocess_argv(python, script), stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding='utf-8', errors='replace',
+            env=infer_env.worker_env(python),
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         killer = {'timer': None}
 

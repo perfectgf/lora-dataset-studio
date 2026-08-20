@@ -647,31 +647,66 @@ def test_score_probe_remains_scoped_to_score_python(app, monkeypatch):
 
 def test_import_capabilities_disable_the_user_site(
         app, monkeypatch, _no_real_subprocess):
-    """Score readiness and its CUDA gate share this subprocess seam.  A
-    borrowed ComfyUI Python must be checked with its own packages only, not a
-    broken package inherited from the Windows user's site directory."""
+    """Every probe that vouches for a backend/infer worker asks the question in
+    the environment that worker will run in: no user site-packages, by argv AND
+    by inherited environment.
+
+    A borrowed ComfyUI Python must be checked with its own packages only. The
+    user site-packages directory is shared by every interpreter of that Python
+    version on the machine and sits AHEAD of the interpreter's own — one
+    unrelated `pip install --user` shadows a package our worker needs."""
     from types import SimpleNamespace
     from app import capabilities
     seen = []
 
     def run(command, **kwargs):
-        seen.append(command)
+        seen.append((command, kwargs.get('env')))
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(capabilities.subprocess, 'run', run)
     monkeypatch.setattr(capabilities, '_import_ok', _no_real_subprocess)
-    capabilities._import_cache.clear()
     python = r'C:\ComfyUI\python_embeded\python.exe'
-    assert capabilities._cached_import_state(
-        'bank_scoring', python,
-        capabilities.CAPABILITY_IMPORTS['bank_scoring']) is True
-    assert seen[0][:3] == [r'C:\ComfyUI\python_embeded\python.exe', '-s', '-c']
 
-    capabilities._import_cache.clear()
-    seen.clear()
-    assert capabilities._cached_import_state(
-        'masks', python, capabilities.CAPABILITY_IMPORTS['masks']) is True
-    assert seen[0][:2] == [python, '-c']
+    for key in ('bank_scoring', 'masks', 'face_scoring', 'watermark_detect',
+                'shot_detect', 'video_text', 'bank_siglip2', 'joycaption'):
+        capabilities._import_cache.clear()
+        seen.clear()
+        assert capabilities._cached_import_state(key, python, 'import x') is True
+        command, env = seen[0]
+        assert command[:3] == [python, '-s', '-c'], key
+        assert (env or {}).get('PYTHONNOUSERSITE') == '1', key
+
+
+def test_the_probes_that_vouch_for_someone_elses_environment_leave_it_alone(
+        app, monkeypatch, _no_real_subprocess):
+    """The exceptions, and why each is one.
+
+    ai-toolkit's venv is the USER's — the training bridge launches it as it
+    stands, so a probe that sanitised it would answer about an environment that
+    never runs. And 'video_decode' asks the app's OWN interpreter for PyAV,
+    which Flask imports in-process, with no `-s` of its own to match.
+
+    A probe must ask the question the real launch will ask. That cuts both
+    ways, which is the whole reason this test sits next to the one above."""
+    from types import SimpleNamespace
+    from app import capabilities
+    seen = []
+
+    def run(command, **kwargs):
+        seen.append((command, kwargs.get('env')))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(capabilities.subprocess, 'run', run)
+    monkeypatch.setattr(capabilities, '_import_ok', _no_real_subprocess)
+    python = r'C:\ai-toolkit\venv\Scripts\python.exe'
+
+    for key in ('aitoolkit_torch', 'aitoolkit_alive', 'video_decode'):
+        capabilities._import_cache.clear()
+        seen.clear()
+        assert capabilities._cached_import_state(key, python, 'import x') is True
+        command, env = seen[0]
+        assert command[:2] == [python, '-c'], key
+        assert env is None, key
 
 
 def test_siglip2_cuda_probe_uses_semantic_python_and_unknown_means_cpu(

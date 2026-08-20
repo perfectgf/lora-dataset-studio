@@ -315,23 +315,63 @@ def load_embeddings(bank_id):
 
 
 # --- the pass --------------------------------------------------------------------
+# How many shots may fail back to back before the pass stops believing the shots
+# are the problem.
+#
+# THE TWO MISTAKES ARE NOT THE SAME SIZE. A shot left unmarked comes back in the
+# next run: the cost is one decode. A shot marked 'unreadable' is retired, and
+# `pending_clips` never offers it again — the cost is the shot, permanently, with
+# no error anywhere to explain it. So the guard is allowed to be wrong in the
+# cheap direction and must not be wrong in the expensive one.
+#
+# 10 rather than 3, because a genuinely damaged CAMERA CARD produces runs of
+# broken files (one interrupted transfer, one bad sector, one directory), and
+# stopping on three of those would refuse to make progress on a bank that has a
+# rough patch in it. 10 rather than 100, because every failure past the first is
+# already free information: 855 identical failures is not 855 facts.
+#
+# The counter resets on every success, so scattered bad files anywhere in a bank
+# never trip it — only an UNBROKEN run does, which is the shape an environment
+# failure has and the shape a bank of real footage does not.
+SYSTEMIC_STREAK = 10
+
+
 def embed_clips(bank_id, clips, *, encoder=None, scratch=None, on_clip=None,
                 should_stop=None):
-    """Embed `clips` and persist their vectors. Returns {'embedded', 'unreadable'}.
+    """Embed `clips` and persist their vectors.
+
+    Returns {'embedded', 'unreadable', 'aborted'} — `aborted` is None on a normal
+    run, else the sentence saying why the pass stopped believing its own
+    failures.
 
     Split out of ``run_embed`` so the job wrapper can own cancellation and
     progress while this owns the flush contract — the same division the metrics
     pass makes between ``video_bank_service._measure_job`` and
-    ``video_metrics_scan.measure_one``."""
+    ``video_metrics_scan.measure_one``.
+
+    A SHOT IS ONLY BLAMED ONCE SOMETHING ELSE HAS WORKED. 'unreadable' is a
+    verdict about a FILE, and this loop is the only place that can tell that
+    verdict apart from "this machine cannot embed anything right now". It gets
+    that wrong in exactly one way — by writing the verdict before it knows —
+    which is how an unrelated package in a user site-packages retired a bank of
+    861 shots one at a time, each one logged as if the footage were at fault.
+    So a failure is HELD, not written, until a later shot succeeds and proves
+    the environment was fine; a run of them aborts the pass instead."""
     bank = db.session.get(VideoBank, bank_id)
     if bank is None:
-        return {'embedded': 0, 'unreadable': 0}
+        return {'embedded': 0, 'unreadable': 0, 'aborted': None}
     from .video_bank_service import _abs_source_path
     relpaths = dict(db.session.query(VideoSource.id, VideoSource.relpath)
                     .filter_by(bank_id=bank_id).all())
     store = _pruned_store(bank_id)
     pending_states = {}
+    # Shots that failed with nothing having succeeded since. Held out of
+    # `pending_states` on purpose: what is not in there cannot be flushed, so a
+    # systemic failure cannot reach the database however long the run was.
+    held = []
     embedded = unreadable = 0
+    aborted = None
+    last_error = None
 
     def flush():
         # Vectors FIRST, states second — see the module docstring on resume.
@@ -345,13 +385,26 @@ def embed_clips(bank_id, clips, *, encoder=None, scratch=None, on_clip=None,
         db.session.commit()
         pending_states.clear()
 
+    def retire_held():
+        """Write the held failures — a success (or a clean end of run) has proved
+        they were about those files and not about this machine."""
+        nonlocal unreadable
+        for cid in held:
+            store.pop(cid, None)
+            pending_states[cid] = 'unreadable'
+            unreadable += 1
+        held.clear()
+
     for clip in clips:
         if should_stop is not None and should_stop():
             break
         path = _abs_source_path(bank, relpaths.get(clip.source_id) or '')
         times = _clip_frame_times(clip)
         frames = []
-        if path:
+        error = None
+        if not path:
+            error = 'the source file is not where the bank says it is'
+        else:
             try:
                 written = _write_frames(path, times, scratch, f'clip_{clip.id}')
                 vecs = _encode_frame_files([p for _, _, p in written],
@@ -361,24 +414,54 @@ def embed_clips(bank_id, clips, *, encoder=None, scratch=None, on_clip=None,
                         frames.append({'label': label, 'time_s': float(t),
                                        'vec': vec})
                     _discard(fpath)
+            except clip_text_encoder.TextEncodeError as e:
+                # The WORKER, not the shot. This one is raised only when the
+                # encoder could not start or stopped answering — a statement
+                # about this interpreter, which the next shot would repeat
+                # identically. Blaming the footage for it is the whole defect.
+                aborted = (f'the frame encoder could not run: {e} — no shot was '
+                           'marked; fix the ✨ Score interpreter and click '
+                           '🔎 Find scenes again')
+                logger.warning('video bank %s: embedding pass abandoned: %s',
+                               bank_id, e)
+                held.clear()
+                break
             except Exception as e:  # noqa: BLE001 — one shot never sinks the pass
                 logger.warning('video bank %s: clip %s not embedded: %s',
                                bank_id, clip.id, e)
+                error = f'{type(e).__name__}: {e}'
                 frames = []
         if frames:
+            retire_held()
             store[clip.id] = frames
             pending_states[clip.id] = 'ok'
             embedded += 1
         else:
-            store.pop(clip.id, None)
-            pending_states[clip.id] = 'unreadable'
-            unreadable += 1
+            last_error = error or last_error
+            held.append(clip.id)
+            if len(held) >= SYSTEMIC_STREAK:
+                # `last_error` is None when the failures were silent — every
+                # frame refused by the worker, no exception. Saying so beats
+                # printing "None" at a user who is trying to find out what broke.
+                why = last_error or 'the encoder returned no vector for any frame'
+                aborted = (f'{len(held)} shots in a row could not be embedded — '
+                           f'stopping rather than retiring them one by one '
+                           f'({why}). Nothing was marked; click '
+                           f'🔎 Find scenes again once it is fixed')
+                logger.warning('video bank %s: embedding pass abandoned after %s '
+                               'consecutive failures: %s',
+                               bank_id, len(held), why)
+                held.clear()
+                break
         if on_clip is not None:
             on_clip()
         if len(pending_states) >= FLUSH_EVERY:
             flush()
+    # A run that ended normally — or on Stop — keeps the verdicts it earned: a
+    # tail of failures shorter than the streak really is about those files.
+    retire_held()
     flush()
-    return {'embedded': embedded, 'unreadable': unreadable}
+    return {'embedded': embedded, 'unreadable': unreadable, 'aborted': aborted}
 
 
 def _pruned_store(bank_id):
@@ -412,13 +495,31 @@ def _discard(path):
 def pending_clips(bank_id, reembed=False):
     """The shots this pass would work on, oldest first. Only shots of a source
     that PROBED — an unreadable file has no frames to decode, and counting it as
-    'unreadable' every run would make the pass look permanently broken."""
+    'unreadable' every run would make the pass look permanently broken.
+
+    NEW SHOTS FIRST, AND THE FAILED ONES WHEN THERE ARE NONE. 'unreadable' is a
+    hypothesis about a file formed by a pass that may have been wrong about its
+    whole environment — and a hypothesis nothing ever re-tests is a fact by
+    accident. A bank whose 861 shots were all retired by a broken interpreter
+    answered "0 shots to embed" to 🔎 Find scenes and "run Find scenes first" to
+    ✂ Duplicates, at the same time, with no way out of the app.
+
+    So the retry rides the button that is already there rather than a new one:
+    it costs nothing on the normal path (a bank with new shots never reaches the
+    second tier), it needs no explaining, and after any bad pass the answer to
+    "what do I do now" is the thing the user was going to click anyway. The
+    price of being wrong is a decode the user asked for; the price of never
+    asking again is the bank."""
     q = (VideoClip.query.filter_by(bank_id=bank_id)
          .join(VideoSource, VideoSource.id == VideoClip.source_id)
          .filter(VideoSource.probe_state == 'ok'))
-    if not reembed:
-        q = q.filter(VideoClip.embed_state.is_(None))
-    return q.order_by(VideoClip.id.asc())
+    if reembed:
+        return q.order_by(VideoClip.id.asc())
+    fresh = q.filter(VideoClip.embed_state.is_(None))
+    if fresh.first() is not None:
+        return fresh.order_by(VideoClip.id.asc())
+    return (q.filter(VideoClip.embed_state == 'unreadable')
+            .order_by(VideoClip.id.asc()))
 
 
 def run_embed(bank_id, reembed=False, *, on_clip=None, should_stop=None,
@@ -431,12 +532,24 @@ def run_embed(bank_id, reembed=False, *, on_clip=None, should_stop=None,
     from .clip_image_encoder import ImageEncoder
     rows = pending_clips(bank_id, reembed).all()
     if not rows:
-        return {'embedded': 0, 'unreadable': 0}
+        return {'embedded': 0, 'unreadable': 0, 'aborted': None}
     scratch = tempfile.mkdtemp(prefix=f'lds-vembed-{bank_id}-')
     try:
         with ImageEncoder(use_gpu=use_gpu) as encoder:
             return embed_clips(bank_id, rows, encoder=encoder, scratch=scratch,
                                on_clip=on_clip, should_stop=should_stop)
+    except clip_text_encoder.TextEncodeError as e:
+        # A BACKSTOP, not the live path: the encoder starts lazily on the first
+        # frame, so today this error always surfaces inside the loop above, which
+        # is where the "do not blame the shots" rule is written and tested. It is
+        # caught here anyway because the day the worker is started eagerly — by a
+        # warm-up, a device check, a preflight — this is the line between "the
+        # job says why" and "the whole pass raises past its own contract".
+        logger.warning('video bank %s: embedding pass never started: %s', bank_id, e)
+        return {'embedded': 0, 'unreadable': 0,
+                'aborted': f'the frame encoder could not run: {e} — no shot was '
+                           'marked; fix the ✨ Score interpreter and click '
+                           '🔎 Find scenes again'}
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 

@@ -20,6 +20,7 @@ import requests
 
 from . import config as cfg
 from .services import ffmpeg_tools
+from .services import infer_env
 from .utils import comfy_fs
 
 _CACHE_TTL = 30
@@ -38,11 +39,27 @@ _UNKNOWN_TTL = 60
 # answered 'CUDA' to one probe and 'no answer' to the other.
 _IMPORT_TIMEOUT = 90
 _import_cache = {}  # key -> (ts, ok|None)  — None = unknown, kept briefly
-# These two probes guard workers that are deliberately launched with ``python
-# -s``.  Keep the isolation scoped: Face, Masks and Watermark still honour their
-# configured interpreter's normal site policy, so probing them with different
-# argv would create a false negative.
-_NO_USER_SITE_IMPORT_KEYS = frozenset(('bank_scoring', 'bank_scoring_gpu'))
+# EVERY probe that vouches for a ``backend/infer/*`` worker runs in the exact
+# environment that worker runs in — isolated from the process owner's user
+# site-packages (``services.infer_env``). The two must move together: a probe
+# isolated while its worker is not reports ✓ against an environment the worker
+# never sees, and the failure then lands per ITEM, hours later, as if the data
+# were at fault. That asymmetry is what turned an unrelated package left in a
+# user site-packages into a bank of 861 shots marked permanently unreadable.
+#
+# `infer_env.is_borrowed` draws the first line and states why: OUR interpreter
+# keeps its user site, because on a system-Python install that directory is
+# where pip actually put torch. These keys draw the second one — probes whose
+# real launch we do not shape, and which must therefore not be sanitised either:
+#   * ai-toolkit's TRAINING venv ('aitoolkit_torch' / 'aitoolkit_alive'). Note
+#     that JoyCaption runs in that SAME venv and IS isolated: the rule is MATCH
+#     THE LAUNCH, not "whose environment is it" — JoyCaption's script is ours and
+#     we build its argv, while the training bridge hands the venv over untouched.
+#   * the interpreter probed for PyAV/cv2 ('video_decode'): that decode happens
+#     in-process, inside Flask, which has no ``-s`` of its own — so even a
+#     configured `video.python` must be asked the unisolated question.
+_USER_SITE_IMPORT_KEYS = frozenset((
+    'aitoolkit_torch', 'aitoolkit_alive', 'video_decode'))
 
 _ZIMAGE_RE = re.compile(r'z[ -]?image', re.IGNORECASE)
 # Aligned with klein_edit_helper / utils.comfyui (was missing '.sft', so the
@@ -102,15 +119,19 @@ def _import_ok(python, module_expr: str, timeout=_IMPORT_TIMEOUT):
     DLLs: measured ~20 s cold vs ~1 s warm — a 20 s timeout read as False showed
     'Person masks ✗' for 10 min right after a SUCCESSFUL install.
 
-    ``python`` is normally one executable path.  The cache layer may pass an
-    argv prefix such as ``(python, '-s')`` when that feature's real worker uses
-    the same isolated contract.
+    ``python`` is normally one executable path.  The cache layer passes an argv
+    prefix such as ``(python, '-s')`` for every feature whose real worker uses
+    the isolated contract — every BORROWED interpreter but the ones named in
+    ``_USER_SITE_IMPORT_KEYS``.  ``env`` then carries the inherited half of the
+    same instruction, so the probe and the worker see one environment, not two.
     """
     try:
         prefix = (list(python) if isinstance(python, (tuple, list))
                   else [python])
+        isolated = infer_env.NO_USER_SITE_FLAG in prefix[1:]
         result = subprocess.run(
-            [*prefix, '-c', module_expr], capture_output=True, timeout=timeout)
+            [*prefix, '-c', module_expr], capture_output=True, timeout=timeout,
+            env=infer_env.worker_env(prefix[0]) if isolated else None)
         return result.returncode == 0
     except subprocess.TimeoutExpired:
         return None
@@ -137,8 +158,9 @@ def _cached_import_state(key: str, python: str, module_expr: str):
         ttl = _IMPORT_TTL if cached[1] is not None else _UNKNOWN_TTL
         if now - cached[0] < ttl:
             return cached[1]
-    probe_python = ((python, '-s')
-                    if key in _NO_USER_SITE_IMPORT_KEYS else python)
+    probe_python = (python if (key in _USER_SITE_IMPORT_KEYS
+                               or not infer_env.is_borrowed(python))
+                    else (python, infer_env.NO_USER_SITE_FLAG))
     ok = _import_ok(probe_python, module_expr)
     _import_cache[cache_key] = (now, ok)
     return ok

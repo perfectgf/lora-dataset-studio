@@ -17,6 +17,7 @@ import sys
 import time
 
 from .. import config as cfg
+from . import infer_env
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,11 @@ def _cuda_available() -> bool:
         return bool(_cuda_probe['available'])
     try:
         proc = subprocess.run(
-            [python, '-c', 'import torch; print("1" if torch.cuda.is_available() else "0")'],
+            infer_env.worker_argv(
+                python, '-c',
+                'import torch; print("1" if torch.cuda.is_available() else "0")'),
             capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=20,
+            env=infer_env.worker_env(python),
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
         )
         available = proc.returncode == 0 and (proc.stdout or '').strip().endswith('1')
@@ -88,9 +92,11 @@ def _run_lama_payload(payload, timeout: int = 300) -> tuple[bool, dict | None]:
                        'detail': 'watermark inpainting is not installed (ML extras)'}
     payload_json = json.dumps(payload)
     try:
-        proc = subprocess.run([_lama_python(), _SCRIPT], input=payload_json,
+        proc = subprocess.run(infer_env.worker_argv(_lama_python(), _SCRIPT),
+                              input=payload_json,
                               capture_output=True, text=True, encoding='utf-8',
                               errors='replace', timeout=timeout,
+                              env=infer_env.worker_env(_lama_python()),
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except (subprocess.TimeoutExpired, OSError) as e:
         logger.warning('watermark_lama: subprocess echec : %s', e)
@@ -163,9 +169,11 @@ def inpaint_batch(jobs, *, device: str, timeout: int = 900) -> dict:
         return {job['image_path']: (False, err) for job in normalized}
     payload_json = json.dumps({'jobs': normalized, 'device': device})
     try:
-        proc = subprocess.run([lama_python(), _SCRIPT], input=payload_json,
+        proc = subprocess.run(infer_env.worker_argv(lama_python(), _SCRIPT),
+                              input=payload_json,
                               capture_output=True, text=True, encoding='utf-8',
                               errors='replace', timeout=timeout,
+                              env=infer_env.worker_env(lama_python()),
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except (subprocess.TimeoutExpired, OSError) as e:
         err = {'kind': 'failed', 'detail': str(e)}

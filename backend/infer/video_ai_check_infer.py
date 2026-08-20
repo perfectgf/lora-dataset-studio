@@ -109,6 +109,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import import_report  # noqa: E402
+
 # Hidden BEFORE torch is imported, exactly like the look score's child. This is a
 # 16-frame forward pass over a base-sized ViT; it is not worth interrupting a
 # training run for, and the parent takes no GPU window on its behalf.
@@ -228,7 +231,7 @@ def main() -> int:
         import torch
         from transformers import XCLIPModel
     except Exception as e:  # noqa: BLE001 — clean JSON, never a mute traceback
-        _emit({'ok': False, 'error': f'ML deps missing: {type(e).__name__}: {e}'})
+        _emit({'ok': False, 'error': import_report.import_failure(e)})
         return 1
 
     try:

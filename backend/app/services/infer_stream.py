@@ -29,6 +29,8 @@ import threading
 import time
 from collections import deque
 
+from . import infer_env
+
 logger = logging.getLogger(__name__)
 
 # How long we wait for the child to die after a timeout kill before giving up on
@@ -80,8 +82,10 @@ def run_infer_script(python, script, payload, timeout, on_line=None,
     because nothing has been computed yet.
     """
     proc = subprocess.Popen(
-        [python, script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        infer_env.worker_argv(python, script),
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
+        env=infer_env.worker_env(python),
         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     lines: deque = deque(maxlen=_TAIL_LINES)
 

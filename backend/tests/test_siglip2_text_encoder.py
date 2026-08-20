@@ -131,8 +131,10 @@ def test_siglip2_text_worker_uses_semantic_python(app, monkeypatch):
     # Avoid starting the idle-reaper thread; its behaviour is covered separately.
     monkeypatch.setattr(encoder, '_siglip2_reaper', object())
     assert encoder._start_siglip2_worker_locked() is worker
+    # ...without the machine's user site-packages, like every other infer
+    # worker and like the probe that vouches for this one (services/infer_env).
     assert seen['command'] == [
-        '/managed/semantic/python', encoder._SIGLIP2_SCRIPT]
+        '/managed/semantic/python', '-s', encoder._SIGLIP2_SCRIPT]
     encoder._stop_siglip2_worker_locked()
 
 
