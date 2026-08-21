@@ -4,13 +4,14 @@
    WHICH PROMPT(S). "Extra refs (all engines)" is true of the REFERENCES, not of
    the prompt: face_variations.py routes them through two different texts —
    wrap_variation picks `face_multi` for the API engines as soon as ref_count > 1
-   (Nano Banana / ChatGPT), while wrap_variation_klein always uses
-   `klein_identity`, whatever the reference count. A modal editing only
-   `face_multi` would let a Klein user carefully rewrite a text that has ZERO
-   effect on their generations. So both are shown, each labelled with the engine
-   that consumes it, and every prompt at least one SELECTED engine consumes
-   carries a "used by your selected engine(s)" badge — a run on Klein + an API
-   engine really uses both texts, and badging only one would say otherwise.
+   (Nano Banana / ChatGPT), while the LOCAL engines — Klein and Krea 2 Edit,
+   which share one prompt assembly — always use `klein_identity`, whatever the
+   reference count. A modal editing only `face_multi` would let a local-engine
+   user carefully rewrite a text that has ZERO effect on their generations. So
+   both are shown, each labelled with the engine FAMILY that consumes it, and
+   every prompt at least one SELECTED engine consumes carries a "used by your
+   selected engine(s)" badge — a run on Klein + an API engine really uses both
+   texts, and badging only one would say otherwise.
 
    WHICH SUBJECT. The modal edits the prompts of THIS dataset's subject type and
    says so, loudly. It used to edit one global text whatever the dataset was: a

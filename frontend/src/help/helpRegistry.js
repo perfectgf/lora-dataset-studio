@@ -1427,8 +1427,10 @@ const TOPICS = [
   setting('identity_prompts.face', 'engines', 'identity-prompts', 'Identity lock prompts (API engines)',
     ['identity', 'prompt', 'guard', 'lock', 'face', 'reference', 'beautify', 'preserve', 'consistency', 'edit prompt',
      'subject type', 'animal', 'per subject', 'leak', 'tails', 'extra limbs']),
-  setting('identity_prompts.klein_identity', 'engines', 'identity-prompts', 'Klein identity prompt',
-    ['identity', 'klein', 'restage', 'face', 'prompt', 'preserve', 'pose']),
+  // Named for the ENGINE FAMILY, not for Klein: Krea 2 Edit reads this very
+  // text, and a Krea user searching "krea identity prompt" found nothing.
+  setting('identity_prompts.klein_identity', 'engines', 'identity-prompts', 'Local engines identity prompt (Klein & Krea 2)',
+    ['identity', 'klein', 'krea', 'krea 2', 'local engines', 'restage', 'face', 'prompt', 'preserve', 'pose']),
   // The words Qeeyana (Reddit) actually used are in here verbatim: she had the
   // symptom ("anime looks realistic after the quality inpaint") and no path to
   // the cause, because the shipped instruction — "add detailed texture, add
