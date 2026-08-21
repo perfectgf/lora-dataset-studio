@@ -115,7 +115,7 @@ test('the two Klein cards cross-reference each other to remove the ambiguity', (
   // scraping card renamed + points at the manual identity prompts card
   assert.match(scraping, /title="Klein rescue — small scraped images"/);
   assert.match(scraping, /Small-image rescue instruction/);
-  assert.match(scraping, /Identity &amp; Klein prompts/);
+  assert.match(scraping, /Identity, Klein &amp; Krea 2 prompts/);
 });
 
 test('klein.small_image_prompt stays a genuinely optional EMPTY field', () => {

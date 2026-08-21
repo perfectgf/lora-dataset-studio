@@ -346,8 +346,8 @@ shot, add soft focus effect`. It is applied to every dataset, drawn ones
 included, so on anime or illustration it does exactly what it says: it adds skin
 texture and photo micro-detail your line art never had.
 
-**Fix — two levers, both in Settings → Image engines → *Identity & Klein prompts
-(advanced)*:**
+**Fix — two levers, both in Settings → Image engines → *Identity, Klein & Krea 2
+prompts (advanced)*:**
 
 1. **Rewrite the instruction.** The *Klein upscale & improve prompt* box holds
    the text in use; edit it to something that suits drawn art (e.g. "keep the

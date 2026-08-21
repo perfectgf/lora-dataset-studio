@@ -230,7 +230,7 @@ test('settings separates scraper rescue instructions from manual lightbox improv
   // step count became editable.
   assert.match(settings, /manual Upscale & improve is a different flow/);
   assert.match(settings, /Settings ▸ Image engines/);
-  // the rescue card points at the separate manual "Identity & Klein prompts" card
+  // the rescue card points at the separate manual "Identity, Klein & Krea 2 prompts" card
   assert.match(settings, /separate from the manual .Klein upscale &amp; improve. prompt/i);
 });
 

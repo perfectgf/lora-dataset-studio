@@ -113,7 +113,7 @@ export default function ScrapingSection(props) {
             Leave this empty to let Klein use the reference image alone. Add a short instruction only
             when you want to guide automatic scraper rescue; Klein remains generative and may change
             details. This is separate from the manual “Klein upscale &amp; improve” prompt — see
-            Settings ▸ Engines ▸ “Identity &amp; Klein prompts”.
+            Settings ▸ Engines ▸ “Identity, Klein &amp; Krea 2 prompts”.
           </p>
           <textarea id="klein-small-image-prompt" rows={4} value={prompt}
             onChange={(e) => props.setField('klein', 'small_image_prompt', e.target.value)}

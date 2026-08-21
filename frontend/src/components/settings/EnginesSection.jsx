@@ -1080,8 +1080,8 @@ function IdentityPromptsCard({ config, setField, promptDefaults, promptDefaultsB
   return (
     <Card
       id="identity-prompts"
-      title="Identity & Klein prompts (advanced)"
-      help="The hidden prompts that lock a subject's identity across generated variations, now editable. Pick the subject type first: each type (Human, Animal, Creature, Object, Other) has its OWN set, and a text you write for one never applies to another. Each box already holds the prompt in use: edit it to override, Reset to go back. Reproducibility note: as long as a box still matches the built-in text, nothing is stored and generation stays byte-identical to before — you also keep receiving improvements to that prompt. Feature request by @bbsorry (雨田壹); per-subject scoping reported by ashish.sinha."
+      title="Identity, Klein & Krea 2 prompts (advanced)"
+      help="The hidden prompts that lock a subject's identity across generated variations, now editable. Pick the subject type first: each type (Human, Animal, Creature, Object, Other, Anime) has its OWN set, and a text you write for one never applies to another. Each box already holds the prompt in use: edit it to override, Reset to go back. Reproducibility note: as long as a box still matches the built-in text, nothing is stored and generation stays byte-identical to before — you also keep receiving improvements to that prompt. Feature request by @bbsorry (雨田壹); per-subject scoping reported by ashish.sinha."
     >
       {/* flex-wrap: five chips fit one row on a laptop and wrap to two or three
           on a phone — never a row that overflows the card. */}

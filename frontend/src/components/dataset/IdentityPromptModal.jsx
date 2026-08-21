@@ -146,7 +146,7 @@ export default function IdentityPromptModal({ onClose, subjectType = 'human' }) 
 
         <div className="flex items-center gap-2 flex-wrap pt-1">
           <a href="#/settings/engines" className="text-indigo-300 hover:text-indigo-200 text-xs underline decoration-indigo-300/50">
-            All identity &amp; Klein prompts →
+            All identity, Klein &amp; Krea 2 prompts →
           </a>
           <button type="button" onClick={onClose}
             className="ml-auto px-3 py-1.5 rounded-lg bg-surface text-content text-sm">Cancel</button>
