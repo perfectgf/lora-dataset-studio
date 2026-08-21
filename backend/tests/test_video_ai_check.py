@@ -623,10 +623,25 @@ def test_batching_never_straddles_two_clips():
 
     with pytest.raises(ValueError, match='multiple of 8'):
         infer._encode(_Model(), np.zeros((12, 3, 4, 4), dtype='float32'), [12])
-    # And 16 is accepted, which is what the parent always sends.
-    class _Ok(_Model):
+
+
+def test_a_batch_that_divides_evenly_is_handed_to_the_model():
+    """The other side of the guard: 16 per clip is what the parent always sends,
+    and it must reach the forward pass. SEPARATE from the refusal above because
+    getting there costs a real torch — the refusal must stay checkable on a
+    machine without one (CI has no GPU stack), which is where a guard is worth
+    the most."""
+    pytest.importorskip('numpy')
+    pytest.importorskip('torch')
+    import numpy as np
+    infer = _infer_module()
+
+    class _Ok:
+        config = type('_Cfg', (), {'num_frames': 8})()
+
         def __call__(self, **kwargs):
             raise RuntimeError('reached the model')
+
     with pytest.raises(RuntimeError, match='reached the model'):
         infer._encode(_Ok(), np.zeros((32, 3, 4, 4), dtype='float32'), [16, 16])
 

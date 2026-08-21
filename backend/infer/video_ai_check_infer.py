@@ -193,13 +193,17 @@ def _encode(model, batch, per_clip):
     `per_clip` is the frame count each clip contributed. Every one of them must
     be a multiple of the model's `num_frames`, or the cross-frame message block
     would mix two shots inside one group — see the module docstring."""
-    import torch
-
     num_frames = int(getattr(model.config, 'num_frames', 8) or 8)
     bad = [n for n in per_clip if n % num_frames]
     if bad:
         raise ValueError(f'frames per clip must be a multiple of {num_frames}, '
                          f'got {sorted(set(bad))}')
+    # Imported AFTER the guard on purpose: a mis-batched call is a programming
+    # error the parent must hear about identically on every machine, and torch is
+    # absent from CI. Importing first turned that ValueError into a
+    # ModuleNotFoundError and made the contract untestable without the GPU stack.
+    import torch
+
     with torch.no_grad():
         out = model(pixel_values=torch.from_numpy(batch))
     # `.pooler_output` is post_layernorm(CLS) — 768-d, NOT projected into the
