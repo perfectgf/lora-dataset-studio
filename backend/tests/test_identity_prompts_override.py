@@ -212,3 +212,52 @@ def test_settings_api_persists_and_restores_override(client):
     ip2 = r2.get_json()['config']['identity_prompts']
     assert ip2['face_single'] == ''
     assert ip2['klein_improve_enabled'] is True
+
+
+# --- the label contract: klein_identity belongs to EVERY local engine --------
+
+def test_every_local_engine_sends_the_klein_identity_lock(monkeypatch):
+    """`identity_prompts.klein_identity` is the LOCAL-ENGINE identity lock, not
+    Klein's alone: Klein and Krea 2 Edit share `_compose_edit_prompt` and both
+    read it, deliberately — one lock to keep in sync instead of two.
+
+    The UI is now labelled on that fact ("Local engines — restage & face-identity
+    block"), so this has to stay a fact. It was mislabelled for one release and a
+    Krea 2 user asked on Discord whether the box reached them at all; the failure
+    mode of the reverse — a new local engine that skips this lock, or an API
+    engine that starts reading it — is a user carefully editing a text that does
+    nothing, with nothing on screen to tell them.
+
+    Driven off face_dataset_service.LOCAL_ENGINES, so adding a third local engine
+    fails HERE, at the contract, rather than quietly making the label a lie.
+    """
+    from app.services.face_dataset_service import API_ENGINES, LOCAL_ENGINES
+
+    sentinel = 'ZZ-LOCAL-ENGINE-IDENTITY-LOCK-ZZ'
+    # Both storage layouts at once: human keeps the flat key, every other subject
+    # lives under by_subject.<type> (see identity_prompt_config_key).
+    _patch_overrides(monkeypatch, {
+        'klein_identity': sentinel,
+        'by_subject': {st: {'klein_identity': sentinel} for st in fv.SUBJECT_TYPES},
+    })
+
+    for st in fv.SUBJECT_TYPES:
+        for engine in LOCAL_ENGINES:
+            res = fv.compose_preview(engine, subject_type=st)
+            # An engine compose_preview does not know falls back to Klein — which
+            # DOES carry the lock, so the assertion below would pass on an engine
+            # nobody wired up. The echoed id is what makes this test bite.
+            assert res['engine'] == engine, f'{engine} is not wired into compose_preview'
+            assert sentinel in res['prompt'], f'{engine} / {st} ignores klein_identity'
+        for engine in API_ENGINES:
+            prompt = fv.compose_preview(engine, subject_type=st)['prompt']
+            assert sentinel not in prompt, f'{engine} / {st} reads klein_identity'
+
+
+def test_the_preview_dispatch_covers_every_known_engine():
+    """The contract above only proves what compose_preview routes. An engine
+    missing from PREVIEW_ENGINES falls back to Klein there, which would make the
+    test above pass by accident on an engine nobody wired up."""
+    from app.services.face_dataset_service import KNOWN_ENGINES
+
+    assert set(KNOWN_ENGINES) == set(fv.PREVIEW_ENGINES)
