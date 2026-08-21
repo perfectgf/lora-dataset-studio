@@ -183,45 +183,47 @@ export function boardObstacles(graph, imageNodes) {
 const sourceKey = (img) => `${img?.record_id ?? '?'}:${img?.step ?? '?'}`;
 
 /**
- * WHICH GENERATION + PROMPT + LORA made a picture — the identity two grids
- * must never share.
+ * WHICH CHECKPOINT made a picture — the identity two grids must never share.
  *
- * `lora_test_image.run_id` already groups every cell of one launch (it is what
- * the Test Studio resumes a run from), `prompt` identifies one grid INSIDE a
- * multi-prompt launch, and `record_id` names the LoRA (the training run) that
- * rendered it. The checkpoint gallery publishes all of them. A key without the
- * LoRA fused a Compare launch fired at several LoRAs into ONE strip, where the
- * batches were indistinguishable — the report that added the last member. A
- * key without the run or the prompt merges separate launches or separate
- * prompts. All three together are the boundary the Canvas actually needs: one
- * grid per LoRA, per prompt, per launch.
+ * `record_id` names the LoRA (the training run, and so the dataset it was
+ * trained on) and `step` names the epoch inside it. Together they are ONE
+ * CHECKPOINT, and one checkpoint is one grid. Two LoRAs never share a strip,
+ * two datasets never share one, and two epochs of the same LoRA do not share
+ * one either. Everything that checkpoint ever rendered goes in that strip: a
+ * second launch fired at the same epoch JOINS the grid its predecessor
+ * started, and so does a second prompt.
  *
- * `step` is deliberately NOT in the key: the epochs of one LoRA belong in one
- * strip — reading epoch 500 next to epoch 2000 is that grid's whole point —
- * while two different LoRAs never do. (One grid per epoch was tried and
- * rejected the same day: it dismantled the epoch-comparison strip.)
+ * This is the same identity the BAND already places by (`sourceKey` above),
+ * which is the point — a grid now fills exactly one band column instead of
+ * straddling several.
  *
- * An image made before the run column was backfilled carries no run id and
- * falls back to its checkpoint, so a board that predates this draws exactly
- * what it drew before rather than silently regrouping itself.
+ * ── What this key used to be, and why it isn't ───────────────────────────────
+ *
+ * Until 2026-08-21 it was `run_id + prompt + record_id`, with `step`
+ * deliberately excluded so that the epochs of one LoRA formed a single
+ * epoch-comparison strip. Both halves of that are reversed here, on report:
+ *
+ *   • keyed by LAUNCH, two batches fired at the same checkpoint could never
+ *     meet. The ordinary case is one picture per checkpoint per launch — and a
+ *     grid of one is not a grid — so a board generated on over several
+ *     clicks filled with loose tiles that never coalesced. That is the bug
+ *     this key exists to fix: generations of one epoch must accumulate.
+ *   • the epoch comparison did not actually live in the strip's MEMBERSHIP. It
+ *     lives in the PLACEMENT, which has always been one column per checkpoint
+ *     in training order (see the band, below), and in `byTrainingOrder`. Epochs
+ *     read side by side as adjacent columns; what the shared strip added was a
+ *     grid whose members came from different checkpoints, which is precisely
+ *     what "separate the epochs" asks it not to do.
+ *
+ * `run_id` and `prompt` are therefore no longer read at all, which also
+ * retires the pre-backfill special case: an image with no run id is not a
+ * different kind of image any more, it is just a picture from a checkpoint.
+ *
+ * A picture missing either half of the identity has NO key and stays a loose
+ * tile, rather than being fused into somebody else's grid on a guess.
  */
-const normalPrompt = (value) => String(value ?? '').trim().replace(/\s+/g, ' ');
-
-const runGridKey = (value) => {
-  const image = value?.image || value;
-  const runId = image?.run_id;
-  if (runId == null || String(runId) === '') return null;
-  // JSON, not a delimiter: prompts are free text and may contain any separator
-  // we could choose. Normalising whitespace makes the key match what the UI
-  // shows as one prompt while preserving meaningful text and case.
-  return `run:${JSON.stringify([String(runId), normalPrompt(image?.prompt),
-    String(image?.record_id ?? '')])}`;
-};
-
 export function imageBatchKey(value) {
   const image = value?.image || value;
-  const runKey = runGridKey(image);
-  if (runKey) return runKey;
   if (image?.record_id == null || image?.step == null) return null;
   return `ckpt:${String(image.record_id)}:${String(image.step)}`;
 }
@@ -250,12 +252,21 @@ export function byTrainingOrder(a, b) {
   return (Number(a?.id ?? a?.imageId) || 0) - (Number(b?.id ?? b?.imageId) || 0);
 }
 
-/** Turn freshly pinned images into (or append them to) one strip per GENERATION
- * RUN + PROMPT + LORA (imageBatchKey). Pinning a picture from a gallery joins
- * the grid of the LoRA batch it belongs to — any epoch of that LoRA; another
- * prompt or another LoRA in the SAME run starts its own. A picture from a later
- * run does too. Manual mixed groups are never reused. The undo snapshot covers
- * both the new images and any existing member whose membership is rewritten. */
+/** Turn freshly pinned images into (or append them to) one strip per CHECKPOINT
+ * — LoRA + epoch, `imageBatchKey`.
+ *
+ * This is the ONE grouping path. A picture pinned alone from a gallery and a
+ * whole lot dropped by 📌 Pin all run through the same function and get the
+ * same answer, because they are the same question: this picture came from that
+ * checkpoint, so it belongs in that checkpoint's grid. Pin all used to have its
+ * own grouper that only ever looked at the lot it was placing, so a second
+ * batch fired at the same checkpoint parked a rival grid beside the first
+ * instead of joining it — the whole reason there is now one function.
+ *
+ * A grid is joined whether it is an existing homogeneous strip or a single
+ * loose tile from the same checkpoint waiting to become one. Manual mixed
+ * groups are never reused. The undo snapshot covers both the new images and
+ * any existing member whose membership is rewritten. */
 export function groupPinnedBatchBySource({ nodes = [], placed = [], graph = null } = {}) {
   const before = new Map((nodes || []).filter((n) => n?.imageId != null)
     .map((n) => [Number(n.imageId), { ...n }]));
@@ -275,7 +286,7 @@ export function groupPinnedBatchBySource({ nodes = [], placed = [], graph = null
 
   const affected = new Map();
   const undo = new Map();
-  const promptGroupIds = new Set();
+  const gridGroupIds = new Set();
   const remember = (node) => {
     const id = Number(node.imageId);
     if (!undo.has(id)) {
@@ -319,11 +330,12 @@ export function groupPinnedBatchBySource({ nodes = [], placed = [], graph = null
       if (members.length < 2) continue;
       groupId = nextGroupId([...working.values()], members[0].imageId);
     }
-    // A run-bearing key is an automatic Canvas grid. Legacy checkpoint keys are
-    // deliberately excluded, as are manual mixed groups (the homogeneous-group
-    // check above refuses to reuse those). The whole current membership is in
-    // `affected`, so moving its anchor remains one reversible/undoable write.
-    if (runGridKey(additions[0]) === key) promptGroupIds.add(groupId);
+    // Every grid this function forms is an automatic Canvas grid, so every one
+    // of them takes part in the footprint reflow below. Manual mixed groups
+    // still do not (the homogeneous-group check above refuses to reuse those).
+    // The whole current membership is in `affected`, so moving its anchor
+    // remains one reversible/undoable write.
+    gridGroupIds.add(groupId);
     // ALWAYS training order, even when the picture that just arrived belongs
     // earlier than everything already in the strip: pinning epoch 500 after
     // epoch 2000 must not put 500 on the right-hand end. Nothing is lost by
@@ -340,76 +352,8 @@ export function groupPinnedBatchBySource({ nodes = [], placed = [], graph = null
   for (const p of fresh) remember(working.get(Number(p.imageId)));
   const byId = (a, b) => a.imageId - b.imageId;
   const rows = [...affected.values()].sort(byId);
-  separateFreshGroupFootprints(nodes, rows, promptGroupIds, graph);
+  separateFreshGroupFootprints(nodes, rows, gridGroupIds, graph);
   return { rows, undoRows: [...undo.values()].sort(byId) };
-}
-
-/** Turn one freshly generated/pinned lot into a strip PER GENERATION RUN,
- * PROMPT AND LORA, ordered by training step.
- *
- * The epochs of ONE LoRA belong together — that strip is the LoRA's epoch
- * comparison grid. Different LoRAs of one launch do NOT share a strip: a
- * Compare batch fired at several LoRAs lands as one grid per LoRA, so each
- * LoRA's batch stays readable as its own lot (fused, they were
- * indistinguishable — the report this boundary comes from). Another prompt
- * selected in the SAME 📌 Pin all gesture gets another strip too; two runs can
- * never share one either. A LoRA that contributed a single picture stays a
- * loose tile — a grid of one is not a grid, and the band already parks it in
- * its own column. Existing groups are never reused. Images with no run id
- * (made before the column was backfilled) keep the old whole-gesture strip,
- * which is safe — this function cannot merge into anything that was already on
- * the board. */
-export function groupPinnedBatchTogether({ nodes = [], placed = [], graph = null } = {}) {
-  const before = new Map((nodes || []).filter((n) => n?.imageId != null)
-    .map((n) => [Number(n.imageId), { ...n }]));
-  const fresh = [...(placed || [])].filter((p) => p?.imageId != null)
-    .sort(byTrainingOrder);
-
-  const lots = new Map();
-  for (const p of fresh) {
-    // Legacy rows deliberately stay one whole-gesture lot. The unit-pin path's
-    // no-run fallback remains per checkpoint in `imageBatchKey`; these are two
-    // historical behaviours and neither should be silently rewritten here.
-    const key = runGridKey(p) ?? 'gesture';
-    if (!lots.has(key)) lots.set(key, []);
-    lots.get(key).push(p);
-  }
-  const groupOf = new Map();
-  const posOf = new Map();
-  const promptGroupIds = new Set();
-  const taken = [...(nodes || []), ...fresh];
-  for (const [lotKey, lot] of lots) {
-    if (lot.length < 2) continue;
-    const groupId = nextGroupId(taken, lot[0].imageId);
-    taken.push({ groupId });
-    // Only modern run+prompt groups participate in the new footprint reflow.
-    // The `gesture` lot is the pre-run_id fallback and keeps its historical
-    // geometry as well as its historical membership semantics.
-    if (lotKey !== 'gesture') promptGroupIds.add(groupId);
-    lot.forEach((p, pos) => {
-      groupOf.set(Number(p.imageId), groupId);
-      posOf.set(Number(p.imageId), pos);
-    });
-  }
-
-  const rows = fresh.map((p) => {
-    const id = Number(p.imageId);
-    const old = before.get(id);
-    const groupId = groupOf.get(id) ?? null;
-    return {
-      imageId: id, x: p.x, y: p.y, w: p.w, h: p.h, visible: true,
-      groupId, groupPos: groupId ? posOf.get(id) : null,
-      image: p.image || old?.image,
-    };
-  });
-  separateFreshGroupFootprints(nodes, rows, promptGroupIds, graph);
-  const undoRows = rows.map((row) => {
-    const old = before.get(row.imageId);
-    return old ? { ...old } : {
-      ...row, visible: false, groupId: null, groupPos: null,
-    };
-  });
-  return { rows, undoRows };
 }
 
 /**
@@ -541,18 +485,20 @@ export function placeImageBatch({ graph, existing, images, remembered, max,
       else bandTop = Math.max(bandTop, o.y + o.h);
     }
     if (beside) bandLeft += BAND_GAP;
-    // A current (run_id-bearing) batch will become one or more Canvas groups
-    // immediately after this placement. Reserve the TALLEST possible group bar
-    // now: it is drawn above the strip, and without this allowance the first
-    // prompt grid can cover the lineage card the band was placed below. Legacy
-    // no-run lots keep their exact historical geometry.
-    const futureGroupBar = band.some((image) => runGridKey(image) != null)
+    // A picture that knows its checkpoint will become part of a Canvas group
+    // immediately after this placement — either with the rest of its lot, or by
+    // joining the grid that checkpoint already has on the board. Reserve the
+    // TALLEST possible group bar now: it is drawn above the strip, and without
+    // this allowance the first grid can cover the lineage card the band was
+    // placed below. Reserving for a bar that never appears costs air; not
+    // reserving for one that does costs an overlap, so this errs on air.
+    const futureGroupBar = band.some((image) => imageBatchKey(image) != null)
       ? groupBarMaxHeight(size) : 0;
     bandTop += BAND_GAP + futureGroupBar;
 
     const colW = size + TILE_GAP;
-    // The same reservation between source rows prevents the bar of prompt N+1
-    // from climbing into prompt N before the final cross-column reflow above.
+    // The same reservation between source rows prevents the bar of grid N+1
+    // from climbing into grid N before the final cross-column reflow above.
     const rowH = size + TILE_GAP + futureGroupBar;
     /* How tall a column may get before the next one starts. Six for a 📌 batch,
        which is what a contact sheet under a lineage should read like.

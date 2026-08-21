@@ -49,7 +49,7 @@ import { isNodeControlTarget, nodePointerIntent } from '../../utils/canvasNodeCh
 import { showsZoomLabels, zoomLabelScale, zoomLabelText } from '../../utils/canvasZoomLegibility';
 import {
   pinBatchAnnouncement, pinBatchPendingAcrossLanes, placeImageBatch,
-  groupPinnedBatchBySource, groupPinnedBatchTogether, laneStackEntries,
+  groupPinnedBatchBySource, laneStackEntries,
 } from '../../utils/canvasPinBatch';
 import { cardClickAction, runGalleryTarget } from '../../utils/canvasCardClick';
 import { galleryDeleteSummary } from '../../utils/gallerySelection';
@@ -1743,7 +1743,9 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
         remembered: laneMap,
       });
       if (!res.placed.length) continue;
-      const grouped = groupPinnedBatchTogether({
+      // The SAME grouper the one-picture gallery pin uses: a lot joins the grid
+      // its checkpoint already has on this lane instead of starting a rival one.
+      const grouped = groupPinnedBatchBySource({
         nodes: Object.values(laneMap), placed: res.placed, graph: lane?.graph,
       });
       placedTotal += res.placed.length;

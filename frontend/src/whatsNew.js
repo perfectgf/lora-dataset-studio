@@ -50,6 +50,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-21-canvas-one-grid-per-epoch',
+    date: '2026-08-21',
+    title: 'Every checkpoint on the Canvas keeps ONE grid, and it fills up',
+    blurb:
+      'Pinned pictures now gather by checkpoint — one grid per LoRA, per epoch — and each '
+      + 'grid keeps filling. Fire a batch, pin it, fire another at the same checkpoint and pin '
+      + 'that too: the new pictures join the grid already there instead of parking a rival one '
+      + 'beside it. That is what used to break the board when a launch produced a single '
+      + 'picture per checkpoint: nothing ever grouped, and the board filled with loose tiles. '
+      + 'Two epochs of one LoRA are now two grids rather than one long strip — they still read '
+      + 'side by side, in training order, as the two labelled columns the band always drew — '
+      + 'and two LoRAs never share a grid. Boards pinned before this keep the strips they have.',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-20-caption-appearance-policy',
     date: '2026-08-20',
     title: 'Choose whether hair, makeup, facial hair and glasses bind to the trigger',
