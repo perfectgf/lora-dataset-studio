@@ -12,7 +12,7 @@ import StudioGenerationSettings from './StudioGenerationSettings';
 import StudioActionBar from './StudioActionBar';
 import StudioPreflightBanner from './StudioPreflightBanner';
 import { launchSettings, launchText as batchLaunchText, visibleBatch } from './promptBatch';
-import SceneBankPrompts from './SceneBankPrompts';
+import ScenePromptsPanel from './ScenePromptsPanel';
 import { combinedPromptBatch } from './scenePrompts';
 import { heavyRunConfirm, heavyRunNotice, runCost } from './runCost';
 
@@ -72,9 +72,9 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
   const toggleBatchPrompt = (p) => setBatchPrompts((cur) => (
     cur.includes(p) ? cur.filter((v) => v !== p) : [...cur, p]));
 
-  // 🎬 Scenes from a bank : les captions d'une banque DANS L'ORDRE, chaque scène
-  // cochée devenant une passe du même axe 📝. Non persisté, même raison que le
-  // lot d'historique ci-dessus. La règle vit dans scenePrompts.js (pur, testé).
+  // 🎬 Scenes : les captions d'une banque OU d'un dataset DANS L'ORDRE, chaque
+  // scène cochée devenant une passe du même axe 📝. Non persisté, même raison que
+  // le lot d'historique ci-dessus. La règle vit dans scenePrompts.js (pur, testé).
   const [sceneBatch, setSceneBatch] = useState({ source: null, scenes: [], picked: [] });
   const allPickedPrompts = combinedPromptBatch(
     pickedPrompts, sceneBatch.scenes, sceneBatch.picked);
@@ -215,9 +215,10 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
             onClearBatchPrompts={() => setBatchPrompts([])}
           />
 
-          {/* 🎬 Les captions d'une banque, dans l'ordre, comme passes de prompt
-              supplémentaires — juste sous le prompt qu'elles prolongent. */}
-          <SceneBankPrompts value={sceneBatch} onChange={setSceneBatch} />
+          {/* 🎬 Les captions d'une banque ou d'un dataset, dans l'ordre, comme
+              passes de prompt supplémentaires — juste sous le prompt qu'elles
+              prolongent. */}
+          <ScenePromptsPanel value={sceneBatch} onChange={setSceneBatch} />
 
           <AxisPickers
             zModels={d.z_models}

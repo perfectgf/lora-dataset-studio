@@ -50,6 +50,25 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-22-scene-prompts-from-a-dataset',
+    date: '2026-08-22',
+    title: 'Replay your own dataset’s captions as scenes, not just a bank’s',
+    blurb:
+      '🎬 Scenes could run a BANK’s captions in order — which meant the sequence you most '
+      + 'wanted to replay, the one in the dataset you captioned and curated yourself, was the '
+      + 'one place it would not read from. The section under the prompt (Test Studio and the '
+      + 'board’s 🎨 Generate) now starts with two buttons, 🗃 Bank and 📁 Dataset: pick either, '
+      + 'load its captions in order — each card showing the image it came from — tick the ones '
+      + 'you want, and every ticked scene becomes one pass of the same run. Everything else is '
+      + 'unchanged, deliberately: same checkpoints, same settings, same seed, and an image with '
+      + 'no caption is still skipped and counted rather than guessed. A dataset reads its KEPT '
+      + 'and pending images only — the ones you rejected stay out, because you already answered '
+      + 'that question. And the captions ride without the trigger word, exactly as they are '
+      + 'stored, so the run prepends the trigger of the LoRA you are actually testing: scenes '
+      + 'written for one character replay against another.',
+    to: '/studio',
+  },
+  {
     id: '2026-08-20-caption-appearance-policy',
     date: '2026-08-20',
     title: 'Choose whether hair, makeup, facial hair and glasses bind to the trigger',

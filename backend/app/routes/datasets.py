@@ -248,6 +248,24 @@ def dataset_get(dataset_id):
     return (jsonify(payload), 200) if payload else (jsonify({'error': 'not found'}), 404)
 
 
+@bp.get('/dataset/<int:dataset_id>/scenes')
+def dataset_scenes(dataset_id):
+    """The dataset's captions as ORDERED scene cards — the same read
+    `/api/bank/<id>/scenes` serves, on the images the user curated rather than
+    on a reference pile, so the generation panels can offer either source as a
+    prompt batch. Read-only: no GPU, no writes, answers while a pass is running.
+    ?statuses=keep,pending scopes it like a Bank pass (default: kept + pending,
+    never the rejects). 404 on a missing dataset."""
+    raw = (request.args.get('statuses') or '').strip()
+    statuses = [s for s in (p.strip() for p in raw.split(',')) if s] or None
+    try:
+        payload = svc.export_scene_captions(LOCAL_USER, dataset_id, statuses=statuses)
+    except ValueError as e:
+        msg = str(e)
+        return jsonify({'error': msg}), 404 if msg == 'dataset not found' else 400
+    return jsonify(payload)
+
+
 @bp.get('/dataset/<int:dataset_id>/coverage')
 def dataset_coverage_get(dataset_id):
     """Read-only variety report: what the captions never mention (camera view,

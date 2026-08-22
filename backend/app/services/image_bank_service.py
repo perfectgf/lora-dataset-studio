@@ -9330,19 +9330,18 @@ def start_caption(app, user_id, bank_id, ids=None, force=False, vocabulary=None,
 # can run those captions IN ORDER with the user's own LoRA supplying the
 # character. A READ, never a pass — no GPU, no writes, alive while a job runs.
 
-# The dataset shot importer's own prompt ceiling (frontend/src/utils/shotImport.js),
-# restated here so a scene can never carry a line that surface would refuse.
-SCENE_MAX_PROMPT = 500
-_SCENE_FRAMINGS = ('face', 'bust', 'body', 'back')
-
-
-def _scene_prompt(caption: str) -> str:
-    """One import-safe prompt line: collapsed whitespace, word-boundary cut."""
-    text = ' '.join(str(caption or '').split())
-    if len(text) <= SCENE_MAX_PROMPT:
-        return text
-    cut = text.rfind(' ', 0, SCENE_MAX_PROMPT - 1)
-    return text[:cut if cut > 0 else SCENE_MAX_PROMPT - 1] + '…'
+# The shape of a scene card — ceiling, cut, framing fallback, label — lives in
+# services/scene_captions.py, because a DATASET offers the very same cards from
+# its own captions. One definition, so the two surfaces cannot answer differently
+# for the same caption (test_scene_caption_parity.py reads both against it).
+# Re-exported under the historical names: callers and tests already say
+# `banks.SCENE_MAX_PROMPT`.
+from .scene_captions import (            # noqa: E402  (module-level, grouped with its section)
+    SCENE_MAX_PROMPT,
+    scene_framing as _scene_framing,
+    scene_label as _scene_label,
+    scene_prompt as _scene_prompt,
+)
 
 
 def export_scene_captions(user_id, bank_id, statuses=None):
@@ -9375,12 +9374,10 @@ def export_scene_captions(user_id, bank_id, statuses=None):
             skipped['no_caption'] += 1
             continue
         stem = os.path.basename(row.relpath or '') or f'image {row.id}'
-        label = f'Scene {len(scenes) + 1} — {stem}'
-        if len(label) > 80:
-            label = label[:79] + '…'
+        label = _scene_label(len(scenes), stem)
         nsfw = (row.nsfw_score is not None
                 and row.nsfw_score > th['nsfw_max'])
-        framing = row.framing if row.framing in _SCENE_FRAMINGS else 'body'
+        framing = _scene_framing(row.framing)
         scenes.append({'label': label, 'framing': framing,
                        'prompt': _scene_prompt(caption),
                        'image_id': row.id,

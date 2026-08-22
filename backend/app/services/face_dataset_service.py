@@ -38,7 +38,8 @@ from ..models import (CanvasImageNode, CanvasNodePosition, FaceDataset,
                       FaceDatasetImage, LoraTestImage)
 from .. import config as cfg
 from . import (bank_transfer_metadata, caption_origin, dataset_activity,
-               image_encoding, input_budget, reference_edit_jobs, trash)
+               image_encoding, input_budget, reference_edit_jobs,
+               scene_captions, trash)
 from .dataset_storage import dataset_path, ensure_dataset_dir
 from .image_provenance import provenance_metrics
 from .image_quality import ANALYSIS_MAX_SIDE, quality_metrics
@@ -11561,3 +11562,63 @@ def write_caption_files(user_id, dataset_id) -> dict:
     return {'ok': True, 'written': written,
             'skipped_uncaptioned': skipped_uncaptioned,
             'removed_stale': removed_stale}
+
+
+# --- Scene captions -------------------------------------------------------
+# The dataset side of 🎬 Scenes. A dataset already holds one caption per image,
+# and read in row order those captions are a SEQUENCE exactly like a bank's —
+# the same read, on the images the user curated rather than on a reference pile.
+# Shape, ceiling and labels come from services/scene_captions.py, which
+# image_bank_service reads too: two surfaces, ONE contract.
+# A READ, never a pass — no GPU, no writes, alive while a job runs.
+
+
+def export_scene_captions(user_id, dataset_id, statuses=None):
+    """The dataset's captions as ORDERED scene cards.
+
+    One card per captioned image, in dataset order (row id ascending = the order
+    the images were generated or imported). Order is the point: each card is one
+    beat of a sequence, so a missing framing is NOT a gate — the card rides the
+    row's classified framing when there is one and 'body' otherwise, because
+    refusing an image would silently drop a beat from the middle. Only a missing
+    caption skips a row, and it is COUNTED, never guessed.
+
+    ``statuses`` scopes the read the way a Bank pass does (any of 'keep',
+    'pending', 'reject'); None keeps the default a curated dataset deserves —
+    kept and pending, never the images the user threw away.
+
+    The prompts come out WITHOUT the trigger word, which is how they are stored:
+    the launch prepends the trigger of the LoRA actually being tested
+    (`lora_test_studio._prompt_with_trigger`), so a scene read from dataset A can
+    be replayed against a checkpoint trained on dataset B and still say the right
+    name. ``filename`` lets a UI show the image a scene came from (dataset thumb
+    route); it is display-only and never rides a generation payload.
+    """
+    from .image_bank_service import normalize_pass_statuses   # deferred: banks import us
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    want = normalize_pass_statuses(statuses) or ['keep', 'pending']
+    rows = (FaceDatasetImage.query
+            .filter_by(dataset_id=dataset_id)
+            .filter(FaceDatasetImage.status.in_(want))
+            .order_by(FaceDatasetImage.id.asc()).all())
+    scenes = []
+    skipped = {'no_caption': 0}
+    for row in rows:
+        caption = (row.caption or '').strip()
+        if not caption:
+            skipped['no_caption'] += 1
+            continue
+        name = os.path.basename(row.filename or '')
+        scenes.append({'label': scene_captions.scene_label(
+            len(scenes), name or f'image {row.id}'),
+            'framing': scene_captions.scene_framing(row.framing),
+            'prompt': scene_captions.scene_prompt(caption),
+            'image_id': row.id,
+            # None when the file is not written yet (a generation still in
+            # flight): the card is its caption, and the panel simply draws no
+            # thumbnail rather than pointing an <img> at a URL that 404s.
+            'filename': name or None})
+    return {'dataset_id': dataset_id, 'dataset_name': ds.name,
+            'scenes': scenes, 'skipped': skipped}
