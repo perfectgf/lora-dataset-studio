@@ -50,6 +50,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-22-a-base-model-filed-deeper-than-one-folder-is-found',
+    date: '2026-08-22',
+    title: 'A Krea or Klein base model filed two folders deep is found, like ComfyUI finds it',
+    blurb:
+      'If you named a “Base model file” that sat more than one folder deep — a folder inside '
+      + 'your Krea folder — the app looked only one level down, did not find it, and refused to '
+      + 'run with “not on disk” about a file that was right there (and before that guard '
+      + 'existed, it quietly generated with a different Krea build instead). The Test Studio '
+      + 'already saw those files; Generate did not. Both now look as deep as you have filed '
+      + 'things, in the same folders and the same order ComfyUI itself searches — so what the '
+      + 'Studio lists is what Generate can load, and a name you type resolves wherever it sits. '
+      + 'When two files share a name, the shallower one wins, and a `.git` folder is skipped '
+      + 'exactly as ComfyUI skips it.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-08-22-scene-prompts-from-a-dataset',
     date: '2026-08-22',
     title: 'Replay your own dataset’s captions as scenes, not just a bank’s',
