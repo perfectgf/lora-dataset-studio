@@ -3,6 +3,7 @@ import { selectionSummary } from '../../utils/canvasSelection';
 import { familyLabel } from '../../utils/canvasFamilyFilter';
 import { statusLabel, matchesDatasetQuery } from '../../utils/canvasFilterBar';
 import CanvasFilterMenu from './CanvasFilterMenu';
+import useMediaQuery from '../../hooks/useMediaQuery';
 
 /* Which datasets — and which runs of them — sit on the board.
  *
@@ -51,6 +52,12 @@ export default function CanvasDatasetFilter({
      want to tick in this list of thirty". Merging them meant scrolling a
      checkbox list to find a dataset while the board silently filtered itself. */
   const [pick, setPick] = useState('');
+
+  /* 📏 Is there HEIGHT to spend? Every rule in this bar was written about its
+     width; a phone held sideways has plenty of that and almost none of this.
+     500 px is under every phone held upright and over every one held sideways
+     (see the same line in LineageCanvas). */
+  const tallFold = useMediaQuery('(min-height: 500px)');
 
   /* 📱 Is the board search unfolded? Below `lg` only — from `lg` up the field is
      in the bar unconditionally and this state is not consulted at all, which is
@@ -112,11 +119,11 @@ export default function CanvasDatasetFilter({
           className="mb-1.5 h-9 w-full rounded-md border border-border bg-app/60 px-2.5 text-content text-[0.75rem] placeholder:text-content-subtle focus:border-primary focus:outline-none" />
         <div className="mb-1.5 flex items-center gap-1.5">
           <button type="button" onClick={onAll}
-            className="flex h-8 items-center rounded-md border border-border bg-app/60 px-2.5 text-content-muted text-[0.6875rem] hover:text-content">
+            className="flex h-10 items-center rounded-md border border-border bg-app/60 px-2.5 text-content-muted text-[0.6875rem] hover:text-content lg:h-8">
             Select all
           </button>
           <button type="button" onClick={onNone}
-            className="flex h-8 items-center rounded-md border border-border bg-app/60 px-2.5 text-content-muted text-[0.6875rem] hover:text-content">
+            className="flex h-10 items-center rounded-md border border-border bg-app/60 px-2.5 text-content-muted text-[0.6875rem] hover:text-content lg:h-8">
             Clear
           </button>
           <span className="ml-auto text-content-subtle text-[0.625rem] tabular-nums">
@@ -274,8 +281,16 @@ export default function CanvasDatasetFilter({
       <input id="canvas-filter-search" ref={searchRef} type="search" value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         placeholder="Search runs — dataset, ID, model, variant…"
+        /* 📏 `basis-full` puts the field on a ROW OF ITS OWN, which is right
+           when there is height to spend and wrong when there is not: on a phone
+           held sideways the bar went from 54 px to 146, and with the toolbar
+           that was 200 of the 390 the screen has — 51 %, over budget, for a
+           field that fits beside the chips at that width (500 px of chips and a
+           144-px field in an 844-px bar). On a short fold it shares the row
+           instead. Nothing changes on any fold a phone is held upright at,
+           where the full-width field is the better read. */
         className={'h-10 min-w-[9rem] flex-1 rounded-md border bg-app/60 px-3 text-content text-[0.75rem] placeholder:text-content-subtle lg:h-9 lg:block lg:basis-48 '
-          + (searchOpen ? 'basis-full ' : 'hidden ')
+          + (searchOpen ? `${tallFold ? 'basis-full' : 'basis-auto'} ` : 'hidden ')
           + (queryActive ? 'border-indigo-400/60' : 'border-border')} />
 
       {/* 📏 …and below `md` it is not DRAWN at all until there is something to
