@@ -49,6 +49,9 @@ from .ollama_control import normalize_ollama_model_ref
 # (sinon Ollama le recharge - cold start ~10s - à CHAQUE image). Déchargé en fin
 # de batch pour rendre la VRAM à ComfyUI. ComfyUI est déjà en pause pendant la passe.
 _VISION_BATCH_KEEPALIVE = '5m'
+# Re-exported on purpose (not used here): face_variations.py says so, and
+# `svc.KLEIN_IMAGE_IMPROVE_PROMPT` is what the tests and the improve lane read.
+from .face_variations import KLEIN_IMAGE_IMPROVE_PROMPT  # noqa: F401
 from .face_variations import (DESCRIPTIVE_CAPTION_PROMPT,
                               CAPTION_REFINE_CONCEPT_PROMPT, CAPTION_LEAK_FIX_PROMPT,
                               EXPAND_CONCEPT_TERMS_PROMPT,
