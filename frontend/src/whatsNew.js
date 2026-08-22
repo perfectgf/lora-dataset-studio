@@ -40,6 +40,20 @@
 //    deep-link ('/datasets?section=<id>&panel=<id>'). The section/panel ids are
 //    validated against the LIVE navigation registries by whatsNew.test.js, so a
 //    stale target fails the test the moment a section is renamed.
+//  • `image` is OPTIONAL: a repo-relative path to a screenshot
+//    ('docs/screenshots/canvas/board.png'). It is shown in the GITHUB RELEASE
+//    body only — the in-app panel does not render it — under the prose, pinned
+//    to the released tag so an old release keeps showing what actually shipped.
+//    Three rules, and they are not style preferences:
+//      1. ONE per release, on the headline change. A wall of screenshots reads
+//         as a brochure; one picture reads as evidence.
+//      2. NEVER from a real bank or dataset. The maintainer's own images are
+//         NSFW and are out of bounds for anything public, cropped or not — use
+//         the showcase instance (scripts/seed_showcase.py) whose data is
+//         generated.
+//      3. Prefer a screen that shows the CHANGE, not the app. A settings panel,
+//         a toolbar, a queue — those photograph without any dataset image at
+//         all, which is why most entries can carry one cheaply.
 //  • Keep the list tidy: tail entries older than a couple of months can be
 //    pruned once everyone has cycled through an update or two.
 // =====================================================================
