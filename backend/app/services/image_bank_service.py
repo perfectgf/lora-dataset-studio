@@ -58,6 +58,9 @@ from ..extensions import db
 from ..models import BankImage, FaceDataset, FaceDatasetImage, ImageBank
 from . import (bank_jobs, bank_semantic_engine, bank_transfer_metadata, bank_undo, caption_origin,
                dataset_activity, image_encoding, path_guard, trash)
+# The scope vocabulary is a leaf (pass_scopes.py) so face_dataset_service never
+# imports this module; the three names stay readable as banks.* for every caller.
+from .pass_scopes import PASS_SCOPES, CAPTION_SCOPES, normalize_pass_statuses  # noqa: F401
 # Re-exported on purpose: the promote tests patch `banks._existing_dhash_rows`.
 from .face_dataset_service import _existing_dhash_rows  # noqa: F401
 from .face_dataset_service import (SCRAPE_IMPORT_MAX, _dhash, _download_scrape_item,
@@ -3166,35 +3169,8 @@ def _scan_one(src_root: str, thumbs: Path, item: tuple) -> dict:
 # pass that reaches it spends real time (GPU, in most cases) on images you
 # decided against. It is never a default, never part of the default, and the
 # dialog that offers it says what it costs.
-PASS_SCOPES = ('keep', 'pending', 'reject')
-
-
-def normalize_pass_statuses(statuses, allowed=PASS_SCOPES):
-    """Validate a per-run scope → a canonical list, or None for "as before".
-
-    None / [] → None, meaning the pass keeps its own historical filter. Anything
-    outside ``allowed`` raises ValueError → 400, exactly like a bad vocabulary."""
-    if statuses is None:
-        return None
-    if isinstance(statuses, str):       # a lone 'keep' is a scope of one
-        statuses = [statuses]
-    if not isinstance(statuses, (list, tuple, set)):
-        raise ValueError('invalid statuses: expected a list of statuses')
-    want = []
-    for s in statuses:
-        if not isinstance(s, str):
-            raise ValueError('invalid status: expected status names')
-        v = s.strip().lower()
-        if not v:
-            continue
-        if v not in allowed:
-            raise ValueError(f'invalid status: {v}')
-        want.append(v)
-    if not want:
-        return None
-    # Canonical order + dedup, so ['pending','keep'] and ['keep','pending'] are
-    # one value and never two code paths.
-    return [s for s in PASS_SCOPES if s in want]
+# PASS_SCOPES itself lives in pass_scopes.py — a leaf both surfaces import, so the
+# dataset side never has to reach into this module for three words.
 
 
 def _unscored_clause():
@@ -9189,7 +9165,7 @@ def _medium_job(bank_id, rescan, statuses=None, ids=None):
 # the app enforced on the user rather than a fact about the data, and the launch
 # dialog is where the cost of aiming a GPU pass at the bin can finally be stated
 # instead of assumed.
-CAPTION_SCOPES = PASS_SCOPES
+# CAPTION_SCOPES comes from pass_scopes.py with PASS_SCOPES (same tuple, two names).
 
 
 def _normalize_caption_statuses(statuses):

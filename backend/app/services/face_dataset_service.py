@@ -43,6 +43,7 @@ from . import (bank_transfer_metadata, caption_origin, dataset_activity,
 from .dataset_storage import dataset_path, ensure_dataset_dir
 from .image_provenance import provenance_metrics
 from .image_quality import ANALYSIS_MAX_SIDE, quality_metrics
+from .pass_scopes import normalize_pass_statuses
 from .ollama_control import normalize_ollama_model_ref
 
 # Garde le modèle vision chaud entre les images d'un même batch caption/classify
@@ -11736,7 +11737,6 @@ def export_scene_captions(user_id, dataset_id, statuses=None):
     name. ``filename`` lets a UI show the image a scene came from (dataset thumb
     route); it is display-only and never rides a generation payload.
     """
-    from .image_bank_service import normalize_pass_statuses   # deferred: banks import us
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
