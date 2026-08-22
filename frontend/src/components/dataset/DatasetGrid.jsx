@@ -259,10 +259,17 @@ function GridPager({ view, onGo, where }) {
 
 export default function DatasetGrid({ images, datasetId, onStatus, onCaption, onCrop, onDelete,
                                       onMirror, onRegenerate, onScoreFace, scoringFaceIds, onReimprove, onView, onBatch, busy,
-                                      /* Queue-lane gate (GitHub #44): `busy` is every pass; this one is only
-                                         what actually refuses a NEW queued job. Defaults to `busy` so a caller
-                                         that does not pass it keeps the old blanket. */
-                                      queueBusy = undefined, nonces,
+                                      /* Queue-lane gates (GitHub #44). `busy` is every pass and still guards
+                                         every WRITE; these two are only what refuses a NEW queued job, and there
+                                         are TWO of them because the launches they gate are different work:
+                                         `improveBusy` for the ✨ batch and the per-tile re-improve (the backend
+                                         answers 409 to a second improve batch), `generateBusy` for 🔄 / ✏️ retry,
+                                         which enqueue a 'generate' the backend accepts freely. Merging them is
+                                         exactly the bug this pair exists to prevent: the tiles then read the
+                                         improve gate and stay grey for the whole improve batch — #44's own
+                                         symptom, on the surface its release note promised. Both default to
+                                         `busy`, so a caller that passes neither keeps the old blanket. */
+                                      improveBusy = undefined, generateBusy = undefined, nonces,
                                       mirroringIds, faceThresholds, datasetKind = 'character',
                                       onImproveBatch, kleinAvailable = false,
                                       eligibilityImages, dualCaptions = false,
@@ -310,8 +317,9 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   // Same three local locks, but over the queue-lane gate: launching an improve
   // or a retry while a generation batch is still running is exactly what #44
   // asked for, and the backend queue serializes them anyway.
-  const queueLaunchBusy = (queueBusy ?? busy)
-    || launchingImprove || !!bulkAction || autoTriageApplying;
+  const localLaunchLock = launchingImprove || !!bulkAction || autoTriageApplying;
+  const improveLaunchBusy = (improveBusy ?? busy) || localLaunchLock;
+  const generateLaunchBusy = (generateBusy ?? busy) || localLaunchLock;
   /* WHAT BLOCKS WHAT — three answers, not one.
      `bulkBusy` blocks WRITES: a running pass owns the pixels, the statuses and
      the files, and a second writer would race it. That has never been in doubt.
@@ -449,7 +457,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   // what will be skipped); the server re-checks it and owns the pacing.
   const improveSelected = async (engineId) => {
     const { eligible, excluded } = partitionKleinImproveSelection(improveUniverse, ids);
-    if (!onImproveBatch || !eligible.length || queueLaunchBusy) return;
+    if (!onImproveBatch || !eligible.length || improveLaunchBusy) return;
     if (improveEngineBlockedReason(engineId, {
       caps, engines: caps?.engines, eligibleCount: eligible.length,
     })) return;
@@ -543,7 +551,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
                 return (
                   <button key={engine.id} type="button"
                     onClick={() => improveSelected(engine.id)}
-                    disabled={queueLaunchBusy || !!improveLabel || !!blocked}
+                    disabled={improveLaunchBusy || !!improveLabel || !!blocked}
                     title={blocked
                       ? `${blocked}${exclusionSummary ? ` ${exclusionSummary}.` : ''}`
                       : `${engine.summary} Runs in the background, a few at a time — survives a page reload.${exclusionSummary ? ` Excluded: ${exclusionSummary}.` : ''}`}
@@ -591,15 +599,18 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
             improvementState={improvementStates.get(img.id)}
             onCrop={onCrop} onDelete={onDelete} onMirror={onMirror}
             mirrorBusy={Boolean(mirroringIds?.has(img.id))} busy={bulkBusy}
-            queueBusy={queueLaunchBusy}
+            improveBusy={improveLaunchBusy} generateBusy={generateLaunchBusy}
             busyReason={busyReason}
             onScoreFace={onScoreFace} scoreFaceBusy={Boolean(scoringFaceIds?.has(img.id))}
             faceScoringBusy={Boolean(scoringFaceIds?.size)}
             faceScoringBlocked={faceScoringBlocked}
-            onRegenerate={bulkBusy ? undefined : onRegenerate}
-            /* onView is handed over UNCONDITIONALLY: withholding it made the
-               inspect button a no-op even once its `disabled` was lifted. */
-            onReimprove={onReimprove} onView={onView}
+            /* onRegenerate, onView and onReimprove are handed over UNCONDITIONALLY.
+               Withholding a handler while its button's `disabled` says otherwise makes
+               the button light up and do nothing — it happened to onView first, and it
+               happened again here the moment 🔄 moved off `bulkBusy`. The refusal
+               belongs in ONE place, the `disabled` the tile computes from the lane
+               gates above, which already covers every case that must be refused. */
+            onRegenerate={onRegenerate} onReimprove={onReimprove} onView={onView}
             selected={selected.has(img.id)}
             onToggleSelect={onBatch && !selectionLocked && !isSmallImageRescueRow(img) ? toggle : undefined}
             nonce={(nonces && nonces[img.id]) || 0} faceThresholds={faceThresholds}

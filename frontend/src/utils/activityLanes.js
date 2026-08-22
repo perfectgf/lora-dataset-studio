@@ -53,6 +53,28 @@ export function laneOf(kind) {
   return QUEUE_KINDS.includes(kind) ? 'queue' : 'exclusive';
 }
 
+// The two engines that render somewhere else. Everything not on this list is
+// treated as LOCAL, including an unknown or legacy value: failing safe means
+// assuming the GPU is taken.
+const REMOTE_ENGINES = ['nanobanana', 'chatgpt'];
+
+/**
+ * Is this activity occupying the local ComfyUI?
+ *
+ * Separate question from `activityBlocks`, and it must stay separate. Queued
+ * work does not stop you queueing more — but it DOES stop anything that wants
+ * the exclusive GPU vision window, and the import dropzone's auto head-crop is
+ * exactly that. Widening the import gate (`isDatasetImportBlocked`) without
+ * widening this one shipped an import that opened, ran, and came back 503
+ * "GPU busy" on the crop: the door was unlocked onto a wall.
+ */
+export function holdsLocalGpu(activity) {
+  const kind = activity?.kind || null;
+  if (!kind) return false;
+  if (laneOf(kind) !== 'queue') return false;   // exclusive passes own their own gate
+  return !REMOTE_ENGINES.includes(String(activity?.engine || '').toLowerCase());
+}
+
 /**
  * Does the live `activity` block starting `actionKind`?
  *

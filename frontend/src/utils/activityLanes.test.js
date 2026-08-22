@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { QUEUE_KINDS, SELF_EXCLUSIVE_KINDS, activityBlocks, laneOf } from './activityLanes.js';
+import { QUEUE_KINDS, SELF_EXCLUSIVE_KINDS, activityBlocks, holdsLocalGpu, laneOf } from './activityLanes.js';
 
 // GitHub #44, the report itself: an ✨ Upscale & improve batch used to disable
 // every generation control until it finished.
@@ -65,4 +65,32 @@ test('every published kind has a lane', () => {
   for (const kind of published)
     assert.ok(['queue', 'exclusive'].includes(laneOf(kind)), kind);
   assert.deepEqual(published.filter((k) => laneOf(k) === 'queue'), QUEUE_KINDS);
+});
+
+// Opening the import dropzone during queued work is only half an answer: the
+// auto head-crop wants the exclusive GPU vision window, and local queue work
+// holds ComfyUI. Widening the door without widening this shipped an import that
+// opened, ran, and came back 503 'GPU busy' on the crop.
+test('local queue work holds the GPU, whatever kind it is', () => {
+  for (const kind of QUEUE_KINDS) {
+    assert.equal(holdsLocalGpu({ kind, engine: 'klein' }), true, kind);
+    assert.equal(holdsLocalGpu({ kind, engine: 'seedvr2' }), true, kind);
+    // Unknown or absent engine fails SAFE — assume the GPU is taken.
+    assert.equal(holdsLocalGpu({ kind }), true, kind);
+    assert.equal(holdsLocalGpu({ kind, engine: 'some-future-engine' }), true, kind);
+  }
+});
+
+test('the two remote engines do not hold the local GPU', () => {
+  for (const engine of ['nanobanana', 'chatgpt', 'ChatGPT', 'NanoBanana'])
+    assert.equal(holdsLocalGpu({ kind: 'generate', engine }), false, engine);
+});
+
+test('an exclusive pass answers for its own GPU use, not through this gate', () => {
+  // caption / classify / faces take the vision window themselves and already
+  // block everything; folding them in here would double-count them.
+  for (const kind of ['caption', 'classify', 'analyze_faces', 'watermark_clean'])
+    assert.equal(holdsLocalGpu({ kind }), false, kind);
+  for (const activity of [null, undefined, {}, { kind: null }])
+    assert.equal(holdsLocalGpu(activity), false);
 });

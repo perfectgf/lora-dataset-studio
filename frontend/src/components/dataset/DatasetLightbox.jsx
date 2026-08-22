@@ -180,6 +180,13 @@ export default function DatasetLightbox({
   onRepair,
   onUndoRepair,
   busy = false,
+  // ✨ Improve is queue work, not a write on this image: `improve_existing_image`
+  // only refuses a candidate already in flight on THIS source, plus MAX_FANOUT.
+  // So it reads the improve-lane gate the grid's ✨ buttons read, not the
+  // conservative `busy` that guards crop/rotate/mirror/keep/reject (GitHub #44).
+  // Same action, same answer on both surfaces of one screen. Defaults to `busy`
+  // so a caller that passes neither keeps the old blanket.
+  improveBusy = undefined,
   // The sentence a refused write shows (which pass holds this dataset, where it
   // is, what to do). Opening, zooming and comparing never consult it: they read
   // the same bytes the grid is already showing.
@@ -445,7 +452,8 @@ export default function DatasetLightbox({
   const refused = busy ? busyReason : null;
   const improveButtons = onImprove
     ? lightboxImproveButtons({
-      caps, engines: caps?.engines, improving, improvePending, improveReady, busy,
+      caps, engines: caps?.engines, improving, improvePending, improveReady,
+      busy: (improveBusy ?? busy),
       busyReason,
     })
     : [];

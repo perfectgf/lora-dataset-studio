@@ -81,8 +81,13 @@ test('the tile renders a real button with an aria-label and calls onReimprove', 
   // serialized image queue, so a generation batch running elsewhere no longer
   // refuses it (GitHub #44, utils/activityLanes.js). What DOES refuse it still
   // says so out loud — the accessible name carries the sentence.
-  assert.match(tile, /aria-label=\{queueRefusedReason \|\| rerunImprove\.title\}/);
-  assert.match(tile, /disabled=\{queueRefused \|\| !rerunImprove\.enabled\}/);
+  assert.match(tile, /aria-label=\{improveRefusedReason \|\| rerunImprove\.title\}/);
+  assert.match(tile, /disabled=\{improveRefused \|\| !rerunImprove\.enabled\}/);
+  // …and the IMPROVE gate, not the generate one: the backend answers 409 to a
+  // second improve on a source that already has one in flight, while the 🔄
+  // beside it enqueues a plain generation it accepts. One shared flag is what
+  // kept the retries grey for a whole improve batch.
+  assert.doesNotMatch(tile, /disabled=\{generateRefused \|\| !rerunImprove\.enabled\}/);
   // The tile must never hand an improvement to the generic route.
   assert.match(tile, /canRegenerateGeneric\(img, \{ isRescueDerived \}\)/);
 });

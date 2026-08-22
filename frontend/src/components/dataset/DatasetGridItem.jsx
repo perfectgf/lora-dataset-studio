@@ -92,12 +92,16 @@ const WATERMARK_BADGE = {
  */
 export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, onCrop, onDelete,
                                           onMirror, mirrorBusy = false, busy = false,
-                                          /* The three buttons below that START a queued job (🔄 retry, ✏️ retry
-                                             with an edited prompt, 🔄✨ re-improve) read this instead of `busy`:
-                                             they add a row to a queue that is already serialized, so a batch
-                                             running elsewhere is no reason to refuse them (GitHub #44). Every
-                                             other button here still writes to THIS image and keeps `busy`. */
-                                          queueBusy = undefined,
+                                          /* The buttons below that START a queued job read these instead of
+                                             `busy`: they add a row to a queue that is already serialized, so a
+                                             batch running elsewhere is no reason to refuse them (GitHub #44).
+                                             TWO gates, not one, because they gate different work: 🔄✨ re-improve
+                                             is improve-lane (the backend refuses a second one), while 🔄 and ✏️
+                                             enqueue a plain 'generate' it accepts freely. One shared flag meant
+                                             the retries inherited the improve refusal and stayed grey for the
+                                             whole improve batch. Every other button here writes to THIS image
+                                             and keeps `busy`. */
+                                          improveBusy = undefined, generateBusy = undefined,
                                           busyReason = null,
                                           onScoreFace, scoreFaceBusy = false, faceScoringBusy = false, faceScoringBlocked = null,
                                           onRegenerate, onReimprove, onView, nonce = 0, faceThresholds,
@@ -138,10 +142,12 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
           : 'Score facial resemblance to the reference');
   // Every refused write says WHICH pass holds it; idle, each keeps its own words.
   const refused = busy ? busyReason : null;
-  const queueRefused = (queueBusy ?? busy);
-  // The sentence those three buttons show when THEY are the ones refusing.
-  // Reusing `refused` would have named a pass that no longer blocks them.
-  const queueRefusedReason = queueRefused ? busyReason : null;
+  const improveRefused = (improveBusy ?? busy);
+  const generateRefused = (generateBusy ?? busy);
+  // The sentence each of them shows when IT is the one refusing. Reusing
+  // `refused` would have named a pass that no longer blocks them.
+  const improveRefusedReason = improveRefused ? busyReason : null;
+  const generateRefusedReason = generateRefused ? busyReason : null;
 
   const fb = faceBadge(img, faceThresholds);
   const wb = WATERMARK_BADGE[img.watermark_state];
@@ -284,25 +290,25 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
           {canRegenerate && (
             <button type="button"
               onClick={(e) => { e.stopPropagation(); onRegenerate?.(img.id); }}
-              disabled={queueRefused}
-              title={queueRefusedReason || 'Regenerate this variation (new seed)'}
-              aria-label={queueRefusedReason || 'Regenerate this variation (new seed)'}
+              disabled={generateRefused}
+              title={generateRefusedReason || 'Regenerate this variation (new seed)'}
+              aria-label={generateRefusedReason || 'Regenerate this variation (new seed)'}
               className="px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px] disabled:cursor-not-allowed disabled:opacity-45">🔄</button>
           )}
           {canRegenerate && (
             <button type="button"
               onClick={(e) => { e.stopPropagation(); setEditingPrompt(true); }}
-              disabled={queueRefused}
-              title={queueRefusedReason || 'Edit the prompt, then regenerate this variation'}
-              aria-label={queueRefusedReason || 'Edit the prompt, then regenerate this variation'}
+              disabled={generateRefused}
+              title={generateRefusedReason || 'Edit the prompt, then regenerate this variation'}
+              aria-label={generateRefusedReason || 'Edit the prompt, then regenerate this variation'}
               className="px-1.5 py-0.5 rounded bg-black/60 text-white text-[10px] disabled:cursor-not-allowed disabled:opacity-45">✏️</button>
           )}
           {rerunImprove && (
             <button type="button"
               onClick={(e) => { e.stopPropagation(); onReimprove?.(img.id); }}
-              disabled={queueRefused || !rerunImprove.enabled}
-              title={queueRefusedReason || rerunImprove.title}
-              aria-label={queueRefusedReason || rerunImprove.title}
+              disabled={improveRefused || !rerunImprove.enabled}
+              title={improveRefusedReason || rerunImprove.title}
+              aria-label={improveRefusedReason || rerunImprove.title}
               className="grid min-h-7 min-w-7 place-items-center rounded bg-black/60 text-[10px] text-white disabled:cursor-not-allowed disabled:opacity-45">
               <span aria-hidden="true">🔄✨</span>
             </button>
