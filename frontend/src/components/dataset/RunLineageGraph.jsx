@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { buildLineageGraph, CARD_W, CARD_H } from '../../utils/lineageGraph';
+import { buildLineageGraph, CARD_W } from '../../utils/lineageGraph';
 import { GraphCard, CheckpointPill } from './lineageNodes';
 import { LineageEdgeDefs, LineageEdges } from './lineageEdges';
 import LineageDetailPanel from './LineageDetailPanel';

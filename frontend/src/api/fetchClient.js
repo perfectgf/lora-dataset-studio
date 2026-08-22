@@ -119,7 +119,7 @@ export async function apiFetch(url, options = {}) {
       body = await res.json();
       parsed = true;
       msg = (body && (body.error || body.detail || body.message)) || msg;
-    } catch {}
+    } catch { /* not JSON: the status text above stands */ }
 
     if (res.status === 400 && !parsed) {
       // A 400 whose body still isn't our JSON envelope after the retry above is

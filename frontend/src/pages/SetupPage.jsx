@@ -14,7 +14,6 @@ import { ML_INSTALL_CARDS, cardInstalled } from '../components/setup/mlInstallCa
 import InstallRunner from '../components/setup/InstallRunner'
 import InstallEverything from '../components/setup/InstallEverything'
 import { HelpBadge } from '../help/HelpMode'
-import { comfyEnumUnavailableReason } from '../utils/comfyEnumSupport.js'
 import { kleinAssetBlocks } from '../utils/kleinAssets.js'
 
 const INPUT_CLASS =
@@ -511,9 +510,6 @@ export default function SetupPage() {
       const kleinMissing = step.kleinMissing || []
       const missingLabels = kleinMissingLabels(kleinMissing)
       const missingSummary = missingLabels.length ? missingLabels.join(' + ') : ''
-      // Null on a capable install AND on an unreachable one (the probe fails open),
-      // so this line only ever appears when we actually proved the gap.
-      const kleinEnumReason = comfyEnumUnavailableReason(step.unsupportedEnums)
       // THE reason Klein is not usable, worded by the same helper the generation
       // panel uses — so this screen can no longer name a different cause (or a
       // missing file that is sitting on the disk) from the one that refuses the
@@ -1408,7 +1404,7 @@ export default function SetupPage() {
   // Progress dots: one per tool step, filled when that tool is ready.
   const ProgressDots = () => (
     <div className="flex items-center gap-1.5" aria-hidden="true">
-      {SETUP_STEP_IDS.map((id, i) => {
+      {SETUP_STEP_IDS.map((id) => {
         const active = kind === id
         const ready = stepById[id].status === 'ready'
         return (

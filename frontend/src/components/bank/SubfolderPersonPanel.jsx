@@ -1,6 +1,6 @@
 import {
   SAMPLE_SIZE, assertionSummary, checkCostNote, folderLabel, revokeNote,
-  scanOffer, suggestionLine, suggestionTone, toCheckNote, verdictLine,
+  suggestionLine, suggestionTone, toCheckNote, verdictLine,
   verdictTone,
 } from './folderPerson'
 

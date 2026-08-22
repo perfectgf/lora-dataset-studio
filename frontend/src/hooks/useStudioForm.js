@@ -71,7 +71,7 @@ export function useStudioForm(d, datasetId, family = null,
     setSelModels([preselectBase]);
     setSelCfgs(null);
     setSelSteps(null);
-  }, [preselectBase, d?.z_models]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [preselectBase, d?.z_models]);
 
   // Persiste les sélections à chaque changement (refresh-safe, par dataset).
   useEffect(() => {

@@ -28,7 +28,6 @@ export async function pickNativeFolder(initial) {
  * A host that genuinely cannot fail says so explicitly (see FolderPickerField):
  * silence is not a success. */
 export function FolderBrowserModal({ initial, onPick, onClose }) {
-  const [path, setPath] = useState(initial || null)
   // What the user is TYPING, kept apart from `data.path` (where the browser
   // actually is): a half-typed path must not be mistaken for the current folder,
   // and "Use this folder" must keep committing what is on screen, not the draft.
@@ -70,7 +69,6 @@ export function FolderBrowserModal({ initial, onPick, onClose }) {
       const q = p ? `?path=${encodeURIComponent(p)}` : ''
       const d = await apiFetch(`/api/system/list-folders${q}`)
       setData(d)
-      setPath(d.path)
       // Follow the browser: after a click, an Up, or a successful jump, the box
       // shows where you ARE, so the next paste replaces a real path.
       setTyped(d.path || '')
