@@ -1685,7 +1685,13 @@ export function useDataset() {
   // longer greys out ⚡ Generate for as long as it runs.
   const generationBusy = busy || activityBlocks(activity, 'generate');
   const improveBusy = busy || activityBlocks(activity, 'improve');
-  const referenceEditBusy = busy || activityBlocks(activity, 'edit_reference');
+  // No `referenceEditBusy` on purpose. A live reference edit stops blocking the
+  // other lanes (it is queue work like any other, and it changes nothing until
+  // the user keeps the result), but what gates STARTING one is the reference
+  // panel's own `busy` — the same flag that guards replacing and cropping the
+  // reference itself, which every queued variation derives from. Splitting that
+  // one out is a separate question from #44 and does not get answered here by
+  // accident.
   const canRetryReferenceEdit = Boolean(retryRequestForReferenceEdit(
     referenceEditRetryRef.current.get(String(currentId)),
     data?.reference_edit,
@@ -1693,7 +1699,7 @@ export function useDataset() {
 
 
   return { datasets, currentId, data, busy: busyLive, localBusy: busy,
-           generationBusy, improveBusy, referenceEditBusy, captioning: captioningLive,
+           generationBusy, improveBusy, captioning: captioningLive,
            lastCaptionRun,
            analyzing: analyzingLive, watermarking: watermarkingLive, activity,
            nonces, mirroringIds, refNonce, scoringFaceIds, recaptioningIds, create, open,

@@ -6,8 +6,10 @@
 // in the workspace. So starting a ✨ Upscale & improve batch, or merely retrying
 // ONE tile (the synchronous regenerate publishes a 'generate' activity of
 // total=1), greyed out Generate, the watermark passes, captioning, everything,
-// for as long as the batch ran. That is GitHub #44: "kicking off any generation
-// task should allow more generation tasks to be queued up".
+// for as long as the batch ran. That is GitHub #44, reported by charlesangus:
+// "kicking off any generation task should allow more generation tasks to be
+// queued up; the user should not have to wait for one to finish before kicking
+// off the next".
 //
 // The blanket was never load-bearing. `backend/app/job_queue.py` is a FIFO
 // worker over `image_generation_queue` and `lora_test_studio.gpu_busy_reason`

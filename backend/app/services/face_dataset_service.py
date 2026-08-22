@@ -10478,10 +10478,10 @@ IMPROVE_SLOT_POLL_SECONDS = 2.0
 # either way. What the deep queue DID buy was the whole per-dataset fan-out
 # budget, spent on background work: the next thing the user clicked came back
 # "too many generations in flight (60), wait or cancel", which is the second
-# half of GitHub #44 (the first half being the UI blanket — see
-# frontend/src/utils/activityLanes.js). A shallow depth keeps the GPU fed
-# across the gap between two jobs and leaves the rest of MAX_FANOUT to the
-# person sitting in front of the app.
+# half of GitHub #44, reported by charlesangus (the first half being the UI
+# blanket — see frontend/src/utils/activityLanes.js). A shallow depth keeps the
+# GPU fed across the gap between two jobs and leaves the rest of MAX_FANOUT to
+# the person sitting in front of the app.
 IMPROVE_QUEUE_DEPTH = 4
 # Give up (and say so) if no slot frees for this long. A ComfyUI that died mid-batch
 # would otherwise leave the thread polling a count that never drops, and the dataset
