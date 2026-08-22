@@ -183,47 +183,73 @@ export function boardObstacles(graph, imageNodes) {
 const sourceKey = (img) => `${img?.record_id ?? '?'}:${img?.step ?? '?'}`;
 
 /**
- * WHICH CHECKPOINT made a picture — the identity two grids must never share.
+ * WHICH LAUNCH made a picture — the identity two grids must never share.
  *
- * `record_id` names the LoRA (the training run, and so the dataset it was
- * trained on) and `step` names the epoch inside it. Together they are ONE
- * CHECKPOINT, and one checkpoint is one grid. Two LoRAs never share a strip,
- * two datasets never share one, and two epochs of the same LoRA do not share
- * one either. Everything that checkpoint ever rendered goes in that strip: a
- * second launch fired at the same epoch JOINS the grid its predecessor
- * started, and so does a second prompt.
+ * A grid is ONE CLICK ON GENERATE. `lora_test_image.run_id` already groups
+ * every cell of one launch (it is what a run resumes from), `prompt` separates
+ * the grids inside a launch that fired several, and `record_id` names the LoRA,
+ * which is also the LANE the grid has to live in — a strip cannot span two
+ * datasets, they are drawn as separate bands.
  *
- * This is the same identity the BAND already places by (`sourceKey` above),
- * which is the point — a grid now fills exactly one band column instead of
- * straddling several.
+ * `step` is deliberately NOT in the key. Tick four epochs, click once, and the
+ * four pictures that come back are ONE grid: that click is the thing you are
+ * looking at, and its four renders are what you are comparing. The grid then
+ * straddles the four band columns rather than filling one, which is the price,
+ * and it was chosen with that price on the table.
  *
- * ── What this key used to be, and why it isn't ───────────────────────────────
+ * ── Why this keeps being rewritten, and what actually settles it ─────────────
  *
- * Until 2026-08-21 it was `run_id + prompt + record_id`, with `step`
- * deliberately excluded so that the epochs of one LoRA formed a single
- * epoch-comparison strip. Both halves of that are reversed here, on report:
+ * Fourth rewrite in five days (18/08 twice, 21/08, 22/08), because LAUNCH and
+ * CHECKPOINT are orthogonal and a grid can only follow one of them:
  *
- *   • keyed by LAUNCH, two batches fired at the same checkpoint could never
- *     meet. The ordinary case is one picture per checkpoint per launch — and a
- *     grid of one is not a grid — so a board generated on over several
- *     clicks filled with loose tiles that never coalesced. That is the bug
- *     this key exists to fix: generations of one epoch must accumulate.
- *   • the epoch comparison did not actually live in the strip's MEMBERSHIP. It
- *     lives in the PLACEMENT, which has always been one column per checkpoint
- *     in training order (see the band, below), and in `byTrainingOrder`. Epochs
- *     read side by side as adjacent columns; what the shared strip added was a
- *     grid whose members came from different checkpoints, which is precisely
- *     what "separate the epochs" asks it not to do.
+ *   • by CHECKPOINT (21/08 → 22/08), every picture a checkpoint ever made piles
+ *     into one grid forever. Regenerating appends to the grid already there and
+ *     there is NO gesture that says "this is a new lot" — which is the report
+ *     this key answers, and the same thing `_gallery_image` has documented on
+ *     the backend's `run_id` all along: without the launch, two runs fired at
+ *     one checkpoint are indistinguishable and the board shows one lot where
+ *     there were two.
+ *   • by LAUNCH (here), a click that renders ONE picture per checkpoint leaves
+ *     loose tiles instead of a grid, because a grid of one is not a grid. That
+ *     was the 21/08 complaint, and it is the accepted cost: a lot is still a
+ *     lot when it is spread thin, and the board already lays those tiles in
+ *     their checkpoint's column, in training order.
  *
- * `run_id` and `prompt` are therefore no longer read at all, which also
- * retires the pre-backfill special case: an image with no run id is not a
- * different kind of image any more, it is just a picture from a checkpoint.
+ * What settles it is that only one of the two is a FACT about the picture the
+ * user performed: they clicked Generate once. The checkpoint is a fact about
+ * the picture's provenance, and the board already expresses provenance in the
+ * PLACEMENT — one band column per checkpoint, training order. Membership says
+ * what you made; placement says what made it. They were fighting over one
+ * channel; they get one each.
  *
- * A picture missing either half of the identity has NO key and stays a loose
- * tile, rather than being fused into somebody else's grid on a guess.
+ * Accumulating across launches on purpose is still possible and is now the
+ * gesture it should always have been: drop one pinned picture onto another to
+ * fuse them. A rule cannot know you wanted those two lots together; a drag
+ * says so.
+ *
+ * An image made before the run column was backfilled carries no run id and
+ * falls back to its checkpoint, so a board that predates all of this keeps
+ * drawing what it drew rather than silently regrouping itself. A picture with
+ * neither identity has NO key and stays a loose tile, rather than being fused
+ * into somebody else's grid on a guess.
  */
+const normalPrompt = (value) => String(value ?? '').trim().replace(/\s+/g, ' ');
+
+const runGridKey = (value) => {
+  const image = value?.image || value;
+  const runId = image?.run_id;
+  if (runId == null || String(runId) === '') return null;
+  // JSON, not a delimiter: prompts are free text and may contain any separator
+  // we could choose. Normalising whitespace makes the key match what the UI
+  // shows as one prompt while preserving meaningful text and case.
+  return `run:${JSON.stringify([String(runId), normalPrompt(image?.prompt),
+    String(image?.record_id ?? '')])}`;
+};
+
 export function imageBatchKey(value) {
   const image = value?.image || value;
+  const runKey = runGridKey(image);
+  if (runKey) return runKey;
   if (image?.record_id == null || image?.step == null) return null;
   return `ckpt:${String(image.record_id)}:${String(image.step)}`;
 }
@@ -252,21 +278,28 @@ export function byTrainingOrder(a, b) {
   return (Number(a?.id ?? a?.imageId) || 0) - (Number(b?.id ?? b?.imageId) || 0);
 }
 
-/** Turn freshly pinned images into (or append them to) one strip per CHECKPOINT
- * — LoRA + epoch, `imageBatchKey`.
+/** Turn freshly pinned images into (or append them to) one strip per LAUNCH
+ * — run + prompt + LoRA, `imageBatchKey`.
  *
  * This is the ONE grouping path. A picture pinned alone from a gallery and a
  * whole lot dropped by 📌 Pin all run through the same function and get the
- * same answer, because they are the same question: this picture came from that
- * checkpoint, so it belongs in that checkpoint's grid. Pin all used to have its
- * own grouper that only ever looked at the lot it was placing, so a second
- * batch fired at the same checkpoint parked a rival grid beside the first
- * instead of joining it — the whole reason there is now one function.
+ * same answer, because they are the same question: this picture came out of
+ * that click, so it belongs with the rest of that click. Pin all used to have
+ * its own grouper that only ever looked at the lot it was placing, so pinning
+ * the tail of a launch parked a rival grid beside the head of it instead of
+ * joining — the whole reason there is now one function, and it still matters
+ * under this key: a launch is very often pinned in more than one go.
+ *
+ * ⚠️ What is JOINED and what is not follows entirely from the key. An existing
+ * grid is reused only when every one of its members came out of the same
+ * launch, so pinning the rest of a lot fills the lot's own grid — and a LATER
+ * launch, at the same checkpoint or not, never touches it. That is the whole
+ * behaviour asked for on 2026-08-22: regenerating starts a new grid.
  *
  * A grid is joined whether it is an existing homogeneous strip or a single
- * loose tile from the same checkpoint waiting to become one. Manual mixed
- * groups are never reused. The undo snapshot covers both the new images and
- * any existing member whose membership is rewritten. */
+ * loose tile from the same launch waiting to become one. Manual mixed groups
+ * are never reused. The undo snapshot covers both the new images and any
+ * existing member whose membership is rewritten. */
 export function groupPinnedBatchBySource({ nodes = [], placed = [], graph = null } = {}) {
   const before = new Map((nodes || []).filter((n) => n?.imageId != null)
     .map((n) => [Number(n.imageId), { ...n }]));
