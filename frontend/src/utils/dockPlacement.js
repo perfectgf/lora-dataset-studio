@@ -17,9 +17,16 @@
  * button, which is the whole point of that bar. It moves up instead.
  */
 
-// Routes whose screen carries a fixed bottom bar. Both StudioPage routes do —
-// they render the same shell (App.jsx: '/studio' and '/dataset/studio/:id').
-export const ROUTES_WITH_BOTTOM_BAR = ['/studio', '/dataset/studio'];
+// Routes whose screen can put a fixed bar at the bottom of the window.
+//
+// Both StudioPage routes do — same shell (App.jsx: '/studio' and
+// '/dataset/studio/:id'). Settings is here too: its "Unsaved changes / Save
+// changes" bar is `fixed inset-x-0 bottom-4 z-40` — the very same band and the
+// very same z-index as the dock, which is rendered after it in the shell and so
+// wins at equal z. The offset is UNCONDITIONAL there even though that bar only
+// appears while the form is dirty: a dock that jumped a rem the moment you
+// edited a field would be worse than one sitting a rem higher all along.
+export const ROUTES_WITH_BOTTOM_BAR = ['/studio', '/dataset/studio', '/settings'];
 
 /** Tailwind class for the dock's bottom offset on `pathname`. */
 export function dockBottomClass(pathname) {

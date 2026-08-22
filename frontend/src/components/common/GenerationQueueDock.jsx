@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router'
-import { apiFetch, getCsrfToken, postJson } from '../../api/fetchClient'
+import { apiFetch, postJson } from '../../api/fetchClient'
 import { useToast } from './Toast'
 import {
   elapsedLabel, hasQueue, jobLabel, jobOrigin, pausedReason, promoteBlockedReason,
@@ -77,7 +77,10 @@ export default function GenerationQueueDock() {
       // — surface it verbatim rather than a generic failure.
       toast.error(e?.message || 'That job could not be updated.')
     } finally {
-      if (aliveRef.current) setPending(null)
+      // Clear only OUR job. A flat `setPending(null)` let the first action to
+      // return unlock a row whose own request was still in flight, re-enabling
+      // its buttons for a second click.
+      if (aliveRef.current) setPending((cur) => (cur === job.job_id ? null : cur))
       await poll()
     }
   }, [poll, toast])

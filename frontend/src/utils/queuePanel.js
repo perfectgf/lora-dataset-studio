@@ -82,6 +82,13 @@ export function elapsedLabel(iso, now = Date.now()) {
  */
 export function rowNote(job) {
   if (!job) return null;
+  // `status` collapses two different states onto the word "stalled" so the row
+  // renders the same; `raw_status` is what tells them apart, and the server
+  // emits it for exactly this. Reading `status` here announced "ComfyUI stopped
+  // answering" about a job the user had just asked to cancel.
+  if (job.raw_status === 'cancel_requested') {
+    return 'Cancelling — waiting for ComfyUI to let go of it.';
+  }
   if (job.status === 'stalled') {
     return 'Paused — ComfyUI stopped answering. Resolve it from the recovery banner.';
   }

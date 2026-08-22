@@ -16,8 +16,17 @@ test('every route with a bottom bar is covered, including its children', () => {
   }
 });
 
+test('the dock clears the Settings save bar, on every section', () => {
+  // "Unsaved changes / Save changes" is fixed inset-x-0 bottom-4 z-40 — same
+  // band, same z, and the dock paints after it. Unconditional on purpose: the
+  // bar comes and goes with the form's dirty state, and a dock that jumped
+  // when you edited a field would be worse than one sitting a rem higher.
+  assert.equal(dockBottomClass('/settings'), 'bottom-20');
+  assert.equal(dockBottomClass('/settings/engines'), 'bottom-20');
+});
+
 test('an ordinary screen keeps the dock in the corner', () => {
-  for (const path of ['/datasets', '/bank', '/canvas', '/settings/engines', '/', ''])
+  for (const path of ['/datasets', '/bank', '/canvas', '/', ''])
     assert.equal(dockBottomClass(path), 'bottom-4', path);
 });
 

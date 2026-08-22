@@ -80,8 +80,17 @@ test('a job the panel may not cancel says who owns it', () => {
   assert.equal(rowNote(job()), null);
 });
 
+// `status` collapses cancel_requested and stalled onto one word so the row
+// renders the same; `raw_status` is what tells them apart. The dock emitted it
+// and read it nowhere, so a job the user had just cancelled announced itself as
+// 'ComfyUI stopped answering'.
+test('a job on its way out says it is cancelling, not that ComfyUI died', () => {
+  assert.equal(rowNote(job({ status: 'stalled', raw_status: 'cancel_requested' })),
+    'Cancelling — waiting for ComfyUI to let go of it.');
+});
+
 test('a paused job points at the recovery banner rather than at a dead button', () => {
-  assert.match(rowNote(job({ status: 'stalled' })), /recovery banner/);
+  assert.match(rowNote(job({ status: 'stalled', raw_status: 'stalled' })), /recovery banner/);
 });
 
 test('“already next” and “already running” are not the same refusal', () => {

@@ -13,6 +13,7 @@ import BankImportPanel from './BankImportPanel';
 import DatasetFolderNote from './DatasetFolderNote';
 import { isDatasetImportBlocked, isStopGenerationBlocked } from './scraperState';
 import { holdsLocalGpu } from '../../utils/activityLanes.js';
+import { IMPROVE_DERIVATION } from './improveCandidates.js';
 import { faceAnalysisState, faceAnalysisLabel } from './faceScoringGate.js';
 import DatasetGrid from './DatasetGrid';
 import { datasetBusyReason } from './datasetBusyReason.js';
@@ -666,6 +667,16 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const outcome = summarizeGeneration(images);
   const refusalNote = refusalHeadline(outcome);
   const pending = images.filter((i) => i.status === 'pending' && !i.filename
+    && !unresolvedRescueIds.has(i.id)).length;
+  // The same rows minus the ✨ improve candidates. `pending` counts everything in
+  // flight, which is right for the progress banner ("3 generating…"); it is wrong
+  // for the ⚡ Generate double-click guard, which asks "is a GENERATION batch
+  // already running?". While the button was greyed during an improve batch the
+  // question never came up — now that it is clickable, which is the whole point
+  // of #44, the first click of the nominal path met a dialog announcing a batch
+  // that did not exist.
+  const pendingGenerations = images.filter((i) => i.status === 'pending' && !i.filename
+    && i.derivation_kind !== IMPROVE_DERIVATION
     && !unresolvedRescueIds.has(i.id)).length;
   const triage = images.filter((i) => i.status === 'pending' && i.filename
     && !unresolvedRescueIds.has(i.id)).length;   // generated/imported, awaiting ✓/✕
@@ -1359,8 +1370,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       onGenerate={(...args) => {
                         // Guard-rail: a batch is already in flight — launching another one
                         // on top is usually an accidental double-click, not a plan.
-                        if (pending > 0 && !window.confirm(
-                          `A generation batch is already running (${pending} in flight).\n\nLaunch another one anyway?`)) return;
+                        if (pendingGenerations > 0 && !window.confirm(
+                          `A generation batch is already running (${pendingGenerations} in flight).\n\nLaunch another one anyway?`)) return;
                         ds.generate(...args);
                       }}
                       hasRef={!!d.ref_filename} composition={d.composition} images={images}
