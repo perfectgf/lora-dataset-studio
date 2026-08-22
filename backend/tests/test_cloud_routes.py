@@ -1,5 +1,4 @@
 """Cloud training routes: gating, forwarding, progress/status/stop/sample."""
-import os
 import pytest
 
 

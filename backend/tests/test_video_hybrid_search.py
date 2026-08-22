@@ -26,7 +26,6 @@ tunable constant and it is reported to the caller so the UI never presents it as
 a calibrated figure. This is stated here rather than in a commit message because
 it is the one claim in this feature a reader should not take on trust.
 """
-import pytest
 
 from app.services import clip_text_encoder
 from app.services import video_clip_search as vcs

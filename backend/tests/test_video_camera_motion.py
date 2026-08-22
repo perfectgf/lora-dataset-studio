@@ -458,7 +458,6 @@ class _Clip:
 def test_storing_a_reading_keeps_every_other_passs_numbers():
     clip = _Clip(json.dumps({'metrics_state': 'ok', 'sharpness_p90': 354.35,
                              'ai_check_state': 'ok'}))
-    cam._store.__wrapped__ if False else None
     summary = cam._summary(clip)
     for key in cam.OWNED_KEYS:
         summary.pop(key, None)

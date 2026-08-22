@@ -289,7 +289,7 @@ def test_synchronous_lease_restores_finished_ui_snapshot_one_alias_at_a_time(app
     """A GET inventory fence must not erase the pass result it is about to show."""
     from app.services import bank_jobs
 
-    finished = bank_jobs.start(
+    bank_jobs.start(
         app, 9265, 'score', lambda job: bank_jobs.progress(
             job, detail='done — 4 scored'), reserve_ids=(9266,))
     assert bank_jobs.get(9265)['finished'] is True

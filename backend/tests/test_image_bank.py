@@ -819,7 +819,6 @@ def test_cluster_assignment_orders_by_size():
         pathlib.Path(__file__).resolve().parents[1] / 'infer' / 'face_embed_infer.py')
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    e = {}
     v1 = np.array([1.0] + [0.0] * 511, dtype='float32')
     v2 = np.array([0.0, 1.0] + [0.0] * 510, dtype='float32')
     cache = {

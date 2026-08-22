@@ -29,7 +29,7 @@ inset. Counting them together is how a setting quietly halves a dataset.
 import pytest
 
 from app.extensions import db
-from app.models import VideoClip, VideoDataset, VideoSource
+from app.models import VideoClip, VideoSource
 from app.services import video_bank_service as svc
 from app.services import video_clip_export as export
 

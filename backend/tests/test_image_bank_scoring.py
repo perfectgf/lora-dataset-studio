@@ -7,7 +7,6 @@ is absent. Background jobs run inline under TESTING (see bank_jobs.start)."""
 import importlib.util
 import os
 import pathlib
-import random
 
 import pytest
 from PIL import Image

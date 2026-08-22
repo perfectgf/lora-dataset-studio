@@ -38,7 +38,7 @@ from ..models import (CanvasImageNode, CanvasNodePosition, FaceDataset,
                       FaceDatasetImage, LoraTestImage)
 from .. import config as cfg
 from . import (bank_transfer_metadata, caption_origin, dataset_activity,
-               image_encoding, input_budget, reference_edit_jobs,
+               image_encoding, reference_edit_jobs,
                scene_captions, trash)
 from .dataset_storage import dataset_path, ensure_dataset_dir
 from .image_provenance import provenance_metrics
@@ -49,12 +49,11 @@ from .ollama_control import normalize_ollama_model_ref
 # (sinon Ollama le recharge - cold start ~10s - à CHAQUE image). Déchargé en fin
 # de batch pour rendre la VRAM à ComfyUI. ComfyUI est déjà en pause pendant la passe.
 _VISION_BATCH_KEEPALIVE = '5m'
-from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU,
-                              DESCRIPTIVE_CAPTION_PROMPT,
+from .face_variations import (DESCRIPTIVE_CAPTION_PROMPT,
                               CAPTION_REFINE_CONCEPT_PROMPT, CAPTION_LEAK_FIX_PROMPT,
                               EXPAND_CONCEPT_TERMS_PROMPT,
                               CLASSIFY_PROMPT, HEAD_BBOX_PROMPT, WATERMARK_BBOX_PROMPT,
-                              JOYCAPTION_PROMPT, aspect_for_label, caption_prompt_for,
+                              aspect_for_label, caption_prompt_for,
                               caption_prompt_for_style, caption_prompt_for_concept,
                               caption_has_identity_leak, caption_has_concept_leak,
                               appearance_describe_phrases, appearance_omit_shorten_clause,
@@ -65,8 +64,7 @@ from .face_variations import (CAPTION_PROMPT, CAPTION_PROMPT_BOORU,
                               wrap_variation_klein, wrap_variation_krea,
                               get_identity_prompt,
                               normalize_appearance,
-                              normalize_subject_type,
-                              KLEIN_IMAGE_IMPROVE_PROMPT)
+                              normalize_subject_type)
 
 logger = logging.getLogger(__name__)
 

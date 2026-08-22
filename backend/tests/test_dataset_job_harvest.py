@@ -29,7 +29,6 @@ import ast
 import json
 import pathlib
 
-import pytest
 
 SERVICES = pathlib.Path(__file__).resolve().parents[1] / 'app' / 'services'
 

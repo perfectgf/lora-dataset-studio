@@ -6,7 +6,6 @@ HAS is never interrupted for a service that is merely stopped.
 """
 import json
 
-import pytest
 
 from app import setup_state
 

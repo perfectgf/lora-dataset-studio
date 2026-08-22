@@ -51,7 +51,7 @@ def _set_fields(app, bank_id, **by_name):
         db.session.commit()
 
 
-def _seed_rows(app, bank_id, n, mk, _c=[0]):
+def _seed_rows(app, bank_id, n, mk, _c=[0]):  # noqa: B006 -- a deliberate per-process counter, see the docstring
     """Insert N synthetic rows (no files on disk needed for pure-DB coverage math)
     via ``mk(i) -> dict of BankImage fields``. Relpaths are globally unique across
     calls so several _seed_rows on one bank never collide."""

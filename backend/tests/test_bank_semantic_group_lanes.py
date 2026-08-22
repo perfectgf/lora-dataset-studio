@@ -1,5 +1,4 @@
 """Durable CLIP/SigLIP2 semantic-duplicate partitions."""
-from pathlib import Path
 
 import pytest
 

@@ -33,7 +33,6 @@ import threading
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from .. import config as cfg
 from ..config import LOCAL_USER
 from ..utils.redact import redact_user_paths
 from ..version import APP_VERSION

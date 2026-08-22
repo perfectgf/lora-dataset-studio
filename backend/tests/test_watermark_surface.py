@@ -91,7 +91,6 @@ def test_bulk_reject_moves_exactly_the_rows_the_button_counts(client, app):
     rejectableFlagged) excludes the failed row and the rescue row; the server
     then rejects exactly that many, and says so."""
     from app.services import face_dataset_service as svc
-    from app.config import LOCAL_USER
     from app.models import FaceDatasetImage
     ds_id = client.post('/api/dataset/create',
                         json={'name': 'Bulk', 'trigger_word': 'bulk'}).get_json()['id']

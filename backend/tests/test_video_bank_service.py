@@ -538,7 +538,6 @@ def _measured_bank(app, tmp_path, sharpest=None):
     """A bank with one detected clip, optionally carrying a measured sharpest
     frame. Returns (bank_id, clip_id, expected_middle)."""
     import json as _json
-    from app.services import bank_jobs
     from app.models import VideoClip
     with app.app_context():
         bank_id, _ = _bank(app, tmp_path, ('a.mp4',))

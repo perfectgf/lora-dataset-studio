@@ -30,13 +30,11 @@ life of an abandoned edit beyond what staying up would have allowed.
 import io
 import json
 import os
-import time
 
 import pytest
 from PIL import Image
 
 from app.services import dataset_activity
-from app.services import face_dataset_service as svc
 from app.services import reference_edit_jobs as rej
 
 

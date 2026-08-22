@@ -33,7 +33,7 @@ def test_install_conflict_409(client, monkeypatch):
 
 
 def test_install_ollama_precondition_400(client, monkeypatch):
-    from app import config, setup_installer
+    from app import config
     config.save_config({'ollama': {'url': '', 'vision_model': ''}})
     # real start() runs the precondition check and raises before spawning a thread
     assert client.post('/api/setup/install/ollama_model').status_code == 400

@@ -1,6 +1,5 @@
 """Checkpoint management: app-wide trash (nothing destroyed directly),
 selective delete, run cleanup, cloud staging purge, source-side save cap."""
-import json
 import os
 from datetime import datetime
 

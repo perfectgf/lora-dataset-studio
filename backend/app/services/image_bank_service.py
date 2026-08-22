@@ -57,10 +57,10 @@ from .. import config as cfg
 from ..extensions import db
 from ..models import BankImage, FaceDataset, FaceDatasetImage, ImageBank
 from . import (bank_jobs, bank_semantic_engine, bank_transfer_metadata, bank_undo, caption_origin,
-               dataset_activity, image_encoding, input_budget, path_guard, trash)
+               dataset_activity, image_encoding, path_guard, trash)
 from .face_dataset_service import (SCRAPE_IMPORT_MAX, _dhash, _download_scrape_item,
                                    _dataset_ingest_lock,
-                                   _existing_dhash_rows, _hamming, _SCRAPE_DL_WORKERS,
+                                   _hamming, _SCRAPE_DL_WORKERS,
                                    _watermark_regions_payload,
                                    _source_metadata_storage, bank_deterministic_analysis,
                                    import_images, _preserved_import_extension,
@@ -5181,7 +5181,6 @@ def select_diverse(user_id, bank_id, n=60, *, typicality=_TYPICALITY_DEFAULT,
     'typicality': w}. Raises ValueError (→400, "run ✨ Score first") when no
     embedding exists yet, so the UI shows the clear hint instead of an empty,
     unexplained selection."""
-    import numpy as np
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
@@ -9337,7 +9336,6 @@ def start_caption(app, user_id, bank_id, ids=None, force=False, vocabulary=None,
 # Re-exported under the historical names: callers and tests already say
 # `banks.SCENE_MAX_PROMPT`.
 from .scene_captions import (            # noqa: E402  (module-level, grouped with its section)
-    SCENE_MAX_PROMPT,
     scene_framing as _scene_framing,
     scene_label as _scene_label,
     scene_prompt as _scene_prompt,
@@ -11078,7 +11076,7 @@ def _dataset_import_job(bank_id, dataset_id, src_dir, image_rows, activity_token
                     values, compatible, cache_bundle = _dataset_row_bank_values(
                         row, dest, preserve_analysis,
                         analysis_cache_dir=analysis_cache_dir)
-                except Exception as exc:  # noqa: BLE001 — any partial transfer aborts
+                except Exception:  # noqa: BLE001 — any partial transfer aborts
                     logger.warning('dataset import: copy %s failed', filename,
                                    exc_info=True)
                     abort('Could not preserve the complete Dataset image and its '

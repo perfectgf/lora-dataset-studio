@@ -16,10 +16,9 @@ import json
 import os
 from datetime import datetime, timedelta
 
-import pytest
 
 from app.extensions import db
-from app.models import FaceDataset, FaceDatasetImage, TrainingRunRecord
+from app.models import FaceDataset, FaceDatasetImage
 from app.services import checkpoint_registry as reg
 from app.services import run_archive, run_compare, run_environment, run_snapshot
 

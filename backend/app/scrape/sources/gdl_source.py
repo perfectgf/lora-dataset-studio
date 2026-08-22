@@ -5,7 +5,7 @@ cookies_key. match() = host (via validators.detect_platform) ; scan/download
 délèguent au moteur gdl.py."""
 import os
 
-from .base import Source, Capabilities, Match
+from .base import Source, Match
 from . import gdl
 
 

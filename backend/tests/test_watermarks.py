@@ -1192,7 +1192,7 @@ def test_detect_skips_dismissed_and_include_dismissed_reexamines(app, monkeypatc
     monkeypatch.setattr(vo, 'unload_vision_model', lambda *a, **k: True)
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'W', 'w')
-        fresh = _kept_image(svc, ds.id, 'a.webp', state=None)
+        _kept_image(svc, ds.id, 'a.webp', state=None)
         dismissed = _kept_image(svc, ds.id, 'b.webp', state='dismissed')
         counts = svc.detect_watermarks(LOCAL_USER, ds.id)
         # only the fresh image is examined; the dismissed one is skipped entirely
@@ -1241,7 +1241,6 @@ def test_clean_watermarks_empty_image_ids_cleans_nothing(app, monkeypatch):
 
 def test_dismiss_route_marks_and_validates(client, app):
     from app.services import face_dataset_service as svc
-    from app.config import LOCAL_USER
     from app.models import FaceDatasetImage
     ds_id = _create(client, 'R', 'r').get_json()['id']
     with app.app_context():
@@ -1838,7 +1837,7 @@ def test_clean_auto_method_never_calls_klein(app, monkeypatch):
                             AssertionError('auto method must not call Klein')))
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'A', 'a')
-        img = _kept_image(svc, ds.id, 'wm.webp', bbox=[0.35, 0.35, 0.45, 0.45])
+        _kept_image(svc, ds.id, 'wm.webp', bbox=[0.35, 0.35, 0.45, 0.45])
         counts, err = svc.clean_watermarks(LOCAL_USER, ds.id)   # method defaults to auto
         assert err is None and counts['inpainted'] == 1 and counts['inpainted_klein'] == 0
 
@@ -2569,10 +2568,8 @@ def test_every_dataset_file_writer_keeps_its_ingest_guard(app):
 
     Every service function that overwrites a dataset image in place must carry it.
     """
-    import inspect
     from app.services import face_dataset_service as svc
     for name in ('restore_watermark_original', 'repair_image_region', 'undo_image_repair'):
         fn = getattr(svc, name)
-        src = inspect.getsource(fn)
         # @wraps keeps __wrapped__ on the decorated function; a bare function has none.
         assert hasattr(fn, '__wrapped__'), f'{name} lost its @_serialize_dataset_ingest'

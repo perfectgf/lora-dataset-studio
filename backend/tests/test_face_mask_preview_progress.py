@@ -16,7 +16,6 @@ No real detection anywhere: InsightFace is not installed on the dev machine, so 
 tiny stand-in script speaks the same stdout/stderr protocol as
 infer/face_mask_infer.py. That protocol is the contract under test.
 """
-import json
 import os
 import sys
 

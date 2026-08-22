@@ -785,7 +785,6 @@ def _probe_states(bank_id, bank, candidates) -> dict:
     from, the order it draws in, how far into that order it has got (which is also
     how much budget it has spent — the order is built no longer than the budget),
     the paths gathered so far and the clustering the last round returned."""
-    banks = _svc()
     state = {}
     for name, images in candidates:
         pool = _sample_pool(bank_id, name)

@@ -5,7 +5,6 @@ the user watches a progress bar reach the end and reads the empty result as an
 answer. So what is pinned here is which refusal each pass gives, and that the two
 503s of the watermark pass stay two different sentences.
 """
-import pytest
 
 from app.services import video_bank_service as svc
 

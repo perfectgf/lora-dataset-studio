@@ -232,7 +232,6 @@ def main() -> int:
 
     try:
         import numpy as np  # noqa: F401 — used by _preprocess/step_distances
-        import torch
         from transformers import XCLIPModel
     except Exception as e:  # noqa: BLE001 — clean JSON, never a mute traceback
         _emit({'ok': False, 'error': import_report.import_failure(e)})

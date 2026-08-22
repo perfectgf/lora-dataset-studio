@@ -13,7 +13,6 @@ nameable problem; a file that silently vanished is not). The CHOOSING side must
 not. These tests pin that difference, because it is the kind of distinction that
 gets flattened by the next person who unifies two extension tuples.
 """
-import pytest
 
 from app.services import comfy_model_paths as cmp
 

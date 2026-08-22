@@ -137,7 +137,7 @@ def _require_no_stalled_comfyui():
     """
     try:
         require_comfyui_enqueue_ready()
-    except ComfyUIRecoveryRequired as e:
+    except ComfyUIRecoveryRequired:
         if auto_resolve_comfyui_barrier() is not None:
             try:
                 require_comfyui_enqueue_ready()

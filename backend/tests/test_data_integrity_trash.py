@@ -602,7 +602,6 @@ def test_delete_dataset_allowed_once_cloud_run_terminal(app, monkeypatch):
 
 
 def test_delete_dataset_refused_while_local_run_active(app, monkeypatch):
-    from app.extensions import db
     from app.job_queue import queue_manager
     from app.services import face_dataset_service as svc
 

@@ -50,7 +50,7 @@ from ..job_queue import queue_manager
 # The SAME sizing Krea uses — imported, not re-implemented. Two engines filling
 # one dataset must not each own a private idea of how big a shot is.
 from .output_geometry import (
-    MAX_OUTPUT_MP, fit_output_size, source_size, variation_output_megapixels,
+    fit_output_size, source_size, variation_output_megapixels,
 )
 
 logger = logging.getLogger(__name__)

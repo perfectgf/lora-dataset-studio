@@ -28,7 +28,6 @@ Every caption records the style that produced it, exactly as it records the
 model: two styles do not write comparable captions either, and mixing them across
 one bank is precisely what making this configurable invites.
 """
-import pytest
 
 from app.services import video_caption as vc
 

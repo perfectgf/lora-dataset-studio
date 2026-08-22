@@ -11,7 +11,6 @@ import io
 import os
 import struct
 
-import pytest
 from PIL import Image
 
 # Smallest structurally-valid safetensors header (8-byte LE length + '{}'), so a

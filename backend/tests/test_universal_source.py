@@ -1,10 +1,9 @@
 """Source universelle : garde SSRF, énumération générique, repli yt-dlp.
 
 Tout est mocké — aucun appel réseau ni process gallery-dl."""
-import subprocess
 
 from app.scrape import netfetch
-from app.scrape.sources import gdl, universal
+from app.scrape.sources import gdl
 from app.scrape.sources.universal import UniversalSource
 
 

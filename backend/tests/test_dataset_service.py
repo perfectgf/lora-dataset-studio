@@ -185,7 +185,7 @@ def test_status_validation(app):
     from app.services import face_dataset_service as svc
     from app.config import LOCAL_USER
     with app.app_context():
-        ds = svc.create_dataset(LOCAL_USER, 'B', 'b')
+        svc.create_dataset(LOCAL_USER, 'B', 'b')
         try:
             svc.set_image_status(LOCAL_USER, 99999, 'nonsense'); raised = False
         except Exception:

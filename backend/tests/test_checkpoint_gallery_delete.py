@@ -86,7 +86,7 @@ def test_deleting_removes_the_row_AND_the_file_and_leaves_no_orphan(
     a row, and no preview pointer aimed at nothing."""
     _force_trash(monkeypatch)
     from app.extensions import db
-    from app.models import CheckpointPreview, LoraTestImage
+    from app.models import CheckpointPreview
     from app.services import cloud_training as ct
     with app.app_context():
         ds = _create(client)
@@ -197,7 +197,6 @@ def test_a_file_already_missing_still_loses_its_row(client, app, monkeypatch):
     clean the database rather than fail on a missing path."""
     _force_trash(monkeypatch)
     from app.extensions import db
-    from app.models import LoraTestImage
     from app.services import cloud_training as ct
     with app.app_context():
         ds = _create(client)
@@ -215,7 +214,6 @@ def test_a_row_with_no_file_at_all_is_handled(client, app, monkeypatch):
     and nothing tries to trash None."""
     _force_trash(monkeypatch)
     from app.extensions import db
-    from app.models import LoraTestImage
     from app.services import cloud_training as ct
     with app.app_context():
         ds = _create(client)
@@ -231,7 +229,6 @@ def test_an_image_still_generating_is_refused_not_cancelled(client, app, monkeyp
     """A delete click never kills someone's running job — it says why it passed."""
     _force_trash(monkeypatch)
     from app.extensions import db
-    from app.models import LoraTestImage
     from app.services import cloud_training as ct
     with app.app_context():
         ds = _create(client)
@@ -247,7 +244,6 @@ def test_an_id_from_another_checkpoint_is_refused(client, app, monkeypatch):
     """Scoping, not trust: the route cannot be turned into 'delete any image'."""
     _force_trash(monkeypatch)
     from app.extensions import db
-    from app.models import LoraTestImage
     from app.services import cloud_training as ct
     with app.app_context():
         ds = _create(client)
@@ -266,7 +262,6 @@ def test_a_file_another_row_still_shows_is_kept_on_disk(client, app, monkeypatch
     one must not amputate the other's thumbnail."""
     _force_trash(monkeypatch)
     from app.extensions import db
-    from app.models import LoraTestImage
     from app.services import cloud_training as ct
     with app.app_context():
         ds = _create(client)
@@ -284,7 +279,6 @@ def test_a_locked_file_keeps_its_row_so_it_stays_retryable(client, app, monkeypa
     """A file the OS refuses to move must not vanish from the UI while it sits on
     disk — the row survives, the failure is reported."""
     from app.extensions import db
-    from app.models import LoraTestImage
     from app.services import cloud_training as ct
     from app.services import trash
     with app.app_context():
@@ -312,7 +306,6 @@ def test_an_empty_selection_is_a_no_op_not_an_error(client, app):
 def test_the_route_deletes_and_reports_what_happened(client, app, monkeypatch):
     _force_trash(monkeypatch)
     from app.extensions import db
-    from app.models import LoraTestImage
     with app.app_context():
         ds = _create(client)
         rec = _record(db, ds)

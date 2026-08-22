@@ -379,7 +379,6 @@ def test_refine_output_rejects_degenerate_but_usable_allows_terse():
 
 
 def test_refine_output_accepts_clean_caption():
-    prior = 'joy draft'
     good = ('Full-body shot framed by a wooden doorway, a woman with dark hair tied back '
             'stands in a sunlit bedroom, her expression calm, soft warm light across the floor.')
     assert svc._refine_output_ok(good, good) is True

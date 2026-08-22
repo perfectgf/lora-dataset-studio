@@ -130,7 +130,6 @@ def test_score_dataset_faces_unavailable_returns_empty_without_subprocess(app, m
     """is_available() False (capability probe) -> score_dataset_faces returns {}
     WITHOUT ever invoking subprocess.run (the never-raise/never-shell-out contract)."""
     from app.services import face_similarity as fsim
-    from app.capabilities import probe_face_scoring
 
     monkeypatch.setattr(fsim, 'is_available', lambda: False)
 
@@ -176,7 +175,7 @@ def test_analyze_faces_returns_cleanly_when_scorer_unavailable(app, monkeypatch)
 
 def test_score_dataset_faces_stdin_payload_includes_models_root(app, monkeypatch):
     from app.services import face_similarity as fsim
-    from app.config import LOCAL_USER, save_config
+    from app.config import save_config
 
     monkeypatch.setattr(fsim, 'is_available', lambda: True)
     captured = {}
@@ -702,7 +701,6 @@ def test_analyze_image_face_route_returns_stable_payload_and_hides_foreign_rows(
 
     with app.app_context():
         ds, img = _dataset_with_ref_and_kept_image(svc, LOCAL_USER)
-        image_path = svc._img_path(img)
         monkeypatch.setattr(
             fsim, 'score_dataset_faces',
             lambda _ref, paths: ({paths[0]: {'state': 'scorable', 'sim': 0.63}}, None),

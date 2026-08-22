@@ -51,6 +51,6 @@ def test_purge_removes_all_family_configs_but_not_sibling_trigger(training):
     sibling = os.path.join(generated, 'ulocal_AgentCTest2.json')  # different trigger
     with open(sibling, 'w', encoding='utf-8') as fh:
         fh.write('{}')
-    removed = lt.purge_training_artifacts('local', 'AgentCTest')
+    lt.purge_training_artifacts('local', 'AgentCTest')
     assert not os.path.isfile(p1) and not os.path.isfile(p2)
     assert os.path.isfile(sibling)  # trigger-boundary guard: AgentCTest2 survives

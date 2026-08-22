@@ -378,10 +378,10 @@ def test_export_forces_masks_off_in_slider_mode(app, tmp_path, monkeypatch):
         called = {}
         monkeypatch.setattr(lt, 'generate_person_masks',
                             lambda *a, **kw: called.setdefault('masks', True) or {})
-        out = lt.export_dataset_to_aitoolkit(LOCAL_USER, ds.id, masked=True,
+        lt.export_dataset_to_aitoolkit(LOCAL_USER, ds.id, masked=True,
                                              dest_dir=str(tmp_path / 'out'))
         assert 'masks' not in called          # mask generation never invoked
-        assert (tmp_path / 'out' / f'sl_trig_000.png').exists()
+        assert (tmp_path / 'out' / 'sl_trig_000.png').exists()
 
 
 def test_launch_refuses_when_concept_slider_extension_missing(app, tmp_path, monkeypatch):
