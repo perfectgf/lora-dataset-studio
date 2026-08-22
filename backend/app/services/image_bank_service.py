@@ -58,6 +58,8 @@ from ..extensions import db
 from ..models import BankImage, FaceDataset, FaceDatasetImage, ImageBank
 from . import (bank_jobs, bank_semantic_engine, bank_transfer_metadata, bank_undo, caption_origin,
                dataset_activity, image_encoding, path_guard, trash)
+# Re-exported on purpose: the promote tests patch `banks._existing_dhash_rows`.
+from .face_dataset_service import _existing_dhash_rows  # noqa: F401
 from .face_dataset_service import (SCRAPE_IMPORT_MAX, _dhash, _download_scrape_item,
                                    _dataset_ingest_lock,
                                    _hamming, _SCRAPE_DL_WORKERS,
@@ -9335,6 +9337,7 @@ def start_caption(app, user_id, bank_id, ids=None, force=False, vocabulary=None,
 # for the same caption (test_scene_caption_parity.py reads both against it).
 # Re-exported under the historical names: callers and tests already say
 # `banks.SCENE_MAX_PROMPT`.
+from .scene_captions import SCENE_MAX_PROMPT  # noqa: E402,F401  re-exported as banks.SCENE_MAX_PROMPT
 from .scene_captions import (            # noqa: E402  (module-level, grouped with its section)
     scene_framing as _scene_framing,
     scene_label as _scene_label,
