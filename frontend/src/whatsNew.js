@@ -51,7 +51,13 @@
 //         NSFW and are out of bounds for anything public, cropped or not — use
 //         the showcase instance (scripts/seed_showcase.py) whose data is
 //         generated.
-//      3. Prefer a screen that shows the CHANGE, not the app. A settings panel,
+//      3. COMMIT THE PICTURE BEFORE YOU TAG. The URL is pinned to the tag,
+//         so the file has to exist inside it — a screenshot added after the
+//         release is a dead link, and a published release cannot be fixed
+//         by attaching one. Order: shoot, commit, tag, release. (Measured:
+//         v2026.08.22 and v2026.08.18 both carry no docs/screenshots/release/
+//         folder at all, so neither could be retrofitted.)
+//      4. Prefer a screen that shows the CHANGE, not the app. A settings panel,
 //         a toolbar, a queue — those photograph without any dataset image at
 //         all, which is why most entries can carry one cheaply.
 //  • Keep the list tidy: tail entries older than a couple of months can be
