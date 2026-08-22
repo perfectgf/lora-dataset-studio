@@ -69,12 +69,16 @@ def _extra(monkeypatch, ok, detail='the detector weights are not downloaded yet 
 
 def _fake_scan(verdicts):
     """Stand in for watermark_detector.scan: yields (path, state, score, regions,
-    error) per input path, in order, exactly like the real generator."""
+    fingerprint, error) per input path, in order, exactly like the real
+    generator. The arity here is load-bearing: this stub once yielded five
+    fields while the real generator had grown a sixth, so the suite stayed
+    green on a dataset pass that crashed on the first real image —
+    test_watermark_scan_tuple_contract.py now pins the two together."""
     def scan(paths, **kwargs):
         should_cancel = kwargs.get('should_cancel')
         for i, path in enumerate(paths):
             state, score, regions = verdicts[i % len(verdicts)]
-            yield (path, state, score, regions, None)
+            yield (path, state, score, regions, None, None)
             if should_cancel and should_cancel():
                 return
     return scan
@@ -249,7 +253,7 @@ def test_dataset_takes_the_same_route_as_the_bank(client, app, monkeypatch,
 
     def scan(paths, **kwargs):
         used.append('detector')
-        yield (paths[0], 'detected', 0.97, [[0.0, 0.0, 0.2, 0.1]], None)
+        yield (paths[0], 'detected', 0.97, [[0.0, 0.0, 0.2, 0.1]], None, None)
     monkeypatch.setattr(wd, 'scan', scan)
 
     body = client.post(f'/api/dataset/{ds_id}/watermarks/detect').get_json()

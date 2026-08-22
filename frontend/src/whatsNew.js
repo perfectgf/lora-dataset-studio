@@ -69,6 +69,40 @@ export const WHATS_NEW = [
     to: '/studio',
   },
   {
+    id: '2026-08-22-typed-captions-survive-a-forced-pass',
+    date: '2026-08-22',
+    title: 'A forced re-caption no longer overwrites what you typed',
+    blurb:
+      'The caption editor has promised since the day it shipped that a hand-written caption '
+      + 'survives a forced 🔄 Re-caption. The Bank kept that promise; the dataset overwrote '
+      + 'everything on every forced batch, your own words included. Both surfaces spare them '
+      + 'now — and a caption you type WHILE an image is still being captioned wins over the '
+      + 'answer that comes back for it. Naming images explicitly stays the way to re-caption '
+      + 'them anyway, which is what the identity-leak panel does.',
+    to: '/datasets?section=captions',
+  },
+  {
+    id: '2026-08-22-dataset-watermark-scan-runs-again',
+    date: '2026-08-22',
+    title: '🧽 Find watermarks runs again on a dataset',
+    blurb:
+      'The dataset scan stopped on its very first image when it ran through the detector: it '
+      + 'was reading one field fewer than the scan hands back, while the Bank read them all. '
+      + 'Fixed — and pinned by a test that reads BOTH surfaces, so the two cannot drift apart '
+      + 'again without something going red.',
+  },
+  {
+    id: '2026-08-22-bank-stops-filing-distant-faces-too-small',
+    date: '2026-08-22',
+    title: 'The Bank stops filing distant faces as “too small”',
+    blurb:
+      'A head in a full-body shot reaches the face model a few pixels wide however large the '
+      + 'file is, because the detector fits the whole frame into its window before it looks. '
+      + 'The dataset scorer already rescued those by looking again at a crop around the head; '
+      + 'the Bank did not, and left them unscored. Same rescue on both surfaces now, with the '
+      + 'same numbers, held together by one test.',
+  },
+  {
     id: '2026-08-22-generation-queue',
     date: '2026-08-22',
     title: 'Line your work up instead of waiting on it',
