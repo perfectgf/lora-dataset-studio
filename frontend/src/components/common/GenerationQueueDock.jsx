@@ -158,15 +158,18 @@ function QueueRow({ job, busy, onPromote, onCancel }) {
           </p>
         </div>
         <div className="flex shrink-0 gap-1">
-          {/* ⤒ is off for two DIFFERENT reasons and each says its own — "already
-              next" is not a failure, and a mute grey button is what sent people
-              to the issue tracker in the first place. */}
+          {/* ↑ rather than a nicer-looking ⤒ (U+2912): at 11px in the app's
+              stack that glyph renders as a bare tick, indistinguishable from a
+              stray mark — measured in the headless proof, not guessed.
+              It is off for two DIFFERENT reasons and each says its own —
+              "already next" is not a failure, and a mute grey button is what
+              sent people to the issue tracker in the first place. */}
           <button type="button" onClick={() => onPromote?.(job)}
             disabled={busy || !job.promotable || !!promoteBlocked}
             title={promoteBlocked || 'Run this one next'}
             aria-label={promoteBlocked || `Run ${jobLabel(job)} next`}
             className="grid min-h-7 min-w-7 place-items-center rounded bg-app/60 text-[11px] text-content disabled:cursor-not-allowed disabled:opacity-40">
-            <span aria-hidden="true">⤒</span>
+            <span aria-hidden="true">↑</span>
           </button>
           <button type="button" onClick={() => onCancel?.(job)}
             disabled={busy || !job.cancellable}
