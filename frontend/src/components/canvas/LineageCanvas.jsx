@@ -1344,20 +1344,45 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
          board a permanent row.
      Three tiers and not one because they are three different questions: an
      action behind ⋯ costs a tap, a readout behind ⋯ costs nothing until asked
-     for, and a manual behind ⋯ costs nothing at all.
+     for, and a manual behind ⋯ costs a tap as well — it is FOLDED inside the
+     sheet, not printed in it. Read "costs nothing at all" here once, and it was
+     wrong: unfolded, the sentence is ten lines at 400 px, so opening ⋯ for a
+     button buried the button under the manual. Being one box further out than
+     the toolbar it no longer grew the BAR, which is what the previous pass was
+     measuring — and is why the regression looked like a fix.
 
      Each control is rendered EXACTLY ONCE — inline or in the sheet, never both
      (see useMediaQuery: Tailwind can hide a chip at a width, it cannot move
      one, and two copies of a chip drift the first time one gains a prop). */
   const [moreOpen, setMoreOpen] = useState(false);
+  /* …and the manual in a bubble of its OWN. ⚠️ Not the same question as
+     `moreOpen`, which is why it is not the same state: ⋯ is "show me the
+     tools", ⓘ is "remind me how the board works", and answering the first with
+     340 px of the second is what made the shelf unusable on a phone.
+
+     Deliberately NOT reset when the shelf closes. The bubble is opened from
+     inside the shelf and then read AGAINST the board — closing ⋯ to see what
+     the sentence is talking about is the obvious next move, and a bubble that
+     vanished with its opener would make that impossible. It closes by its own
+     ×, by ⓘ again, or by Escape. */
+  const [gesturesOpen, setGesturesOpen] = useState(false);
   const inlineActions = useMediaQuery('(min-width: 1024px)');
   const inlineReadouts = useMediaQuery('(min-width: 1536px)');
   useEffect(() => {
-    if (!moreOpen) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setMoreOpen(false); };
+    if (!moreOpen && !gesturesOpen) return undefined;
+    /* Escape takes the TOP layer, not everything. The ⓘ bubble is drawn over
+       the shelf and is the thing you opened last; pulling the shelf out from
+       under it on the first press would leave a bubble on screen whose opener
+       had gone, and a second press would then be needed anyway. One press, one
+       layer, innermost first — the order every stacked overlay uses. */
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (gesturesOpen) setGesturesOpen(false);
+      else setMoreOpen(false);
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [moreOpen]);
+  }, [moreOpen, gesturesOpen]);
 
   const isPicked = useCallback(
     (dsId, recId, step) => isCanvasCheckpointSelected(picks, dsId, recId, step), [picks]);
@@ -2269,6 +2294,36 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
               help used to be a `<details>` INSIDE the pill, and an open
               `<details>` grows the box it is in — 213 px of bar became 380 px of
               an 800-px phone.) */}
+          {/* ⓘ The board's manual, in a BUBBLE of its own.
+
+              It used to be printed in the ⋯ sheet, and that was the bug: ~500
+              characters wrap to ten lines at 400 px — ~340 px of an 800-px
+              screen — so opening ⋯ to reach a BUTTON handed you a wall of text
+              with the buttons pushed off under it. A manual is not a tool and
+              does not belong in the tool shelf; it belongs behind an ⓘ you go
+              and press when you want it.
+
+              A SIBLING of the sheet, for the same reason the sheet is a sibling
+              of the pill: growing it cannot add a row to anything below it. It
+              is the third rung of the same ladder — pill, then shelf, then this
+              — and each one floats over the board instead of pushing it. */}
+          {gesturesOpen && (
+            <div data-testid="canvas-gestures-bubble" role="dialog"
+              aria-label="How the board is driven"
+              className="pointer-events-auto mb-1.5 max-w-full rounded-xl border border-border bg-surface-overlay/95 p-2.5 shadow-xl backdrop-blur sm:max-w-md">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-content text-[0.6875rem] font-semibold">
+                  <span aria-hidden>ⓘ</span> How this board works
+                </span>
+                <button type="button" onClick={() => setGesturesOpen(false)}
+                  aria-label="Close the board help"
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-app/60 text-content-muted hover:text-content">×</button>
+              </div>
+              <p className="m-0 text-content-subtle text-[0.6875rem] leading-relaxed">
+                {BOARD_GESTURES}
+              </p>
+            </div>
+          )}
           {moreOpen && (
             <div data-testid="canvas-more-sheet"
               className="pointer-events-auto mb-1.5 flex max-w-full flex-col gap-2 rounded-xl border border-border bg-surface-overlay/95 p-2 shadow-xl backdrop-blur">
@@ -2281,10 +2336,30 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
               {/* The ONLY place the board's gestures are discoverable, and now
                   the only one at every width. A gesture that is not listed here
                   does not exist as far as anyone is concerned — including 🖼🖼
-                  drop-to-fuse, which nobody would ever guess. */}
-              <p className="m-0 text-content-subtle text-[0.6875rem] leading-relaxed">
-                {BOARD_GESTURES}
-              </p>
+                  drop-to-fuse, which nobody would ever guess.
+
+                  📱 FOLDED, and that is the point of it being written this way
+                  rather than simply printed. The list is ~500 characters: at
+                  400 px it wraps to ten lines, ~340 px of an 800-px screen,
+                  stacked UNDER the five controls someone opened ⋯ to reach. The
+                  sheet had eaten the board — the same failure the toolbar had
+                  before it, moved one box outwards.
+
+                  A <details> is safe HERE in a way it was not in the pill: the
+                  sheet is a SIBLING of the toolbar, so nothing it grows by can
+                  add a row to the bar, and the bar's height is what that lesson
+                  was about. Closed it costs one line; the words are one tap
+                  away and go away the same way, which is the difference between
+                  help you call up and help that has taken the screen. */}
+              <button type="button" data-testid="canvas-gestures-info"
+                onClick={() => setGesturesOpen((v) => !v)}
+                aria-expanded={gesturesOpen}
+                aria-label="How the board is driven"
+                title="How the board is driven — mouse, trackpad and touch"
+                className={'flex h-10 w-fit items-center gap-1.5 rounded-md border border-border px-2 text-[0.6875rem] font-semibold sm:px-3 lg:h-9 '
+                  + (gesturesOpen ? 'bg-indigo-500/15 text-content' : 'bg-app/60 text-content-muted hover:text-content')}>
+                <span aria-hidden>ⓘ</span> How this board works
+              </button>
               <button type="button" onClick={() => setMoreOpen(false)}
                 aria-label="Close the board tools"
                 className="h-9 self-end rounded-md border border-border bg-app/60 px-3 text-content-muted text-[0.6875rem] font-semibold hover:text-content">
