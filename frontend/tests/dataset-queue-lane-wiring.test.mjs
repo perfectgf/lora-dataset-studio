@@ -22,9 +22,14 @@ import test from 'node:test'
 import { readFileSync } from 'node:fs'
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8')
+// Comments in these files quote the very patterns under test (one explains that
+// reads carry NO `disabled={busy}`), so a naive grep reports its own
+// documentation as a violation. Match the code only.
+const code = (src) => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
 const workspace = read('../src/components/dataset/DatasetWorkspace.jsx')
 const grid = read('../src/components/dataset/DatasetGrid.jsx')
 const tile = read('../src/components/dataset/DatasetGridItem.jsx')
+const lightbox = read('../src/components/dataset/DatasetLightbox.jsx')
 
 test('the workspace hands the grid BOTH lane gates, from their own sources', () => {
   assert.match(workspace, /improveBusy=\{ds\.improveBusy\}/)
@@ -62,11 +67,40 @@ test('the tile reads each button against its own lane', () => {
   assert.match(tile, /disabled=\{improveRefused \|\| !rerunImprove\.enabled\}/)
 })
 
-test('every write to the image itself still reads the conservative gate', () => {
-  // Keep / reject / crop / delete / mirror / caption own the pixels and the row.
-  // They must NOT have followed the retries onto a queue gate.
-  assert.match(tile, /const refused = busy \? busyReason : null;/)
-  const writes = tile.match(/disabled=\{busy[^}]*\}/g) || []
-  assert.ok(writes.length >= 8,
-    `expected the image writes to stay on \`busy\`, found ${writes.length}`)
+test('curating an image reads its own gate, and no write is left on the blanket', () => {
+  // Keep/reject, caption, delete, score, watermark: queued work is not a reason
+  // to refuse them (every one is defended server-side), a pass that owns the
+  // ROWS still is. Verified in the code before unblocking: `delete_image`
+  // cancels the in-flight job and refuses when it cannot prove it,
+  // `gpu_exclusive_vision_window` is fail-closed, `crop_image` needs a file.
+  assert.match(tile, /const curationRefused = \(curationBusy \?\? busy\);/)
+  assert.match(workspace, /curationBusy=\{ds\.curationBusy\}/)
+  assert.match(grid, /const curationWriteBusy = \(curationBusy \?\? busy\)/)
+  // Nothing may be left reading the old blanket: a write still on `busy` would
+  // be grey while its neighbours are live, with no way to tell why.
+  const stragglers = code(tile).match(/disabled=\{busy[^}]*\}/g) || []
+  assert.deepEqual(stragglers, [],
+    `these writes were left on the old blanket: ${stragglers.join(', ')}`)
+})
+
+// The one case queued work really does make awkward — and it is per TILE, not
+// global: the upscale copied its source at enqueue, so it would come back as an
+// upscale of the version from before the edit.
+test('editing the pixels waits for an upscale of THAT image, and says so', () => {
+  for (const source of [tile, lightbox]) {
+    assert.match(source, /const pixelEditRefused = curationRefused \|\| upscaleRendering;/)
+    assert.match(source, /upscale of the version from before your edit/)
+  }
+  // Crop, mirror and rotate read it; keep/reject and captions do not — they
+  // touch no pixels.
+  assert.match(tile, /disabled=\{pixelEditRefused\}/)
+  assert.match(lightbox, /onClick=\{mirror\} disabled=\{pixelEditRefused \|\| mirrorBusy\}/)
+})
+
+// H2's trap, on the lightbox this time: a handler cut on a different lock than
+// the button's own `disabled` gives a live button that does nothing.
+test('no lightbox handler guards on a lock its button no longer reads', () => {
+  assert.match(lightbox, /if \(!onMirror \|\| pixelEditRefused \|\| mirrorBusy\) return;/)
+  assert.match(lightbox, /if \(!onRotate \|\| pixelEditRefused \|\| mirrorBusy\) return;/)
+  assert.doesNotMatch(lightbox, /if \(!onMirror \|\| busy \|\| mirrorBusy\) return;/)
 })

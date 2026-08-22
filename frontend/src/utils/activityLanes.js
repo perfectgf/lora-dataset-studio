@@ -68,6 +68,31 @@ const REMOTE_ENGINES = ['nanobanana', 'chatgpt'];
  * widening this one shipped an import that opened, ran, and came back 503
  * "GPU busy" on the crop: the door was unlocked onto a wall.
  */
+/**
+ * Is a pass running that owns the dataset's ROWS?
+ *
+ * The gate for curating an image — keep/reject, caption, crop, mirror, rotate,
+ * delete, score, watermark. Not the same question as `activityBlocks`, which
+ * answers for a new QUEUED job; curation is not queue work and would be refused
+ * by that one for the wrong reason.
+ *
+ * Queued work does not conflict with curation, and every one of those writes is
+ * already defended where it matters — `delete_image` cancels the in-flight job
+ * first and refuses outright when it cannot prove the cancellation;
+ * `gpu_exclusive_vision_window` is fail-closed and answers "ComfyUI has queued
+ * or active work" in words; `crop_image` cannot even touch a row that has no
+ * file yet. The UI blanket duplicated those guards, and duplicated them worse:
+ * a grey button says nothing, while the refusals underneath are sentences.
+ *
+ * An EXCLUSIVE pass is the real conflict, and keeps blocking: captioning,
+ * watermarks, face analysis, classification, exports and backups all walk the
+ * dataset's rows and rewrite them, so a second writer would race them.
+ */
+export function exclusivePassRunning(activity) {
+  const kind = activity?.kind || null;
+  return !!kind && laneOf(kind) !== 'queue';
+}
+
 export function holdsLocalGpu(activity) {
   const kind = activity?.kind || null;
   if (!kind) return false;

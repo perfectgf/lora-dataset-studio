@@ -41,7 +41,7 @@ test('the dataset lightbox offers both directions, labelled and keyboard reachab
   assert.match(lightbox, /onRotate,/);
   assert.match(lightbox, /const rotate = \(degrees\) => async \(event\)/);
   // Guarded by the same "an edit is running" flag as the mirror.
-  assert.match(lightbox, /if \(!onRotate \|\| busy \|\| mirrorBusy\) return/);
+  assert.match(lightbox, /if \(!onRotate \|\| pixelEditRefused \|\| mirrorBusy\) return/);
   // Real <button>s (focusable, Enter/Space) with an explicit label — the emoji
   // is decoration, never the accessible name.
   // `refused ||` in front: while a dataset pass holds the image the accessible

@@ -269,7 +269,13 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
                                          improve gate and stay grey for the whole improve batch — #44's own
                                          symptom, on the surface its release note promised. Both default to
                                          `busy`, so a caller that passes neither keeps the old blanket. */
-                                      improveBusy = undefined, generateBusy = undefined, nonces,
+                                      improveBusy = undefined, generateBusy = undefined,
+                                      /* And the third question, for the writes that CURATE an image
+                                         (keep/reject, caption, crop, mirror, rotate, delete, score,
+                                         watermark): is a pass running that owns the rows? Queued work
+                                         does not, and every one of those writes is defended server-side
+                                         already. Defaults to `busy` like its two siblings. */
+                                      curationBusy = undefined, nonces,
                                       mirroringIds, faceThresholds, datasetKind = 'character',
                                       onImproveBatch, kleinAvailable = false,
                                       eligibilityImages, dualCaptions = false,
@@ -319,6 +325,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   // asked for, and the backend queue serializes them anyway.
   const localLaunchLock = launchingImprove || !!bulkAction || autoTriageApplying;
   const improveLaunchBusy = (improveBusy ?? busy) || localLaunchLock;
+  const curationWriteBusy = (curationBusy ?? busy) || localLaunchLock;
   const generateLaunchBusy = (generateBusy ?? busy) || localLaunchLock;
   /* WHAT BLOCKS WHAT — three answers, not one.
      `bulkBusy` blocks WRITES: a running pass owns the pixels, the statuses and
@@ -526,13 +533,13 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
                   {bulkActionMessage(bulkAction)}
                 </span>
               )}
-              <button type="button" disabled={bulkBusy} onClick={() => act('keep')}
+              <button type="button" disabled={curationWriteBusy} onClick={() => act('keep')}
                 className={`${batchBtn} bg-green-600/80 text-white`}>✓ Keep</button>
-              <button type="button" disabled={bulkBusy} onClick={() => act('reject')}
+              <button type="button" disabled={curationWriteBusy} onClick={() => act('reject')}
                 className={`${batchBtn} bg-red-600/80 text-white`}>✕ Reject</button>
-              <button type="button" disabled={bulkBusy} onClick={() => act('pending')}
+              <button type="button" disabled={curationWriteBusy} onClick={() => act('pending')}
                 title="Back to undecided" className={`${batchBtn} bg-surface text-content border border-border`}>↺ Undecide</button>
-              <button type="button" disabled={bulkBusy} onClick={() => act('clear_caption')}
+              <button type="button" disabled={curationWriteBusy} onClick={() => act('clear_caption')}
                 title="Delete the selected images' captions (the Caption button then regenerates them)"
                 className={`${batchBtn} bg-surface text-content border border-border`}>🧹 Clear captions</button>
               {/* One button per engine that can actually run, because the two
@@ -565,7 +572,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
                   {improveSelection.excluded.length} not eligible
                 </span>
               )}
-              <button type="button" disabled={bulkBusy} onClick={() => act('delete')}
+              <button type="button" disabled={curationWriteBusy} onClick={() => act('delete')}
                 className={`${batchBtn} bg-red-500/15 border border-red-500/40 text-red-300`}>
                 {bulkAction?.action === 'delete' ? bulkActionMessage(bulkAction) : '🗑 Delete'}
               </button>
@@ -600,6 +607,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
             onCrop={onCrop} onDelete={onDelete} onMirror={onMirror}
             mirrorBusy={Boolean(mirroringIds?.has(img.id))} busy={bulkBusy}
             improveBusy={improveLaunchBusy} generateBusy={generateLaunchBusy}
+            curationBusy={curationWriteBusy}
             busyReason={busyReason}
             onScoreFace={onScoreFace} scoreFaceBusy={Boolean(scoringFaceIds?.has(img.id))}
             faceScoringBusy={Boolean(scoringFaceIds?.size)}

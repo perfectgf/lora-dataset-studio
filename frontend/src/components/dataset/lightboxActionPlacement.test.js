@@ -234,7 +234,7 @@ test('the rail keeps words — these actions rotate, recrop and spend GPU time',
 });
 
 test('the decision is fed the lock and the comparison, not just the geometry', () => {
-  assert.match(lightbox, /const actionsLocked = busy \|\| mirrorBusy \|\| improving \|\| improvePending/);
+  assert.match(lightbox, /const actionsLocked = curationRefused \|\| mirrorBusy \|\| improving \|\| improvePending/);
   assert.match(lightbox, /locked: actionsLocked/);
   // The lightbox now has TWO comparisons (against the original, against the
   // reference photo) held in one `compareMode`. This rule only cares that two

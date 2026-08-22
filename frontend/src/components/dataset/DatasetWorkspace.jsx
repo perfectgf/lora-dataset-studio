@@ -1301,7 +1301,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                      longer holds the image you were looking at. */
                   viewingImageId={viewImg?.id ?? null}
                   onBatch={ds.batchImages} busy={ds.busy}
-                  improveBusy={ds.improveBusy} generateBusy={ds.generationBusy}
+                  improveBusy={ds.improveBusy} generateBusy={ds.generationBusy} curationBusy={ds.curationBusy}
                   onBulkBusyChange={setGridBulkBusy}
                   onImproveBatch={ds.improveBatch} activity={act}
                           subjectType={d.subject_type || 'human'}
@@ -2237,6 +2237,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           improveReady={viewImgImprovementReady}
           busy={ds.busy || gridBulkBusy}
           improveBusy={ds.improveBusy || gridBulkBusy}
+          curationBusy={ds.curationBusy || gridBulkBusy}
           // The refused writes in there name the pass that holds them, exactly
           // like the tiles behind the lightbox.
           busyReason={(ds.busy || gridBulkBusy) ? datasetBusyReason(ds.busy ? act : null) : null}

@@ -15,7 +15,7 @@ import {
   normalizeTrainingMode,
   trainingModeSettingsPayload,
 } from '../utils/trainingMode.js';
-import { activityBlocks } from '../utils/activityLanes.js';
+import { activityBlocks, exclusivePassRunning } from '../utils/activityLanes.js';
 import { refreshDatasetIfActive } from '../utils/datasetRefresh';
 import { ENGINE_LABELS } from '../components/dataset/engineSelection.js';
 import { retryRequestForReferenceEdit } from '../components/dataset/referenceEdit.js';
@@ -1684,6 +1684,12 @@ export function useDataset() {
   // ✨ improve batch (or a one-tile Retry, which publishes 'generate' too) no
   // longer greys out ⚡ Generate for as long as it runs.
   const generationBusy = busy || activityBlocks(activity, 'generate');
+  // Curating an image — keep/reject, caption, crop, mirror, rotate, delete,
+  // score, watermark — is not queue work, so `activityBlocks` would refuse it
+  // for the wrong reason. It asks its own question: is a pass running that owns
+  // the ROWS? Queued generations do not; every one of these writes is already
+  // defended server-side where it matters (see utils/activityLanes.js).
+  const curationBusy = busy || exclusivePassRunning(activity);
   const improveBusy = busy || activityBlocks(activity, 'improve');
   // No `referenceEditBusy` on purpose. A live reference edit stops blocking the
   // other lanes (it is queue work like any other, and it changes nothing until
@@ -1699,7 +1705,7 @@ export function useDataset() {
 
 
   return { datasets, currentId, data, busy: busyLive, localBusy: busy,
-           generationBusy, improveBusy, captioning: captioningLive,
+           generationBusy, improveBusy, curationBusy, captioning: captioningLive,
            lastCaptionRun,
            analyzing: analyzingLive, watermarking: watermarkingLive, activity,
            nonces, mirroringIds, refNonce, scoringFaceIds, recaptioningIds, create, open,

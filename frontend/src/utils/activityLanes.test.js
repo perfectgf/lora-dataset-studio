@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { QUEUE_KINDS, SELF_EXCLUSIVE_KINDS, activityBlocks, holdsLocalGpu, laneOf } from './activityLanes.js';
+import { QUEUE_KINDS, SELF_EXCLUSIVE_KINDS, activityBlocks, exclusivePassRunning, holdsLocalGpu, laneOf } from './activityLanes.js';
 
 // GitHub #44, the report itself: an ✨ Upscale & improve batch used to disable
 // every generation control until it finished.
@@ -93,4 +93,25 @@ test('an exclusive pass answers for its own GPU use, not through this gate', () 
     assert.equal(holdsLocalGpu({ kind }), false, kind);
   for (const activity of [null, undefined, {}, { kind: null }])
     assert.equal(holdsLocalGpu(activity), false);
+});
+
+// Curating an image is not queue work, so it asks its own question: is a pass
+// running that owns the ROWS? Verified in the backend before unblocking —
+// delete_image cancels the job in flight and refuses when it cannot prove it,
+// gpu_exclusive_vision_window is fail-closed, crop_image needs a file.
+test('queued work never blocks curating an image', () => {
+  for (const kind of QUEUE_KINDS)
+    assert.equal(exclusivePassRunning({ kind }), false, kind);
+});
+
+test('a pass that owns the rows still blocks curation', () => {
+  for (const kind of ['caption', 'recaption', 'analyze_faces', 'classify',
+    'watermark_detect', 'watermark_clean', 'bank_export', 'bank_import',
+    'training_export', 'backup'])
+    assert.equal(exclusivePassRunning({ kind }), true, kind);
+});
+
+test('no activity blocks no curation', () => {
+  for (const activity of [null, undefined, {}, { kind: null }])
+    assert.equal(exclusivePassRunning(activity), false);
 });
