@@ -39,11 +39,25 @@ during a wave, so the full gate belongs at the **push**, not at every commit.
   `backend/tests/test_no_personal_data.py` and `backend/tests/test_*contract*.py`
   check invariants across the whole tree. Frontend: `node --test` from
   `frontend/` (~1 min — it carries the help-registry and What's-new contracts).
-- **Before a push** — both suites, whole and green, on that exact tree:
-  `python -m pytest -n 8 --dist loadfile` (system Python) and `node --test` from
-  `frontend/`. Non-negotiable. **Do not lean on CI for this**: its push gate is
-  size-based (`.github/workflows/ci.yml`) and skips the heavy jobs on a small
-  push, so a red can reach `main` with nothing having run.
+- **Before the push that LANDS the wave** — both suites, whole and green, on
+  that exact tree: `python -m pytest -n 8 --dist loadfile` (system Python) and
+  `node --test` from `frontend/`. Non-negotiable. **Do not lean on CI for this**:
+  its push gate is size-based (`.github/workflows/ci.yml`) and skips the heavy
+  jobs on a small push, so a red can reach `main` with nothing having run.
+- **Before an intermediate push on a branch** — the targeted tests above, plus
+  the two families no filename leads to (`test_no_personal_data.py` and
+  `test_*contract*.py`, 8 s together). And MEASURE what the diff touches before
+  choosing, rather than judging it:
+  `git diff --name-only <base>...HEAD | grep -c '^backend/'` — zero means the
+  backend suite is not owed at all, because a frontend-only diff can reach the
+  backend through nothing but those invariants.
+
+  This used to read "before a push", unqualified, and it was followed literally:
+  a wave pushed four times cost four full suites, one of them for a commit that
+  touched no Python at all. At the flake rate above — one red per five runs,
+  never reproducible — the superfluous runs did not merely cost six minutes
+  each, they bought triage detours. The gate protects what LANDS; a branch
+  mid-wave is allowed to be red, which is what the branch section already says.
 - **Before a release** — nothing by hand: `release.yml` reruns both suites
   unconditionally. Do not tag until that workflow is green.
 
@@ -142,8 +156,12 @@ the same reason. In that week 96 commits reached `main` and 7 went through a PR.
   `git ls-remote --heads origin` and the open PRs. An overlap found before the
   work is a conversation; found after, it is somebody's wasted evening.
 - **`main` stays releasable.** A branch may be red while it cooks; `main` may
-  not. The gate does not move: both suites green on that exact tree before any
-  push, to `main` or to a branch.
+  not. The gate does not move for what LANDS: both suites green on that exact
+  tree before the push that makes the wave landable, and before anything reaches
+  `main`. An intermediate push on a branch is the "cooking" case — it owes the
+  targeted tests plus the tree-wide invariants, not the full suite (see Tests
+  above). This bullet used to demand the full gate "before any push, to `main`
+  or to a branch", which contradicted its own first sentence.
 - Small, obvious fixes may still go straight to `main`.
 - **Delete the branch once it lands.** A stale remote branch claims work is in
   progress when it is finished — the same lie, reversed.
