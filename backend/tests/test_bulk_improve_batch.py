@@ -252,3 +252,100 @@ def test_batch_route_recovery_barrier_has_no_service_side_effect(
         '/api/dataset/1/improve/batch', json={'image_ids': [1]})
     assert response.status_code == 409
     assert response.get_json()['code'] == 'comfyui_recovery_required'
+
+
+def test_the_batch_leaves_the_fanout_budget_to_the_user(app, monkeypatch):
+    """GitHub #44, the half a grey button would not have fixed.
+
+    The drain used to queue until the whole per-dataset budget was spent, so the
+    ⚡ Generate the user clicked next was refused ("too many generations in
+    flight"). It now keeps only IMPROVE_QUEUE_DEPTH of its own work in flight,
+    which is all a one-job-at-a-time ComfyUI can use anyway, and the rest of
+    MAX_FANOUT stays available for whatever the person launches."""
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import dataset_activity as da
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper as keh
+
+    jobs = []
+    _stub_klein(monkeypatch, keh, jobs)
+    monkeypatch.setattr(svc, 'MAX_FANOUT', 20)
+    monkeypatch.setattr(svc, 'IMPROVE_QUEUE_DEPTH', 3)
+
+    with app.app_context():
+        da.reset()
+        ds, source_ids = _dataset_with_sources(svc, FaceDatasetImage, LOCAL_USER, 9)
+        token = da.begin(ds.id, 'improve', total=len(source_ids))
+
+        def _free_one_slot(_seconds):
+            oldest = (FaceDatasetImage.query
+                      .filter_by(dataset_id=ds.id,
+                                 derivation_kind=svc.KLEIN_IMAGE_IMPROVE,
+                                 status='pending')
+                      .filter(FaceDatasetImage.filename.is_(None))
+                      .order_by(FaceDatasetImage.id.asc()).first())
+            assert oldest is not None, 'waiting on an empty queue would never end'
+            oldest.filename = f'improved-{oldest.id}.png'
+            svc.db.session.commit()
+
+        headroom = []
+        real_improve = svc.improve_existing_image
+
+        def _tracked(user_id, image_id, engine=None):
+            result = real_improve(user_id, image_id, engine=engine)
+            # What a ⚡ Generate launched at this exact moment could still ask for.
+            headroom.append(svc.MAX_FANOUT - svc._improve_in_flight(ds.id))
+            return result
+
+        monkeypatch.setattr(svc, 'improve_existing_image', _tracked)
+        summary = svc._drain_improve_queue(LOCAL_USER, ds.id, source_ids, token,
+                                           sleep=_free_one_slot)
+        da.end(token)
+
+    assert summary['queued'] == 9 and summary['failed'] == 0
+    assert len(jobs) == 9                     # the whole selection still gets queued
+    # The batch never holds more than its depth, so the user keeps 17 of the 20.
+    assert max(9 - h for h in headroom) <= 3
+    assert min(headroom) == 17
+
+
+def test_the_batch_does_not_wait_on_generations_that_are_not_its_own(app, monkeypatch):
+    """A user's own ⚡ Generate batch used to park the drain: the wait was measured
+    over EVERY unfinished generation on the dataset, not the improvements. With a
+    cap of 4 and three interactive generations pending, the old condition queued
+    one improvement and then waited on rows it does not own and cannot free."""
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import dataset_activity as da
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper as keh
+
+    jobs = []
+    _stub_klein(monkeypatch, keh, jobs)
+    monkeypatch.setattr(svc, 'MAX_FANOUT', 8)
+    monkeypatch.setattr(svc, 'IMPROVE_QUEUE_DEPTH', 4)
+
+    with app.app_context():
+        da.reset()
+        ds, source_ids = _dataset_with_sources(svc, FaceDatasetImage, LOCAL_USER, 4)
+        # Three interactive generations already in flight (no file yet), exactly
+        # what ⚡ Generate leaves behind while ComfyUI works through them.
+        for i in range(3):
+            svc.db.session.add(FaceDatasetImage(
+                dataset_id=ds.id, filename=None, source='generated',
+                status='pending', variation_label=f'In flight {i}'))
+        svc.db.session.commit()
+        assert svc._improve_in_flight(ds.id) == 3
+        assert svc._improve_batch_in_flight(ds.id) == 0
+
+        token = da.begin(ds.id, 'improve', total=len(source_ids))
+        waits = []
+        summary = svc._drain_improve_queue(
+            LOCAL_USER, ds.id, source_ids, token,
+            sleep=lambda seconds: waits.append(seconds))
+        da.end(token)
+
+    # 3 foreign + 4 own = 7, under the cap of 8: nothing had to wait.
+    assert summary['queued'] == 4 and summary['stalled'] is False
+    assert waits == []

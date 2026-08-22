@@ -10470,6 +10470,19 @@ def _reimprove_image_locked(user_id, image_id):
 # draining the selection in WAVES — it waits for a slot to free instead of hitting
 # the wall — with a cooperative stop checked at every image boundary.
 IMPROVE_SLOT_POLL_SECONDS = 2.0
+# How many of its OWN improvements the bulk drain keeps in flight at once.
+#
+# ComfyUI runs one job at a time and `job_queue`'s worker refuses to claim a
+# second while any row is 'processing' or 'sent_to_comfy', so queueing sixty
+# improvements ahead finishes no sooner than queueing a handful — they wait
+# either way. What the deep queue DID buy was the whole per-dataset fan-out
+# budget, spent on background work: the next thing the user clicked came back
+# "too many generations in flight (60), wait or cancel", which is the second
+# half of GitHub #44 (the first half being the UI blanket — see
+# frontend/src/utils/activityLanes.js). A shallow depth keeps the GPU fed
+# across the gap between two jobs and leaves the rest of MAX_FANOUT to the
+# person sitting in front of the app.
+IMPROVE_QUEUE_DEPTH = 4
 # Give up (and say so) if no slot frees for this long. A ComfyUI that died mid-batch
 # would otherwise leave the thread polling a count that never drops, and the dataset
 # stuck behind an "in progress" indicator until the registry TTL expires.
@@ -10488,6 +10501,40 @@ def _improve_in_flight(dataset_id):
     return (FaceDatasetImage.query
             .filter_by(dataset_id=dataset_id, status='pending')
             .filter(FaceDatasetImage.filename.is_(None)).count())
+
+
+def _improve_batch_in_flight(dataset_id):
+    """The improvements THIS lane still has rendering, and only those.
+
+    ``_improve_in_flight`` counts every unfinished generation on the dataset,
+    the user's own ⚡ Generate batch included — so the drain used to wait on
+    work that was never its own, and a big enough interactive batch could park
+    it for the whole slot timeout. The improve lane is identified by its
+    derivation kind (a legacy name: it predates the second engine, so a SeedVR2
+    candidate carries it too — which is right here, both lanes are background
+    work)."""
+    db.session.rollback()
+    return (FaceDatasetImage.query
+            .filter_by(dataset_id=dataset_id, derivation_kind=KLEIN_IMAGE_IMPROVE,
+                       status='pending')
+            .filter(FaceDatasetImage.filename.is_(None)).count())
+
+
+def _improve_slot_blocked(dataset_id):
+    """Must the bulk drain wait before queueing one more improvement?
+
+    Two independent reasons, and neither may be dropped:
+      * its own depth (``IMPROVE_QUEUE_DEPTH``) — background work does not get
+        to spend the whole shared budget for no throughput in return;
+      * the shared cap itself, which nothing may blow through.
+
+    The depth is clamped to ``MAX_FANOUT`` so lowering the cap (a test, a
+    future setting) below the depth still behaves.
+    """
+    depth = min(IMPROVE_QUEUE_DEPTH, MAX_FANOUT)
+    if _improve_batch_in_flight(dataset_id) >= depth:
+        return True
+    return _improve_in_flight(dataset_id) + 1 > MAX_FANOUT
 
 
 def bulk_improve_eligible_ids(user_id, dataset_id, image_ids):
@@ -10585,11 +10632,17 @@ def start_bulk_improve(app, user_id, dataset_id, image_ids, engine=None):
 
 def _drain_improve_queue(user_id, dataset_id, image_ids, token, sleep=time.sleep,
                          engine=None):
-    """Queue one improvement per id, in WAVES that respect the MAX_FANOUT
-    concurrency cap: when the dataset already has that many generations in flight
-    the worker WAITS for a slot (the count drops as ComfyUI writes the files) rather
-    than firing a request doomed to be refused. Stops at the next image boundary
-    when ⏹ Stop arms the flag. Returns a summary dict (also used by the tests)."""
+    """Queue one improvement per id, in WAVES: the worker WAITS for a slot (the
+    count drops as ComfyUI writes the files) rather than firing a request doomed
+    to be refused. Stops at the next image boundary when ⏹ Stop arms the flag.
+    Returns a summary dict (also used by the tests).
+
+    A wave is bounded by ``IMPROVE_QUEUE_DEPTH`` — the batch's OWN in-flight
+    count — and, on top of that, by the shared ``MAX_FANOUT`` budget. It used to
+    be bounded by MAX_FANOUT alone, measured over every generation on the
+    dataset, which had it both hogging that budget (nothing the user launched
+    next could get in) and waiting on generations that were not its own.
+    """
     total = len(image_ids)
     queued = failed = 0
     waited = 0.0
@@ -10600,7 +10653,7 @@ def _drain_improve_queue(user_id, dataset_id, image_ids, token, sleep=time.sleep
                                                  dataset_activity.IMPROVE_KINDS)
 
     for index, image_id in enumerate(image_ids):
-        while not stopped and not stalled and _improve_in_flight(dataset_id) + 1 > MAX_FANOUT:
+        while not stopped and not stalled and _improve_slot_blocked(dataset_id):
             if _stop_requested():
                 stopped = True
             elif waited >= IMPROVE_SLOT_TIMEOUT_SECONDS:
