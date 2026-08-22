@@ -50,7 +50,19 @@ npm run build    # writes frontend/dist/
 
 ⚠ **`npm run dev` drives a real backend.** `/api` is proxied to `http://127.0.0.1:5050` — your actual install — and write requests go through. Set `LDS_DEV_API_TARGET` (shell, or `frontend/.env.local`) to point it at a throwaway instance instead; see [frontend/README.md](frontend/README.md).
 
-**If you change anything under `frontend/src`, run `npm run build` and commit the regenerated `frontend/dist/` in the same PR** — otherwise people running from source won't see your change. There's no TypeScript/ESLint step; a clean `npm run build` is the bar.
+**If you change anything under `frontend/src`, run `npm run build` and commit the regenerated `frontend/dist/` in the same PR** — otherwise people running from source won't see your change. There's no TypeScript step; a clean `npm run build` plus `npm run lint` (ESLint, correctness rules only — unused variables, undefined names, hook rules; config in `frontend/eslint.config.mjs`) is the bar. CI runs both.
+
+### Lint
+
+Both halves have a small, correctness-only lint gate that CI runs on every push and PR (the `lint` job). It does not police style — only things that cannot be intended: unused imports and variables, undefined names, a hook called under a condition, a dict literal that writes the same key twice, a bare `except:`.
+
+```bash
+pip install -r backend/requirements-dev.txt   # brings the pinned ruff
+ruff check .                                  # backend, scripts, packaging — rules in ruff.toml
+ruff check . --fix                            # applies the safe fixes
+
+cd frontend && npm run lint                   # ESLint — rules in frontend/eslint.config.mjs
+```
 
 ## Tests
 

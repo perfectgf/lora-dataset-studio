@@ -64,6 +64,13 @@ pytest==9.0.3
 # load instead of on the code. CI pins 4; 8 is the local default.
 pytest-xdist==3.6.1
 
+# The backend's lint gate (`ruff check .` from the repo root, rules in ruff.toml).
+# Pinned exactly for the same reason pytest is: CI's lint job reads THIS pin and a
+# run on a different ruff is not evidence about CI. Correctness-class rules only —
+# unused imports and variables, undefined names, duplicate dict keys, bare
+# excepts, mutable defaults — never style, so a green check means something.
+ruff==0.16.4
+
 # Torch's official CPU index otherwise resolves an old vulnerable setuptools.
 # Install the audited build backend from PyPI in the base environment first so
 # the optional overlay reuses it instead of downgrading through that index.
