@@ -118,7 +118,9 @@ test('opening ⋯ never grows the board’s toolbar', () => {
   // …and it can be PUT AWAY: a phone has no Escape key within reach, so the
   // Close button is the one that matters, but both are wired.
   assert.match(canvas, /aria-label="Close the board tools"/);
-  assert.match(canvas, /e\.key === 'Escape'\) setMoreOpen\(false\)/);
+  // Escape unwinds ONE layer: the ⓘ bubble if it is up, otherwise the shelf.
+  assert.match(canvas, /if \(e\.key !== 'Escape'\) return;/);
+  assert.match(canvas, /if \(gesturesOpen\) setGesturesOpen\(false\);[\s\S]*?else setMoreOpen\(false\);/);
 });
 
 /* The gesture list is the board's entire documentation — and it is ~500
@@ -128,10 +130,11 @@ test('opening ⋯ never grows the board’s toolbar', () => {
    words, one door instead of two, and a toolbar row it no longer costs. */
 test('the board gestures are reachable at every width, from a single source', () => {
   assert.match(canvas, /const BOARD_GESTURES = \(/);
-  // In the sheet, unconditionally — not behind `!inlineReadouts`.
-  const sheet = canvas.slice(canvas.indexOf('data-testid="canvas-more-sheet"'),
-    canvas.indexOf('aria-label="Close the board tools"'));
-  assert.match(sheet, /\{BOARD_GESTURES\}/);
+  // In the ⓘ bubble, unconditionally — not behind `!inlineReadouts`, and not
+  // behind a width either: the shelf's ⓘ opens it at 400 px and at 1920.
+  const bubble = canvas.slice(canvas.indexOf('data-testid="canvas-gestures-bubble"'),
+    canvas.indexOf('{moreOpen && ('));
+  assert.match(bubble, /\{BOARD_GESTURES\}/);
   // Written ONCE: two copies would drift the first time a gesture is added, and
   // the chip that used to open its own sheet is gone with it.
   assert.equal((canvas.match(/\{BOARD_GESTURES\}/g) || []).length, 1);
@@ -140,6 +143,55 @@ test('the board gestures are reachable at every width, from a single source', ()
   // Touch is named: a phone has no wheel and cannot shift-click.
   assert.match(canvas, /wheel or pinch to zoom/);
   assert.match(canvas, /on touch, hold it first/);
+});
+
+/* 📏 …and it is NOT in the shelf. Measured at 400 px, printed there: the
+   sentence wraps to ten lines — ~340 px of an 800-px screen — under the five
+   controls someone opened ⋯ to reach, so asking for a BUTTON handed you a wall
+   of text with the buttons pushed off beneath it. That is the exact failure the
+   `<details>`-in-the-toolbar pass was meant to have ended; one box further out
+   it stopped growing the BAR and started growing the SHEET, which is why it
+   read as fixed.
+
+   A manual is not a tool and does not belong in the tool shelf. It is behind an
+   ⓘ now, in a bubble of its own — the third rung of the same ladder: pill, then
+   shelf, then bubble, each a SIBLING of the last so nothing it holds can add a
+   row to what is under it. */
+test('the board manual is behind ⓘ, never printed in the ⋯ shelf', () => {
+  const shelf = canvas.slice(canvas.indexOf('data-testid="canvas-more-sheet"'),
+    canvas.indexOf('aria-label="Close the board tools"'));
+  // The shelf carries the OPENER and not one word of the manual.
+  assert.match(shelf, /data-testid="canvas-gestures-info"/);
+  assert.doesNotMatch(shelf, /\{BOARD_GESTURES\}/);
+
+  // The bubble is a SIBLING of the shelf, and renders before it, exactly as the
+  // shelf renders before the pill — same ladder, same reason.
+  const bottom = canvas.slice(canvas.indexOf('pointer-events-none absolute inset-x-0 bottom-0'));
+  const bubbleAt = bottom.indexOf('data-testid="canvas-gestures-bubble"');
+  const shelfAt = bottom.indexOf('data-testid="canvas-more-sheet"');
+  const pillAt = bottom.indexOf('pointer-events-auto inline-flex max-w-full flex-wrap');
+  assert.ok(bubbleAt > 0 && bubbleAt < shelfAt && shelfAt < pillAt,
+    'bubble, then shelf, then pill');
+  // Conditional, so it costs nothing at all while nobody has asked for it.
+  assert.match(canvas, /\{gesturesOpen && \(/);
+
+  // Closed by default, and it can be PUT AWAY — a phone has no Escape within
+  // reach, so its own × is the one that matters.
+  assert.match(canvas, /const \[gesturesOpen, setGesturesOpen\] = useState\(false\)/);
+  assert.match(canvas, /aria-label="Close the board help"/);
+
+  // ⓘ is a tap target, not a line of 11-px text: the same 40/36 px every other
+  // control in this overlay uses, on the device that most needs the list.
+  const opener = shelf.slice(shelf.indexOf('data-testid="canvas-gestures-info"'));
+  assert.match(opener.slice(0, opener.indexOf('</button>')), /\bh-10\b/);
+  assert.match(opener.slice(0, opener.indexOf('</button>')), /\blg:h-9\b/);
+  // An emoji is not an accessible name, and the state is announced.
+  assert.match(shelf, /aria-label="How the board is driven"/);
+  assert.match(shelf, /aria-expanded=\{gesturesOpen\}/);
+
+  // ⚠️ The bubble does NOT die with the shelf: it is read against the board, so
+  // closing ⋯ to see what the sentence describes has to be possible.
+  assert.doesNotMatch(canvas, /if \(!moreOpen\) \{ setGesturesOpen\(false\)/);
 });
 
 /* A shelf that hides state without saying so is a shelf that makes the board
