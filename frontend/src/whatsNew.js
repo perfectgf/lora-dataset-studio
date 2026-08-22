@@ -50,6 +50,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-22-preview-steps-and-cfg',
+    date: '2026-08-22',
+    title: 'Set how your training previews are rendered — steps and CFG',
+    blurb:
+      'Advanced options now carries a Preview quality pair: how many steps a preview image '
+      + 'gets, and at what guidance. Until now both were fixed by the base you picked, which '
+      + 'is right for the models the studio ships and wrong the moment you train on something '
+      + 'else — a distilled model wants 8 steps and an undistilled one wants 25, and at the '
+      + 'wrong number your previews come back either as unfinished sketches or slower than the '
+      + 'training they interrupt. Leave the boxes empty and nothing changes: they show the '
+      + 'default your base resolves to. They also work when continuing a run, full-state resume '
+      + 'included, because they only touch the picture and never the weights. '
+      + 'Suggested by charlesangus (GitHub #46).',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-21-canvas-one-grid-per-epoch',
     date: '2026-08-21',
     title: 'Every checkpoint on the Canvas keeps ONE grid, and it fills up',

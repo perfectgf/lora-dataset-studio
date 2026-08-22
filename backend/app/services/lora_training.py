@@ -2582,6 +2582,85 @@ def _sample_every(ds) -> int:
     return v if v in _SAMPLE_EVERY_CHOICES else 250
 
 
+# --- Preview steps & CFG (GitHub #46) ----------------------------------------
+# Every family derives these two from its base and its variant: 8 steps at CFG 1
+# on a distilled Krea 2 Turbo, 25 at CFG 4 on the undistilled Raw, 20/4 on FLUX,
+# 28/6 on SDXL. Those numbers are right for the shipped bases and they REMAIN the
+# default — but they were literals inside seven builders with no way to override
+# them, which is what #46 ran into: the previews are a property of the base, and
+# a base the studio does not ship (a custom merge, a converted checkpoint) can
+# want a different pair. At a distilled model's step count an undistilled one
+# returns a sketch; at an undistilled one's, a distilled model burns time.
+#
+# ONE table instead of seven literals, because the panel has to SHOW the default
+# it offers to override, and a second copy of that number is exactly how a label
+# starts lying about the code under it.
+#
+# Free numbers, not a choice list: the sensible value follows the base (4-8
+# distilled, 20-35 not), so no single list fits every family. Bounds only.
+_SAMPLE_STEPS_RANGE = (1, 60)
+_SAMPLE_GUIDANCE_RANGE = (1.0, 20.0)
+
+# Families whose (steps, guidance) pair is a constant. Krea and Z-Image are not
+# here: distillation changes the answer, so they resolve from the variant below.
+_SAMPLE_RECIPE_DEFAULTS = {
+    'flux': (20, 4),          # FLUX.1-dev : guidance ~4 (notebook officiel)
+    'flux2klein': (25, 4),
+    'anima': (25, 4),
+    'sdxl': (28, 6),
+}
+
+
+def _sample_recipe_defaults(ds, family=None) -> tuple:
+    """The (steps, guidance) this dataset would preview at with nothing stored —
+    what the builders emit by default AND what the panel labels as the default.
+    One function so those two can never drift apart."""
+    fam = _train_type(ds, family)
+    if fam == 'krea':
+        if _is_full_transformer(ds):
+            return (FULL_TRANSFORMER_SAMPLE_STEPS, FULL_TRANSFORMER_SAMPLE_GUIDANCE)
+        # Turbo (distillé) : cfg 1 / 8 steps ; Raw (non distillé) : cfg 4 / 25 steps.
+        return (25, 4) if _krea_is_raw(ds) else (8, 1)
+    if fam == 'zimage':
+        try:
+            r = zimage_training_recipe(getattr(ds, 'train_variant', None),
+                                       getattr(ds, 'train_base_model', None))
+        except ValueError:
+            # An impossible variant/base pair is the launch path's error to
+            # raise, with its own message. A settings PAYLOAD must still render.
+            return (35, 4)
+        return (r['sample_steps'], r['guidance_scale'])
+    return _SAMPLE_RECIPE_DEFAULTS.get(fam, (25, 4))
+
+
+def _valid_sample_steps(v) -> bool:
+    lo, hi = _SAMPLE_STEPS_RANGE
+    return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+
+
+def _valid_sample_guidance(v) -> bool:
+    lo, hi = _SAMPLE_GUIDANCE_RANGE
+    return (isinstance(v, (int, float)) and not isinstance(v, bool)
+            and lo <= float(v) <= hi)
+
+
+def _sample_steps(ds, family=None) -> int:
+    """Preview steps for this run: the stored override when it is set and valid,
+    else the family default. Nothing stored → byte-identical to the literal the
+    builder used to carry."""
+    v = _train_settings(ds).get('sample_steps')
+    return v if _valid_sample_steps(v) else _sample_recipe_defaults(ds, family)[0]
+
+
+def _sample_guidance(ds, family=None):
+    v = _train_settings(ds).get('sample_guidance')
+    if not _valid_sample_guidance(v):
+        return _sample_recipe_defaults(ds, family)[1]
+    # An integral override goes out as an int, so a config built with the default
+    # in the box stays byte-identical to one built with nothing stored.
+    return int(v) if float(v).is_integer() else float(v)
+
+
 def person_masking_enabled(ds) -> bool:
     """Person masking resolved for a run: the dataset's stored opt-in (default ON),
     minus the two server guards that already force it off at export time — a
@@ -2962,6 +3041,22 @@ def effective_train_settings(ds, family=None) -> dict:
             'max_step_saves': _max_step_saves(ds),
             'max_step_saves_choices': list(_MAX_SAVES_CHOICES),
             'sample_every': _sample_every(ds),
+            # Preview steps / CFG (#46). Three values, same shape as the memory
+            # levers above: `*_stored` is the raw override (None = "follow the
+            # family", so the control re-checks Auto), `*_default` is what this
+            # family/variant ships — the panel SHOWS it rather than printing a
+            # second copy of the number — and the bare key is what will be sent.
+            'sample_steps': _sample_steps(ds, fam),
+            'sample_steps_stored': (s.get('sample_steps')
+                                    if _valid_sample_steps(s.get('sample_steps')) else None),
+            'sample_guidance': _sample_guidance(ds, fam),
+            'sample_guidance_stored': (s.get('sample_guidance')
+                                       if _valid_sample_guidance(s.get('sample_guidance'))
+                                       else None),
+            'sample_steps_default': _sample_recipe_defaults(ds, fam)[0],
+            'sample_guidance_default': _sample_recipe_defaults(ds, fam)[1],
+            'sample_steps_range': list(_SAMPLE_STEPS_RANGE),
+            'sample_guidance_range': list(_SAMPLE_GUIDANCE_RANGE),
             # liste STOCKÉE brute (telle que tapée) ou [] → textarea vide = « défauts ».
             'sample_prompts': stored_prompts if isinstance(stored_prompts, list) else [],
             # défaut résolu (kind + trigger courant) : placeholder/aperçu quand vide.
@@ -3201,6 +3296,27 @@ def update_train_settings(user_id, dataset_id, patch: dict, *, _settings=None) -
             cur['sample_every'] = v
         else:
             raise ValueError(f'sample_every must be one of {_SAMPLE_EVERY_CHOICES}')
+    if 'sample_steps' in patch:
+        v = patch['sample_steps']
+        if v in (None, 'auto', ''):
+            cur.pop('sample_steps', None)                 # retour au défaut famille
+        elif _valid_sample_steps(v):
+            cur['sample_steps'] = v
+        else:
+            raise ValueError(
+                f'sample_steps must be an integer between {_SAMPLE_STEPS_RANGE[0]} '
+                f'and {_SAMPLE_STEPS_RANGE[1]} (or auto)')
+    if 'sample_guidance' in patch:
+        v = patch['sample_guidance']
+        if v in (None, 'auto', ''):
+            cur.pop('sample_guidance', None)
+        elif _valid_sample_guidance(v):
+            # Stocké tel quel : un entier reste un entier (cf. _sample_guidance).
+            cur['sample_guidance'] = v
+        else:
+            raise ValueError(
+                f'sample_guidance must be a number between {_SAMPLE_GUIDANCE_RANGE[0]} '
+                f'and {_SAMPLE_GUIDANCE_RANGE[1]} (or auto)')
     if 'sample_prompts' in patch:
         v = patch['sample_prompts']
         # Accepte aussi une string multi-lignes (une par prompt) pour le confort UI.
@@ -3617,7 +3733,8 @@ def update_train_settings(user_id, dataset_id, patch: dict, *, _settings=None) -
 # new expert lever is added above. This is what makes presets schema-tolerant:
 # a preset key outside this list is IGNORED (and reported), never fatal.
 TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
-                      'sample_every', 'sample_prompts', 'dropout', 'alpha',
+                      'sample_every', 'sample_steps', 'sample_guidance',
+                      'sample_prompts', 'dropout', 'alpha',
                       'timestep_type', 'optimizer', 'lr_scheduler', 'warmup',
                       'grad_accum', 'network_type', 'lokr_factor',
                       'lokr_full_rank', 'conv', 'conv_alpha', 'ema',
@@ -3665,7 +3782,11 @@ TRAIN_SETTING_KEYS = ('rank', 'resolution', 'save_every', 'max_step_saves',
 # every resume (ai-toolkit rebuilds the job config from scratch), so a user who
 # turns quantisation off and hits ▶ Continue already gets it. Listing them would
 # add untested surface with no caller.
-RESUME_SAFE_SETTING_KEYS = ('save_every', 'sample_every', 'sample_prompts',
+# `sample_steps`/`sample_guidance` join the list for the same reason as
+# `sample_prompts`: they change what a PREVIEW looks like, never the weights, so
+# a resume can honour them without mismatching the checkpoint it continues.
+RESUME_SAFE_SETTING_KEYS = ('save_every', 'sample_every', 'sample_steps',
+                            'sample_guidance', 'sample_prompts',
                             'timestep_type', 'lr_factor')
 
 
@@ -3696,6 +3817,26 @@ def validate_resume_overrides(overrides) -> dict:
         if v not in _SAMPLE_EVERY_CHOICES:
             raise ValueError(f'sample_every must be one of {_SAMPLE_EVERY_CHOICES}')
         patch['sample_every'] = v
+    if 'sample_steps' in overrides:
+        v = overrides['sample_steps']
+        if v in (None, 'auto', ''):
+            patch['sample_steps'] = None                    # back to the family default
+        elif _valid_sample_steps(v):
+            patch['sample_steps'] = v
+        else:
+            raise ValueError(
+                f'sample_steps must be an integer between {_SAMPLE_STEPS_RANGE[0]} '
+                f'and {_SAMPLE_STEPS_RANGE[1]} (or auto)')
+    if 'sample_guidance' in overrides:
+        v = overrides['sample_guidance']
+        if v in (None, 'auto', ''):
+            patch['sample_guidance'] = None
+        elif _valid_sample_guidance(v):
+            patch['sample_guidance'] = v
+        else:
+            raise ValueError(
+                f'sample_guidance must be a number between {_SAMPLE_GUIDANCE_RANGE[0]} '
+                f'and {_SAMPLE_GUIDANCE_RANGE[1]} (or auto)')
     if 'sample_prompts' in overrides:
         v = overrides['sample_prompts']
         if isinstance(v, str):
@@ -5285,8 +5426,8 @@ def build_job_config(ds, dataset_folder: str, steps: int = 3000, training_folder
                     'sampler': 'flowmatch',
                     'neg': '',   # cohérence avec SDXL : défaut ai-toolkit = False (booléen) → fragile
                     'sample_every': _sample_every(ds),
-                    'guidance_scale': recipe['guidance_scale'],
-                    'sample_steps': recipe['sample_steps'],
+                    'guidance_scale': _sample_guidance(ds, 'zimage'),
+                    'sample_steps': _sample_steps(ds, 'zimage'),
                     'prompts': _sample_prompts(ds, trigger),
                 },
             }],
@@ -5387,8 +5528,8 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=
                         # that does not line up with a save cannot be used to
                         # pick which save to keep.
                         'sample_every': _dense_save_every(ds),
-                        'guidance_scale': FULL_TRANSFORMER_SAMPLE_GUIDANCE,
-                        'sample_steps': FULL_TRANSFORMER_SAMPLE_STEPS,
+                        'guidance_scale': _sample_guidance(ds, 'krea'),
+                        'sample_steps': _sample_steps(ds, 'krea'),
                         'prompts': _sample_prompts(ds, trigger),
                     },
                 }],
@@ -5458,9 +5599,9 @@ def _build_job_config_krea(ds, dataset_folder: str, steps: int, training_folder=
                     'sampler': 'flowmatch',
                     'neg': '',
                     'sample_every': _sample_every(ds),
-                    # Turbo (distillé) : cfg 1 / 8 steps ; Raw (non distillé) : cfg 4 / 25 steps.
-                    'guidance_scale': 4 if is_raw else 1,
-                    'sample_steps': 25 if is_raw else 8,
+                    # Défauts Turbo/Raw : voir _SAMPLE_RECIPE_DEFAULTS.
+                    'guidance_scale': _sample_guidance(ds, 'krea'),
+                    'sample_steps': _sample_steps(ds, 'krea'),
                     'prompts': _sample_prompts(ds, trigger),
                 },
             }],
@@ -5540,8 +5681,8 @@ def _build_job_config_flux(ds, dataset_folder: str, steps: int, training_folder=
                     'sampler': 'flowmatch',
                     'neg': '',
                     'sample_every': _sample_every(ds),
-                    'guidance_scale': 4,   # FLUX.1-dev : guidance ~4 (notebook officiel)
-                    'sample_steps': 20,
+                    'guidance_scale': _sample_guidance(ds, 'flux'),
+                    'sample_steps': _sample_steps(ds, 'flux'),
                     'prompts': _sample_prompts(ds, trigger),
                 },
             }],
@@ -5632,8 +5773,8 @@ def _build_job_config_flux2klein(ds, dataset_folder: str, steps: int, training_f
                     'neg': '',
                     'sample_every': _sample_every(ds),
                     # Base non distillée → vrai CFG (cf. docstring) : 4 / 25 steps.
-                    'guidance_scale': 4,
-                    'sample_steps': 25,
+                    'guidance_scale': _sample_guidance(ds, 'flux2klein'),
+                    'sample_steps': _sample_steps(ds, 'flux2klein'),
                     'prompts': _sample_prompts(ds, trigger),
                 },
             }],
@@ -5726,8 +5867,8 @@ def _build_job_config_anima(ds, dataset_folder: str, steps: int, training_folder
                     'sampler': 'flowmatch',
                     'neg': ANIMA_SAMPLE_NEG,
                     'sample_every': _sample_every(ds),
-                    'guidance_scale': 4,
-                    'sample_steps': 25,
+                    'guidance_scale': _sample_guidance(ds, 'anima'),
+                    'sample_steps': _sample_steps(ds, 'anima'),
                     'prompts': _sample_prompts(ds, trigger),
                 },
             }],
@@ -5807,8 +5948,8 @@ def _build_job_config_sdxl(ds, dataset_folder: str, steps: int, training_folder=
                     # 1re step. '' est un str valide → sample sans négatif (voulu pour un LoRA sujet).
                     'neg': '',
                     'sample_every': _sample_every(ds),
-                    'guidance_scale': 6,
-                    'sample_steps': 28,
+                    'guidance_scale': _sample_guidance(ds, 'sdxl'),
+                    'sample_steps': _sample_steps(ds, 'sdxl'),
                     'prompts': _sample_prompts(ds, trigger),
                 },
             }],
@@ -9078,6 +9219,10 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
     # Exact continuation must preserve every trajectory-shaping setting. Save
     # and sample boundaries affect ai-toolkit's main-vs-regularisation loader
     # selection, so cadence changes are not merely presentation changes.
+    # `sample_steps`/`sample_guidance` are deliberately NOT in this list: they
+    # change how a preview image is rendered once the sampler is already running
+    # and touch neither the loop nor the loader. Refusing them would make a
+    # full-state resume the one place you cannot fix an unreadable preview.
     if resume_mode == 'full_state' and (
             'lr_factor' in override_patch
             or 'timestep_type' in override_patch
