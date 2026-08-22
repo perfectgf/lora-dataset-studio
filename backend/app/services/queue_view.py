@@ -140,6 +140,42 @@ def describe(row) -> dict:
     }
 
 
+# What the dock says when nothing is starting. One sentence per hold, written for
+# a reader who may be on ANY screen — the queue is app-wide and so is its pause.
+#
+# It used to relay `lora_test_studio.gpu_busy_reason()` verbatim, whose three
+# sentences are written for the Test Studio: someone in the dataset workspace
+# was told "the studio is unavailable", about a screen they were not on, and
+# pointed at a paused test they had never opened. Same state, wrong address.
+_HOLD_SENTENCES = {
+    'training': 'Nothing is starting — a LoRA training run has the GPU. '
+                'The queue resumes on its own when it ends.',
+    'vision': 'Nothing is starting — a vision pass has the GPU (captions, framing '
+              'or face analysis). The queue resumes on its own when it ends.',
+    'comfyui_recovery': 'Nothing is starting — a paused ComfyUI job is blocking the '
+                        'queue. Clear it from the banner at the top of the screen.',
+}
+
+
+def paused_reason() -> str | None:
+    """Why the whole queue is standing still, or None when it is not.
+
+    Reads the WORKER's own answer (`queue_manager.gpu_hold`) rather than the DB
+    flags: training and the vision pass hold the GPU outside this queue, and one
+    of the four conditions the worker checks — the in-process vision window —
+    does not appear in those flags at all. That was the single pause with no
+    explanation anywhere in the app, which is precisely the one a queue view
+    owes the user.
+    """
+    from ..job_queue import queue_manager
+    try:
+        hold = queue_manager.gpu_hold()
+    except Exception:   # noqa: BLE001 — a listing must not die on a state read
+        logger.exception('queue_view: could not read why the queue is held')
+        return None
+    return _HOLD_SENTENCES.get(hold)
+
+
 def _live_rows():
     return (ImageGenerationQueue.query
             .filter(ImageGenerationQueue.status.in_(LIVE_STATUSES))
@@ -192,10 +228,12 @@ def promote(job_id) -> dict:
     """
     row = ImageGenerationQueue.query.filter_by(job_id=str(job_id)).first()
     if row is None:
-        return {'ok': False, 'error': 'not found', 'status': 404}
+        return {'ok': False, 'status': 404,
+                'error': 'This job is no longer in the queue.'}
     if row.status != 'pending':
         return {'ok': False, 'status': 409,
-                'error': 'this job already started — it can be cancelled, not re-ordered'}
+                'error': 'This job already started — it can be cancelled, '
+                         'but no longer re-ordered.'}
     top = (db.session.query(db.func.max(ImageGenerationQueue.priority))
            .filter(ImageGenerationQueue.status == 'pending').scalar()) or PRIORITY_NORMAL
     row.priority = max(PRIORITY_NEXT, int(top) + 1)

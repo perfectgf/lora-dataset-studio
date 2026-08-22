@@ -249,6 +249,77 @@ def test_the_route_says_when_the_whole_queue_is_held_from_outside(app, client):
     assert 'training' in (body['paused_reason'] or '').lower()
 
 
+def test_the_hold_sentence_is_written_for_whoever_is_reading_it(app):
+    """The queue is app-wide; its pause has to be too.
+
+    This used to relay `lora_test_studio.gpu_busy_reason()` verbatim, whose
+    sentences are written for the Test Studio — so someone in the dataset
+    workspace was told "the studio is unavailable", about a screen they were not
+    on, and pointed at a paused test they had never opened."""
+    from app.job_queue import HOLD_COMFYUI_RECOVERY, HOLD_TRAINING, HOLD_VISION
+    from app.services import queue_view
+
+    # The keys the worker answers with are the keys this module words.
+    assert set(queue_view._HOLD_SENTENCES) == {
+        HOLD_TRAINING, HOLD_VISION, HOLD_COMFYUI_RECOVERY}
+    for sentence in queue_view._HOLD_SENTENCES.values():
+        assert 'studio' not in sentence.lower(), sentence
+        assert sentence.endswith('.')
+
+    with app.app_context():
+        assert queue_view.paused_reason() is None
+
+
+def test_the_in_process_vision_window_is_a_hold_the_dock_can_name(app, monkeypatch):
+    """The worker refuses to claim on FOUR conditions; the DB flags carry three.
+
+    The fourth — the in-process vision window — is the one case where the
+    heartbeat can lose ownership and the flag expire by TTL while the barrier
+    itself is kept. It was therefore the single pause with no explanation
+    anywhere in the app, which is exactly the one a queue view owes the user."""
+    from app import job_queue
+    from app.services import queue_view
+    monkeypatch.setattr(job_queue, '_vision_window_blocks_gpu', lambda: True)
+    with app.app_context():
+        assert job_queue.queue_manager.gpu_hold() == job_queue.HOLD_VISION
+        assert 'vision pass' in (queue_view.paused_reason() or '')
+
+
+def test_a_cancelled_job_is_not_reported_to_the_user_as_a_failure(app, client):
+    """`link_completed_dataset_image` falls back to a message pointing at the
+    server log when no reason is given — so a job the user had just cancelled
+    with one click came back labelled 'generation failed', sending them to hunt
+    a ComfyUI error that never happened."""
+    from app.extensions import db
+    from app.models import ImageGenerationQueue
+    from app.routes.system import CANCELLED_FROM_QUEUE
+    with app.app_context():
+        _add(db, _row(ImageGenerationQueue, 'gen', {'model_name': 'klein_edit_dataset'}))
+    assert client.post('/api/system/queue/gen/cancel').status_code == 200
+    with app.app_context():
+        row = ImageGenerationQueue.query.filter_by(job_id='gen').first()
+        assert row.status == 'cancelled'
+        assert row.error_message == CANCELLED_FROM_QUEUE
+        assert 'fail' not in row.error_message.lower()
+
+
+def test_every_refusal_these_routes_send_is_a_sentence(app, client):
+    """A route that answers a person does not hand back an internal string. The
+    404 of "run next" used to toast the literal words 'not found'."""
+    from app.extensions import db
+    from app.models import ImageGenerationQueue
+    with app.app_context():
+        _add(db, _row(ImageGenerationQueue, 'running',
+                      {'model_name': 'klein_edit_dataset'}, status='processing'))
+    for response in (client.post('/api/system/queue/ghost/next'),
+                     client.post('/api/system/queue/running/next'),
+                     client.post('/api/system/queue/ghost/cancel')):
+        error = response.get_json()['error']
+        assert error[0].isupper(), error
+        assert error.endswith('.') or '—' in error, error
+        assert len(error.split()) >= 4, error
+
+
 def test_cancelling_a_pass_owned_job_is_refused_with_its_owner(app, client):
     from app.extensions import db
     from app.models import ImageGenerationQueue

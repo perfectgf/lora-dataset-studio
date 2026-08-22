@@ -337,6 +337,11 @@ def ollama_fence_unload():
 # claim about itself, and why two families are listed but not cancellable.
 
 
+# What a tile says after the user cancels its job from the dock. Not an error:
+# the tile is left recoverable and Retry re-queues it.
+CANCELLED_FROM_QUEUE = 'Cancelled from the generation queue — Retry to run it again.'
+
+
 def _queue_dataset_names(jobs):
     """{dataset_id: name} for the datasets the queue mentions, in ONE pass.
 
@@ -366,12 +371,11 @@ def generation_queue():
     opened #44, rebuilt one level up.
     """
     from ..services import queue_view
-    from ..services.lora_test_studio import gpu_busy_reason
     listing = queue_view.list_queue()
     names = _queue_dataset_names(listing['jobs'])
     for job in listing['jobs']:
         job['dataset_name'] = names.get(job['dataset_id'])
-    return jsonify({'ok': True, 'paused_reason': gpu_busy_reason(), **listing})
+    return jsonify({'ok': True, 'paused_reason': queue_view.paused_reason(), **listing})
 
 
 @bp.post('/queue/<job_id>/next')
@@ -404,12 +408,13 @@ def generation_queue_cancel(job_id):
     the reference edit): cancelling those from here would leave that pass
     waiting on a result that will never come, and each has its own Stop.
     """
+    from ..extensions import db
     from ..job_queue import _dispatch_auto_resolved_cancellation, queue_manager
     from ..models import ImageGenerationQueue
     from ..services import queue_view
     row = ImageGenerationQueue.query.filter_by(job_id=str(job_id)).first()
     if row is None or row.status not in queue_view.LIVE_STATUSES:
-        return jsonify({'error': 'this job is no longer in the queue'}), 404
+        return jsonify({'error': 'This job is no longer in the queue.'}), 404
     job = queue_view.describe(row)
     if not job['cancellable']:
         return jsonify({'error': f"This job belongs to {job['blocked_by']} — "
@@ -421,6 +426,17 @@ def generation_queue_cancel(job_id):
         logger.exception('could not safely cancel queued job %s', job_id)
         outcome = 'retry'
     if outcome == 'cancelled':
+        # Say WHY the row ends, before settling it. The completion callback
+        # forwards `job.error_message` as the tile's reason and falls back to a
+        # default that points at the server log — so a job the user had just
+        # cancelled with one click came back labelled 'generation failed — see
+        # the Server log', sending them to hunt a ComfyUI error that never
+        # happened. Written on the row (not passed as an argument) because that
+        # is where `_dispatch_auto_resolved_cancellation` re-reads it.
+        cancelled = ImageGenerationQueue.query.filter_by(job_id=str(job_id)).first()
+        if cancelled is not None:
+            cancelled.error_message = CANCELLED_FROM_QUEUE
+            db.session.commit()
         _dispatch_auto_resolved_cancellation(job_id)
         return jsonify({'ok': True, 'outcome': outcome})
     # Everything else is a recovery state the app already has words for; say
