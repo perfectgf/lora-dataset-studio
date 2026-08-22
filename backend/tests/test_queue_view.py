@@ -233,6 +233,22 @@ def test_the_route_names_the_dataset_each_job_belongs_to(app, client):
     assert body['ok'] and body['jobs'][0]['dataset_name'] == expected
 
 
+def test_the_route_says_when_the_whole_queue_is_held_from_outside(app, client):
+    """Training and the vision pass hold the GPU OUTSIDE this queue — the worker
+    claims nothing while either runs. A listing that counted a line going nowhere
+    and said nothing about why would be #44 rebuilt one level up."""
+    from app.extensions import db
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue
+    with app.app_context():
+        _add(db, _row(ImageGenerationQueue, 'waiting', {'model_name': 'klein_edit_dataset'}))
+        assert client.get('/api/system/queue').get_json()['paused_reason'] is None
+        queue_manager._set_system_state('training_in_progress', True)
+    body = client.get('/api/system/queue').get_json()
+    assert body['queued'] == 1
+    assert 'training' in (body['paused_reason'] or '').lower()
+
+
 def test_cancelling_a_pass_owned_job_is_refused_with_its_owner(app, client):
     from app.extensions import db
     from app.models import ImageGenerationQueue

@@ -32,6 +32,19 @@ export function summarize(listing) {
   return parts.join(' · ');
 }
 
+/**
+ * Why the whole queue is standing still, or null when it is not.
+ *
+ * Training and the vision pass hold the GPU OUTSIDE this queue — the worker
+ * claims nothing while either runs. A dock that counted a line which never
+ * advanced, and said nothing about why, would rebuild the very confusion it is
+ * here to remove, one level up.
+ */
+export function pausedReason(listing) {
+  const reason = (listing?.paused_reason || '').trim();
+  return reason || null;
+}
+
 /** "Upscale & improve · Klein" — the engine only when there is one to name. */
 export function jobLabel(job) {
   return job?.engine ? `${job.title} · ${job.engine}` : (job?.title || '');

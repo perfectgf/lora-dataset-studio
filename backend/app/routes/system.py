@@ -355,13 +355,23 @@ def _queue_dataset_names(jobs):
 
 @bp.get('/queue')
 def generation_queue():
-    """Everything still owing GPU time, in the order the worker will take it."""
+    """Everything still owing GPU time, in the order the worker will take it.
+
+    Plus `paused_reason`, which is the difference between a queue and a queue
+    that is going nowhere. Training and the vision pass hold the GPU OUTSIDE
+    this queue: the worker refuses to claim anything while either runs, so the
+    honest listing during a training run is "four jobs, none of them moving,
+    and here is why". Without it the dock would count a line that never
+    advances and say nothing about it — which is the exact complaint that
+    opened #44, rebuilt one level up.
+    """
     from ..services import queue_view
+    from ..services.lora_test_studio import gpu_busy_reason
     listing = queue_view.list_queue()
     names = _queue_dataset_names(listing['jobs'])
     for job in listing['jobs']:
         job['dataset_name'] = names.get(job['dataset_id'])
-    return jsonify({'ok': True, **listing})
+    return jsonify({'ok': True, 'paused_reason': gpu_busy_reason(), **listing})
 
 
 @bp.post('/queue/<job_id>/next')

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch, getCsrfToken, postJson } from '../../api/fetchClient'
 import { useToast } from './Toast'
 import {
-  elapsedLabel, hasQueue, jobLabel, jobOrigin, promoteBlockedReason, rowNote, summarize,
+  elapsedLabel, hasQueue, jobLabel, jobOrigin, pausedReason, promoteBlockedReason,
+  rowNote, summarize,
 } from '../../utils/queuePanel'
 
 /**
@@ -96,10 +97,18 @@ export function QueueDockBody({ listing, open = false, pending = null,
                                 onToggle, onPromote, onCancel }) {
   if (!hasQueue(listing)) return null
   const jobs = listing.jobs
+  const paused = pausedReason(listing)
   return (
     <div className="fixed bottom-4 left-3 z-40 w-[min(23rem,calc(100vw-1.5rem))]">
       {open && (
         <div className="mb-2 max-h-[min(60vh,28rem)] overflow-y-auto rounded-xl border border-indigo-400/40 bg-surface-overlay/95 shadow-lg backdrop-blur">
+          {/* Above the list, because it explains the whole list: nothing here is
+              moving, and this is what is holding the GPU instead. */}
+          {paused && (
+            <p className="border-b border-border bg-amber-400/10 px-3 py-2 text-content text-[0.6875rem] leading-snug">
+              {paused}
+            </p>
+          )}
           <ul className="divide-y divide-border">
             {jobs.map((job) => (
               <QueueRow key={job.job_id} job={job} busy={pending === job.job_id}
@@ -108,11 +117,20 @@ export function QueueDockBody({ listing, open = false, pending = null,
           </ul>
         </div>
       )}
+      {/* The hold reason belongs in the COLLAPSED name too. A pill reading "4
+          queued" that never moves is the question; making the user open the dock
+          to find the answer would be the same silence, one click deep. */}
       <button type="button" onClick={onToggle}
         aria-expanded={open}
-        aria-label={`Generation queue — ${summarize(listing)}`}
+        aria-label={paused
+          ? `Generation queue — ${summarize(listing)}, on hold: ${paused}`
+          : `Generation queue — ${summarize(listing)}`}
+        title={paused || undefined}
         className="flex w-full items-center gap-2 rounded-xl border border-indigo-400/40 bg-surface-overlay/95 px-3 py-2 text-left shadow-lg backdrop-blur hover:border-indigo-400/70">
-        <span aria-hidden="true" className={listing.generating ? 'animate-pulse' : undefined}>⏳</span>
+        <span aria-hidden="true"
+          className={listing.generating && !paused ? 'animate-pulse' : undefined}>
+          {paused ? '⏸' : '⏳'}
+        </span>
         <span className="text-content text-sm font-semibold">{summarize(listing)}</span>
         <span aria-hidden="true" className="ml-auto text-content-subtle text-xs">
           {open ? '▾' : '▴'}

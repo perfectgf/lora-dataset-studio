@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  elapsedLabel, hasQueue, jobLabel, jobOrigin, promoteBlockedReason, rowNote, summarize,
+  elapsedLabel, hasQueue, jobLabel, jobOrigin, pausedReason, promoteBlockedReason,
+  rowNote, summarize,
 } from './queuePanel.js';
 
 const job = (patch = {}) => ({
@@ -31,6 +32,19 @@ test('the pill names what is happening before what is waiting', () => {
 // the pill claim an empty queue while the panel lists jobs.
 test('a queue nobody counted is still reported as a queue', () => {
   assert.equal(summarize({ jobs: [job(), job()] }), '2 in the queue');
+});
+
+// Training and the vision pass hold the GPU outside this queue. A queue that
+// counts a line which never advances, and says nothing, is the original
+// complaint rebuilt one level up.
+test('a queue held by something outside it says what is holding it', () => {
+  assert.equal(
+    pausedReason({ jobs: [job()], paused_reason: 'LoRA training in progress - the studio is unavailable (GPU busy).' }),
+    'LoRA training in progress - the studio is unavailable (GPU busy).',
+  );
+  for (const listing of [{ jobs: [job()] }, { jobs: [job()], paused_reason: null },
+    { jobs: [job()], paused_reason: '   ' }, null])
+    assert.equal(pausedReason(listing), null);
 });
 
 test('a job names its engine only when it has one', () => {

@@ -89,6 +89,19 @@ test('cancelling names what it will leave behind, not just "cancel"', () => {
   assert.match(html, /Retry re-queues it/)
 })
 
+test('a queue held by a training run says so, collapsed and expanded', () => {
+  const listing = { jobs: [job(), job({ job_id: 'j2', position: 2 })], queued: 2,
+    paused_reason: 'LoRA training in progress - the studio is unavailable (GPU busy).' }
+  const expanded = render(listing)
+  assert.match(expanded, /LoRA training in progress/)
+  // Collapsed, the same answer must be reachable without opening anything: a
+  // pill that counts a line going nowhere and stays mute is the original bug.
+  const collapsed = render(listing, { open: false })
+  assert.match(collapsed, /aria-label="[^"]*on hold: LoRA training in progress[^"]*"/)
+  assert.match(collapsed, /⏸/)
+  assert.doesNotMatch(collapsed, /animate-pulse/)
+})
+
 test('the dock stays inside a narrow window', () => {
   // 400px is the width the project tests every surface at. A fixed panel that
   // is wider than the viewport pushes the page sideways instead of docking.
