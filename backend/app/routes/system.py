@@ -327,3 +327,129 @@ def ollama_fence_unload():
     return jsonify({'ok': False, 'error': reasons.get(result['reason'],
                                                       'The model could not be unloaded.'),
                     **result}), 409
+
+
+# --- The generation queue, app-wide -----------------------------------------
+# One ComfyUI, one serialized queue, fed by the dataset workspace, the Test
+# Studio, the ◉ Canvas and the Bank. It lives here for the same reason the
+# recovery surface above does: it is about the machine running the server, not
+# about any one dataset. See services/queue_view.py for what a job is allowed to
+# claim about itself, and why two families are listed but not cancellable.
+
+
+# What a tile says after the user cancels its job from the dock. Not an error:
+# the tile is left recoverable and Retry re-queues it.
+CANCELLED_FROM_QUEUE = 'Cancelled from the generation queue — Retry to run it again.'
+
+
+def _queue_dataset_names(jobs):
+    """{dataset_id: name} for the datasets the queue mentions, in ONE pass.
+
+    Resolved here rather than in `queue_view` so that module keeps out of the
+    services that feed the queue.
+    """
+    from ..services import face_dataset_service as fds
+    from ..services import queue_view
+    names = {}
+    for dataset_id in queue_view.dataset_ids(jobs):
+        ds = fds.get_dataset(LOCAL_USER, dataset_id)
+        if ds is not None:
+            names[dataset_id] = ds.name
+    return names
+
+
+@bp.get('/queue')
+def generation_queue():
+    """Everything still owing GPU time, in the order the worker will take it.
+
+    Plus `paused_reason`, which is the difference between a queue and a queue
+    that is going nowhere. Training and the vision pass hold the GPU OUTSIDE
+    this queue: the worker refuses to claim anything while either runs, so the
+    honest listing during a training run is "four jobs, none of them moving,
+    and here is why". Without it the dock would count a line that never
+    advances and say nothing about it — which is the exact complaint that
+    opened #44, rebuilt one level up.
+    """
+    from ..services import queue_view
+    listing = queue_view.list_queue()
+    names = _queue_dataset_names(listing['jobs'])
+    for job in listing['jobs']:
+        job['dataset_name'] = names.get(job['dataset_id'])
+    return jsonify({'ok': True, 'paused_reason': queue_view.paused_reason(), **listing})
+
+
+@bp.post('/queue/<job_id>/next')
+def generation_queue_promote(job_id):
+    """Send one WAITING job to the front of the queue.
+
+    Writes only `priority`, which is what the worker has always ordered by
+    (`priority DESC, created_at ASC`) — nothing about the job itself changes.
+    409 when it already started: at that point it can be cancelled, not
+    re-ordered, and pretending otherwise would be a button that does nothing.
+    """
+    from ..services import queue_view
+    result = queue_view.promote(job_id)
+    if result.get('ok'):
+        return jsonify({'ok': True})
+    return jsonify({'error': result['error']}), result.get('status', 409)
+
+
+@bp.post('/queue/<job_id>/cancel')
+def generation_queue_cancel(job_id):
+    """Cancel ONE queued or running job, and settle whatever row owns it.
+
+    Deliberately NOT the same thing as ⏹ Stop generation, and it does not wear
+    that label: Stop ends a whole batch and removes the tiles it had not
+    produced yet, while this drops one job and leaves its tile marked failed —
+    which is recoverable (Retry re-queues it) and is exactly what already
+    happens when a stalled job is auto-resolved.
+
+    Refused for the two families a pass is BLOCKED on (the watermark inpaint,
+    the reference edit): cancelling those from here would leave that pass
+    waiting on a result that will never come, and each has its own Stop.
+    """
+    from ..extensions import db
+    from ..job_queue import _dispatch_auto_resolved_cancellation, queue_manager
+    from ..models import ImageGenerationQueue
+    from ..services import queue_view
+    row = ImageGenerationQueue.query.filter_by(job_id=str(job_id)).first()
+    if row is None or row.status not in queue_view.LIVE_STATUSES:
+        return jsonify({'error': 'This job is no longer in the queue.'}), 404
+    job = queue_view.describe(row)
+    if not job['cancellable']:
+        return jsonify({'error': f"This job belongs to {job['blocked_by']} — "
+                                 'stop it from there so the pass waiting on it '
+                                 'is not left hanging.'}), 409
+    try:
+        outcome = queue_manager.cancel_job_outcome(job_id, LOCAL_USER, 'image')
+    except Exception:
+        logger.exception('could not safely cancel queued job %s', job_id)
+        outcome = 'retry'
+    if outcome == 'cancelled':
+        # Say WHY the row ends, before settling it. The completion callback
+        # forwards `job.error_message` as the tile's reason and falls back to a
+        # default that points at the server log — so a job the user had just
+        # cancelled with one click came back labelled 'generation failed — see
+        # the Server log', sending them to hunt a ComfyUI error that never
+        # happened. Written on the row (not passed as an argument) because that
+        # is where `_dispatch_auto_resolved_cancellation` re-reads it.
+        cancelled = ImageGenerationQueue.query.filter_by(job_id=str(job_id)).first()
+        if cancelled is not None:
+            cancelled.error_message = CANCELLED_FROM_QUEUE
+            db.session.commit()
+        _dispatch_auto_resolved_cancellation(job_id)
+        return jsonify({'ok': True, 'outcome': outcome})
+    # Everything else is a recovery state the app already has words for; say
+    # which one rather than reporting a cancellation that did not happen.
+    messages = {
+        'restart_required': 'ComfyUI must be restarted before this job can be '
+                            'resolved — LDS cannot safely identify its remote prompt.',
+        'barrier_corrupt': 'A ComfyUI recovery is pending. Resolve it from the banner '
+                           'first, then try again.',
+        'retry': 'The job could not be cancelled cleanly. Try again in a moment.',
+        'terminal': 'This job already finished.',
+        'missing': 'This job is no longer in the queue.',
+    }
+    status = 409 if outcome not in ('terminal', 'missing') else 404
+    return jsonify({'error': messages.get(outcome, 'The job could not be cancelled.'),
+                    'outcome': outcome}), status

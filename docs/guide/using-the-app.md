@@ -225,6 +225,39 @@ fp8 tool — which is the order the refusal points you at.
 `torch` available. If it is missing, the plan says so with the command to fix it,
 before you click anything.
 
+## The generation queue
+
+Everything that renders locally goes through one queue: your ComfyUI runs a
+single job at a time, whether it was asked for from a dataset, the Test Studio,
+the Canvas or the Bank. So you do not have to wait for one thing to finish
+before starting the next — launch an **✨ Upscale & improve** batch, then a
+**⚡ Generate**, then a retry on a tile, and they line up and run in turn.
+
+The dock in the bottom-left corner is that queue. It appears only when there is
+something in it, and shows, top to bottom: what the GPU is working on right now,
+then what is waiting behind it, in the order it will be taken. Each line names
+where the job came from and which dataset it belongs to, so two datasets feeding
+the same queue are never confused for one another.
+
+Two buttons per line:
+
+- **↑** sends a waiting job to the front. Only the wait can be re-ordered — a
+  job already on the GPU has nothing left to re-order, and says so.
+- **✕** cancels that one job. This is not **⏹ Stop generation**, which ends a
+  whole batch: cancelling here drops a single job and leaves its tile marked
+  failed, and **Retry** on that tile queues it again.
+
+Some jobs cannot be cancelled from the dock, and say who owns them instead: a
+watermark inpaint belongs to the 🧽 Clean watermarks pass, and a reference edit
+to the ✦ Edit reference panel. Both are being waited on by the pass that started
+them, and each has its own Stop where it lives. A **paused** line means ComfyUI
+stopped answering — that one is resolved from the recovery banner at the top of
+the screen, not from here.
+
+Two things still take the GPU exclusively and are not queued behind anything:
+a training run, and a vision pass (captioning, framing, face analysis). While
+one of those is running, new generations wait for it and the app says so.
+
 ## Recover a paused Test Studio batch
 
 If ComfyUI drops while Test Studio is processing a batch, the affected tile says

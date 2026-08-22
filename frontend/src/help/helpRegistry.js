@@ -713,6 +713,17 @@ const TOPICS = [
      'dropdown', '▾', 'kept caption', 'nonblank caption', 'test prompt', 'replace prompt',
      'overwrite prompt', 'confirmation'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  // The dock is app-wide (it is mounted in the shell, not on one screen), so the
+  // route here is just somewhere the queue is normally being fed from — the
+  // topic's real destination is the guide section, which is where the ⤒ / ✕
+  // semantics and the two jobs the dock refuses to cancel are explained.
+  action('generation-queue-dock', 'The generation queue',
+    ['queue', 'generation queue', 'waiting', 'line up', 'stack jobs', 'one at a time',
+      'why is it greyed out', 'greyed out', 'disabled button', 'cannot generate',
+      'too many generations in flight', 'run next', 'reorder', 'priority',
+      'cancel one job', 'what is the gpu doing', 'still generating', 'dock',
+      'bottom left', 'improve batch blocks', 'klein batch blocks'],
+    '/datasets', 'using-the-app', 'the-generation-queue'),
   action('studio-recover-paused-batch', 'Recover a paused Test Studio batch',
     ['studio', 'test studio', 'paused', 'pause', 'stalled', 'queue', 'queue error',
       'comfyui stopped', 'comfyui unavailable', 'restart comfyui', 'recover comfyui',

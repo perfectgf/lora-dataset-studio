@@ -33,7 +33,10 @@ test('grid exposes an accessible per-image mirror action with busy protection', 
   assert.match(grid, /onMirror, onRegenerate/);
   assert.match(grid, /mirrorBusy=\{Boolean\(mirroringIds\?\.has\(img\.id\)\)\} busy=\{bulkBusy\}/);
   assert.match(gridItem, /\{url && onMirror && \(/);
-  assert.match(gridItem, /disabled=\{busy \|\| mirrorBusy\}/);
+  // The gate moved off the blanket `busy`: mirroring is a curation write, and
+  // queued work no longer refuses it. It DOES wait for an upscale of this very
+  // image, which would come back rendered from the pre-mirror pixels.
+  assert.match(gridItem, /disabled=\{pixelEditRefused \|\| mirrorBusy\}/);
   assert.match(gridItem, /aria-busy=\{mirrorBusy\}/);
   assert.match(gridItem, /Mirror \$\{displayLabel\(img\.variation_label\)/);
   assert.match(gridItem, /e\.stopPropagation\(\); onMirror\(img\.id\)/);
@@ -44,7 +47,9 @@ test('grid exposes an accessible per-image mirror action with busy protection', 
 test('lightbox mirrors without closing and remains touch friendly on mobile', () => {
   assert.match(lightbox, /const mirror = async \(event\)/);
   assert.match(lightbox, /event\.stopPropagation\(\)/);
-  assert.match(lightbox, /if \(!onMirror \|\| busy \|\| mirrorBusy\) return/);
+  // The handler guards on the SAME thing its button's `disabled` reads — the
+  // two diverging is what makes a live button that does nothing.
+  assert.match(lightbox, /if \(!onMirror \|\| pixelEditRefused \|\| mirrorBusy\) return/);
   assert.match(lightbox, /aria-busy=\{mirrorBusy\}/);
   assert.match(lightbox, /⇆ Mirror horizontally/);
   assert.match(lightbox, /min-h-9 w-full sm:w-auto/);

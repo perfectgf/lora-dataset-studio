@@ -49,6 +49,21 @@ COMFYUI_RECOVERY_REQUIRED_MESSAGE = (
 )
 
 
+# Why the worker will claim nothing at all. Stable KEYS — the wording lives at
+# each surface (see `QueueManager.gpu_hold`). Deliberately NOT the fifth
+# condition `process_one` checks ("a job is already running"): that one is the
+# serialization working as designed, not a hold.
+HOLD_TRAINING = 'training'
+HOLD_VISION = 'vision'
+HOLD_COMFYUI_RECOVERY = 'comfyui_recovery'
+# Noun phrases, for a caller writing "waiting for {x}".
+HOLD_LABELS = {
+    HOLD_TRAINING: 'LoRA training',
+    HOLD_VISION: 'a vision pass',
+    HOLD_COMFYUI_RECOVERY: 'a paused ComfyUI job',
+}
+
+
 class ComfyUIRecoveryRequired(RuntimeError):
     """Raised when new ComfyUI work must wait for explicit recovery."""
 
@@ -1113,6 +1128,45 @@ class JobQueueManager:
             logger.exception('job_queue: staged input prune failed')
 
     # -- worker -----------------------------------------------------------
+    def gpu_hold(self):
+        """WHICH hold is keeping the worker off the GPU, as a stable key, or None.
+
+        A key rather than a sentence because the two surfaces that ask word it
+        differently and both are right: the improve drain says "waiting for X"
+        inside a progress line, the queue dock writes a full sentence with a
+        remedy. Sharing one string would have forced one of them to read badly —
+        and picking a sentence written for a THIRD screen is how the dock ended
+        up telling someone in the dataset workspace that "the studio is
+        unavailable".
+
+        The four conditions `process_one` checks before it looks at a single row,
+        minus the fifth — 'a job is already running' — which is not a hold but the
+        serialization working as designed. The one that matters most, the
+        in-process vision window, is not visible in the DB flags at all: a caller
+        that re-derived this from `_get_system_state` alone would miss exactly the
+        case where the heartbeat lost ownership and the barrier outlived the flag.
+
+        It exists because a caller outside this module cannot tell a paused queue
+        from a slow one, and one that guessed got it wrong: the bulk improve drain
+        counted every poll of a queue frozen by a training run against its own
+        15-minute stall timeout, then declared itself stalled and silently dropped
+        the rest of the batch. Waiting on a queue that is provably held is not a
+        stall, it is waiting.
+        """
+        if _vision_window_blocks_gpu():
+            return HOLD_VISION
+        if self._get_system_state('training_in_progress', False):
+            return HOLD_TRAINING
+        if self._get_system_state('vision_in_progress', False):
+            return HOLD_VISION
+        if self.has_comfyui_stalled_barrier():
+            return HOLD_COMFYUI_RECOVERY
+        return None
+
+    def held_off_gpu_reason(self):
+        """The same answer as a NOUN PHRASE, for a caller writing "waiting for {x}"."""
+        return HOLD_LABELS.get(self.gpu_hold())
+
     def process_one(self) -> bool:
         """Run one queued image while closing the local ComfyUI/vision race."""
         job = None

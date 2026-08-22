@@ -36,7 +36,10 @@ test('scoreFace locks all score controls while keeping the active tile busy', ()
   const regenerateAt = item.indexOf('{canRegenerate && (', actionAt);
   assert.ok(actionAt >= 0 && actionAt < regenerateAt, 'score button sits left of regenerate');
   assert.match(item, /e\.stopPropagation\(\); onScoreFace\(img\.id\)/);
-  assert.match(item, /disabled=\{busy \|\| faceScoringBusy \|\| !!faceScoringBlocked \|\| scoreFaceBusy\}/);
+  // Scoring is a curation write: the server's vision window is fail-closed and
+  // refuses in words while ComfyUI has work, so the UI no longer greys it out
+  // for queued generations — only for a pass that owns the rows.
+  assert.match(item, /disabled=\{curationRefused \|\| faceScoringBusy \|\| !!faceScoringBlocked \|\| scoreFaceBusy\}/);
   assert.match(item, /aria-busy=\{scoreFaceBusy\}[\s\S]*scoreFaceBusy \? 'animate-pulse' : ''/);
   assert.match(item, /title=\{scoreFaceTitle\} aria-label=\{scoreFaceTitle\}/);
 });

@@ -69,6 +69,20 @@ export const WHATS_NEW = [
     to: '/studio',
   },
   {
+    id: '2026-08-22-generation-queue',
+    date: '2026-08-22',
+    title: 'Line your work up instead of waiting on it',
+    blurb:
+      'Starting a generation no longer switches off the others. Fire an ✨ Upscale & improve '
+      + 'batch, then launch a ⚡ Generate, then retry a tile — they queue behind each other and '
+      + 'run in turn, instead of greying out the whole workspace until the first one finished. '
+      + 'A new dock in the bottom-left corner shows that queue for the first time: what the GPU '
+      + 'is working on right now, what is waiting behind it and where each job came from — the '
+      + 'dataset, the Test Studio, the Canvas or the Bank. You can send one job to the front, or '
+      + 'cancel it, without stopping the batch it belongs to. The dock stays out of sight while '
+      + 'the queue is empty. Suggested by charlesangus (GitHub #44).',
+  },
+  {
     id: '2026-08-20-caption-appearance-policy',
     date: '2026-08-20',
     title: 'Choose whether hair, makeup, facial hair and glasses bind to the trigger',

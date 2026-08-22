@@ -12,6 +12,8 @@ import ConceptSourcesPanel from './ConceptSourcesPanel';
 import BankImportPanel from './BankImportPanel';
 import DatasetFolderNote from './DatasetFolderNote';
 import { isDatasetImportBlocked, isStopGenerationBlocked } from './scraperState';
+import { holdsLocalGpu } from '../../utils/activityLanes.js';
+import { IMPROVE_DERIVATION } from './improveCandidates.js';
 import { faceAnalysisState, faceAnalysisLabel } from './faceScoringGate.js';
 import DatasetGrid from './DatasetGrid';
 import { datasetBusyReason } from './datasetBusyReason.js';
@@ -666,6 +668,16 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const refusalNote = refusalHeadline(outcome);
   const pending = images.filter((i) => i.status === 'pending' && !i.filename
     && !unresolvedRescueIds.has(i.id)).length;
+  // The same rows minus the ✨ improve candidates. `pending` counts everything in
+  // flight, which is right for the progress banner ("3 generating…"); it is wrong
+  // for the ⚡ Generate double-click guard, which asks "is a GENERATION batch
+  // already running?". While the button was greyed during an improve batch the
+  // question never came up — now that it is clickable, which is the whole point
+  // of #44, the first click of the nominal path met a dialog announcing a batch
+  // that did not exist.
+  const pendingGenerations = images.filter((i) => i.status === 'pending' && !i.filename
+    && i.derivation_kind !== IMPROVE_DERIVATION
+    && !unresolvedRescueIds.has(i.id)).length;
   const triage = images.filter((i) => i.status === 'pending' && i.filename
     && !unresolvedRescueIds.has(i.id)).length;   // generated/imported, awaiting ✓/✕
 
@@ -800,10 +812,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // clean) don't pause ComfyUI, so their note omits that claim.
   const act = ds.activity;
   const importBusy = isDatasetImportBlocked({ localBusy: ds.localBusy, activity: act });
-  // Unknown / legacy engine values fail safe as local: only these two API
-  // engines are guaranteed not to share ComfyUI VRAM with vision auto-crop.
-  const visionImportBusy = act?.kind === 'generate'
-    && !['nanobanana', 'chatgpt'].includes(String(act?.engine || '').toLowerCase());
+  // Which activities actually hold ComfyUI, and therefore fight the import's
+  // auto head-crop for the exclusive GPU vision window. This used to name
+  // 'generate' by hand; when the import gate above widened to the whole queue
+  // lane, an import started during an ✨ improve batch opened, ran, and died on
+  // a 503 "GPU busy" at the crop. `holdsLocalGpu` now answers for every
+  // queue-lane kind, and fails safe as local on an unknown engine.
+  const visionImportBusy = holdsLocalGpu(act);
   const activityBanner = ds.captioning
     ? `${act?.detail || `Captioning in progress — ${keptCaptioned}/${kept} captioned…`} ComfyUI is paused.`
     : (() => {
@@ -1286,6 +1301,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                      longer holds the image you were looking at. */
                   viewingImageId={viewImg?.id ?? null}
                   onBatch={ds.batchImages} busy={ds.busy}
+                  improveBusy={ds.improveBusy} generateBusy={ds.generationBusy} curationBusy={ds.curationBusy}
                   onBulkBusyChange={setGridBulkBusy}
                   onImproveBatch={ds.improveBatch} activity={act}
                           subjectType={d.subject_type || 'human'}
@@ -1349,13 +1365,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <ClassifyFramingButton images={images} ollama={caps.ollama} capsLoading={capsLoading}
                     busy={ds.busy} activity={act} onClassify={(n) => ds.classify(n)} />
                   <div id="ds-add-generate" tabIndex={-1} className="scroll-mt-20">
-                    <VariationCatalog key={`vc-${d.id}-${bodyFid}`} datasetId={d.id} busy={ds.busy}
+                    <VariationCatalog key={`vc-${d.id}-${bodyFid}`} datasetId={d.id} busy={ds.generationBusy}
                       generating={act && act.kind === 'generate' ? act : null}
                       onGenerate={(...args) => {
                         // Guard-rail: a batch is already in flight — launching another one
                         // on top is usually an accidental double-click, not a plan.
-                        if (pending > 0 && !window.confirm(
-                          `A generation batch is already running (${pending} in flight).\n\nLaunch another one anyway?`)) return;
+                        if (pendingGenerations > 0 && !window.confirm(
+                          `A generation batch is already running (${pendingGenerations} in flight).\n\nLaunch another one anyway?`)) return;
                         ds.generate(...args);
                       }}
                       hasRef={!!d.ref_filename} composition={d.composition} images={images}
@@ -2220,6 +2236,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
           improvePending={viewImgImproving}
           improveReady={viewImgImprovementReady}
           busy={ds.busy || gridBulkBusy}
+          improveBusy={ds.improveBusy || gridBulkBusy}
+          curationBusy={ds.curationBusy || gridBulkBusy}
           // The refused writes in there name the pass that holds them, exactly
           // like the tiles behind the lightbox.
           busyReason={(ds.busy || gridBulkBusy) ? datasetBusyReason(ds.busy ? act : null) : null}

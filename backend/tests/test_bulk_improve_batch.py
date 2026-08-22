@@ -252,3 +252,187 @@ def test_batch_route_recovery_barrier_has_no_service_side_effect(
         '/api/dataset/1/improve/batch', json={'image_ids': [1]})
     assert response.status_code == 409
     assert response.get_json()['code'] == 'comfyui_recovery_required'
+
+
+def test_the_batch_leaves_the_fanout_budget_to_the_user(app, monkeypatch):
+    """GitHub #44, the half a grey button would not have fixed.
+
+    The drain used to queue until the whole per-dataset budget was spent, so the
+    ⚡ Generate the user clicked next was refused ("too many generations in
+    flight"). It now keeps only IMPROVE_QUEUE_DEPTH of its own work in flight,
+    which is all a one-job-at-a-time ComfyUI can use anyway, and the rest of
+    MAX_FANOUT stays available for whatever the person launches."""
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import dataset_activity as da
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper as keh
+
+    jobs = []
+    _stub_klein(monkeypatch, keh, jobs)
+    monkeypatch.setattr(svc, 'MAX_FANOUT', 20)
+    monkeypatch.setattr(svc, 'IMPROVE_QUEUE_DEPTH', 3)
+
+    with app.app_context():
+        da.reset()
+        ds, source_ids = _dataset_with_sources(svc, FaceDatasetImage, LOCAL_USER, 9)
+        token = da.begin(ds.id, 'improve', total=len(source_ids))
+
+        def _free_one_slot(_seconds):
+            oldest = (FaceDatasetImage.query
+                      .filter_by(dataset_id=ds.id,
+                                 derivation_kind=svc.KLEIN_IMAGE_IMPROVE,
+                                 status='pending')
+                      .filter(FaceDatasetImage.filename.is_(None))
+                      .order_by(FaceDatasetImage.id.asc()).first())
+            assert oldest is not None, 'waiting on an empty queue would never end'
+            oldest.filename = f'improved-{oldest.id}.png'
+            svc.db.session.commit()
+
+        headroom = []
+        real_improve = svc.improve_existing_image
+
+        def _tracked(user_id, image_id, engine=None):
+            result = real_improve(user_id, image_id, engine=engine)
+            # What a ⚡ Generate launched at this exact moment could still ask for.
+            headroom.append(svc.MAX_FANOUT - svc._improve_in_flight(ds.id))
+            return result
+
+        monkeypatch.setattr(svc, 'improve_existing_image', _tracked)
+        summary = svc._drain_improve_queue(LOCAL_USER, ds.id, source_ids, token,
+                                           sleep=_free_one_slot)
+        da.end(token)
+
+    assert summary['queued'] == 9 and summary['failed'] == 0
+    assert len(jobs) == 9                     # the whole selection still gets queued
+    # The batch never holds more than its depth, so the user keeps 17 of the 20.
+    assert max(9 - h for h in headroom) <= 3
+    assert min(headroom) == 17
+
+
+def test_the_batch_does_not_wait_on_generations_that_are_not_its_own(app, monkeypatch):
+    """A user's own ⚡ Generate batch used to park the drain: the wait was measured
+    over EVERY unfinished generation on the dataset, not the improvements. With a
+    cap of 4 and three interactive generations pending, the old condition queued
+    one improvement and then waited on rows it does not own and cannot free."""
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import dataset_activity as da
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper as keh
+
+    jobs = []
+    _stub_klein(monkeypatch, keh, jobs)
+    monkeypatch.setattr(svc, 'MAX_FANOUT', 8)
+    monkeypatch.setattr(svc, 'IMPROVE_QUEUE_DEPTH', 4)
+
+    with app.app_context():
+        da.reset()
+        ds, source_ids = _dataset_with_sources(svc, FaceDatasetImage, LOCAL_USER, 4)
+        # Three interactive generations already in flight (no file yet), exactly
+        # what ⚡ Generate leaves behind while ComfyUI works through them.
+        for i in range(3):
+            svc.db.session.add(FaceDatasetImage(
+                dataset_id=ds.id, filename=None, source='generated',
+                status='pending', variation_label=f'In flight {i}'))
+        svc.db.session.commit()
+        assert svc._improve_in_flight(ds.id) == 3
+        assert svc._improve_batch_in_flight(ds.id) == 0
+
+        token = da.begin(ds.id, 'improve', total=len(source_ids))
+        waits = []
+        summary = svc._drain_improve_queue(
+            LOCAL_USER, ds.id, source_ids, token,
+            sleep=lambda seconds: waits.append(seconds))
+        da.end(token)
+
+    # 3 foreign + 4 own = 7, under the cap of 8: nothing had to wait.
+    assert summary['queued'] == 4 and summary['stalled'] is False
+    assert waits == []
+
+
+def test_a_batch_is_not_declared_stalled_while_the_queue_is_held_by_training(app, monkeypatch):
+    """The regression the shallower wave depth opened.
+
+    With the old depth (MAX_FANOUT, 60) an ordinary batch never entered the wait
+    loop at all. At IMPROVE_QUEUE_DEPTH the loop is the NORMAL path — so a
+    training run holding the GPU for longer than IMPROVE_SLOT_TIMEOUT_SECONDS
+    made the drain declare itself stalled and drop every image it had not queued
+    yet, silently. Time spent waiting on a queue that is provably held is not a
+    stall; it is waiting."""
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import dataset_activity as da
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper as keh
+
+    jobs = []
+    _stub_klein(monkeypatch, keh, jobs)
+    monkeypatch.setattr(svc, 'MAX_FANOUT', 20)
+    monkeypatch.setattr(svc, 'IMPROVE_QUEUE_DEPTH', 2)
+
+    with app.app_context():
+        da.reset()
+        ds, source_ids = _dataset_with_sources(svc, FaceDatasetImage, LOCAL_USER, 6)
+        token = da.begin(ds.id, 'improve', total=len(source_ids))
+
+        # The GPU is held by training for far longer than the stall timeout, then
+        # released. Nothing frees a slot in the meantime — which is the point.
+        held = {'polls': 0}
+        monkeypatch.setattr(svc, '_queue_held_off_gpu_reason',
+                            lambda: 'LoRA training' if held['polls'] < 12 else None)
+
+        def _tick(_seconds):
+            held['polls'] += 1
+            if held['polls'] < 12:
+                return                      # frozen: no slot frees
+            oldest = (FaceDatasetImage.query
+                      .filter_by(dataset_id=ds.id,
+                                 derivation_kind=svc.KLEIN_IMAGE_IMPROVE,
+                                 status='pending')
+                      .filter(FaceDatasetImage.filename.is_(None))
+                      .order_by(FaceDatasetImage.id.asc()).first())
+            if oldest is not None:
+                oldest.filename = f'improved-{oldest.id}.png'
+                svc.db.session.commit()
+
+        # Long enough that the OLD accounting would have timed out several times.
+        monkeypatch.setattr(svc, 'IMPROVE_SLOT_TIMEOUT_SECONDS', 10.0)
+        monkeypatch.setattr(svc, 'IMPROVE_SLOT_POLL_SECONDS', 2.0)
+        summary = svc._drain_improve_queue(LOCAL_USER, ds.id, source_ids, token,
+                                           sleep=_tick)
+        da.end(token)
+
+    assert summary['stalled'] is False, 'a held queue was counted as a stall'
+    assert summary['queued'] == 6 and summary['remaining'] == 0
+    assert len(jobs) == 6
+
+
+def test_a_batch_still_gives_up_when_nothing_holds_the_queue_and_no_slot_frees(app, monkeypatch):
+    """The other half: the stall timeout must still exist. A ComfyUI that died
+    mid-batch frees no slot and reports no hold — that one is a real stall, and
+    the drain has to stop rather than poll a count that never drops."""
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import dataset_activity as da
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper as keh
+
+    jobs = []
+    _stub_klein(monkeypatch, keh, jobs)
+    monkeypatch.setattr(svc, 'MAX_FANOUT', 20)
+    monkeypatch.setattr(svc, 'IMPROVE_QUEUE_DEPTH', 2)
+    monkeypatch.setattr(svc, 'IMPROVE_SLOT_TIMEOUT_SECONDS', 6.0)
+    monkeypatch.setattr(svc, 'IMPROVE_SLOT_POLL_SECONDS', 2.0)
+    monkeypatch.setattr(svc, '_queue_held_off_gpu_reason', lambda: None)
+
+    with app.app_context():
+        da.reset()
+        ds, source_ids = _dataset_with_sources(svc, FaceDatasetImage, LOCAL_USER, 6)
+        token = da.begin(ds.id, 'improve', total=len(source_ids))
+        summary = svc._drain_improve_queue(LOCAL_USER, ds.id, source_ids, token,
+                                           sleep=lambda _s: None)
+        da.end(token)
+
+    assert summary['stalled'] is True
+    assert summary['queued'] == 2 and summary['remaining'] == 4
