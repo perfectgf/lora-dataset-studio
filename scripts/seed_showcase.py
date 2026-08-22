@@ -51,6 +51,37 @@ KNOWN_REAL = ('projects/test/data', 'lora-dataset-studio/data')
 
 IMAGE_SUFFIXES = {'.png', '.jpg', '.jpeg', '.webp'}
 
+# A dataset's Composition meter counts `framing` over the kept images, and
+# nothing fills that column on import: the app classifies framings with a
+# Qwen3-VL pass through Ollama. A showcase machine has no vision model — the
+# reference crop below already works around the same absence — so every seeded
+# image landed at framing=None and Curation showed 0 face / 0 bust / 0 body /
+# 0 back on a set built expressly to fill it.
+#
+# `import_images` takes a `framings=` list for exactly this case ("a framing
+# ALREADY known for the blob… so it lands counted in the composition instead of
+# sitting at 0 until something re-classifies it"). For a demo set the framing IS
+# known — it was commissioned shot by shot — so it travels in the file name.
+# A name that says nothing yields None, which is the same graceful state as
+# before: the classifier can still fill it in on a machine that has one.
+FRAMING_TOKENS = {
+    'portrait': 'face', 'profile': 'face',
+    'bust': 'bust',
+    'full': 'body',
+    'back': 'back',
+}
+
+
+def framing_of(path: Path) -> str | None:
+    """The catalog framing a demo file names, or None if it names none."""
+    tokens = set(path.stem.lower().split('_'))
+    matched = {FRAMING_TOKENS[t] for t in tokens if t in FRAMING_TOKENS}
+    # Two framings in one name is a naming mistake, not a blend — refusing to
+    # guess leaves the column empty rather than counting the shot in the wrong
+    # bucket, and a wrong bucket is worse than an absent one on a meter whose
+    # whole job is to say what the set is missing.
+    return matched.pop() if len(matched) == 1 else None
+
 
 def _refuse(message: str) -> None:
     print(f'REFUSED: {message}', file=sys.stderr)
@@ -143,7 +174,9 @@ def seed(data_dir: Path, images_dir: Path) -> tuple[int, int]:
             # silently counted as a refusal, which is how the first run of this
             # script imported nothing while reporting success.
             payload = [f.read_bytes() for f in files]
-            ids, failed = svc.import_images(LOCAL_USER, ds.id, payload, crop=False)
+            framings = [framing_of(f) for f in files]
+            ids, failed = svc.import_images(LOCAL_USER, ds.id, payload,
+                                            crop=False, framings=framings)
             # The library tile IS the reference photo — a dataset without one
             # renders as a coloured letter, which is not what a showcase is for.
             # Same two files the /ref route writes (full-frame original + the
@@ -159,7 +192,17 @@ def seed(data_dir: Path, images_dir: Path) -> tuple[int, int]:
                 # after this comment first claimed the opposite: 200x200 PNGs
                 # import here without complaint.
                 print(f'    ({failed} refused — unreadable as images?)')
-            print(f'  {name}: {len(ids)} imported, {failed} refused')
+            # Print the composition, because it is the screen this set exists to
+            # photograph and an all-None spread is invisible otherwise — the run
+            # reports 12 imported either way, and only Curation shows the zeros.
+            counted = [f for f in framings if f]
+            spread = ', '.join(f'{k} {counted.count(k)}'
+                               for k in ('face', 'bust', 'body', 'back')
+                               if counted.count(k))
+            print(f'  {name}: {len(ids)} imported, {failed} refused'
+                  + (f' — composition: {spread}' if spread
+                     else ' — WARNING: no framing in any file name, the '
+                          'Composition meter will read 0 everywhere'))
             total += len(ids)
     return total, skipped
 
