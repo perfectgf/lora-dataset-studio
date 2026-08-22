@@ -241,7 +241,7 @@ the same queue are never confused for one another.
 
 Two buttons per line:
 
-- **⤒** sends a waiting job to the front. Only the wait can be re-ordered — a
+- **↑** sends a waiting job to the front. Only the wait can be re-ordered — a
   job already on the GPU has nothing left to re-order, and says so.
 - **✕** cancels that one job. This is not **⏹ Stop generation**, which ends a
   whole batch: cancelling here drops a single job and leaves its tile marked

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLocation } from 'react-router'
 import { apiFetch, getCsrfToken, postJson } from '../../api/fetchClient'
 import { useToast } from './Toast'
 import {
   elapsedLabel, hasQueue, jobLabel, jobOrigin, pausedReason, promoteBlockedReason,
   rowNote, summarize,
 } from '../../utils/queuePanel'
+import { dockBottomClass } from '../../utils/dockPlacement'
 
 /**
  * ⏳ The generation queue, where you can see it.
@@ -30,6 +32,9 @@ const OPEN_POLL_MS = 2500
 
 export default function GenerationQueueDock() {
   const toast = useToast()
+  // Some screens own the bottom of the window with their own fixed bar; the dock
+  // moves up rather than fighting them (see utils/dockPlacement.js).
+  const { pathname } = useLocation()
   const [listing, setListing] = useState(null)
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState(null)   // job_id of the action in flight
@@ -80,6 +85,7 @@ export default function GenerationQueueDock() {
   if (!hasQueue(listing)) return null
   return (
     <QueueDockBody listing={listing} open={open} pending={pending}
+      bottomClass={dockBottomClass(pathname)}
       onToggle={() => setOpen((v) => !v)}
       onPromote={(job) => act(job, 'next')}
       onCancel={(job) => act(job, 'cancel')} />
@@ -94,12 +100,13 @@ export default function GenerationQueueDock() {
  * with a full queue actually sees.
  */
 export function QueueDockBody({ listing, open = false, pending = null,
+                                bottomClass = 'bottom-4',
                                 onToggle, onPromote, onCancel }) {
   if (!hasQueue(listing)) return null
   const jobs = listing.jobs
   const paused = pausedReason(listing)
   return (
-    <div className="fixed bottom-4 left-3 z-40 w-[min(23rem,calc(100vw-1.5rem))]">
+    <div className={`fixed ${bottomClass} left-3 z-40 w-[min(23rem,calc(100vw-1.5rem))]`}>
       {open && (
         <div className="mb-2 max-h-[min(60vh,28rem)] overflow-y-auto rounded-xl border border-indigo-400/40 bg-surface-overlay/95 shadow-lg backdrop-blur">
           {/* Above the list, because it explains the whole list: nothing here is

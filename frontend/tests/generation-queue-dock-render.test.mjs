@@ -102,6 +102,15 @@ test('a queue held by a training run says so, collapsed and expanded', () => {
   assert.doesNotMatch(collapsed, /animate-pulse/)
 })
 
+test('the dock takes the offset its screen asks for', () => {
+  // On /studio the bar underneath is opaque and z-[9960]: at bottom-4 the dock
+  // is invisible AND unclickable, on one of the four surfaces that feed the
+  // queue. The rule itself lives in utils/dockPlacement.js.
+  const listing = { jobs: [job()], queued: 1 }
+  assert.match(render(listing, { bottomClass: 'bottom-20' }), /fixed bottom-20 left-3/)
+  assert.match(render(listing), /fixed bottom-4 left-3/)
+})
+
 test('the dock stays inside a narrow window', () => {
   // 400px is the width the project tests every surface at. A fixed panel that
   // is wider than the viewport pushes the page sideways instead of docking.
